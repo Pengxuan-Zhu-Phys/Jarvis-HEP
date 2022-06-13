@@ -1,0 +1,272 @@
+{
+    "plot_temp": {
+        "histo1d": {
+            "XPi": false,
+            "XLabel": "",
+            "LogX": false,
+            "XMin": 0.0,
+            "XMax": 1.0,
+            "YLabel": "",
+            "LogY": false,
+            "YMin": 0.0,
+            "YMax": -1,
+            "RatioPlot": false,
+            "NormalizeToSum": false,
+            "sep_scale": 1
+        }
+    },
+    "axis": {
+        "figsize": {
+            "figsize": [
+                10,
+                8
+            ]
+        },
+        "axsize": {
+            "rect": [
+                0.13,
+                0.13,
+                0.83,
+                0.83
+            ]
+        }
+    },
+    "legend": {
+        "pos": [
+            0.48,
+            0.95
+        ],
+        "block": [
+            0.02,
+            0.02
+        ],
+        "hsep": 0.01,
+        "ncolumn": 2,
+        "columnwidth": 0.27
+    },
+    "text": {
+        "title": {
+            "pos": [
+                0.03,
+                0.95
+            ],
+            "css": {
+                "fontsize": 24,
+                "fontfamily": "DejaVu Sans",
+                "weight": "bold",
+                "fontstyle": "italic",
+                "fontvariant": "small-caps",
+                "fontstretch": "extra-condensed",
+                "horizontalalignment": "left",
+                "verticalalignment": "center"
+            }
+        },
+        "subtitle": {
+            "pos": [
+                0.03,
+                0.90
+            ],
+            "css": {
+                "fontsize": 18,
+                "fontfamily": "stix",
+                "weight": "light",
+                "fontstyle": "normal",
+                "fontvariant": "small-caps",
+                "fontstretch": "extra-condensed",
+                "horizontalalignment": "left",
+                "verticalalignment": "center"
+            }
+        },
+        "legend": {
+            "pos": [
+                0.015,
+                -0.002
+            ],
+            "css": {
+                "fontsize": 16,
+                "fontfamily": "stix",
+                "weight": "normal",
+                "fontstyle": "normal",
+                "fontvariant": "small-caps",
+                "fontstretch": "extra-condensed",
+                "horizontalalignment": "left",
+                "verticalalignment": "center"
+            }
+        }
+    },
+    "default": {
+        "XLabel": {
+            "loc": "right",
+            "fontsize": 30,
+            "color": "black"
+        },
+        "YLabel": {
+            "loc": "top",
+            "fontsize": 30,
+            "color": "black"
+        },
+        "cumLine": {
+            "c": "black",
+            "linewidth": 1.4,
+            "solid_joinstyle": "miter"
+        },
+        "axtick": {
+            "major": {
+                "which": "major",
+                "length": 7,
+                "color": "black"
+            },
+            "minor": {
+                "which": "minor",
+                "length": 4,
+                "color": "black"
+            },
+            "both": {
+                "which": "both",
+                "labelsize": 17,
+                "bottom": true,
+                "top": true,
+                "left": true,
+                "right": true,
+                "direction": "in"
+            }
+        },
+        "ylabel_format": {
+            "axis": "y",
+            "style": "scientific",
+            "scilimits": [
+                -4,
+                5
+            ],
+            "useMathText": true
+        },
+        "offset_text_fontsize": 14,
+        "print mode": [
+            "save"
+        ],
+        "save format": [
+            "pdf",
+            "png"
+        ],
+        "legend": false,
+        "xlabelcoords": {
+            "x": 1.0,
+            "y": -0.062
+        },
+        "ylabelcoords": {
+            "x": -0.074,
+            "y": 1.0
+        },
+        "sepLine": {
+            "edge": true,
+            "edgecss": {
+                "foreground": "#FCFCFC",
+                "linewidth": 3.0
+            }
+        }
+    },
+    "cum": {
+        "CUM1": {
+            "facecolor": "#F94144",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM3": {
+            "facecolor": "#F3722C",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM5": {
+            "facecolor": "#F8961E",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM7": {
+            "facecolor": "#F9844A",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM9": {
+            "facecolor": "#F9C74F",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM2": {
+            "facecolor": "#90BE6D",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM4": {
+            "facecolor": "#43AA8B",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM6": {
+            "facecolor": "#4D908E",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM8": {
+            "facecolor": "#577590",
+            "edgecolor": null,
+            "alpha": 0.9
+        },
+        "CUM0": {
+            "facecolor": "#277DA1",
+            "edgecolor": null,
+            "alpha": 0.9
+        }
+    },
+    "sep": {
+        "SEP1": {
+            "c": "#f44336",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP2": {
+            "c": "#e91e63",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP3": {
+            "c": "#9c27b0",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP4": {
+            "c": "#3f51b5",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP5": {
+            "c": "#2196f3",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP6": {
+            "c": "#00bcd4",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP7": {
+            "c": "#009688",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP8": {
+            "c": "#4caf50",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP9": {
+            "c": "#cddc39",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        },
+        "SEP0": {
+            "c": "#ff9800",
+            "linewidth": 2.4,
+            "solid_joinstyle": "miter"
+        }
+    }
+}

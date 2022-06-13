@@ -1,0 +1,35 @@
+{
+    "Sampling method":  {
+        "Possion disk":  "&J/src/card/possion.json",
+        "Grid":          "&J/src/card/grid.json"
+    },
+    "parser_default":   {
+        "Scan": {
+            "name":{
+                "type":     "string",
+                "in":       [],
+                "smpset":   true
+            },
+            "save dir": {
+                "type":     "path",
+                "in":       [],
+                "smpset":   true 
+            },
+            "sampling method": {
+                "type":     "string",
+                "in":       [
+                    "Possion disk"
+                ],
+                "smpset":   true
+            },
+            "force new run":    {
+                "type":     "bool",
+                "in":       [],
+                "smpset":   true
+            }
+        }
+    },
+    "logo path":    "&J/src/card/logo",
+    "BudingPLOT path":  "~/BudingPlot/Plot",
+    "Plot_input":   "&J/src/card/Jarvis.ini"
+}

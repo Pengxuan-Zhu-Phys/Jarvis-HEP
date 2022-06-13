@@ -1,0 +1,77 @@
+
+███████╗██╗     ██╗  ██╗ █████╗ ██████╗ ███████╗ █████╗ ██████╗ ███████╗██████╗ 
+██╔════╝██║     ██║  ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗██╔══██╗██╔════╝██╔══██╗
+███████╗██║     ███████║███████║██████╔╝█████╗  ███████║██║  ██║█████╗  ██████╔╝
+╚════██║██║     ██╔══██║██╔══██║██╔══██╗██╔══╝  ██╔══██║██║  ██║██╔══╝  ██╔══██╗
+███████║███████╗██║  ██║██║  ██║██║  ██║███████╗██║  ██║██████╔╝███████╗██║  ██║
+╚══════╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚══════╝╚═╝  ╚═╝                                      
+                                Author:     Yangle He, Pengxuan Zhu.
+                                Version:    >>>VERSION<<<
+================================================================================
+	Info -> Recording time: 
+		Wed Apr 21 05:06:38 2021
+	Info -> Using input parser file:
+		/Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/readNTools.ini
+	Info -> Using SLHA format : NMSSMTools
+	Info -> result data will be saved in the file : 
+		/Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/TestSpectr.csv
+	Info -> Using reader method :
+		Folder
+	Info -> Using input SLHA file :
+		$pwd$/../../spectr
+
+Recording the variables information, which can be used directly in the parser file:
+
+[Info]
+variable =	inp,	ipEXMql3,	SLHA,	BLOCK,	EXTPAR,	43
+			spectr,	mN1,	SLHA,	BLOCK,	MASS,	1000022
+			spectr,	mN2,	SLHA,	BLOCK,	MASS,	1000023
+			spectr,	muong2,	SLHA,	BLOCK,	LOWEN,	6
+			spectr,	Usmu12,	SLHA,	BLOCK,	LOWEN,	63
+			spectr,	N11,	SLHA,	BLOCK,	NMNMIX,	1,	1
+			spectr,	UX11,	SLHA,	BLOCK,	UMIX,	1,	1
+			spectr,	UX12,	SLHA,	BLOCK,	UMIX,	1,	2
+			spectr,	UX21,	SLHA,	BLOCK,	UMIX,	2,	1
+			spectr,	UX22,	SLHA,	BLOCK,	UMIX,	2,	2
+			spectr,	RN11,	SLHA,	BLOCK,	NMNMIX,	1,	1
+			spectr,	RN12,	SLHA,	BLOCK,	NMNMIX,	1,	2
+			spectr,	RN13,	SLHA,	BLOCK,	NMNMIX,	1,	3
+			spectr,	RN14,	SLHA,	BLOCK,	NMNMIX,	1,	4
+			spectr,	RN15,	SLHA,	BLOCK,	NMNMIX,	1,	5
+			spectr,	RN21,	SLHA,	BLOCK,	NMNMIX,	2,	1
+			spectr,	RN22,	SLHA,	BLOCK,	NMNMIX,	2,	2
+			spectr,	RN23,	SLHA,	BLOCK,	NMNMIX,	2,	3
+			spectr,	RN24,	SLHA,	BLOCK,	NMNMIX,	2,	4
+			spectr,	RN25,	SLHA,	BLOCK,	NMNMIX,	2,	5
+			spectr,	RN31,	SLHA,	BLOCK,	NMNMIX,	3,	1
+			spectr,	RN32,	SLHA,	BLOCK,	NMNMIX,	3,	2
+			spectr,	RN33,	SLHA,	BLOCK,	NMNMIX,	3,	3
+			spectr,	RN34,	SLHA,	BLOCK,	NMNMIX,	3,	4
+			spectr,	RN35,	SLHA,	BLOCK,	NMNMIX,	3,	5
+			spectr,	RN41,	SLHA,	BLOCK,	NMNMIX,	4,	1
+			spectr,	RN42,	SLHA,	BLOCK,	NMNMIX,	4,	2
+			spectr,	RN43,	SLHA,	BLOCK,	NMNMIX,	4,	3
+			spectr,	RN44,	SLHA,	BLOCK,	NMNMIX,	4,	4
+			spectr,	RN45,	SLHA,	BLOCK,	NMNMIX,	4,	5
+			spectr,	RN51,	SLHA,	BLOCK,	NMNMIX,	5,	1
+			spectr,	RN52,	SLHA,	BLOCK,	NMNMIX,	5,	2
+			spectr,	RN53,	SLHA,	BLOCK,	NMNMIX,	5,	3
+			spectr,	RN54,	SLHA,	BLOCK,	NMNMIX,	5,	4
+			spectr,	RN55,	SLHA,	BLOCK,	NMNMIX,	5,	5
+			spectr,	WHp,	SLHA,	DECAY,	37
+			spectr,	DKN32N1Z,	SLHA,	DECAY,	1000025,	2,	1000022,	23
+			spectr,	DKN32X1W,	SLHA,	DECAY,	1000025,	2,	1000024,	-24
+			spectr,	DKN32X1W,	SLHA,	DECAY,	1000025,	2,	-1000024,	24
+			spectr,	DKN52dbardN1,	SLHA,	DECAY,	1000045,	3,	-1,	1,	1000022
+			omega,	Omegah2,	SLHA,	BLOCK,	ABUNDANCE,	4
+			omega,	SigmaV,	SLHA,	BLOCK,	ABUNDANCE,	3
+			
+Particle Decay Info
+
+	1000025	Decay Information save to
+			Info ->		 /Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/1000025DKs.json
+			Data ->		 /Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/1000025DKs.csv
+
+	1000011	Decay Information save to
+			Info ->		 /Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/1000011DKs.json
+			Data ->		 /Users/zhupengxuan/Buding/Synology/Drive/Git/SLHAReader/SLHAReader/1000011DKs.csv

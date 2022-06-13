@@ -1,0 +1,20 @@
+{
+    "logging":  {
+        "scanner": {
+            "name":             "Scanner",
+            "logging config":   "&J/src/card/scanner_logging.conf",
+            "file_format":      "%(name)s [%(levelname)s] @ %(asctime)s =>\n\t%(message)s",
+            "stream_format":    "%(name)s [%(levelname)s]  \t%(asctime)s \n\t=> %(message)s"
+        },
+        "sample":   {
+            "name":             "sample.$ID$",
+            "logging config":   "&J/src/card/sample_logging.conf"
+        },
+        "package":  {
+            "name":             "", 
+            "logging config":   "&J/src/card/library_logging.conf",
+            "file_format":      "%(name)s [%(levelname)s] @ %(asctime)s =>\n\t%(message)s",
+            "stream_format":    "%(name)s [%(levelname)s]  \t%(asctime)s \n\t=> %(message)s"
+        }
+    }
+}
