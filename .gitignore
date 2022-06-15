@@ -1,12 +1,12 @@
 # Ignore the local Folder
-bin/
+bin/*
 External/Library
 External/Program
 External/Prospino
 External/*.json
-Results/
+Results/*
 TestScan/
-WorkShop/ 
+WorkShop/* 
 src/__pycache__/
 src/Sampling Source/
 
