@@ -1,6 +1,9 @@
 # Ignore the local Folder
 bin/
-External/
+External/Library
+External/Program
+External/Prospino
+External/*.json
 Results/
 TestScan/
 WorkShop/ 
