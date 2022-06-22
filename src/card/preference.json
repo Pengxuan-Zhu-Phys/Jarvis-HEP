@@ -1,6 +1,6 @@
 {
     "Sampling method":  {
-        "Possion disk":  "&J/src/card/possion.json",
+        "Poisson Disk":  "&J/src/card/possion.json",
         "Grid":          "&J/src/card/grid.json"
     },
     "parser_default":   {
@@ -18,7 +18,7 @@
             "sampling method": {
                 "type":     "string",
                 "in":       [
-                    "Possion disk"
+                    "Poisson Disk"
                 ],
                 "smpset":   true
             },

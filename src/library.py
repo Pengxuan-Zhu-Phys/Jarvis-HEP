@@ -214,21 +214,24 @@ class Library():
                 self.checking_library_package_status()
                 if self.libs['status'] == "ready":
                     ctag = False
-        self.logger.warning("Library is ready for the scan task!")           
+        self.logger.warning("Library is ready for the scan task!\n")           
 
     def compare_new_old_library_setting(self):
-        self.logger.warning("Jarvis find the previous Library Setting, Checking the previous Library info ...\n")
+        self.logger.warning("Jarvis find the previous Library Setting, Checking the previous Library info ...")
         if self.libs['prev']['config'] == self.libs['config']:
             self.logger.warning("Jarvis find Library Setting is same as the previous one")
             isli = []
             for pkg in self.libs['prev']['include']:
                 if self.libs['prev']['include'][pkg]['installed']:
                     isli.append(pkg)
-            self.logger.warning("\tJavris find the Packages:\n\t\t{}\n\tare installed".format(" ,".join(isli)))
-            from Func_lib import wait_for_input
-            ipt = wait_for_input("\tEnter 'n' to select the package should be reinstalled\n\tEnter 'y' to use the previous library:\t", 10, "y")
-            if ipt == "y":
-                self.libs['incl'] = self.rm_items_from_list(isli, self.libs['incl'])
+            if isli:
+                self.logger.warning("Jarvis find the Packages:\n\t\t{}\n\tare installed".format(" ,".join(isli)))
+                from Func_lib import wait_for_input
+                ipt = wait_for_input("\tEnter 'n' to select the package should be reinstalled\n\tEnter 'y' to use the previous library:\t", 10, "y")
+                if ipt == "y":
+                    self.libs['incl'] = self.rm_items_from_list(isli, self.libs['incl'])
+            else:
+                self.logger.warning("Jarvis not find the installed packages, Jumping into next steps")
         else:
             self.logger.info("Jarvis find previous Library is not same, using init mode to install library package ?")
             from Func_lib import wait_for_input
@@ -239,11 +242,11 @@ class Library():
                     isli.append(pkg)
             if ipt == "y":
                 self.libs['incl'] = self.rm_items_from_list(isli, self.libs['incl'])
-        if ipt == "n":
-            self.libs['rein'] = self.ask_list(isli)
-            self.libs['incl'] = self.rm_items_from_list(isli, self.libs['incl'])
-            self.libs['incl'] += self.libs['rein']                
-            self.logger.info("Jarvis will reinstall Library packages: {}".format(", ".join(self.libs['rein'])))
+            if ipt == "n":
+                self.libs['rein'] = self.ask_list(isli)
+                self.libs['incl'] = self.rm_items_from_list(isli, self.libs['incl'])
+                self.libs['incl'] += self.libs['rein']                
+                self.logger.info("Jarvis will reinstall Library packages: {}".format(", ".join(self.libs['rein'])))
                               
     def checking_library_package_status(self):
         self.libs['status'] = "ready"

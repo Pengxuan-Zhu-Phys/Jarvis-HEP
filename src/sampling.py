@@ -9,6 +9,7 @@ from mpmath.functions.functions import re
 import pandas as pd 
 from numpy.lib.function_base import meshgrid
 from pandas.core.series import Series
+from sympy import sympify
 from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
@@ -262,8 +263,6 @@ class Grid(Sampling_method):
         gridpoint.to_csv(self.path['datadir'], index=False)
         purepoint.to_csv(self.path['datapuredir'], index=False)
 
-
-
     def reset_running_sample_to_free(self):
         while self.info['nsample']['runn'] > 0:
             sp = self.pars['points'].loc[self.pars['points']['Status'] == "Running"].iloc[0]
@@ -444,7 +443,6 @@ class Grid(Sampling_method):
             self.timelock = tl 
             self.afterrun_generator()
             
-
     def afterrun_generator(self):
         if len(self.pars['Data']) > 0:
             self.pars['points'].to_csv(self.path['pointdir'], index=False)
@@ -479,10 +477,6 @@ class Grid(Sampling_method):
                 ds = pd.read_csv(ff)
                 gds.append(ds)
                 
-
-                
-        
-        
     def combine_data(self):
         rpth  = os.path.join(self.path['save dir'], ".Running")
         print(rpth)
@@ -533,11 +527,6 @@ class Grid(Sampling_method):
                 df = pd.concat(gds)
                 df.to_csv(self.path['dataalldir'], index=False)
             
-
-
-        
-                
-
     def ready_sample_start_run(self):
         sampleid = []
         for kk, smp in self.samples.items():
@@ -635,7 +624,7 @@ class Possion_Disk(Sampling_method):
     def set_pars(self):
         pars = {
                 "variable": self.scf.get("Sampling_Setting", "variables"),
-                "step":     self.scf.get("Sampling_Setting", "step"),
+                "minR":     float(self.scf.get("Sampling_Setting", "min R")),
                 "likelihood":   self.scf.get("Sampling_Setting", "likelihood")
         }
         self.pars = {}
@@ -650,37 +639,28 @@ class Possion_Disk(Sampling_method):
         from math import log10
         for line in prs.split('\n'):
             ss = line.split(",")
-            if len(ss) == 4 and ss[1].strip() == "Flat":
+            if len(ss) == 4 and ss[1].strip().lower() == "flat":
                 self.pars['vars'][ss[0].strip()] = {
                     "prior":    "flat",
                     "min":      float(ss[2].strip()),
                     "max":      float(ss[3].strip()),
-                    "cmin":     0.,
-                    "cmax":     1.,
-                    "expr":     "cube[{}]".format(nn)
+                    "expr":     sympify("{} + ({} - {}) * cube{}".format(float(ss[2].strip()), float(ss[3].strip()), float(ss[2].strip()), nn))
                 }
-            elif len(ss) == 5 and ss[1].strip() == "Flat":
+            elif len(ss) == 4 and ss[1].strip().lower() == "log":
                 self.pars['vars'][ss[0].strip()] = {
                     "prior":    "flat",
                     "min":      float(ss[2].strip()),
                     "max":      float(ss[3].strip()),
-                    "cmin":     0.,
-                    "cmax":     float(ss[4].strip()),
-                    "expr":     "cube[{}]".format(nn)
+                    "expr":     sympify("10**({} + ({} - {}) * cube{})".format(float(ss[2].strip()), float(ss[3].strip()), float(ss[2].strip()), nn))
                 }
-            elif len(ss) == 4 and ss[1].strip() == "Log":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "log",
-                    "min":      float(ss[2].strip()),
-                    "max":      float(ss[3].strip()),
-                    "cmin":     0,
-                    "cmax":     1,
-                    "expr":     "10**(cube[{}])".format(nn)
-                }
+                if not (float(ss[2].strip()) > 0 and float(ss[3].strip())):
+                    self.logger.error("Illegal Variable setting of {}\n\t\t-> The lower limit and high limit should be > 0 ".format(ss))
+                    sys.exit(0)
             else:
                 self.logger.error("Illegal Variable setting in: {} ".format(line))
                 sys.exit(0)
             nn += 1
+        self.logger.warning(self.pars['vars'])
 
     def decode_likelihood(self, lik):
         if lik[0:4] == "CHI2":

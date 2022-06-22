@@ -211,9 +211,10 @@ class Scan():
             os.makedirs(self.smp['Scan']['save dir'])
 
     def make_generator(self):
-        if self.smp['Scan']['sampling method'] == "Possion disk":
+        if self.smp['Scan']['sampling method'] == "Poisson Disk":
             from sampling import Possion_Disk
             self.generator = Possion_Disk()
+
         elif self.smp['Scan']['sampling method'] == "Grid":
             from sampling import Grid
             self.generator = Grid()
