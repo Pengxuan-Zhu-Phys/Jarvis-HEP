@@ -1,5 +1,4 @@
 # Ignore the local Folder
-bin/*
 External/Library
 External/Program
 External/Prospino
