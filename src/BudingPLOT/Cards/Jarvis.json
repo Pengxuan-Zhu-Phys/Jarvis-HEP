@@ -18,55 +18,59 @@
         "wns": 0.18,
         "wt": 0.12
     },
+    "label": {
+        "scan_offset": 0.05,
+        "fill": {
+            "color":"#343A40",
+            "linewidth": 0.5
+        },
+        "plot": {
+            "color":"#343A40",
+            "linewidth": 0.5
+        },
+        "var_offset": 0.05,
+        "file_offset": 0.05
+    },
+    "flow": {
+        "edgecolor":"None", 
+        "alpha":0.3
+    },
     "text": {
         "scanvar": {
             "fontsize": 8.8,
             "color": "w",
-            "offset": 0.05,
             "fontname": "Fira code",
             "fontweight": "bold",
             "fontstyle": "normal",
-            "labelcolor": "#343A40"
+            "horizontalalignment": "center",
+            "verticalalignment": "center"
         },
         "varname": {
             "fontsize": 10,
-            "fontcolor": "black",
-            "labelcolor": "#343A40",
+            "color": "black",
             "fontname": "Monospace",
             "fontstyle": "normal",
             "fontweight": "bold"
         },
         "varmeth":{
             "fontsize": 10,
-            "fontcolor": "black",
-            "labelcolor": "#343A40",
+            "color": "black",
             "fontname": "stix",
             "fontstyle": "italic",
             "fontweight": "normal"
         },
         "file": {
             "fontsize": 10,
-            "fontcolor": "black",
-            "labelcolor": "#343A40",
-            "offset": 0.05,
             "fontname": "Monospace",
-            "methfont": "stix",
             "fontstyle": "normal",
-            "methstyle": "italic",
-            "fontweight": "bold",
-            "methweight": "normal"
+            "fontweight": "bold"
         },
         "node": {
             "fontsize": 14,
-            "fontcolor": "black",
-            "labelcolor": "#343A40",
-            "offset": 0.05,
+            "color": "w",
             "fontname": "Fira code",
-            "methfont": "stix",
             "fontstyle": "normal",
-            "methstyle": "italic",
-            "fontweight": "heavy",
-            "methweight": "normal"
+            "fontweight": "heavy"
         }
     }
 }

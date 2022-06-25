@@ -159,10 +159,13 @@ class Pack():
             inp = inp.replace(">>>INFOPATH<<<", self.info['output']['pack'])
         with open(os.path.join(self.info['save dir'], "Plot_Jarvis.ini"), 'w') as f1:
             f1.write(inp)
-        from subprocess import Popen, PIPE, STDOUT
-        subp = Popen("{} {}".format(self.pack['tree'].BPlot_path, "Plot_Jarvis.ini" ), shell=True, stdout=PIPE, stderr=STDOUT, cwd=self.info['save dir'])
-        self.logger.warning("Jarvis plot Program Trees")            
-        
+        # from subprocess import Popen, PIPE, STDOUT
+        # subp = Popen("{} {}".format(self.pack['tree'].BPlot_path, "Plot_Jarvis.ini" ), shell=True, stdout=PIPE, stderr=STDOUT, cwd=self.info['save dir'])
+        # self.logger.warning("Jarvis plot Program Trees")            
+        from plot import Plot 
+        fig = Plot()
+        fig.read_config(os.path.join(self.info['save dir'], "Plot_Jarvis.ini"))
+        fig.plot()
                          
     def decode_outputs(self, pkg):                    
         if not self.pack['include'][pkg]['output variables'].strip() == '':

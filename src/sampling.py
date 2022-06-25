@@ -141,7 +141,6 @@ class Sampling_method():
         for var, item in self.pars['vars'].items():
             raw[var] = None
         self.pars['emptyData'] = Series(raw)
-        self.pars['cube']
         
     
 class Grid(Sampling_method):
