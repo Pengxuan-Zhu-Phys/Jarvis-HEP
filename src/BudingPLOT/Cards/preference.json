@@ -1,5 +1,8 @@
 {
     "Yoda": {
         "Setting": "&BP/Cards/Yoda.json"
+    },
+    "JarvisFlow": {
+        "Setting":"&BP/Cards/Jarvis.json"
     }
 }

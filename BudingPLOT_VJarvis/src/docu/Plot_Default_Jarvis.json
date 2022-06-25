@@ -1,0 +1,78 @@
+{
+    "colormappath": "&BP/docu/Card/colormap.json",
+    "colormap": "Rainbow3",
+    "colorpath": "&BP/docu/Color_Card/Scatter_Color_Card.json",
+    "markercodepath": "&BP/docu/Card/marker.json",
+    "logopath":     "&BP/image-src/DecayLogo.png",
+    "fillstylepath":  "&BP/docu/Card/fillstyle.json",
+    "linestylepath":  "&BP/docu/Card/linestyle.json",
+    "marker": {
+        "size": 4,
+        "alpha": 0.8,
+        "edgecolor": "None"
+    },
+    "figsize":{
+        "h0":   0.2,
+        "h1":   0.5,
+        "h2":   0.35,
+        "h3":   0.34,
+        "h4":   0.5,
+        "h5":   0.15,
+        "h6":   0.16,
+        "hv":   0.21,
+        "w0":   0.2,
+        "wv":   1.6,
+        "wvc":  1.2,
+        "ws":   1.8,
+        "wsfv": 0.4,
+        "wvcb": 0.05,
+        "wn":   0.4,
+        "wns":  0.18,
+        "wt":   0.12
+    },
+    "scanvarlabel": {
+        "fontsize": 8.8,
+        "color": "w",
+        "offset":   0.05,
+        "fontname": "Fira code" ,
+        "fontweight": "bold",
+        "fontstyle":    "normal",
+        "labelcolor":   "#343A40"
+    },
+    "varlabel": {
+        "fontsize": 10,
+        "fontcolor":"black",
+        "labelcolor":"#343A40",
+        "offset":   0.05,
+        "namefont": "Monospace",
+        "methfont": "stix",
+        "namestyle":    "normal",
+        "methstyle":    "italic",
+        "nameweight":   "bold",
+        "methweight":   "normal"
+    },
+    "filelabel": {
+        "fontsize": 10,
+        "fontcolor":"black",
+        "labelcolor":"#343A40",
+        "offset":   0.05,
+        "fontname": "Monospace",
+        "methfont": "stix",
+        "fontstyle":    "normal",
+        "methstyle":    "italic",
+        "fontweight":   "bold",
+        "methweight":   "normal"
+    },
+    "nodelabel": {
+        "fontsize": 14,
+        "fontcolor":"black",
+        "labelcolor":"#343A40",
+        "offset":   0.05,
+        "fontname": "Fira code",
+        "methfont": "stix",
+        "fontstyle":    "normal",
+        "methstyle":    "italic",
+        "fontweight":   "heavy",
+        "methweight":   "normal"
+    }
+}

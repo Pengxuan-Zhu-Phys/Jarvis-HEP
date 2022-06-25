@@ -324,7 +324,7 @@ class PlotYoda1D(Figure):
             if self.cf.has_section(plot):
                 self.inf = deepcopy(self.sinf)
                 self.inf['name'] = self.sinf["name"] + plot
-                print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art:plotting {} ....".format(
+                print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art: plotting {} ....".format(
                     time.time()-self.time, self.inf['name']), use_aliases=True))
                 self.draw_plot(plot)
                 

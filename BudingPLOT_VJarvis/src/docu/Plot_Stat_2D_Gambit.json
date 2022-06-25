@@ -1,0 +1,95 @@
+{
+    "colormappath": "&BP/docu/Card/colormap.json",
+    "colormap": "Gambit",
+    "fillstylepath":  "&BP/docu/Card/fillstyle.json",
+    "linestylepath":  "&BP/docu/Card/linestyle.json",
+    "bestpoint": {
+        "color": [
+            "Magenta",
+            "w"
+        ],
+        "size": 0.04
+    },
+    "figureSize":{
+        "width":    10,
+        "height":   8,
+        "axbox":    {
+            "x0":   0.13,
+            "y0":   0.13,
+            "width":    0.74,
+            "height":   0.84
+        },
+        "axcbox":    {
+            "x0":   0.875,
+            "y0":   0.13,
+            "width":    0.015,
+            "height":   0.84
+        }
+    },
+    "curve": [
+        {
+            "value": 2.3,
+            "tag": 1,
+            "label": "$1\\sigma~{\\rm C.L.~region}$",
+            "linecolor": "w",
+            "linewidth": 2
+        },
+        {
+            "value": 6.18,
+            "tag": 2,
+            "label": "$2\\sigma~{\\rm C.L.~region}$",
+            "linecolor": "HotPink",
+            "linewidth": 1
+        }
+    ],
+    "ticks": {
+        "bottom": true,
+        "left": true,
+        "right": true,
+        "top": true,
+        "labelsize": 20,
+        "direction": "in",
+        "majorlength": 7,
+        "minorlength": 4.5,
+        "majorcolor": "w",
+        "minorcolor": "w"
+    },
+    "colorticks": {
+        "labelsize": 20,
+        "direction": "in",
+        "bottom": false,
+        "top": false,
+        "left": false,
+        "right": true,
+        "color": "black"
+    },
+    "1dpdf": {
+        "line": {
+            "color": "#5669e2",
+            "width": 2.6,
+            "alpha": 1.0
+        },
+        "bestpoint": [
+            {
+                "color": "#132852",
+                "width": 2.5,
+                "alpha": 0.8
+            },
+            {
+                "color": "#141518",
+                "width": 1.5,
+                "alpha": 1.0
+            }
+        ],
+        "1sigma": {
+            "facecolor": "green",
+            "edge": "green",
+            "alpha": 0.8
+        },
+        "2sigma": {
+            "facecolor": "Yellow",
+            "edge": "orange",
+            "alpha": 0.5
+        }
+    }
+}

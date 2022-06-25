@@ -1,0 +1,22 @@
+{
+    "Red01":    {
+        "color":    "#f4f800",
+        "alpha":    0.2
+    },
+    "Yellow01": {
+        "color":    "#ffe732",
+        "alpha":    0.5
+    },
+    "Yellow02": {
+        "color":    "#feff6d",
+        "alpha":    0.5
+    },
+    "Blue01": {
+        "color":    "#0d00ff",
+        "alpha":    0.2
+    },
+    "Blue02": {
+        "color":    "#71fffe",
+        "alpha":    0.5
+    }
+}

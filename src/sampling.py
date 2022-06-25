@@ -141,6 +141,7 @@ class Sampling_method():
         for var, item in self.pars['vars'].items():
             raw[var] = None
         self.pars['emptyData'] = Series(raw)
+        self.pars['cube']
         
     
 class Grid(Sampling_method):
@@ -614,20 +615,23 @@ class Possion_Disk(Sampling_method):
         return super().set_scan_path(pth)
 
     def initialize_generator(self, cf):
+        self.cf = cf
         self.init_logger(cf['logging']['scanner'])
         self.logger.info("Possion Disk Sampling Algorithm is used in this scan")
         self.set_pars()
         self.runing_card = os.path.join(self.path['save dir'], 'possion_run.json')
+        self.status = "INIT"
+        from Func_lib import get_time_lock 
+        self.timelock = get_time_lock(self.cf['default setting']['sampling']['TSavePoint'])
         # print(self.path, self.runing_card)
 
 
     def set_pars(self):
         pars = {
                 "variable": self.scf.get("Sampling_Setting", "variables"),
-                "minR":     float(self.scf.get("Sampling_Setting", "min R")),
                 "likelihood":   self.scf.get("Sampling_Setting", "likelihood")
         }
-        self.pars = {}
+        self.pars = {"minR":     float(self.scf.get("Sampling_Setting", "min R"))}
         self.decode_sampling_variable_setting(pars['variable'])
         self.decode_function()
         self.decode_likelihood(pars['likelihood'])
@@ -730,4 +734,20 @@ class Possion_Disk(Sampling_method):
         handler['stream'].setFormatter(Formatter(cf['stream_format'],  "%m/%d %H:%M:%S"))
         handler['ff'].setFormatter(Formatter(cf['file_format']))
 
+    def prerun_generator(self):
+        self.get_empty_data_row()
+        # print(self.pars['emptyCube'])
 
+
+    def get_empty_data_row(self):
+        raw = {
+            "ID":   None,
+            "Status":   "Free"
+        }
+        self.pars['ndim'] = 0
+        for var, item in self.pars['vars'].items():
+            raw[var] = None
+            self.pars['ndim'] += 1  
+        self.pars['emptyData'] = Series(raw)
+        raw.pop('Status')
+        self.pars['emptyCube'] = Series(raw)

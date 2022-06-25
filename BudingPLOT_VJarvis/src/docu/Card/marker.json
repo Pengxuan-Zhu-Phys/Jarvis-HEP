@@ -1,0 +1,17 @@
+{
+    "round":            "o",
+    "pixel":            ",",
+    "dot":              ".",
+    "triangle":         "v",
+    "inverse-triangle": "^",
+    "left-triangle":    "<",
+    "right-triangle":   ">",
+    "star":             "*",
+    "Plus":             "P",
+    "plus":             "+",
+    "square":           "s",
+    "Cross":            "X",
+    "cross":            "x",
+    "trid":             "1",
+    "triu":             "2"
+}

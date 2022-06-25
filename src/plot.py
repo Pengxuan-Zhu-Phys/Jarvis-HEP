@@ -32,8 +32,10 @@ class Plot():
         self.cf.read(cf)
         if self.cf.get('PLOT_CONFI', 'path').strip().upper() == "&PWD":
             self.path['path']   = os.path.abspath(os.path.dirname(cf))
-            self.path['jarvis'] = jpath
-            self.path['pwd']    = os.path.abspath(os.path.join(pwd, "BudingPLOT"))    
+        else:
+            self.path['path']   = os.path.abspath(self.cf.get('PLOT_CONFI', 'path'))
+        self.path['jarvis'] = jpath
+        self.path['pwd']    = os.path.abspath(os.path.join(pwd, "BudingPLOT"))    
         
     def decode_path(self, path):
         if "~" in path:
@@ -46,11 +48,12 @@ class Plot():
         
     def figures_inf(self):
         if self.cf.has_option("PLOT_CONFI", "save dir"):
-            self.path['save dir'] = self.decode_path(self.cf.get('PLOT_CONFI', "save dir"))
+            self.path['save dir'] = self.decode_path(os.path.join(self.path['path'], self.cf.get('PLOT_CONFI', "save dir")))
         elif self.cf.has_option("PLOT_CONFI", "scan config"):
             self.scf = configparser.ConfigParser()
             self.scf.read(os.path.join(self.path['path'], self.cf.get("PLOT_CONFI", "scan config")))
             self.path['save dir'] = os.path.abspath(os.path.join(self.decode_path(self.scf.get("Scan", 'save dir')), "PLOTs"))
+        
         if not os.path.exists(self.path['save dir']):
             os.makedirs(self.path['save dir'])
             
@@ -95,6 +98,17 @@ class Plot():
                     if "name" not in fig.inf:
                         fig.inf['name'] = plot 
                     fig.plot()
+                elif ftype == "Jarvis":
+                    from JarvisFlow import JarvisFlow
+                    fig = JarvisFlow()
+                    fig.type = "JarvisFlow"
+                    fig.cs   = self.decode_path(self.cs['JarvisFlow']['Setting'])
+                    fig.inf  = dict(dict(self.cf.items())[plot].items())
+                    fig.inf['sect'] = plot 
+                    self.set_fig_info(fig)
+                    if "name" not in fig.inf:
+                        fig.inf['name'] = plot 
+                    fig.plot() 
                     
     def print_figure(self, plt):
         if "print mode" in self.inf.keys():

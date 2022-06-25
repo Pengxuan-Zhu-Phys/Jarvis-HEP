@@ -1,0 +1,610 @@
+{
+    "g": {
+        "PDG": 21,
+        "LaTeX": "g",
+        "Mass": 0.0,
+        "ElectricCharge": 0,
+        "Propagater": "spiral",
+        "color": "GluonGreen"
+    },
+    "a": {
+        "PDG": 22,
+        "LaTeX": "\\gamma",
+        "Mass": 0.0,
+        "ElectricCharge": 0,
+        "Propagater": "wave",
+        "color": "GammaYellow"
+    },
+    "w": {
+        "PDG": 24,
+        "LaTeX": "W^{\\pm}",
+        "Mass": 80.1,
+        "ElectricCharge": 1,
+        "Propagater": "wave",
+        "color": "WBlue"
+    },
+    "z": {
+        "PDG": 23,
+        "LaTeX": "Z",
+        "Mass": 91.2,
+        "ElectricCharge": 0,
+        "Propagater": "wave",
+        "color": "ZPurple"
+    },
+    "d": {
+        "PDG": 1,
+        "LaTeX": "d",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkBlue"
+    },
+    "u": {
+        "PDG": 2,
+        "LaTeX": "u",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkRed"
+    },
+    "s": {
+        "PDG": 3,
+        "LaTeX": "s",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkBlue"
+    },
+    "c": {
+        "PDG": 4,
+        "LaTeX": "c",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkRed"
+    },
+    "b": {
+        "PDG": 5,
+        "LaTeX": "b",
+        "Mass": 4.0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkBlue"
+    },
+    "t": {
+        "PDG": 6,
+        "LaTeX": "t",
+        "Mass": 174,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "QuarkRed"
+    },
+    "e": {
+        "PDG": 11,
+        "LaTeX": "e",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "LepBlue"
+    },
+    "mu": {
+        "PDG": 13,
+        "LaTeX": "\\mu",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "lepblue"
+    },
+    "tau": {
+        "PDG": 15,
+        "LaTeX": "\\tau",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "lepblue"
+    },
+    "ve": {
+        "PDG": 12,
+        "LaTeX": "\\nu_{e}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "neutrinoGrey"
+    },
+    "vmu": {
+        "PDG": 14,
+        "LaTeX": "\\nu_{\\mu}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "neutrinoGrey"
+    },
+    "vtau": {
+        "PDG": 16,
+        "LaTeX": "\\nu_{\\tau}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "neutrinoGrey"
+    },
+    "h1": {
+        "PDG": 25,
+        "LaTeX": "h_{1}",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "HiggsBlue"
+    },
+    "h2": {
+        "PDG": 35,
+        "LaTeX": "h_{2}",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "HiggsBlue"
+    },
+    "h3": {
+        "PDG": 45,
+        "LaTeX": "h_{3}",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "HiggsBlue"
+    },
+    "a1": {
+        "PDG": 36,
+        "LaTeX": "a_{1}",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "HiggsBlue"
+    },
+    "a2": {
+        "PDG": 46,
+        "LaTeX": "a_{2}",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "HiggsBlue"
+    },
+    "hpm": {
+        "PDG": 37,
+        "LaTeX": "H_{\\pm}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "HiggsRed"
+    },
+    "Glu": {
+        "PDG": 1000021,
+        "LaTeX": "\\tilde{g}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "GluinoGreen"
+    },
+    "N1": {
+        "PDG": 1000022,
+        "LaTeX": "\\tilde{\\chi}_1^0",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "NeutralinoBlue"
+    },
+    "N2": {
+        "PDG": 1000023,
+        "LaTeX": "\\tilde{\\chi}_2^0",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "NeutralinoBlue"
+    },
+    "N3": {
+        "PDG": 1000025,
+        "LaTeX": "\\tilde{\\chi}_3^0",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "NeutralinoBlue"
+    },
+    "N4": {
+        "PDG": 1000035,
+        "LaTeX": "\\tilde{\\chi}_4^0",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "NeutralinoBlue"
+    },
+    "N5": {
+        "PDG": 1000045,
+        "LaTeX": "\\tilde{\\chi}_5^0",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "solid",
+        "color": "NeutralinoBlue"
+    },
+    "C1": {
+        "PDG": 1000024,
+        "LaTeX": "\\tilde{\\chi}_1^{\\pm}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "CharginoRed"
+    },
+    "C2": {
+        "PDG": 1000037,
+        "LaTeX": "\\tilde{\\chi}_2^{\\pm}",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "solid",
+        "color": "CharginoRed"
+    },
+    "Sd1": {
+        "PDG": 1000001,
+        "LaTeX": "\\tilde{d}_L",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "Sd2": {
+        "PDG": 2000001,
+        "LaTeX": "\\tilde{d}_R",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "Su1": {
+        "PDG": 1000002,
+        "LaTeX": "\\tilde{u}_L",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "Su2": {
+        "PDG": 2000002,
+        "LaTeX": "\\tilde{u}_R",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "Ss1": {
+        "PDG": 1000003,
+        "LaTeX": "\\tilde{s}_L",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "Ss2": {
+        "PDG": 2000003,
+        "LaTeX": "\\tilde{s}_R",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "Sc1": {
+        "PDG": 1000004,
+        "LaTeX": "\\tilde{c}_L",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "Sc2": {
+        "PDG": 2000004,
+        "LaTeX": "\\tilde{c}_R",
+        "Mass": 0,
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "Sb1": {
+        "PDG": 1000005,
+        "LaTeX": "\\tilde{b}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "Sb2": {
+        "PDG": 2000005,
+        "LaTeX": "\\tilde{b}_R",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SquarkBlue"
+    },
+    "St1": {
+        "PDG": 1000006,
+        "LaTeX": "\\tilde{t}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "St2": {
+        "PDG": 2000006,
+        "LaTeX": "\\tilde{t}_R",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SquarkRed"
+    },
+    "Sel": {
+        "PDG": 1000011,
+        "LaTeX": "\\tilde{e}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "eL": {
+        "PDG": 1000011,
+        "LaTeX": "\\tilde{e}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "eR": {
+        "PDG": 2000011,
+        "LaTeX": "\\tilde{e}_R",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },    
+    "SVe": {
+        "PDG": 1000012,
+        "LaTeX": "\\tilde{\\nu}_e",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "muL":  {
+        "PDG": 1000013,
+        "LaTeX": "\\tilde{\\mu}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"        
+    },
+    "muR":  {
+        "PDG": 2000013,
+        "LaTeX": "\\tilde{\\mu}_R",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"        
+    },
+    "SVmu": {
+        "PDG": 1000014,
+        "LaTeX": "\\tilde{\\nu}_\\mu",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "tauL": {
+        "PDG": 1000015,
+        "LaTeX": "\\tilde{\\tau}_L",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "tauR": {
+        "PDG": 2000015,
+        "LaTeX": "\\tilde{\\tau}_R",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "SVtau": {
+        "PDG": 1000016,
+        "LaTeX": "\\tilde{\\nu}_\\tau",
+        "Mass": 0,
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISEL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{e}_L",
+        "Mass": "SELMIX, 1,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISER": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{e}_R",
+        "Mass": "SELMIX, 4,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISMuL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\mu}_L",
+        "Mass": "SELMIX, 2,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISMuR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\mu}_R",
+        "Mass": "SELMIX, 5,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISTauL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\tau}_L",
+        "Mass": "SELMIX, 3,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISTauR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\tau}_R",
+        "Mass": "SELMIX, 6,      MASS,   [1000011,   1000013,    1000015,    2000011,    2000013,    2000015]",
+        "ElectricCharge": 1,
+        "Propagater": "dash",
+        "color": "SleptonBlue"
+    },
+    "ISVeL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{L}",
+        "Mass": "SNUMIXR,    1,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVeR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{R}",
+        "Mass": "SNUMIXR,    4,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVeX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{X}",
+        "Mass": "SNUMIXR,    7,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVmuL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{L}",
+        "Mass": "SNUMIXR,    2,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVmuR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{R}",
+        "Mass": "SNUMIXR,    5,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVmuX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{X}",
+        "Mass": "SNUMIXR,    8,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVtauL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{L}",
+        "Mass": "SNUMIXR,    3,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVtauR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{R}",
+        "Mass": "SNUMIXR,    6,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISVtauX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{X}",
+        "Mass": "SNUMIXR,    9,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVeL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{L}",
+        "Mass": "SNUMIX,    1,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVeR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{R}",
+        "Mass": "SNUMIX,    4,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVeX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{e}_{X}",
+        "Mass": "SNUMIX,    7,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVmuL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{L}",
+        "Mass": "SNUMIX,    2,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVmuR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{R}",
+        "Mass": "SNUMIX,    5,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVmuX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\mu}_{X}",
+        "Mass": "SNUMIX,    8,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVtauL": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{L}",
+        "Mass": "SNUMIX,    3,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVtauR": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{R}",
+        "Mass": "SNUMIX,    6,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    },
+    "ISSVtauX": {
+        "PDG": "FindSLHA",
+        "LaTeX": "\\tilde{\\nu}^{\\tau}_{X}",
+        "Mass": "SNUMIX,    9,  MASS,   [1000012, 1000014, 1000016, 2000012, 2000014, 2000016, 3000012, 3000014, 3000016]",
+        "ElectricCharge": 0,
+        "Propagater": "dash",
+        "color": "SneutrinoGrey"
+    }
+}
