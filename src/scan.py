@@ -43,10 +43,10 @@ class Scan():
             self.build_library()
             self.build_package()
             self.make_generator()
-            # self.generator.prerun_generator()
-            # self.generator.pack = self.pack.pack
-            # self.generator.generate_events()
-            # self.generator.afterrun_generator()
+            self.generator.prerun_generator()
+            self.generator.pack = self.pack.pack
+            self.generator.generate_events()
+            self.generator.afterrun_generator()
         elif self.mode == "resume":
             self.resume_task()
             self.generator.pack = self.pack.pack
