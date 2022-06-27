@@ -19,7 +19,8 @@
     },
     "default setting":  {
         "sampling": {
-            "TSavePoint":   10
+            "TSavePoint":   10,
+            "maxTry": 100
         }
     }
 }

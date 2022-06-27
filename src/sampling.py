@@ -6,6 +6,7 @@ import os, sys
 from re import S 
 from abc import ABCMeta, abstractmethod
 from mpmath.functions.functions import re
+import numpy as np
 import pandas as pd 
 from numpy.lib.function_base import meshgrid
 from pandas.core.series import Series
@@ -622,6 +623,7 @@ class Possion_Disk(Sampling_method):
         self.status = "INIT"
         from Func_lib import get_time_lock 
         self.timelock = get_time_lock(self.cf['default setting']['sampling']['TSavePoint'])
+        self.pars['maxTry'] = self.cf['default setting']['sampling']['maxTry']
         # print(self.path, self.runing_card)
 
 
@@ -654,7 +656,7 @@ class Possion_Disk(Sampling_method):
                     "prior":    "flat",
                     "min":      float(ss[2].strip()),
                     "max":      float(ss[3].strip()),
-                    "expr":     sympify("10**({} + ({} - {}) * cube{})".format(float(ss[2].strip()), float(ss[3].strip()), float(ss[2].strip()), nn))
+                    "expr":     sympify("10**({} + ({} - {}) * cube{})".format(log10(float(ss[2].strip())), log10(float(ss[3].strip())), log10(float(ss[2].strip())), nn))
                 }
                 if not (float(ss[2].strip()) > 0 and float(ss[3].strip())):
                     self.logger.error("Illegal Variable setting of {}\n\t\t-> The lower limit and high limit should be > 0 ".format(ss))
@@ -735,18 +737,164 @@ class Possion_Disk(Sampling_method):
 
     def prerun_generator(self):
         self.get_empty_data_row()
-        # print(self.pars['emptyCube'])
+        self.logger.info("Start poisson disk sampling in {} dimensions ...".format(self.pars['ndim']))
+        self.data = pd.DataFrame(columns=self.pars['emptyData'].keys())
+        self.cubes = pd.DataFrame(columns=self.pars['emptyCube'].keys())
+        self.grays = pd.DataFrame(columns=self.pars['emptyCube'].keys())
+        self.path['Samples_info'] = os.path.join(self.path['save dir'], "Samples_info")
+        if not os.path.exists(self.path['Samples_info']):
+            os.makedirs(self.path['Samples_info'])
+        self.get_new_sample()
 
+    def generate_events(self):
+        while not self.status == "FINISH":
+            self.get_new_sample()
+            break
+
+
+
+    def get_new_sample(self):
+        if self.status == "INIT":
+            cube = np.random.rand(self.pars['ndim'])
+            self.add_points_by_cube(cube) 
+            self.status = "READY"
+        else:
+            if self.info['nsample']['live'] > 0:
+                sid = self.pick_live_sample_ID()
+                smp = self.samples[sid]
+                smp.trys = self.sampling_sphere(sid)
+                if smp.local:
+                    pass 
+                else:
+                    for ii in range(smp.trys.shape[0]):
+                        smp.children.append(self.add_points_by_cube(smp.trys[ii]))
+                    smp.local = smp.children
+                    smp.status = "Ready"
+                    smp.trys = None
+                    self.change_point_status_in_cube(sid, "Dead")
+                    self.change_point_status_in_data(sid, "Ready")
+                    self.check_samples_status_number(True)
+                    
+                    
+                        
+                print(smp.__dict__)
+        self.message_out_status()
+
+    def change_point_status_in_data(self, sid, status):
+        new = self.data.loc[self.data['ID'] == sid].iloc[0]
+        new["Status"] = status
+        self.data.iloc[self.data['ID'] == sid] = new
+    
+    def change_point_status_in_cube(self, sid, status):
+        if status != "Gray":
+            new = self.cubes.loc[self.cubes['ID'] == sid].iloc[0]
+            new["Status"] = status
+            self.cubes.iloc[self.cubes['ID'] == sid] = new
+
+    def add_points_by_cube(self, cube):
+        from copy import deepcopy
+        from sample import Sample
+        new = Sample()
+        new.status = "Free"
+        
+        cub = deepcopy(self.pars['emptyCube'])
+        from Func_lib import get_sample_id
+        new.id = get_sample_id()
+        cub['ID'] = new.id
+        for ii in range(self.pars['ndim']):
+            cub['cube{}'.format(ii)] = cube[ii]
+        self.cubes = self.cubes.append(cub, ignore_index=True)
+        
+        raw = deepcopy(self.pars['emptyData'])
+        raw['ID'] = cub['ID']
+        for kk, vv in self.pars['vars'].items():
+            raw[kk] = vv['expr'].subs(cub)
+        self.data = self.data.append(raw, ignore_index=True)
+        
+        raw = dict(raw)
+        raw.pop("ID")
+        raw.pop("Status")
+        
+        new.par = raw 
+        new.cube = cube
+        new.local = []
+        new.pack = self.pack 
+        new.path['info'] = os.path.join(self.path['Samples_info'], str(cub['ID']))
+        new.path['scanner_run_info'] = self.path['run_info']
+
+        self.samples[new.id] = new
+        if not os.path.exists(self.samples[new.id].path['info']):
+            os.makedirs(self.samples[new.id].path['info'])
+        else:
+            from shutil import rmtree
+            rmtree(self.samples[new.id].path['info'])
+            os.makedirs(self.samples[new.id].path['info'])
+            self.samples[new.id].init_logger(self.cf['logging']['scanner'])       
+        self.check_samples_status_number()
+        return new.id
+                 
+    def pick_live_sample_ID(self):
+        smp = self.cubes.loc[self.cubes['Status'] == "Live"].iloc[0]
+        return smp['ID']
+    
+    def sampling_sphere(self, sid):
+        vecs = np.random.standard_normal(size=(self.pars['maxTry'], self.pars['ndim']))
+        vecs /= np.linalg.norm(vecs, axis=1)[:,None]
+        vecs = self.samples[sid].cube + self.pars['minR'] * vecs
+        vecs = vecs[np.where(np.min(vecs, axis=1) > 0.)]
+        vecs = vecs[np.where(np.max(vecs, axis=1) < 1.)]
+        from scipy.spatial.distance import cdist 
+        cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
+        vecs = np.delete(vecs, np.where(np.min(cd, axis=0) < self.pars['minR']), axis=0)
+        return vecs
+
+    def check_samples_status_number(self, output=False):
+        self.info['nsample'] = {
+            "tot":      self.cubes.shape[0],
+            "live":     self.cubes.loc[self.cubes['Status'] == "Live"].shape[0],
+            "dead":     self.cubes.loc[self.cubes['Status'] == "Dead"].shape[0],
+            "gray":     self.cubes.loc[self.cubes['Status'] == "Gray"].shape[0],
+            "free":     self.data.loc[self.data['Status'] == "Free"].shape[0],
+            "redy":     self.data.loc[self.data['Status'] == "Ready"].shape[0],
+            "runn":     self.data.loc[self.data['Status'] == "Running"].shape[0],
+            "fini":     self.data.loc[self.data['Status'] == "Finish"].shape[0],
+            "done":     self.data.loc[self.data['Status'] == "Done"].shape[0],
+            "stop":     self.data.loc[self.data['Status'] == "Stopped"].shape[0]
+        }
+        if output:
+            self.message_out_status()
+
+    def message_out_status(self):
+        self.logger.info(
+            "{} samples in total: {} live, {} dead, {} gray:  \n\t   => {} Free, {} Ready, {} running, {} Finished, {} Done, {} Stopped".format(
+                self.info['nsample']['tot'],
+                self.info['nsample']['live'],
+                self.info['nsample']['dead'],
+                self.info['nsample']['gray'],
+                self.info['nsample']['free'],
+                self.info['nsample']['redy'],
+                self.info['nsample']['runn'],
+                self.info['nsample']['fini'],
+                self.info['nsample']['done'],
+                self.info['nsample']['stop']
+            ))
+        
 
     def get_empty_data_row(self):
         raw = {
             "ID":   None,
             "Status":   "Free"
         }
+        cub = {
+            "ID":   None,
+            "Status":   "Live"
+        }
         self.pars['ndim'] = 0
+        ii = 0
         for var, item in self.pars['vars'].items():
             raw[var] = None
             self.pars['ndim'] += 1  
+            cub["cube{}".format(ii)] = None
+            ii += 1
         self.pars['emptyData'] = Series(raw)
-        raw.pop('Status')
-        self.pars['emptyCube'] = Series(raw)
+        self.pars['emptyCube'] = cub

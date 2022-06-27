@@ -14,6 +14,7 @@ class Sample():
         self.path = {}
         self.info = {}
         self.worker = {}
+        self.children = []
 
     def get_par(self, pars):
         pass
