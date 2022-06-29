@@ -15,6 +15,7 @@ class Sample():
         self.info = {}
         self.worker = {}
         self.children = []
+        self.mother = None
 
     def get_par(self, pars):
         pass

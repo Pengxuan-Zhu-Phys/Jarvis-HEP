@@ -741,44 +741,65 @@ class Possion_Disk(Sampling_method):
         self.data = pd.DataFrame(columns=self.pars['emptyData'].keys())
         self.cubes = pd.DataFrame(columns=self.pars['emptyCube'].keys())
         self.grays = pd.DataFrame(columns=self.pars['emptyCube'].keys())
+        self.pars['cubeids'] = list(self.pars['emptyCube'].keys())[2:]
         self.path['Samples_info'] = os.path.join(self.path['save dir'], "Samples_info")
+        self.path['cubedir'] = os.path.join(self.path['save dir'], "cubes.csv")
+        self.path['graydir'] = os.path.join(self.path['save dir'], 'grays.csv')
+        self.path['datadir'] = os.path.join(self.path['save dir'], "AllData.csv")
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
-        self.get_new_sample()
 
     def generate_events(self):
+        cube = np.random.rand(self.pars['ndim'])
+        self.add_points_by_cube(cube) 
+        self.check_samples_status_number(True)
+        self.status = "READY"
+
+        print(self.pars['maxTry'])
         while not self.status == "FINISH":
-            self.get_new_sample()
-            break
-
-
+            if self.info['nsample']['live'] > 0:
+            # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
+                self.get_new_sample()
+                self.message_out_status()
+            else:
+                break
+        self.cubes.to_csv(self.path['cubedir'], index=False)
 
     def get_new_sample(self):
-        if self.status == "INIT":
-            cube = np.random.rand(self.pars['ndim'])
-            self.add_points_by_cube(cube) 
-            self.status = "READY"
-        else:
-            if self.info['nsample']['live'] > 0:
-                sid = self.pick_live_sample_ID()
-                smp = self.samples[sid]
-                smp.trys = self.sampling_sphere(sid)
-                if smp.local:
-                    pass 
-                else:
-                    for ii in range(smp.trys.shape[0]):
-                        smp.children.append(self.add_points_by_cube(smp.trys[ii]))
-                    smp.local = smp.children
-                    smp.status = "Ready"
-                    smp.trys = None
-                    self.change_point_status_in_cube(sid, "Dead")
-                    self.change_point_status_in_data(sid, "Ready")
-                    self.check_samples_status_number(True)
-                    
-                    
-                        
-                print(smp.__dict__)
-        self.message_out_status()
+        if self.info['nsample']['live'] > 0:
+            sid = self.pick_live_sample_ID()
+            # print(sid)
+            smp = self.samples[sid]
+            smp.local, smp.grayed = self.get_local(sid)
+            smp.trys = self.sampling_sphere(sid)
+            # smp.trys = self.sampling_volume(sid)
+            # if smp.grayed:
+            #     self.change_point_status_in_cube(sid, "Gray")
+            
+            for ii in range(smp.trys.shape[0]):
+                smp.children.append(self.add_points_by_cube(smp.trys[ii]))
+            for cid in smp.children:
+                self.samples[cid].mother = sid 
+                
+            smp.status = "Ready"
+            smp.trys = None
+            self.change_point_status_in_cube(sid, "Dead")
+            self.change_point_status_in_data(sid, "Ready")
+            self.check_samples_status_number(False)
+            # print(smp.__dict__)
+        # self.message_out_status()
+
+
+    def get_local(self, sid):
+        from copy import deepcopy
+        cbs = np.array(deepcopy(self.cubes[self.pars['cubeids']]))
+        # cds = np.where((np.linalg.norm(cbs - self.samples[sid].cube, axis=1) < 5.0 * self.pars['minR']) & (np.linalg.norm(cbs - self.samples[sid].cube, axis=1) > 0.1 * self.pars['minR']))
+        cds = np.where((np.linalg.norm(cbs - self.samples[sid].cube, axis=1) < 2.0 * self.pars['minR']) & (np.linalg.norm(cbs - self.samples[sid].cube, axis=1) > 0.1 * self.pars['minR']))
+        sts = np.array(deepcopy(self.cubes['Status']))[cds]
+        grayed = False
+        if np.count_nonzero(sts == "Live") == 0 and len(sts) > 0: 
+            grayed = True
+        return cbs[cds], grayed
 
     def change_point_status_in_data(self, sid, status):
         new = self.data.loc[self.data['ID'] == sid].iloc[0]
@@ -790,12 +811,19 @@ class Possion_Disk(Sampling_method):
             new = self.cubes.loc[self.cubes['ID'] == sid].iloc[0]
             new["Status"] = status
             self.cubes.iloc[self.cubes['ID'] == sid] = new
+        else:
+            print("Dropping status")
+            new = self.cubes.loc[self.cubes['ID'] == sid].iloc[0]
+            new['Status'] = status
+            # self.cubes = self.cubes.drop(self.cubes[self.cubes['ID'] == sid].index, inplace=True)
+            self.grays = self.grays.append(new, ignore_index=True)
 
     def add_points_by_cube(self, cube):
         from copy import deepcopy
         from sample import Sample
         new = Sample()
         new.status = "Free"
+        new.grayed = False
         
         cub = deepcopy(self.pars['emptyCube'])
         from Func_lib import get_sample_id
@@ -837,15 +865,48 @@ class Possion_Disk(Sampling_method):
         smp = self.cubes.loc[self.cubes['Status'] == "Live"].iloc[0]
         return smp['ID']
     
+    def sampling_volume(self, sid):
+        vecs = np.random.standard_normal(size=(self.pars['maxTry'], self.pars['ndim']))
+        vecs /= np.linalg.norm(vecs, axis=1)[:,None]
+        scal = 1.0 + np.random.random(self.pars['maxTry'])
+        vecs *= scal[:, None]
+        vecs = self.samples[sid].cube + self.pars['minR'] * vecs
+        vecs = vecs[np.where(np.min(vecs, axis=1) > 0.)]
+        vecs = vecs[np.where(np.max(vecs, axis=1) < 1.)]
+                
+        print(vecs.size, vecs.shape)
+        from scipy.spatial.distance import cdist
+        if self.samples[sid].local.size != 0:
+            cds = cdist(vecs, self.samples[sid].local)
+            print(cds.shape)
+            vecs = np.delete(vecs, np.where(np.min(cds, axis=1) < self.pars['minR']), axis=0)
+            print(vecs.shape)
+        
+        if vecs.size != 0:
+            cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
+            vecs = np.delete(vecs, np.where(np.min(cd, axis=0) < self.pars['minR']), axis=0)
+        
+        return vecs
+    
     def sampling_sphere(self, sid):
         vecs = np.random.standard_normal(size=(self.pars['maxTry'], self.pars['ndim']))
         vecs /= np.linalg.norm(vecs, axis=1)[:,None]
         vecs = self.samples[sid].cube + self.pars['minR'] * vecs
         vecs = vecs[np.where(np.min(vecs, axis=1) > 0.)]
         vecs = vecs[np.where(np.max(vecs, axis=1) < 1.)]
-        from scipy.spatial.distance import cdist 
-        cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
-        vecs = np.delete(vecs, np.where(np.min(cd, axis=0) < self.pars['minR']), axis=0)
+                
+        print(vecs.size, vecs.shape)
+        from scipy.spatial.distance import cdist
+        if self.samples[sid].local.size != 0:
+            cds = cdist(vecs, self.samples[sid].local)
+            print(cds.shape)
+            vecs = np.delete(vecs, np.where(np.min(cds, axis=1) < self.pars['minR']), axis=0)
+            print(vecs.shape)
+        
+        if vecs.size != 0:
+            cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
+            vecs = np.delete(vecs, np.where(np.min(cd, axis=0) < self.pars['minR']), axis=0)
+        
         return vecs
 
     def check_samples_status_number(self, output=False):
