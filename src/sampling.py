@@ -757,17 +757,22 @@ class Possion_Disk(Sampling_method):
 
         print(self.pars['maxTry'])
         while not self.status == "FINISH":
+            self.check_samples_status_number(False)
+
+            if self.info['nsample']['live'] < self.info['nsample']['dead']:
+                self.check_dead_sample_is_gray()
             if self.info['nsample']['live'] > 0:
-            # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
+                # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
                 self.get_new_sample()
-                self.message_out_status()
-            else:
+            self.message_out_status()
+            if self.info['nsample']['live'] == 0 and self.info['nsample']["dead"] == 0:
                 break
         self.cubes.to_csv(self.path['cubedir'], index=False)
+        self.grays.to_csv(self.path['graydir'], index=False)
 
     def get_new_sample(self):
         if self.info['nsample']['live'] > 0:
-            sid = self.pick_live_sample_ID()
+            sid = self.pick_sample_ID_by_status("Live")
             # print(sid)
             smp = self.samples[sid]
             smp.local, smp.grayed = self.get_local(sid)
@@ -789,15 +794,26 @@ class Possion_Disk(Sampling_method):
             # print(smp.__dict__)
         # self.message_out_status()
 
+    def check_dead_sample_is_gray(self):
+        sid = self.pick_sample_ID_by_status("Dead")
+        smp = self.samples[sid]
+        if self.info['nsample']['live'] == 0:
+            self.change_point_status_in_cube(sid, "Gray")
+        else:
+            smp.local, smp.grayed = self.get_local(sid, _max=3.1, _min=0.1)
+            if smp.grayed:
+                self.change_point_status_in_cube(sid, "Gray")
+                self.check_samples_status_number(False)
+        
 
-    def get_local(self, sid):
+    def get_local(self, sid, _max=2.1, _min=0.1):
         from copy import deepcopy
         cbs = np.array(deepcopy(self.cubes[self.pars['cubeids']]))
         # cds = np.where((np.linalg.norm(cbs - self.samples[sid].cube, axis=1) < 5.0 * self.pars['minR']) & (np.linalg.norm(cbs - self.samples[sid].cube, axis=1) > 0.1 * self.pars['minR']))
-        cds = np.where((np.linalg.norm(cbs - self.samples[sid].cube, axis=1) < 2.0 * self.pars['minR']) & (np.linalg.norm(cbs - self.samples[sid].cube, axis=1) > 0.1 * self.pars['minR']))
+        cds = np.where((np.linalg.norm(cbs - self.samples[sid].cube, axis=1) < _max * self.pars['minR']) & (np.linalg.norm(cbs - self.samples[sid].cube, axis=1) > _min * self.pars['minR']))
         sts = np.array(deepcopy(self.cubes['Status']))[cds]
         grayed = False
-        if np.count_nonzero(sts == "Live") == 0 and len(sts) > 0: 
+        if np.count_nonzero(sts == "Live") == 0: 
             grayed = True
         return cbs[cds], grayed
 
@@ -812,10 +828,10 @@ class Possion_Disk(Sampling_method):
             new["Status"] = status
             self.cubes.iloc[self.cubes['ID'] == sid] = new
         else:
-            print("Dropping status")
             new = self.cubes.loc[self.cubes['ID'] == sid].iloc[0]
             new['Status'] = status
             # self.cubes = self.cubes.drop(self.cubes[self.cubes['ID'] == sid].index, inplace=True)
+            self.cubes.drop(self.cubes[self.cubes['ID'] == sid].index, inplace=True)
             self.grays = self.grays.append(new, ignore_index=True)
 
     def add_points_by_cube(self, cube):
@@ -861,10 +877,14 @@ class Possion_Disk(Sampling_method):
         self.check_samples_status_number()
         return new.id
                  
-    def pick_live_sample_ID(self):
-        lives = self.cubes.loc[self.cubes['Status'] == "Live"]
+    def pick_sample_ID_by_status(self, status):
+        lives = self.cubes.loc[self.cubes['Status'] == status]
         # smp = lives.iloc[randint(0, lives.shape[0] -1)]
-        smp = lives.iloc[0]
+        if lives.shape[0] > 10:
+            idx = randint(0, min(10, lives.shape[0] - 1))
+            smp = lives.iloc[idx]
+        else:
+            smp = lives.iloc[0]
         return smp['ID']
     
     def sampling_volume(self, sid):
@@ -907,10 +927,10 @@ class Possion_Disk(Sampling_method):
 
     def check_samples_status_number(self, output=False):
         self.info['nsample'] = {
-            "tot":      self.cubes.shape[0],
+            "tot":      self.data.shape[0],
             "live":     self.cubes.loc[self.cubes['Status'] == "Live"].shape[0],
             "dead":     self.cubes.loc[self.cubes['Status'] == "Dead"].shape[0],
-            "gray":     self.cubes.loc[self.cubes['Status'] == "Gray"].shape[0],
+            "gray":     self.grays.loc[self.grays['Status'] == "Gray"].shape[0],
             "free":     self.data.loc[self.data['Status'] == "Free"].shape[0],
             "redy":     self.data.loc[self.data['Status'] == "Ready"].shape[0],
             "runn":     self.data.loc[self.data['Status'] == "Running"].shape[0],
