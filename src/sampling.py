@@ -14,7 +14,7 @@ from sympy import sympify
 from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
-
+from random import randint
 
 
 class Sampling_method():
@@ -653,7 +653,7 @@ class Possion_Disk(Sampling_method):
                 }
             elif len(ss) == 4 and ss[1].strip().lower() == "log":
                 self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "flat",
+                    "prior":    "log",
                     "min":      float(ss[2].strip()),
                     "max":      float(ss[3].strip()),
                     "expr":     sympify("10**({} + ({} - {}) * cube{})".format(log10(float(ss[2].strip())), log10(float(ss[3].strip())), log10(float(ss[2].strip())), nn))
@@ -862,7 +862,9 @@ class Possion_Disk(Sampling_method):
         return new.id
                  
     def pick_live_sample_ID(self):
-        smp = self.cubes.loc[self.cubes['Status'] == "Live"].iloc[0]
+        lives = self.cubes.loc[self.cubes['Status'] == "Live"]
+        # smp = lives.iloc[randint(0, lives.shape[0] -1)]
+        smp = lives.iloc[0]
         return smp['ID']
     
     def sampling_volume(self, sid):
@@ -874,13 +876,10 @@ class Possion_Disk(Sampling_method):
         vecs = vecs[np.where(np.min(vecs, axis=1) > 0.)]
         vecs = vecs[np.where(np.max(vecs, axis=1) < 1.)]
                 
-        print(vecs.size, vecs.shape)
         from scipy.spatial.distance import cdist
         if self.samples[sid].local.size != 0:
             cds = cdist(vecs, self.samples[sid].local)
-            print(cds.shape)
             vecs = np.delete(vecs, np.where(np.min(cds, axis=1) < self.pars['minR']), axis=0)
-            print(vecs.shape)
         
         if vecs.size != 0:
             cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
@@ -895,13 +894,10 @@ class Possion_Disk(Sampling_method):
         vecs = vecs[np.where(np.min(vecs, axis=1) > 0.)]
         vecs = vecs[np.where(np.max(vecs, axis=1) < 1.)]
                 
-        print(vecs.size, vecs.shape)
         from scipy.spatial.distance import cdist
         if self.samples[sid].local.size != 0:
             cds = cdist(vecs, self.samples[sid].local)
-            print(cds.shape)
             vecs = np.delete(vecs, np.where(np.min(cds, axis=1) < self.pars['minR']), axis=0)
-            print(vecs.shape)
         
         if vecs.size != 0:
             cd = cdist(vecs, vecs) + np.tril(np.ones((vecs.shape[0], vecs.shape[0])))

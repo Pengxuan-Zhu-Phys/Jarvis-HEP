@@ -20,7 +20,7 @@
     "default setting":  {
         "sampling": {
             "TSavePoint":   10,
-            "maxTry": 100
+            "maxTry": 10
         }
     }
 }

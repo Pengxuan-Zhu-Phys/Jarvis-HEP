@@ -177,11 +177,11 @@ class JarvisFlow(Figure):
                 "type": "outvar",
                 "meth": var['prior'],
                 "x":    0., 
-                "y":    y0 - nnl * fs['hv'],
+                "y":    y0 - max(nnl, 0.8) * fs['hv'],
                 'w':    fs['wv'],
-                'h':    nnl * fs['hv'],
+                'h':    max(nnl, 0.8) * fs['hv'],
             }
-            y0 -= nnl * fs['hv']
+            y0 -= max(nnl, 0.8) * fs['hv']
             if n_nextlayer['nNNL'] > 0:
                 self.layers[nn_currentlayer + 1]['var_nextlayer'][var['name']] = {"nhv":    n_nextlayer['nNNL']}
 
