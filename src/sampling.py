@@ -15,7 +15,6 @@ from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
 from random import randint
-from matplotlib import pyplot as plt
 
 
 class Sampling_method():
@@ -749,55 +748,77 @@ class Possion_Disk(Sampling_method):
         self.path['datadir'] = os.path.join(self.path['save dir'], "AllData.csv")
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
-        self.fig = plt.figure(figsize=(10, 8))
-        self.ax = self.fig.add_axes([0., 0., 1., 1.])
-        plt.ion()
-
-    def generate_events(self):
-        cube = np.random.rand(self.pars['ndim'])
-        self.add_points_by_cube(cube) 
-        self.check_samples_status_number(True)
+        if self.cf['default setting']['sampling']['demo']:
+            from matplotlib import pyplot as plt
+            plt.close()
+            self.fig = plt.figure(figsize=(10, 10))
+            self.ax = self.fig.add_axes([0., 0., 1., 1.])
+            plt.ion()
+            plt.show()
         self.status = "READY"
 
-        print(self.pars['maxTry'])
-        plt.show()
-        frame = []
+    def generate_events(self):
         while not self.status == "FINISH":
             self.check_samples_status_number(False)
-            self.ax.cla()
-            if self.info['nsample']['live'] < self.info['nsample']['dead']:
-                self.check_dead_sample_is_gray()
-            if self.info['nsample']['live'] > 0:
-                # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
-                self.get_new_sample()
-            self.message_out_status()
+            if self.status == "READY":
+                cube = np.random.rand(self.pars['ndim'])
+                self.add_points_by_cube(cube) 
+                self.check_samples_status_number(True)
+                self.status = "RUNNING"
+            elif self.status == "RUNNING":
+                self.check_running_sample_and_run_next_step()
+                if self.info['nsample']['live'] < self.info['nsample']['dead']:
+                    self.check_dead_sample_is_gray()
+                if self.info['nsample']['redy'] > 0 and self.info['nsample']['runn'] < self.pack['config']['paraller number']:
+                    self.ready_sample_start_run()
+                elif self.info['nsample']['live'] > 0:
+                    # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
+                    self.get_new_sample()
+                self.check_generator_status()
+                self.message_out_status()
             
-            live = self.cubes[self.cubes['Status'] == "Live"]
-            dead = self.cubes[self.cubes['Status'] == "Dead"]
-            gray = self.grays
+            if self.cf['default setting']['sampling']['demo']:
+                self.plot_demo()
             
-            ss = pd.concat([self.cubes, self.grays])
-            
-            self.ax.scatter(live['cube0'], live['cube1'], s=7.5, color="tomato")
-            self.ax.scatter(dead['cube0'], dead['cube1'], s=7.5, color="dodgerblue")
-            self.ax.scatter(gray['cube0'], gray['cube1'], s=17.5, color="lime")
-            
-            from scipy.spatial import Voronoi, voronoi_plot_2d
-            ss = pd.DataFrame({"x": ss['cube0'], "y": ss['cube1']}).to_numpy()
-            vor = Voronoi(ss[:, :])
-            voronoi_plot_2d(vor, self.ax, show_points=False, show_vertices=False, line_colors=None, line_width=0.5)
-            self.ax.set_xlim(0., 1.)
-            self.ax.set_ylim(0., 1.)
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
-            
-            if self.info['nsample']['live'] == 0 and self.info['nsample']["dead"] == 0:
-                break
+
+    def afterrun_generator(self):
         self.cubes.to_csv(self.path['cubedir'], index=False)
         self.grays.to_csv(self.path['graydir'], index=False)
+        
+        if self.cf['default setting']['sampling']['demo']:
+            self.ax.set_xlim(-0.5, 1.5)
+            self.ax.set_ylim(-0.5, 1.5)
+            
+            self.fig.savefig("END.png", dpi=300)
+
+
+
+    def check_generator_status(self):
+        if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0 and self.info['nsample']['tot'] == self.info['nsample']['done'] + self.info['nsample']['stop']:
+            self.status = "FINISH"
 
         # plt.savefig("possiondisk.mp4", fps=30)
+    def plot_demo(self):
+        self.ax.cla()
 
+        live = self.cubes[self.cubes['Status'] == "Live"]
+        dead = self.cubes[self.cubes['Status'] == "Dead"]
+        gray = self.grays
+        
+        ss = pd.concat([self.cubes, self.grays])
+        
+        self.ax.scatter(live['cube0'], live['cube1'], s=7.5, color="tomato")
+        self.ax.scatter(dead['cube0'], dead['cube1'], s=7.5, color="dodgerblue")
+        self.ax.scatter(gray['cube0'], gray['cube1'], s=17.5, color="grey")
+        
+        from scipy.spatial import Voronoi, voronoi_plot_2d
+        ss = pd.DataFrame({"x": ss['cube0'], "y": ss['cube1']}).to_numpy()
+        vor = Voronoi(ss[:, :])
+        voronoi_plot_2d(vor, self.ax, show_points=False, show_vertices=False, line_colors=None, line_width=0.5)
+        self.ax.set_xlim(0., 1.)
+        self.ax.set_ylim(0., 1.)
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
     def get_new_sample(self):
         if self.info['nsample']['live'] > 0:
@@ -806,9 +827,6 @@ class Possion_Disk(Sampling_method):
             smp = self.samples[sid]
             smp.local, smp.grayed = self.get_local(sid)
             smp.trys = self.sampling_sphere(sid)
-            # smp.trys = self.sampling_volume(sid)
-            # if smp.grayed:
-            #     self.change_point_status_in_cube(sid, "Gray")
             
             for ii in range(smp.trys.shape[0]):
                 smp.children.append(self.add_points_by_cube(smp.trys[ii]))
