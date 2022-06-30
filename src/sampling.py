@@ -15,6 +15,7 @@ from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
 from random import randint
+from matplotlib import pyplot as plt
 
 
 class Sampling_method():
@@ -748,6 +749,9 @@ class Possion_Disk(Sampling_method):
         self.path['datadir'] = os.path.join(self.path['save dir'], "AllData.csv")
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
+        self.fig = plt.figure(figsize=(10, 8))
+        self.ax = self.fig.add_axes([0., 0., 1., 1.])
+        plt.ion()
 
     def generate_events(self):
         cube = np.random.rand(self.pars['ndim'])
@@ -756,19 +760,44 @@ class Possion_Disk(Sampling_method):
         self.status = "READY"
 
         print(self.pars['maxTry'])
+        plt.show()
+        frame = []
         while not self.status == "FINISH":
             self.check_samples_status_number(False)
-
+            self.ax.cla()
             if self.info['nsample']['live'] < self.info['nsample']['dead']:
                 self.check_dead_sample_is_gray()
             if self.info['nsample']['live'] > 0:
                 # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
                 self.get_new_sample()
             self.message_out_status()
+            
+            live = self.cubes[self.cubes['Status'] == "Live"]
+            dead = self.cubes[self.cubes['Status'] == "Dead"]
+            gray = self.grays
+            
+            ss = pd.concat([self.cubes, self.grays])
+            
+            self.ax.scatter(live['cube0'], live['cube1'], s=7.5, color="tomato")
+            self.ax.scatter(dead['cube0'], dead['cube1'], s=7.5, color="dodgerblue")
+            self.ax.scatter(gray['cube0'], gray['cube1'], s=17.5, color="lime")
+            
+            from scipy.spatial import Voronoi, voronoi_plot_2d
+            ss = pd.DataFrame({"x": ss['cube0'], "y": ss['cube1']}).to_numpy()
+            vor = Voronoi(ss[:, :])
+            voronoi_plot_2d(vor, self.ax, show_points=False, show_vertices=False, line_colors=None, line_width=0.5)
+            self.ax.set_xlim(0., 1.)
+            self.ax.set_ylim(0., 1.)
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
+            
             if self.info['nsample']['live'] == 0 and self.info['nsample']["dead"] == 0:
                 break
         self.cubes.to_csv(self.path['cubedir'], index=False)
         self.grays.to_csv(self.path['graydir'], index=False)
+
+        # plt.savefig("possiondisk.mp4", fps=30)
+
 
     def get_new_sample(self):
         if self.info['nsample']['live'] > 0:
