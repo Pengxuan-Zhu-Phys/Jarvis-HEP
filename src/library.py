@@ -51,8 +51,8 @@ class Library():
             }
         if self.libs['modes']:
             from Func_lib import checking_os
-            self.libs['config']['OS required'] = self.cf.get("Library_Settings", "OS required").lower()
-            if not self.libs['config']['OS required'] == checking_os():
+            self.libs['config']['OS required'] = list(map(str.strip, self.cf.get("Library_Settings", "OS required").lower().split(',')))
+            if not checking_os() in self.libs['config']['OS required']:
                 self.libs['config']['status'] = False
                 self.libs['config']['Current OS'] = checking_os()
                 self.logger.error("Library Checking: OS requiring {}, -> No\n\tCurrent OS is {}".format(self.libs['config']['OS required'], self.libs['config']['Current OS']))

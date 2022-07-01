@@ -21,7 +21,7 @@
         "sampling": {
             "TSavePoint":   10,
             "maxTry": 10,
-            "demo": false
+            "demo": true
         }
     }
 }

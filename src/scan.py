@@ -12,7 +12,8 @@ import time
 from program import Pack
 
 jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
+pwd = os.path.abspath(os.path.dirname(__file__))
+sys.path.append(os.path.abspath(os.path.join(pwd, "Sampling"))) 
 
 class Scan():
     def __init__(self) -> None:
@@ -212,7 +213,7 @@ class Scan():
 
     def make_generator(self):
         if self.smp['Scan']['sampling method'] == "Poisson Disk":
-            from sampling import Possion_Disk
+            from poissondisk import Possion_Disk
             self.generator = Possion_Disk()
 
         elif self.smp['Scan']['sampling method'] == "Grid":
