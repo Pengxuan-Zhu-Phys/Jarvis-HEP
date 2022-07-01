@@ -217,7 +217,7 @@ class Scan():
             self.generator = Possion_Disk()
 
         elif self.smp['Scan']['sampling method'] == "Grid":
-            from sampling import Grid
+            from grid import Grid
             self.generator = Grid()
         self.generator.set_config(self.cf)
         self.generator.set_scan_path(self.smp['Scan']['save dir'])

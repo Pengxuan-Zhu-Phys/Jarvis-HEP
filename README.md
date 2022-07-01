@@ -1,4 +1,5 @@
 # Jarvis-HEP
 A framework to connect HEP code easily! 
 
-This is a test for git mac
+## Poisson Disk Sampling 
+The Poisson disk sampling is valid now, please change to the dev branch!
