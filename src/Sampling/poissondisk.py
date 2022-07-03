@@ -175,7 +175,7 @@ class Possion_Disk(Sampling_method):
             # import matplotlib
             # matplotlib.use('Agg')
             from matplotlib import pyplot as plt
-            # plt.close()
+            plt.close()
             self.fig = plt.figure(figsize=(10, 10))
             self.ax = self.fig.add_axes([0., 0., 1., 1.])
             plt.ion()

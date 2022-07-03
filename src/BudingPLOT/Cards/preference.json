@@ -4,5 +4,8 @@
     },
     "JarvisFlow": {
         "Setting":"&BP/Cards/Jarvis.json"
+    },
+    "Voronoi2D": {
+        "Setting":"&BP/Cards/Voronoi2D.json"
     }
 }
