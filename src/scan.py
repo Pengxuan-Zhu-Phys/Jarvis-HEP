@@ -215,10 +215,12 @@ class Scan():
         if self.smp['Scan']['sampling method'] == "Poisson Disk":
             from poissondisk import Possion_Disk
             self.generator = Possion_Disk()
-
         elif self.smp['Scan']['sampling method'] == "Grid":
             from grid import Grid
             self.generator = Grid()
+        elif self.smp['Scan']['sampling method'] == "Importance Possion Disk":
+            from importance_PDS import Importance_Possion_Disk
+            self.generator = Importance_Possion_Disk()
         self.generator.set_config(self.cf)
         self.generator.set_scan_path(self.smp['Scan']['save dir'])
         self.generator.path['run_info'] = self.smp['output']['info']

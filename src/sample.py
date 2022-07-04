@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import imp
 import logging
 import os, sys 
 import json
@@ -16,6 +17,9 @@ class Sample():
         self.worker = {}
         self.children = []
         self.mother = None
+        self.func = None
+        self.expr = None
+        self.likelihood = None
 
     def get_par(self, pars):
         pass
@@ -96,7 +100,28 @@ class Sample():
         for kk, vv in vars.items():
             if kk not in self.vars.keys():
                 self.vars[kk] = vv
-    
+                
+    def evaluate_likelihood(self):
+        if self.likelihood is not None:
+            from sympy import sympify
+            from inner_func import updata_funcs
+            try:
+                self.func = updata_funcs(self.func)
+                expr = sympify(self.likelihood['expression'])
+                expr = expr.subs(self.expr)
+                expr = expr.subs(dict(self.vars))
+                expr = eval(str(expr), self.func)
+                self.likelihood = expr 
+                self.vars['Likelihood'] = expr 
+                self.logger.warning("Likelihood is evaluating as -> {}".format(expr))
+                self.status = "Done"
+            except:
+                self.logger.error("Likelihood expression can not be evaluated")
+                self.status = "Stoped"
+        else:
+            self.status = "Done"
+            # pass 
+        
     def update_status(self):
         if self.status == "Erroring":
             errt = False
@@ -118,7 +143,6 @@ class Sample():
                     self.update_variable(worker.vars)
                 if worker.status == "error":
                     errt = True
-
             if errt:
                 self.logger.error("Calculation stopped by error!")
                 self.status = "Erroring"
@@ -135,8 +159,7 @@ class Sample():
             from pandas import Series
             self.logger.warning("The output variables are summarized as followed: \n\n{}\n".format(Series(self.vars)))
             self.close_logger()
-            self.status = "Done"
-                
+            self.evaluate_likelihood()                
         if self.status != self.par['Status']:
             self.par['Status'] = self.status
             self.logger.info("Sample status update into  {}".format(self.status))

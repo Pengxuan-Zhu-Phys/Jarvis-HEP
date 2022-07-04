@@ -11,7 +11,7 @@ from sympy import sympify
 from pandas.core.series import Series
 
 
-class Possion_Disk(Sampling_method):
+class Importance_Possion_Disk(Sampling_method):
     def __init__(self) -> None:
         super().__init__()
 
@@ -77,41 +77,47 @@ class Possion_Disk(Sampling_method):
                     "Illegal Variable setting in: {} ".format(line))
                 sys.exit(0)
             nn += 1
+        self.logger.warning(self.pars['vars'])
 
     def decode_likelihood(self, lik):
         if lik[0:4] == "CHI2":
             self.pars['likelihood'] = {
                 "method":   "chisquare",
+                "fcsinc":   [],
                 "expression":   lik[5:].strip()
             }
         elif lik[0:4] == "LIKI":
             self.pars['likelihood'] = {
                 "method":   "likelihood",
+                "fcsinc":   [],
                 "expression":   lik[5:].strip()
             }
-        print(self.pars['likelihood'])
+        if "&FC" in self.pars['likelihood']['expression']:
+            for item in self.exprs:
+                if item in self.pars['likelihood']['expression']:
+                    self.pars['likelihood']['expression'] = self.pars['likelihood']['expression'].replace(
+                        item, self.exprs[item]['expr'])
+            for item in self.fcs:
+                if item in self.pars['likelihood']['expression']:
+                    self.pars['likelihood']['fcsinc'].append(item)
 
     def decode_function(self):
-        self.func = {}
-        self.expr = {}
         self.fcs = {}
         self.exprs = {}
         for sc in self.scf.sections():
             if "Function" == sc[0:8] and self.scf.get(sc, "method") == "expression":
-                name = "{}".format(self.scf.get(sc, "name"))
+                name = "&FC_{}".format(self.scf.get(sc, "name"))
                 self.exprs[name] = {
-                    "name":   name,
                     "expr":   self.scf.get(sc, "expression")
                 }
             elif "Function" == sc[0:8] and self.scf.get(sc, "method") == "interpolate 1d":
                 from pandas import read_csv
-                name = "{}".format(self.scf.get(sc, "name"))
+                name = "&FC_{}".format(self.scf.get(sc, "name"))
                 from Func_lib import decode_path_from_file
                 data = read_csv(decode_path_from_file(
                     self.scf.get(sc, "file")))
                 self.fcs[name] = {
-                    "name":   name,
-                    "data":   data
+                    "data":      data
                 }
                 if self.scf.has_option(sc, "kind"):
                     method = self.scf.get(sc, "kind").strip().lower()
@@ -129,24 +135,12 @@ class Possion_Disk(Sampling_method):
                 else:
                     self.fcs[name]['expr'] = interp1d(
                         data['x'], data['y'], kind=method)
-                    
-        # print("self.fcs ->", self.fcs, "\nself.exprs ->", self.exprs)
-        for kk, vv in self.fcs.items():
-            self.func[kk] = vv['expr']
-        for kk, vv in self.exprs.items():
-            self.expr[kk] = vv['expr']
-        print(self.func, self.expr)
-        # a = {self.fcs['Xenon2019SD']['name']: self.fcs['Xenon2019SD']['expr']}
-        # expr = sympify("Xenon2019SD(50) + chi21")
-        # print(expr)
-        # expr = expr.subs({self.exprs['chi21']['name']: self.exprs['chi21']['expr']})
-        # expr = str(expr.subs({"X": 4, "Y": 5}))
-        # print(expr)
-        # print(eval(expr, a))
+        print(self.fcs)
+        print(self.exprs)
 
     def init_logger(self, cf):
         self.logger = logging.getLogger("Possion")
-        handler = {
+        handler = {                
             "stream":   logging.StreamHandler(),
             "ff":       logging.FileHandler(cf['logging path'])
         }
@@ -180,6 +174,8 @@ class Possion_Disk(Sampling_method):
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
         if self.cf['default setting']['sampling']['demo']:
+            # import matplotlib
+            # matplotlib.use('Agg')
             from matplotlib import pyplot as plt
             plt.close()
             self.fig = plt.figure(figsize=(10, 10))
@@ -203,6 +199,7 @@ class Possion_Disk(Sampling_method):
                 if self.info['nsample']['redy'] > 0 and self.info['nsample']['runn'] < self.pack['config']['paraller number']:
                     self.ready_sample_start_run()
                 if self.info['nsample']['live'] > 0:
+                    # if self.info['nsample']['live'] > 0 and self.info['nsample']['dead'] < self.pack['config']['paraller number']:
                     self.get_new_sample()
                 self.check_generator_status()
                 self.message_out_status()
@@ -250,9 +247,10 @@ class Possion_Disk(Sampling_method):
         sdata = deepcopy(self.data)
         sdata = pd.DataFrame(sdata)
         sdata.to_csv(self.path['datadir'], index=False)
-
+        
         # self.data.to_csv(self.path['datadir'], index=False)
-
+        
+        
         if self.cf['default setting']['sampling']['demo']:
             self.ax.set_xlim(-0.5, 1.5)
             self.ax.set_ylim(-0.5, 1.5)
@@ -359,9 +357,6 @@ class Possion_Disk(Sampling_method):
         new = Sample()
         new.status = "Free"
         new.grayed = False
-        new.func = deepcopy(self.func)
-        new.expr = deepcopy(self.expr)
-        new.likelihood = deepcopy(self.pars['likelihood'])
 
         cub = deepcopy(self.pars['emptyCube'])
         from Func_lib import get_sample_id

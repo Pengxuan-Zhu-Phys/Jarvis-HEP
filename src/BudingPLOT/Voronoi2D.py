@@ -105,7 +105,6 @@ class Voronoi2D(Figure):
         from matplotlib.ticker import AutoMinorLocator, MaxNLocator
         self.axc.set_yscale(self.vars['c']['scale'])
         if self.vars['c']['scale'] == "linear":
-            print(self.vars['c'].items())
             self.axc.set_yticks(self.vars['c']['ticks'])
             self.axc.yaxis.set_minor_locator(AutoMinorLocator())
         self.axc.set_ylim(self.vars['c']['lim'])
