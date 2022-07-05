@@ -1,0 +1,3 @@
+import model MSSM_SLHA2 
+generate e+ e- > er+ > er- e+ n1 
+output seleR

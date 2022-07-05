@@ -104,12 +104,12 @@ class Sample():
     def evaluate_likelihood(self):
         if self.likelihood is not None:
             from sympy import sympify
-            from inner_func import updata_funcs
+            from inner_func import update_funcs
             try:
-                self.func = updata_funcs(self.func)
-                expr = sympify(self.likelihood['expression'])
+                self.func = update_funcs(self.func)
+                expr = sympify(self.likelihood)
                 expr = expr.subs(self.expr)
-                expr = expr.subs(dict(self.vars))
+                expr = expr.subs(self.vars)
                 expr = eval(str(expr), self.func)
                 self.likelihood = expr 
                 self.vars['Likelihood'] = expr 
@@ -120,7 +120,6 @@ class Sample():
                 self.status = "Stoped"
         else:
             self.status = "Done"
-            # pass 
         
     def update_status(self):
         if self.status == "Erroring":
@@ -158,8 +157,9 @@ class Sample():
             self.logger.warning("Calculation Finished")
             from pandas import Series
             self.logger.warning("The output variables are summarized as followed: \n\n{}\n".format(Series(self.vars)))
-            self.close_logger()
             self.evaluate_likelihood()                
+            self.close_logger()
+        
         if self.status != self.par['Status']:
             self.par['Status'] = self.status
             self.logger.info("Sample status update into  {}".format(self.status))

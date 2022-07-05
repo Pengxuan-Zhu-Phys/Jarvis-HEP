@@ -1,6 +1,4 @@
 # Ignore the local Folder
-External/Library
-External/Program
 External/Prospino
 External/*.json
 Results/*

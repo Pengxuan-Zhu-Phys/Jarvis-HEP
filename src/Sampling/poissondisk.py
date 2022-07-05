@@ -13,7 +13,7 @@ from pandas.core.series import Series
 
 class Possion_Disk(Sampling_method):
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__() 
 
     def set_config(self, cf):
         return super().set_config(cf)
@@ -34,19 +34,14 @@ class Possion_Disk(Sampling_method):
         self.timelock = get_time_lock(
             self.cf['default setting']['sampling']['TSavePoint'])
         self.pars['maxTry'] = self.cf['default setting']['sampling']['maxTry']
-        # print(self.path, self.runing_card)
 
     def set_pars(self):
-        pars = {
-            "variable": self.scf.get("Sampling_Setting", "variables"),
+        self.pars = {
+            "minR":     float(self.scf.get("Sampling_Setting", "min R")),
             "likelihood":   self.scf.get("Sampling_Setting", "likelihood")
-        }
-        self.pars = {"minR":     float(
-            self.scf.get("Sampling_Setting", "min R"))}
-        self.decode_sampling_variable_setting(pars['variable'])
-        self.decode_function()
-        self.decode_likelihood(pars['likelihood'])
-        # print(self.pars.items())
+            }
+        self.decode_sampling_variable_setting(self.scf.get("Sampling_Setting", "variables"))
+        self.decode_function()        
 
     def decode_sampling_variable_setting(self, prs):
         self.pars['vars'] = {}
@@ -77,19 +72,6 @@ class Possion_Disk(Sampling_method):
                     "Illegal Variable setting in: {} ".format(line))
                 sys.exit(0)
             nn += 1
-
-    def decode_likelihood(self, lik):
-        if lik[0:4] == "CHI2":
-            self.pars['likelihood'] = {
-                "method":   "chisquare",
-                "expression":   lik[5:].strip()
-            }
-        elif lik[0:4] == "LIKI":
-            self.pars['likelihood'] = {
-                "method":   "likelihood",
-                "expression":   lik[5:].strip()
-            }
-        print(self.pars['likelihood'])
 
     def decode_function(self):
         self.func = {}
@@ -129,20 +111,12 @@ class Possion_Disk(Sampling_method):
                 else:
                     self.fcs[name]['expr'] = interp1d(
                         data['x'], data['y'], kind=method)
-                    
-        # print("self.fcs ->", self.fcs, "\nself.exprs ->", self.exprs)
+
         for kk, vv in self.fcs.items():
             self.func[kk] = vv['expr']
         for kk, vv in self.exprs.items():
             self.expr[kk] = vv['expr']
-        print(self.func, self.expr)
-        # a = {self.fcs['Xenon2019SD']['name']: self.fcs['Xenon2019SD']['expr']}
-        # expr = sympify("Xenon2019SD(50) + chi21")
-        # print(expr)
-        # expr = expr.subs({self.exprs['chi21']['name']: self.exprs['chi21']['expr']})
-        # expr = str(expr.subs({"X": 4, "Y": 5}))
-        # print(expr)
-        # print(eval(expr, a))
+
 
     def init_logger(self, cf):
         self.logger = logging.getLogger("Possion")
@@ -270,7 +244,6 @@ class Possion_Disk(Sampling_method):
 
         live = self.cubes[self.cubes['Status'] == "Live"]
         dead = self.cubes[self.cubes['Status'] == "Dead"]
-        # gray = self.grays
         gray = self.cubes[self.cubes['Status'] == "Gray"]
 
         ss = pd.concat([self.cubes, self.grays])
@@ -310,8 +283,7 @@ class Possion_Disk(Sampling_method):
             self.change_point_status_in_cube(sid, "Dead")
             self.change_point_status_in_data(sid, "Ready")
             self.check_samples_status_number(False)
-            # print(smp.__dict__)
-        # self.message_out_status()
+
 
     def check_dead_sample_is_gray(self):
         sid = self.pick_sample_ID_by_status("Dead")
@@ -343,15 +315,6 @@ class Possion_Disk(Sampling_method):
     def change_point_status_in_cube(self, sid, status):
         idx = self.cubes[self.cubes['ID'] == sid].index
         self.cubes.at[idx, "Status"] = status
-
-        # if status != "Gray":
-        #     self.cubes.at[idx, "Status"] = status
-        # else:
-        #     new = self.cubes.loc[self.cubes['ID'] == sid].iloc[0]
-        #     new['Status'] = status
-        #     # self.cubes = self.cubes.drop(self.cubes[self.cubes['ID'] == sid].index, inplace=True)
-        #     self.cubes.drop(self.cubes[self.cubes['ID'] == sid].index, inplace=True)
-        #     self.grays = self.grays.append(new, ignore_index=True)
 
     def add_points_by_cube(self, cube):
         from copy import deepcopy
@@ -452,7 +415,6 @@ class Possion_Disk(Sampling_method):
                 np.tril(np.ones((vecs.shape[0], vecs.shape[0])))
             vecs = np.delete(vecs, np.where(
                 np.min(cd, axis=0) < self.pars['minR']), axis=0)
-
         return vecs
 
     def check_samples_status_number(self, output=False):
@@ -466,7 +428,7 @@ class Possion_Disk(Sampling_method):
             "runn":     self.points.loc[self.points['Status'] == "Running"].shape[0],
             "fini":     self.points.loc[self.points['Status'] == "Finish"].shape[0],
             "done":     self.points.loc[self.points['Status'] == "Done"].shape[0],
-            "stop":     self.points.loc[self.points['Status'] == "Stopped"].shape[0]
+            "stop":     self.points.loc[self.points['Status'] == "Stoped"].shape[0]
         }
         if output:
             self.message_out_status()

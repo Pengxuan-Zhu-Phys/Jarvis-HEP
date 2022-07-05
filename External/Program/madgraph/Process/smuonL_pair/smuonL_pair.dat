@@ -1,0 +1,3 @@
+import model MSSM_SLHA2 
+generate e+ e- > mul+ > mul- mu+ n1 
+output smuonL
