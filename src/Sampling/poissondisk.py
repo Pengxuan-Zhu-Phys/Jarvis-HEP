@@ -310,11 +310,11 @@ class Possion_Disk(Sampling_method):
 
     def change_point_status_in_data(self, sid, status):
         idx = self.points[self.points['ID'] == sid].index
-        self.points.at[idx, "Status"] = status
+        self.points.at[idx[0], "Status"] = status
 
     def change_point_status_in_cube(self, sid, status):
         idx = self.cubes[self.cubes['ID'] == sid].index
-        self.cubes.at[idx, "Status"] = status
+        self.cubes.at[idx[0], "Status"] = status
 
     def add_points_by_cube(self, cube):
         from copy import deepcopy
