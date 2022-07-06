@@ -1,5 +1,6 @@
 # Ignore the local Folder
 External/Prospino
+External/Library/*.json
 External/*.json
 Results/*
 TestScan/
