@@ -234,8 +234,8 @@ class Possion_Disk(Sampling_method):
             self.fig.savefig("END.png", dpi=300)
 
     def check_generator_status(self):
-        # if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0 and self.info['nsample']['tot'] == self.info['nsample']['done'] + self.info['nsample']['stop']:
-        if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0:
+        if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0 and self.info['nsample']['tot'] == self.info['nsample']['done'] + self.info['nsample']['stop']:
+        # if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0:
             self.status = "FINISH"
 
         # plt.savefig("possiondisk.mp4", fps=30)
@@ -266,23 +266,25 @@ class Possion_Disk(Sampling_method):
 
     def get_new_sample(self):
         if self.info['nsample']['live'] > 0:
-            sid = self.pick_sample_ID_by_status("Live")
-            # print(sid)
-            smp = self.samples[sid]
-            smp.local, smp.grayed = self.get_local(sid)
-            smp.trys = self.sampling_sphere(sid)
+            nn = max(self.pack['config']['paraller number'] - self.info['nsample']['runn'], 1)
+            nn = min(self.info['nsample']['live'], nn)
+            for ii in range(nn):
+                sid = self.pick_sample_ID_by_status("Live")
+                smp = self.samples[sid]
+                smp.local, smp.grayed = self.get_local(sid)
+                smp.trys = self.sampling_sphere(sid)
 
-            for ii in range(smp.trys.shape[0]):
-                smp.children.append(self.add_points_by_cube(smp.trys[ii]))
-            for cid in smp.children:
-                self.samples[cid].mother = sid
+                for ii in range(smp.trys.shape[0]):
+                    smp.children.append(self.add_points_by_cube(smp.trys[ii]))
+                for cid in smp.children:
+                    self.samples[cid].mother = sid
 
-            smp.status = "Ready"
-            smp.trys = None
-            smp.init_logger(self.cf['logging']['scanner'])
-            self.change_point_status_in_cube(sid, "Dead")
-            self.change_point_status_in_data(sid, "Ready")
-            self.check_samples_status_number(False)
+                smp.status = "Ready"
+                smp.trys = None
+                smp.init_logger(self.cf['logging']['scanner'])
+                self.change_point_status_in_cube(sid, "Dead")
+                self.change_point_status_in_data(sid, "Ready")
+                self.check_samples_status_number(False)
 
 
     def check_dead_sample_is_gray(self):
@@ -332,14 +334,15 @@ class Possion_Disk(Sampling_method):
         cub['ID'] = new.id
         for ii in range(self.pars['ndim']):
             cub['cube{}'.format(ii)] = cube[ii]
-        self.cubes = self.cubes.append(cub, ignore_index=True)
+        # self.cubes = self.cubes.append(cub, ignore_index=True)
+        self.cubes = pd.concat([pd.DataFrame([cub]), self.cubes], axis=0, ignore_index=True)
 
         raw = deepcopy(self.pars['emptyData'])
         raw['ID'] = cub['ID']
         for kk, vv in self.pars['vars'].items():
             raw[kk] = vv['expr'].subs(cub)
-        self.points = self.points.append(raw, ignore_index=True)
-
+        self.points = pd.concat([pd.DataFrame([raw]), self.points], axis=0, ignore_index=True)
+        # self.points = self.points.append(raw, ignore_index=True)
         raw = dict(raw)
         raw.pop("ID")
 
