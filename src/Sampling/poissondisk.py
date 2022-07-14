@@ -179,7 +179,7 @@ class Possion_Disk(Sampling_method):
                 if self.info['nsample']['live'] > 0:
                     self.get_new_sample()
                 self.check_generator_status()
-                self.message_out_status()
+                # self.message_out_status()
 
             if self.cf['default setting']['sampling']['demo']:
                 self.plot_demo()
@@ -288,11 +288,13 @@ class Possion_Disk(Sampling_method):
 
 
     def check_dead_sample_is_gray(self):
-        sid = self.pick_sample_ID_by_status("Dead")
-        smp = self.samples[sid]
         if self.info['nsample']['live'] == 0:
-            self.change_point_status_in_cube(sid, "Gray")
+            # self.change_point_status_in_cube(sid, "Gray")
+            self.cubes.loc[self.cubes['Status'] == "Dead", "Status"] = "Gray"
+            # df.loc[df['Fee'] > 22000, 'Fee'] = 1
         else:
+            sid = self.pick_sample_ID_by_status("Dead")
+            smp = self.samples[sid]
             smp.local, smp.grayed = self.get_local(sid, _max=3.1, _min=0.1)
             if smp.grayed:
                 self.change_point_status_in_cube(sid, "Gray")
