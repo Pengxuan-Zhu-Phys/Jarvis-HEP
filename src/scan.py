@@ -51,9 +51,9 @@ class Scan():
         elif self.mode == "resume":
             self.resume_task()
             self.generator.pack = self.pack.pack
-            self.generator.generate_events()
-            self.generator.afterrun_generator()
-            self.generator.combine_data()
+            # self.generator.generate_events()
+            # self.generator.afterrun_generator()
+            # self.generator.combine_data()
 
             
 

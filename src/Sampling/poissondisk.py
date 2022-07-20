@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from curses import tparm
 import os
 import sys
 from sampling import Sampling_method
@@ -162,6 +163,70 @@ class Possion_Disk(Sampling_method):
             plt.show()
         self.status = "READY"
 
+    def resume_generator(self, rerun=None):
+        self.get_empty_data_row()
+        self.status = "RESUME"
+        self.pars['cubeids'] = list(self.pars['emptyCube'].keys())[2:]
+        self.path['Samples_info'] = os.path.join(
+            self.path['save dir'], "Samples_info")
+        self.path['cubedir'] = os.path.join(self.path['save dir'], "cubes.csv")
+        self.path['graydir'] = os.path.join(self.path['save dir'], 'grays.csv')
+        self.path['pointsdir'] = os.path.join(
+            self.path['save dir'], "Points.csv")
+        self.path['datadir'] = os.path.join(
+            self.path['save dir'], "AllData.csv")
+
+        self.cubes = pd.read_csv(self.path['cubedir'])
+        self.points = pd.read_csv(self.path['pointsdir'])
+
+        if not os.path.exists(self.path['Samples_info']):
+            os.makedirs(self.path['Samples_info'])
+
+        self.combine_data()
+        # print(self.path)
+        self.check_samples_status_number(True)
+        self.logger.info("Poisson Disk Sampling reset running samples to free status ... ")
+        self.reset_running_samples_to_free()
+        self.check_samples_status_number(True)
+        if rerun is not None:
+            self.clear_rerun_sample_data(rerun)
+        if os.path.exists(self.path['datadir']):
+            from shutil import move, copyfile
+            tpath = os.path.join(os.path.dirname(self.path['datadir']), ".Running", "{}_{}".format(os.path.basename(self.path['datadir']), self.timelock))
+            move(self.path['datadir'], tpath)
+        self.data = []
+        self.status = "READY"
+        
+    def clear_rerun_sample_data(self, rerun):
+        self.logger.info("Cleanning the sample data with rerun tags: {}".format(rerun))
+        allpoints = pd.read_csv(self.path['datadir'])
+        print(allpoints)
+        for tag in rerun:
+            ids = self.points.loc[self.points['Status'] == tag]
+            discard = "|".join(list(ids.ID))
+            if discard:
+                allpoints = allpoints[ allpoints['ID'].str.contains(discard) == False ]
+        allpoints.to_csv(self.path['datadir'], index=False)
+
+    def combine_data(self):
+        rpth = os.path.join(self.path['save dir'], ".Running")
+        ad = []
+        for ff in os.listdir(rpth):
+            fp = os.path.join(rpth, ff)
+            if "AllData.csv" in ff: 
+                ad.append(fp)
+        if ad:
+            self.logger.info("Combining data files")
+            if os.path.exists(self.path['datadir']):
+                ad.append(self.path['datadir'])
+            gds = []
+            for ff in ad:
+                ds = pd.read_csv(ff)
+                gds.append(ds)
+                os.remove(ff)
+            df = pd.concat(gds)
+            df.to_csv(self.path['datadir'], index=False)
+
     def generate_events(self):
         while not self.status == "FINISH":
             self.check_samples_status_number(False)
@@ -183,6 +248,15 @@ class Possion_Disk(Sampling_method):
 
             if self.cf['default setting']['sampling']['demo']:
                 self.plot_demo()
+            self.record_points()
+
+    def record_points(self):
+        from Func_lib import get_time_lock
+        tl = get_time_lock(self.cf['default setting']['sampling']['TSavePoint'])
+        if tl != self.timelock:
+            self.logger.info("Backup running points information to disk ... ")
+            self.timelock = tl 
+            self.afterrun_generator()
 
     def check_running_sample_and_run_next_step(self):
         doneids = []
@@ -232,6 +306,31 @@ class Possion_Disk(Sampling_method):
             self.ax.set_ylim(-0.5, 1.5)
 
             self.fig.savefig("END.png", dpi=300)
+
+    def reset_running_samples_to_free(self):
+        while self.info['nsample']['runn'] > 0:
+            sp = self.points.loc[self.points['Status'] == "Running"].iloc[0]
+            spinfopath = os.path.join(self.path['Samples_info'], str(sp.ID))
+            from shutil import rmtree 
+            rmtree(spinfopath)
+            self.change_point_status_in_data(sp.ID, "Free")
+            self.check_samples_status_number(False)
+        while self.info['nsample']['redy'] > 0:
+            sp = self.points.loc[self.points['Status'] == 'Ready'].iloc[0]
+            spinfopath = os.path.join(self.path['Samples_info'], str(sp.ID))
+            from shutil import rmtree 
+            rmtree(spinfopath)
+            self.change_point_status_in_data(sp.ID, "Free")
+            self.check_samples_status_number(False)
+        while self.info['nsample']['fini'] > 0:
+            sp = self.points.loc[self.points['Status'] == 'Finish'].iloc[0]
+            spinfopath = os.path.join(self.path['Samples_info'], str(sp.ID))
+            from shutil import rmtree 
+            rmtree(spinfopath)
+            self.change_point_status_in_data(sp.ID, "Free")
+            self.check_samples_status_number(False)
+        self.points.to_csv(self.path['pointsdir'], index=False)
+
 
     def check_generator_status(self):
         if self.info['nsample']['live'] == 0 and self.info['nsample']['dead'] == 0 and self.info['nsample']['tot'] == self.info['nsample']['done'] + self.info['nsample']['stop']:
@@ -346,7 +445,6 @@ class Possion_Disk(Sampling_method):
         self.points = pd.concat([pd.DataFrame([raw]), self.points], axis=0, ignore_index=True)
         # self.points = self.points.append(raw, ignore_index=True)
         raw = dict(raw)
-        raw.pop("ID")
 
         new.par = raw
         new.cube = cube
