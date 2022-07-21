@@ -32,8 +32,9 @@ class Plot():
     def read_config(self, cf):
         self.cf = configparser.ConfigParser()
         self.cf.read(cf)
-        if self.cf.get('PLOT_CONFI', 'path').strip().upper() == "&PWD":
-            self.path['path'] = os.path.abspath(os.path.dirname(cf))
+        if "&PWD" in self.cf.get('PLOT_CONFI', 'path').strip().upper():
+            self.path['path'] = self.cf.get('PLOT_CONFI', 'path').replace("&pwd", os.path.abspath(os.path.dirname(cf)))
+            # self.path['path'] = os.path.abspath(os.path.dirname(cf))
         else:
             self.path['path'] = os.path.abspath(
                 self.cf.get('PLOT_CONFI', 'path'))

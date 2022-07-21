@@ -178,6 +178,7 @@ class Possion_Disk(Sampling_method):
 
         self.cubes = pd.read_csv(self.path['cubedir'])
         self.points = pd.read_csv(self.path['pointsdir'])
+        self.grays = pd.read_csv(self.path['graydir'])
 
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
@@ -195,12 +196,46 @@ class Possion_Disk(Sampling_method):
             tpath = os.path.join(os.path.dirname(self.path['datadir']), ".Running", "{}_{}".format(os.path.basename(self.path['datadir']), self.timelock))
             move(self.path['datadir'], tpath)
         self.data = []
-        self.status = "READY"
         
+    def free_samples_resume(self):
+        # print(self.points)
+        fres = self.points.loc[self.points['Status'] == "Free"]
+        while self.info['nsample']['free'] > 0:
+            from copy import deepcopy
+            from sample import Sample 
+            new = Sample()
+            new.status = "Ready"
+            new.grayed = False
+            new.func = deepcopy(self.func)
+            new.expr = deepcopy(self.expr)
+            new.likelihood = deepcopy(self.pars['likelihood'])
+
+            raw = self.points.loc[self.points['Status'] == "Free"].iloc[0]
+            new.id = raw['ID']
+            new.par = raw
+            new.pack = self.pack 
+            new.path['info'] = os.path.join(self.path['Samples_info'], str(raw['ID']))
+            new.path['scanner_run_info'] = self.path['run_info']
+
+            self.samples[new.id] = new 
+            if not os.path.exists(new.path['info']):
+                os.makedirs(new.path['info'])
+            else:
+                from shutil import rmtree
+                rmtree(new.path['info'])
+                os.makedirs(new.path['info'])
+            self.samples[new.id].init_logger(self.cf['logging']['scanner'])
+            self.samples[new.id].logger.warning("Resume point ... ")
+            self.change_point_status_in_data(new.id, "Ready")
+            self.check_samples_status_number(False)
+            
+            # break
+            
+        # print(self.samples)
+
     def clear_rerun_sample_data(self, rerun):
         self.logger.info("Cleanning the sample data with rerun tags: {}".format(rerun))
         allpoints = pd.read_csv(self.path['datadir'])
-        print(allpoints)
         for tag in rerun:
             ids = self.points.loc[self.points['Status'] == tag]
             discard = "|".join(list(ids.ID))
@@ -220,6 +255,7 @@ class Possion_Disk(Sampling_method):
             if os.path.exists(self.path['datadir']):
                 ad.append(self.path['datadir'])
             gds = []
+            print(ad)
             for ff in ad:
                 ds = pd.read_csv(ff)
                 gds.append(ds)
@@ -244,6 +280,10 @@ class Possion_Disk(Sampling_method):
                 if self.info['nsample']['live'] > 0:
                     self.get_new_sample()
                 self.check_generator_status()
+            elif self.status == "RESUME":
+                self.free_samples_resume()
+                self.status = "RUNNING"
+
                 # self.message_out_status()
 
             if self.cf['default setting']['sampling']['demo']:
@@ -278,6 +318,12 @@ class Possion_Disk(Sampling_method):
                         finiids.append(smp.id)
         if doneids + stopids + finiids:
             self.check_samples_status_number(True)
+        if doneids:
+            for sid in doneids:
+                self.samples.pop(sid)
+        if stopids:
+            for sid in stopids:
+                self.samples.pop(sid)
 
     def ready_sample_start_run(self):
         sids = []
