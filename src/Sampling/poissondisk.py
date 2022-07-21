@@ -35,6 +35,7 @@ class Possion_Disk(Sampling_method):
         self.timelock = get_time_lock(
             self.cf['default setting']['sampling']['TSavePoint'])
         self.pars['maxTry'] = self.cf['default setting']['sampling']['maxTry']
+        self.info['reFINISH'] = False
 
     def set_pars(self):
         self.pars = {
@@ -186,16 +187,20 @@ class Possion_Disk(Sampling_method):
         self.combine_data()
         # print(self.path)
         self.check_samples_status_number(True)
-        self.logger.info("Poisson Disk Sampling reset running samples to free status ... ")
-        self.reset_running_samples_to_free()
-        self.check_samples_status_number(True)
-        if rerun is not None:
-            self.clear_rerun_sample_data(rerun)
-        if os.path.exists(self.path['datadir']):
-            from shutil import move, copyfile
-            tpath = os.path.join(os.path.dirname(self.path['datadir']), ".Running", "{}_{}".format(os.path.basename(self.path['datadir']), self.timelock))
-            move(self.path['datadir'], tpath)
-        self.data = []
+        self.check_generator_status()
+        if not self.status == "FINISH":
+            self.logger.info("Poisson Disk Sampling reset running samples to free status ... ")
+            self.reset_running_samples_to_free()
+            self.check_samples_status_number(True)
+            if rerun is not None:
+                self.clear_rerun_sample_data(rerun)
+            if os.path.exists(self.path['datadir']):
+                from shutil import move, copyfile
+                tpath = os.path.join(os.path.dirname(self.path['datadir']), ".Running", "{}_{}".format(os.path.basename(self.path['datadir']), self.timelock))
+                move(self.path['datadir'], tpath)
+            self.data = []
+        else:
+            self.info['reFINISH'] = True  
         
     def free_samples_resume(self):
         # print(self.points)
@@ -244,24 +249,25 @@ class Possion_Disk(Sampling_method):
         allpoints.to_csv(self.path['datadir'], index=False)
 
     def combine_data(self):
-        rpth = os.path.join(self.path['save dir'], ".Running")
-        ad = []
-        for ff in os.listdir(rpth):
-            fp = os.path.join(rpth, ff)
-            if "AllData.csv" in ff: 
-                ad.append(fp)
-        if ad:
-            self.logger.info("Combining data files")
-            if os.path.exists(self.path['datadir']):
-                ad.append(self.path['datadir'])
-            gds = []
-            print(ad)
-            for ff in ad:
-                ds = pd.read_csv(ff)
-                gds.append(ds)
-                os.remove(ff)
-            df = pd.concat(gds)
-            df.to_csv(self.path['datadir'], index=False)
+        if not self.info['reFINISH']:
+            rpth = os.path.join(self.path['save dir'], ".Running")
+            ad = []
+            for ff in os.listdir(rpth):
+                fp = os.path.join(rpth, ff)
+                if "AllData.csv" in ff: 
+                    ad.append(fp)
+            if ad:
+                self.logger.info("Combining data files")
+                if os.path.exists(self.path['datadir']):
+                    ad.append(self.path['datadir'])
+                gds = []
+                print(ad)
+                for ff in ad:
+                    ds = pd.read_csv(ff)
+                    gds.append(ds)
+                    os.remove(ff)
+                df = pd.concat(gds)
+                df.to_csv(self.path['datadir'], index=False)
 
     def generate_events(self):
         while not self.status == "FINISH":
@@ -337,21 +343,22 @@ class Possion_Disk(Sampling_method):
             self.check_samples_status_number(True)
 
     def afterrun_generator(self):
-        self.cubes.to_csv(self.path['cubedir'], index=False)
-        self.grays.to_csv(self.path['graydir'], index=False)
-        self.points.to_csv(self.path['pointsdir'], index=False)
-        from copy import deepcopy
-        sdata = deepcopy(self.data)
-        sdata = pd.DataFrame(sdata)
-        sdata.to_csv(self.path['datadir'], index=False)
+        if not self.info['reFINISH']:
+            self.cubes.to_csv(self.path['cubedir'], index=False)
+            self.grays.to_csv(self.path['graydir'], index=False)
+            self.points.to_csv(self.path['pointsdir'], index=False)
+            from copy import deepcopy
+            sdata = deepcopy(self.data)
+            sdata = pd.DataFrame(sdata)
+            sdata.to_csv(self.path['datadir'], index=False)
 
-        # self.data.to_csv(self.path['datadir'], index=False)
+            # self.data.to_csv(self.path['datadir'], index=False)
 
-        if self.cf['default setting']['sampling']['demo']:
-            self.ax.set_xlim(-0.5, 1.5)
-            self.ax.set_ylim(-0.5, 1.5)
+            if self.cf['default setting']['sampling']['demo']:
+                self.ax.set_xlim(-0.5, 1.5)
+                self.ax.set_ylim(-0.5, 1.5)
 
-            self.fig.savefig("END.png", dpi=300)
+                self.fig.savefig("END.png", dpi=300)
 
     def reset_running_samples_to_free(self):
         while self.info['nsample']['runn'] > 0:
