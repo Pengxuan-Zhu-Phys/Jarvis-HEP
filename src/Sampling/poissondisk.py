@@ -44,6 +44,15 @@ class Possion_Disk(Sampling_method):
             }
         self.decode_sampling_variable_setting(self.scf.get("Sampling_Setting", "variables"))
         self.decode_function()        
+        self.decode_selection()
+
+    def decode_selection(self):
+        if self.scf.has_option("Sampling_Setting", "selection"):
+            self.pars['selection'] = self.scf.get("Sampling_Setting", "selection")
+            self.pars['filter'] = "ON"
+        else:
+            self.pars['selection'] = True
+            self.pars['filter'] = "OFF"
 
     def decode_sampling_variable_setting(self, prs):
         self.pars['vars'] = {}
@@ -276,7 +285,8 @@ class Possion_Disk(Sampling_method):
                 cube = np.random.rand(self.pars['ndim'])
                 self.add_points_by_cube(cube)
                 self.check_samples_status_number(True)
-                self.status = "RUNNING"
+                if self.info['nsample']['tot'] > 0:
+                    self.status = "RUNNING"
             elif self.status == "RUNNING":
                 self.check_running_sample_and_run_next_step()
                 if self.info['nsample']['live'] < self.info['nsample']['dead']:
@@ -427,7 +437,9 @@ class Possion_Disk(Sampling_method):
                 smp.trys = self.sampling_sphere(sid)
 
                 for ii in range(smp.trys.shape[0]):
-                    smp.children.append(self.add_points_by_cube(smp.trys[ii]))
+                    nid = self.add_points_by_cube(smp.trys[ii])
+                    if nid:
+                        smp.children.append(nid)
                 for cid in smp.children:
                     self.samples[cid].mother = sid
 
@@ -489,34 +501,41 @@ class Possion_Disk(Sampling_method):
         for ii in range(self.pars['ndim']):
             cub['cube{}'.format(ii)] = cube[ii]
         # self.cubes = self.cubes.append(cub, ignore_index=True)
-        self.cubes = pd.concat([pd.DataFrame([cub]), self.cubes], axis=0, ignore_index=True)
 
         raw = deepcopy(self.pars['emptyData'])
         raw['ID'] = cub['ID']
         for kk, vv in self.pars['vars'].items():
             raw[kk] = vv['expr'].subs(cub)
-        self.points = pd.concat([pd.DataFrame([raw]), self.points], axis=0, ignore_index=True)
         # self.points = self.points.append(raw, ignore_index=True)
         raw = dict(raw)
+        selection = False
+        if self.pars['filter'] == "ON":
+            expr = deepcopy(self.pars['selection'])
+            expr = sympify(expr)
+            selection = expr.subs(raw)
+        if selection:
+            self.points = pd.concat([pd.DataFrame([raw]), self.points], axis=0, ignore_index=True)
+            self.cubes = pd.concat([pd.DataFrame([cub]), self.cubes], axis=0, ignore_index=True)
+            new.par = raw
+            new.cube = cube
+            new.local = []
+            new.pack = self.pack
+            new.path['info'] = os.path.join(
+                self.path['Samples_info'], str(cub['ID']))
+            new.path['scanner_run_info'] = self.path['run_info']
 
-        new.par = raw
-        new.cube = cube
-        new.local = []
-        new.pack = self.pack
-        new.path['info'] = os.path.join(
-            self.path['Samples_info'], str(cub['ID']))
-        new.path['scanner_run_info'] = self.path['run_info']
-
-        self.samples[new.id] = new
-        if not os.path.exists(self.samples[new.id].path['info']):
-            os.makedirs(self.samples[new.id].path['info'])
+            self.samples[new.id] = new
+            if not os.path.exists(self.samples[new.id].path['info']):
+                os.makedirs(self.samples[new.id].path['info'])
+            else:
+                from shutil import rmtree
+                rmtree(self.samples[new.id].path['info'])
+                os.makedirs(self.samples[new.id].path['info'])
+                self.samples[new.id].init_logger(self.cf['logging']['scanner'])
+            self.check_samples_status_number()
+            return new.id
         else:
-            from shutil import rmtree
-            rmtree(self.samples[new.id].path['info'])
-            os.makedirs(self.samples[new.id].path['info'])
-            self.samples[new.id].init_logger(self.cf['logging']['scanner'])
-        self.check_samples_status_number()
-        return new.id
+            return False
 
     def pick_sample_ID_by_status(self, status):
         lives = self.cubes.loc[self.cubes['Status'] == status]
