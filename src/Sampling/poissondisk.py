@@ -508,7 +508,7 @@ class Possion_Disk(Sampling_method):
             raw[kk] = vv['expr'].subs(cub)
         # self.points = self.points.append(raw, ignore_index=True)
         raw = dict(raw)
-        selection = False
+        selection = True
         if self.pars['filter'] == "ON":
             expr = deepcopy(self.pars['selection'])
             expr = sympify(expr)
