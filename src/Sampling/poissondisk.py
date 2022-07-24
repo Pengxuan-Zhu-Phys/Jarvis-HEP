@@ -2,6 +2,7 @@
 
 from curses import tparm
 import os
+from select import select
 import sys
 from sampling import Sampling_method
 from random import randint
@@ -51,7 +52,7 @@ class Possion_Disk(Sampling_method):
             self.pars['selection'] = self.scf.get("Sampling_Setting", "selection")
             self.pars['filter'] = "ON"
         else:
-            self.pars['selection'] = True
+            self.pars['selection'] = "True"
             self.pars['filter'] = "OFF"
 
     def decode_sampling_variable_setting(self, prs):
@@ -507,16 +508,16 @@ class Possion_Disk(Sampling_method):
         for kk, vv in self.pars['vars'].items():
             raw[kk] = vv['expr'].subs(cub)
         # self.points = self.points.append(raw, ignore_index=True)
-        raw = dict(raw)
         selection = True
         if self.pars['filter'] == "ON":
+            from sympy import sympify 
             expr = deepcopy(self.pars['selection'])
-            expr = sympify(expr)
-            selection = expr.subs(raw)
+            expr = sympify(expr, locals=dict(raw))
+            selection = deepcopy(expr)
         if selection:
             self.points = pd.concat([pd.DataFrame([raw]), self.points], axis=0, ignore_index=True)
             self.cubes = pd.concat([pd.DataFrame([cub]), self.cubes], axis=0, ignore_index=True)
-            new.par = raw
+            new.par = dict(raw)
             new.cube = cube
             new.local = []
             new.pack = self.pack
