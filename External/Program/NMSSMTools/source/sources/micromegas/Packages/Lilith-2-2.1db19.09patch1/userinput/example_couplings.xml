@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+
+<lilithinput>
+  <!-- reduced couplings to the Higgs boson as input -->
+  <reducedcouplings>
+    <mass>125</mass>
+    <!-- optionnal:
+    if not given, Higgs mass of 125 GeV is assumed
+    valid Higgs masses are in the [123,128] GeV range
+    -->
+
+    <C to="tt">1.0</C> <!-- top quarks -->
+    <C to="cc">2.0</C> <!-- charm quarks -->
+    <C to="bb">1.0</C> <!-- bottom quarks -->
+    <C to="tautau">1.0</C> <!-- tau leptons -->
+    <C to="mumu">1.0</C> <!-- muon leptons -->
+    <!--
+    also possible to specify common couplings:
+    - "dd" instead of "bb", "tautau" and "mumu"
+    - "ff" instead of "tt", "bb", "cc", "tautau" and "mumu"
+    - "uu" instead of "tt" and "cc"
+    - "ll" instead of "tautau" and "mumu"
+    -->
+
+    <C to="ZZ">1.3</C>
+    <!--
+    also possible to specify a common "VV" instead of "WW" and "ZZ"
+    -->
+
+    <!--
+    the following reduced couplings are optionnal.
+    if not provided, they are calculated from
+    the above couplings, assuming negligible effect from
+    BSM particles in the loop
+    -->
+    <C to="gammagamma">1.0</C>
+    <C to="Zgamma">1.0</C>
+    <!--C to="gg">1.0</C-->
+    <!--
+    it is possible to specify for="prod|decay|all" for <C to="gg">
+    if not given, for="all" is assumed
+    -->
+
+    <!--
+    "VBF" reduced coupling: if not provided, it is calculated from
+    the couplings "WW" and "ZZ" given above
+    -->
+    <!--C to="VBF">1.0</C-->
+
+    <!--
+    precision of the calculation of gg->H, H->gg, H->gamma gamma and H->Zgamma
+    "LO" or "BEST-QCD"
+    precision for VBF: "LO" or NLO-QCD identified by "BEST-QCD" as well
+    -->
+    <precision>BEST-QCD</precision>
+
+    <!--
+    the following is optionnal: if not given, no decay into new particles
+    only types allowed: "invisible" and "undetected"
+    -->
+    <extraBR>
+      <BR to="invisible">0.0</BR>
+      <BR to="undetected">0.0</BR>
+    </extraBR>
+  </reducedcouplings>
+</lilithinput>

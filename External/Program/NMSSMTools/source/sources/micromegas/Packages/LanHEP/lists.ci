@@ -1,0 +1,138 @@
+
+
+__inline int is_empty_list(List l)
+	{
+	return l==0;
+	}
+
+	
+__inline union LISTpoint *LIST_pointer(List l)
+	{
+	register int bno,bpos;
+	if(is_empty_list(l))
+		return NULL;
+	bno=l&0xff0000;
+	bno/=0x10000;
+	bpos=l&0xffff;
+	return LISTS_buffers[bno]+bpos;
+	}	
+
+__inline void LIST_free(List l, union LISTpoint *p)
+	{
+	p->p.next=LISTS_next_free;
+	p->p.l=l;
+	LISTS_next_free=p;
+	LISTS_free++;
+	}
+	
+__inline union LISTpoint *LIST_alloc(List *li)
+	{
+	union LISTpoint *p;
+	if(LISTS_next_free==NULL)
+		{
+		int i;
+		if(LISTS_blocks==256)
+			{  puts("Internal error (too much lists)."); exit(0); }
+		i=sizeof(union LISTpoint)*65500;
+		p=LISTS_buffers[LISTS_blocks]=(union LISTpoint*)malloc(i);
+		if(p==NULL)
+			{  printf("Internal error (lack space for lists, %d blocks of %d bytes).\n",
+					LISTS_blocks, i); exit(0); }
+		for(i=0;i<65500;i++)
+			{
+			p[i].p.next=LISTS_next_free;
+			LISTS_next_free=p+i;
+			p[i].p.l=0x7d000000+LISTS_blocks*0x10000+i;
+			}
+		LISTS_blocks++;
+		}
+	p=LISTS_next_free;
+	LISTS_next_free=p->p.next;
+	*li=p->p.l;
+	p->d.value=0;
+	p->d.nextp=NULL;
+	p->d.nextl=0;
+	LISTS_allocs++;
+	return p;
+	}
+	
+	
+__inline List NewList(void)
+	{
+	return 0;
+	}
+	
+	
+__inline Term ListFirst(List l)
+	{
+	union LISTpoint *p;
+	p=LIST_pointer(l);
+	return p->d.value;
+	}
+	
+__inline List ListTail(List l)
+	{
+	union LISTpoint *p;
+	p=LIST_pointer(l);
+	return p->d.nextl;
+	}	
+
+__inline List AppendFirst(List li,Term t)
+	{
+	union LISTpoint *p1, *p2;
+	List l1;
+	p1=LIST_alloc(&l1);
+	p1->d.value=t;
+	if(li==0)
+		return l1;
+	p2=LIST_pointer(li);
+	p1->d.nextl=li;
+	p1->d.nextp=p2;
+	return l1;
+	}
+	
+__inline List AppendLast(List li,Term t)
+	{
+	union LISTpoint *p1, *p2;
+	List l1;
+	p1=LIST_alloc(&l1);
+	p1->d.value=t;
+	if(li==0)
+		return l1;
+	p2=LIST_pointer(li);
+	while(p2->d.nextp!=NULL)
+		p2=p2->d.nextp;
+	p2->d.nextl=l1;
+	p2->d.nextp=p1;
+	return li;
+	}
+
+__inline int ListLength(List l)
+	{
+	union LISTpoint *p;
+	int len;
+	len=0;
+	if(l==0) return 0;
+	p=LIST_pointer(l);
+	while(p!=NULL)
+		{
+		p=p->d.nextp;
+		len++;
+		}
+	return len;
+	}
+
+
+__inline void ChangeList(List li, Term nv)
+     {
+     union LISTpoint *p;
+     p=LIST_pointer(li);
+     /*FreeAtomic(p->d.value);*/
+     p->d.value=nv;
+     }
+
+__inline int is_list(Term a)
+	{
+	return a/0x1000000 == 125;
+	}
+

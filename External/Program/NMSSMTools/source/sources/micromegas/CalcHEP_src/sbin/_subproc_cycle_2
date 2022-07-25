@@ -1,0 +1,128 @@
+:
+
+rm -f run_details.txt cycle_results
+
+nFirst=0
+strCom="{}0"
+nOld=1
+nSub=0
+
+CSt=0
+dCSt=0
+Events=0
+Flux=1E20
+
+if(test  $# -ge 2) then 
+    Events=$2
+    echo $Events events are requested
+    if(test $# -ge 3) then
+       Flux=$3 
+       echo Number of enents limited by flux $Flux [1/fb]
+    else 
+       echo Use second  parameter to specify flux in [1/fb]               
+    fi
+else
+    echo Use first parameter to specify number of events to generate
+    echo Second paramter "(if exists)"  specifies  flux in [1/fb] and used to restricts  number of events to generate.
+fi
+
+
+while(test $nSub -ne  $nOld)
+do
+  nOld=$nSub
+
+  ./n_calchep -blind "{$strCom" 1>/dev/null 2>/dev/null 
+   err=$?; if(test $err -ne 0) then exit $err; fi
+
+  nSess=`grep Session_number session.dat |cut -f2 -d" "`
+
+  if(test $nFirst -eq 0) then
+     nFirst=$nSess
+  fi
+
+  info=`grep Subprocess  session.dat`
+
+  nSub=`echo $info|cut -f2 -d" "`
+
+  if(test $nSub -ne $nOld) then
+
+    CSi0=`$1/run_vegas`
+    err=$?; if(test $err -ne 0) then exit $err; fi  
+
+     CSi=`echo $CSi0| cut -f1 -d" "`
+    dCSi=`echo $CSi0| cut -f2 -d" "`
+   
+    CSt=`$1/calc "$CSt +  ($CSi)"`
+    dCSt=`$1/calc "$dCSt +($CSi*$dCSi)^2"`
+    
+     
+    if(test $Events -gt 0) then  
+      Nevents=`$1/calc "floor(min($Events,$Flux*($CSi)*1000))"`
+      
+      Nevents=`printf '%.0f' $Nevents`
+      
+      if(test $Nevents -gt 0) then 
+      ./n_calchep -blind "[[[[[[[[[{[[[[[[[[[{$Nevents{[{0" 1>/dev/null 2>/dev/null
+      fi
+      echo  $info  Cross section = $CSi pb "($dCSi%)" , $Nevents  events 
+      echo  $info  Cross section = $CSi pb "($dCSi%)" , $Nevents  events >>cycle_results
+    else 
+      echo  $info  Cross section = $CSi pb "($dCSi%)"
+      echo  $info  Cross section = $CSi pb "($dCSi%)" >>cycle_results
+    fi
+    strCom="[$strCom"
+  fi
+done 
+
+
+nLast=`grep Session_number session.dat|cut -f2 -d" "`
+
+dirName="$nFirst"_"$nLast"
+
+mkdir  $dirName
+
+allDist=
+n=$nFirst
+while(test $n -le $nLast )
+do 
+   mv prt_$n $dirName
+   if(test -r distr_$n) then 
+      allDist="$allDist   distr_$n"
+   fi
+   if(test -r events_$n.txt) then 
+        mv  events_$n.txt $dirName
+   fi 
+   n=`expr $n + 1`
+done
+
+   n=`grep -n Vegas_calls  session.dat|cut -f1 -d:`
+   echo "<calchep-session.dat>" > run_details.txt
+   echo "<![CDATA[">>run_details.txt
+   cat  session.dat | head -$n | grep -v Subproces  |grep -v Session |grep -v nPoints= |grep -v f: >>  run_details.txt
+   echo "]]>" >> run_details.txt
+   echo "</calchep-session.dat>" >>run_details.txt
+
+
+if(test  $Events -gt 0 ) then 
+  ./n_calchep -blind "[[[{[{{0" 1>/dev/null 2>/dev/null
+   mv  decaySLHA_$nLast.txt  decaySLHA.txt
+
+
+   $1/event_mixer $Flux  $Events   $dirName
+   mv event_mixer.lhe events_"$dirName".lhe 
+   mv decaySLHA.txt $dirName
+   echo Events in LHE format: events_"$dirName".lhe 
+fi
+
+if(test -n "$allDist") then  
+   $1/sum_distr  $allDist  > distr_"$dirName"
+   mv $allDist $dirName
+   echo Sum of distributions is stored in file distr_"$dirName"
+fi 
+dCSt=`$1/calc "sqrt($dCSt)/$CSt"`
+echo Total Cross Section $CSt [pb]  "($dCSt%)"
+echo Total Cross Section $CSt [pb]  "($dCSt%)" >> cycle_results
+echo See  details in directory $dirName 
+cat run_details.txt cycle_results > $dirName/run_details.txt
+rm run_details.txt cycle_results 
+

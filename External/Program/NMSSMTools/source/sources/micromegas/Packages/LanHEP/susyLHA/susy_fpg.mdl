@@ -1,0 +1,90 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Gauge fixing
+
+
+lterm  -1/2*(deriv*A)**2.
+
+lterm  -1/2*(deriv*G)**2.
+
+lterm  -1/2*(2*(deriv*'W+'+i*MW*'W+.f')*(deriv*'W-'-i*MW*'W-.f') +
+	(deriv*Z+MW/CW*'Z.f')**2).
+
+
+% Ghost terms
+
+lterm  i*g*eps*deriv*WGh*Wgh*W.
+lterm -i*GG*f_SU3*ccghost(G)*G^mu*deriv^mu*ghost(G).
+
+
+do_if CPV==on.
+lterm -EE**2/SW**2/4*Sqrt2*{vev1, vev2}*
+		{Zh11*h1+Zh12*h2+Zh13*h3, Zh21*h1+Zh22*h2+Zh23*h3}*
+	('Z.C'*'Z.c'/CW**2+'W-.C'*'W+.c'+'W+.C'*'W-.c')
+      +i*EE*MW/2/SW*(-'W-.C'*'W+.c'+'W+.C'*'W-.c')*'Z.f'.
+
+do_else_if NMSSM==on.
+
+lterm -EE**2/SW**2/4*Sqrt2*{vev1, vev2}*
+		{Zh11*h1+Zh12*h2+Zh13*h3, Zh21*h1+Zh22*h2+Zh23*h3}*
+	('Z.C'*'Z.c'/CW**2+'W-.C'*'W+.c'+'W+.C'*'W-.c')
+      +i*EE*MW/2/SW*(-'W-.C'*'W+.c'+'W+.C'*'W-.c')*'Z.f'.
+
+do_else.
+
+lterm -EE**2/SW**2/4*Sqrt2*{vev1, vev2}*{{ca,sa},{-sa,ca}}*
+	('Z.C'*'Z.c'/CW**2+'W-.C'*'W+.c'+'W+.C'*'W-.c')*{H,h}
+      +i*EE*MW/2/SW*(-'W-.C'*'W+.c'+'W+.C'*'W-.c')*'Z.f'.
+
+end_if.
+
+lterm EE*MW/2/SW/CW*('Z.C'*'W-.c'-'W-.C'*'Z.c'*(CW**2-SW**2)-
+		'W-.C'*'A.c'*2*SW*CW)*'W+.f'.
+
+lterm EE*MW/2/SW/CW*('Z.C'*'W+.c'-'W+.C'*'Z.c'*(CW**2-SW**2)-
+		'W+.C'*'A.c'*2*SW*CW)*'W-.f'.
+
+
+end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Non-linear gauge implementation.
+% To use, remove all above this.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+read susy_brst.
+
+option InfiOrder=0.
+
+lterm -i*GG*f_SU3*ccghost(G)*G^mu*deriv^mu*ghost(G).
+lterm  -1/2*(deriv*G)**2.
+
+parameter nla=4.67, nlb=5.98, nld1=4.18, nld2=3.45,  nlk=2.87, nlr=3.87,
+		 nle1=4.09, nle2=3.149.
+
+
+let G_A = deriv*A.
+
+let G_Z = deriv*Z+(MW/CW+EE/SW/CW/2*(nle1*h+nle2*H))*'Z.f'.
+
+let G_Wp= (deriv-i*nla*EE*A-i*EE/SW*CW*nlb*Z)*'W+'
+	+i*(MW+(nld1*h-nld2*H)/2*EE/SW+i*nlk*EE/SW/2*'Z.f'
+	+i*nlr*EE/SW/2*'H3')*'W+.f'.
+
+let G_Wm= (deriv+i*nla*EE*A+i*EE/SW*CW*nlb*Z)*'W-'
+	-i*(MW+(nld1*h-nld2*H)/2*EE/SW-i*nlk*EE/SW/2*'Z.f'
+	-i*nlr*EE/SW/2*'H3')*'W-.f'. 
+
+lterm -G_A**2/2 - G_Wp*G_Wm - G_Z**2/2.
+
+lterm -'A.C'*brst(G_A) .
+lterm -'Z.C'*brst(G_Z).
+lterm -'W+.C'*brst(G_Wm).
+lterm -'W-.C'*brst(G_Wp).
+
+
+option InfiOrder=1.
+
+
+

@@ -1,0 +1,58 @@
+This is the changelog of the database of experimental results.
+For the changelog of the Lilith library, see ../changelog
+
+** Feb. 14, 2015: 15.02, first official release
+
+** Mar. 10, 2015: 15.03, taking into account the latest CMS ttH(H->bb) 
+                  result (mild difference wrt 15.02):
+
+                  * CMS-HIG-14-010 ttH(bb) (arXiv:1502.02485) 
+                    1D result added
+	          * CMS-HIG-14-009 VH(bb) 1D result added
+                  * CMS-HIG-14-009 (VH, ttH)(bb) 2D result 
+                    removed from data/latest.list
+	          * CMS-HIG-14-010 ttH(bb) and CMS-HIG-14-009 VH(bb)
+		    1D results added to data/latest.list
+
+** Apr. 10, 2015: 15.04, Moriond 2015 update: 
+                  supersedes most of the 15.03 ATLAS results
+
+		  * ATLAS-CONF-2015-006 ttH(multileptons) 
+		    1D results added
+		  * ATLAS-CONF-2015-007 (ggH+ttH,VBF+VH)(gamma-gamma,tau-tau,WW,ZZ)
+ 		    2D results added
+		  * ATLAS-CONF-2015-007 (ggH+ttH+VBF+VH)(muon-muon)
+ 		    1D result added
+		  * ATLAS-CONF-2015-007 (ggH+ttH+VBF+VH)(Zgamma)
+ 		    1D result added
+		  * ATLAS-HIGG-2013-27 (ttH)(bb)
+		    1D result added
+
+** Aug. 11, 2015: 15.08, ATLAS Moriond results now published, ATLAS full 2D likelihood WW,
+		  new ATLAS VBF invisible result, new CMS VBF(bb) result
+
+		  * ATLAS-HIGG-2013-15 (ggH+ttH,VBF+VH)(WW)
+                    full 2D likelihood added
+		  * ATLAS-CONF-2015-004 (VBF+ggH)(invisible)
+                    1D result added
+                  * CMS-HIG-14-004 VBF(bb)
+		    1D result added
+		  * ATLAS-HIGG-2014-06 (ggH+ttH,VBF+VH)(gamma-gamma,tau-tau,ZZ)
+		    supersedes ATLAS-CONF-2015-007 (results unchanged)
+		  * ATLAS-HIGG-2014-06 (ggH+ttH,VBF+VH)(muon-muon,Zgamma)
+		    supersedes ATLAS-CONF-2015-007 (results mostly unchanged)
+		  * ATLAS-HIGG-2013-26 ttH(multileptons)
+		    supersedes ATLAS-CONF-2015-006 (results unchanged)
+
+** Sep. 18, 2015: 15.09, preliminary Run I ATLAS and CMS combined results added 
+                  (ggH+ttH,VBF+VH)(gammagamma, WW, ZZ, tautau) and (ttH,VH)(bb).
+
+** May, 2017: 17.05, final run1 from the ATLAS+CMS combination added, 
+	          as well as preliminary 13 TeV results.
+
+** June 2019: 19.06, full update with 36 fb-1 Run 2 results from ATLAS and CMS 	  
+                     including N-dim correlations whereever available
+
+** Sep 30, 2019: 19.09, added 3 missing 36 fb-1 Run 2 results from ATLAS: 
+                        HIGG-2017-14, HIGG-2016-10 and HIGG-2018-54 	  
+                             

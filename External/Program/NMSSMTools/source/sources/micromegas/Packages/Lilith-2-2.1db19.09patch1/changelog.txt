@@ -1,0 +1,49 @@
+This is the changelog of the Lilith library.
+For the changelog of the database of experimental results, see data/changelog
+
+** Feb. 14, 2015: v1.1, first official release
+
+** Mar. 10, 2015: v1.1.1, correction of a minor bug in the Lilith C API
+                  (the Python Lilith library was not found depending on
+                   the location of the main source file)
+
+** Apr. 14, 2015: v1.1.2, list of possible final states and reduced couplings 
+                  supplemented by muon-muon
+
+** Aug. 11, 2015: v1.1.3
+		  * File containing the bibtex references to the latest experimental
+                    results added; data/latest-references.txt
+                  * Common coupling "ll" grouping both "mumu" and "tautau" added
+                  * Correction of a bug in the reduced coupling mode that made the
+                    the use of the "ZH" and "WH" couplings not possible
+                  * Correction of a bug that made the code exit in the case that both
+                    the "LO" and "BEST-QCD" precisions were used in a single run in the
+                    reduced couplings mode, thanks to Sushruth Malaridharan
+
+** May, 2017: v1.1.4
+		  * Internal modifications for the interface to micrOMEGAs 4.3.1
+		    (Lilith≥1.1.4 can be directly used in micrOMEGAs≥4.3.1, see arXiv:1606.03834)
+		  * 2HDM fit routine added in examples/python
+		  * 13 TeV results supported (form factors, cross sections grids implemented)
+
+** June, 2019: v2.0 by Sabine Kraml, Tran Quang Loc, Dao Thi Nhung and Le Duc Ninh  
+    code:
+      * extended likelihood calculation by variable Gaussian and generalized Poisson dist.
+      * added use of N-dim correlation matrices (for Gaussian or variable Gaussian approx.)
+      * added tH production mode and top = ttH+tH category
+      * added gg -> VH for VH production mode
+      * added bbH production mode (but no experimental data available so far)
+      * added tHq_tHW_ttH and WH_qqZH_ggZH_VBF xsection grids  
+      * corrected a minor bug (prod == prod + "13") in computelikelihood.py
+      * corrected a bug in writeresults() with XML format (case dim = 2)
+      * fixed a minor bug in writeresults() with SLHA format
+      * updated and improved python code examples
+    database:  
+      * updated database to 36fb-1 Run 2 results, see data/changelog.txt
+
+** Dec, 2020: v2.1 by Marius Bertrand, Sabine Kraml, Tran Quang Loc, Dao Thi Nhung and Le Duc Ninh  
+    code:
+      * code translated from Python 2 to Python 3
+      * examples adapted to work with new iminuit 2.x series as well as iminuit 1.x
+    database:  
+      * HIGG-2018-54_VBF_invisible_f.xml extended for correct extrapolation

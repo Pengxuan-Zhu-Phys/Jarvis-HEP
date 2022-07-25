@@ -1,0 +1,159 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Gauge bosons & gaugino (separately for NMSSM and MSSM)
+
+
+let B0 = -SW*Z+CW*A,
+    W3 =  CW*Z+SW*A.
+
+let W  =  {'W+',W3,'W-'},
+    Wc =  {'W-',W3,'W+'}.
+
+let f_B0 = i*(Zn11*  up(~o1) +Zn12*  up(~o2) +Zn13*  up(~o3) +Zn14*  up(~o4)).
+%let f_B0b=-i*(Zn11*down(~o1) +Zn12*down(~o2) +Zn13*down(~o3) +Zn14*down(~o4)).
+let f_B0b=anti(f_B0).
+
+
+let f_Wp = i*(Zp11*up('~1+')+Zp12*up('~2+')).
+let f_W3 = i*(Zn21*up(~o1)  +Zn22*up(~o2) +Zn23*up(~o3) +Zn24*up(~o4)).
+let f_Wm = i*(Zm11*up('~1-')+Zm12*up('~2-')).
+
+let f_Wpb =-i*(Zp11*down('~1-')+Zp12*down('~2-')).
+%let f_W3b =-i*(Zn21*down(~o1)  +Zn22*down(~o2)+Zn23*down(~o3)+Zn24*down(~o4)).
+let f_W3b=anti(f_W3).
+let f_Wmb =-i*(Zm11*down('~1+')+Zm12*down('~2+')).
+
+let f_W = { f_Wp , f_W3 , f_Wm },
+    f_Wb= { f_Wpb, f_W3b, f_Wmb},
+    f_Wc= { f_Wmb, f_W3b, f_Wpb}.
+
+let f_G = -i*up(~g), f_Gb = i*down(~g).
+
+
+% Higgs & higgsino 
+
+let vev1=Sqrt2*MW*SW/EE*cb, vev2=Sqrt2*MW*SW/EE*sb.
+
+
+let s_h1 = { vev(vev1) + ((ca*H-sa*h) + i*(-cb*'Z.f'+sb*H3 ))/Sqrt2, 
+		         (-cb*'W-.f' + sb*'H-') },
+    s_H1 = anti(s_h1).
+
+let s_h2 = {              (sb*'W+.f'+cb*'H+'),
+            vev(vev2) + ((sa*H+ca*h) + i*(cb*H3+sb*'Z.f'))/Sqrt2 },
+    s_H2 = anti(s_h2).
+
+
+let f_h1 = { Zn31*up(~o1)+Zn32*up(~o2)+Zn33*up(~o3)+Zn34*up(~o4),
+	      Zm21*up('~1-')+Zm22*up('~2-') },
+    f_h1b= anti(f_h1).
+
+let f_h2 = { Zp21*up('~1+')+Zp22*up('~2+'),
+              Zn41*up(~o1)+Zn42*up(~o2)+Zn43*up(~o3)+Zn44*up(~o4) },	      
+    f_h2b= anti(f_h2).
+
+% Leptons & sleptons
+
+let f_l1={up(ne), up(e)}, f_l1b=anti(f_l1),
+    f_l2={up(nm), up(m)}, f_l2b=anti(f_l2),
+    f_l3={up(nl), up(l)}, f_l3b=anti(f_l3).
+
+let f_r1=up(E), f_r1b=anti(f_r1),
+    f_r2=up(M), f_r2b=anti(f_r2),
+    f_r3=up(L), f_r3b=anti(f_r3).
+
+
+let s_l1 = { ~ne, ~e1*Zl11+ ~m1*Zl12+ ~l1*Zl13+ ~e2*Zl14+ ~m2*Zl15+ ~l2*Zl16},
+    s_L1 = anti(s_l1).
+let s_l2 = { ~nm, ~e1*Zl21+ ~m1*Zl22+ ~l1*Zl23+ ~e2*Zl24+ ~m2*Zl25+ ~l2*Zl26},
+    s_L2 = anti(s_l2).
+let s_l3 = { ~nl, ~e1*Zl31+ ~m1*Zl32+ ~l1*Zl33+ ~e2*Zl34+ ~m2*Zl35+ ~l2*Zl36},
+    s_L3 = anti(s_l3).
+
+let s_R1 = ~e1*Zl41+ ~m1*Zl42+ ~l1*Zl43+ ~e2*Zl44+ ~m2*Zl45+ ~l2*Zl46,
+    s_r1 = anti(s_R1).
+let s_R2 = ~e1*Zl51+ ~m1*Zl52+ ~l1*Zl53+ ~e2*Zl54+ ~m2*Zl55+ ~l2*Zl56,
+    s_r2 = anti(s_R2).
+let s_R3 = ~e1*Zl61+ ~m1*Zl62+ ~l1*Zl63+ ~e2*Zl64+ ~m2*Zl65+ ~l2*Zl66,
+    s_r3 = anti(s_R3).
+
+% Quarks & squarks
+
+let f_q1={up(u), Vud*up(d)+Vus*up(s)+Vub*up(b) },
+    f_q2={up(c), Vcd*up(d)+Vcs*up(s)+Vcb*up(b) },
+    f_q3={up(t), Vtd*up(d)+Vts*up(s)+Vtb*up(b) },
+    
+    f_q1b=anti(f_q1),
+    f_q2b=anti(f_q2),
+    f_q3b=anti(f_q3).
+    
+let f_u1 =up(U),   f_u1b=anti(f_u1),
+    f_u2 =up(C),   f_u2b=anti(f_u2),
+    f_u3 =up(T),   f_u3b=anti(f_u3).
+
+let f_d1 =up(D),   f_d1b=anti(f_d1),
+    f_d2 =up(S),   f_d2b=anti(f_d2),
+    f_d3 =up(B),   f_d3b=anti(f_d3).
+
+
+let _u = ~u1*Zu11+ ~c1*Zu12+ ~t1*Zu13+ ~u2*Zu14+ ~c2*Zu15+ ~t2*Zu16.
+let _c = ~u1*Zu21+ ~c1*Zu22+ ~t1*Zu23+ ~u2*Zu24+ ~c2*Zu25+ ~t2*Zu26.
+let _t = ~u1*Zu31+ ~c1*Zu32+ ~t1*Zu33+ ~u2*Zu34+ ~c2*Zu35+ ~t2*Zu36.
+    
+
+let _d = ~d1*Zd11+ ~s1*Zd12+ ~b1*Zd13+ ~d2*Zd14+ ~s2*Zd15+ ~b2*Zd16,
+    _s = ~d1*Zd21+ ~s1*Zd22+ ~b1*Zd23+ ~d2*Zd24+ ~s2*Zd25+ ~b2*Zd26,
+    _b = ~d1*Zd31+ ~s1*Zd32+ ~b1*Zd33+ ~d2*Zd34+ ~s2*Zd35+ ~b2*Zd36.
+
+let s_q1  = {_u, _d*Vud+ _s*Vus+ _b*Vub}, s_Q1 = anti(s_q1),
+    s_q2  = {_c, _d*Vcd+ _s*Vcs+ _b*Vcb}, s_Q2 = anti(s_q2),
+    s_q3  = {_t, _d*Vtd+ _s*Vts+ _b*Vtb}, s_Q3 = anti(s_q3).
+
+clear _u, _d, _c, _s, _t, _b.
+
+
+let _u =  ~u1*Zu41+ ~c1*Zu42+ ~t1*Zu43+ ~u2*Zu44+ ~c2*Zu45+ ~t2*Zu46,
+    _c =  ~u1*Zu51+ ~c1*Zu52+ ~t1*Zu53+ ~u2*Zu54+ ~c2*Zu55+ ~t2*Zu56,
+    _t =  ~u1*Zu61+ ~c1*Zu62+ ~t1*Zu63+ ~u2*Zu64+ ~c2*Zu65+ ~t2*Zu66.
+    
+
+let _d =  ~d1*Zd41+ ~s1*Zd42+ ~b1*Zd43+ ~d2*Zd44+ ~s2*Zd45+ ~b2*Zd46,
+    _s =  ~d1*Zd51+ ~s1*Zd52+ ~b1*Zd53+ ~d2*Zd54+ ~s2*Zd55+ ~b2*Zd56,
+    _b =  ~d1*Zd61+ ~s1*Zd62+ ~b1*Zd63+ ~d2*Zd64+ ~s2*Zd65+ ~b2*Zd66.
+
+
+
+ 
+let s_U1 = _u, s_u1 = anti(s_U1),
+    s_U2 = _c, s_u2 = anti(s_U2),
+    s_U3 = _t, s_u3 = anti(s_U3),
+    s_D1 = _d, s_d1 = anti(s_D1),
+    s_D2 = _s, s_d2 = anti(s_D2),
+    s_D3 = _b, s_d3 = anti(s_D3).
+
+clear _u, _d, _c, _s, _t, _b.
+
+
+
+let Wgh={'W+.c', CW*'Z.c'+SW*'A.c', 'W-.c'},
+    WGh={'W+.C', CW*'Z.C'+SW*'A.C', 'W-.C'}.
+
+let     vvev1= 1/(Sqrt2*MW*SW/EE).
+
+
+
+do_if(e_mass==on, (let ml1 = -Me*vvev1/cb), (let ml1=0)).
+do_if(mu_mass==on, (let ml2 = -Mm*vvev1/cb),(let ml2=0)).
+
+
+do_if(d_mass==on,(let md1 = -Md*vvev1/cb),(let md1=0)).
+do_if(s_mass==on,(let md2 = -Ms*vvev1/cb),(let md2=0)).
+
+
+do_if(u_mass==on,(let mu1 =  Mu*vvev1/sb),(let mu1 =  0)).
+do_if(c_mass==on,(let mu2 =  Mc*vvev1/sb),(let mu2 =  0)).
+
+
+let ml3 = -Ml*vvev1/cb, md3 = -Mb*vvev1/cb, mu3 =  Mt*vvev1/sb.
+
+

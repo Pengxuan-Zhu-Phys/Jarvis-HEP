@@ -1,0 +1,165 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Choise of gauge fixing: default is t'Hooft-Feynman.
+
+
+do_if gauge_fixing==Feynman.
+vector
+	A/A: (photon, gauge),
+	Z/Z:('Z boson', mass MZ , width wZ, gauge),
+	'W+'/'W-': ('W boson', mass MW, width wW, gauge).
+
+do_else_if gauge_fixing==unitary.
+vector
+	A/A: (photon, gauge),
+	Z/Z:('Z boson', mass MZ , width wZ),
+	'W+'/'W-': ('W boson', mass MW, width wW).
+	
+let     'Z.c'=0, 'Z.C'=0, 'W+.c'=0, 'W+.C'=0, 'W-.c'=0, 'W-.C'=0,
+        'Z.f'=0, 'W+.f'=0, 'W-.f'=0.
+
+do_else.
+
+write('Error: gauge_fixing must be either Feynman or unitary').
+quit.
+end_if.
+
+
+vector  G/G:(gluon, color c8, gauge).
+
+
+spinor e:(electron, mass Me), ne:('e-neutrino',left).
+spinor	m:(muon, mass Mm ), nm/Nm:('mu-neutrino',left).
+spinor 	nl:('tau-neutrino',left),  l:('tau-lepton', mass Ml).
+
+
+
+spinor	s:('s-quark',color c3, mass Ms ),
+        c:('c-quark',color c3, mass Mc ),
+        u:('u-quark',color c3, mass Mu),
+        d:('d-quark',color c3, mass Md),
+        t:('t-quark',color c3, mass Mt, width wt),
+        b:('b-quark',color c3, mass Mb ).
+
+do_if NMSSM==on.
+
+scalar h1/h1:('CP-ev Higgs1', mass Mh1, width wh1),
+       h2/h2:('CP-ev Higgs2', mass Mh2, width wh2),
+       h3/h3:('CP-ev Higgs3', mass Mh3, width wh3),
+       ha/ha:('CP-od Higgs1',  mass Mha, width wha),
+       hb/hb:('CP-od Higgs2',  mass Mhb, width whb),
+       'H+'/'H-':('Charged Higgs', mass MHc, width wHc).
+
+prtcproperty pdg:(h1=25, h2=35, h3=45, ha=36, hb=46, ~o5=1000045).
+
+spinor ~o5 / ~o5:('neutralino 5', mass MNE5, width wNE5).
+
+do_else_if CPV==on.
+
+          scalar 'H+'/'H-':('Charged Higgs', mass MHc, width wHc).
+_x=1-3 in scalar h_x/h_x:('higgs no _x', mass Mh_x, width wh_x).
+prtcproperty pdg:(h1=25, h2=35, h3=36).
+do_else.
+
+scalar h/h:('Light Higgs', mass Mh, width wh),
+       H/H:('Heavy higgs', mass MHH, width wHh),
+       H3/H3:('CP-odd Higgs', mass MH3, width wH3),
+       'H+'/'H-':('Charged Higgs', mass MHc, width wHc).
+
+end_if.
+
+spinor '~1+'/'~1-':('chargino 1', mass MC1,  width wC1),
+       '~2+'/'~2-':('chargino 2', mass MC2, width wC2).
+
+spinor ~o1 / ~o1:('neutralino 1', mass MNE1),
+       ~o2 / ~o2:('neutralino 2', mass MNE2, width wNE2),
+       ~o3 / ~o3:('neutralino 3', mass MNE3, width wNE3),
+       ~o4 / ~o4:('neutralino 4', mass MNE4, width wNE4).
+
+spinor ~g / ~g:(gluino, color c8, mass MSG, width wSG).
+
+do_if FV==on.
+
+_x=1-6 in 
+scalar ~u_x / ~U_x : ('up-squark _x',   color c3, mass MSu_x, width wSu_x=0),
+       ~d_x / ~D_x : ('down-squark _x', color c3, mass MSd_x, width wSd_x=0),
+	   ~e_x / ~E_x : ('selectron _x', mass MSe_x, width wSe_x=0). 
+_x=1-3 in 
+scalar ~n_x / ~N_x : ('sneutrino _x', mass MSn_x, width wSn_x=0).
+
+prtcproperty pdg:(
+~d1=1000001, ~d2=1000003, ~d3=1000005, ~d4=2000001, ~d5=2000003, ~d6=2000005,
+~u1=1000002, ~u2=1000004, ~u3=1000006, ~u4=2000002, ~u5=2000004, ~u6=2000006,
+~e1=1000011, ~e2=1000013, ~e3=1000015, ~e4=2000011, ~e5=2000013, ~e6=2000015,
+~n1=1000012, ~n2=1000014, ~n3=1000016).
+
+do_else.
+
+
+do_if sel1_mix==on.
+scalar ~e1 / ~E1:('selectron 1', mass MSe1,   width wSe1=0),
+       ~e2 / ~E2:('selectron 2', mass MSe2,  width  wSe2=0).
+do_else.
+scalar ~eL / ~EL:('selectron L', mass MSeL,   width wSeL=0),
+       ~eR / ~ER:('selectron R', mass MSeR,  width  wSeR=0).
+let '~e1' = '~eL', '~E1'=anti('~e1'), '~e2'='~eR', '~E2'=anti('~e2').
+end_if.
+
+do_if sel2_mix==on.
+scalar ~m1 / ~M1:('smuon 1', mass MSm1,   width wSm1=0),
+       ~m2 / ~M2:('smuon 2', mass MSm2,   width wSm2=0).
+do_else.
+scalar ~mL / ~ML:('smuon L', mass MSmL,   width wSmL=0),
+       ~mR / ~MR:('smuon R', mass MSmR,   width wSmR=0).
+let '~m1' = '~mL', '~M1'=anti('~m1'), '~m2'='~mR', '~M2'=anti('~m2').
+end_if.
+
+
+scalar ~l1 / ~L1:('stau 1',   mass MSl1, width wSl1=0),
+       ~l2 / ~L2:('stau 2',   mass MSl2, width wSl2=0),
+       ~ne / ~Ne:('e-sneutrino',  mass MSne, width wSne=0),
+       ~nm / ~Nm:('mu-sneutrino', mass MSnm, width wSnm=0),
+       ~nl / ~Nl:('tau-sneutrino',mass MSnl, width wSnl=0).
+
+
+do_if sq1_mix==off.
+scalar ~uL / ~UL : ('u-squark L', color c3, mass MSuL,   width wSuL=0),
+       ~uR / ~UR : ('u-squark R', color c3, mass MSuR,   width wSuR=0).
+let '~u1' = '~uL', '~U1'=anti('~u1'), '~u2'='~uR', '~U2'=anti('~u2').
+scalar ~dL / ~DL : ('d-squark L', color c3, mass MSdL,   width wSdL=0),
+       ~dR / ~DR : ('d-squark R', color c3, mass MSdR,   width wSdR=0).
+let '~d1' = '~dL', '~D1'=anti('~d1'), '~d2'='~dR', '~D2'=anti('~d2').
+do_else.
+scalar ~u1 / ~U1 : ('u-squark 1', color c3, mass MSu1,   width wSu1=0),
+       ~u2 / ~U2 : ('u-squark 2', color c3, mass MSu2,   width wSu2=0).
+scalar ~d1 / ~D1 : ('d-squark 1', color c3, mass MSd1,   width wSd1=0),
+       ~d2 / ~D2 : ('d-squark 2', color c3, mass MSd2,   width wSd2=0).
+end_if.
+
+do_if usq2_mix==on.
+scalar ~c1 / ~C1 : ('c-squark 1', color c3, mass MSc1,   width wSc1=0),
+       ~c2 / ~C2 : ('c-squark 2', color c3, mass MSc2,   width wSc2=0).
+do_else.
+scalar ~cL / ~CL : ('c-squark L', color c3, mass MScL,   width wScL=0),
+       ~cR / ~CR : ('c-squark R', color c3, mass MScR,   width wScR=0).
+let '~c1' = '~cL', '~C1'=anti('~c1'), '~c2'='~cR', '~C2'=anti('~c2').
+end_if.
+
+do_if dsq2_mix==off.
+scalar ~sL / ~SL : ('s-squark L', color c3, mass MSsL,   width wSsL=0),
+       ~sR / ~SR : ('s-squark R', color c3, mass MSsR,   width wSsR=0).
+let '~s1'='~sL', '~S1'=anti('~s1'), '~s2'='~sR', '~S2'=anti('~s2').
+do_else.
+scalar ~s1 / ~S1 : ('s-squark 1', color c3, mass MSs1,   width wSs1=0),
+       ~s2 / ~S2 : ('s-squark 2', color c3, mass MSs2,   width wSs2=0).
+end_if.
+
+scalar ~t1 / ~T1 : ('t-squark 1', color c3, mass MSt1, width wSt1=0),
+       ~t2 / ~T2 : ('t-squark 2', color c3, mass MSt2, width wSt2=0).
+
+
+scalar ~b1 / ~B1 : ('b-squark 1', color c3, mass MSb1, width wSb1=0),
+       ~b2 / ~B2 : ('b-squark 2', color c3, mass MSb2, width wSb2=0).
+
+
+end_if. % FV

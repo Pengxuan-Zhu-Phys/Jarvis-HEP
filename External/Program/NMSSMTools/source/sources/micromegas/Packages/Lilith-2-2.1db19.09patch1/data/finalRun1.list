@@ -1,0 +1,43 @@
+# Final results from ATLAS and CMS (not the official combination)
+
+# ATLAS
+ATLAS/Run1/HIGG-2014-06_ggH-VVH_gammagamma_n68.xml
+ATLAS/Run1/HIGG-2013-15_ggH-VVH_WW_f.xml
+ATLAS/Run1/HIGG-2014-06_ggH-VVH_ZZ_n68.xml
+ATLAS/Run1/HIGG-2014-06_ggH-VVH_tautau_n68.xml
+ATLAS/Run1/HIGG-2013-023_VH_bb_s.xml
+ATLAS/Run1/HIGG-2013-03_ZH_invisible_s.xml
+ATLAS/Run1/CONF-2015-004_VBF_invisible_s.xml
+
+ATLAS/Run1/HIGG-2013-27_ttH_bb_s.xml
+ATLAS/Run1/HIGG-2013-08_ttH_gammagamma_s.xml
+ATLAS/Run1/HIGG-2013-26_ttH_1l2tau_s.xml
+ATLAS/Run1/HIGG-2013-26_ttH_2l0tau_s.xml
+ATLAS/Run1/HIGG-2013-26_ttH_2l1tau_s.xml
+ATLAS/Run1/HIGG-2013-26_ttH_3l_s.xml
+ATLAS/Run1/HIGG-2013-26_ttH_4l_s.xml
+
+ATLAS/Run1/HIGG-2014-06_mumu_s.xml
+ATLAS/Run1/HIGG-2014-06_ZGamma_s.xml
+
+
+# CMS
+CMS/Run1/HIG-14-009_ggH-VVH_gammagamma_n68.xml
+CMS/Run1/HIG-14-009_ggH-VVH_ZZ_n68.xml
+CMS/Run1/HIG-14-009_ggH-VVH_WW_n68.xml
+CMS/Run1/HIG-14-009_ggH-VVH_tautau_n68.xml
+CMS/Run1/HIG-14-009_VH_bb_s.xml
+CMS/Run1/HIG-14-004_VBF_bb_s.xml
+CMS/Run1/HIG-13-030_ZHVBF_invisible_f.xml
+
+CMS/Run1/HIG-14-010_ttH_bb_s.xml
+CMS/Run1/HIG-14-009_ttH_tautau_s.xml
+CMS/Run1/HIG-14-009_ttH_gammagamma_s.xml
+CMS/Run1/HIG-13-029_ttH_2SS_s.xml
+CMS/Run1/HIG-13-029_ttH_3l_s.xml
+CMS/Run1/HIG-13-029_ttH_4l_s.xml
+
+
+# Tevatron
+Tevatron/1303.6346_VH_bb_s.xml
+

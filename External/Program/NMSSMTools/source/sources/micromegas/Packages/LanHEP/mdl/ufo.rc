@@ -1,0 +1,87 @@
+% Definition of file headers in UFO format.
+
+keys OutputFormat=UFO.
+
+option UFOParaHdr=['from object_library import all_parameters, Parameter',
+ 'from function_library import complexconjugate, re, im, csc, sec, acsc, asec'].
+ 
+option UFOPartHdr=['from __future__ import division',
+        'from object_library import all_particles, Particle',
+        'import propagators as Prop'].
+
+option UFOVertHdr=['from object_library import all_vertices, Vertex',
+	'import particles as P',
+	'import couplings as C',
+	'import lorentz as L'].
+	
+option UFOLoreHdr=['from object_library import all_lorentz, Lorentz',
+'from function_library import complexconjugate, re, im, csc, sec, acsc, asec'].
+
+option UFOCoupHdr=['from object_library import all_couplings, Coupling',
+'from function_library import complexconjugate, re, im, csc, sec, acsc, asec'].
+
+prtcproperty pdg:(A=22, Z=23, 'W+'=24, G=21,
+d=1, u=2, s=3, c=4, b=5, t=6,
+n1=12, n2=14, n3=16,
+e1=11, e2=13, e3=15, H=25 ).
+
+external_func('cmath.acos',1).
+external_func('cmath.asin',1).
+external_func('cmath.fabs',1).
+external_func('cmath.cos',1).
+external_func('cmath.sin',1).
+external_func('cmath.tan',1).
+external_func('cmath.atan',1).
+external_func('cmath.exp',1).
+external_func('cmath.log',1).
+external_func(abs,1).
+
+
+alias cabs(x)='abs'(x).
+alias acos(x)='cmath.acos'(x).
+alias asin(x)='cmath.asin'(x).
+alias fabs(x)='cmath.fabs'(x).
+alias cos(0)=+cos(0), cos(1)=+cos(1), cos(2)=+cos(2).
+alias cos(x)='cmath.cos'(x).
+alias sin(0)=0, sin(1)=+sin(1), sin(2)=+sin(2).
+alias sin(x)='cmath.sin'(x).
+alias atan(x)='cmath.atan'(x).
+alias tan(x)='cmath.tan'(x).
+alias exp(x)='cmath.exp'(x).
+alias log(x)='cmath.log'(x).
+
+external_func('cmath.sqrt',1).
+alias sqrt(x)='cmath.sqrt'(x).
+
+prtcproperty pdg:(A=22, Z=23, 'W+'=24, G=21,
+d=1, u=2, s=3, c=4, b=5, t=6,
+ne=12, nm=14, nl=16,
+n1=12, n2=14, n3=16,
+e=11, m=13, l=15,
+e1=11, e2=13, e3=15,
+~ne=1000012, ~nm=1000014, ~nl=1000016,
+~e1=1000011, ~m1=1000013, ~l1=1000015,
+~e2=2000011, ~m2=2000013, ~l2=2000015,
+~eL=1000011, ~mL=1000013,
+~eR=2000011, ~mR=2000013,
+
+~u1=1000002, ~c1=1000004, ~t1=1000006,
+~u2=2000002, ~c2=2000004, ~t2=2000006,
+~uL=1000002, ~cL=1000004,
+~uR=2000002, ~cR=2000004,
+
+~d1=1000001, ~s1=1000003, ~b1=1000005,
+~d2=2000001, ~s2=2000003, ~b2=2000005,
+~dL=1000001, ~sL=1000003,
+~dR=2000001, ~sR=2000003,
+
+h=25, H=35, H3=36, 'H+'=37,
+~o1=1000022, ~o2=1000023, ~o3=1000025, ~o4=1000035,
+'~1+'=1000024, '~2+'=1000037, ~g=1000021).
+
+
+
+%
+% Use lha statement for SLHA notation for external parameters:
+% lha Mb=SMINPUTS(5), Mtop=SMINPUTS(6), MZ=SMINPUTS(4), Vud=VCKM(1,1).
+%

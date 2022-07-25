@@ -1,0 +1,25 @@
+IDM(+hgg)
+ Constraints 
+ Name  |> Expression                                                                        <|
+CW     |sqrt(1-SW^2) % cos of the Weinberg angle
+GF     |EE^2/(2*SW*MW)^2/Sqrt2 %  experimental value 1.166E-5 [1/GeV^2]
+MZ     |MW/CW % Z boson mass
+LamQCD |initQCD5(alphaSMZ, McMc, MbMb, Mtp)
+Mb     |MbEff(Q)
+Mc     |McEff(Q)
+Ms     |MqEff(0.096, Q) % s-quark effective mass  via 2MeV running one
+LAAh   |-cabs(lAAhiggs(Mh, "h"))
+LGGh   |-cabs(lGGhiggs(Mh, "h"))
+aQCDh  |alphaQCD(Mh)/acos(-1)
+RQCDh  |sqrt(1+149/12*aQCDh+68.6482*aQCDh^2-212.447*aQCDh^3)
+mu2    |MHX^2-laL*(2*MW/EE*SW)^2
+la3    |2*(MHC^2-mu2)/(2*MW/EE*SW)^2
+la5    |(MHX^2-MH3^2)/(2*MW/EE*SW)^2
+la4    |2*laL-la3-la5
+B00000 |1-2*SW^2
+B00001 |la4-la5
+B00002 |la4+la5
+B00003 |la3+la4-la5
+B00004 |la3+la4+la5
+B00005 |1-4*SW^2+4*SW^4
+B00006 |la3+la4

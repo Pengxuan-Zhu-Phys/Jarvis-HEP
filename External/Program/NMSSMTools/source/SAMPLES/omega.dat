@@ -1,0 +1,33 @@
+# RELIC DENSITY CALCULATED BY MICROMEGAS
+#
+BLOCK RDINFO   # Program information
+     1   MicrOmegas # Dark matter package
+     2   5.6.2      # Version number
+#
+BLOCK ABUNDANCE
+   1   1.4768E-01   #  T_f[GeV]
+   4   1.1516E-01   #  omega h^2
+   3   1.2119E-25   #  vSigma
+# contibutions to vSigma in percents
+   6   1   1000022   1000022        15       -15   8.7298E+01   # ~o1 ~o1 -> l L                                    
+   6   2   1000022   1000022        21        21   1.2235E+01   # ~o1 ~o1 -> G G                                    
+# contibutions to 1/Omega in percents
+   7   1   1000022   1000022        15       -15   8.7278E+01   # ~o1 ~o1 -> l L                                    
+   7   2   1000022   1000022        21        21   1.2233E+01   # ~o1 ~o1 -> G G                                    
+#
+BLOCK LSP
+   0   3.4704E+00   #  LSP mass
+   1   7.9701E-02   #  bino
+   2   6.9680E-02   #  wino
+   3   2.2396E-01   #  higgsino2
+   4   6.4361E-03   #  higgsino1
+   5   9.6881E-01   #  singlino
+#
+BLOCK NDMCROSSSECT
+   1   5.0743E-47   #  # csPsi [cm^2]
+   2   5.2599E-47   #  # csNsi [cm^2]
+   3   6.6817E-41   #  # csPsd [cm^2]
+   4  -5.1046E-41   #  # csNsd [cm^2]
+# Values used for sigma_piN,sigma_S (strange content of the proton)
+#  3.40000000E+01 sigma_piN
+#  4.20000000E+01 sigma_S

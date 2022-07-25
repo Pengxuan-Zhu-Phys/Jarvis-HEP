@@ -1,0 +1,23 @@
+<!--
+CMS result for mu(VH, bb)
+at mH = 125.02 GeV, shown in CMS-HIG-14-009
+https://twiki.cern.ch/twiki/bin/view/CMSPublic/Hig14009PaperTwiki
+-->
+
+<expmu decay="bb" dim="1" type="n">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-14-009</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.02</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff prod="VH">1.0</eff>
+
+  <bestfit>0.890</bestfit>
+  
+  <param>
+    <uncertainty side="left">-0.441</uncertainty>
+    <uncertainty side="right">0.469</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

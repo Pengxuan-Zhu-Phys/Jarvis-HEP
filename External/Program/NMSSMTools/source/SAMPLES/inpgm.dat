@@ -1,0 +1,67 @@
+# Input file for NMSSMTools
+# Based on SUSY LES HOUCHES ACCORD II
+#
+BLOCK MODSEL
+	3	1		# NMSSM particle content
+	1	2		# IMOD (0=general NMSSM, 1=SUGRA, 2=GMSB
+#				  3=Z3 inv NMSSM, 4=Z3 inv SUGRA, 5=Z3 inv GMSB)
+	12      1               # GMFLAG: GMSB model above MMESS (default 0: no,
+#				  1,3: XIU=LPP=LTT at MGUT
+#				  2,4: LPP, LTT free at MMESS
+#				  1,2: LD, LU, LL free at MMESS
+#				  3,4: LD=L*LT/HT, LU=L*LB/HB, LL=HL*LB/HB at MMESS
+	10	0		# ISCAN (0=no scan, 1=grid scan, 2=random scan, 3=MCMC)
+	9	1		# |OMGFLAG|=0: no (default), =1: relic density
+#				  OMGFLAG>0: 0.107<OMG<0.131, <0: OMG<0.131
+	15	7		# Precision for micromegas (default=7):
+#				  +0/1: fast computation on/off
+#				  +0/2: Beps=1d-3, 1d-6
+#				  +0/4: virtual Ws off/on
+	8       0               # Precision for Higgs masses (default 0:
+#				  0: full 1 loop top/bot + LL 2 loop top/bot + LL 1 loop EW
+#                                 1: full 1 loop + full 2 loop top/bot
+#				  2: as 1 + pole masses - 1&2 by courtesy of P. Slavich)
+	14      1               # 0: H-> VV,VV* (default); 1: H->VV,VV*,V*V*
+	13      1               # 1: Sparticle decays via NMSDECAY (default 0)
+	16	0		# 0: Output contains privately defined BLOCK's (default)
+#                                 1: Restricts the output to BLOCK's defined by SLHA1/2
+#                                    (useful as param_card.dat for MadGraph)
+#
+BLOCK SMINPUTS
+	1	127.92d0	# ALPHA_EM^-1(MZ)
+	2	1.1663787d-5	# GF
+	3	0.1181d0	# ALPHA_S(MZ)
+	4	91.187d0	# MZ
+	5	4.18d0		# MB(MB) (running mass)
+	6	173.4d0		# MTOP (pole mass)
+	7	1.777d0		# MTAU
+#
+BLOCK MINPAR
+#	0	1000d0		# MSUSY (If =/= SQRT(2*MQ1+MU1+MD1)/2)
+	1	0.208000E+06	# MSUSYEFF = m^2/MMESS
+	2	0.615798E+14	# MMESS
+	3	0.138000E+01	# TANB at MZ
+	4	1d0		# SIGMU (If KAPPA or MUEFF are not input)
+	5	2d0		# N5 = number of messenger 5-plets
+#
+BLOCK EXTPAR
+#	0	1000d0		# MSUSY (If =/= SQRT(2*MQ1+MU1+MD1)/2)
+	-2	0.100000E-01	# DMIN (for GMFLAG=/=0)
+	61	0.526675E+00	# LAMBDA at MSUSY
+#	62	0d0		# KAPPA at MSUSY (If XIF is not an input and GMFLAG=0)
+#	63	0d0	 	# ALAMBDA at MMESS (If =/= 0 and GMFLAG=0)
+#	66      0d0		# XIF at MMESS in GeV^2 (If =/= 0, KAPPA is not an input and GMFLAG=0)
+#				  If KAPPA+XIF are not inputs: XIF=0 and KAPPA is computed
+#	67	0d0	 	# XIS at MMESS in GeV^3 (If =/= 0, MS is not an input and GMFLAG=0)
+#				  If MS+XIS are not inputs: XIS=0 and MS is computed
+#	68	0d0		# MUP at MMESS (If =/= 0 and GMFLAG=0)
+#	69	0d0		# MSP at MMESS in GeV^2 (If =/= 0 and GMFLAG=0)
+#	70	0d0		# MS at MMESS in GeV^2 (If XIS is not an input and GMFLAG=0)
+	73	0.905187E+00	# XiU at MGUT (If =/= 0 and GMFLAG=1,3)
+#	74	0d0		# LPP at MMESS (If =/= 0 and GMFLAG=2,4)
+#	75	0d0		# LTT at MMESS (If =/= 0 and GMFLAG=2,4)
+#	76	0d0		# LU at MMESS (If =/= 0 and GMFLAG=1,2)
+#	77	0d0		# LD at MMESS (If =/= 0 and GMFLAG=1,2)
+#	78	0d0		# LT at MMESS (If =/= 0 and GMFLAG=/=0)
+#	79	0d0		# LB at MMESS (If =/= 0 and GMFLAG=/=0)
+#	80	0d0		# LL at MMESS (If =/= 0 and GMFLAG=1,2)

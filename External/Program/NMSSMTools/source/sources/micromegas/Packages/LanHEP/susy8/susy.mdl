@@ -1,0 +1,122 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% This is LanHEP input file for MSSM and some extensions
+% First, switches to set up the model.
+
+%   Gauge fixing  ('unitary' or 'Feynman')
+keys gauge_fixing=Feynman.
+
+% CKM matrix dimension (1 or 2 or 3)
+keys CKMdim=2.
+
+%  1,2 generation sfermion mixing (off->left/right, on->mass states)
+keys sel1_mix=off, sel2_mix=off, sq1_mix=off, usq2_mix=off, dsq2_mix=off.
+
+% Same soft masses for 1 and 2 sfermion generation (to avoid FCNC) on/off
+keys ms1eq2=on.
+
+% 1,2 generation leptons/quarks masses on/off
+keys e_mass=off, u_mass=off, d_mass=off, mu_mass=off, s_mass=off, c_mass=off.
+
+/*  Radiative corrections to Higgs masses: 0 - tree level, 1 - use FeynHiggs,
+    2 - effective potential by analitic formulae */
+keys HiggsMasses=0.
+
+%  R-parity violation (for lepton number violation) (on/off)
+keys RPV=off.
+
+%  Include gravitino interaction (on/off)
+keys GRAVITINO=off.
+
+%  NMSSM extension (on/off)
+keys NMSSM=off.
+
+%  CP violation (on/off)
+keys CPV=off.
+
+%  parameters calculation: mssm (unconstrainded), sugra, gmsb
+keys SUSYCALC=mssm.
+
+
+% Stop masses radiative corrections
+keys StopCorrection=1.
+keys zncomp=off.
+
+%option OnlyMassTerms=1.
+option chepCFWidth=60.
+option chepPDWidth=115.
+
+
+%
+% Model name and number setup.
+%
+
+do_if CPV==on.
+  option chepPDWidth=150.
+  model 'MSSM&CPV'/12.
+  
+do_else_if NMSSM==on.
+  model 'NMSSM-Ug'/11.
+  option chepPDWidth=189.
+  
+do_else_if RPV==on.
+  model 'MSSM+rpv'/10.
+  
+do_else_if GRAVITINO==on.
+  model 'MSSM+sgld'/9.
+  
+do_else.
+	do_if SUSYCALC==gmsb.
+    	model 'GMSB, Feynman gauge'/8.
+	do_else_if SUSYCALC==sugra.
+    	model 'SUGRA, Feynman gauge'/7.
+	do_else_if SUSYCALC==mssm.
+
+		do_if gauge_fixing==Feynman.
+		model 'MSSM, Feynman gauge'/7.
+		do_else_if gauge_fixing==unitary.
+		model 'MSSM, unitary gauge'/5.
+		do_else.
+		write('Error: the key "gauge" should be either "Feynman" or "unitary".').
+		quit.
+		end_if.
+		
+	do_else.
+	write('Error: the key "SUSYCALC" should be "mssm" or "sugra" or "gmsb".').
+	quit.
+	end_if.
+end_if.
+
+%option SplitCol1=1.
+%option SplitCol2=0.
+
+
+let g5=gamma5.
+let eps2 = {{0,1},{-1,0}}.
+special sigma:(spinor2, spinor2, vector).
+
+read susy_var.     % parameters setup
+read susy_prt.     % particles
+read susy_let.     % multiplets
+read susy_tex.     % define latex names for particles
+
+%read susy_scan.
+%end.
+
+do_if(GRAVITINO==on, (read susy_grv)). % Gravitino & sgoldstino interaction
+
+
+read susy_ggi.     % gauge fields interaction
+
+read susy_gmi.     % gauge-matter interaction
+
+read susy_dd.      % DD terms
+
+read susy_w.       % Terms going from super-potential (FF & Yukawa)
+
+read susy_sbt.     % Soft SUSY-breaking terms
+
+read susy_fpg.     % Faddeev-Popov ghosts
+
+read susy_end.
+

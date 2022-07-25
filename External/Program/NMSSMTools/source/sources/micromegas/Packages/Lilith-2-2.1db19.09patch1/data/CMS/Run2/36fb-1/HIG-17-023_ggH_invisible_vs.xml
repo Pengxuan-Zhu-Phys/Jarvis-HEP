@@ -1,0 +1,25 @@
+<!--
+CMS result for mu(H->invisible) at mH = 125.09 GeV, ggH-tag category; 
+profile likelihood fitted from Fig. 8b, efficiencies taken from Table 6 of CMS-HIG-17-023, 
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-17-023/
+-->
+
+<expmu decay="invisible" dim="1" type="vn">
+  <experiment>CMS</experiment>
+  <source type="published">CMS-HIG-17-023</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+
+  <eff prod="ggH">0.80</eff>
+  <eff prod="VBF">0.12</eff>
+  <eff prod="WH">0.05</eff>
+  <eff prod="ZH">0.03</eff>
+
+  <bestfit>0.03</bestfit>
+
+  <param>
+  <uncertainty side="left">0.3</uncertainty>
+  <uncertainty side="right">0.33</uncertainty>
+  </param> 
+
+</expmu>

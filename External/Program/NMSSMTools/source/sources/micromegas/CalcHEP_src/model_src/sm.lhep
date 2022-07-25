@@ -1,0 +1,18 @@
+
+keys gauge_fixing=Feynman, CKMdim=1, hgg=On, h4G=On.
+
+do_if hgg==On.
+	do_if h4G==On.
+		model  'SM(+hgg+h4G)'/3.
+	do_else.
+		model 'SM(+hgg)'/2.
+	end_if.
+do_else.
+	model 'SM'/1.
+end_if.
+
+read 'sm.inc'.
+
+CheckHerm.
+
+CheckMasses.

@@ -1,0 +1,54 @@
+To create the executable file  lhep, type 'make' with default model format: 
+make Output=CompHEP
+    - for CompHEP default output format;
+make Output=CalcHEP
+    - for CalcHEP default output format;
+make Output=FeynArts
+    - for FeynArts 6.x default output format;
+
+In any case, the output format can be specified by the command line
+option (-ca for CalcHEP; -co for CompHEP; -fa for FeynArts; -tex for LaTeX). 
+The archive also contains the directory  mdl  with startup file and 
+examples for several physical models. Add the directory containing 
+LanHEP to your PATH environment variable. Then LanHEP can be started 
+from any other directory, it can find automatically files from the  
+'mdl'  directory.
+
+Files in this directory:
+
+*.[ch] - program source and header files
+Makefile - file used by 'make' command
+
+mdl/feynarts.rc - startup file for FeynArts mode
+mdl/qcd.mdl     - QCD example
+mdl/sm_brst.mdl - BRST setup for Standard model
+mdl/sm_tex.mdl  - LaTeX names for Standard model particles and parameters
+mdl/lhep.rc     - default LanHEP startup file 
+mdl/qeddip.mdl  - QED with electron dipole momentum
+mdl/smnlg.mdl   - Standard model with Non-linear Gauge Fixing
+mdl/stand.mdl   - Standard model
+mdl/newsm.mdl   - Standard model currently used by CompHEP
+mdl/qed.mdl     - QED
+mdl/smren.mdl   - Standard model with 1-loop counterterms
+
+susy8/susy.mdl  - Minimal Supersymmetric Standard Model, root file
+susy8/susy_*.mdl - parts of MSSM, invoked from susy.mdl
+susy8/*.c       - numerical routines used by MSSM
+susy8/Makefile  - compiles dynamic libraries from *c files
+susy8/fhf/*     - FeynHiggsFast package used by MSSM
+susy8/FeynHiggs  - symbolic link to FeynHiggs program
+susy8/slhasuspect - symbolic link to Suspect program
+susy8/slhaScript  - SLHA interface with Suspect program
+
+
+minsusy/susy.mdl -   Simplified MSSM (without extensions and external libs)
+minsusy/susy_*.mdl - details of this model
+
+manuals/man30.pdf  - LanHEP 3.0 manual 
+manuals/man*.pdf  - older manuals
+
+test/README      - how to make test run
+test/input/      - test input
+test/output/     - test output
+test/tmp/        - empty directory where the output will be created
+

@@ -1,0 +1,108 @@
+# Input file for NMSSMTools
+# Based on SUSY LES HOUCHES ACCORD II
+#
+BLOCK MODSEL
+	3	1		# NMSSM particle content
+	1	2		# IMOD (0=general NMSSM, 1=SUGRA, 2=GMSB
+#				  3=Z3 inv NMSSM, 4=Z3 inv SUGRA, 5=Z3 inv GMSB)
+	12      0               # GMFLAG: GMSB model above MMESS (default 0: no,
+#				  1,3: XIU=LPP=LTT at MGUT
+#				  2,4: LPP, LTT free at MMESS
+#				  1,2: LD, LU, LL free at MMESS
+#				  3,4: LD=L*LT/HT, LU=L*LB/HB, LL=HL*LB/HB at MMESS
+	10	1		# ISCAN (0=no scan, 1=grid scan, 2=random scan, 3=MCMC)
+	9	-1		# |OMGFLAG|=0: no (default), =1: relic density
+#				  OMGFLAG>0: 0.107<OMG<0.131, <0: OMG<0.131
+	15	0		# Precision for micromegas (default=7):
+#				  +0/1: fast computation on/off
+#				  +0/2: Beps=1d-3, 1d-6
+#				  +0/4: virtual Ws off/on
+	8       0               # Precision for Higgs masses (default 0:
+#				  0: full 1 loop top/bot + LL 2 loop top/bot + LL 1 loop EW
+#                                 1: full 1 loop + full 2 loop top/bot
+#				  2: as 1 + pole masses - 1&2 by courtesy of P. Slavich)
+	14      0               # 0: H-> VV,VV* (default); 1: H->VV,VV*,V*V*
+	13      0               # 1: Sparticle decays via NMSDECAY (default 0)
+	11      0               # Constraints on (g-2)_muon (1=yes, 0=no, default=1)
+	17      1               # Theoretical constraints (1=yes, 0=no, default=1)
+	18      0               # LEP/Tevatron constraints(1=yes, 0=no, default=1)
+	19      0               # LHC Higgs constraints (1=yes, 0=no, default=1)
+	20      1               # Upsilon B and K decay constraints (1=yes, 0=no, default=1)
+#
+BLOCK SMINPUTS
+	1	127.92d0	# ALPHA_EM^-1(MZ)
+	2	1.1663787d-5	# GF
+	3	0.1181d0	# ALPHA_S(MZ)
+	4	91.187d0	# MZ
+	5	4.18d0		# MB(MB) (running mass)
+	6	173.4d0		# MTOP (pole mass)
+	7	1.777d0		# MTAU
+#
+BLOCK MINPAR
+	17	4d4		# MSUSYEFF_min = m^2/M_mess
+#	18	0d0		# MSUSYEFF_max = m^2/M_mess (If =/= min)
+	27	1d7		# MMESS_min
+#	28	0d0		# MMESS_max (If =/= min)
+	37	1.5d0		# TANB_min at MZ
+	38	2d0		# TANB_max at MZ (If =/= min)
+	4	1d0		# SIGMU
+	5	2d0		# N5 = number of messenger 5-plets
+#
+BLOCK EXTPAR
+#	0	1000d0		# MSUSY (If =/= SQRT(2*MQ1+MU1+MD1)/2)
+#	-2	1d-1		# DMIN (for GMFLAG=/=0)
+	617	.4d0		# LAMBDA_min at MSUSY
+	618	.6d0		# LAMBDA_max at MSUSY (If =/= min)
+#	627	0d0		# KAPPA_min at MSUSY (If XIF is not an input and GMFLAG=0)
+#	628	0d0		# KAPPA_max at MSUSY (If =/= min)
+#	637	0d0		# ALAMBDA_min at MMESS (If =/= 0 and GMFLAG=0)
+#	638	0d0		# ALAMBDA_max at MMESS (If =/= min)
+	667	5d4		# XIF_min at MMESS in GeV^2 (If =/= 0, KAPPA is not an input and GMFLAG=0)
+#	668	0d0		# XIF_max at MMESS in GeV^2 (If =/= min)
+#				  If KAPPA+XIF are not inputs: XIF=0 and KAPPA is computed
+#	677	0d0		# XIS_min at MMESS in GeV^3 (If =/= 0, MS is not an input and GMFLAG=0)
+#	678	0d0		# XIS_max at MMESS in GeV^3 (If =/= min)
+#				  If MS+XIS are not inputs: XIS=0 and MS is computed
+#	687	0d0		# MUP_min at MMESS (If =/= 0 and GMFLAG=0)
+#	688	0d0		# MUP_max at MMESS (If =/= min)
+#	697	0d0		# MSP_min at MMESS in GeV^2 (If =/= 0 and GMFLAG=0)
+#	698	0d0		# MSP_max at MMESS in GeV^2 (If =/= min)
+	707	0d0		# MS_min at MMESS in GeV^2 (If XIS is not an input and GMFLAG=0)
+#	708	0d0		# MS_max at MMESS in GeV^2 (If =/= min)
+#	737	0d0		# XiU_min at MGUT (If =/= 0 and GMFLAG=1,3)
+#	738	0d0		# XiU_max at MGUT (If =/= min)
+#	747	0d0		# LPP_min at MMESS (If =/= 0 and GMFLAG=2,4)
+#	748	0d0		# LPP_max at MMESS (If =/= min)
+#	757	0d0		# LTT_min at MMESS (If =/= 0 and GMFLAG=2,4)
+#	758	0d0		# LTT_max at MMESS (If =/= min)
+#	767	0d0		# LU_min at MMESS (If =/= 0 and GMFLAG=1,2)
+#	768	0d0		# LU_max at MMESS (If =/= min)
+#	777	0d0		# LD_min at MMESS (If =/= 0 and GMFLAG=1,2)
+#	778	0d0		# LD_max at MMESS (If =/= min)
+#	787	0d0		# LT_min at MMESS (If =/= 0 and GMFLAG=/=0)
+#	788	0d0		# LT_max at MMESS (If =/= min)
+#	797	0d0		# LB_min at MMESS (If =/= 0 and GMFLAG=/=0)
+#	798	0d0		# LB_max at MMESS (If =/= min)
+#	807	0d0		# LL_min at MMESS (If =/= 0 and GMFLAG=1,2)
+#	808	0d0		# LL_max at MMESS (If =/= min)
+#
+BLOCK STEPS
+#	19	1		# NMSUSYEFF (If =/= 1)
+#	29	1		# NMMESS (If =/= 1)
+	39	10		# NTB (If =/= 1)
+	619	10		# NL (If =/= 1)
+#	629	1		# NK (If =/= 1)
+#	639	1		# NAL (If =/= 1)
+#	669	1		# NXIF (If =/= 1)
+#	679	1		# NXIS (If =/= 1)
+#	689	1		# NMUP (If =/= 1)
+#	699	1		# NMSP (If =/= 1)
+#	709	1		# NMS (If =/= 1)
+#	739	1		# NXIU (If =/= 1)
+#	749	1		# NLPP (If =/= 1)
+#	759	1		# NLTT (If =/= 1)
+#	769	1		# NLU (If =/= 1)
+#	779	1		# NLD (If =/= 1)
+#	789	1		# NLT (If =/= 1)
+#	799	1		# NLB (If =/= 1)
+#	809	1		# NLL (If =/= 1)

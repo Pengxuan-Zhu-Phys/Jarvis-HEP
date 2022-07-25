@@ -1,0 +1,22 @@
+<!--
+ATLAS result for mu(VBF, invisible) at mH = 125. GeV
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/CONFNOTES/ATLAS-CONF-2015-004/
+Likelihood approximation extracted from Table 4.
+-->
+
+<expmu decay="invisible" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="preliminary">ATLAS-CONF-2015-004</source>
+  <sqrts>8</sqrts>
+  <mass>125.</mass>
+
+
+  <eff prod="VBF">0.935</eff>
+  <eff prod="ggH">0.065</eff>
+
+  <bestfit>-0.127</bestfit>
+  
+  <param>
+    <uncertainty>0.209</uncertainty>
+  </param>
+</expmu>

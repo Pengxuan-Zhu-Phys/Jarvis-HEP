@@ -1,0 +1,22 @@
+<!--
+CMS result for mu(ttH, gamma gamma) at mH = 125.02 GeV
+https://twiki.cern.ch/twiki/bin/view/CMSPublic/Hig14009PaperTwiki
+-->
+
+<expmu decay="gammagamma" dim="1" type="n">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-14-009</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.02</mass>
+
+
+  <eff prod="ttH">1.</eff>
+
+  <bestfit>2.675</bestfit>
+  
+  <param>
+    <uncertainty side="left">-1.729</uncertainty>
+    <uncertainty side="right">2.402</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

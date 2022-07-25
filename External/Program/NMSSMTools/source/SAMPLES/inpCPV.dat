@@ -1,0 +1,83 @@
+# Input file for NMSSMTools
+# Based on SUSY LES HOUCHES ACCORD II
+#
+BLOCK MODSEL
+	3	1		# NMSSM particle content
+	1	0		# IMOD (0=general NMSSM, 1=SUGRA, 2=GMSB
+#				  3=Z3 inv NMSSM, 4=Z3 inv SUGRA, 5=Z3 inv GMSB)
+	5	2		# CPV (0=no, 2=yes)
+	10	0		# ISCAN (0=no scan, 1=grid scan, 2=random scan, 3=MCMC)
+	14      0               # 0: H-> VV,VV* (default); 1: H->VV,VV*,V*V*
+	16	0		# 0: Output contains privately defined BLOCK's (default)
+#                                 1: Restricts the output to BLOCK's defined by SLHA1/2
+#                                    (useful as param_card.dat for MadGraph)
+#
+BLOCK SMINPUTS
+	1	127.92d0	# ALPHA_EM^-1(MZ)
+	2	1.1663787d-5	# GF
+	3	0.1181d0	# ALPHA_S(MZ)
+	4	91.187d0	# MZ
+	5	4.18d0		# MB(MB) (running mass)
+	6	173.4d0		# MTOP (pole mass)
+	7	1.777d0		# MTAU
+#
+BLOCK MINPAR
+        3	3.1d0		# TANB at MZ
+#
+BLOCK EXTPAR
+#	0	1000d0		# MSUSY (If =/= SQRT(2*MQ1+MU1+MD1)/2)
+	1	130d0		# M1 (If =/= M2/2)
+	2	260d0    	# M2
+	3	1d3   		# M3 (If =/= 3*M2)
+	11	1500d0		# AU3
+	12	1500d0		# AD3
+	13	1500d0		# AE3
+#	16	1500d0		# AE2 = AE1 (If =/= AE3)
+	33	500d0		# ML3
+#	32	500d0		# ML2 = ML1 (If =/= ML3)
+	36	500d0		# ME3
+#	35	500d0		# ME2 = ME1 (If =/= ME3)
+	43	1500d0		# MQ3
+#	42	1500d0		# MQ2 = MQ1 (If =/= MQ3)
+	46	1500d0		# MU3
+#	45	1500d0		# MU2 = MU1 (If =/= MU3)
+	49	1500d0		# MD3
+#	48	1500d0		# MD2 = MD1 (If =/= MD3)
+	61	.63d0		# LAMBDA
+	62	.06d0		# KAPPA (If =/= 0)
+#	63	1d3		# ALAMBDA (If XIF+MA are not inputs)
+#	64	-15d0		# AKAPPA (If KAPPA =/=0 and XIS+MP are not inputs)
+#				  If KAPPA = 0: AKAPPA must be 0, either XIS or MP is input
+	65	290d0		# MUEFF
+#	66	1d2		# XIF in GeV^2 (If ALAMBDA+MA are not inputs)
+#	67	1d3	 	# XIS in GeV^3 (If AKAPPA+MP are not inputs)
+#	68	1d1		# MUP (If =/= 0)
+#	69	1d2		# MSP in GeV^2 (If =/= 0)
+#	72	1d2		# M3H in GeV^2 (If =/= 0)
+	124	1d3		# MA (If ALAMBDA+XIF are not inputs)
+#				  If ALAMBDA+MA+XIF are not inputs: ALAMBDA=XIF=0, MA is computed
+#				  If only XIF is input: ALAMBDA=0, MA is computed
+#				  If only MA is input: XIF=0, ALAMBDA is computed
+#				  If only ALAMBDA is input: XIF=0, MA is computed
+	125	1.2d2		# MP (If AKAPPA+XIS are not inputs)
+#				  If AKAPPA+MP+XIS are not inputs: AKAPPA=XIS=0, MP is computed
+#				  If only XIS is input: AKAPPA=0, MP is computed
+#				  If only MP is input: XIS=0, AKAPPA is computed
+#				  If only AKAPPA is input: XIS=0, MP is computed
+# 
+BLOCK IMEXTPAR
+# Imaginary parts (If =/= 0)
+#	1	1d1		# M1
+#	2	1d1		# M2
+#	3	1d1		# M3
+	11	1d1		# AU3
+#	12	1d1		# AD3
+#	13	1d1		# AE3
+#	61	1d-3		# LAMBDA
+	62	1d-3		# KAPPA
+#	66	1d2		# XIF in GeV^2
+#	67	1d3	 	# XIS in GeV^3 (If KAPPA =/=0)
+#	68	1d1		# MUP
+#	69	1d2		# MSP in GeV^2
+#	72	1d2		# M3H in GeV^2
+#

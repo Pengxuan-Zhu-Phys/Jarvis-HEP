@@ -1,0 +1,3 @@
+2 2 50 diagram in C-code
+ CalcHEP can attache to the C-codes the  
+ pseudo-graphic images of diagrams. 

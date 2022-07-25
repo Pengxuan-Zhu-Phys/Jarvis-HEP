@@ -1,0 +1,16 @@
+         call pythonversion(vPython1,vPython2)
+         if(vPython1.eq.2) then     
+           write(call_lilith,fmt='("python ../Packages/Lilith/run_lilith.py Lilith_in.xml  -s -r  Lilith_out.slha ",I3,1x, E10.2)')  n_par, m2logL_reference
+           call system(call_lilith)
+     
+           err= slhaRead("Lilith_out.slha", 1)
+           m2logL = slhaVal1("LilithResults",0.d0,0)
+           exp_ndf = slhaVal1("LilithResults",0.d0,1)
+           m2logL_reference = slhaVal1("LilithResults",0.d0,2)
+           ndf = slhaVal1("LilithResults",0.d0,3)
+           pvalue = slhaVal1("LilithResults",0.d0,4)
+           err=slhaSTRFormat("LilithResults","5 %s ",Lilith_version)
+        else 
+           write(*,*) 'LILITH can not work with Python version > 2'
+           ndf=0
+        endif     

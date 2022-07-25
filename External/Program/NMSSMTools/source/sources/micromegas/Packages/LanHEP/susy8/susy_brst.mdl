@@ -1,0 +1,71 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+option InfiOrder=0.
+
+brst_transform  A  ->  deriv*'A.c'+i*EE*('W+'*'W-.c'-'W-'*'W+.c'),
+                Z  ->  deriv*'Z.c'+i*EE/SW*CW*('W+'*'W-.c'-'W-'*'W+.c'),
+               'W+'->  deriv*'W+.c'+i*EE*((A+CW/SW*Z)*'W+.c'
+                                   -('A.c'+CW/SW*'Z.c')*'W+'),
+               'W-'->  deriv*'W-.c'-i*EE*((A+CW/SW*Z)*'W-.c'
+                                   -('A.c'+CW/SW*'Z.c')*'W-').
+%                G ->   deriv*'G.c' - i*GG*f_SU3*'G.c'*G.
+
+
+brst_transform 'W+.f' -> 
+	cb*(-i*EE/SW/2*'W+.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h+i*cb*'Z.f'-i*sb*H3)
+		-i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(cb*'W+.f'-sb*'H+') )
+       +sb*(-i*EE/SW/2*'W+.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h+i*sb*'Z.f'+i*cb*H3)
+		-i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(sb*'W+.f'+cb*'H+') ),
+
+		'W-.f' ->
+	cb*(i*EE/SW/2*'W-.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h-i*cb*'Z.f'+i*sb*H3)
+		+i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(cb*'W-.f'-sb*'H-') )
+       +sb*(i*EE/SW/2*'W-.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h-i*sb*'Z.f'-i*cb*H3)
+		+i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(sb*'W-.f'+cb*'H-') ).
+
+brst_transform 'H+' -> 
+	-sb*(-i*EE/SW/2*'W+.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h+i*cb*'Z.f'-i*sb*H3)
+		-i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(cb*'W+.f'-sb*'H+') )
+       +cb*(-i*EE/SW/2*'W+.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h+i*sb*'Z.f'+i*cb*H3)
+		-i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(sb*'W+.f'+cb*'H+') ),
+
+		'H-' ->
+	-sb*(i*EE/SW/2*'W-.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h-i*cb*'Z.f'+i*sb*H3)
+		+i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(cb*'W-.f'-sb*'H-') )
+       +cb*(i*EE/SW/2*'W-.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h-i*sb*'Z.f'-i*cb*H3)
+		+i*EE*('A.c'-(SW**2-CW**2)/2/SW/CW*'Z.c')*(sb*'W-.f'+cb*'H-') ).
+
+
+brst_transform  'Z.f' ->
+	cb*(-EE/SW/2*(cb*('W+.c'*'W-.f'+'W-.c'*'W+.f')-sb*('W+.c'*'H-'+'W-.c'*'H+'))
+		+EE/SW/CW/2*'Z.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h))
+       +sb*(-EE/SW/2*(sb*('W-.c'*'W+.f'+'W+.c'*'W-.f')+cb*('W-.c'*'H+'+'W+.c'*'H-'))
+		+EE/SW/CW/2*'Z.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h)),
+
+		H3 ->
+	-sb*(-EE/SW/2*(cb*('W+.c'*'W-.f'+'W-.c'*'W+.f')-sb*('W+.c'*'H-'+'W-.c'*'H+'))
+		+EE/SW/CW/2*'Z.c'*(vev(2*MW/EE*SW*cb)+ca*H-sa*h))
+       +cb*(-EE/SW/2*(sb*('W-.c'*'W+.f'+'W+.c'*'W-.f')+cb*('W-.c'*'H+'+'W+.c'*'H-'))
+		+EE/SW/CW/2*'Z.c'*(vev(2*MW/EE*SW*sb)+sa*H+ca*h)).
+
+brst_transform  H ->
+	ca*(i*EE/SW/2*(cb*('W+.c'*'W-.f'-'W-.c'*'W+.f')-sb*('W+.c'*'H-'-'W-.c'*'H+'))
+		-EE/SW/CW/2*'Z.c'*(cb*'Z.f'-sb*H3))
+       +sa*(-i*EE/SW/2*(sb*('W-.c'*'W+.f'-'W+.c'*'W-.f')+cb*('W-.c'*'H+'-'W+.c'*'H-'))
+		-EE/SW/CW/2*'Z.c'*(sb*'Z.f'+cb*H3)),
+
+		h ->
+       -sa*(i*EE/SW/2*(cb*('W+.c'*'W-.f'-'W-.c'*'W+.f')-sb*('W+.c'*'H-'-'W-.c'*'H+'))
+		-EE/SW/CW/2*'Z.c'*(cb*'Z.f'-sb*H3))
+       +ca*(-i*EE/SW/2*(sb*('W-.c'*'W+.f'-'W+.c'*'W-.f')+cb*('W-.c'*'H+'-'W+.c'*'H-'))
+		-EE/SW/CW/2*'Z.c'*(sb*'Z.f'+cb*H3)).
+
+
+
+
+brst_transform  'A.c' -> i*EE*'W+.c'*'W-.c',
+                'Z.c' -> i*EE/SW*CW*'W+.c'*'W-.c',
+                'W+.c' -> -i*EE/SW*'W+.c'*(SW*'A.c'+CW*'Z.c'),
+                'W-.c' ->  i*EE/SW*'W-.c'*(SW*'A.c'+CW*'Z.c').
+
+option InfiOrder=1.

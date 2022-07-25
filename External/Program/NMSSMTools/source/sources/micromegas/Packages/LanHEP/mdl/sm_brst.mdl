@@ -1,0 +1,29 @@
+
+%option DoSymmetrize=0.
+
+brst_transform  A  ->  deriv*'A.c'+i*EE*('W+'*'W-.c'-'W-'*'W+.c'),
+                Z  ->  deriv*'Z.c'+i*EE/SW*CW*('W+'*'W-.c'-'W-'*'W+.c'),
+               'W+'->  deriv*'W+.c'+i*EE*((A+CW/SW*Z)*'W+.c'
+                                   -('A.c'+CW/SW*'Z.c')*'W+'),
+               'W-'->  deriv*'W-.c'-i*EE*((A+CW/SW*Z)*'W-.c'
+                                   -('A.c'+CW/SW*'Z.c')*'W-').
+%                G ->   deriv*'G.c' - i*GG*f_SU3*'G.c'*G.
+
+brst_transform  H  ->  -EE/SW/2*('W-.c'*'W+.f'+'W+.c'*'W-.f')-EE/2/SW/CW*'Z.c'*'Z.f',
+               'Z.f'-> i*EE/SW/2*('W-.c'*'W+.f'-'W+.c'*'W-.f')
+			+EE/2/SW/CW*'Z.c'*(H+vev(2*MW/EE*SW)),
+               'W+.f'->  EE/SW/2*(H+vev(2*MW/EE*SW)+i*'Z.f')*'W+.c'
+                        - i*EE*'W+.f'*('A.c'+(CW**2-SW**2)/2/CW/SW*'Z.c'),
+               'W-.f'->  EE/SW/2*(H+vev(2*MW/EE*SW)-i*'Z.f')*'W-.c' 
+                        + i*EE*'W-.f'*('A.c'+(CW**2-SW**2)/2/CW/SW*'Z.c').
+
+brst_transform  'A.c' -> i*EE*'W+.c'*'W-.c',
+                'Z.c' -> i*EE/SW*CW*'W+.c'*'W-.c',
+                'W+.c' -> -i*EE/SW*'W+.c'*(SW*'A.c'+CW*'Z.c'),
+                'W-.c' ->  i*EE/SW*'W-.c'*(SW*'A.c'+CW*'Z.c').
+/*
+brst_transform 'A.C' -> -i*'A.b',
+               'Z.C' -> -i*'Z.b',
+               'W+.C' -> -i*'W+.b',
+               'W-.C' -> -i*'W-.b'.
+*/

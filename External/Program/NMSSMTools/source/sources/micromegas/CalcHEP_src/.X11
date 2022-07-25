@@ -1,0 +1,9 @@
+ Warning:!!!  CalcHEP has compiled without X11.
+   It means that CalcHEP can only be used in 'blind' mode. (See manual). 
+   To use CalcHEP in interactive mode, install the  package
+         libX11-devel   for Fedora/Scientific, Darwin(MAC)
+         libX11-dev     for Ubuntu/Debian
+         xorg-x11-devel for SUSE
+   and recompile CalcHEP by 
+       make clean 
+       make

@@ -1,0 +1,82 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+do_if sel1_mix==on.
+parameter Ae=0:'mu soft trilitear coupling', 
+         ls1=Me*Ae/Sqrt2*EE/SW/MW/cb :'mu soft coupling (Rosiek notation)'.
+do_else.
+let ls1=0.
+alias Ae=0.
+end_if.
+
+do_if sel2_mix==on.
+parameter Am=0:'mu soft trilitear coupling', 
+     ls2=Mm*Am/Sqrt2*EE/SW/MW/cb :'mu soft coupling (Rosiek notation)'.
+do_else.
+let ls2=0.
+alias Am=0.
+end_if.
+
+parameter ls3= Ml*Al/Sqrt2*EE/SW/MW/cb :'Tau soft coupling (Rosiek notation)'.
+
+
+parameter MSne  =sqrt(c2b*MW**2/2+CW**2*Ml1**2)/CW:'e-sneutrino mass',
+          MSnm  =sqrt(c2b*MW**2/2+CW**2*Ml2**2)/CW:'mu-sneutrino mass',
+          MSnl  =sqrt(c2b*MW**2/2+CW**2*Ml3**2)/CW:'tau-sneutrino mass'.
+
+
+
+do_if sel1_mix==off.
+parameter MSeL  =sqrt(-c2b*(CW**2-SW**2)*MW**2/2+CW**2*Ml1**2)/CW:'left selectron mass',
+          MSeR  =sqrt(-SW**2*c2b*MW**2+CW**2*Mr1**2)/CW          :'right selectron mass'.
+let       Zl11=1,   Zl14=0,    Zl41=0,   Zl44=1.
+do_else.
+
+parameter MSeLL = Ml1**2 + Me**2 - MW**2/CW**2*(1/2-SW**2)*c2b,
+          MSeRR = Mr1**2 + Me**2 - MW**2/CW**2*SW**2*c2b,
+          MSeLR = - Me*mu*tb,
+          MSe1= sqrt((MSeLL+MSeRR-sqrt((MSeLL-MSeRR)**2+4*MSeLR**2))/2):'light selectron mass',
+          MSe2= sqrt((MSeLL+MSeRR+sqrt((MSeLL-MSeRR)**2+4*MSeLR**2))/2):'heavy selectron mass',
+          MSeth=atan2(-2*MSeLR,-MSeLL+MSeRR)/2:'selectron mixing angle'.
+parameter Zl11=cos(MSeth), Zl14=-sin(MSeth), Zl41=-Zl14, Zl44=Zl11.
+OrthMatrix({{Zl11, Zl14}, {Zl41, Zl44}}).
+end_if.
+
+	  
+do_if sel2_mix==off.
+parameter MSmL =sqrt(-c2b*(CW**2-SW**2)*MW**2/2+CW**2*Ml2**2)/CW:'left smuon mass',
+          MSmR =sqrt(-SW**2*c2b*MW**2+CW**2*Mr2**2)/CW:'right smuon mass'.
+let       Zl22=1,   Zl25=0,    Zl52=0,   Zl55=1.
+
+do_else.
+parameter MSmuLL = Ml2**2 + Mm**2 - MW**2/CW**2*(1/2-SW**2)*c2b,
+          MSmuLR = MW*SW*Sqrt2*cb*ls2/EE - Mm*mu*tb,
+          MSmuRR = Mr2**2 + Mm**2 - MW**2/CW**2*SW**2*c2b,
+          MSm1= sqrt((MSmuLL+MSmuRR-sqrt((MSmuLL-MSmuRR)**2+4*MSmuLR**2))/2):'light smuon mass',
+          MSm2= sqrt((MSmuLL+MSmuRR+sqrt((MSmuLL-MSmuRR)**2+4*MSmuLR**2))/2):'heavy smuon mass',
+          MSmuth=atan2(-2*MSmuLR,-MSmuLL+MSmuRR)/2:'smuon mixing angle'.
+parameter Zl22=cos(MSmuth), Zl25=-sin(MSmuth), Zl52=-Zl25, Zl55=Zl22.
+OrthMatrix({{Zl22, Zl25}, {Zl52, Zl55}}).
+
+end_if.
+
+parameter MSlLL = Ml3**2 + Ml**2 - MW**2/CW**2*(1/2-SW**2)*c2b,
+          MSlLR = MW*SW*Sqrt2*cb*ls3/EE - Ml*mu*tb,
+          MSlRR = Mr3**2 + Ml**2 - MW**2/CW**2*SW**2*c2b,
+          MSl1= sqrt((MSlLL+MSlRR-sqrt((MSlLL-MSlRR)**2+4*MSlLR**2))/2):'light stau mass',
+          MSl2= sqrt((MSlLL+MSlRR+sqrt((MSlLL-MSlRR)**2+4*MSlLR**2))/2):'heavy stau mass',
+          MSlth=atan2(-2*MSlLR,-MSlLL+MSlRR)/2:'stau mixing angle'.
+parameter Zl33=cos(MSlth), Zl36=-sin(MSlth), Zl63=-Zl36, Zl66=Zl33.
+OrthMatrix({{Zl33, Zl36}, {Zl63, Zl66}}).
+
+
+% Selectron inter-generation mixing matrix
+
+
+let                Zl12=0, Zl13=0,         Zl15=0, Zl16=0,
+           Zl21=0,         Zl23=0, Zl24=0,         Zl26=0,
+           Zl31=0, Zl32=0,         Zl34=0, Zl35=0,
+                   Zl42=0, Zl43=0,         Zl45=0, Zl46=0,
+           Zl51=0,         Zl53=0, Zl54=0,         Zl56=0,
+           Zl61=0, Zl62=0,         Zl64=0, Zl65=0.
+
+

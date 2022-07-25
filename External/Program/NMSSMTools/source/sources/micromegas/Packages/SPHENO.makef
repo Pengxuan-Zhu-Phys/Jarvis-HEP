@@ -1,0 +1,37 @@
+SPHENO=SPheno-$(VERSION)
+#SOURCE=theory.sinp.msu.ru/~pukhov
+SOURCE=www.hepforge.org/archive/spheno
+
+all:$(SPHENO)/bin/SPheno
+
+$(SPHENO)/bin/SPheno:$(SPHENO)/README
+	echo bin/SPheno: > $(SPHENO)/Makefile
+ifneq (, $(shell command -v gfortran 2> /dev/null))
+	echo '	$$(MAKE) F90=gfortran version=$${400.00}' -C src  >> $(SPHENO)/Makefile
+else ifneq (, $(shell command -v ifort 2> /dev/null))
+	echo '	$$(MAKE) F90=ifort version=$${400.00}' -C src  >> $(SPHENO)/Makefile
+else ifneq (, $(shell command -v nagfort 2> /dev/null))   
+        echo '	$$(MAKE) F90=nagfort version=$${400.00}' -C src  >> $(SPHENO)/Makefile 
+else  ifneq (, $(shell command -v g95 2> /dev/null))   
+        echo '	$$(MAKE) F90=g95 version=$${400.00}' -C src  >> $(SPHENO)/Makefile 
+else ifneq (, $(shell command -v lf95 2> /dev/null))   
+        echo '	$$(MAKE) F90=lf95 version=$${400.00}' -C src  >> $(SPHENO)/Makefile
+else 
+	$(error "F90 not detected.")	 
+endif 
+	echo  clean:>>$(SPHENO)/Makefile
+	echo '	rm -f *.o *~ */*.o */*~  bin/SPheno lib/*.a *.o *~ */*.o */*~ include/*' >> $(SPHENO)/Makefile
+	make -C $(SPHENO)
+
+$(SPHENO)/README:
+ifneq (, $(shell command -v wget 2> /dev/null))
+	wget http://$(SOURCE)/$(SPHENO).tar.gz
+else 
+ifneq (, $(shell command -v curl 2> /dev/null))
+	curl https://$(SOURCE)/$(SPHENO).tar.gz  -O -L
+else 
+	$(error "Neither wget nor curl are available, please install wget or curl or change SPHENO.make accordingly.")
+endif
+endif
+	tar -xvzf $(SPHENO).tar.gz
+	rm $(SPHENO).tar.gz

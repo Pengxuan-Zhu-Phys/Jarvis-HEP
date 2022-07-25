@@ -1,0 +1,9 @@
+3 5 50 Mouse
+This function switches mode of mouse. 
+  if  "Mouse: show XY" 
+  then mouse click gives coordinates of point in 
+  the plot.
+  if  "Mouse: show Func" 
+  then CalcHEP writes values of ploted functions
+  for given  X.
+Close menu to activate this mouse function.

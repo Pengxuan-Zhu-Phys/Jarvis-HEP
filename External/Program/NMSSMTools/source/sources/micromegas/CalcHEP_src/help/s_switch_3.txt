@@ -1,0 +1,3 @@
+2 2 50 diagram in C-code
+ if ON, then virtual Z and W bosons contribute 
+to particle widths. 

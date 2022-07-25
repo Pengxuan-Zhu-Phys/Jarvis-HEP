@@ -1,0 +1,30 @@
+<!--
+ATLAS result for mu(ZH, WW) & mu(WH, WW) at mH = 125 GeV,
+with profile likelihood and their correlation fitted
+from 95% CL in Fig. 8, shown in HIGG-2017-14
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2017-14/
+-->
+
+<expmu decay="WW" dim="2" type="vn">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2017-14</source>
+  <sqrts>13</sqrts>
+  <mass>125</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="x" prod="ZH">1.0</eff>
+  <eff axis="y" prod="WH">1.0</eff>
+
+  <bestfit>
+    <x>2.85714</x>
+    <y>2.28669</y>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="x" side="left">-1.33126</uncertainty>
+    <uncertainty axis="x" side="right">+1.87456</uncertainty>
+    <uncertainty axis="y" side="left">-1.00780</uncertainty>
+    <uncertainty axis="y" side="right">+1.19377</uncertainty>
+    <correlation>-0.08151</correlation>
+  </param>
+</expmu>
