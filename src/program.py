@@ -236,7 +236,7 @@ class Pack():
             dds = dd.split(':')
             cmd = cmd.replace("${}$".format(dd), self.cf.get(dds[0], dds[1]))
         if "cd " == cmd[0:3]:
-            command['path'] = cmd[3:]
+            command['path'] = self.decode_path(cmd[3:])
             command['cmd']  = 'pwd'
         else:
             command['path'] = pwd

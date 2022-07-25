@@ -152,7 +152,7 @@ class InputsFile(IOfile):
         from numpy import loadtxt, savetxt
         data = loadtxt(self.file, ndmin=2)
         for var in self.para['position']:
-            expr = sympify(var['expr'])
+            expr = sympify(var['expr'], locals=self.vars)
             var['value'] = expr.subs(self.vars)
             data[var['code'][0]-1][var['code'][1]-1] = var['value']
         savetxt(self.file, data)
@@ -185,7 +185,7 @@ class InputsFile(IOfile):
         vars = {}
         js = None
         for var in self.para['json']:
-            expr = sympify(var['expr'])
+            expr = sympify(var['expr'], locals=self.vars)
             var['value'] = expr.subs(self.vars)
             vars[var['expr']] = var['value']
         with open(self.file, 'r') as f1:
@@ -220,7 +220,7 @@ class InputsFile(IOfile):
     def set_file(self):
         if self.para['file']['expr'] in self.vars:
             from sympy import sympify
-            expr = sympify(self.para['file']['expr'])
+            expr = sympify(self.para['file']['expr'], locals=self.vars)
             self.para['file']['value'] = expr.subs(self.vars)
             from shutil import move
             move(self.para['file']['value'], self.file)
@@ -261,8 +261,9 @@ class InputsFile(IOfile):
         with open(self.file, "r") as f1:
             content = f1.read()
         for var in self.para['replace']:
-            expr = sympify(var['expr'])
-            var['value'] = expr.subs(self.vars)
+            expr = sympify(var['expr'], locals=self.vars)
+            print(self.vars, expr, var['expr'])
+            # var['value'] = expr.subs(self.vars)
             content = content.replace(var['code'], str(var['value']))
         with open(self.file, 'w') as f1:
             f1.write(content)
