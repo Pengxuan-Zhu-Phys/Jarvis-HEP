@@ -366,7 +366,7 @@ class program():
     def update_status(self):
         if self.status == "installing":
             if self.subp == None:
-                self.logger.info("Program start installing ...")
+                self.logger.warning("Program start installing ...")
                 self.run_next_command()
             elif self.subp.poll() == None:
                 pass 
@@ -384,7 +384,7 @@ class program():
                 if output.strip() != "":
                     output = decode_stdout(output)
                     self.logger.info(output)
-                self.logger.info("Installation Finished !!!")
+                self.logger.warning("Installation Finished !!!")
                 self.status = "prerun"    
         elif self.status == "prerun":
             if self.subp == None:

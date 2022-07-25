@@ -294,7 +294,7 @@ class Possion_Disk(Sampling_method):
                     self.check_dead_sample_is_gray()
                 if self.info['nsample']['redy'] > 0 and self.info['nsample']['runn'] < self.pack['config']['paraller number']:
                     self.ready_sample_start_run()
-                if self.info['nsample']['live'] > 0:
+                elif self.info['nsample']['live'] > 0 and self.info['nsample']['redy'] == 0:
                     self.get_new_sample()
                 self.check_generator_status()
             elif self.status == "RESUME":
