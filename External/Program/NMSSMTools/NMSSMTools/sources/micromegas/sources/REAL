@@ -1,0 +1,7 @@
+22_par.c:int  kin22_par(par_22*arg, REAL sqrtS,double GG)
+22_par.c:   REAL ms,md,lambda,Pin,Pout,m[5];
+22_par.c:   REAL cosf=(REAL)1 -(REAL)dCos;
+22_par.c:   REAL sinf=sqrt(fabs((REAL)dCos*(1+cosf)));
+22_par.c:   REAL cosf=-(REAL)1 +(REAL)dCos;
+22_par.c:   REAL sinf=sqrt(fabs((REAL)dCos*(1-cosf)));
+

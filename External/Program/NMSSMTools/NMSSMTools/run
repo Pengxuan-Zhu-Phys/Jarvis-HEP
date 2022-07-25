@@ -1,0 +1,332 @@
+#!/bin/bash
+
+function rmm {
+ for f in $*
+ do
+  if [ -e $f ]
+  then
+   rm -f $f
+  fi
+ done
+}
+
+if [ -z "$1" ]
+then
+	echo "No input file"
+	exit
+fi
+
+if [ ! -e $1 ]
+then
+	echo "File $1 not found"
+	exit
+fi
+
+mod=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==1 {print $2}'`
+nmssm=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==3 {print $2}'`
+cpv=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==5 {print $2}'`
+pfl=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==8 {print $2}'`
+omg=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==9 {print $2}'`
+scan=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==10 {print $2}'`
+nms=`awk '/^BLOCK MODSEL/,(/^BLOCK/ && $2!="MODSEL")' $1 | awk '$1==13 {print $2}'`
+dir=`dirname $1`
+fil=`basename $1`
+pre=${fil%inp*}
+suf=${fil#*inp}
+
+if [ -z $mod ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 1 in BLOCK MODSEL must be specified"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   1     0     # General NMSSM"
+	echo "   1     1     # SUGRA"
+	echo "   1     2     # GMSB"
+	echo "   1     3     # Z3 inv NMSSM"
+	echo "   1     4     # Z3 inv SUGRA"
+	echo "   1     5     # Z3 inv GMSB"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ -z $nmssm ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 3 in BLOCK MODSEL must be specified"
+	echo "   Please add the following line to the BLOCK MODSEL in $1:"
+	echo "   3     1	# NMSSM PARTICLE CONTENT"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ -z $scan ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Switch 10 in BLOCK MODSEL must be specified"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   10	0    # No scan"
+	echo "   10	1    # grid scan"
+	echo "   10	2    # random scan"
+	echo "   10	3    # MCMC scan"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ -z $cpv ]
+then
+	cpv=0
+fi
+
+if [ -z $pfl ]
+then
+	pfl=0
+fi
+
+if [ -z $omg ]
+then
+	omg=0
+fi
+
+if [ -z $nms ]
+then
+	nms=0
+fi
+
+if [ "$mod" -lt 0 -o "$mod" -gt 5 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 1 in BLOCK MODSEL does not correspond to any model"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   1     0     # General NMSSM"
+	echo "   1     1     # SUGRA"
+	echo "   1     2     # GMSB"
+	echo "   1     3     # Z3 inv NMSSM"
+	echo "   1     4     # Z3 inv SUGRA"
+	echo "   1     5     # Z3 inv GMSB"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$nmssm" -ne 1 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 3 in BLOCK MODSEL does not correspond to NMSSM particle content"
+	echo "   Please add the following line to the BLOCK MODSEL in $1:"
+	echo "   3     1	# NMSSM PARTICLE CONTENT"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$scan" -lt 0 -o "$scan" -gt 4 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Switch 10 in BLOCK MODSEL does not correspond to any version"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   10	0    # No scan"
+	echo "   10	1    # grid scan"
+	echo "   10	2    # random scan"
+	echo "   10	3    # MCMC scan"
+	echo "   10	4    # test"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$cpv" -ne 2 -a "$cpv" -ne 0 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 5 in BLOCK MODSEL must be 0 or 2 (default is 0)"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   5     0     # CP conserving NMSSM"
+	echo "   5     2     # CP violating NMSSM"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$cpv" -eq 0 -a \( "$mod" -eq 0  -o "$mod" -eq 3 \) ]
+then
+if [ "$pfl" -lt 0 -o "$pfl" -gt 8 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 8 in BLOCK MODSEL must be between 0 and 8 (default is 0)"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   8     0	# Higgs masses at 1 loop + 2 loop LL"
+	echo "   8     1	# Higgs masses at full 2 loop"
+	echo "   8     2	# Higgs masses at full 2 loop + pole masses"
+	echo "   8     3	# same as 0 + compute Delta(masses)"
+	echo "   8     4	# same as 1 + compute Delta(masses)"
+	echo "   8     5	# same as 2 + compute Delta(masses)"
+	echo "   8     6	# same as 3 + force delta(m_HSM) < 3 GeV"
+	echo "   8     7	# same as 4 + force delta(m_HSM) < 3 GeV"
+	echo "   8     8	# same as 5 + force delta(m_HSM) < 3 GeV"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+else
+if [ "$pfl" -lt 0 -o "$pfl" -gt 2 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 8 in BLOCK MODSEL must be between 0 and 2 (default is 0)"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   8     0	# Higgs masses at 1 loop + 2 loop LL"
+	echo "   8     1	# Higgs masses at full 2 loop"
+	echo "   8     2	# Higgs masses at full 2 loop + pole masses"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+fi
+
+if [ "$omg" -lt -4 -o "$omg" -gt 4 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 9 in BLOCK MODSEL must be between 0 and 4 (default is 0)"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   9     0	# No call to micrOMEGAs"
+	echo "   9     1	# Call to micrOMEGAs for relic density only"
+	echo "   9     2	# Call to micrOMEGAs for relic density and dir. det. rate"
+	echo "   9     3	# Call to micrOMEGAs for relic density and indir. det. rate"
+	echo "   9     4	# Call to micrOMEGAs for relic density and both. det. rate"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$nms" -lt 0 -o "$nms" -gt 1 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Swich 13 in BLOCK MODSEL must be 0 or 1 (default is 0)"
+	echo "   Please add one of the following lines to the BLOCK MODSEL in $1:"
+	echo "   13     0	# No sparticle decays"
+	echo "   13     1	# Computation of sparticle decays"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$cpv" -eq 2 -a "$omg" -ne 0 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> The DM relic density cannot be computed for CPV"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$cpv" -eq 2 -a "$nms" -ne 0 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> NMSDECAY cannot be called for CPV"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+if [ "$cpv" -eq 2 -a "$pfl" -ne 0 -a "$pfl" -ne 3 ]
+then
+	echo "READ ERROR in file $1"
+	echo "-> Higgs mass precision must be 0 or 3 for CPV"
+	cd $dir
+	rmm ${pre}spectr$suf ${pre}omega$suf
+	rmm ${pre}err$suf ${pre}out$suf
+	exit
+fi
+
+case $cpv in
+
+       0) case $mod in
+              0) prog='./nmhdecay' 
+                 echo -n "Running NMHDECAY";;
+              1) prog='./nmspec'
+                 echo -n "Running NMSPEC";;
+              2) prog='./nmgmsb'
+                 echo -n "Running NMGMSB";;
+              3) prog='./nmhdecay' 
+                 echo -n "Running NMHDECAY";;
+              4) prog='./nmspec'
+                 echo -n "Running NMSPEC";;
+              5) prog='./nmgmsb'
+                 echo -n "Running NMGMSB";;
+         esac;;
+
+       2) prog='./nmhdecayCPV'
+          echo -n "Running NMHDECAY_CPV";;
+esac
+
+case $scan in
+       0) echo " for 1 point" ;;
+       1) prog=${prog}'_grid'
+          echo ", scanning on a grid";;
+       2) prog=${prog}'_rand'
+          echo ", scanning randomly";;
+       3) prog=${prog}'_mcmc'
+          echo ", scanning with a MCMC";;
+esac
+
+echo "with input file $1"
+
+if [ "$scan" -eq 0 ]
+then
+       if [ "$omg" -ne 0 ]
+       then
+               echo "DM relic density will be computed by micrOMEGAs"
+               echo "Output files ${pre}spectr$suf and ${pre}omega$suf"
+       else
+               echo "Output files ${pre}spectr$suf"
+       fi
+       echo "will be written in directory $dir"
+       cp $1 main/inp
+       cd main
+       ${prog}
+       if [ $? -eq 0 ]
+       then
+               cat decay >> spectr
+               rm decay inp
+               mv spectr ../$dir/${pre}spectr$suf
+               if [ "$omg" -ne 0 ]
+               then
+        	       mv omega ../$dir/${pre}omega$suf
+               else
+        	       rmm omega ../$dir/${pre}omega$suf
+               fi
+               echo "OK!"
+       else
+               rmm inp decay spectr omega
+               cd ../$dir/
+               rmm ${pre}spectr$suf ${pre}omega$suf
+       fi
+else
+       if [ "$omg" -ne 0 ]
+       then
+               echo "DM relic density will be computed by micrOMEGAs"
+       fi
+       echo "Output files ${pre}out$suf and ${pre}err$suf"
+       echo "will be written in directory $dir"
+       cd main
+       ${prog} < ../$dir/${pre}inp$suf > ../$dir/${pre}out$suf 2> ../$dir/${pre}err$suf
+       if [ $? -eq 0 ]
+       then
+               echo "OK!"
+	       touch ../$dir/${pre}out$suf ../$dir/${pre}err$suf
+       fi
+fi

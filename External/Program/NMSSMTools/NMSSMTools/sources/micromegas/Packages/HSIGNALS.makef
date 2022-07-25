@@ -1,0 +1,20 @@
+HS=higgssignals-$(VERSION)
+
+all:$(HS)/build/HiggsSignals
+
+$(HS)/build/HiggsSignals:$(HS)/COPYING
+	if(test -z "`which cmake`" ) then echo "Install cmake to compile HiggsBounds"; exit 1; fi
+	cd $(HS);  mkdir build; cd build; cmake ..; make
+
+$(HS)/COPYING: 
+ifneq (, $(shell command -v curl 2> /dev/null))
+	curl https://gitlab.com/higgsbounds/higgssignals/-/archive/$(VERSION)/$(HS).tar.gz  -O -L
+else 
+ifneq (, $(shell command -v wget 2> /dev/null))
+	wget https://gitlab.com/higgsbounds/higgssignals/-/archive/$(VERSION)/$(HS).tar.gz 
+else 
+	$(error "Neither wget nor curl are available, please install wget or curl or change hBandS.make accordingly.")
+endif
+endif
+	tar -xvzf $(HS).tar.gz 
+	rm $(HS).tar.gz

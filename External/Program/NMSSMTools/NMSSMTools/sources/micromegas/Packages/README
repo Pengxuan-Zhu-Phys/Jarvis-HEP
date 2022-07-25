@@ -1,0 +1,15 @@
+This directory is intended for external packages. 
+It contains 
+   SuSpect
+   NMSSMTools
+   CPsuperH 
+   Lilith
+   LoopTools
+   LanHEP
+included in micrOMEGAs distribution. 
+
+HBOUNDS.makef  HSIGNALS.makef  SMODELS.makef  SPHENO.makef  SSUSY.makef 
+are makefiles intended for loading HiggsBounds, HiggsSignals,Smodels, 
+SPheno and SoftSusy respectively. For example for SoftSusy_4.1.7 use 
+       
+	make -f SSUSY.makef VERSION=4.1.7

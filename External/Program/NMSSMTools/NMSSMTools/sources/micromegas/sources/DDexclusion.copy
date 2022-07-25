@@ -1,0 +1,423 @@
+#include"../include/micromegas.h"
+#include"../include/micromegas_aux.h"
+
+
+static double maxRecoil(double A) { return 1E6*2*A*0.94* pow( Mcdm*(Vesc+Vearth)/299792./(A*0.94+Mcdm),2);}
+
+double (*dNdEfact)(double Enr )=NULL;
+
+
+
+//=========== Xenon1T_2018 =================
+
+static double BgXe1T=0.65;
+
+
+static double p0Z1T_best(double E)
+{
+
+  int Ntab=14;
+  double Etab[14]={1.692E+00,2.000E+00,3.000E+00,4.000E+00,5.000E+00,6.000E+00,7.000E+00,8.000E+00,9.000E+00,1.000E+01,1.100E+01,1.200E+01,1.300E+01,1.400E+01};
+  double Ptab[14]={0.000E+00,3.059E-02,1.051E-01,2.190E-01,3.519E-01,4.606E-01,5.203E-01,5.266E-01,4.808E-01,3.852E-01,2.732E-01,1.576E-01,6.648E-02,0.000E+00};
+      
+  if(E<=Etab[0] || E>=Etab[Ntab-1]) return 0;
+
+  return (1-BgXe1T/log(10))*polint3(E,Ntab,Etab,Ptab); 
+}
+
+
+static double Xenon1TrecoilSignal(double E,double *dNdE) // integrate recoil energy  with different distributions.     
+{
+   double r= dNdERecoil(E,dNdE)*p0Z1T_best(E);
+   if(dNdEfact) r*=dNdEfact(E);
+   return r;
+}
+
+double  XENON1T_90(double M)
+{ 
+// 1805.12562  
+  if(M<6 || M>1000) { printf("XENON1T: mass %.1E out  of range\n",M); return 0;}
+  double   data_1t_lnM[25]={ 1.790E+00, 1.885E+00, 2.006E+00, 2.148E+00, 2.297E+00, 2.449E+00, 2.598E+00, 2.783E+00, 2.961E+00, 3.117E+00, 3.302E+00, 3.444E+00, 3.614E+00, 3.796E+00, 4.037E+00, 4.268E+00, 4.581E+00, 4.904E+00, 5.178E+00, 5.441E+00, 5.768E+00, 6.095E+00, 6.369E+00, 6.550E+00, 6.891E+00};
+  double   data_1t_lnS[25]={ 1.040E+00, 2.794E-02,-1.003E+00,-2.035E+00,-2.888E+00,-3.591E+00,-4.144E+00,-4.717E+00,-5.111E+00,-5.326E+00,-5.458E+00,-5.486E+00,-5.440E+00,-5.375E+00,-5.178E+00,-4.982E+00,-4.711E+00,-4.412E+00,-4.150E+00,-3.925E+00,-3.598E+00,-3.270E+00,-3.009E+00,-2.812E+00,-2.485E+00};
+
+  return 1E-44*exp( polint3(log(M),25,data_1t_lnM,  data_1t_lnS)); 
+} 
+
+
+// ====================== DarkSide50  data ===============
+
+static double  DSExposure=6786;
+
+static double dsData[49]= {17.4835,   32.4039,    0.903473, 0.0991742,0.0371351,0.033451, 0.0291776,0.0293249,0.0278513,0.0363983,0.0338931,0.0384613,0.036693,0.0484819,0.0495134,0.0514291,0.0517239,0.0518712,0.0565868,0.0605655,0.0596814,0.0679336,0.0677863,0.0642496,0.0736807,0.0804593,0.0792805,0.0789857,0.081933,0.0859117,0.0844381,0.0928377,0.0888589,0.0935745,0.094164,0.1005,0.108458,0.111258,0.118479,0.11951,0.119215,0.129973,0.137636,0.137783,0.128352,0.142204,0.139404,0.157971,0.146919};
+static double dsBG2[50]=  {0.00602712, 0.00690356,0.0141333,0.0174831,0.0175687,0.0182198,0.0230185,0.0239824,0.0263956,0.0304772, 0.0334905, 0.0406516, 0.0417688, 0.0451036, 0.0447058, 0.0523288, 0.0461504, 0.0520661, 0.0545954, 0.0647725, 0.0657942, 0.0624255, 0.0625346, 0.0715269, 0.0700218, 0.067198, 0.0753539, 0.0823083, 0.0846454, 0.078775, 0.0916336, 0.0917193, 0.0967442, 0.0946218, 0.101878, 0.0994093, 0.104243, 0.109654, 0.118155, 0.112426, 0.116344, 0.125108, 0.127717, 0.123506, 0.125227, 0.12702, 0.134878, 0.13838, 0.129947, 0.14118};
+static double dsBG1[49] = { 0.0039792, 0.00770391,0.0138123,0.0160307,0.018476, 0.0195815,0.0225872,0.022327, 0.0277712,0.0328081,0.0344941,0.0375329,0.0372013,0.0438044,0.0492287,0.049246,0.0529514,0.0538343,0.0551339,0.0602985,0.0591826,0.0609475,0.0666318,0.0652344,0.0747834,0.0781232,0.0769915,0.0807583,0.0813425,0.0898694,0.0897154,0.0903464,0.091853,0.0999071,0.100018,0.103706,0.10664,0.106524,0.112548,0.111782,0.11566,0.117054,0.118499,0.125868,0.131495,0.13227,0.130564,0.133745,0.139985};
+static double*dsBG=dsBG2;
+
+
+static double QuenMin(double E)
+{   double X[]={ 134.3, 159.5, 184.5, 208.5, 234.0, 271.5, 308.5, 342.5, 376.5, 409.0, 439.0, 469.5, 501.5, 531.5, 564.5, 597.5, 630.5, 677.0};
+    double Y[]={ 212.3, 213.5, 213.5, 214.0, 214.0, 214.5, 217.5, 225.0, 235.0, 250.5, 269.0, 290.0, 308.5, 326.5, 343.0, 356.5, 367.0, 379.0};
+    double x= 270.5+ (623-270.5)*0.5*log10(E);
+    if(x<134.3) x=134.3;
+    return   10*(polint3(x,18,X,Y)-399)/(44.5-399);  
+}
+
+
+static double QuenMax(double E)
+{   double X[]={128.0, 238.5, 296.0, 350.0, 398.0, 445.0, 482.5, 510.5, 538.5, 570.5, 601.0, 644.5, 679.5};
+    double Y[]={ 91.0,  99.5, 109.0, 135.0, 174.0, 220.0, 257.0, 282.0, 306.5, 325.5, 344.0, 361.0, 371.0};
+    double x= 270.5+ (623-270.5)*0.5*log10(E);
+     if(x<128) x=128;
+    return   10*(polint3(x,13,X,Y)-399)/(44.5-399);  
+}
+
+static double quenchingArrE[100],quenchingArrN[100];
+
+static void  setQuenching(double quenchX)
+{  
+   double step=1;
+   for(int i=0;i<100;i++) 
+   { double E=i*step;
+     quenchingArrE[i]=E;
+     quenchingArrN[i]= E*(QuenMin(E)*(1-quenchX) + QuenMax(E)*quenchX);
+   }  
+}
+
+
+static double Ne(double E) { return polint3(E,100, quenchingArrE,quenchingArrN);  }
+static double En(double n ){ return polint3(n,100, quenchingArrN,quenchingArrE);}
+
+
+
+
+double DS50_90(double M)
+{
+  double X[]={319.0, 336.5, 381.0, 422.5, 430.5, 440.5, 467.5, 497.5, 530.5, 560, 615, 678};
+  double Y[]={169.5, 184.5, 201.0, 213.0, 214.5, 220.0, 235.5, 254.0, 264.0, 270, 277, 277};
+  double  x= 219+log10(M)*(614-219);
+  if(x<X[0] || x>X[11]) { printf("M=%.1E out of DS_50 range\n",M);  return 0; }
+  double  y=polint3(x,12,X,Y);
+  return  1E-40*pow(10, -5*(y-145)/(399-145));
+}
+
+double DS50_90B(double M)
+{
+  double X[]={152,201,259,310,  320.0, 337.0, 391.0, 402.0, 415.5, 426.5, 463.5,497.5,530.5, 560, 615, 678};
+  double Y[]={ 46,104,154,185,  190.5, 195.5, 208.0, 210.0, 217.0, 222.0, 241.0,254.0,264.0, 270, 277, 277};
+  double  x= 219+log10(M)*(614-219);
+  if(x<X[0] || x>X[15]) { printf("M=%.1E out of DS_50 range\n",M);  return 0; }     
+  double  y=polint3(x,16,X,Y);
+  return  1E-40*pow(10, -5*(y-145)/(399-145));
+}
+
+
+static double dNdn(double Ne,double *dNdE)
+{
+  double E=En(Ne);
+  double dEnrdN=En(Ne+0.5)-En(Ne-0.5);
+  return dNdERecoil(E,dNdE)*dEnrdN;
+}
+
+static int neStart=7;   // first experimental bin.  
+static int neLast=48;   // the last experimental bin
+static int neB=7;       // the first bin where addition backgrount is not expected
+static double  resolution=0.2;    // energy resolution as a part of total energy
+static double DSbgFactor=1.04;   //addition  factor for background 
+static double xQuenching=0.;            // quenching interpolation bitween min and max   
+ double E1ion= 0.18;   // (0.0195 KeV- Masa)/(15.76 ev - WWW)  - energy of ionization 
+ int noBinCase=1;             
+
+static double  smoothBin(double x, double * arr) // using Gauss distribution for S2 photons
+{ double res=0;
+  for(int n=1;n<50;n++)
+  {
+//     double w=sqrt(n/toS2);
+//     double w=resolution*n;
+     double w=resolution*2*sqrt(n);
+//     double w=resolution*4;
+     double d=(x-n)/w;
+     d*=d*0.5;
+     if(d<8) res+=arr[n]*exp(-d)/w;
+if(!isfinite(res)){ printf(" Mcdm=%E  x=%e,  arr[%d]=%e\n",Mcdm,x,n,arr[n]); exit(0);}
+  }   
+  
+  return res/sqrt(2*M_PI);
+}
+
+
+static int  neSignal( int binFluctuation,  double *dNdE, double* binSignal) 
+{
+   double binS[50];  // no smothing, real ne distribution   
+   for(int i=0;i<50;i++)  binS[i]=0;
+
+   if(binFluctuation) 
+   { 
+     double Emax=maxRecoil(40);
+     double step=Emax/100;
+     for(double E=step/2; E<50; E+=step)
+     {  
+        double c=dNdERecoil(E,dNdE);
+        if(c<=0) continue;
+        if(binFluctuation) 
+        {
+        int  nMax=E/E1ion; 
+        int xx=(nMax>Ne(E));  
+printf("E=%E ne_=%E  nMax=%d  r=%d\n",E,Ne(E),nMax,xx);        
+        if(nMax<=0) continue;
+        double ne_=Ne(E);
+        if(ne_>nMax) continue;
+        double  logP=log(ne_/nMax), log1P=log(1-ne_/nMax);
+        double  Cbin=1;      
+        if(dNdEfact)c*=dNdEfact(E);     
+        if(E>2 && c==0) break; 
+        for(int ne=0;(ne<=nMax)&&(ne<50);ne++)
+        {  
+          double q=Cbin*exp(ne*logP+(nMax-ne)*log1P);
+          binS[ne]+=step*c*q;
+//if(!isfinite(binS[ne])) { printf("E=%e c=%E  Mcdm=%e Cbin=%e ne=%d, ne_=%E  logP=%e logP1=%E\n",E,c,Mcdm,Cbin,ne,ne_,logP,log1P); exit(0);}            
+          Cbin*=(nMax-ne); 
+          Cbin/=(ne+1);
+        }
+        } else 
+        {
+          double ne_=Ne(E);
+          int ne=ne_;
+          if(ne<50)binS[ne]+=step*c*(1-ne_+ne);
+          if(ne<49)binS[ne+1]+=step*c*(ne_-ne); 
+        }
+     }
+//     binS[0]=0;
+//     printf("Mcdm=%E \n");
+//     for(int i=0;i<40;i++) printf("binS[%d]=%E\n", i, binS[i]);
+      
+     for(int i=1; i<neLast;i++) binSignal[i]=simpson_arg(smoothBin,binS, i,i+1, 1E-3,NULL);  
+   }
+#ifdef QQ   
+   else 
+   {
+     for(int i=1;i<neLast;i++)
+     { // binS[i]= dNdERecoil(En(i),dNdE)*(En(i+0.5)-En(i-0.5));
+        binS[i]=simpson_arg(dNdERecoil,dNdE, En(i),En(i+1), 1E-3,NULL);
+        if(dNdEfact) binS[i]*=dNdEfact(En(i));   
+     }   
+     binS[0]=0;
+     for(int i=0; i<neLast;i++) binSignal[i]=simpson_arg(smoothBin,binS, i,i+1, 1E-3,NULL); 
+//       for(int i=0; i<neLast;i++) binSignal[i]=simpson_arg(dNdERecoil,dNdE, En(i),En(i+1), 1E-3,NULL);
+       
+   }  
+#endif 
+   else
+   if(noBinCase==1)
+   {
+      double Emax=maxRecoil(40);
+      double step=Emax/100;
+      for(int i=0;i<=neLast;i++)  binSignal[i]=0;
+      for(double E=step/2; E<50; E+=step)
+      {     
+          double c=dNdERecoil(E,dNdE);
+          if(c<=0) continue;                                 
+          {
+             if(dNdEfact)c*=dNdEfact(E);
+             double ww=En(4)* sqrt(E/En(4))*resolution;
+             for(int n=0;n<=neLast;n++)
+             { binSignal[n]+=0.5*step*c*(erf( (En(n+1)-E)/M_SQRT2/ww)- erf( (En(n)-E)/M_SQRT2/ww));}                                                                                            
+          }
+      }
+//      for(int n=0;n<neLast;n++) printf("n=%d binS=%E\n", n,binS[n]); 
+   }else
+   {
+      for(int i=1;i<neLast;i++)
+      { 
+         binS[i]=simpson_arg(dNdERecoil,dNdE, En(i),En(i+1), 1E-3,NULL);
+         if(dNdEfact) binS[i]*=0.5*(dNdEfact(En(i))+dNdEfact(En(i+1)));   
+      }     
+      binS[0]=0;                     
+      for(int i=0; i<neLast;i++) binSignal[i]=simpson_arg(smoothBin,binS, i,i+1, 1E-3,NULL);
+   }
+      
+//   double s=0, ss=0; 
+//   for(int i=0;i<15;i++) {printf("i=%d S=%e  SS=%E  \n",i,binS[i],binSignal[i]); s+=binS[i];  ss+=binSignal[i];}
+//   printf(" s=%E  ss=%E\n",s,ss);
+}
+
+
+static double DSll(double c,double * binSignal)
+{
+
+  double l=1;
+  for(int  n=neStart;n<neLast;n++)
+  { 
+     double b=dsBG[n]*DSbgFactor;
+     double d=dsData[n];
+     double s=binSignal[n]*c;
+
+     double th0=b,th1=b+s;
+     
+     if(n<neB) 
+     { if(d>=b+s) continue;
+       if(b<d) th0=d; 
+     }
+          
+     double cc= th0-th1 +d*log(th1/th0); 
+     
+     l*=exp(DSExposure*cc); 
+  }
+  return l;
+}
+
+static double  cDSllbest(double *binSignal)
+{
+
+  double c1=1,c2=0.5,f1=0,f2=0,c_,f_;
+
+  while(f1==0 || f2==0)
+  { c1/=2;c2/=2;
+    f1=DSll(c1,binSignal);
+    f2=DSll(c2,binSignal);
+  }   
+  if(f2<f1) { c_=c1; c1=c2; c2=c_; f_=f1;f1=f2;f2=f_;} 
+ 
+  while ( c1<c2 ) { c1=c2*2; f1=DSll(c1,binSignal); if(f1>f2){ c_=c1; c1=c2; c2=c_; f_=f1;f1=f2;f2=f_;} }
+   
+  for(; fabs(f2/f1-1)>1E-3; )
+  {  
+     c_=c2*c2/c1; f_=DSll(c_,binSignal);
+         
+     if(f_<f2) 
+     { c_=sqrt(c1*c2); f_=DSll(c_,binSignal);
+       if(f_>f2) {c1=c2;f1=f2;c2=c_;f2=f_;} else { c1=c_;f1=f_;}
+     } 
+     else  { c1=c2; f1=f2; c2=c_; f2=f_;}
+  }   
+
+  return c2;
+}  
+  
+
+static double DSllExclude(double pval, double *binSignal)
+{
+   
+  double c1=1,c2=0.5,f1=0,f2=0,c_,f_;
+
+  c2=cDSllbest(binSignal);  
+  f2=DSll(c2,binSignal);
+  pval*=f2;
+
+  for( ;f2>pval; ) { c1=c2; f1=f2;   c2*=2; f2=DSll(c2,binSignal);}
+  for( ; fabs(log(c1/c2))>1E-3; ) 
+  {
+    c_=sqrt(c1*c2);
+     f_=DSll(c_,binSignal); 
+     if(f_<pval) { c2=c_; f2=f_;} else { c1=c_;f1=f_;}
+  }   
+   
+  return sqrt(c1*c2);
+} 
+
+
+double DD_pval(int Experiment, double(*vfv)(double), double cs_SI_P, double cs_SI_N,  double cs_SD_P, double cs_SD_N,int*ex)
+{  
+  if(ex)*ex=0;
+  if( !isfinite(cs_SI_P) || !isfinite(cs_SI_N) || !isfinite(cs_SD_P)|| !isfinite(cs_SD_N)) return 1;
+  double pval=1,pval_;
+  double dNdE[REDIM];
+  double dNdE_[REDIM];
+  int exp_=0;
+  if(Experiment &XENON1T_2018)
+  {  nucleusRecoilAux(vfv,131,Z_Xe,J_Xe131,SxxXe131Me,cs_SI_P, cs_SI_N, cs_SD_P,cs_SD_N,dNdE_); 
+     for(int i=0;i<REDIM;i++) dNdE[i]=0.218*dNdE_[i];
+     nucleusRecoilAux (vfv,129,Z_Xe,J_Xe129,SxxXe129M,cs_SI_P, cs_SI_N, cs_SD_P,cs_SD_N,dNdE_);
+     for(int i=0;i<REDIM;i++) dNdE[i]+=0.262*dNdE_[i];
+     nucleusRecoilAux(vfv,132,Z_Xe,0.       ,SxxXe131,cs_SI_P, cs_SI_N,0,0,dNdE_);
+     for(int i=0;i<REDIM;i++) dNdE[i]+=(1-0.218-0.262)*dNdE_[i];
+     double Emax=maxRecoil(131);
+     if(Emax>15) Emax=15;
+     pval_=exp(- 900*279*simpson_arg(Xenon1TrecoilSignal,dNdE, 1.69,Emax,1E-3,NULL) -BgXe1T);
+     if(pval_<pval) { pval=pval_; exp_=XENON1T_2018;}
+  } 
+  
+  if(Experiment & DarkSide_2018  )
+  {  setQuenching(xQuenching);
+     nucleusRecoilAux(vfv,40,18 ,0,NULL,cs_SI_P , cs_SI_N ,0,0,dNdE);
+     pval_=0;
+     
+     double binSignal[50];
+     
+     neSignal(0, dNdE, binSignal);
+     pval_=  DSll(1,binSignal)/DSll(cDSllbest(binSignal),binSignal);
+     if(pval_<pval) { pval=pval_; exp_=DarkSide_2018;}
+  } 
+
+  if(Experiment & DarkSide_2018B )
+  {  setQuenching(xQuenching);
+     nucleusRecoilAux(vfv,40,18 ,0,NULL,cs_SI_P , cs_SI_N ,0,0,dNdE);
+     pval_=0;
+     
+     double binSignal[50];
+     neSignal(1, dNdE, binSignal); 
+     pval_=  DSll(1,binSignal)/DSll(cDSllbest(binSignal),binSignal);
+     if(pval_<pval) { pval=pval_; exp_=DarkSide_2018B;}
+  } 
+  
+  if(ex) *ex=exp_;
+  return pval;
+}
+
+
+
+double DD_factor(int Experiment, double pval, double(*vfv)(double), double cs_SI_P, double cs_SI_N,  double cs_SD_P, double cs_SD_N,int*exp)
+{  
+  double ff=0,ff_,pval_;
+  double  dNdE[REDIM];
+  double  dNdE_[REDIM];
+  int exp_=0;
+
+  if(Experiment & XENON1T_2018)
+  {  nucleusRecoilAux(vfv,131,Z_Xe,J_Xe131,SxxXe131Me,cs_SI_P, cs_SI_N, cs_SD_P,cs_SD_N,dNdE_); 
+     for(int i=0;i<REDIM;i++) dNdE[i]=0.218*dNdE_[i];
+     nucleusRecoilAux (vfv,129,Z_Xe,J_Xe129,SxxXe129M,cs_SI_P, cs_SI_N, cs_SD_P,cs_SD_N,dNdE_);
+     for(int i=0;i<REDIM;i++) dNdE[i]+=0.262*dNdE_[i];
+     nucleusRecoilAux(vfv,132,Z_Xe,0.       ,SxxXe131,cs_SI_P, cs_SI_N,0,0,dNdE_);
+     for(int i=0;i<REDIM;i++) dNdE[i]+=(1-0.218-0.262)*dNdE_[i];
+     double Emax=maxRecoil(131);
+     if(Emax>15) Emax=15;
+     ff_= -(log(pval)+BgXe1T)/(900*279*simpson_arg(Xenon1TrecoilSignal,dNdE, 1.69,Emax,1E-3,NULL));
+     if( isfinite(ff_) &&  (ff==0 ||  ff_<ff) ) { ff=ff_;  exp_=XENON1T_2018;} 
+  } 
+
+  if(Experiment & DarkSide_2018)
+  {  setQuenching(xQuenching);
+     nucleusRecoilAux(vfv,40,18 ,0,NULL,cs_SI_P , cs_SI_N ,0,0,dNdE);
+     ff_=0;
+     double binSignal[50];
+     neSignal(0, dNdE, binSignal);
+     ff_=DSllExclude(pval, binSignal);          
+     if( isfinite(ff_) &&  (ff==0 ||  ff_<ff) ) { ff=ff_;  exp_=DarkSide_2018;}
+  }
+
+  if(Experiment & DarkSide_2018B)
+  { setQuenching(xQuenching);
+     nucleusRecoilAux(vfv,40,18 ,0,NULL,cs_SI_P , cs_SI_N ,0,0,dNdE);
+     ff_=0;
+     double binSignal[50];
+     neSignal(1, dNdE, binSignal);
+     ff_=DSllExclude(pval, binSignal);           
+     if( isfinite(ff_) &&  (ff==0 ||  ff_<ff) ) { ff=ff_;  exp_=DarkSide_2018B;}
+  }
+
+  if(exp) *exp=exp_;
+  if(exp_==0) return 1/0.; 
+  return ff;
+}
+
+double GRESST_III_90(double M)
+{
+// 1711.07692
+  if(M<0.35 || M>12) { printf("GRESST_III: mass out or range\n"); return 0;}
+  double X[]={211, 236, 257, 314, 417, 464, 485, 513, 635, 769, 880};
+  double Y[]={ 41, 141, 221, 261, 319, 338, 345, 366, 448, 515, 563};
+  double  x= 404+log10(M)*(831-404);
+  double  y=polint3(x,11,X,Y);
+  return  1E-36*pow(10, -5*(y-162)/(538-162));             
+}
+

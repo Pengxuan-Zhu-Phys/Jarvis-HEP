@@ -1,0 +1,114 @@
+
+external_func(hGGeven,*).
+external_func(hAAeven,*).
+external_func(hGGodd,*).
+external_func(hAAodd,*).
+
+external_func(MbRun,1).
+external_func(McRun,1).
+external_func(MtRun,1).
+
+parameter PI=4*atan(1).
+
+parameter Mbp=MbMb*(1+4/3*alphaQCD(MbMb)/PI). 
+parameter Mcp=McMc*(1+4/3*alphaQCD(McMc)/PI).
+
+
+% Amplitudes 
+
+			  
+_h=[h1,h2,h3], _p=[c,b,t,l] in   parameter a_hF__p=CoefVrt([anti(_p),_p, _h]) /(mass _p).
+
+_h=[h1,h2,h3], _p=[eL,eR,mL,mR,uL,uR,cL,cR,dL,dR,sL,sR,l1,l2,t1,t2,b1,b2] in
+                       parameter a_hS__p=CoefVrt([anti( ~_p), ~_p, _h]) /(mass ~_p)**2.
+
+_g=[h1,h2,h3] in 
+     parameter a_gV_W=CoefVrt(['W+','W-', _g]) /MW**2,
+               a_gS_Hc=CoefVrt(['H+','H-', _g], [abbr]) /MHc**2.
+_h=[h1,h2,h3], _p=1-2 in 
+    parameter a_hF_c_p=CoefVrt(['~_p+','~_p-', _h]) /(mass '~_p+').
+
+_h=[ha, hb], _p=[c,b,t,l] in parameter a_hF__p=CoefVrt([anti(_p),_p, _h],[gamma5,im]) /(mass _p)/2.
+
+_h=[ha, hb], _p=1-2 in  parameter a_hF_c_p=CoefVrt(['~_p+','~_p-', _h],[gamma5,im]) /(mass '~_p+')/2.
+
+
+_h=[h1,h2,h3,ha,hb] in parameter 
+    aQCD_h=alphaQCD(M_h)/PI,
+    Rqcd_h=sqrt(1+ aQCD_h*(149/12+ aQCD_h*(68.6482-aQCD_h*212.447))).
+
+          
+_h=[h1,h2,h3] in  parameter 
+    LGG_h=-cabs(hGGeven(M_h,aQCD_h,  15, 
+      1,3,Mtp,a_hF_t,
+      1,3,Mbp,a_hF_b, 
+      1,3,Mcp,a_hF_c, 
+      0,3,MSuL,a_hS_uL, 
+      0,3,MSuR,a_hS_uR, 
+      0,3,MSdL,a_hS_dL, 
+      0,3,MSdR,a_hS_dR, 
+      0,3,MSsL,a_hS_sL, 
+      0,3,MSsR,a_hS_sR, 
+      0,3,MScL,a_hS_cL, 
+      0,3,MScR,a_hS_cR, 
+      0,3,MSb1,a_hS_b1, 
+      0,3,MSb2,a_hS_b2, 
+      0,3,MSt1,a_hS_t1, 
+      0,3,MSt2,a_hS_t2 )
+                            ).
+parameter Quq=4/9, Qdq=1/9.
+
+_h=[h1,h2,h3] in  parameter
+    LAA_h=-cabs(   
+     Quq*hAAeven(M_h,aQCD_h,8, 
+       1,3,Mtp,a_hF_t,  
+       1,3,Mcp,a_hF_c,
+       0,3,MSuL,a_hS_uL, 
+       0,3,MSuR,a_hS_uR,  
+       0,3,MScL,a_hS_cL, 
+       0,3,MScR,a_hS_cR, 
+       0,3,MSt1,a_hS_t1, 
+       0,3,MSt2,a_hS_t2)  
+    +Qdq*hAAeven(M_h,aQCD_h,7,
+       1,3,Mbp,a_hF_b, 
+       0,3,MSdL,a_hS_dL, 
+       0,3,MSdR,a_hS_dR, 
+       0,3,MSsL,a_hS_sL, 
+       0,3,MSsR,a_hS_sR, 
+       0,3,MSb1,a_hS_b1, 
+       0,3,MSb2,a_hS_b2  )
+    +hAAeven(M_h,aQCD_h,11,
+       2,1,MW, a_hV_W,
+       1,1,MC1,a_hF_c1, 
+       1,1,MC2,a_hF_c2, 
+       0,1,MHc,a_hS_Hc, 
+       0,1,MSeL,a_hS_eL, 
+       0,1,MSeR,a_hS_eR, 
+       0,1,MSmL,a_hS_mL, 
+       0,1,MSmR,a_hS_mR, 
+       0,1,MSl1,a_hS_l1, 
+       0,1,MSl2,a_hS_l2, 
+       1,1,Ml,a_hF_l)
+               ).
+
+_h=[ha,hb] in parameter     
+           LGG_h=-cabs( hGGodd(M_h,aQCD_h, 3, 1,3,Mcp,a_hF_c, 1,3,Mbp,a_hF_b,  1,3,Mtp,a_hF_t) ).
+_h=[ha,hb] in parameter  
+           LAA_h=-cabs(   Qdq*hAAodd(M_h,aQCD_h,1, 1,3,Mbp,a_hF_b) 
+                         +Quq*hAAodd(M_h,aQCD_h,2,   1,3,Mtp,a_hF_t, 1,3,Mcp,a_hF_c) 
+                         +hAAodd(M_h,aQCD_h,3,
+                            1,1,Ml,a_hF_l, 
+                            1,1,MC1,a_hF_c1, 
+                            1,1,MC2,a_hF_c2)
+                      ).
+
+let F_A^mu^nu=deriv^mu*A^nu-deriv^nu*A^mu.
+let F_G^mu^nu^a=deriv^mu*G^nu^a-deriv^nu*G^mu^a.
+let dF_G^mu^nu^a=i*GG*f_SU3^a^b^c*G^mu^b*G^nu^c.
+
+_h=[h1,h2,h3] in lterm  LGG_h*Rqcd_h*(_h)*F_G*(F_G+2*dF_G).
+_h=[h1,h2,h3] in lterm  LAA_h*(_h)*F_A**2.
+_h=[ha,hb]    in lterm  LAA_h*epsv*F_A*F_A*(_h).
+_h=[ha,hb]    in lterm  LGG_h*Rqcd_h*epsv*F_G*(F_G+2*dF_G)*(_h).
+
+clear F_G,F_A,dF_G.

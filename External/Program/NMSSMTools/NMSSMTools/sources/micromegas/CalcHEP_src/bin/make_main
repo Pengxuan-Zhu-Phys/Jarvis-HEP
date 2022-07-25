@@ -1,0 +1,18 @@
+: 
+  CALCHEP=  
+#---------------
+
+lib=$CALCHEP/lib
+.  $CALCHEP/FlagsForSh
+
+if(test -n "$LHAPDFPATH") then
+  EXTLIB="-L$LHAPDFPATH -lLHAPDF $EXTLIB"
+  LD_RUN_PATH="$LHAPDFPATH:$LD_RUN_PATH"
+  export LD_RUN_PATH  
+fi 
+
+exe=`echo $1 |sed s/.c//`
+
+$CC -o$exe $CFLAGS -I$CALCHEP/include -I$CALCHEP/c_source/dynamicME/include -I$CALCHEP/c_source/ntools/include \
+$*  $lib/dynamic_vp.a  $lib/dynamic_me.a $lib/num_c.a $lib/serv.a $lib/sqme_aux.so \
+$CALCHEP/include/VandPgate.c  $EXTLIB  $lib/libSLHAplus.a  $lib/dummy.a $lib/ntools.a    $lDL -lm $lQuad $LX11 -lpthread

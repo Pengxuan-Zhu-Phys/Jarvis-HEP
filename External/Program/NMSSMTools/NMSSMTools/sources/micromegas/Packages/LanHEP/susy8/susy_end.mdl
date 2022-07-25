@@ -1,0 +1,58 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+SetEM(A,EE).
+CheckHerm.
+
+
+
+%%%%%%%%%%%%%%%%%%% Higgs radiative corrections %%%%%%%%%%%%%%%%%%%%%%%
+
+
+do_if CPV==off.
+
+lterm  - dlh1*(s_h1*s_H1)**2/2
+       - dlh2*(s_h2*s_H2)**2/2
+       - dlh3*(s_h1*s_H1)*(s_h2*s_H2)
+       - dlh4*(eps2*s_h1*s_h2)*(eps2*s_H1*s_H2) 
+       - dlh5*((eps2*s_h1*s_h2)**2+(eps2*s_H1*s_H2)**2)/2
+       - dlh6*(s_h1*s_H1)*(eps2*s_h1*s_h2+eps2*s_H1*s_H2)
+       - dlh7*(s_h2*s_H2)*(eps2*s_h1*s_h2+eps2*s_H1*s_H2).
+
+do_else.
+
+/*
+lterm  - dlh1*(s_h1*s_H1)**2
+       - dlh2*(s_h2*s_H2)**2
+       - dlh3*(s_h1*s_H1)*(s_h2*s_H2)
+       - dlh4*(eps2*s_h1*s_h2)*(eps2*s_H1*s_H2).
+	   
+lterm  - dlh5r*((eps2*s_h1*s_h2)**2+(eps2*s_H1*s_H2)**2)/2
+      -i*dlh5i*((eps2*s_h1*s_h2)**2-(eps2*s_H1*s_H2)**2)/2.
+lterm   dlh6*(s_h1*s_H1)*(eps2*s_h1*s_h2)
+       +dlh7*(s_h2*s_H2)*(eps2*s_h1*s_h2)+AddHermConj.
+*/
+
+end_if.
+	   
+do_if NMSSM == on.
+
+/*
+lterm  - dlh1s*(s_h1*s_H1)*s_n*s_N
+       - dlh2s*(s_h2*s_H2)*s_n*s_N
+       - dlhss*(s_n*s_N)**2/2
+	   -dlh5s*((eps2*s_h1*s_h2)*s_n**2+(eps2*s_H1*s_H2)*s_N**2)/2
+	   -dlh8s*(s_n**4+s_N**4).
+*/
+end_if.
+
+do_if FeynArts==1.
+
+parameter MHHsq=MHH**2, MHH2=MHHsq, Mhsq=Mh**2, MH3sq=MH3**2, MHcsq=MHc**2.
+_x=[e,m,l,u,d,c,s,b,t] in parameter M_xsq=M_x**2.
+_x=[e,m,l,u,d,c,s,b,t] in parameter MS_x1sq=MS_x1**2.
+_x=[e,m,l,u,d,c,s,b,t] in parameter MS_x2sq=MS_x2**2.
+_x=[e,m,l] in parameter MSn_xsq=MSn_x**2.
+
+end_if.
+
+CheckMasses(RedDiag=Vud,numcheck).

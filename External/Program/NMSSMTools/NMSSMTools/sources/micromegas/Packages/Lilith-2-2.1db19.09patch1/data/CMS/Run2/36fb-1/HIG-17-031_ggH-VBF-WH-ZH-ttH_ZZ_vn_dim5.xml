@@ -1,0 +1,54 @@
+<!--
+CMS result for H -> ZZ -> 4l decay mode from the combination paper HIG-17-031.
+Best-fit values and uncertainties taken from Table 3, correlations from Add. Fig. 1 at 
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-17-031/
+-->
+
+<expmu dim="5" type="vn">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-17-031</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ggH" decay="ZZ">1.0</eff>
+  <eff axis="d2" prod="VBF" decay="ZZ">1.0</eff>
+  <eff axis="d3" prod="WH" decay="ZZ">1.0</eff>
+  <eff axis="d4" prod="ZH" decay="ZZ">1.0</eff>
+  <eff axis="d5" prod="ttH" decay="ZZ">1.0</eff>
+
+  <bestfit>
+    <d1>1.22</d1>
+	  <d2>-0.09</d2>
+	  <d3>0.00</d3>
+	  <d4>0.00</d4>
+	  <d5>0.00</d5>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-0.21</uncertainty>
+    <uncertainty axis="d1" side="right">+0.23</uncertainty>
+    <uncertainty axis="d2" side="left">-0.76</uncertainty>
+    <uncertainty axis="d2" side="right">+1.02</uncertainty>
+    <uncertainty axis="d3" side="left">-1e-5</uncertainty>
+    <uncertainty axis="d3" side="right">+2.33</uncertainty>
+    <uncertainty axis="d4" side="left">-1e-5</uncertainty>
+    <uncertainty axis="d4" side="right">+4.26</uncertainty>
+    <uncertainty axis="d5" side="left">-1e-5</uncertainty>
+    <uncertainty axis="d5" side="right">+1.50</uncertainty>
+	
+	  <correlation entry="d1d2">-0.41</correlation>
+    <correlation entry="d1d3">-0.09</correlation>
+    <correlation entry="d1d4">-0.20</correlation>
+    <correlation entry="d1d5">0</correlation>
+
+    <correlation entry="d2d3">0</correlation>
+    <correlation entry="d2d4">0</correlation>
+    <correlation entry="d2d5">-0.02</correlation>
+
+    <correlation entry="d3d4">-0.30</correlation>
+    <correlation entry="d3d5">0</correlation>
+
+    <correlation entry="d4d5">-0.02</correlation>
+  </param>
+</expmu>

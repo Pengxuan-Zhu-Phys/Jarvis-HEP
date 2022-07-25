@@ -1,0 +1,98 @@
+1. General comments.
+For compilation of the SLHAplus library one needs C and Fortran compilers.
+Our Makefile uses default compiler names and compiler options. 
+You can  define the variables  CC, FC, CXX, FLAGS, FFLAGS, CXXFLAGS
+at the top of Makefile  to use specific compilers and their  flags.
+If for some reasons there is no Fortran compiler installed in your 
+computer define 
+
+FC =   
+
+2. Installation.
+Launch
+       [g]make
+
+It should generate the file 
+   libSLHAplus.a 
+For C and C++ applications include in your code 
+   SLHAplus.h
+which automatically distinguishes C and C++  sources.
+The file  
+
+     SLHAplus.fh  
+
+contains descriptions of Fortran function. It should be included in Fortran 
+routines.
+
+3. See examples in subdirectory "test" for a better understanding of SLHAplus.
+
+4. The subdirectory "MSSM" contains an example of  how to use SLHAplus for model generation 
+via LanHEP. It is necessary to have  LanHEP installed to test this option.
+
+5. Contents of source files of SLHAplus library:
+
+   a) SLHAreader.c:  contains routines for  SLHA file reading. 
+            slhaRead 
+            slhaReadStream 
+            slhaVal
+            cslhaVal
+            slhaValExists
+            slhaWarnings
+   b) aux.c:  contains routines adapted for CalCHEP which allow to 
+      prepare input SLHA file and to launch external program generation of
+      for SLHA output. 
+             System
+             openAppend
+             aPrintF
+   c) jacobi.c: realization of Jacobi algorithm for different diagonalizing 
+      problem met in particle physics.
+            rJacobi
+            cJacobiH
+            rJacobiA
+            cJacobiA
+            cJacobiS  
+   d) chDiag.c: rewrites Jacobi routines in CalcHEP format.
+            initDiagonal
+            rDiagonal
+            cDiagonalH 
+            cDiagonalA
+            cDiagonalS
+            rDiagonalA
+            MassArray
+            MixMatrix
+            MixMatrixU
+            cMixMatrix
+            cMixMatrixU
+   e) alpha_s.c: routines for calculation of QCD running coupling and masses 
+      which are needed for construction of realistic model of particle interaction.
+            initQCD
+            alphaQCD
+            McRun
+            MbRun
+            MtRun
+            McEff
+            MbEff
+            MtEff
+   f) fixArg.c: transforms routines with variable  number  of  arguments
+      into set of routines with fixed number of arguments. It is needed for 
+      Fortran and C++ ( in case of Complex arguments) versions of SLHAplus.
+      fixArg.c uses substitutions  defined in aList.h 
+
+   g) fortran.c   
+       contains  'bridge'  routines  written in C and  acceptable by Fortran.
+       See main rules of bridge constructions in   Chapter 11 of
+http://www.nd.edu/~hpcc/solaris_opt/SUNWspro.forte6u1/WS6U1/lib/locale/C/html/manuals/fortran/prog_guide 
+   
+   h) faux.f:  This file contains some auxiliary Fortran routines which can not 
+      be simulated in C. They are 
+            i)  file output routine
+            ii) Fortran functions which return complex numbers. ( Because 
+             authors are not sure that there is an unique standard for writing 
+             corresponding bridge in C) 
+
+
+    i) ferror.c: Contains only one global variable 
+             FError
+       It is done as a separate file to avoid possible conflict in linking 
+       SLHAplus with CalcHEP and micrOMEGAs routines which contain independent 
+       declaration of this variable.

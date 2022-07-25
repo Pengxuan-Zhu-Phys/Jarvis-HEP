@@ -1,0 +1,21 @@
+<!--
+ATLAS result for mu(ZH, invisible) at mH = 125.5 GeV
+extracted from Figure 7
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2013-03/
+-->
+
+<expmu decay="invisible" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2013-03</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.5</mass>
+
+
+  <eff prod="ZH">1.0</eff>
+
+  <bestfit>0.021</bestfit>
+  
+  <param>
+    <uncertainty>0.371</uncertainty>
+  </param>
+</expmu>

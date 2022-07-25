@@ -1,0 +1,209 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+alias MtopS=Mt.
+
+
+do_if sq1_mix==on.
+parameter Au=slhaVal2(str(Au),Q,1,1):'u-squark soft coupling',
+          Ad=slhaVal2(str(Ad),Q,1,1):'d-squark soft coupling',
+       us1=-Mu*Au*EE/SW/MW/Sqrt2/sb:'u1 soft breaking parameter (RN)',
+	   ds1= Md*Ad*EE/SW/MW/Sqrt2/cb:'d1 soft breaking parameter (RN)'.
+do_else.
+let  us1=0, ds1=0.
+alias Au=0.
+alias Ad=0.
+end_if.
+
+do_if dsq2_mix==on.
+parameter As=slhaVal2(str(Ad),Q,2,2):'s-squark soft coupling',
+          ds2=Ms*As*EE/SW/MW/Sqrt2/cb:'d2 soft breaking parameter (RN)'.
+do_else.
+let ds2=0.
+alias As=0.
+end_if.
+
+do_if usq2_mix==on.
+parameter Ac=slhaVal2(str(Au),Q,2,2):'c-squark soft coupling',
+     us2=-Mc*Ac*EE/SW/MW/Sqrt2/sb:'u2 soft breaking parameter (RN)'.
+do_else.
+let  us2=0.
+alias Ac=0.
+end_if.
+
+do_if CPV==off.
+parameter ds3=Mb*Ab*EE/SW/MW/Sqrt2/cb:'d3 soft breaking parameter (RN)'.
+parameter us3=-At*MtopS*EE/SW/MW/Sqrt2/sb:'u3 soft breaking parameter (RN)'.
+do_else.
+let ds3=Mb*Ab*EE/SW/MW/Sqrt2/cb.
+let us3=-At*MtopS*EE/SW/MW/Sqrt2/sb.
+end_if.
+
+% 1st generation
+
+do_if sq1_mix==off.
+do_if MMCALC==tree.
+parameter  MSuL = sqrt(Mq2**2+MW**2/CW**2*(1/2-2/3*SW**2)*c2b),
+           MSuR = sqrt(Mu2**2+MW**2/CW**2*(    2/3*SW**2)*c2b).
+do_else.
+parameter MSuL  =slhaVal1(str(MASS),Q,1000002),
+          MSuR  =slhaVal1(str(MASS),Q,2000002).
+end_if.
+let Zu11=1, Zu14=0, Zu41=0, Zu44=1.
+do_else.
+parameter MSuLL= Mq1**2 + Mu**2 + MW**2/CW**2*(1/2-2/3*SW**2)*c2b,
+          MSuLR= -MW*SW*Sqrt2*sb*us1/EE-Mu*mu/tb,
+          MSuRR= Mu1**2 + Mu**2 + 2/3*MW**2/CW**2*SW**2*c2b,
+          MSu1=sqrt((MSuLL+MSuRR-sqrt((MSuLL-MSuRR)**2+4*MSuLR**2))/2),
+          MSu2=sqrt((MSuLL+MSuRR+sqrt((MSuLL-MSuRR)**2+4*MSuLR**2))/2), 
+          MSuth=atan2(-2*MSuLR,-MSuLL+MSuRR)/2.
+parameter Zu11=cos(MSuth), Zu14=-sin(MSuth), Zu41=-Zu14, Zu44=Zu11.
+OrthMatrix({{Zu11, Zu14}, {Zu41, Zu44}}).
+end_if.
+
+do_if sq1_mix==off.
+do_if MMCALC==tree.
+parameter  MSdL = sqrt(Mq2**2-MW**2/CW**2*(1/2-1/3*SW**2)*c2b),
+           MSdR = sqrt(Md2**2+MW**2/CW**2*(   -1/3*SW**2)*c2b).
+do_else.
+parameter MSdL  =slhaVal1(str(MASS),Q,1000001),
+          MSdR  =slhaVal1(str(MASS),Q,2000001).
+end_if.
+let Zd11=1, Zd14=0, Zd41=0, Zd44=1.
+do_else.
+parameter MSdLL= Mq1**2 + Md**2 - MW**2/CW**2*(1/2-1/3*SW**2)*c2b,
+          MSdLR= MW*SW*Sqrt2*cb*ds1/EE-Md*mu*tb,
+          MSdRR= Md1**2 + Md**2 - 1/3*MW**2/CW**2*SW**2*c2b,
+          MSd1= sqrt((MSdLL+MSdRR-sqrt((MSdLL-MSdRR)**2+4*MSdLR**2))/2),
+          MSd2= sqrt((MSdLL+MSdRR+sqrt((MSdLL-MSdRR)**2+4*MSdLR**2))/2),
+          MSdth=atan2(-2*MSdLR,-MSdLL+MSdRR)/2.
+parameter Zd11=cos(MSdth), Zd14=-sin(MSdth), Zd41=-Zd14, Zd44=Zd11.
+OrthMatrix({{Zd11, Zd14}, {Zd41, Zd44}}).
+end_if.
+
+% 2nd generation
+
+do_if usq2_mix==off.
+do_if MMCALC==tree.
+parameter  MScL = sqrt(Mq2**2+MW**2/CW**2*(1/2-2/3*SW**2)*c2b),
+           MScR = sqrt(Mu2**2+MW**2/CW**2*(    2/3*SW**2)*c2b).
+do_else.
+parameter MScL  =slhaVal1(str(MASS),Q,1000004),
+          MScR  =slhaVal1(str(MASS),Q,2000004).
+end_if.
+let Zu22=1, Zu25=0, Zu52=0, Zu55=1.
+do_else.
+parameter MScLL= Mq2**2 + Mc**2 + MW**2/CW**2*(1/2-2/3*SW**2)*c2b,
+          MScLR= -MW*SW*Sqrt2*sb*us2/EE - Mc*mu/tb,
+          MScRR= Mu2**2 + Mc**2 + 2/3*MW**2/CW**2*SW**2*c2b,
+          MSc1=sqrt((MScLL+MScRR-sqrt((MScLL-MScRR)**2+4*MScLR**2))/2),
+          MSc2=sqrt((MScLL+MScRR+sqrt((MScLL-MScRR)**2+4*MScLR**2))/2), 
+          MScth=atan2(-2*MScLR,-MScLL+MScRR)/2.
+parameter Zu22=cos(MScth), Zu25=-sin(MScth), Zu52=-Zu25, Zu55=Zu22.
+OrthMatrix({{Zu22, Zu25}, {Zu52, Zu55}}).
+end_if.
+
+do_if dsq2_mix==off.
+do_if MMCALC==tree.
+parameter  MSsL = sqrt(Mq2**2-MW**2/CW**2*(1/2-1/3*SW**2)*c2b),
+           MSsR = sqrt(Md2**2+MW**2/CW**2*(   -1/3*SW**2)*c2b).
+do_else.
+parameter MSsL  =slhaVal1(str(MASS),Q,1000003),
+          MSsR  =slhaVal1(str(MASS),Q,2000003).
+end_if.
+let Zd22=1, Zd25=0, Zd52=0, Zd55=1.
+do_else_if dsq2_mix==on.
+parameter MSsLL= Mq2**2 + Ms**2 - MW**2/CW**2*(1/2-1/3*SW**2)*c2b,
+          MSsLR= MW*SW*Sqrt2*cb*ds2/EE - Ms*mu*tb,
+          MSsRR= Md2**2 + Ms**2 - 1/3*MW**2/CW**2*SW**2*c2b,
+          MSs1= sqrt((MSsLL+MSsRR-sqrt((MSsLL-MSsRR)**2+4*MSsLR**2))/2),
+          MSs2= sqrt((MSsLL+MSsRR+sqrt((MSsLL-MSsRR)**2+4*MSsLR**2))/2),
+          MSsth=atan2(-2*MSsLR,-MSsLL+MSsRR)/2.
+parameter Zd22=cos(MSsth), Zd25=-sin(MSsth), Zd52=-Zd25, Zd55=Zd22.
+OrthMatrix({{Zd22, Zd25}, {Zd52, Zd55}}).
+end_if.
+
+
+% 3rd generation
+
+do_if CPV==on.
+parameter MSt1  =slhaVal1(str(MASS),Q,1000006),
+          MSt2  =slhaVal1(str(MASS),Q,2000006),
+          MSb1  =slhaVal1(str(MASS),Q,1000005),
+          MSb2  =slhaVal1(str(MASS),Q,2000005).
+parameter Zu33r = slhaVal2(str(stopmix),Q,1,1),
+          Zu36r = slhaVal2(str(stopmix),Q,2,1),
+          Zu63r = slhaVal2(str(stopmix),Q,1,2),
+          Zu66r = slhaVal2(str(stopmix),Q,2,2).
+parameter Zd33r = slhaVal2(str(sbotmix),Q,1,1),
+          Zd36r = slhaVal2(str(sbotmix),Q,2,1),
+          Zd63r = slhaVal2(str(sbotmix),Q,1,2),
+          Zd66r = slhaVal2(str(sbotmix),Q,2,2).
+parameter Zu33i = -slhaVal2(str(imstopmix),Q,1,1),
+          Zu36i = -slhaVal2(str(imstopmix),Q,2,1),
+          Zu63i = -slhaVal2(str(imstopmix),Q,1,2),
+          Zu66i = -slhaVal2(str(imstopmix),Q,2,2).
+parameter Zd33i = -slhaVal2(str(imsbotmix),Q,1,1),
+          Zd36i = -slhaVal2(str(imsbotmix),Q,2,1),
+          Zd63i = -slhaVal2(str(imsbotmix),Q,1,2),
+          Zd66i = -slhaVal2(str(imsbotmix),Q,2,2).
+_x=[3,6], _y=[3,6] in let Zd_x_y=Zd_x_yr+i*Zd_x_yi.
+HermMatrix({{Zd33r, Zd36r}, {Zd63r, Zd66r}},{{Zd33i, Zd36i}, {Zd63i, Zd66i}}).
+_x=[3,6], _y=[3,6] in let Zu_x_y=Zu_x_yr+i*Zu_x_yi.
+HermMatrix({{Zu33r, Zu36r}, {Zu63r, Zu66r}},{{Zu33i, Zu36i}, {Zu63i, Zu66i}}).
+
+do_else.
+
+do_if MMCALC==tree.
+parameter MStLL= Mq3**2 + MtopS**2 + MW**2/CW**2*(1/2-2/3*SW**2)*c2b,
+          MStLR= -MW*SW*Sqrt2*sb*us3/EE - MtopS*mu/tb,
+          MStRR= Mu3**2 + MtopS**2 + 2/3*MW**2/CW**2*SW**2*c2b,
+          MSt1=sqrt((MStLL+MStRR-sqrt((MStLL-MStRR)**2+4*MStLR**2))/2),
+          MSt2=sqrt((MStLL+MStRR+sqrt((MStLL-MStRR)**2+4*MStLR**2))/2), 
+          MStth=atan2(-2*MStLR,-MStLL+MStRR)/2.
+parameter Zu33=cos(MStth), Zu36=-sin(MStth), Zu63=-Zu36, Zu66=Zu33.
+
+parameter MSbLL= Mq3**2 + Mb**2 - MW**2/CW**2*(1/2-1/3*SW**2)*c2b,
+          MSbLR= MW*SW*Sqrt2*cb*ds3/EE - Mb*mu*tb,
+          MSbRR= Md3**2 + Mb**2 - 1/3*MW**2/CW**2*SW**2*c2b,
+          MSb1= sqrt((MSbLL+MSbRR-sqrt((MSbLL-MSbRR)**2+4*MSbLR**2))/2),
+          MSb2= sqrt((MSbLL+MSbRR+sqrt((MSbLL-MSbRR)**2+4*MSbLR**2))/2),
+          MSbth=atan2(-2*MSbLR,-MSbLL+MSbRR)/2.
+parameter Zd33=cos(MSbth), Zd36=-sin(MSbth), Zd63=-Zd36, Zd66=Zd33.
+
+do_else.
+
+parameter MSt1  =slhaVal1(str(MASS),Q,1000006),
+          MSt2  =slhaVal1(str(MASS),Q,2000006),
+          MSb1  =slhaVal1(str(MASS),Q,1000005),
+          MSb2  =slhaVal1(str(MASS),Q,2000005).
+parameter Zu33 = slhaVal2(str(stopmix),Q,1,1),
+          Zu36 = slhaVal2(str(stopmix),Q,2,1),
+          Zu63 = slhaVal2(str(stopmix),Q,1,2),
+          Zu66 = slhaVal2(str(stopmix),Q,2,2).
+parameter Zd33 = slhaVal2(str(sbotmix),Q,1,1),
+          Zd36 = slhaVal2(str(sbotmix),Q,2,1),
+          Zd63 = slhaVal2(str(sbotmix),Q,1,2),
+          Zd66 = slhaVal2(str(sbotmix),Q,2,2).
+end_if.
+
+OrthMatrix({{Zu33, Zu36}, {Zu63, Zu66}}).
+OrthMatrix({{Zd33, Zd36}, {Zd63, Zd66}}).
+
+end_if. % non-cpv
+
+let                Zu12=0, Zu13=0,         Zu15=0, Zu16=0,
+           Zu21=0,         Zu23=0, Zu24=0,         Zu26=0,
+           Zu31=0, Zu32=0,         Zu34=0, Zu35=0,
+                   Zu42=0, Zu43=0,         Zu45=0, Zu46=0,
+           Zu51=0,         Zu53=0, Zu54=0,         Zu56=0,
+           Zu61=0, Zu62=0,         Zu64=0, Zu65=0.
+
+
+let                Zd12=0, Zd13=0,         Zd15=0, Zd16=0,
+           Zd21=0,         Zd23=0, Zd24=0,         Zd26=0,
+           Zd31=0, Zd32=0,         Zd34=0, Zd35=0,
+                   Zd42=0, Zd43=0,         Zd45=0, Zd46=0,
+           Zd51=0,         Zd53=0, Zd54=0,         Zd56=0,
+           Zd61=0, Zd62=0,         Zd64=0, Zd65=0.
+
+

@@ -1,0 +1,56 @@
+# RELIC DENSITY CALCULATED BY MICROMEGAS
+#
+BLOCK RDINFO   # Program information
+     1   MicrOmegas # Dark matter package
+     2   5.6.2      # Version number
+     3   # DM relic density too small
+     3   # DM direct detection rate too large (SI)
+         # Cross sections rescaled with the ratio relic density/Planck observed value
+     3   # DM direct detection rate too large (SD-n)
+         # Cross sections rescaled with the ratio relic density/Planck observed value
+     3   # DM direct detection rate too large (SD-p)
+         # Cross sections rescaled with the ratio relic density/Planck observed value
+#
+BLOCK ABUNDANCE
+   1   2.4598E+00   #  T_f[GeV]
+   4   2.3770E-02   #  omega h^2
+   3   1.1407E-25   #  vSigma
+# contibutions to vSigma in percents
+   6   1   1000022   1000022         5        -5   5.2577E+01   # ~o1 ~o1 -> b B                                    
+   6   2   1000022   1000022        24       -24   1.9241E+01   # ~o1 ~o1 -> W+ W-                                  
+   6   3   1000022   1000022        21        21   6.5795E+00   # ~o1 ~o1 -> G G                                    
+   6   4   1000022   1000022        15       -15   6.1668E+00   # ~o1 ~o1 -> l L                                    
+   6   5   1000022   1000022         4        -4   4.0673E+00   # ~o1 ~o1 -> c C                                    
+   6   6   1000022   1000022         1        -1   2.4659E+00   # ~o1 ~o1 -> d D                                    
+   6   7   1000022   1000022         3        -3   2.4659E+00   # ~o1 ~o1 -> s S                                    
+   6   8   1000022   1000022         2        -2   1.9137E+00   # ~o1 ~o1 -> u U                                    
+   6   9   1000022   1000022        12       -12   1.0628E+00   # ~o1 ~o1 -> ne Ne                                  
+   6  10   1000022   1000022        14       -14   1.0628E+00   # ~o1 ~o1 -> nm Nm                                  
+   6  11   1000022   1000022        16       -16   1.0628E+00   # ~o1 ~o1 -> nl Nl                                  
+# contibutions to 1/Omega in percents
+   7   1   1000022   1000022         5        -5   6.7841E+01   # ~o1 ~o1 -> b B                                    
+   7   2   1000022   1000022        24       -24   1.1000E+01   # ~o1 ~o1 -> W+ W-                                  
+   7   3   1000022   1000022        15       -15   7.8648E+00   # ~o1 ~o1 -> l L                                    
+   7   4   1000022   1000022        21        21   3.8544E+00   # ~o1 ~o1 -> G G                                    
+   7   5   1000022   1000022         4        -4   2.4331E+00   # ~o1 ~o1 -> c C                                    
+   7   6   1000022   1000022         1        -1   1.5217E+00   # ~o1 ~o1 -> d D                                    
+   7   7   1000022   1000022         3        -3   1.5217E+00   # ~o1 ~o1 -> s S                                    
+   7   8   1000022   1000022         2        -2   1.1737E+00   # ~o1 ~o1 -> u U                                    
+#
+BLOCK LSP
+   0   6.1222E+01   #  LSP mass
+   1   2.1751E-01   #  bino
+   2   1.3085E-01   #  wino
+   3   3.4960E-01   #  higgsino2
+   4   3.3241E-02   #  higgsino1
+   5   9.0124E-01   #  singlino
+#
+BLOCK NDMCROSSSECT
+   1   1.7038E-45   #  # csPsi [cm^2]
+   2   1.8532E-45   #  # csNsi [cm^2]
+   3   6.1136E-40   #  # csPsd [cm^2]
+   4  -4.6666E-40   #  # csNsd [cm^2]
+# Values used for sigma_piN,sigma_S (strange content of the proton)
+#  3.40000000E+01 sigma_piN
+#  4.20000000E+01 sigma_S
+# Cross sections not rescaled with the ratio relic density/Planck observed value

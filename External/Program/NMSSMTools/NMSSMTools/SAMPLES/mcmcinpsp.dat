@@ -1,0 +1,129 @@
+# Input file for NMSSMTools
+# Based on SUSY LES HOUCHES ACCORD II
+#
+BLOCK MODSEL
+	3	1		# NMSSM particle content
+	1	1		# IMOD (0=general NMSSM, 1=SUGRA, 2=GMSB
+#				  3=Z3 inv NMSSM, 4=Z3 inv SUGRA, 5=Z3 inv GMSB)
+	10	3		# ISCAN (0=no scan, 1=grid scan, 2=random scan, 3=MCMC)
+	9	0		# |OMGFLAG|=0: no (default), =1: relic density only,
+#				  =2: dir. det. rate, =3: indir. det. rate, =4: both,
+#				  OMGFLAG>0: 0.107<OMG<0.131, <0: OMG<0.131
+	15	0		# Precision for micromegas (default=7):
+#				  +0/1: fast computation on/off
+#				  +0/2: Beps=1d-3, 1d-6
+#				  +0/4: virtual Ws off/on
+	8       0               # Precision for Higgs masses (default 0:
+#				  0: full 1 loop top/bot + LL 2 loop top/bot + LL 1 loop EW
+#                                 1: full 1 loop + full 2 loop top/bot
+#				  2: as 1 + pole masses - 1&2 by courtesy of P. Slavich)
+	14      0               # 0: H-> VV,VV* (default); 1: H->VV,VV*,V*V*
+	13      0               # 1: Sparticle decays via NMSDECAY (default 0)
+	11      0               # Constraints on (g-2)_muon (1=yes, 0=no, default=1)
+	17      1               # Theoretical constraints (1=yes, 0=no, default=1)
+	18      1               # LEP/Tevatron constraints(1=yes, 0=no, default=1)
+	19      0               # LHC Higgs constraints (1=yes, 0=no, default=1)
+	20      0               # Upsilon B and K decay constraints (1=yes, 0=no, default=1)
+	22      0               # CMS charg(neutral)ino constraints (1=yes, 0=no, default=1)
+#
+BLOCK SMINPUTS
+	1	127.92d0	# ALPHA_EM^-1(MZ)
+	2	1.1663787d-5	# GF
+	3	0.1181d0	# ALPHA_S(MZ)
+	4	91.187d0	# MZ
+	5	4.18d0		# MB(MB) (running mass)
+	6	173.4d0		# MTOP (pole mass)
+	7	1.777d0		# MTAU
+#
+BLOCK MINPAR
+	1	550d0		# M0
+	2	500d0		# M12
+	3	2.5d0		# TANB at MZ
+#	4	1d0		# SIGMU (If MUEFF is not an input)
+	5	-390d0		# A0
+#	16	1d-2		# M0DEV (If =/= 0)
+#	26	1d-2		# M12DEV (If =/= 0)
+	36	1d-2		# TANBDEV (If =/= 0)
+#	56	1d-2		# A0DEV (If =/= 0)
+#	17	10d0		# M0MIN (If =/= 0)
+#	27	10d0		# M12MIN (If =/= 0)
+	37	1d0		# TANBMIN (If =/= 0)
+#	57	10d0		# A0MIN (If =/= 0)
+#
+BLOCK EXTPAR
+#	0	1000d0		# MSUSY (If =/= SQRT(2*MQ1+MU1+MD1)/2)
+#	-1	1d-1		# STD DEV FOR THE MCMC
+#	1	0d0		# M1 at MGUT (If =/= M12)
+#	2	0d0		# M2 at MGUT (If =/= M12)
+#	3	0d0		# M3 at MGUT (If =/= M12)
+#	21	0d0		# MHD at MGUT in GeV^2 (If =/= M0^2 and MUEFF is not an input)
+#	22	0d0		# MHU at MGUT in GeV^2 (If =/= M0^2 and MUEFF is not an input)
+	61	.64d0		# LAMBDA at MSUSY
+	62      .31d0		# KAPPA at MSUSY
+#				  If MUEFF is input: KAPPA default value is 0
+#				  Else either KAPPA or XIF are inputs:
+#                                      if only KAPPA is input: XIF computed
+#				       if only XIF is input: KAPPA computed
+#				       if KAPPA+XIF are not inputs: XIF=0 and KAPPA computed
+	63	0d0		# ALAMBDA at MGUT (If =/= A0)
+	64	0d0		# AKAPPA at MGUT (If =/= A0)
+	65      121d0		# MUEFF at MSUSY
+#                                 Then MHU, MHD, MS are computed and cannot be inputs
+#                                 If MUEFF is not an input it is computed
+#	66      0d0		# XIF at MGUT in GeV^2
+#				  If MUEFF is input: XIF default value is 0
+#				  Else either KAPPA or XIF are inputs:
+#                                      if only KAPPA is input: XIF  computed
+#				       if only XIF is input: KAPPA computed
+#				       if KAPPA+XIF are not inputs: XIF=0 and KAPPA computed
+#	67	0d0	 	# XIS at MGUT in GeV^3
+#				  If MUEFF is input: XIS default value is 0
+#				  Else either MS or XIS are inputs:
+#                                      if only MS is input: XIS computed
+#				       if only XIS is input: MS computed
+#				       if MS+XIS are not inputs: XIS=0 and MS computed
+#	68	0d0		# MUP at MGUT (If =/= 0)
+#	69	0d0		# MSP at MGUT in GeV^2 (If =/= 0)
+#	70	0d0		# MS at MGUT in GeV^2
+#				  Only if MUEFF is not an input
+#				  Either MS or XIS are inputs:
+#                                      if only MS is input: XIS computed
+#				       if only XIS is input: MS computed
+#				       if MS+XIS are not inputs: XIS=0 and MS computed
+#	72	0d0		# M3H at MGUT in GeV^2 (If =/= 0)
+#	16	1d-2		# M1DEV (If =/= 0)
+#	26	1d-2		# M2DEV (If =/= 0)
+#	36	1d-2		# M3DEV (If =/= 0)
+#	216	1d-2		# MHDDEV (If =/= 0)
+#	226	1d-2		# MHUDEV (If =/= 0)
+	616	1d-2		# LDEV (If =/= 0)
+#	626     1d-2		# KDEV (If =/= 0)
+#	636	1d-2		# ALDEV (If =/= 0)
+#	646	1d-2		# AKDEV (If =/= 0)
+#	656     1d-2		# MUDEV (If =/= 0)
+#	666     1d-2		# XIFDEV (If =/= 0)
+#	676     1d-2		# XISDEV (If =/= 0)
+#	686     1d-2		# MUPDEV (If =/= 0)
+#	696     1d-2		# MSPDEV (If =/= 0)
+#	706     1d-2		# MSDEV (If =/= 0)
+#	726     1d-2		# M3HDEV (If =/= 0)
+#	17	1d1		# M1MIN (If =/= 0)
+#	27	1d1		# M2MIN (If =/= 0)
+#	37	1d1		# M3MIN (If =/= 0)
+#	217	1d2		# MHDMIN (If =/= 0)
+#	227	1d2		# MHUMIN (If =/= 0)
+	617	1d-5		# LMIN (If =/= 0)
+#	626     1d-5		# KMIN (If =/= 0)
+#	637	1d1		# ALMIN (If =/= 0)
+#	647	1d1		# AKMIN (If =/= 0)
+#	656     1d1		# MUMIN (If =/= 0)
+#	666     1d2		# XIFMIN (If =/= 0)
+#	676     1d3		# XISMIN (If =/= 0)
+#	686     1d1		# MUPMIN (If =/= 0)
+#	696     1d2		# MSPMIN (If =/= 0)
+#	706     1d2		# MSMIN (If =/= 0)
+#	726     1d2		# M3HMIN (If =/= 0)
+#
+BLOCK STEPS
+	0	100		# NTOT
+	1	1		# ISEED

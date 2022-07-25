@@ -1,0 +1,35 @@
+      if(access( "../Packages/HiggsSignals/HiggsSignals",'x').ne.0) call system("cd ../Packages;  make -f hBandS.make")
+      call system("rm -f HB.out HS.out")
+      call system("cp HB.in HS.in")
+      HB_chan=' '
+
+      write(buff, fmt='("../Packages/HiggsBounds/HiggsBounds LandH SLHA",1x,I2,1x, I2, " HB.in HB.out > hb.stdout")') NH0,NHch
+      call system(buff)
+      err=slhaRead("HB.out",1+4)
+      err=slhaSTRFormat("HiggsBoundsResults","0 %s %*s",HB_version)    
+      HB_result=slhaValFormat("HiggsBoundsResults",0.,"1 2 %lf")
+      HB_obsratio=slhaValFormat("HiggsBoundsResults",0.,"1 3 %lf" )
+      err=slhaSTRFormat("HiggsBoundsResults","1 5 ||%[^|]||",HB_chan)
+
+#define DataSet " latestresults "
+C#define Method  " peak " 
+C#define  Method " mass "
+#define  Method " both "
+#define PDF  " 2 "  
+C                  // Gaussian
+C#define PDF " 1 "
+C                  // box 
+C#define PDF " 3 "  // box+Gaussia
+
+      write(buff,fmt='("../Packages/HiggsSignals/HiggsSignals ",A,1x,A,1x,A," SLHA ", I2, I2," HS.in > hs.stdout")') DataSet, Method,PDF, NH0,NHch 
+      call system(buff)
+      call system("grep -A 10000  HiggsSignalsResults HS.in > HS.out")
+      err=slhaRead("HS.out",1+4);
+      err=slhaSTRFormat("HiggsSignalsResults"," 0 ||%[^|]||",HS_version)
+      HS_observ=slhaVal1("HiggsSignalsResults",0.D0,7)
+      HS_chi2=slhaVal1("HiggsSignalsResults",0.D0,12)
+      HS_pval=slhaVal1("HiggsSignalsResults",0.D0,13)
+#undef PDF
+#undef Method
+#undef DataSet
+

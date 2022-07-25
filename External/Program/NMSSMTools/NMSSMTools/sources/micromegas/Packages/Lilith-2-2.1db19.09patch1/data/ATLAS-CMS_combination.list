@@ -1,0 +1,9 @@
+# CMS-HIG-15-002; ATLAS-HIGG-2015-07 offical ATLAS-CMS Run I combined results
+# Full 2D likelihoods expected soon (so far, gaussian approximation is used)
+
+
+ATLAS-CMS_combination/Run1/ATLAS-CMS_ggH-VVH_gammagamma_n68.xml
+ATLAS-CMS_combination/Run1/ATLAS-CMS_ggH-VVH_WW_n68.xml
+ATLAS-CMS_combination/Run1/ATLAS-CMS_ggH-VVH_ZZ_n68.xml
+ATLAS-CMS_combination/Run1/ATLAS-CMS_ggH-VVH_tautau_n68.xml
+ATLAS-CMS_combination/Run1/ATLAS-CMS_ggH-VVH_bb_n68.xml

@@ -365,6 +365,7 @@ class program():
         
     def update_status(self):
         if self.status == "installing":
+            print(self.subp.poll(), self.subp)
             if self.subp == None:
                 self.logger.warning("Program start installing ...")
                 self.run_next_command()

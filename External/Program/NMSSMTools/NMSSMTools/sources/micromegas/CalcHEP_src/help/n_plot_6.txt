@@ -1,0 +1,14 @@
+3 5 53 Plot
+   This function writes to a file numerical data or 
+tabulating  function(s). The name of file is defined 
+by the user. After that  the user gets menu which 
+provides an option  to write down files in  PAW, 
+GLUPLOT, ROOT, PYTHON formats which reads the data 
+file. 
+  The data file can be used to reproduce the 
+plot by the command:
+    $CALCHEP/bin/plot_view  dataFile 
+  ROOT/PAW/GNUPLOT/PYTHON files can be launched by 
+corresponding graphical  system. See next level
+menu for details.    
+

@@ -1,0 +1,169 @@
+
+%parameter MStop1, MStop2, MSbot1, MSbot2, MStau1, MStau2, MSntau.
+%prtcproperty mass:( ~t1=MStop1, ~t2=MStop2, ~b1=MSbot1, ~b2=MSbot2,
+%                    ~l1=MStau1, ~l2=MStau2, ~nl=MSntau).
+
+model blabla/6.
+
+parameter EE=0.31345, SW=0.48076, tb=2, mue=150, MG1=90, MG2=120, MG3=300,
+		Al=0, Ab=0, At=0, MH3=300.
+
+end.
+
+mkProc(h,h,h,h).
+mkProc(h,h,h,H).
+mkProc(h,h,H,H).
+mkProc(h,H,H,H).
+mkProc(H,H,H,H).
+mkProc(H3,H3,H3,H3).
+mkProc(H3,H3,h,h).
+mkProc(H3,H3,h,H).
+mkProc(H3,H3,H,H).
+mkProc('H+','H-','H+','H-').
+mkProc('H+','H-',H3,H3).
+mkProc('H+','H-',h,h).
+mkProc('H+','H-',h,H).
+mkProc('H+','H-',H,H).
+
+mkProc('W+','W-','~t1','~T1').
+mkProc('W+','W-','~t1','~T2').
+mkProc('W+','W-','~t2','~T2').
+
+mkProc('W+','W-','~b1','~B1').
+mkProc('W+','W-','~b1','~B2').
+mkProc('W+','W-','~b2','~B2').
+mkProc('W+','W-','h','h').
+mkProc('W+','W-','h','H').
+mkProc('W+','W-','H','H').
+mkProc('W+','W-','H3','H3').
+mkProc('W+','W-','H3','h').
+mkProc('W+','W-','H3','H').
+mkProc('W+','W-','H+','H-').
+mkProc('W+','W-','~l1','~L1').
+mkProc('W+','W-','~l1','~L2').
+mkProc('W+','W-','~l2','~L2').
+mkProc('W+','W-','~nl','~Nl').
+mkProc('W+','W-','~1+','~1-').
+mkProc('W+','W-','~1+','~2-').
+mkProc('W+','W-','~2+','~2-').
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Page 4
+
+
+_x=1-2 in mkProc(e,Ne, ~e_x, ~Ne).
+_x=1-2 in mkProc(e,Ne, ~l_x, ~Nl).
+_x=1-2 in _y=1-2 in mkProc(e,Ne, ~b_x, ~T_y).
+mkProc(e,Ne, 'H-', h).
+mkProc(e,Ne, 'H-', H).
+mkProc(e,Ne, 'H-', H3).
+mkProc(ne,Ne, ~e1, ~E1).
+mkProc(ne,Ne, ~e2, ~E2).
+mkProc(ne,Ne, ~l1, ~L2).
+
+
+
+_y=[b,t] in _x=1-2 in mkProc(_y , _Y, ~_y_x, ~_Y_x).
+_y=[b,t] in           mkProc(_y , _Y, ~_y1, ~_Y2).
+
+_x=1-2 in _y=1-2 in mkProc(t,B, ~t_x, ~B_y).
+
+
+
+mkProc(t,T, ~l1, ~L1).
+mkProc(t,T, ~l1, ~L2).
+mkProc(t,T, ~l2, ~L2).
+mkProc(t,B, ~nl, ~L1).
+mkProc(t,B, ~nl, ~L2).
+
+_x=1-2 in mkProc(A,A, ~l_x, ~L_x).
+_x=1-2 in mkProc(A,Z, ~l_x, ~L_x).
+          mkProc(A,Z, ~l1 , ~L2).
+_x=1-2 in mkProc('W+',Z, ~nl, ~L_x).
+_x=1-2 in mkProc('W+',A, ~nl, ~L_x).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Page 5
+
+_x=1-2 in mkProc(H,H, ~t_x, ~T_x).
+          mkProc(H,H, ~t1 , ~T2).
+_x=1-2 in mkProc(h,h, ~t_x, ~T_x).
+          mkProc(h,h, ~t1 , ~T2).
+		  
+_x=1-2 in mkProc(e,E, ~l_x, ~L_x).
+          mkProc(e,E, ~l1 , ~L2).
+		  
+_x=1-2 in mkProc(Z,Z, ~l_x, ~L_x).
+          mkProc(Z,Z, ~l1 , ~L2).
+          mkProc(Z,Z, ~nl , ~Nl).
+
+_x=1-2 in _y=1-2 in mkProc(t,l, ~t_x, ~l_y).
+
+
+
+_x=1-2 in mkProc(h,H, ~b_x, ~B_x).
+          mkProc(h,H, ~b1 , ~B2).
+          mkProc(h,H, Z , Z).
+		  
+_x=1-2 in mkProc(h,H, ~l_x, ~L_x).
+          mkProc(h,H, ~nl , ~Nl).
+		  
+_x=1-2 in _y=1-2 in mkProc('H+',H3, ~t_x, ~B_y).
+
+_x=1-2 in mkProc(H3,H3, ~b_x, ~B_x).
+          mkProc(H3,H3, ~b1 , ~B2).
+
+_x=1-2 in mkProc('H+','H-', ~t_x, ~T_x).
+		  mkProc('H+','H-', ~t1, ~T2).
+		  
+		  mkProc('H+','H-', 'W+', 'W-').
+          
+_x=1-2 in mkProc('H+','H-', '~_x+', '~_x-').
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Page 6
+
+mkProc(e,E, ~ne, ~Ne).
+_x=1-2 in mkProc(e,E, '~_x+', '~_x-').
+mkProc(e,E, '~1+', '~2-').
+mkProc(e,E, 'H+', 'H-').
+mkProc(e,E, 'H3', 'H').
+
+
+_x=1-4 in mkProc(e,E, ~o1, ~o_x).
+_x=2-4 in mkProc(e,E, ~o2, ~o_x).
+_x=3-4 in mkProc(e,E, ~o3, ~o_x).
+          mkProc(e,E, ~o4, ~o4).
+
+mkProc(H, ~l1, h, ~l1).
+mkProc(h, ~l2, h, ~l1).
+mkProc('H+', ~l1, 'H+', ~l2).
+mkProc('H+', '~1+', 'H+', '~2+').
+mkProc('H3', h, '~2+',  '~2-').
+
+
+
+mkProc(~e1, ~E1, ~e1, ~E1).
+mkProc(~e1, ~E1, ~e2, ~E2).
+mkProc(~e1, ~E1, ~ne, ~Ne).
+mkProc(~e1, ~E1, ~d1, ~D1).
+mkProc(~e1, ~E1, ~d2, ~D2).
+mkProc(~e1, ~E1, ~u1, ~U1).
+mkProc(~e1, ~E1, ~u2, ~U2).
+
+mkProc(~e2, ~E2, ~e2, ~E2).
+mkProc(~e2, ~E2, ~ne, ~Ne).
+mkProc(~e2, ~E2, ~d1, ~D1).
+mkProc(~e2, ~E2, ~d2, ~D2).
+mkProc(~e2, ~E2, ~u1, ~U1).
+mkProc(~e2, ~E2, ~u2, ~U2).
+
+mkProc(~ne, ~Ne, ~ne, ~Ne).
+mkProc(~ne, ~Ne, ~d1, ~D1).
+mkProc(~ne, ~Ne, ~d2, ~D2).
+mkProc(~ne, ~Ne, ~u1, ~U1).
+mkProc(~ne, ~Ne, ~u2, ~U2).
+
+mkProc(~u1, ~U1, ~d1, ~D1).
+mkProc(~u1, ~U1, ~d2, ~D2).
+mkProc(~u1, ~U1, ~u1, ~U1).
+mkProc(~u1, ~U1, ~u2, ~U2).

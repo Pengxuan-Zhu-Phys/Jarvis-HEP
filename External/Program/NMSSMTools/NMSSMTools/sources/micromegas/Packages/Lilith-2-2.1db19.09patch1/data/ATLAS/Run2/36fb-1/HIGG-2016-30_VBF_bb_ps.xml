@@ -1,0 +1,20 @@
+<!--
+ATLAS result for mu(VBF, bb) at mH = 125 GeV from HIGG-2016-30
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2016-30/
+-->
+
+<expmu decay="bb" dim="1" type="p">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2016-30</source>
+  <sqrts>13</sqrts>
+  <mass>125</mass>
+
+  <eff prod="VBF">1</eff>
+
+  <bestfit>3.0</bestfit>
+  
+  <param>
+    <uncertainty side="left">-1.6</uncertainty>
+    <uncertainty side="right">1.7</uncertainty>
+  </param>
+</expmu>

@@ -1,0 +1,199 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+parameter pi=4*atan(1).
+
+% Standard model parameters
+
+parameter EE  = 0.31223 : 'Electromagnetic coupling constant (<->1/128.9)',
+          SW  = 0.4810  : 'sin of the Weinberg angle (PDG-96)',
+          s12 = 0.221   : 'Parameter of C-K-M matrix (PDG-96)',
+          s23 = 0.041   : 'Parameter of C-K-M matrix (PDG-96)',
+          s13 = 0.0035  : 'Parameter of C-K-M matrix (PDG-96)'.
+
+parameter  GG  = 1.238.
+
+
+parameter  CW  = sqrt(1-SW**2) : 'cos of the Weinberg angle'.
+parameter  S2W = 2*SW*CW, C2W=CW**2-SW**2.
+
+let g=EE/SW, g1=EE/CW.
+
+parameter MZ = 91.1884:'Z mass', MW=MZ*CW:'W mass'.
+
+parameter  c12  = sqrt(1-s12**2) : 	'parameter  of C-K-M matrix',
+           c23  = sqrt(1-s23**2) : 	'parameter  of C-K-M matrix',
+           c13  = sqrt(1-s13**2) : 	'parameter  of C-K-M matrix'.
+
+do_if CKMdim==3.
+parameter  Vud = c12*c13                : 'C-K-M matrix element',
+           Vus = s12*c13                : 'C-K-M matrix element',
+           Vub = s13     	            : 'C-K-M matrix element',
+           Vcd = (-s12*c23-c12*s23*s13) : 'C-K-M matrix element',
+           Vcs = (c12*c23-s12*s23*s13)  : 'C-K-M matrix element',
+           Vcb = s23*c13                : 'C-K-M matrix element',
+           Vtd = (s12*s23-c12*c23*s13) 	: 'C-K-M matrix element',
+           Vts = (-c12*s23-s12*c23*s13)	: 'C-K-M matrix element',
+           Vtb = c23*c13  	            : 'C-K-M matrix element'.
+OrthMatrix( { {Vud,Vus,Vub}, {Vcd,Vcs,Vcb}, {Vtd,Vts,Vtb}} ).
+
+do_else_if CKMdim==2.
+parameter  Vud = c12            : 'C-K-M matrix element',
+           Vus = s12    	    : 'C-K-M matrix element',
+           Vcs = Vud     	    : 'C-K-M matrix element',
+           Vcd = -Vus           : 'C-K-M matrix element'.
+let        Vub = 0, Vcb = 0, Vtd = 0, Vts = 0, Vtb = 1.
+OrthMatrix({{Vud,Vus}, {Vcd,Vcs}}).
+
+do_else_if CKMdim==1.
+let  Vub=0, Vcb=0, Vtd=0, Vts=0, Vtb=1, Vud=1, Vus=0, Vcs=1, Vcd=0.
+end_if.
+
+do_if( e_mass==on,(parameter Me=5.11e-4:'electron mass'),(alias Me=0)).
+do_if(mu_mass==on,(parameter Mm=0.1057:'mass of muon'),  (alias Mm=0)).
+do_if( u_mass==on,(parameter Mu=46.0e-3:'u-quark mass'), (alias Mu=0)).
+do_if( d_mass==on,(parameter Md=46.0e-3:'d-quark mass'), (alias Md=0)).
+do_if( c_mass==on,(parameter Mc=1.42   :'c-quark mass'), (alias Mc=0)).
+do_if( s_mass==on,(parameter Ms=0.2    :'s-quark mass'), (alias Ms=0)).
+
+parameter Ml=1.777 :'mass of tau-lepton'.
+parameter Mt= 175  :'top quark mass',
+          Mb= 4.62 :'b-quark mass'.
+	  
+
+parameter wt = 1.7524:'width of top quark'.
+parameter wZ = 2.4944:'Z-boson width',
+          wW = 2.08895:'W-boson width'.
+
+parameter tb=5:'Tangent beta'.
+
+%define soft susy parameters
+	  
+do_if SUSYCALC==sugra.
+parameter suM0=400.0 :'mSUGRA m_0 parameter',
+          suMHF=400.0:'mSUGRA m_1/2 parameter',
+          suA0=0     :'mSUGRA a_0 parameter',
+          suMU=1     :'mSUGRA sign(mu_0) parameter',
+          suMODE=2   :'mSUGRA mode (1,2)'.
+external_func(sugra,8,'sugra.so').
+alias susycalc(n)=sugra(suM0, suMHF, suA0, tb, suMU, Mt, suMODE, n).
+
+do_else_if SUSYCALC==gmsb.
+parameter gmLAM=10000 :'GSMB Lambda parameter',
+          gmMES=100000:'GMSB M_MES parameter',
+          gmN5=10.0   :'GMSB N_5 parameter',
+          gmMU=-1.0   :'GMSB sign(mu_0) parameter',
+          gmCGV=1.0   :'GMSB C_gv parameter',
+          gmMODE=1    :'GMSB mode (1)'.
+external_func(gmsb,9,'sugra.so').
+alias susycalc(n)=gmsb(gmLAM, gmMES, gmN5, tb, gmMU, gmCGV, Mt, gmMODE, n).
+
+do_else_if SUSYCALC==mssm.
+alias susycalc(_n)=1000.
+do_else.
+write('SUSYCALC key has incorrect value. Use one of mssm, sugra, gmsb.').
+end_if.
+
+
+ /******************** Higgs sector constrains ************************/
+
+
+parameter sb=tb/sqrt(1+tb**2):'Sinus beta', cb=sqrt(1-sb**2):'Cosine beta'.
+parameter t2b=2*tb/(1-tb**2).
+
+angle     sin=sb, cos=cb, tan=tb, texname='\\beta'.
+
+parameter c2b=cb**2-sb**2 : 'cos(2b)'.
+parameter s2b=4*sb*cb/2 :     'sin(2b)'.
+
+do_if NMSSM==on.
+
+parameter hL=0.3:'lambda higgs parameter'.
+parameter hK=0.2:'kappa higgs parameter'.
+
+parameter hLs=1400:'lambda soft higgs parameter'.
+parameter hKs=0.1:'kappa soft higgs parameter'.
+
+parameter mu=400, xvev=mu/hL.
+
+do_else.
+
+do_if u_mass==on.
+alias mu=mue.
+parameter mue=susycalc(2):'MSSM mu parameter'.
+do_else.
+parameter mu=susycalc(2):'MSSM mu parameter'.
+end_if.
+
+end_if.
+
+
+ /******************** Chargino/neutralino parameters ********************/
+
+
+parameter MG1=susycalc(23):'MSSM M1 (U(1)) soft parameter', 
+          MG2=susycalc(24):'MSSM M2 (SU(2)) soft parameter',
+          MG3=susycalc(1):'gluino mass'.
+
+do_if SUSYCALC==mssm.
+clear MG1.
+parameter MG1=500:'MSSM M1 (U(1)) soft parameter'.
+end_if.
+
+ /*********************** Slepton sector *******************************/
+
+
+parameter 
+          Ml1=susycalc(8): 'Left slepton doublet mass (1st  generations)',
+          Ml2=susycalc(13):'Left slepton doublet mass (2nd generations)',
+          Ml3=susycalc(18):'Left slepton doublet mass (3rd generations)',
+		  Mr1=susycalc(9):'Right slepton singlet mass (1st generations)',
+          Mr2=susycalc(14):'Right slepton singlet mass (2nd generations)',
+          Mr3=susycalc(19):'Right slepton singlet mass (3rd generations)'.
+parameter Al=susycalc(22): 'sTau soft coupling'.
+
+do_if ms1eq2==on.
+clear Ml1, Mr1.
+alias Ml1=Ml2 . 
+alias Mr1=Mr2.
+end_if.
+
+read susy_sle. % Slepton masses and mixing matrices
+
+
+ /***************** Squarks sector ****************************/
+
+
+
+parameter Mq1=susycalc(5 ):'Left squarks doublet mass (1st generation)', 
+          Mq2=susycalc(10):'Left squarks doublet mass (2nd generation)',
+	      Mq3=susycalc(15):'Left squarks doublet mass (3rd generation)'.
+parameter Mu1=susycalc( 7):'Right up squarks singlet mass (1st generation)', 
+          Mu2=susycalc(12):'Right up squarks singlet mass (2nd generation)',
+	      Mu3=susycalc(17):'Right up squarks singlet mass (3rd generation)'.
+parameter Md1=susycalc(6):'Right down squarks singlet mass (1st generation)',
+          Md2=susycalc(11):'Right down squarks singlet mass (2nd generation)',
+	      Md3=susycalc(16):'Right down squarks singlet mass (3rd generation)'.
+parameter At=susycalc(20):'Top soft coupling'.
+parameter Ab=susycalc(21): 'Bottom soft coupling'.
+
+do_if ms1eq2==on.
+clear Mq1, Mu1, Md1.
+alias Mq1=Mq2. 
+alias Mu1=Mu2. 
+alias Md1=Md2.
+end_if.
+ 
+read susy_squ.  % Squark masses and mixing matrices
+
+ /******************** Higgs sector constrains ************************/
+
+do_if CPV==off.
+
+read susy_hig.  % Higgs masses & mixings
+read susy_gno.  % Chargino and neutralino masses & mixings
+
+do_else.
+
+read susy_cpv.  % CPV stuff
+
+end_if.

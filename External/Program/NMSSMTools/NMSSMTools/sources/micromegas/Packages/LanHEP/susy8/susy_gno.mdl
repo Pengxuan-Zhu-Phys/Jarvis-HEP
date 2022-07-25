@@ -1,0 +1,167 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+
+parameter Zcsx = (MG2**2+mu**2)/2 + MW**2,
+          Zctx = (MG2**2-mu**2)**2/4+MW**4*c2b**2
+			+MW**2*(MG2**2+mu**2+2*mu*MG2*s2b),
+
+          MC01 = sqrt( Zcsx - sqrt(Zctx)),
+          MC02 = sqrt( Zcsx + sqrt(Zctx)),
+
+          Zcc2u  = -(MG2**2 - mu**2 - 2*MW**2*c2b )/(MC02**2-MC01**2),
+          Zcc2v  = -(MG2**2 - mu**2 + 2*MW**2*c2b )/(MC02**2-MC01**2),
+
+          Zcsigu = -(MG2*cb+mu*sb)/sqrt((MG2*cb+mu*sb)**2),
+          Zcsigv = -(MG2*sb+mu*cb)/sqrt((MG2*sb+mu*cb)**2),
+ 
+          Zccu   = sqrt((1+Zcc2u)/2),
+          Zcsu   = sqrt((1-Zcc2u)/2)*Zcsigu,
+          Zccv   = sqrt((1+Zcc2v)/2),
+          Zcsv   = sqrt((1-Zcc2v)/2)*Zcsigv,
+
+          Zcsig1 = (mu*MG2-MW**2*s2b)/sqrt((mu*MG2-MW**2*s2b)**2),
+          Zcsig2 = MW*Sqrt2*(cb*Zcsu*Zccv+sb*Zccu*Zcsv)+
+                                            mu*Zcsv*Zcsu+MG2*Zccu*Zccv,
+          Zcsig3 = Zcsig1*Zcsig2/sqrt(Zcsig2**2),
+          Zcsig4 = -MW*Sqrt2*(cb*Zccu*Zcsv+sb*Zcsu*Zccv)+
+                                            mu*Zccv*Zccu+MG2*Zcsu*Zcsv,
+
+          MC1    = Zcsig2**2/sqrt(Zcsig2**2):'1st chargino mass',
+          MC2    = Zcsig4**2/sqrt(Zcsig4**2):'2nd chargino mass',
+
+          Zm11   = Zccu*Zcsig1*Zcsig3,
+          Zm12   = -Zcsu*Zcsig3,
+          Zm21   = Zcsu*Zcsig1*Zcsig3,
+          Zm22   = Zccu*Zcsig3,
+ 
+          Zp11   = Zccv,
+          Zp12   = -Zcsv,
+          Zp21   = Zcsv,
+          Zp22   = Zccv.
+
+
+%external_func(rDiagonal2,0,'rdiag.so').
+%external_func(MassArray, 2,'rdiag.so').
+%external_func(MixMatrix, 3,'rdiag.so').
+%parameter tkch=rDiagonal2(3,2,MG2,sb*MW*Sqrt2,cb*MW*Sqrt2,mu).
+%parameter MC1=sqrt(MassArray(tkch,1)).
+%parameter MC2=sqrt(MassArray(tkch,2)).
+%_x=1-2 in _y=1-2 in parameter Zm_x_y=MixMatrix(tkch,_x,_y).
+%_x=1-2 in _y=1-2 in parameter Zp_x_y=MixMatrix(tkch+1,_x,_y).
+
+OrthMatrix({{Zp11, Zp12}, {Zp21, Zp22}}).
+OrthMatrix({{Zm11, Zm12}, {Zm21, Zm22}}).
+
+do_if NMSSM==on.
+
+external_func(neu5,10,'nmssm.so').
+external_func(neudiag5,3,'nmssm.so').
+parameter ntk=neu5(MG1,MG2,SW,MW,EE,sb,cb,hK,hL,xvev).
+_x=1-5 in parameter MNE_x=neudiag5(0,_x,ntk).
+_x=1-5 in _y=1-5 in parameter Zn_x_y=neudiag5(_x, _y, ntk).
+
+/*
+external_func(rDiagonal,0,'rdiag.so').
+external_func(MassArray,2,'rdiag.so').
+external_func(MixMatrix,3,'rdiag.so').
+parameter ntk=rDiagonal(1,5,MG1,0,-MW*SW/CW*cb,MW*SW/CW*sb,0,
+			                MG2,MW*cb,-MW*sb,0,
+							0,-hL*xvev,-1/2/CW/EE*MW*S2W*Sqrt2*hL*sb,
+							0,-1/2/CW/EE*MW*S2W*Sqrt2*cb*hL,
+							2*hK*xvev).
+_x=1-5 in parameter MNE_x=MassArray(ntk,_x).
+_x=1-5 in _y=1-5 in parameter Zn_x_y=MixMatrix(ntk,_x, _y).
+*/
+
+OrthMatrix(Zn__, 5).
+
+do_else. % MSSM
+
+do_if zncomp==on.
+
+external_func(neut1,7,'./neut.so').
+external_func(neut2,4,'./neut.so').
+fainclude('neutd.F').
+
+parameter neutk=neut1(MZ,MW,SW,MG1,MG2,mue,tb).
+
+_x=1-4 in _y=1-4 in parameter Zn_x_yr=neut2(neutk, 1, _x, _y),  
+			      Zn_x_yi=neut2(neutk, 2, _x, _y). 
+_x=1-4 in           parameter MNE_x=  neut2(neutk, 3, _x, _x):'Neutralino _x mass'.
+_x=1-4 in _y=1-4 in let Zn_x_y=Zn_x_yr+i*Zn_x_yi.
+
+HermMatrix({{Zn11r, Zn12r, Zn13r, Zn14r}, {Zn21r, Zn22r, Zn23r, Zn24r},
+            {Zn31r, Zn32r, Zn33r, Zn34r}, {Zn41r, Zn42r, Zn43r, Zn44r}},
+	    
+	   {{Zn11i, Zn12i, Zn13i, Zn14i}, {Zn21i, Zn22i, Zn23i, Zn24i},
+            {Zn31i, Zn32i, Zn33i, Zn34i}, {Zn41i, Zn42i, Zn43i, Zn44i}}).
+
+do_else.
+
+parameter Znx0 = (MG1+MG2)/4,
+          Znxc2 = MG1*MG2 - MZ**2 - mu**2 - 3/8*(MG1+MG2)**2,
+          Znxc3a = -1/8*(MG1+MG2)**3+1/2*(MG1+MG2)*(MG1*MG2-MZ**2-mu**2),
+          Znxc3 = Znxc3a + (MG1+MG2)*mu**2 + (MG1*CW**2+MG2*SW**2)*MZ**2
+                   - mu*MZ**2*s2b,
+          Znxc4b = (MG1*CW**2+MG2*SW**2)*mu*MZ**2*s2b - MG1*MG2*mu**2,
+          Znxc4a = Znxc4b
+                   + Znx0**2*(MG1*MG2-MZ**2-mu**2)- 3/256*(MG1+MG2)**4,
+		   
+          Znxc4= Znxc4a + Znx0*( (MG1+MG2)*mu**2+(MG1*CW**2
+	                      +MG2*SW**2)*MZ**2  -mu*MZ**2*s2b),
+	  
+          Znxs = - Znxc3**2 - 2/27*Znxc2**3 + 8/3*Znxc2*Znxc4,
+          Znxu = - 1/3*Znxc2**2 - 4*Znxc4.
+	  
+parameter Zncxd =  -4*Znxu**3 - 27*Znxs**2,
+          Zncua=atan2(sqrt(Zncxd/27)/2,-Znxs/2)/3,
+          Zncxa=(Zncxd/108+Znxs**2/4)**(1/6)*cos(Zncua),
+          Zncxb = 8*Zncxa - 8/3*Znxc2,
+          Zncx1 =  Zncxa/2 - Znxc2/6,
+          Zncx2 = -Zncxa/2 - Znxc2/3,
+          Zncx3 = Znxc3/sqrt(Zncxb).
+
+
+parameter MNE1a = Znx0 - sqrt(Zncx1) + sqrt(Zncx2+Zncx3):'1st neutralino mass',
+          MNE2a = Znx0 + sqrt(Zncx1) - sqrt(Zncx2-Zncx3):'2nd neutralino mass',
+          MNE3a = Znx0 - sqrt(Zncx1) - sqrt(Zncx2+Zncx3):'3rd neutralino mass',
+          MNE4a = Znx0 + sqrt(Zncx1) + sqrt(Zncx2-Zncx3):'4th neutralino mass'.
+
+external_func(sort4,5,'sort4.so').
+
+_x=1-4 in parameter MNE_x=sort4(MNE1a,MNE2a,MNE3a,MNE4a,_x).
+
+
+% Neutralino mixing matrix
+
+_i=1-4 in
+parameter Znx_i2 = -CW/SW*(MG1-MNE_i)/(MG2-MNE_i),
+          Znx_ix = MZ*(MG2-MNE_i)*SW*(mu*cb+MNE_i*sb),  
+          Znx_i3 = ( mu*(MG2-MNE_i)*(MG1-MNE_i)-MZ**2*sb*cb * 
+                  ((MG1-MG2)*CW**2+MG2-MNE_i))/Znx_ix,
+          Znx_i4 = (-MNE_i*(MG2-MNE_i)*(MG1-MNE_i) - MZ**2*cb*cb * 
+                      ( (MG1-MG2)*CW**2+MG2-MNE_i))/Znx_ix,
+          Zn1_i = 1/sqrt(1+Znx_i2**2+Znx_i3**2+Znx_i4**2),
+          Zn2_i = Zn1_i*Znx_i2,
+          Zn3_i = Zn1_i*Znx_i3,
+          Zn4_i = Zn1_i*Znx_i4.
+		  
+OrthMatrix(Zn__,4).
+
+end_if. % zncomp
+
+end_if.
+
+parameter wC1=0     :'width of chargino 1',
+          wC2=0     :'width of chargino 2'.
+	  
+parameter wNE2=0    :'width of neutralino 2',
+          wNE3=0    :'width of neutralino 3',
+          wNE4=0    :'width of neutralino 4'.
+
+parameter MSG=MG3   :'mass of gluino'.
+parameter wSG=0     :'width of gluino'.
+
+
+do_if NMSSM==on, (parameter wNE5=0:'width of neutralino 5').
+

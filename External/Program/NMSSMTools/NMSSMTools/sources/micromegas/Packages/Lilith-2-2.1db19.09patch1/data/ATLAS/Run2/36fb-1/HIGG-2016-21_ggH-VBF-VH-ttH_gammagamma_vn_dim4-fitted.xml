@@ -1,0 +1,44 @@
+<!--
+ATLAS result for mu(H->gammagamma) at mH = 125.09 GeV for 4 prod. modes;
+best fit-values and uncertainties fitted from Aux. Figures 23, 
+correlations taken from Fig. 40a in HIGG-2016-21,
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2016-21/
+-->
+
+<expmu dim="4" type="vn">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2016-21</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ggH" decay="gammagamma">1.0</eff>
+  <eff axis="d2" prod="VBF" decay="gammagamma">1.0</eff>
+  <eff axis="d3" prod="VH" decay="gammagamma">1.0</eff>
+  <eff axis="d4" prod="top" decay="gammagamma">1.0</eff>
+
+  <bestfit>
+    <d1>0.80936</d1>
+    <d2>2.03724</d2>
+    <d3>0.65912</d3>
+    <d4>0.54081</d4>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-0.17614</uncertainty>
+    <uncertainty axis="d1" side="right">+0.18695</uncertainty>
+    <uncertainty axis="d2" side="left">-0.52695</uncertainty>
+    <uncertainty axis="d2" side="right">+0.60539</uncertainty>
+    <uncertainty axis="d3" side="left">-0.80568</uncertainty>
+    <uncertainty axis="d3" side="right">+0.89033</uncertainty>
+    <uncertainty axis="d4" side="left">-0.55073</uncertainty>
+    <uncertainty axis="d4" side="right">+0.64205</uncertainty>
+     
+    <correlation entry="d1d2">-0.27</correlation>
+    <correlation entry="d1d3">-0.27</correlation>
+    <correlation entry="d1d4">0.04</correlation>
+    <correlation entry="d2d3">0.02</correlation>
+    <correlation entry="d2d4">0.01</correlation>
+    <correlation entry="d3d4">-0.10</correlation>
+  </param>
+</expmu>

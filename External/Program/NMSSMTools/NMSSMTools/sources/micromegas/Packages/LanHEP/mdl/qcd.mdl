@@ -1,0 +1,18 @@
+model QCD/2.
+
+parameter    	gg= 1.13 : 'Strong coupling'.
+
+vector  G/G: (gluon, color c8, gauge).
+spinor  q:(quark, color c3, mass Mq=0.02).
+
+
+lterm  i*gg*f_SU3*ccghost(G)*G*deriv*ghost(G). 
+
+
+lterm Q*gamma*(i*deriv + gg*lambda*G)*q.
+
+
+lterm -F**2/4  where
+        F=deriv^mu*G^nu^a-deriv^nu*G^mu^a+i*gg*f_SU3^a^b^c*G^mu^b*G^nu^c.
+
+

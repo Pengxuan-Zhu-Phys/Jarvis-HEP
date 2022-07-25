@@ -1,0 +1,20 @@
+<!--
+ATLAS result for mu(ttH, tautau) at mH = 125 GeV from
+http://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2017-02/
+-->
+
+<expmu decay="tautau" dim="1" type="p">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2017-02</source>
+  <sqrts>13</sqrts>
+  <mass>125.</mass>
+
+  <eff prod="ttH">1.</eff>
+
+  <bestfit>1.5</bestfit>
+  
+  <param>
+    <uncertainty side="right">1.2</uncertainty>
+    <uncertainty side="left">1.0</uncertainty>
+  </param> 
+</expmu>

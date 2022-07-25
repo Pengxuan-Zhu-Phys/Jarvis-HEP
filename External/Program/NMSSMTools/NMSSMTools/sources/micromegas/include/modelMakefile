@@ -1,0 +1,77 @@
+
+.PHONY: all libs clean specialClean
+
+# read compiler flags
+ifneq ($(MAKECMDGOALS),clean)
+AllFlags = ../CalcHEP_src/FlagsForMake
+ifeq (,$(wildcard $(AllFlags) )) 
+$(error File $(AllFlags) is absent. Presumably you forgot to compile main code)
+endif 
+include ../CalcHEP_src/FlagsForMake 
+endif 
+
+cLib = $(CALCHEP)/lib
+# files to compile
+SSS = $(wildcard lib/*.a) ../lib/micromegas.a  $(cLib)/dynamic_me.a ../lib/micromegas.a \
+ work/work_aux.a  $(wildcard lib/*.a)   $(cLib)/sqme_aux.$(SO) $(cLib)/libSLHAplus.a   \
+ $(cLib)/num_c.a   $(cLib)/serv.a $(cLib)/ntools.a  $(CURDIR)/../lib/maxGap.so  ../lib/dummy.a   $(LX11)
+
+
+ifneq ($(LHAPDFPATH),)
+  SSS += -L$(LHAPDFPATH)  -lLHAPDF $(cLib)/dummy.a
+  DLSET = export LD_RUN_PATH=$(LHAPDFPATH);
+else 
+  SSS += $(cLib)/dummy.a 
+  DLSET= 
+endif   
+
+
+ifeq (,$(main)) 
+  $(warning Main program is not specified. Use gmake main='<code of main program>')
+  $(warning Default  main=main.c)
+  main = main.c
+endif
+
+
+all: $(main) libs work/bin
+  ifeq (.cpp,$(suffix $(main)))
+	$(DLSET) $(CXX) $(CXXFLAGS) -o $(main:.cpp=) $(main)  $(SSS)  $(lDL)  -lm  $(lQuad) -lpthread
+  else  
+    ifeq (.c,$(suffix $(main)))
+	$(DLSET) $(CC)  $(CFLAGS)   -o $(main:.c=)   $(main)  $(SSS)  $(lDL)  -lm  $(lQuad) -lpthread 
+    else  
+      ifeq (.F,$(suffix $(main)))
+        ifeq ($(FC), )
+	$(error  Fortran compiler was not detected.)
+        else 
+	$(DLSET) $(FC) $(FFLAGS) -ffixed-line-length-none -o $(main:.F=) $(main) $(cLib)/faux.o  $(SSS)   $(lDL)  -lm $(lQuad) -lpthread
+        endif
+      else
+	$(error Only .c, .cpp, and .F  main programs  are supported).
+      endif
+    endif
+  endif  
+
+
+
+libs:
+	$(MAKE) -C work
+	$(MAKE) -C lib
+	$(MAKE) -C ../sources
+work/bin:
+	ln -s  `pwd`/../CalcHEP_src/bin  `pwd`/work/bin
+
+clean:  specialClean
+	../sources/cleanexe
+	rm -f work/lanhep/*.mdl work/lanhep/masses.chk
+	rm -rf *.dSYM
+	$(MAKE) -C lib  clean
+	$(MAKE) -C work clean
+	@-unlink work/bin
+	rm -f HB.* HS.* hb.* hs.*  debug_channels.txt debug_predratio.txt  Key.dat
+	rm -f Lilith_*   particles.py*
+	rm -f  smodels.* 
+	rm -f  official*.pcl
+	rm -rf  __pycache__ 
+	rm -f STXS*.txt  HS_correlations.txt  
+	rm -f slhaForSuperIso  

@@ -1,0 +1,23 @@
+<!--
+CMS result for mu(VBF, bb)
+at mH = 125. GeV, shown in CMS-HIG-14-004
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-14-004/index.html
+-->
+
+<expmu decay="bb" dim="1" type="n">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-14-004</source>
+  <sqrts>8</sqrts>
+  <mass>125.</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff prod="VBF">1.0</eff>
+
+  <bestfit>2.8</bestfit>
+  
+  <param>
+    <uncertainty side="left">-1.4</uncertainty>
+    <uncertainty side="right">1.6</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

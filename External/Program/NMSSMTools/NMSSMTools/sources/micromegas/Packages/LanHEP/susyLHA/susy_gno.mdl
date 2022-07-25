@@ -1,0 +1,136 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+
+%%%% Chargino
+
+
+do_if CPV==on.
+
+parameter MC1=slhaVal1(str(MASS),Q,1000024), MC2=slhaVal1(str(MASS),Q,1000037).
+_i=1-2, _j=1-2 in parameter Zp_i_jr = slhaVal2(str(vmix),Q, _j, _i), Zp_i_ji = -slhaVal2(str(imvmix),Q, _j, _i).
+_i=1-2, _j=1-2 in parameter Zm_i_jr = slhaVal2(str(umix),Q, _j, _i), Zm_i_ji = -slhaVal2(str(imumix),Q, _j, _i).
+_i=1-2, _j=1-2 in let Zp_i_j=Zp_i_jr+i*Zp_i_ji, Zm_i_j=Zm_i_jr+i*Zm_i_ji.
+HermMatrix(Zm__r,Zm__i,2).
+HermMatrix(Zp__r,Zp__i,2).
+
+do_else.
+
+do_if MMCALC==tree.
+parameter ctkn=rDiagonalA(2,MG2,Sqrt2*MW*sb,Sqrt2*MW*cb,mu).
+_i=1-2 in parameter MC_i=MassArray(ctkn,_i).
+_i=1-2, _j=1-2 in parameter Zp_i_j=MixMatrix(ctkn, _j, _i).
+_i=1-2, _j=1-2 in parameter Zm_i_j=MixMatrixU(ctkn, _j, _i).
+
+do_else.
+
+parameter MC1=slhaVal1(str(MASS),Q,1000024), MC2=slhaVal1(str(MASS),Q,1000037).
+_i=1-2, _j=1-2 in parameter Zp_i_j = slhaVal2(str(vmix),Q, _j, _i).
+_i=1-2, _j=1-2 in parameter Zm_i_j = slhaVal2(str(umix),Q, _j, _i).
+
+end_if.
+
+OrthMatrix({{Zp11, Zp12}, {Zp21, Zp22}}).
+OrthMatrix({{Zm11, Zm12}, {Zm21, Zm22}}).
+
+end_if. % non-cpv
+
+%%%% Neutralino
+
+do_if CPV==on.
+
+parameter MNE1=slhaVal1(str(MASS),Q,1000022),
+          MNE2=slhaVal1(str(MASS),Q,1000023),
+          MNE3=slhaVal1(str(MASS),Q,1000025),
+          MNE4=slhaVal1(str(MASS),Q,1000035).
+_i=1-4, _j=1-4 in parameter Zn_i_jr = slhaVal2(str(NMIX),Q, _j, _i), Zn_i_ji = -slhaVal2(str(IMNMIX),Q, _j, _i).
+_i=1-4, _j=1-4 in let Zn_i_j=Zn_i_jr+i*Zn_i_ji.
+HermMatrix(Zn__r,Zn__i,4).
+
+do_else_if NMSSM==on.
+
+
+do_if MMCALC==tree.
+parameter ntk=rDiagonal(5,MG1,0,-MW*SW/CW*cb,MW*SW/CW*sb,0,
+			                MG2,MW*cb,-MW*sb,0,
+							0,-hL*xvev,-1/2/CW/EE*MW*S2W*Sqrt2*hL*sb,
+							0,-1/2/CW/EE*MW*S2W*Sqrt2*cb*hL,
+							2*hK*xvev).
+_x=1-5 in parameter MNE_x=MassArray(ntk,_x).
+_x=1-5 in _y=1-5 in parameter Zn_x_y=MixMatrix(ntk,_y, _x).
+
+do_else.
+
+parameter MNE1=slhaVal1(str(MASS),Q,1000022),
+          MNE2=slhaVal1(str(MASS),Q,1000023),
+          MNE3=slhaVal1(str(MASS),Q,1000025),
+          MNE4=slhaVal1(str(MASS),Q,1000035),
+          MNE5=slhaVal1(str(MASS),Q,1000045).
+_i=1-5, _j=1-5 in parameter Zn_i_j = slhaVal2(str(NMNMIX),Q, _j, _i).
+
+end_if.
+
+OrthMatrix(Zn__, 5).
+
+do_else. % MSSM
+
+do_if ZNCMPLX==on.
+
+external_func(neut1,7,'./neut.so').
+external_func(neut2,4,'./neut.so').
+fainclude('neutd.F').
+
+parameter neutk=neut1(MZ,MW,SW,MG1,MG2,mue,tb).
+
+_x=1-4 in _y=1-4 in parameter Zn_x_yr=neut2(neutk, 1, _x, _y),  
+			      Zn_x_yi=neut2(neutk, 2, _x, _y). 
+_x=1-4 in           parameter MNE_x=  neut2(neutk, 3, _x, _x):'Neutralino _x mass'.
+_x=1-4 in _y=1-4 in let Zn_x_y=Zn_x_yr+i*Zn_x_yi.
+
+HermMatrix({{Zn11r, Zn12r, Zn13r, Zn14r}, {Zn21r, Zn22r, Zn23r, Zn24r},
+            {Zn31r, Zn32r, Zn33r, Zn34r}, {Zn41r, Zn42r, Zn43r, Zn44r}},
+	    
+	   {{Zn11i, Zn12i, Zn13i, Zn14i}, {Zn21i, Zn22i, Zn23i, Zn24i},
+            {Zn31i, Zn32i, Zn33i, Zn34i}, {Zn41i, Zn42i, Zn43i, Zn44i}}).
+
+do_else.
+
+
+do_if MMCALC==tree.
+
+parameter ntkn=rDiagonal(4,MG1,0,-MW*SW*cb/CW,MW*SW*sb/CW,MG2,MW*cb,-MW*sb,0,-mu,0).
+_i=1-4 in parameter MNE_i=MassArray(ntkn,_i).
+_i=1-4, _j=1-4 in parameter Zn_i_j=MixMatrix(ntkn, _j, _i).
+
+do_else.
+
+parameter MNE1=slhaVal1(str(MASS),Q,1000022),
+          MNE2=slhaVal1(str(MASS),Q,1000023),
+          MNE3=slhaVal1(str(MASS),Q,1000025),
+          MNE4=slhaVal1(str(MASS),Q,1000035).
+_i=1-4, _j=1-4 in parameter Zn_i_j=slhaVal2(str(Nmix),Q, _j, _i).
+
+end_if.
+
+OrthMatrix(Zn__,4).
+
+end_if. % zncomp
+
+end_if.
+
+parameter wC1=0     :'width of chargino 1',
+          wC2=0     :'width of chargino 2'.
+	  
+parameter wNE2=0    :'width of neutralino 2',
+          wNE3=0    :'width of neutralino 3',
+          wNE4=0    :'width of neutralino 4'.
+do_if CPV==off.
+parameter MSG=MG3   :'mass of gluino'.
+do_else.
+parameter MSG=sqrt(MG3r**2+MG3i**2).
+end_if.
+
+parameter wSG=0     :'width of gluino'.
+
+
+do_if NMSSM==on, (parameter wNE5=0:'width of neutralino 5').
+

@@ -1,0 +1,19 @@
+IDM(+hgg)
+ Variables 
+ Name   | Value       |>  Comment                                   <|
+EE      |0.31333      |Electromagnetic coupling constant (<->1/128)
+GG      |1.117        |Strong coupling constant (Z point)  (PDG-94)
+SW      |0.474        |sin of the Weinberg angle 0.474 - "on-shell",481 - "MS-bar" )
+Q       |100          |Scale of effective running masses
+MW      |80.385       |W boson mass
+Mtp     |172.5        |Top quark pole mass
+McMc    |1.23         |Mc(Mc)  MS-BAR
+MbMb    |4.25         |Mb(Mb)  MS-BAR
+alphaSMZ|0.1184       |Srtong alpha(MZ)
+Ml      |1.777        |mass of tau-lepton
+Mh      |125          |mass of Higgs
+MHX     |111          |
+MH3     |222          |
+MHC     |333          |
+laL     |0.01         |
+la2     |0.01         |

@@ -1,0 +1,29 @@
+<!--
+ATLAS result for mu(ggH, WW) vs. mu(VBF, WW) at mH = 125 GeV; 
+best-fit values and uncertainties taken from 1808.09054 page 13,
+correlation fitted from 95% CL curve in Fig. 9, see
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2016-07/
+-->
+
+<expmu decay="WW" dim="2" type="vn">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2016-07</source>
+  <sqrts>13</sqrts>
+  <mass>125</mass>
+
+  <eff axis="x" prod="ggH">1.0</eff>
+  <eff axis="y" prod="VBF">1.0</eff>
+
+  <bestfit>
+    <x>1.10</x>
+    <y>0.62</y>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="x" side="left">0.20</uncertainty>
+    <uncertainty axis="x" side="right">0.21</uncertainty>
+    <uncertainty axis="y" side="left">0.35</uncertainty>
+    <uncertainty axis="y" side="right">0.36</uncertainty>
+    <correlation>-0.08</correlation>
+  </param>
+</expmu>
