@@ -1,3 +1,0 @@
-5 10 50 5   C_code
-Generates C-codes of calculated diagrams
-for subsequent numerical calculations.

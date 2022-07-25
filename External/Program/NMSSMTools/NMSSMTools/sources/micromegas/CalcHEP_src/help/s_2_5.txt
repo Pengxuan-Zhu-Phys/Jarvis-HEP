@@ -1,3 +1,0 @@
-2 2 50 3  Delete model
- To delete the model and to return to the 
-previous  menu.
