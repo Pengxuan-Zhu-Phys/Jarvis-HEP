@@ -7,14 +7,14 @@
             "linux",
             "darwin"
         ],
-        "Current OS": "darwin",
+        "Current OS": "linux",
         "paraller number": 16,
         "root installed": true,
-        "root path": "/Applications/root_v6.24.00",
+        "root path": "/home/buding/Heptools/root",
         "python": "2.7.18"
     },
     "include": {},
-    "home path": "/Users/zhupengxuan/Buding/Jarvis-HEP/External/Library",
+    "home path": "/home/buding/Jarvis-HEP/External/Library",
     "incl": [
         "Delphes",
         "HepMC",
@@ -22,6 +22,6 @@
         "MadGraph"
     ],
     "status": "ready",
-    "info file": "/Users/zhupengxuan/Buding/Jarvis-HEP/External/Library/Library_info.json",
+    "info file": "/home/buding/Jarvis-HEP/External/Library/Library_info.json",
     "prev": {}
 }
