@@ -162,8 +162,10 @@ class Scan():
         self.libs.set_logger_setting(libsconfig)
         self.libs.set_scan_info(self.smp['output']['info'])
         self.libs.load_setting()
+        # self.cf.set("Library_Settings", )  
         self.libs.build()
         self.libs.output_card()
+        self.cf = deepcopy(self.libs.cf)
         self.smp['sp']['library'] = {
             "info file":    self.libs.libs['info file']
         }

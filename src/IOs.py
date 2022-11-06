@@ -262,7 +262,10 @@ class InputsFile(IOfile):
             content = f1.read()
         for var in self.para['replace']:
             expr = sympify(var['expr'], locals=self.vars)
-            var['value'] = expr.subs(self.vars)
+            try:
+                var['value'] = expr.subs(self.vars)
+            except:
+                var['value'] = expr
             content = content.replace(var['code'], str(var['value']))
         with open(self.file, 'w') as f1:
             f1.write(content)

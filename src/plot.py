@@ -156,14 +156,14 @@ class Plot():
             if self.format is None:
                 self.format = self.cs['default']['save format']
                 print(emoji.emojize(
-                    '\t:ghost::ghost::ghost: figure save format is not specified by the user, using the default -> {} !!'.format(self.format), use_aliases=True))
+                    '\t:ghost::ghost::ghost: figure save format is not specified by the user, using the default -> {} !!'.format(self.format)))
             support_fmt_list = ['eps', 'pdf', 'pgf', 'png', 'raw',
                                 'rgba', 'svg', 'svgz', 'jpg', 'jpeg', 'tif', 'tiff']
             self.format = list(set(self.format) & set(support_fmt_list))
             if not os.path.exists(os.path.dirname(ffp)):
                 os.makedirs(os.path.dirname(ffp))
             print(emoji.emojize("\t:clock2: {:.2f} Sec;  Figure {} saved in the path\n\t\t-> {} \n\t\t>> {}.{}".format(
-                time.time()-self.time, self.inf['name'], os.path.dirname(ffp), os.path.basename(ffp), ", >> {}.".format(os.path.basename(ffp)).join(self.format)), use_aliases=True))
+                time.time()-self.time, self.inf['name'], os.path.dirname(ffp), os.path.basename(ffp), ", >> {}.".format(os.path.basename(ffp)).join(self.format))))
             for fmt in self.format:
                 if (fmt == 'pdf'):
                     ffg.savefig("{}.pdf".format(ffp, format='pdf'))
