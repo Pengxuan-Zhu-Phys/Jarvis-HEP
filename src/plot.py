@@ -84,9 +84,9 @@ class Plot():
                             self.figs[line[0]].append(sec)
                 elif len(line) > 1:
                     for sec in line[1:]:
-                        if "{}_{}".format(line[0], sec) in self.cf.sections():
+                        if "PLOT_{}_{}".format(line[0], sec) in self.cf.sections():
                             self.figs[line[0]].append(
-                                "{}_{}".format(line[0], sec))
+                                "PLOT_{}_{}".format(line[0], sec))
 
     def set_fig_info(self, fig):
         fig.cf = self.cf
@@ -156,14 +156,14 @@ class Plot():
             if self.format is None:
                 self.format = self.cs['default']['save format']
                 print(emoji.emojize(
-                    '\t:ghost::ghost::ghost: figure save format is not specified by the user, using the default -> {} !!'.format(self.format)))
+                    '\t:ghost::ghost::ghost: figure save format is not specified by the user, using the default -> {} !!'.format(self.format), language="alias"))
             support_fmt_list = ['eps', 'pdf', 'pgf', 'png', 'raw',
                                 'rgba', 'svg', 'svgz', 'jpg', 'jpeg', 'tif', 'tiff']
             self.format = list(set(self.format) & set(support_fmt_list))
             if not os.path.exists(os.path.dirname(ffp)):
                 os.makedirs(os.path.dirname(ffp))
             print(emoji.emojize("\t:clock2: {:.2f} Sec;  Figure {} saved in the path\n\t\t-> {} \n\t\t>> {}.{}".format(
-                time.time()-self.time, self.inf['name'], os.path.dirname(ffp), os.path.basename(ffp), ", >> {}.".format(os.path.basename(ffp)).join(self.format))))
+                time.time()-self.time, self.inf['name'], os.path.dirname(ffp), os.path.basename(ffp), ", >> {}.".format(os.path.basename(ffp)).join(self.format)), language="alias"))
             for fmt in self.format:
                 if (fmt == 'pdf'):
                     ffg.savefig("{}.pdf".format(ffp, format='pdf'))
@@ -173,7 +173,7 @@ class Plot():
             plt.show(block=False)
             plt.pause(1)
             input(emoji.emojize("\n\t:clock2: {:.2f} Sec;  Press 'Enter' to continue ...\n".format(
-                time.time()-self.time), use_aliases=True))
+                time.time()-self.time), language="alias"))
             plt.close()
 
 

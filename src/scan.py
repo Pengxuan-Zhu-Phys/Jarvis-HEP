@@ -40,10 +40,12 @@ class Scan():
         self.init_sampling()
         self.load_scanner_logger_setting()
         self.check_sampling_mode()
+        # sys.exit()
         if self.mode == "new":
             self.build_library()
             self.build_package()
             self.make_generator()
+            sys.exit()
             self.generator.prerun_generator()
             self.generator.pack = self.pack.pack
             self.generator.generate_events()
@@ -223,6 +225,10 @@ class Scan():
         elif self.smp['Scan']['sampling method'] == "Importance Possion Disk":
             from importance_PDS import Importance_Possion_Disk
             self.generator = Importance_Possion_Disk()
+        elif self.smp['Scan']['sampling method'] == "Birdson":
+            from birdson import Birdson
+            self.generator = Birdson()
+        
         self.generator.set_config(self.cf)
         self.generator.set_scan_path(self.smp['Scan']['save dir'])
         self.generator.path['run_info'] = self.smp['output']['info']
@@ -254,14 +260,13 @@ class Scan():
         import json
         with open(self.paths['scheme'], 'r') as f1:
             self.scm = json.loads(f1.read())
-
         for ss, sv in self.scm['parser_default'].items():
             ck_sect(self.cf, ss)
             self.smp[ss] = {}
             for kk, vv in sv.items():
                 if not self.cf.has_option(ss, kk):
                     print(
-                        "\tNo Option ->\t{}  in Section [{ss}], Please check your parser file".format(kk, ss))
+                        "\tNo Option ->\t{}  in Section [{}], Please check your parser file".format(kk, ss))
                     sys.exit(0)
                 else:
                     val = self.cf.get(ss, kk)

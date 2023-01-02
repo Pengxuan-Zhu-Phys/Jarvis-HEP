@@ -15,7 +15,6 @@ import emoji
 config = {
     "font.family":["serif", "Times New Roman"],
     "mathtext.fontset":'stix',
-    "font.serif": ['Computer Modern'],
     "text.latex.preamble": r"\usepackage{amsmath}"
 }
 rcParams.update(config)
@@ -342,10 +341,8 @@ class JarvisFlow(Figure):
             self.draw_layer(self.layers[ii], ii)
             
     def drawpicture(self):
-        # print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art: plotting {} ....".format(
-                    # time.time()-self.time, self.inf['name']), use_aliases=True))        
         print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art: plotting {} ....".format(
-                    time.time()-self.time, self.inf['name'])))
+                    time.time()-self.time, self.inf['name']), language="alias"))
         self.load()
         self.load_colorsetting()
         self.load_jarvis_flow()

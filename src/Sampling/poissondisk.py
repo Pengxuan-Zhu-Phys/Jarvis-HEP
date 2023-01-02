@@ -335,12 +335,12 @@ class Possion_Disk(Sampling_method):
                         finiids.append(smp.id)
         if doneids + stopids + finiids:
             self.check_samples_status_number(True)
-        if doneids:
-            for sid in doneids:
-                self.samples.pop(sid)
-        if stopids:
-            for sid in stopids:
-                self.samples.pop(sid)
+        # if doneids:
+        #     for sid in doneids:
+        #         self.samples.pop(sid)
+        # if stopids:
+        #     for sid in stopids:
+        #         self.samples.pop(sid)
 
     def ready_sample_start_run(self):
         sids = []
@@ -369,7 +369,7 @@ class Possion_Disk(Sampling_method):
                 self.ax.set_xlim(-0.5, 1.5)
                 self.ax.set_ylim(-0.5, 1.5)
 
-                self.fig.savefig("END.png", dpi=300)
+                self.fig.savefig("{}/END.png".format(self.path['save dir']), dpi=300)
 
     def reset_running_samples_to_free(self):
         while self.info['nsample']['runn'] > 0:
@@ -456,14 +456,19 @@ class Possion_Disk(Sampling_method):
         if self.info['nsample']['live'] == 0:
             # self.change_point_status_in_cube(sid, "Gray")
             self.cubes.loc[self.cubes['Status'] == "Dead", "Status"] = "Gray"
+
             # df.loc[df['Fee'] > 22000, 'Fee'] = 1
         else:
             sid = self.pick_sample_ID_by_status("Dead")
+            print(sid, len(self.samples))
+            # print(self.cubes)
+            # print(self.data)
             smp = self.samples[sid]
             smp.local, smp.grayed = self.get_local(sid, _max=3.1, _min=0.1)
             if smp.grayed:
                 self.change_point_status_in_cube(sid, "Gray")
                 self.check_samples_status_number(False)
+                # self.samples.pop(sid)
 
     def get_local(self, sid, _max=2.1, _min=0.1):
         from copy import deepcopy

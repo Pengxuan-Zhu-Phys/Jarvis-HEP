@@ -4,7 +4,8 @@
         "status": true,
         "root required": true,
         "OS required": [
-            "linux"
+            "linux",
+            "darwin"
         ],
         "Current OS": "linux",
         "paraller number": 16,

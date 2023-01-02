@@ -216,6 +216,7 @@ class InputsFile(IOfile):
             "save": len(vinf) == 4 and "save" in vinf
         }
         self.para['file'] = par
+        # print(self.para['file'])
 
     def set_file(self):
         if self.para['file']['expr'] in self.vars:
@@ -226,6 +227,7 @@ class InputsFile(IOfile):
             move(self.para['file']['value'], self.file)
         if self.para['file']['save']:
             from shutil import copyfile
+            # print(self.file)
             copyfile(self.file, os.path.join(
                 self.samppath, os.path.basename(self.file)))
 
@@ -460,6 +462,17 @@ class OutputsFile(IOfile):
             if len(vinf) == 4 and vinf[3].lower() == "save":
                 res['save'] = True
             self.vars.append(res)
+            self.set_file_with_pkgname(os.path.basename(self.file))
+    
+    def set_file_with_pkgname(self, basename):
+            basename = basename.split(".")
+            if len(basename) >= 2:
+                basename[-2] += f"@{self.pkg}"
+            else:
+                basename[-1] += f"@{self.pkg}"
+            basename = ".".join(basename)
+            return basename
+
 
     def set_par_file(self, vinf):
         par = {
@@ -472,15 +485,15 @@ class OutputsFile(IOfile):
         from shutil import move
         if self.para['file']['save']:
             move(self.file, os.path.join(
-                self.samppath, os.path.basename(self.file)))
+                self.samppath, self.set_file_with_pkgname(os.path.basename(self.file))))
             self.file = os.path.join(
-                self.samppath, os.path.basename(self.file))
+                self.samppath, self.set_file_with_pkgname(os.path.basename(self.file)))
             self.vars[self.para['file']['expr']] = self.file
         else:
             move(self.file, os.path.join(self.samppath,
-                 "temp", os.path.basename(self.file)))
+                 "temp", self.set_file_with_pkgname(os.path.basename(self.file))))
             self.file = os.path.join(
-                self.samppath, "temp", os.path.basename(self.file))
+                self.samppath, "temp", self.set_file_with_pkgname(os.path.basename(self.file)))
             self.vars[self.para['file']['expr']] = self.file
 
     def set_oup_slha(self, vinf, model="mssm"):
@@ -624,14 +637,20 @@ class YodaFile():
             hname = item[0].split()[-1].strip()
             culine = ["xlow","xhigh","val","errminus","errplus"]
             cuid = 0
+            self.hist1ddata[hname] = {}
             for line in item:
+                if "=" in line and line[0] != "#":
+                    temlist = line.split("=")
+                    if temlist[1].isdigit():
+                        self.hist1ddata[hname][temlist[0]] = eval(temlist[1])
+                    else:
+                        self.hist1ddata[hname][temlist[0]] = temlist[1]
                 if list(map(str.strip, line[2:].split())) == culine:
                     cuid = item.index(line)
                     break
+                # if "ScaledBy" == line[0:8]:
             self.hist1d[hname] = loadtxt(item[cuid+1:], dtype=str)
-            self.hist1ddata[hname] = {
-                "data": pd.DataFrame(loadtxt(item[cuid+1:]), columns = culine)
-            }
+            self.hist1ddata[hname]["data"] = pd.DataFrame(loadtxt(item[cuid+1:]), columns = culine)
             self.hist1ddata[hname]['sumw'] = self.hist1ddata[hname]['data'].val.sum()
             
             

@@ -70,11 +70,24 @@ class Pack():
                 self.pack['incl'] = []
                 incl = self.cf.get("Program_Settings", "include").split(',')
                 for pkg in incl:
-                    self.pack['incl'].append(pkg.strip())
-                for pkg in self.pack['incl']:
-                    self.load_package(pkg)
-                    self.decode_package_cmd(pkg) 
-    
+                    self.get_pkgs(pkg.strip())
+                # print(self.pack['include'])
+
+    def get_pkgs(self, pkg_sect):
+        if self.cf.has_section(pkg_sect):
+            if "include" in self.cf.options(pkg_sect):
+                self.pack['include'][pkg_sect] = self.load_multi_package(pkg_sect)
+                print(self.pack['include'][pkg_sect])
+                for pp in self.pack['include'][pkg_sect]['include']:
+                    self.pack['incl'].append(pp)
+                    self.pack['include'][pkg_sect]['modes'][pp] = self.decode_multi_package_cmd(pp, pkg_sect)
+                self.logger.warning("Jarvis loading program {}\n\t-> Mulitple mode: {}".format(pkg_sect, self.pack['include'][pkg_sect]['include']))
+            else:
+                self.logger.warning("Jarvis loading program {}\n\t-> Single mode".format(pkg_sect))
+                self.pack['incl'].append(pkg_sect)
+                self.pack['include'][pkg_sect] = self.load_package(pkg_sect)
+                self.decode_package_cmd(pkg_sect)
+
     def decode_path(self, pathdir):
         if "&pwd" in pathdir:
             pathdir = pathdir.replace("&pwd", self.scan_info['path']['pwd'])
@@ -82,17 +95,39 @@ class Pack():
             pathdir = pathdir.replace("&J", self.scan_info['path']['&J'])
         return pathdir
 
-    def load_package(self, pkg):
+    def load_multi_package(self, pkg):
         if self.cf.has_section(pkg):
             rdic = dict(self.cf.items(pkg))
             rdic['required package'] = eval(rdic['required package'])
             rdic['clone shadow']     = eval(rdic['clone shadow'])
             rdic['source file']      = self.decode_path(rdic['source file'])
             rdic['workers']          = {}
+            rdic['multi']            = True
+            rdic['modes']            = {}
+            rdic['include']          = list(map(str.strip, rdic["include"].split(",")))
             self.cf.set(pkg, "source file", rdic['source file'])
             rdic['install path']     = self.decode_path(rdic['install path'])
+            if rdic['clone shadow']:
+                rdic['install path'] += "/@PackID"  
             self.cf.set(pkg, 'install path', rdic['install path'])
-            self.pack['include'][pkg] = rdic
+            rdic['run info'] = self.decode_path(self.decode_command(rdic['run info'], rdic['install path'])['cmd'])
+            rdic['install cmd'] = self.decode_multi_cmds(rdic['install cmd'], rdic['install path'])
+            return rdic
+
+    def load_package(self, pkg):
+        if self.cf.has_section(pkg):
+            rdic = dict(self.cf.items(pkg))
+            rdic['required package'] = eval(rdic['required package'])
+            rdic['clone shadow']     = eval(rdic['clone shadow'])
+            rdic['multi']            = False
+            rdic['source file']      = self.decode_path(rdic['source file'])
+            rdic['workers']          = {}
+            self.cf.set(pkg, "source file", rdic['source file'])
+            rdic['install path']     = self.decode_path(rdic['install path'])
+            if rdic['clone shadow'] and "/@PackID" != rdic['install path'][-8:]:
+                rdic['install path'] += "/@PackID"  
+            self.cf.set(pkg, 'install path', rdic['install path'])
+            return rdic
   
     def resume_by_card(self):
         self.pack['status'] = "ready"
@@ -107,21 +142,36 @@ class Pack():
         self.pack['tree'].makeTree()
         self.pack['tree'].pars = self.generator_vars
 
+    def decode_multi_package_cmd(self, pkg, pkg_sect):
+        if self.cf.has_section(pkg):
+            rdic = dict(self.cf.items(pkg))
+            rdic['command path'] = self.decode_path(self.decode_command(rdic['command path'], self.pack['include'][pkg_sect]['install path'])['cmd'])
+            rdic['prerun command'] = self.decode_multi_cmds(rdic['prerun command'], rdic['command path'])
+            rdic['excute command'] = self.decode_multi_cmds(rdic['excute command'], rdic['command path'])
+            rdic['pkg_name'] = pkg
+            rdic.update(self.decode_inputs_via_rdic(rdic))
+            rdic.update(self.decode_outputs_via_rdic(rdic))
+            rdic.pop('ips')
+            rdic.pop('ops')
+            print(json.dumps(rdic, indent=4))
+            return rdic
+
     def decode_package_cmd(self, pkg):
         if self.cf.has_section(pkg):
-            if self.pack['include'][pkg]['clone shadow']:
-                self.pack['include'][pkg]['install path'] += "/@PackID"     
-                self.cf.set(pkg, 'install path', self.pack['include'][pkg]['install path']) 
             self.pack['include'][pkg]['command path'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['command path'], self.pack['include'][pkg]['install path'])['cmd'])
             self.pack['include'][pkg]['run info'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['run info'], self.pack['include'][pkg]['install path'])['cmd'])
-            
+
+            # print(self.pack['include'][pkg]['install path'])
             self.decode_cmds(pkg, "install cmd", "install path")
             self.decode_cmds(pkg, "prerun command", "command path")
             self.decode_cmds(pkg, "excute command", "command path")
             
             self.decode_inputs(pkg)
             self.decode_outputs(pkg)
-            
+
+            self.pack['include'][pkg].pop("ips")
+            self.pack['include'][pkg].pop("ops")
+
             self.pack['status'] = "ready"
 
     def output_card(self):
@@ -134,8 +184,8 @@ class Pack():
                 infodir = os.path.dirname(self.pack['include'][pkg]['run info'])
                 if not os.path.exists(infodir):
                     os.makedirs(infodir)
-                self.pack['include'][pkg].pop("ips")
-                self.pack['include'][pkg].pop("ops")
+                # self.pack['include'][pkg].pop("ips")
+                # self.pack['include'][pkg].pop("ops")
                 with open(self.pack['include'][pkg]['run info'], 'w') as f1:
                     json.dump(self.pack['include'][pkg], f1, indent=4)
             self.info['output']['pkgs'] = os.path.join(self.info['save dir'], "Program_info.json")
@@ -161,7 +211,6 @@ class Pack():
             f1.write(inp)
         # from subprocess import Popen, PIPE, STDOUT
         # subp = Popen("{} {}".format(self.pack['tree'].BPlot_path, "Plot_Jarvis.ini" ), shell=True, stdout=PIPE, stderr=STDOUT, cwd=self.info['save dir'])
-        # self.logger.warning("Jarvis plot Program Trees")            
         from plot import Plot 
         fig = Plot()
         fig.read_config(os.path.join(self.info['save dir'], "Plot_Jarvis.ini"))
@@ -189,6 +238,31 @@ class Pack():
             self.logger.error('\033[91m Illegal output variable in program "{}" for Jarvis, Please check your configure file\033[0m'.format(pkg))
             sys.exit(1)
  
+    def decode_outputs_via_rdic(self, rdic):
+        if not rdic['output variables'].strip() == "":
+            from IOs import IOs
+            rdic['ops'] = IOs()
+            rdic['ops'].setinfos(
+                finf = rdic['output file'],
+                vinf = rdic['output variables']
+            )
+            rdic['ops'].logger = self.logger
+            rdic['ops'].pkg = rdic['pkg_name']
+            for ipf in rdic['ops'].files.keys():
+                rdic['ops'].files[ipf]['path'] = self.decode_path(
+                    self.decode_command(rdic['ops'].files[ipf]['path'], rdic['command path'])['cmd']
+                )
+            
+            rdic['ops'].type = "output"
+            rdic['ops'].build()
+            rdic['output variables'] = rdic['ops'].vars
+            rdic['output file'] = rdic['ops'].finfs 
+            rdic['output'] = rdic['ops'].files
+            return rdic 
+        else:
+            self.logger.error('\033[91m Illegal output variable in program "{}" for Jarvis, Please check your configure file\033[0m'.format(rdic['pkg_name']))
+            sys.exit(1)
+
     def decode_inputs(self, pkg):
         if not self.pack['include'][pkg]['input variables'].strip() == '':
             from IOs import IOs
@@ -211,7 +285,40 @@ class Pack():
         else:
             self.logger.error('\033[91m Illegal input variable in program "{}" for Jarvis, Please check your configure file\033[0m'.format(pkg))
             sys.exit(1)
-            
+
+    def decode_inputs_via_rdic(self, rdic):
+        if not rdic['input variables'].strip() == "":
+            from IOs import IOs 
+            rdic['ips'] = IOs()
+            rdic['ips'].setinfos(
+                finf=rdic['input file'],
+                vinf=rdic['input variables']
+            )
+            rdic['ips'].logger = self.logger 
+            rdic['ips'].pkg = rdic['pkg_name'] 
+            for ipf in rdic['ips'].files.keys():
+                rdic['ips'].files[ipf]['path'] = self.decode_path(self.decode_command(rdic['ips'].files[ipf]['path'], rdic['command path'])['cmd'])
+
+            rdic['ips'].type = "input"
+            rdic['ips'].build()
+            rdic['input variables'] = rdic['ips'].vars
+            rdic['input file'] = rdic['ips'].finfs 
+            rdic['input'] = rdic['ips'].files
+            return rdic
+        else:
+            self.logger.error('\033[91m Illegal input variable in program "{}" for Jarvis, Please check your configure file\033[0m'.format(rdic['pkg_name']))
+            sys.exit(1)
+
+    def decode_multi_cmds(self, cmds, pwd):
+        res = []
+        ii = 0
+        commands = cmds.split('\n')
+        for cc in commands:
+            cmd = self.decode_command(cc, pwd)
+            pwd = cmd['path']
+            res.append(cmd)
+        return res 
+
     def decode_cmds(self, pkg, cmds, paths):
         commands = self.pack['include'][pkg][cmds].split('\n')
         res  = []

@@ -15,7 +15,6 @@ import emoji
 config = {
     "font.family":["serif", "Times New Roman"],
     "mathtext.fontset":'stix',
-    "font.serif": ['Computer Modern'],
     "text.latex.preamble": r"\usepackage{amsmath}"
 }
 rcParams.update(config)
@@ -325,6 +324,6 @@ class PlotYoda1D(Figure):
                 self.inf = deepcopy(self.sinf)
                 self.inf['name'] = self.sinf["name"] + plot
                 print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art: plotting {} ....".format(
-                    time.time()-self.time, self.inf['name']), use_aliases=True))
+                    time.time()-self.time, self.inf['name']), language="alias"))
                 self.draw_plot(plot)
                 

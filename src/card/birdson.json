@@ -19,9 +19,10 @@
     },
     "default setting":  {
         "sampling": {
-            "TSavePoint":   10,
+            "BinNum":   20,
+            "CountStep":    1,
             "maxTry": 10,
-            "demo": true
+            "TSavePoint":   5
         }
     }
 }

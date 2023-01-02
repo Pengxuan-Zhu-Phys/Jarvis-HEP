@@ -16,10 +16,12 @@ import time
 from Func_lib import decode_path_from_file
 from random import randint
 from sampling import Sampling_method
+import json
 
-class Grid(Sampling_method):
+class Birdson(Sampling_method):
     def __init__(self) -> None:
         super().__init__()
+
         
     def set_config(self, cf):
         return super().set_config(cf)
@@ -28,69 +30,25 @@ class Grid(Sampling_method):
         return super().set_scan_path(pth)
     
     def initialize_generator(self, cf):
+        sys.path.append(os.path.join(os.path.abspath(os.path.dirname(__file__)), "poisson_disc"))
         self.cf = cf 
         self.init_logger(self.cf['logging']['scanner'])
-        self.logger.info("Grid Sampling Algorithm is used in this scan")
+        self.logger.info("Birdson Sampling Algorithm is used in this scan")
         self.set_pars()
-        self.runing_card = os.path.join(self.path['save dir'], "grid_run.json")
+        self.runing_card = os.path.join(self.path['save dir'], "Birdson_run.json")
         self.status = "INIT"
         from Func_lib import get_time_lock
-        self.timelock = get_time_lock(self.cf['default setting']['sampling']['TSavePoint'])
-        
-    def decode_sampling_variable_setting(self, prs):
-        self.pars['vars'] = {}
-        from math import log10
-        for line in prs.split('\n'):
-            ss = line.split(',')
-            if len(ss) == 4 and ss[1].strip().lower() == "flat":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "flat",
-                    "min":      float(ss[2].strip()),
-                    "max":      float(ss[3].strip()),
-                    "Nbin":     self.cf['default setting']['sampling']['BinNum']
-                }
-            elif len(ss) == 5 and ss[1].strip().lower() == "flat":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "flat",
-                    "min":      float(ss[2].strip()),
-                    "max":      float(ss[3].strip()),
-                    "Nbin":     int(ss[4].strip())
-                }
-            elif len(ss) == 4 and ss[1].strip().lower() == "log":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "log",
-                    "min":      log10(float(ss[2].strip())),
-                    "max":      log10(float(ss[3].strip())),
-                    "Nbin":     self.cf['default setting']['sampling']['BinNum']
-                }
-            elif len(ss) == 5 and ss[1].strip().lower() == "log":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "log",
-                    "min":      log10(float(ss[2].strip())),
-                    "max":      log10(float(ss[3].strip())),
-                    "Nbin":     int(ss[4].strip())
-                }
-            elif len(ss) == 4 and ss[1].strip().lower() == "count":
-                    self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "count",
-                    "min":      float(ss[2].strip()),
-                    "max":      float(ss[3].strip()),
-                    "step":     self.cf['default setting']['sampling']['CountStep']
-                }
-            elif len(ss) == 5 and ss[1].strip().lower() == "count":
-                self.pars['vars'][ss[0].strip()] = {
-                    "prior":    "count",
-                    "min":      float(ss[2].strip()),
-                    "max":      float(ss[3].strip()),
-                    "step":     float(ss[4].strip())
-                }
+        self.timelock = get_time_lock(
+            self.cf['default setting']['sampling']['TSavePoint'])
+        self.pars['maxTry'] = self.cf['default setting']['sampling']['maxTry']
+        self.info['reFINISH'] = False
              
     def resume_generator(self, rerun=None):
         self.get_empty_data_row()
         self.status = "RESUME"
         self.path['Samples_info']   = os.path.join(self.path['save dir'], "Samples_info")
-        self.path['datadir']        = os.path.join(self.path["save dir"], "GridData.csv")
-        self.path['datapuredir']    = os.path.join(self.path['save dir'], "GridData_pure.csv")
+        self.path['datadir']        = os.path.join(self.path["save dir"], "BirdsonData.csv")
+        self.path['datapuredir']    = os.path.join(self.path['save dir'], "BirdsonData_pure.csv")
         self.path['dataalldir']     = os.path.join(self.path['save dir'], "AllData.csv")
         self.path['pointdir']       = os.path.join(self.path['save dir'], "Point.csv")     
         self.pars['points']         = pd.read_csv(self.path['pointdir'])
@@ -118,7 +76,7 @@ class Grid(Sampling_method):
         self.info['nrunningcore']   = 0
         self.pars['Data'] = []
         self.pars['AllData'] = []
-        self.status = "READY"        
+        self.status = "READY"         
         self.update_sampling_status({"status":  self.status}) 
 
     def clear_rerun_sample_data(self, rerun):
@@ -175,32 +133,35 @@ class Grid(Sampling_method):
         data = []
         name_list = []
         from numpy import arange, linspace, logspace, vstack, meshgrid
-        for var, item in self.pars['vars'].items():
-            if item['prior'] == "count":
-                data.append(arange(item['min'], item['max'], item['step']))
-                name_list.append(var)
-            elif item['prior'] == "flat":
-                data.append(linspace(item['min'], item['max'], item['Nbin']))
-                name_list.append(var)
-            elif item['prior'] == "log":
-                data.append(logspace(item['min'], item['max'], item['Nbin']))
-                name_list.append(var)
-        res = vstack(meshgrid(*data)).reshape(len(data), -1).T
-        
+        from poisson_disc import Bridson_sampling, hypersphere_surface_sample
+        self.cubes = pd.DataFrame(
+            Bridson_sampling(
+                dims=np.array(self.pars['dims']), 
+                radius=self.pars['minR'], 
+                k=self.pars['maxTry'], 
+                hypersphere_sample=hypersphere_surface_sample
+            ), 
+            columns=self.pars['cubeids']
+        )
         points = []
         from copy import deepcopy
         from Func_lib import get_sample_id
-        for item in res:
-            cube = deepcopy(self.pars['emptyData'])
-            cube['ID'] = get_sample_id()
-            for ii, name in enumerate(name_list):
-                cube[name] = item[ii]
-            if self.pars['selection']['tag']:
-                if self.pars['selection']['expr'].subs(dict(cube)):
-                    points.append(cube)
-            else:
-                points.append(cube)
+        for ids, item in self.cubes.iterrows():
+            raw = deepcopy(self.pars['emptyData'])
+            raw['ID'] = get_sample_id()
+            for kk, vv in self.pars['vars'].items():
+                raw[kk] = vv['expr'].subs(dict(item))
+
+            selection = True
+            if self.pars['filter'] == "ON":
+                from sympy import sympify 
+                expr = deepcopy(self.pars['selection'])
+                expr = sympify(expr, locals=dict(raw))
+                selection = deepcopy(expr)
+            if selection:
+                points.append(raw)
         self.pars["points"] = pd.DataFrame(points)
+        
         self.pars["Data"] = []
         self.pars['AllData'] = []
         # print(self.pars['points'].iloc[0].ID, self.pars['points'].shape)
@@ -208,41 +169,140 @@ class Grid(Sampling_method):
         self.check_samples_status_number(output=True)
         self.info['nrunningcore']   = 0
         self.path['Samples_info']   = os.path.join(self.path['save dir'], "Samples_info")
-        self.path['datadir']        = os.path.join(self.path["save dir"], "GridData.csv")
-        self.path['datapuredir']    = os.path.join(self.path['save dir'], "GridData_pure.csv")
+        self.path['datadir']        = os.path.join(self.path["save dir"], "BirdsonData.csv")
+        self.path['datapuredir']    = os.path.join(self.path['save dir'], "BirdsonData_pure.csv")
         self.path['dataalldir']     = os.path.join(self.path['save dir'], "AllData.csv")
         self.path['pointdir']       = os.path.join(self.path['save dir'], "Point.csv")
         self.pars['points'].to_csv(self.path['pointdir'], index=False)
         self.record_points()
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
-        
+
         self.update_sampling_status({
-            "method":   "Grid",
+            "method":   "Birdson",
             "status":   self.status
         })
+        # sys.exit()
+        
         
     def set_pars(self):
-        pars = {
-                "variable": self.scf.get("Sampling_Setting", "variables")
-        }
         self.pars = {
-            "selection":   {
-                "tag":  False,
-                "expr": ""
+            "minR":     float(self.scf.get("Sampling_Setting", "min R")),
+            "likelihood":   self.scf.get("Sampling_Setting", "likelihood"),
+            "cubeids":  [],
+            "dims":     []
             }
-        }
-        self.decode_sampling_variable_setting(pars['variable'])
-        self.decode_function()
+        self.decode_sampling_variable_setting(self.scf.get("Sampling_Setting", "variables"))
+        self.decode_function()        
+        self.decode_selection()     
+
+    def decode_sampling_variable_setting(self, prs):
+        self.pars['vars'] = {}
+        nn = 0
+        from math import log10
+        for line in prs.split('\n'):
+            ss = line.split(",")
+            if len(ss) == 4 and ss[1].strip().lower() == "flat":
+                self.pars['vars'][ss[0].strip()] = {
+                    "prior":    "flat",
+                    "min":      float(ss[2].strip()),
+                    "max":      float(ss[3].strip()),
+                    "expr":     sympify("{} + ({} - {}) * cube{}".format(float(ss[2].strip()), float(ss[3].strip()), float(ss[2].strip()), nn))
+                }
+                self.pars['cubeids'].append("cube{}".format(nn))
+                self.pars['dims'].append(1.0)
+            elif len(ss) == 5 and ss[1].strip().lower() == "flat":
+                self.pars['vars'][ss[0].strip()] = {
+                    "prior":    "flat",
+                    "min":      float(ss[2].strip()),
+                    "max":      float(ss[3].strip()),
+                    "expr":     sympify("{} + ({} - {}) * cube{} / {}".format(float(ss[2].strip()), float(ss[3].strip()), float(ss[2].strip()), nn, float(ss[4].strip())))
+                }                
+                self.pars['dims'].append(float(ss[4].strip()))
+                self.pars['cubeids'].append("cube{}".format(nn))
+            elif len(ss) == 4 and ss[1].strip().lower() == "log":
+                self.pars['vars'][ss[0].strip()] = {
+                    "prior":    "log",
+                    "min":      float(ss[2].strip()),
+                    "max":      float(ss[3].strip()),
+                    "expr":     sympify("10**({} + ({} - {}) * cube{})".format(log10(float(ss[2].strip())), log10(float(ss[3].strip())), log10(float(ss[2].strip())), nn))
+                }
+                if not (float(ss[2].strip()) > 0 and float(ss[3].strip())):
+                    self.logger.error(
+                        "Illegal Variable setting of {}\n\t\t-> The lower limit and high limit should be > 0 ".format(ss))
+                    sys.exit(0)
+                self.pars['cubeids'].append("cube{}".format(nn))
+                self.pars['dims'].append(1.0)
+            elif len(ss) == 5 and ss[1].strip().lower() == "log":
+                self.pars['vars'][ss[0].strip()] = {
+                    "prior":    "log",
+                    "min":      float(ss[2].strip()),
+                    "max":      float(ss[3].strip()),
+                    "expr":     sympify("10**({} + ({} - {}) * cube{} / {})".format(log10(float(ss[2].strip())), log10(float(ss[3].strip())), log10(float(ss[2].strip())), nn, float(ss[4].strip())))
+                }
+                if not (float(ss[2].strip()) > 0 and float(ss[3].strip())):
+                    self.logger.error(
+                        "Illegal Variable setting of {}\n\t\t-> The lower limit and high limit should be > 0 ".format(ss))
+                    sys.exit(0)
+                self.pars['cubeids'].append("cube{}".format(nn))
+                self.pars['dims'].append(float(ss[4].strip()))
+            else:
+                self.logger.error(
+                    "Illegal Variable setting in: {} ".format(line))
+                sys.exit(0)
+            nn += 1
+
+    def decode_selection(self):
         if self.scf.has_option("Sampling_Setting", "selection"):
-            from sympy import sympify
-            self.pars['selection'] = {
-                "tag":  True,
-                "expr": sympify(self.scf.get("Sampling_Setting", "selection"))
-            }
-        if self.scf.has_option("Sampling_Setting", "likelihood"):
-            pars['likelihood'] = self.scf.get("Sampling_Setting", "likelihood")
-            self.decode_likelihood(pars['likelihood'])        
+            self.pars['selection'] = self.scf.get("Sampling_Setting", "selection")
+            self.pars['filter'] = "ON"
+        else:
+            self.pars['selection'] = "True"
+            self.pars['filter'] = "OFF"
+
+    def decode_function(self):
+        self.func = {}
+        self.expr = {}
+        self.fcs = {}
+        self.exprs = {}
+        for sc in self.scf.sections():
+            if "Function" == sc[0:8] and self.scf.get(sc, "method") == "expression":
+                name = "{}".format(self.scf.get(sc, "name"))
+                self.exprs[name] = {
+                    "name":   name,
+                    "expr":   self.scf.get(sc, "expression")
+                }
+            elif "Function" == sc[0:8] and self.scf.get(sc, "method") == "interpolate 1d":
+                from pandas import read_csv
+                name = "{}".format(self.scf.get(sc, "name"))
+                from Func_lib import decode_path_from_file
+                data = read_csv(decode_path_from_file(
+                    self.scf.get(sc, "file")))
+                self.fcs[name] = {
+                    "name":   name,
+                    "data":   data
+                }
+                if self.scf.has_option(sc, "kind"):
+                    method = self.scf.get(sc, "kind").strip().lower()
+                    if method not in ['linear', 'nearest', 'zero', 'slinear', 'quadratic', 'cubic', 'previous', 'next']:
+                        method = "linear"
+                else:
+                    method = "linear"
+                fill_value = ""
+                if self.scf.has_option(sc, "fill_value"):
+                    fill_value = self.scf.get(sc, "fill_value").strip().lower()
+                from scipy.interpolate import interp1d
+                if fill_value == "extrapolate":
+                    self.fcs[name]['expr'] = interp1d(
+                        data['x'], data['y'], kind=method, fill_value=fill_value)
+                else:
+                    self.fcs[name]['expr'] = interp1d(
+                        data['x'], data['y'], kind=method)
+
+        for kk, vv in self.fcs.items():
+            self.func[kk] = vv['expr']
+        for kk, vv in self.exprs.items():
+            self.expr[kk] = vv['expr']
 
     def init_logger(self, cf):
         self.logger = logging.getLogger("Grid")
@@ -431,13 +491,18 @@ class Grid(Sampling_method):
         self.pars['points'].iloc[self.pars['points']['ID'] == new.ID] = new
         self.check_samples_status_number(True)        
         from sample import Sample
+        from copy import deepcopy
         self.samples[new.ID] = Sample()
         self.samples[new.ID].id = new.ID 
         self.samples[new.ID].status = "Ready"
         self.samples[new.ID].pack = self.pack         
         self.samples[new.ID].par = new
         self.samples[new.ID].path['info'] = os.path.join(self.path['Samples_info'], str(new.ID))
-        
+
+        self.samples[new.ID].func = deepcopy(self.func)
+        self.samples[new.ID].expr = deepcopy(self.expr)
+        self.samples[new.ID].likelihood = deepcopy(self.pars['likelihood'])
+
         self.samples[new.ID].path['scanner_run_info'] = self.path['run_info']
         if not os.path.exists(self.samples[new.ID].path['info']):
             os.makedirs(self.samples[new.ID].path['info'])
@@ -448,7 +513,7 @@ class Grid(Sampling_method):
         self.samples[new.ID].init_logger(self.cf['logging']['scanner'])
 
         # print(self.pars['emptyData'])
-        
+
     def get_new_sample(self):
         if self.pars['points'].loc[self.pars['points']['Status'] == "Free"].shape[0]:
             self.find_free_point_and_make_sample()
@@ -478,6 +543,7 @@ class Grid(Sampling_method):
     def check_generator_status(self):
         if self.info['nsample']['tot'] == self.info['nsample']['done'] + self.info['nsample']['stop']:
             self.status = "FINISH"
+
         elif self.info['nsample']['runn'] > 0:
             self.status = "RUNNING"
 

@@ -15,6 +15,7 @@ from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
 from random import randint
+import json
 
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(pwd, "Sampling"))) 
@@ -31,6 +32,7 @@ class Sampling_method():
         self.pack           = None
         self.samples        = {}
         self.timelock       = None 
+        self.run_info       = {}
         
     
     @abstractmethod
@@ -146,3 +148,12 @@ class Sampling_method():
             raw[var] = None
         self.pars['emptyData'] = Series(raw)
         
+    @abstractmethod
+    def update_sampling_status(self, sts):
+        with open(self.path['run_info'], 'r') as f1:
+            self.run_info = json.loads(f1.read())
+        if "sampling" not in self.run_info.keys():
+            self.run_info['sampling'] = {}
+        self.run_info['sampling'].update(sts)
+        with open(self.path['run_info'], 'w') as f1:
+            json.dump(self.run_info, f1, indent=4)
