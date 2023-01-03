@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3self.pack 
 
 import logging
 import os, sys 
@@ -78,23 +78,44 @@ class Sample():
     def run_next_layer_function(self, dps):
         pkgs = self.pack['tree'].layer[dps]
         from program import program
-        for pkg in pkgs:
-            self.worker[pkg] = program()
-            self.worker[pkg].set_logger_setting({
-                "name": "\n  {} @ {}".format(pkg, self.id),
-                "scanner_logging_path": self.path['scanner_logging_path'],
-                "ff_logging_path":      self.path['logpath'],
-                "stream_format":        self.info['log']['stream_format'],
-                "scanner_format":       self.info['log']['scanner_format'],
-                "file_format":          self.info['log']['file_format']
-            })
-            from copy import deepcopy
-            self.worker[pkg].config = deepcopy(self.pack['include'][pkg])
-            self.worker[pkg].config['name'] = deepcopy(pkg)
-            self.worker[pkg].vars   = dict(deepcopy(self.vars))
-            self.worker[pkg].path   = deepcopy(self.path)
-            self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
-            self.worker[pkg].init()
+        for pname in pkgs:
+            if "\n@" in pname:
+                pkg, psect = pname.split("\n@")
+                self.worker[pkg] = program()
+                self.worker[pkg].set_logger_setting({
+                    "name": "\n  {} @ {}".format(pkg, self.id),
+                    "scanner_logging_path": self.path['scanner_logging_path'],
+                    "ff_logging_path":      self.path['logpath'],
+                    "stream_format":        self.info['log']['stream_format'],
+                    "scanner_format":       self.info['log']['scanner_format'],
+                    "file_format":          self.info['log']['file_format']
+                })
+                from copy import deepcopy
+                self.worker[pkg].config = deepcopy(self.pack['include'][psect])
+                self.worker[pkg].config['name'] = deepcopy(pkg)
+                self.worker[pkg].vars   = dict(deepcopy(self.vars))
+                self.worker[pkg].path   = deepcopy(self.path)
+                self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
+                self.worker[pkg].init()            
+            else:
+                pkg = pname
+                self.worker[pkg] = program()
+                self.worker[pkg].set_logger_setting({
+                    "name": "\n  {} @ {}".format(pkg, self.id),
+                    "scanner_logging_path": self.path['scanner_logging_path'],
+                    "ff_logging_path":      self.path['logpath'],
+                    "stream_format":        self.info['log']['stream_format'],
+                    "scanner_format":       self.info['log']['scanner_format'],
+                    "file_format":          self.info['log']['file_format']
+                })
+                from copy import deepcopy
+                self.worker[pkg].config = deepcopy(self.pack['include'][pkg])
+                self.worker[pkg].config['name'] = deepcopy(pkg)
+                self.worker[pkg].vars   = dict(deepcopy(self.vars))
+                self.worker[pkg].path   = deepcopy(self.path)
+                self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
+                self.worker[pkg].init()
+        # sys.exit()
     
     def update_variable(self, vars):
         for kk, vv in vars.items():

@@ -62,7 +62,10 @@ class JarvisFlow(Figure):
         
                 hinp    = hfinp + hsinp + hvinp
                 houp    = hfoup + hsoup + hvoup
-                htxt    = fs['wt'] * (len(node)+1.5)
+                if len(node.split("\n")) > 1:
+                    htxt    = fs['wt'] * (max([len(x) for x in node.split("\n")]) + 1.5)
+                else:
+                    htxt    = fs['wt'] * (len(node)+1.5)
 
                 self.layers[nn_currentlayer][node] = {
                     "hinp":    hinp,

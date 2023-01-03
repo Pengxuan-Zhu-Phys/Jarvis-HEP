@@ -45,7 +45,7 @@ class Scan():
             self.build_library()
             self.build_package()
             self.make_generator()
-            sys.exit()
+            # sys.exit()
             self.generator.prerun_generator()
             self.generator.pack = self.pack.pack
             self.generator.generate_events()

@@ -71,13 +71,11 @@ class Pack():
                 incl = self.cf.get("Program_Settings", "include").split(',')
                 for pkg in incl:
                     self.get_pkgs(pkg.strip())
-                # print(self.pack['include'])
 
     def get_pkgs(self, pkg_sect):
         if self.cf.has_section(pkg_sect):
             if "include" in self.cf.options(pkg_sect):
                 self.pack['include'][pkg_sect] = self.load_multi_package(pkg_sect)
-                print(self.pack['include'][pkg_sect])
                 for pp in self.pack['include'][pkg_sect]['include']:
                     self.pack['incl'].append(pp)
                     self.pack['include'][pkg_sect]['modes'][pp] = self.decode_multi_package_cmd(pp, pkg_sect)
@@ -153,7 +151,6 @@ class Pack():
             rdic.update(self.decode_outputs_via_rdic(rdic))
             rdic.pop('ips')
             rdic.pop('ops')
-            print(json.dumps(rdic, indent=4))
             return rdic
 
     def decode_package_cmd(self, pkg):
@@ -161,7 +158,6 @@ class Pack():
             self.pack['include'][pkg]['command path'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['command path'], self.pack['include'][pkg]['install path'])['cmd'])
             self.pack['include'][pkg]['run info'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['run info'], self.pack['include'][pkg]['install path'])['cmd'])
 
-            # print(self.pack['include'][pkg]['install path'])
             self.decode_cmds(pkg, "install cmd", "install path")
             self.decode_cmds(pkg, "prerun command", "command path")
             self.decode_cmds(pkg, "excute command", "command path")
@@ -402,10 +398,16 @@ class program():
             cmd = self.decode_cmd(self.config['install cmd'].pop(0))
             self.logger.info("Program running install command -> {}\n\t in path -> {}".format(cmd['cmd'], cmd['path']))
         elif self.status == "prerun":
-            cmd = self.decode_cmd(self.config['prerun command'].pop(0))
+            if self.config['multi']:
+                cmd = self.decode_cmd(self.config['modes'][self.config['name']]['prerun command'].pop(0))
+            else:
+                cmd = self.decode_cmd(self.config['prerun command'].pop(0))
             self.logger.info("Program running prerun command -> {}\n\t in path -> {}".format(cmd['cmd'], cmd['path']))
         elif self.status == "running":
-            cmd = self.decode_cmd(self.config['excute command'].pop(0))
+            if self.config['multi']:
+                cmd = self.decode_cmd(self.config['modes'][self.config['name']]['excute command'].pop(0))
+            else:
+                cmd = self.decode_cmd(self.config['excute command'].pop(0))                
             self.logger.info("Program excute command -> {}\n\t in path -> {}".format(cmd['cmd'], cmd['path']))
         from subprocess import Popen, PIPE, STDOUT 
         self.subp = Popen(cmd['cmd'], shell=True, stdout=PIPE, stderr=STDOUT, cwd=cmd['path']) 
@@ -420,7 +422,7 @@ class program():
             from shutil import rmtree
             rmtree(self.config['install path'])
             os.makedirs(self.config['install path'])
-        
+
     def get_package(self):
         with open(self.config['run info'], 'r') as f1:
             self.run_info = json.loads(f1.read())
@@ -468,22 +470,82 @@ class program():
             self.packid = None
         else:
             self.packid = "Naruto"
+
         self.get_package()
         
     def update_status(self):
         if self.status == "installing":
+            self.update_installing()
+        elif self.status == "prerun":
+            self.update_prerun()
+        elif self.status == "running":
+            self.update_running()
+        elif self.status == "finish":
+            self.status = "done"
+            self.read_output()
+            self.update_runweb_status('free')
+        elif self.status == "error":
+            self.stop_calculation()
+            self.status = "done"
+        elif self.status == "waiting":
+            self.get_package()
+
+    def update_installing(self):
+        if self.subp == None:
+            self.logger.warning("Program start installing ...")
+            self.run_next_command()
+        elif self.subp.poll() == None:
+            pass 
+        elif self.subp.poll() is not None and self.config['install cmd']:
+            from Func_lib import decode_stdout 
+            output = self.subp.stdout.read().decode()
+            if output.strip() != "":
+                output = decode_stdout(output)
+                self.logger.info(output)
+            self.subp = None
+            self.run_next_command()
+        else:
+            from Func_lib import decode_stdout
+            output = self.subp.stdout.read().decode()
+            if output.strip() != "":
+                output = decode_stdout(output)
+                self.logger.info(output)
+            self.logger.warning("Installation Finished !!!")
+            self.status = "prerun"  
+
+    def update_running(self):
+        if self.config['multi']:
             if self.subp == None:
-                self.logger.warning("Program start installing ...")
+                self.logger.warning("Program start running ...")
                 self.run_next_command()
             elif self.subp.poll() == None:
                 pass 
-            elif self.subp.poll() is not None and self.config['install cmd']:
-                from Func_lib import decode_stdout 
+            elif self.subp.poll() is not None and self.config['modes'][self.config['name']]['excute command']:
+                from Func_lib import decode_stdout
                 output = self.subp.stdout.read().decode()
                 if output.strip() != "":
                     output = decode_stdout(output)
                     self.logger.info(output)
-                self.subp = None
+                self.run_next_command()            
+            else:
+                from Func_lib import decode_stdout
+                output = self.subp.stdout.read().decode()
+                if output.strip() != "":
+                    output = decode_stdout(output)
+                    self.logger.info(output)
+                self.status = "finish"        
+        else:
+            if self.subp == None:
+                self.logger.warning("Program start running ...")
+                self.run_next_command()
+            elif self.subp.poll() == None:
+                pass 
+            elif self.subp.poll() is not None and self.config['excute command']:
+                from Func_lib import decode_stdout
+                output = self.subp.stdout.read().decode()
+                if output.strip() != "":
+                    output = decode_stdout(output)
+                    self.logger.info(output)
                 self.run_next_command()
             else:
                 from Func_lib import decode_stdout
@@ -491,9 +553,33 @@ class program():
                 if output.strip() != "":
                     output = decode_stdout(output)
                     self.logger.info(output)
-                self.logger.warning("Installation Finished !!!")
-                self.status = "prerun"    
-        elif self.status == "prerun":
+                self.status = "finish"
+
+    def update_prerun(self):
+        if self.config['multi']:
+            if self.subp == None:
+                self.logger.warning("Program prepare to run ...")
+                self.run_next_command()
+            elif self.subp.poll() == None:
+                pass 
+            elif self.subp.poll() is not None and self.config['modes'][self.config['name']]['prerun command']:
+                from Func_lib import decode_stdout
+                output = self.subp.stdout.read().decode()
+                if output.strip() != "":
+                    output = decode_stdout(output)
+                    self.logger.info(output)
+                self.subp = None
+                self.run_next_command()    
+            else:
+                from Func_lib import decode_stdout
+                output = self.subp.stdout.read().decode()
+                if output.strip() != "":
+                    output = decode_stdout(output)
+                    self.logger.info(output)
+                self.subp = None
+                self.prepare_input()
+                self.status = "running"        
+        else:
             if self.subp == None:
                 self.logger.warning("Program prepare to run ...")
                 self.run_next_command()
@@ -516,56 +602,37 @@ class program():
                 self.subp = None
                 self.prepare_input()
                 self.status = "running"
-        elif self.status == "running":
-            if self.subp == None:
-                self.logger.warning("Program start running ...")
-                self.run_next_command()
-            elif self.subp.poll() == None:
-                pass 
-            elif self.subp.poll() is not None and self.config['excute command']:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
-                self.run_next_command()
-            else:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
-                self.status = "finish"
-        elif self.status == "finish":
-            self.status = "done"
-            self.read_output()
-            self.update_runweb_status('free')
-        elif self.status == "error":
-            self.stop_calculation()
-            self.status = "done"
-        elif self.status == "waiting":
-            self.get_package()
                
     def prepare_input(self):
+        if self.config['multi']:
+            ips = self.config['modes'][self.config['name']]['input'].items()
+        else:
+            ips = self.config['input'].items() 
         from IOs import InputsFile
-        for kk, ff in self.config['input'].items():
+        for kk, ff in ips:
             ff['path'] = self.decode_path(ff['path'])
             if os.path.exists(ff['path']):
                 ff['file'] = InputsFile()
                 ff['file'].file = ff['path']
                 ff['file'].para = ff['vars']
+                ff['file'].pkg = self.config['name']
                 ff['file'].vars = self.vars 
                 ff['file'].samppath = self.path['info']
                 ff['file'].set_variables()
             else:
                 self.logger.error("Input file {}, {} not found! Calculation will continue, but please check your output!".format(kk, ff['path']))
 
-    def read_output(self):            
+    def read_output(self):   
+        if self.config['multi']:
+            ops = self.config['modes'][self.config['name']]['output'].items()
+        else:
+            ops = self.config['output'].items()         
         from IOs import OutputsFile
-        for kk, ff in self.config['output'].items():
+        for kk, ff in ops:
             ff['path'] = self.decode_path(ff['path'])
             if os.path.exists(ff['path']):
                 ff['file'] = OutputsFile()
+                ff['file'].pkg = self.config['name']
                 ff['file'].file = ff['path']
                 ff['file'].para = ff['vars']
                 ff['file'].samppath = self.path['info']

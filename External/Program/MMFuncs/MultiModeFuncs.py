@@ -16,7 +16,7 @@ def func(fm):
     if fm == "f1":
         return sin(data[0])**2 + cos(data[1])**2
     elif fm == "f2":
-        return sin(data["x"])**2 - cos(data["y"])**2,
+        return sin(data["x"])**2 - cos(data["y"])**2
 
 
 if card['mode'] == "numpy":

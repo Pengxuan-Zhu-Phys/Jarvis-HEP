@@ -66,7 +66,7 @@
             "fontweight": "bold"
         },
         "node": {
-            "fontsize": 14,
+            "fontsize": 12,
             "color": "w",
             "fontname": "Fira code",
             "fontstyle": "normal",

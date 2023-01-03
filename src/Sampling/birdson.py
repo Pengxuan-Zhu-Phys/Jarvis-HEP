@@ -305,7 +305,7 @@ class Birdson(Sampling_method):
             self.expr[kk] = vv['expr']
 
     def init_logger(self, cf):
-        self.logger = logging.getLogger("Grid")
+        self.logger = logging.getLogger("Birdson")
         handler = {
             "stream":   logging.StreamHandler(),
             "ff":       logging.FileHandler(cf['logging path'])
@@ -419,7 +419,6 @@ class Birdson(Sampling_method):
                 
     def combine_data(self):
         rpth  = os.path.join(self.path['save dir'], ".Running")
-        print(rpth)
         gd    = []
         gdp   = []
         ad    = []

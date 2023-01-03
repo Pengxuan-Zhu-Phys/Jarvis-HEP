@@ -61,6 +61,7 @@ class IOs():
                 file['file'].set(file['path'])
                 file['file'].logger = self.logger
                 file['file'].pkg = self.pkg
+            print(self.vinfs)
             for vinf in self.vinfs:
                 vinf = list(map(str.strip, vinf.split(',')))
                 if vinf[1] not in self.files.keys():
@@ -171,14 +172,20 @@ class InputsFile(IOfile):
             self.vars.append(res)
 
     def set_par_json(self, vinf):
+        expr_id = 0
+        if len(vinf) == 4:
+            expr_id = 3
         if "json" in self.para:
             self.para['json'].append({
+                "key":  vinf[expr_id],
                 "expr": vinf[0],
             })
         else:
             self.para['json'] = [{
+                "key":  vinf[expr_id],
                 "expr": vinf[0],
             }]
+        print(self.para['json'])
 
     def set_json(self):
         from sympy import sympify
@@ -187,12 +194,16 @@ class InputsFile(IOfile):
         for var in self.para['json']:
             expr = sympify(var['expr'], locals=self.vars)
             var['value'] = expr.subs(self.vars)
-            vars[var['expr']] = var['value']
+            vars[var['key']] = float(var['value'])
         with open(self.file, 'r') as f1:
             js = json.loads(f1.read())
+
         js.update(vars)
+        # print(js)
+        # js = pd.Series(js).to_json(orient="values")
+        print(self.file, js)
         with open(self.file, 'w') as f1:
-            json.dump(js, f1, indent=4)
+            json.dump(js, f1, indent=4, cls=NpEncoder)
 
     def set_inp_file(self, vinf):
         if not (len(vinf) == 3 or len(vinf) == 4):
@@ -411,9 +422,10 @@ class OutputsFile(IOfile):
                 # self.logger.error("\033[91m \033[0m")
 
     def set_oup_json(self, vinf):
-        if len(vinf) < 3:
+        print("Set oup json", vinf)
+        if len(vinf) < 4:
             self.logger.error(
-                '\033[91m Variable "{}" in program "{}" with "Json" method, 3 items ( Name ID, Input file ID, Method ) need to be provided.\033[0m'.format(vinf[0], self.pkg))
+                '\033[91m Variable "{}" in program "{}" with "Json" method, 4 items ( Name ID, Input file ID, Method, JSON Key ) need to be provided.\033[0m'.format(vinf[0], self.pkg))
             sys.exit(1)
         else:
             res = {
@@ -424,13 +436,16 @@ class OutputsFile(IOfile):
             self.vars.append(res)
 
     def set_par_json(self, vinf):
+        # print(vinf)
         if "json" in self.para:
             self.para['json'].append({
-                "expr": vinf[0]
+                "key":  vinf[0],
+                "expr": vinf[3]
             })
         else:
             self.para['json'] = [{
-                "expr": vinf[0]
+                "key":  vinf[0],
+                "expr": vinf[3]
             }]
 
     def get_json(self):
@@ -439,7 +454,7 @@ class OutputsFile(IOfile):
             js = json.loads(f1.read())
         for var in self.para['json']:
             if var['expr'] in js:
-                self.vars[var['expr']] = js[var['expr']]
+                self.vars[var['key']] = js[var['expr']]
             else:
                 self.error = True
                 self.etype = "ValueError"
@@ -722,3 +737,13 @@ class YodaPlotFile():
                 if hname in self.histlist:
                     self.decode_histo1d_inf(item)
         
+
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, numpy.integer):
+            return int(obj)
+        elif isinstance(obj, numpy.floating):
+            return float(obj)
+        if isinstance(obj, numpy.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)

@@ -1,4 +1,4 @@
 {
-    "mode": "numpy",
-    "func": "f1"
+    "mode": "json",
+    "func": "f2"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3 
 import os, sys 
-
+import json
 
 class Tree(object):
     def __init__(self, *args):
@@ -23,12 +23,21 @@ class Tree(object):
         rootlayer = []
         rba = []
         for pkg, node in self.nodes.items():
-            if node.parent == None:
-                rootlayer.append(node.name)
-                rba.append(node.name)
-                node.depth = 0
+            if not node.config['multi']:
+                if node.parent == None:
+                    rootlayer.append(node.name)
+                    rba.append(node.name)
+                    node.depth = 0
+                else:
+                    tba.append(pkg)
             else:
-                tba.append(pkg)
+                for pp in node.config['include']:
+                    if node.parent == None:
+                        rootlayer.append("{}\n@{}".format(pp, pkg))
+                        rba.append("{}\n@{}".format(pp, pkg))
+                        node.depth = 0
+                    else:
+                        tba.append(pkg)
         self.layer.append(rootlayer)
         nn = 1
         while tba:
@@ -63,30 +72,59 @@ class Tree(object):
             "layer":    self.layer,
             "nodes":    {}
         }
+        # print(self.layer)
         for pkg, node in self.nodes.items():
-            self.info['plot']['nodes'][pkg] = {
-                "input file":   [],
-                "output file":  []
-            }
-            for kk, ff in node.config['input file'].items():
-                filinfo = {
-                    "name": os.path.basename(ff),
-                    "vars": {}
+            # print(json.dumps(node.config, indent=4) )
+            if not node.config['multi']:
+                self.info['plot']['nodes'][pkg] = {
+                    "input file":   [],
+                    "output file":  []
                 }
-                for var in node.config['input variables']:
-                    if var['file'] == ff:
-                        filinfo['vars'][var['expr']] = var['meth']
-                self.info['plot']['nodes'][pkg]['input file'].append(filinfo)
-            for kk, ff in node.config['output file'].items():
-                filinfo = {
-                    "name": os.path.basename(ff),
-                    "vars": {}
-                }
-                for var in node.config['output variables']:
-                    if var['file'] == ff:
-                        filinfo['vars'][var['expr']] = var['meth']
-                self.info['plot']['nodes'][pkg]['output file'].append(filinfo)           
-                
+                for kk, ff in node.config['input file'].items():
+                    filinfo = {
+                        "name": os.path.basename(ff),
+                        "vars": {}
+                    }
+                    for var in node.config['input variables']:
+                        if var['file'] == ff:
+                            filinfo['vars'][var['expr']] = var['meth']
+                    self.info['plot']['nodes'][pkg]['input file'].append(filinfo)
+                for kk, ff in node.config['output file'].items():
+                    filinfo = {
+                        "name": os.path.basename(ff),
+                        "vars": {}
+                    }
+                    for var in node.config['output variables']:
+                        if var['file'] == ff:
+                            filinfo['vars'][var['expr']] = var['meth']
+                    self.info['plot']['nodes'][pkg]['output file'].append(filinfo)           
+            else:
+                for pp in node.config['include']:
+                    self.info['plot']['nodes']["{}\n@{}".format(pp, pkg)] = {
+                        "input file":   [],
+                        "output file":  []
+                    }
+                    for kk, ff in node.config['modes'][pp]['input file'].items():
+                        filinfo = {
+                            "name": os.path.basename(ff),
+                            "vars": {}
+                        }
+                        for var in node.config['modes'][pp]['input variables']:
+                            if var['file'] == ff:
+                                filinfo['vars'][var['expr']] = var['meth']
+                        self.info['plot']['nodes']["{}\n@{}".format(pp, pkg)]['input file'].append(filinfo)
+                    for kk, ff in node.config['modes'][pp]['output file'].items():
+                        filinfo = {
+                            "name": os.path.basename(ff),
+                            "vars": {}
+                        }
+                        for var in node.config['modes'][pp]['output variables']:
+                            if var['file'] == ff:
+                                filinfo['vars'][var['expr']] = var['meth']
+                        self.info['plot']['nodes']["{}\n@{}".format(pp, pkg)]['output file'].append(filinfo)   
+
+
+
         self.info['scan variables'] = []
         for kk, vv in self.pars.items():
             self.info['scan variables'].append({
