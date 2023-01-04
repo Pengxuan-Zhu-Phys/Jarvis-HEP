@@ -214,6 +214,7 @@ class Pack():
                          
     def decode_outputs(self, pkg):                    
         if not self.pack['include'][pkg]['output variables'].strip() == '':
+            self.pack['include'][pkg]['output file'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['output file'], self.pack['include'][pkg]['install path'])['cmd'])
             from IOs import IOs
             self.pack['include'][pkg]['ops'] = IOs()
             self.pack['include'][pkg]['ops'].setinfos(
@@ -236,6 +237,7 @@ class Pack():
  
     def decode_outputs_via_rdic(self, rdic):
         if not rdic['output variables'].strip() == "":
+            rdic['output file'] = self.decode_path(self.decode_command(rdic['output file'], rdic['install cmd'])['cmd'])
             from IOs import IOs
             rdic['ops'] = IOs()
             rdic['ops'].setinfos(
@@ -262,6 +264,7 @@ class Pack():
     def decode_inputs(self, pkg):
         if not self.pack['include'][pkg]['input variables'].strip() == '':
             from IOs import IOs
+            self.pack['include'][pkg]['input file'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['input file'], self.pack['include'][pkg]['install path'])['cmd'])
             self.pack['include'][pkg]['ips'] = IOs()
             self.pack['include'][pkg]['ips'].setinfos(
                 finf=self.pack['include'][pkg]['input file'],
@@ -285,6 +288,7 @@ class Pack():
     def decode_inputs_via_rdic(self, rdic):
         if not rdic['input variables'].strip() == "":
             from IOs import IOs 
+            rdic['input file'] = self.decode_path(self.decode_command(rdic['input file'], rdic['install cmd'])['cmd'])
             rdic['ips'] = IOs()
             rdic['ips'].setinfos(
                 finf=rdic['input file'],
@@ -359,6 +363,7 @@ class program():
         self.vars = None
         self.inp   = {}
         self.oup   = {}
+        self.logpath = None
         
     def set_logger_setting(self, config):
         self.logger = logging.getLogger(config['name'])
@@ -367,6 +372,7 @@ class program():
             "scanner":  logging.FileHandler(config['scanner_logging_path']),
             "ff":       logging.FileHandler(config['ff_logging_path'])
         }
+        self.logpath = open(config['ff_logging_path'], 'a')
         self.logger.setLevel(logging.DEBUG)
         handler['stream'].setLevel(logging.WARNING)
         handler['scanner'].setLevel(logging.WARNING)
@@ -410,7 +416,8 @@ class program():
                 cmd = self.decode_cmd(self.config['excute command'].pop(0))                
             self.logger.info("Program excute command -> {}\n\t in path -> {}".format(cmd['cmd'], cmd['path']))
         from subprocess import Popen, PIPE, STDOUT 
-        self.subp = Popen(cmd['cmd'], shell=True, stdout=PIPE, stderr=STDOUT, cwd=cmd['path']) 
+        # self.subp = Popen(cmd['cmd'], shell=True, stdout=PIPE, stderr=STDOUT, cwd=cmd['path']) 
+        self.subp = Popen(cmd['cmd'], shell=True, stdout=self.logpath, stderr=self.logpath, cwd=cmd['path']) 
         self.pid = self.subp.pid
                 
     def clear_space(self):
@@ -483,9 +490,11 @@ class program():
         elif self.status == "finish":
             self.status = "done"
             self.read_output()
+            self.logpath.close()
             self.update_runweb_status('free')
         elif self.status == "error":
             self.stop_calculation()
+            self.logpath.close()
             self.status = "done"
         elif self.status == "waiting":
             self.get_package()
@@ -497,19 +506,19 @@ class program():
         elif self.subp.poll() == None:
             pass 
         elif self.subp.poll() is not None and self.config['install cmd']:
-            from Func_lib import decode_stdout 
-            output = self.subp.stdout.read().decode()
-            if output.strip() != "":
-                output = decode_stdout(output)
-                self.logger.info(output)
+            # from Func_lib import decode_stdout 
+            # output = self.subp.stdout.read().decode()
+            # if output.strip() != "":
+            #     output = decode_stdout(output)
+            #     self.logger.info(output)
             self.subp = None
             self.run_next_command()
         else:
-            from Func_lib import decode_stdout
-            output = self.subp.stdout.read().decode()
-            if output.strip() != "":
-                output = decode_stdout(output)
-                self.logger.info(output)
+            # from Func_lib import decode_stdout
+            # output = self.subp.stdout.read().decode()
+            # if output.strip() != "":
+            #     output = decode_stdout(output)
+            #     self.logger.info(output)
             self.logger.warning("Installation Finished !!!")
             self.status = "prerun"  
 
@@ -521,18 +530,18 @@ class program():
             elif self.subp.poll() == None:
                 pass 
             elif self.subp.poll() is not None and self.config['modes'][self.config['name']]['excute command']:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.run_next_command()            
             else:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.status = "finish"        
         else:
             if self.subp == None:
@@ -541,18 +550,18 @@ class program():
             elif self.subp.poll() == None:
                 pass 
             elif self.subp.poll() is not None and self.config['excute command']:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.run_next_command()
             else:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.status = "finish"
 
     def update_prerun(self):
@@ -563,19 +572,19 @@ class program():
             elif self.subp.poll() == None:
                 pass 
             elif self.subp.poll() is not None and self.config['modes'][self.config['name']]['prerun command']:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.subp = None
                 self.run_next_command()    
             else:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.subp = None
                 self.prepare_input()
                 self.status = "running"        
@@ -586,19 +595,19 @@ class program():
             elif self.subp.poll() == None:
                 pass 
             elif self.subp.poll() is not None and self.config['prerun command']:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.subp = None
                 self.run_next_command()
             else:
-                from Func_lib import decode_stdout
-                output = self.subp.stdout.read().decode()
-                if output.strip() != "":
-                    output = decode_stdout(output)
-                    self.logger.info(output)
+                # from Func_lib import decode_stdout
+                # output = self.subp.stdout.read().decode()
+                # if output.strip() != "":
+                #     output = decode_stdout(output)
+                #     self.logger.info(output)
                 self.subp = None
                 self.prepare_input()
                 self.status = "running"

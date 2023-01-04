@@ -134,6 +134,7 @@ class Birdson(Sampling_method):
         name_list = []
         from numpy import arange, linspace, logspace, vstack, meshgrid
         from poisson_disc import Bridson_sampling, hypersphere_surface_sample
+        time0 = time.time()
         self.cubes = pd.DataFrame(
             Bridson_sampling(
                 dims=np.array(self.pars['dims']), 
@@ -143,10 +144,17 @@ class Birdson(Sampling_method):
             ), 
             columns=self.pars['cubeids']
         )
+        self.logger.warning("Bridson sampling points generated, using {:.1f} second.".format(time.time() - time0))
         points = []
+        print(self.cubes.shape)
+        # sys.exit()
         from copy import deepcopy
         from Func_lib import get_sample_id
+        t1 = time.time()
         for ids, item in self.cubes.iterrows():
+            if ids % 10000 == 0:
+                self.logger.warning("Pre-coding {} samples informatino, using {:.1f} second at {}.".format(ids, time.time() - t1, time.time() - time0))
+                t1 = time.time()
             raw = deepcopy(self.pars['emptyData'])
             raw['ID'] = get_sample_id()
             for kk, vv in self.pars['vars'].items():

@@ -61,7 +61,6 @@ class IOs():
                 file['file'].set(file['path'])
                 file['file'].logger = self.logger
                 file['file'].pkg = self.pkg
-            print(self.vinfs)
             for vinf in self.vinfs:
                 vinf = list(map(str.strip, vinf.split(',')))
                 if vinf[1] not in self.files.keys():
@@ -185,7 +184,6 @@ class InputsFile(IOfile):
                 "key":  vinf[expr_id],
                 "expr": vinf[0],
             }]
-        print(self.para['json'])
 
     def set_json(self):
         from sympy import sympify
@@ -197,11 +195,7 @@ class InputsFile(IOfile):
             vars[var['key']] = float(var['value'])
         with open(self.file, 'r') as f1:
             js = json.loads(f1.read())
-
         js.update(vars)
-        # print(js)
-        # js = pd.Series(js).to_json(orient="values")
-        print(self.file, js)
         with open(self.file, 'w') as f1:
             json.dump(js, f1, indent=4, cls=NpEncoder)
 
@@ -227,7 +221,6 @@ class InputsFile(IOfile):
             "save": len(vinf) == 4 and "save" in vinf
         }
         self.para['file'] = par
-        # print(self.para['file'])
 
     def set_file(self):
         if self.para['file']['expr'] in self.vars:
@@ -238,7 +231,6 @@ class InputsFile(IOfile):
             move(self.para['file']['value'], self.file)
         if self.para['file']['save']:
             from shutil import copyfile
-            # print(self.file)
             copyfile(self.file, os.path.join(
                 self.samppath, os.path.basename(self.file)))
 
@@ -422,7 +414,6 @@ class OutputsFile(IOfile):
                 # self.logger.error("\033[91m \033[0m")
 
     def set_oup_json(self, vinf):
-        print("Set oup json", vinf)
         if len(vinf) < 4:
             self.logger.error(
                 '\033[91m Variable "{}" in program "{}" with "Json" method, 4 items ( Name ID, Input file ID, Method, JSON Key ) need to be provided.\033[0m'.format(vinf[0], self.pkg))
@@ -436,7 +427,6 @@ class OutputsFile(IOfile):
             self.vars.append(res)
 
     def set_par_json(self, vinf):
-        # print(vinf)
         if "json" in self.para:
             self.para['json'].append({
                 "key":  vinf[0],
@@ -722,7 +712,6 @@ class YodaPlotFile():
             res[line[0]] = line[1].strip()
         self.hist1d[hname] = deepcopy(self.cs)
         self.hist1d[hname].update(res)
-        # print(self.hist1d[hname])
                 
     def read(self):
         import re 

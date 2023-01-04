@@ -22,7 +22,7 @@
             "BinNum":   20,
             "CountStep":    1,
             "maxTry": 10,
-            "TSavePoint":   5
+            "TSavePoint":   60
         }
     }
 }
