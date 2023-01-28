@@ -7,5 +7,8 @@
     },
     "Voronoi2D": {
         "Setting":"&BP/Cards/Voronoi2D.json"
+    },
+    "Ternary": {
+        "Setting":"&BP/Cards/Ternary.json"
     }
 }

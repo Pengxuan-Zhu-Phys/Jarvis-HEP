@@ -10,6 +10,7 @@ import sympy
 import json
 import emoji
 import numpy as np 
+import matplotlib.pyplot as plt
 
 pwd = os.path.abspath(os.path.dirname(__file__))
 jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -135,6 +136,19 @@ class Plot():
                     if "name" not in fig.inf:
                         fig.inf['name'] = plot
                     fig.plot()
+                elif ftype == "Ternary":
+                    from Ternary import Ternary
+                    fig = Ternary()
+                    fig.type = "Ternary"
+                    fig.pconfig = dict(dict(self.cf.items())[
+                                       "PLOT_CONFI"].items())
+                    fig.cs = self.decode_path(self.cs['Ternary']['Setting'])
+                    fig.inf = dict(dict(self.cf.items())[plot].items())
+                    fig.inf['sect'] = plot 
+                    self.set_fig_info(fig)
+                    if "name" not in fig.inf:
+                        fig.inf['name'] = plot 
+                    fig.plot()                    
 
     def print_figure(self, plt):
         if "print mode" in self.inf.keys():
@@ -188,6 +202,7 @@ class Figure(Plot):
         self.time = time.time()
         self.format = None
         self.vars = {}
+        self.false = False
 
     def load_variable(self):
         def load_var_data(xx):
@@ -238,8 +253,50 @@ class Figure(Plot):
             load_var_info('c')
             self.cbar = True
 
-                    
-            
+    def load_colormap(self):
+        with open(self.cs['colormap_path'], 'r') as f1:
+            cm = json.loads(f1.read())
+            cmname = self.inf['colormap'][0]
+            if cmname in cm:
+                if cm[cmname]['type'] == 'gauss':
+                    mu = float(self.inf['colormap'][1])
+                    sigma = float(self.inf['colormap'][2])
+                    from matplotlib.colors import LinearSegmentedColormap
+                    clist = []
+                    for kk, vv in cm[cmname]['cdict'].items():
+                        a1 = LinearSegmentedColormap.from_list(
+                            name=kk,
+                            colors=vv['code'], 
+                            N=vv['N']
+                        )
+                        cm = np.linspace(0., 1., vv['N'])
+                        clist += list(a1(cm))
+                    self.cmap['cmap'] = LinearSegmentedColormap.from_list(
+                        name=cmname,
+                        colors=clist,
+                        N=256
+                    )
+                    self.cmap['type'] = "gauss"
+                    self.cmap['vmin'] = mu - 2.0 * sigma
+                    self.cmap['vmax'] = mu + 2.0 * sigma
+                elif cm[cmname]['type'] == "linear":
+                    from matplotlib.colors import LinearSegmentedColormap
+                    self.cmap['cmap'] = LinearSegmentedColormap.from_list(
+                        name=cmname,
+                        colors=cm[cmname]['cdict'],
+                        N=cm[cmname]['N']
+                    )
+                    self.cmap['type'] = 'linear'
+                    self.cmap['vmin'] = self.vars['c']['limits'][0]
+                    self.cmap['vmax'] = self.vars['c']['limits'][1]
+            elif cmname in plt.colormaps():
+                self.cmap['cmap'] = plt.get_cmap(cmname)
+                self.cmap['type'] = "inner"
+                self.cmap['vmin'] = self.vars['c']['limits'][0]
+                self.cmap['vmax'] = self.vars['c']['limits'][1]
+            else:
+                print("\t:disguised_face::disguised_face::disguised_face: Illegal colormap name: {}".format(cmname))
+                
             # print(self.inf['x_variable'])
 
     def plot(self):

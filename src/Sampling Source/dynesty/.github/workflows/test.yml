@@ -1,0 +1,70 @@
+name: Dynesty tests
+
+# Run this workflow every time a new commit pushed to your repository
+on:
+  push:
+    branches:
+      - '*'
+    tags:
+      - '*'
+  pull_request:
+    
+
+env:
+  COVERAGE_VERSION: '3.10'
+
+jobs:
+  tester:
+    name: Test the code
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python-version: ['3.6', '3.8', '3.10']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Python setup
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: 'x64'
+
+      - name: Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install .
+
+      - name: Docs
+        run: |
+          cd docs
+          make html SPHINXOPTS="-W --keep-going"
+          # The extra options are there to fail on warnings
+
+      - name: pylint
+        run: pylint --fail-under=9 --extension-pkg-whitelist=scipy.special py/dynesty/*py
+
+      - name: RandomCheck
+        # check that np.random is not used directly
+        run: grep -e 'np\.random\.' py/*/*y  | ( ! grep -v plotting.py ) | ( ! grep -v SeedSe  ) | ( ! grep -v default_rng ) | (! grep -v Generator )
+
+      - name: Environment
+        run: |
+          echo 'OMP_NUM_THREADS=1' >> $GITHUB_ENV
+
+      - name: TestWithCov
+        # Run coverage only for 3.10
+        if: ${{ matrix.python-version == env.COVERAGE_VERSION }}
+        run: pytest --durations=0 -m "not slow" --cov=dynesty
+
+      - name: Test
+        if: ${{ matrix.python-version != env.COVERAGE_VERSION }}
+        run: pytest --durations=0 -m "not slow"
+
+      - name: Coveralls
+        if: ${{ success() && ( matrix.python-version == env.COVERAGE_VERSION ) }}
+        run: coveralls --service=github
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
