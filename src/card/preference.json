@@ -1,5 +1,6 @@
 {
     "Sampling method":  {
+        "Dynesty":       "&J/src/card/dynesty.json",
         "Poisson Disk":  "&J/src/card/possion.json",
         "Grid":          "&J/src/card/grid.json",
         "Birdson":       "&J/src/card/birdson.json"
