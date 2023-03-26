@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os, sys
 import subprocess
-from uuid import uuid1
+from uuid import uuid4
 
 from sympy.core.evalf import fastlog 
 from scan import jpath
@@ -195,8 +195,7 @@ def wait_for_input(info, timeout, default):
     return ipt
 
 def get_sample_id():
-    import uuid 
-    return uuid.uuid4()
+    return uuid4()
 
 def Help():
     print("Help")

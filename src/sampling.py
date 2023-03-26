@@ -93,6 +93,12 @@ class Sampling_method():
                 "fcsinc":   [],
                 "expression":   lik[5:].strip()
             }
+        else:
+            self.pars['likelihood'] = {
+                "method":   "user_defined",
+                "fcsinc":   [],
+                "expression":   lik
+            }
         if "&FC" in self.pars['likelihood']['expression']:
             for item in self.exprs:
                 if item in self.pars['likelihood']['expression']:
@@ -157,3 +163,11 @@ class Sampling_method():
         self.run_info['sampling'].update(sts)
         with open(self.path['run_info'], 'w') as f1:
             json.dump(self.run_info, f1, indent=4)
+
+    @abstractmethod
+    def exit_and_errors(self, errs="Unexpected Error! Jarvis exit the current jobs!"):
+        try:
+            self.logger.error(errs)
+        except:
+            print(errs)
+        sys.exit(1)

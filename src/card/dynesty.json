@@ -19,7 +19,7 @@
     },
     "default setting":  {
         "sampling": {
-            "BinNum":   20,
+            "Scale":   1.0,
             "CountStep":    1,
             "maxTry": 10,
             "TSavePoint":   60

@@ -228,6 +228,9 @@ class Scan():
         elif self.smp['Scan']['sampling method'] == "Birdson":
             from birdson import Birdson
             self.generator = Birdson()
+        elif self.smp['Scan']['sampling method'] == 'Dynesty':
+            from Dynesty_Jarvis import Dynesty
+            self.generator = Dynesty()
         
         self.generator.set_config(self.cf)
         self.generator.set_scan_path(self.smp['Scan']['save dir'])
