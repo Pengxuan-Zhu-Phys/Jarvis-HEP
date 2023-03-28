@@ -19,7 +19,7 @@ from .utils import (LogLikelihood, get_random_generator, get_enlarge_bootstrap,
                     get_nonbounded)
 
 __all__ = ["NestedSampler", "DynamicNestedSampler", "_function_wrapper"]
-
+# _DYNASTY = __file__
 
 def _get_citations(nested_type, bound, sampler):
     """
@@ -535,7 +535,8 @@ class NestedSampler(SuperSampler):
                 ncdim=None,
                 blob=False,
                 save_history=False,
-                history_filename=None):
+                history_filename=None,
+                logger=None):
 
         # Prior dimensions.
         if npdim is None:
@@ -738,7 +739,10 @@ class DynamicNestedSampler(DynamicSampler):
                  ncdim=None,
                  blob=False,
                  save_history=False,
-                 history_filename=None):
+                 history_filename=None,
+                 logger=None):
+        if logger is not None:
+            logger.warning("Create dynesty sampler")
 
         # Prior dimensions.
         if npdim is None:
@@ -851,7 +855,9 @@ class DynamicNestedSampler(DynamicSampler):
                                 or 'dynesty_logl_history.h5',
                                 save=save_history,
                                 blob=blob)
-        print("dynesty 854:", type(loglike))
+        # print("dynesty 854:", type(loglike))
+        if logger is not None:
+            logger.warning("Sampler accepts the likelihood ...")
         # Add in gradient.
         if gradient is not None:
             grad = _function_wrapper(gradient,
@@ -862,10 +868,10 @@ class DynamicNestedSampler(DynamicSampler):
             kwargs['compute_jac'] = compute_jac
 
         # Initialize our nested sampler.
-        print("dynesty 865: Init object @ DynamicNestedSampler")
+        # print("dynesty 865: Init object @ DynamicNestedSampler")
         super().__init__(loglike, ptform, npdim, bound, sample,
                          update_interval_ratio, first_update, rstate,
-                         queue_size, pool, use_pool, ncdim, nlive, kwargs)
+                         queue_size, pool, use_pool, ncdim, nlive, kwargs, logger)
 
 
 DynamicNestedSampler.__init__.__doc__ = _assemble_sampler_docstring(True)

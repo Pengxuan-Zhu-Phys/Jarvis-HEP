@@ -20,6 +20,40 @@ class Sample():
         self.func = None
         self.expr = None
         self.likelihood = None
+        self.fdir = None
+
+    def update_dirs(self):
+        self.get_fdir()
+        self.path['info'] = os.path.abspath(os.path.join(
+            self.path['Samples_info'], self.fdir, self.id
+        ))
+        self.info['RunWeb'] = {
+            "status":   self.status,
+            "fdir":     self.fdir,
+            "path":     self.path['info']
+        }
+        if not os.path.exists(self.path['info']):
+            os.makedirs(self.path['info'])
+        with open(self.path['ruid'], 'r') as f1:
+            ruid = json.loads(f1.read())
+        ruid[self.id] = self.info['RunWeb']
+        with open(self.path['ruid'], 'w') as f1:
+            json.dump(ruid, f1, indent=4)
+        
+    def get_fdir(self):
+        with open(self.path['slive_info'], 'r') as f1:
+            sinfo = json.loads(f1.read())
+            if sinfo['NLPp'] < sinfo['NSpack']:
+                sinfo['NLPp'] += 1 
+                self.fdir = sinfo['LPid']
+            else:
+                from Func_lib import format_PID
+                sinfo['NLPp'] = 0
+                sinfo['NLpack'] += 1
+                sinfo['LPid'] = format_PID(sinfo['NLpack'])
+                self.fdir = sinfo['LPid']
+        with open(self.path['slive_info'], 'w') as f1:
+            json.dump(sinfo, f1, indent=4)
 
     def get_par(self, pars):
         pass

@@ -369,7 +369,8 @@ def print_fn(results,
              nbatch=None,
              logl_min=-np.inf,
              logl_max=np.inf,
-             pbar=None):
+             pbar=None,
+             logger=None):
     """
     The default function used to print out results in real time.
 
@@ -426,6 +427,7 @@ def print_fn(results,
 
     """
     if pbar is None:
+        print("ultis 430: Not using the tqdm progress bar")
         print_fn_fallback(results,
                           niter,
                           ncall,
@@ -434,8 +436,10 @@ def print_fn(results,
                           stop_val=stop_val,
                           nbatch=nbatch,
                           logl_min=logl_min,
-                          logl_max=logl_max)
+                          logl_max=logl_max,
+                          logger=logger)
     else:
+        # print("ultis 442: Using the tqdm progress bar")
         print_fn_tqdm(pbar,
                       results,
                       niter,
@@ -445,7 +449,8 @@ def print_fn(results,
                       stop_val=stop_val,
                       nbatch=nbatch,
                       logl_min=logl_min,
-                      logl_max=logl_max)
+                      logl_max=logl_max,
+                      logger=logger)
 
 
 def get_print_fn_args(results,
@@ -520,7 +525,8 @@ def print_fn_tqdm(pbar,
                   stop_val=None,
                   nbatch=None,
                   logl_min=-np.inf,
-                  logl_max=np.inf):
+                  logl_max=np.inf,
+                  logger=None):
     """
     This is a function that does the status printing using tqdm module
     """
@@ -533,9 +539,14 @@ def print_fn_tqdm(pbar,
                                 nbatch=nbatch,
                                 logl_min=logl_min,
                                 logl_max=logl_max)
-
-    pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
-    pbar.update(fn_args.niter - pbar.n)
+    # print("utils 542: Print fn_args => {} <<<<".format(fn_args))
+    # time.sleep(5)
+    if logger is None:
+        # print("utils 545: update tpdm progress bar")
+        pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
+        pbar.update(fn_args.niter - pbar.n)
+    else:
+        print("utils 549: update logger progress bar")
 
 
 def print_fn_fallback(results,
@@ -546,7 +557,8 @@ def print_fn_fallback(results,
                       stop_val=None,
                       nbatch=None,
                       logl_min=-np.inf,
-                      logl_max=np.inf):
+                      logl_max=np.inf,
+                      logger=None):
     """
     This is a function that does the status printing using just
     standard printing into the console
@@ -859,14 +871,14 @@ def get_nonbounded(ndim, periodic, reflective):
     return nonbounded
 
 
-def get_print_func(print_func, print_progress):
+def get_print_func(print_func, print_progress, logger=None):
     pbar = None
     if print_func is None:
         if tqdm is None or not print_progress:
             print_func = print_fn
         else:
             pbar = tqdm.tqdm()
-            print()
+            # print()
             print_func = partial(print_fn, pbar=pbar)
     return pbar, print_func
 

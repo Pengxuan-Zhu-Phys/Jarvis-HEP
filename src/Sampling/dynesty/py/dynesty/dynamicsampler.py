@@ -342,7 +342,8 @@ def _initialize_live_points(live_points,
                             npdim=None,
                             rstate=None,
                             blob=False,
-                            use_pool_ptform=None):
+                            use_pool_ptform=None,
+                            logger=None):
     """
     Initialize the first set of live points before starting the sampling
 
@@ -391,7 +392,9 @@ def _initialize_live_points(live_points,
         # If no live points are provided, propose them by randomly
         # sampling from the unit cube.
         n_attempts = 100
-        print("dynamicsampler 394: init n_attampts {}, pool mapping {}".format(n_attempts, use_pool_ptform))
+        if logger is None:
+            print("dynamicsampler 394: init n_attampts {}, pool mapping {}".format(n_attempts, use_pool_ptform))
+            print("dynamicsampler 395: rstate => {}".format(rstate))
         for _ in range(n_attempts):
             live_u = rstate.random(size=(nlive, npdim))
             if use_pool_ptform:
@@ -405,7 +408,8 @@ def _initialize_live_points(live_points,
                 live_uid = map(_generate_uuid_list, np.asarray(live_u))
             live_v = np.array(list(live_v))
             live_uid = np.array(list(live_uid))
-            print("dynamicsampler 408: mapping loglikelihood  ")
+            if logger is None:
+                print("dynamicsampler 408: mapping loglikelihood  ")
             live_logl = loglikelihood.map(np.asarray(live_v), uids=live_uid)
             if blob:
                 live_blobs = np.array([_.blob for _ in live_logl])
@@ -414,7 +418,8 @@ def _initialize_live_points(live_points,
             # Convert all `-np.inf` log-likelihoods to finite large
             # numbers. Necessary to keep estimators in our sampler from
             # breaking.
-            print("dynamicsampler 417: enumerate live_logl")
+            if logger is None:
+                print("dynamicsampler 417: enumerate live_logl")
             for i, logl in enumerate(live_logl):
                 if not np.isfinite(logl):
                     if np.sign(logl) < 0:
@@ -471,7 +476,8 @@ def _configure_batch_sampler(main_sampler,
                              nlive_new,
                              update_interval,
                              logl_bounds=None,
-                             save_bounds=None):
+                             save_bounds=None,
+                             logger=None):
     """
     This is a utility method that construct a new internal
     sampler that will sample one batch.
@@ -590,7 +596,8 @@ def _configure_batch_sampler(main_sampler,
             npdim=main_sampler.npdim,
             rstate=main_sampler.rstate,
             blob=main_sampler.blob,
-            use_pool_ptform=main_sampler.use_pool_ptform)
+            use_pool_ptform=main_sampler.use_pool_ptform,
+            logger=logger)
 
         live_bound = np.zeros(nlive_new, dtype=int)
         live_it = np.zeros(nlive_new, dtype=int)
@@ -856,8 +863,8 @@ class DynamicSampler:
 
     def __init__(self, loglikelihood, prior_transform, npdim, bound, method,
                  update_interval_ratio, first_update, rstate, queue_size, pool,
-                 use_pool, ncdim, nlive0, kwargs):
-        print("dynamicsampler 854: Init object SuperClass @ DynamicSampler")
+                 use_pool, ncdim, nlive0, kwargs, logger):
+        # print("dynamicsampler 854: Init object SuperClass @ DynamicSampler")
         # distributions
         self.loglikelihood = loglikelihood
         self.prior_transform = prior_transform
@@ -901,7 +908,7 @@ class DynamicSampler:
         self.use_pool_evolve = use_pool.get('propose_point', True)
         self.use_pool_update = use_pool.get('update_bound', True)
         self.use_pool_stopfn = use_pool.get('stop_function', True)
-        print("dynamicsampler 898: self.use_pool => ", self.use_pool)
+        # print("dynamicsampler 898: self.use_pool => ", self.use_pool)
         # sampling details
         self.it = 1  # number of iterations
         self.batch = 0  # number of batches allocated dynamically
@@ -931,6 +938,7 @@ class DynamicSampler:
         self.batch_sampler = None
 
         self.live_blobs = None
+        self.logger = logger
 
         # Modified with Buding
         # Adding UUID for each samples 
@@ -1091,7 +1099,8 @@ class DynamicSampler:
                        n_effective=np.inf,
                        live_points=None,
                        save_samples=False,
-                       resume=False):
+                       resume=False,
+                       logger=None):
         """
         Generate a series of initial samples from a nested sampling
         run using a fixed number of live points using an internal
@@ -1247,7 +1256,8 @@ class DynamicSampler:
                  npdim=self.npdim,
                  rstate=self.rstate,
                  blob=self.blob,
-                 use_pool_ptform=self.use_pool_ptform
+                 use_pool_ptform=self.use_pool_ptform,
+                 logger=logger
             )
             print("dynamicsampler 1246: Live points achieved")
             if self.blob:
@@ -1931,7 +1941,8 @@ class DynamicSampler:
             The number of seconds between checkpoints that will save
             the internal state of the sampler
         """
-        print("dynamicsampler 1927: Start run_nested ...")
+        if self.logger is None:
+            print("dynamicsampler 1927: Start run_nested ...")
         # Check for deprecated options
         if n_effective_init is not np.inf:
             with warnings.catch_warnings():
@@ -1987,13 +1998,16 @@ class DynamicSampler:
         maxiter_init = min(maxiter_init, maxiter)  # set max iterations
 
         # Baseline run.
-        print("dynamicsampler 1982: base line run ...")
-        pbar, print_func = get_print_func(print_func, print_progress)
+        if self.logger is None:
+            print("dynamicsampler 1992: base line run ...")
+        pbar, print_func = get_print_func(print_func, print_progress, logger=self.logger)
         timer = DelayTimer(checkpoint_every)
         try:
-            print("dynamicsampler 1987: sampling initial: self.base => {} ".format(self.base))
+            if self.logger is None:
+                print("dynamicsampler 1997: sampling initial: self.base => {} ".format(self.base))
             if not self.base:
-                print("dynamicsampler 1989: calling sample_inital ")
+                if self.logger is None:
+                    print("dynamicsampler 2000: calling sample_inital ")
                 for results in self.sample_initial(
                         nlive=nlive_init,
                         dlogz=dlogz_init,
@@ -2003,7 +2017,8 @@ class DynamicSampler:
                         live_points=live_points,
                         n_effective=n_effective_init,
                         resume=resume,
-                        save_samples=True):
+                        save_samples=True,
+                        logger=self.logger):
                     if resume:
                         resume = False
                     ncall += results.nc
@@ -2014,14 +2029,17 @@ class DynamicSampler:
                         self.save(checkpoint_file)
                     # Print progress.
                     if print_progress:
+                        if self.logger is None:
+                            print("dynamicsampler 2022: print progress")
                         print_func(results,
                                    niter,
                                    ncall,
                                    nbatch=0,
                                    dlogz=dlogz_init,
                                    logl_max=logl_max_init)
-            print("Start looping ...", self.batch, maxbatch)
-            print(self.batch, maxbatch, '\n')
+            if self.logger is None:
+                print("Start looping ...", self.batch, maxbatch)
+                print(self.batch, maxbatch, '\n')
             for n in range(self.batch, maxbatch):
                 # Update stopping criteria.
                 res = self.results
@@ -2211,7 +2229,7 @@ class DynamicSampler:
             timer = DelayTimer(checkpoint_every)
 
         if maxcall > 0 and maxiter > 0:
-            pbar, print_func = get_print_func(print_func, print_progress)
+            pbar, print_func = get_print_func(print_func, print_progress, logger=self.logger)
             try:
                 results = None  # to silence pylint as
                 # sample_batch() should return something given maxiter/maxcall

@@ -87,7 +87,8 @@ class Sampler:
                  pool,
                  use_pool,
                  ncdim,
-                 blob=False):
+                 blob=False,
+                 logger=None):
 
         # distributions
         self.loglikelihood = loglikelihood

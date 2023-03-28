@@ -236,3 +236,7 @@ if __name__ == "__main__":
     from sympy import *
     expr = sympify("cos(x) + sin(y) + 1")
     expr.subs({symbols("x"): 0, symbols("y"): math.pi})
+
+
+def format_PID(idx:int):
+    return "{:0>7}".format(idx)

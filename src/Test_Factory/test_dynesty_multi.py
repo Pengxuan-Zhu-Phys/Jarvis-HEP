@@ -8,7 +8,7 @@ from numpy import linalg
 import matplotlib
 from matplotlib import pyplot as plt
 
-# rstate = np.random.default_rng(736109)
+rstate = np.random.default_rng()
 
 # import dynesty
 from dynesty import *
@@ -73,20 +73,10 @@ def prior_transform(x):
 #     json.dump(dres, f1, indent=4)
     
 
-# dsampler = dynesty.DynamicNestedSampler(
-#     loglike, prior_transform, 
-#     ndim=2, bound='multi', sample='unif', rstate=rstate
-#     )
-# dsampler.run_nested(
-#     dlogz_init=0.01, 
-#     nlive_init=500, 
-#     nlive_batch=500,
-#     wt_kwargs={'pfrac': 0.0}, 
-#     stop_kwargs={'pfrac': 0.0},
-#     checkpoint_file="./test.sav", checkpoint_every=1
-#     )
-
-dsampler = dynesty.DynamicNestedSampler.restore("./test.sav")
+dsampler = dynesty.DynamicNestedSampler(
+    loglike, prior_transform, 
+    ndim=2, bound='multi', sample='unif', rstate=rstate
+    )
 dsampler.run_nested(
     dlogz_init=0.01, 
     nlive_init=500, 
@@ -95,6 +85,16 @@ dsampler.run_nested(
     stop_kwargs={'pfrac': 0.0},
     checkpoint_file="./test.sav", checkpoint_every=1
     )
+
+# dsampler = dynesty.DynamicNestedSampler.restore("./test.sav")
+# dsampler.run_nested(
+#     dlogz_init=0.01, 
+#     nlive_init=500, 
+#     nlive_batch=500,
+#     wt_kwargs={'pfrac': 0.0}, 
+#     stop_kwargs={'pfrac': 0.0},
+#     checkpoint_file="./test.sav", checkpoint_every=1
+#     )
 pres = dsampler.results
 # print(dict(pres))
 # knl = []

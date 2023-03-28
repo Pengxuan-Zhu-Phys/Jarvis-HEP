@@ -165,6 +165,16 @@ class Sampling_method():
             json.dump(self.run_info, f1, indent=4)
 
     @abstractmethod
+    def update_run_status(self, block, udt):
+        with open(self.path['run_info'], 'r') as f1:
+            self.run_info = json.loads(f1.read())
+        if block not in self.run_info.keys():
+            self.run_info[block] = {}
+        self.run_info[block].update(udt)
+        with open(self.path['run_info'], 'w') as f1:
+            json.dump(self.run_info, f1, indent=4)
+
+    @abstractmethod
     def exit_and_errors(self, errs="Unexpected Error! Jarvis exit the current jobs!"):
         try:
             self.logger.error(errs)

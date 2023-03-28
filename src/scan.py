@@ -45,10 +45,10 @@ class Scan():
             self.build_library()
             self.build_package()
             self.make_generator()
-            # sys.exit()
             self.generator.prerun_generator()
             self.generator.pack = self.pack.pack
             self.generator.generate_events()
+            sys.exit()
             self.generator.afterrun_generator()
         elif self.mode == "resume":
             self.resume_task()
