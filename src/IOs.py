@@ -760,8 +760,6 @@ def to_file_woblk(data, pth, method="to_csv"):
         async with aiofiles.open(pth, 'w') as f1:
             fcntl.flock(f1, fcntl.LOCK_EX)
             data.to_csv(f1, index=False)
-            time.sleep(1)
-            print("Async write file")
             fcntl.flock(f1, fcntl.LOCK_UN)
 
     async def to_json(data, pth):
@@ -781,4 +779,4 @@ def to_file_woblk(data, pth, method="to_csv"):
     t = threading.Thread(target=run_coroutine, args=(method,))
     t.start()
     # t.join()
-    print("RUN next")
+    # print("RUN next")
