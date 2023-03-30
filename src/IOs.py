@@ -778,5 +778,3 @@ def to_file_woblk(data, pth, method="to_csv"):
 
     t = threading.Thread(target=run_coroutine, args=(method,))
     t.start()
-    # t.join()
-    # print("RUN next")
