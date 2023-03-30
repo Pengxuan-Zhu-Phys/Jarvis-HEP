@@ -736,3 +736,49 @@ class NpEncoder(json.JSONEncoder):
         if isinstance(obj, numpy.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
+
+
+def to_file_woblk(data, pth, method="to_csv"):
+    """
+    Write pandas.DataFrame table into csv file without blocking the main stream,
+    or write python dict into json without blocking the main stream,
+    this function is using the asyncio library
+
+    Parameters
+    -------------------
+    data: A pandas.DataFrame or pandas.Series object for to_csv method;
+          A python dict object for to_json method.
+    pth:  save file path.
+    method: default is "to_csv", or "to_json"
+
+    Return
+    -------------------
+    Nothing 
+    """
+    import fcntl, asyncio, aiofiles, time, threading
+    async def to_csv(data, pth):
+        async with aiofiles.open(pth, 'w') as f1:
+            fcntl.flock(f1, fcntl.LOCK_EX)
+            data.to_csv(f1, index=False)
+            time.sleep(1)
+            print("Async write file")
+            fcntl.flock(f1, fcntl.LOCK_UN)
+
+    async def to_json(data, pth):
+        async with aiofiles.open(pth, 'w') as f1:
+            await f1.write(json.dumps(data, indent=4))
+
+    def run_coroutine(mtd):
+        lp = asyncio.new_event_loop()
+        asyncio.set_event_loop(lp)
+
+        if mtd == "to_csv":
+            lp.run_until_complete(to_csv(data=data, pth=pth))
+        elif mtd == "to_json":
+            lp.run_until_complete(to_json(data=data, pth=pth))
+        lp.close()
+
+    t = threading.Thread(target=run_coroutine, args=(method,))
+    t.start()
+    # t.join()
+    print("RUN next")
