@@ -11,12 +11,12 @@ data = loadtxt(r"TestFunction_input.dat")
 from random import random
 
 f = {
-    "Z" :   sin(data[0])**2 + cos(data[1])**2,
+    "Z" :   sin(data[0]) * cos(data[1]),
     "Time": random()
 }
 
 
-time.sleep(f['Time'])
+time.sleep(f['Time'] * 0.1)
 
 print("TestFunction: input is \n{}\nOutput is \n{}".format(data, f))
 

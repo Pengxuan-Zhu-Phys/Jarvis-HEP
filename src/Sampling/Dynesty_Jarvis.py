@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 from Sampling.dynesty.py.dynesty.results import print_fn
 from Sampling.dynesty.py.dynesty import DynamicNestedSampler
+from Sampling.dynesty.py.dynesty import pool as dypool
+import Sampling.dynesty.py.dynesty.utils
+import dill 
 from sympy import sympify
 import dynesty
 import time
@@ -26,10 +29,12 @@ import sys
 pwd = os.path.abspath(os.path.dirname(__file__))
 # print(dynesty._DYNASTY)
 # from dynesty import plotting as dyplot
-
+from multiprocessing import Manager
+from copy import deepcopy
 
 class Dynesty(Sampling_method):
     def __init__(self) -> None:
+        self.manager = {}
         super().__init__()
 
     def set_config(self, cf):
@@ -104,10 +109,17 @@ class Dynesty(Sampling_method):
             "dims":     [],
             "ndim":     0
         }
+        if self.cf['default setting']['sampling']['use_consts']:
+            from inner_func import _Constant
+            self.pars['constant'] = deepcopy(_Constant)
         self.decode_sampling_variable_setting(
             self.scf.get("Sampling_Setting", "variables"))
         self.decode_function()
+        self.decode_likelihood(self.pars['likelihood'])
         self.decode_selection()
+        # print(self.pars)
+        # print(self.fcs)
+        # print(self.func)
 
     def decode_selection(self):
         if self.scf.has_option("Sampling_Setting", "selection"):
@@ -160,21 +172,18 @@ class Dynesty(Sampling_method):
 
     def prerun_generator(self):
         # print(self.cf['default setting']['sampling']['seed'])
-        self.sampler = DynamicNestedSampler(
-            self.evalate_likelihood,
-            self.prior_transform,
-            ndim=self.pars['ndim'],
-            **self.cf['default setting']['dynesty paras'],
-            rstate=np.random.default_rng(self.cf['default setting']['sampling']['seed']), 
-            logger=self.logger
-        )
         self.logger.warning("Jarvis initilized the dynamic nested sampler")
-        self.path['Samples_info']   = os.path.join(self.path['save dir'], "Samples_info")
+        self.path['Samples_info'] = os.path.join(
+            self.path['save dir'], "Samples_info")
         self.path['ruid'] = os.path.abspath(
             os.path.join(self.path['Samples_info'], "run_uids.json"))
         self.path['ckpf'] = os.path.abspath(os.path.join(
             self.path['Samples_info'], "checkpoint_dynesty.sav"))
-        self.path['slive_info'] = os.path.join(self.path['Samples_info'], "sinfo.json")
+        self.path['slive_info'] = os.path.join(
+            self.path['Samples_info'], "sinfo.json")
+        self.path['alldata'] = os.path.join(
+            self.path['Samples_info'], "FDIR", "AllData.csv")
+        # self.live_sample_
         # print(self.path)
         self.status = "READY"
         self.update_sampling_status({
@@ -182,55 +191,104 @@ class Dynesty(Sampling_method):
             "status":   self.status
         })
         self.update_run_status("output",
-            {
-                "ruid": self.path['ruid'],
-                "ckpf": self.path['ckpf'],
-                "slif": self.path['slive_info']
-            }
-        )
+                               {
+                                   "ruid": self.path['ruid'],
+                                   "ckpf": self.path['ckpf'],
+                                   "slif": self.path['slive_info']
+                               }
+                               )
         if not os.path.exists(self.path['Samples_info']):
             os.makedirs(self.path['Samples_info'])
         self.make_sinfo()
 
-
     def evalate_likelihood(self, cube, **kwarg):
-        print("LL call for {}".format(kwarg))
+        # print("LL call for {}".format(kwarg))
         from sample import Sample
         uid = kwarg['uid']
+        time.sleep(np.random.rand())
+        print("Sampling evaluting {}".format(uid))
         self.samples[uid] = Sample()
-        self.samples[uid].id = uid 
+        self.samples[uid].id = uid
         self.samples[uid].status = "Ready"
         self.samples[uid].pack = self.pack
+        self.samples[uid].func = deepcopy(self.func)
         self.samples[uid].par = self.transfer_vars_from_array_to_dict(cube)
         self.samples[uid].path['Samples_info'] = self.path['Samples_info']
         self.samples[uid].path['slive_info'] = self.path['slive_info']
+        self.samples[uid].path['scanner_run_info'] = self.path['run_info']
         self.samples[uid].path['ruid'] = self.path['ruid']
+        self.samples[uid].likelihood = self.pars['likelihood']
+        if self.cf['default setting']['sampling']['use_const']:
+            self.sampler[uid].const = self.pars['constant']
         self.samples[uid].update_dirs()
         self.samples[uid].init_logger(self.cf['logging']['scanner'])
-        # print(self.samples[uid].par)
-        time.sleep(20)
 
+        if self.samples[uid].status is "Ready":
+            self.samples[uid].start_run()
+        self.samples[uid].eval_loglike()
+        # time.sleep(20)
+        logl = self.samples[uid].logl
+        vrs = self.samples[uid].vars
+        self.samples.pop(uid)
 
+        # if self.samples[uid].status == "Done":
+        #     pass
 
-        return np.random.random()
+        return logl
 
     def prior_transform(self, cube):
         v = []
         cdt = self.transfer_cube_from_array_to_dict(cube)
         for kk in range(len(self.pars['vname'])):
             expr = sympify(self.pars['vars'][self.pars['vname'][kk]]['expr'])
-            v.append( expr.subs(cdt) )
+            v.append(expr.subs(cdt))
         # time.sleep(5)
         return np.asarray(v)
 
     def generate_events(self):
-        # return super().generate_events()
+        print(self.pack)
+        # time.sleep(10)
+        self.manager = {
+            "ruid": Manager().dict(),
+            "pack": Manager().dict()
+        }
         self.logger.warning("Start sampling")
-        # sys.exit()
-        self.sampler.run_nested(
-            **self.cf['default setting']['run nested']
-        )
+        use_pool = False
+        if use_pool:
+            with dypool.Pool(2, self.evalate_likelihood, self.prior_transform) as pool:
+                self.sampler = DynamicNestedSampler(
+                    self.evalate_likelihood,
+                    self.prior_transform,
+                    ndim=self.pars['ndim'],
+                    **self.cf['default setting']['dynesty paras'],
+                    rstate=np.random.default_rng(
+                        self.cf['default setting']['sampling']['seed']),
+                    queue_size=2,
+                    logger=self.logger,
+                    pool=pool
+                )
+                # print(pool.loglike)
+                # time.sleep(10)
+                self.sampler.run_nested(
+                    **self.cf['default setting']['run nested']
+                )
+        else:
+            Sampling.dynesty.py.dynesty.utils.pickle_module = dill 
+            self.sampler = DynamicNestedSampler(
+                self.evalate_likelihood,
+                self.prior_transform,
+                ndim=self.pars['ndim'],
+                **self.cf['default setting']['dynesty paras'],
+                rstate=np.random.default_rng(
+                    self.cf['default setting']['sampling']['seed']),
+                logger=self.logger
+            )
+            self.sampler.run_nested(
+                **self.cf['default setting']['run nested'],
+                checkpoint_file=self.path['ckpf']
+            )
         print("Sampler after run nested", self.info)
+        self.rest = self.sampler.results
 
     def init_logger(self, cf):
         self.logger = logging.getLogger("Dynesty")
@@ -253,13 +311,13 @@ class Dynesty(Sampling_method):
         for ii in range(len(cube)):
             cdt['cube{}'.format(ii)] = cube[ii]
         return cdt
-    
+
     def transfer_vars_from_array_to_dict(self, v):
         cdt = {}
         for ii in range(len(v)):
             cdt[self.pars['vname'][ii]] = v[ii]
-        return cdt 
-    
+        return cdt
+
     def make_sinfo(self):
         from Func_lib import format_PID
         sinfo = {

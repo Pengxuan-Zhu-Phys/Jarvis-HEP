@@ -3,7 +3,11 @@
 import logging
 import os, sys 
 import json
-
+import numpy as np 
+from pandas import Series
+from sympy.core import numbers as SCNum
+from inner_func import _AllSCNum
+from sympy import *
 
 class Sample():
     def __init__(self) -> None:
@@ -14,6 +18,7 @@ class Sample():
         self.vars = {}
         self.path = {}
         self.info = {}
+        self.const = None
         self.worker = {}
         self.children = []
         self.mother = None
@@ -39,7 +44,18 @@ class Sample():
         ruid[self.id] = self.info['RunWeb']
         with open(self.path['ruid'], 'w') as f1:
             json.dump(ruid, f1, indent=4)
-        
+
+    def delete_uid_dirs(self):
+        with open(self.path['ruid'], 'r') as f1:
+            ruid = json.loads(f1.read())
+        # print(len(ruid))
+        ruid.pop(self.id)
+        # print(len(ruid))
+        with open(self.path['ruid'], 'w') as f1:
+            json.dump(ruid, f1, indent=4)        
+        # from time import sleep
+        # sleep(3)
+
     def get_fdir(self):
         with open(self.path['slive_info'], 'r') as f1:
             sinfo = json.loads(f1.read())
@@ -157,6 +173,7 @@ class Sample():
                 self.vars[kk] = vv
                 
     def evaluate_likelihood(self):
+        # print(self.likelihood)
         if self.likelihood is not None:
             from sympy import sympify
             from inner_func import update_funcs
@@ -169,13 +186,76 @@ class Sample():
                 self.likelihood = expr 
                 self.vars['Likelihood'] = expr 
                 self.logger.warning("Likelihood is evaluating as -> {}".format(expr))
+                # self.delete_uid_dirs()
                 self.status = "Done"
             except:
                 self.logger.error("Likelihood expression can not be evaluated")
+                # self.delete_uid_dirs()
                 self.status = "Stoped"
         else:
             self.status = "Done"
         
+    def eval_loglike(self):
+        '''
+        Evaluation loglikelihood for external sampling algorithm (like the dynesty in this version)
+
+        Parameters 
+        -----------
+        parmeters in self:
+        self.pars: dict
+            all parameters of the sample, updating in the evluation progress.
+
+        self.func: dict 
+            A function list.
+        
+        self.pack: dict 
+            A list of HEP package from external
+
+        Returns
+        ___________
+        This function will not return a value. Please not using this function in your code. 
+        -----------
+        self.status: str
+            updating the status of the sample.
+            "Ready": Sample is created in the disk, before call the package.
+            "Running": Sample is calling the HEP package.
+            "Erroring": Find error when calling the HEP package.
+            "Stoped": Force stopping all package in calculation, and resetted all package called. 
+            "Finish": End calling the package, all calculation of HEP package is done. 
+
+        self.logl: float
+            The value of log(likelihood) after self.status is "Finish", else this value will return -np.inf
+        '''
+        self.logl = -np.inf
+        from time import sleep 
+        while self.status not in ["Done", "Finish", "Stoped"]:
+            self.update_status()
+        if self.status == "Finish":
+            try:
+                self.logger.warning("Calculation Finished")
+                from sympy import sympify
+                expr = sympify(self.likelihood['expression'])
+                if self.expr is not None:
+                    expr = expr.subs(self.expr)
+                if self.vars is not None:
+                    expr = expr.subs(self.vars)
+                if self.const is not None:
+                    expr = expr.subs(self.const)
+                if not isinstance(expr.evalf(), _AllSCNum):
+                    expr = expr.subs(self.func)
+                    expr = eval(str(expr), self.func)
+                if isinstance(expr.evalf(), _AllSCNum):
+                    self.logl = float(expr)
+                self.vars.update({"LogL": self.logl, "ID": self.id})
+                self.logger.warning("The output variables are summarized as followed: \n\n{}\n".format(Series(self.vars)))
+                self.status = "Done"
+            except:
+                self.logger.error("Errors in evaluation loglike, updating the sample status into Stoped.")
+                self.logger.info("log(likelihood) => {},\n\texpression => {},\n\tvariables => {},\n\tconstants => {},\n\tlogl => {}".format(self.likelihood['expression'], self.expr, self.vars, self.logl))
+                self.status = "Stoped"
+            self.delete_uid_dirs()
+        self.close_logger()
+
     def update_status(self):
         if self.status == "Erroring":
             errt = False
@@ -210,7 +290,6 @@ class Sample():
                     self.status = "Finish"
         elif self.status == "Finish":
             self.logger.warning("Calculation Finished")
-            from pandas import Series
             self.logger.warning("The output variables are summarized as followed: \n\n{}\n".format(Series(self.vars)))
             self.evaluate_likelihood()                
             self.close_logger()

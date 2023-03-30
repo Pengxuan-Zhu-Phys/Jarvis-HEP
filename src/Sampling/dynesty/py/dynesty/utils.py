@@ -2311,6 +2311,7 @@ def save_sampler(sampler, fname):
         'version': DYNESTY_VERSION,
         'format_version': format_version
     }
+    print(D['sampler'] )
     tmp_fname = fname + '.tmp'
     try:
         with open(tmp_fname, 'wb') as fp:

@@ -2029,8 +2029,8 @@ class DynamicSampler:
                         self.save(checkpoint_file)
                     # Print progress.
                     if print_progress:
-                        if self.logger is None:
-                            print("dynamicsampler 2022: print progress")
+                        # if self.logger is None:
+                        #     print("dynamicsampler 2022: print progress")
                         print_func(results,
                                    niter,
                                    ncall,

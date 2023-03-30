@@ -19,14 +19,22 @@ from asyncio import sleep
 import random
 import pandas as pd 
 from subprocess import Popen
+import math
+from numpy import loadtxt, sin, cos
 
-tmax = 5.0 * np.pi
+tmax = 5 * np.pi
 def loglike(x,  **kwarg):
+    # n = 0
+    # while n < random.randint(50, 100):
+    #     sleep(0.01)
+    #     # if n % 20 == 0:
+    #     #     print("LL >> {}".format(n))
+    #     n += 1
     # print(x[:-1])
     # tsleep = 0.05 * random.random()
     # tstart = time.time()
     # print("LL called for {} at {}".format(x, kwarg))
-    # sleep(1)
+    sleep(1)
     # p = Popen("sleep {:.2f}".format(tsleep), shell=True)
     # # time.sleep(random.random())
     # while p.poll() is None:
@@ -34,33 +42,43 @@ def loglike(x,  **kwarg):
     t = 2.0 * tmax * x - tmax
     # print("\tLL ended for {} at {:.2f}".format(x, time.time()-tstart))
     if t[0] > t[1]:
-        return (2.0 + np.cos(t[0] / 2.0) * np.cos(t[1] / 2.0)) ** 5.0
+        return (2.0 + np.cos(t[0] / 2.0) * np.cos(t[1] / 2.0)) ** 5
     else:
-        return -1.0
+        return -np.inf
+    # z = sin(x[0])**2 + cos(x[1])**2
+    # return -0.5 * (z - 1.0)**2 / 0.2**2
+
 # define the prior transform
 def prior_transform(x):
     return x
 
+# def prior_transform(x):
+#     v0 = 1 + 2.0 * x[0]
+#     v1 = 10**x[1]
+#     return np.asarray([v0, v1])
+
+
+
 # import dynesty.pool as dypool
-# with dypool.Pool(16, loglike, prior_transform) as pool:
+# with dypool.Pool(2, loglike, prior_transform) as pool:
 # #     # The important thing that we provide the loglikelihood/prior transform from 
 # #     # the pool    
-#     psampler = dynesty.DynamicNestedSampler(
-#         pool.loglike, pool.prior_transform, 
-#         ndim=2, bound='multi', sample='unif', rstate=rstate,
-#         pool=pool)
-#     psampler.run_nested(dlogz_init=0.05, nlive_init=500, nlive_batch=500,
-#                      wt_kwargs={'pfrac': 0.0}, stop_kwargs={'pfrac': 0.0}, 
-#                      checkpoint_file="./test.sav", checkpoint_every=1)
+    # psampler = dynesty.DynamicNestedSampler(
+    #     pool.loglike, pool.prior_transform, 
+    #     ndim=2, bound='multi', sample='unif', rstate=rstate,
+    #     pool=pool)
+    # psampler.run_nested(dlogz_init=0.05, nlive_init=500, nlive_batch=500,
+    #                  wt_kwargs={'pfrac': 0.0}, stop_kwargs={'pfrac': 0.0}, 
+    #                  checkpoint_file="./test.sav", checkpoint_every=1)
 # #     psampler = dynesty.DynamicNestedSampler(
 # #         pool.loglike, pool.prior_transform, 
 # #         ndim=2,
 # #         pool=pool
 # #     )
-# #     # psampler = dynesty.DynamicNestedSampler.restore("./test.sav", pool=pool)
+    # psampler = dynesty.DynamicNestedSampler.restore("./test.sav", pool=pool)
 # #     psampler.restore("./test.sav", pool=pool)
 # #     # psampler = psampler.restore("./test.sav", pool=pool)
-# #     psampler.run_nested(resume=True, checkpoint_file="./test.sav", checkpoint_every=1)
+    # psampler.run_nested(resume=True, checkpoint_file="./test.sav", checkpoint_every=1)
 # pres = psampler.results
 # print(pres)
 # dres = dict(pres)
@@ -78,12 +96,13 @@ dsampler = dynesty.DynamicNestedSampler(
     ndim=2, bound='multi', sample='unif', rstate=rstate
     )
 dsampler.run_nested(
-    dlogz_init=0.01, 
-    nlive_init=500, 
-    nlive_batch=500,
-    wt_kwargs={'pfrac': 0.0}, 
-    stop_kwargs={'pfrac': 0.0},
-    checkpoint_file="./test.sav", checkpoint_every=1
+    dlogz_init=0.001, 
+    nlive_init=4000, 
+    nlive_batch=4000,
+    wt_kwargs={'pfrac': 1.0}, 
+    stop_kwargs={'pfrac': 1.0},
+    print_progress=True,
+    checkpoint_file="./test.sav", checkpoint_every=50
     )
 
 # dsampler = dynesty.DynamicNestedSampler.restore("./test.sav")

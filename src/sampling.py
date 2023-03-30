@@ -33,6 +33,7 @@ class Sampling_method():
         self.samples        = {}
         self.timelock       = None 
         self.run_info       = {}
+        self.manager        = None
         
     
     @abstractmethod
@@ -107,10 +108,12 @@ class Sampling_method():
                 if item in self.pars['likelihood']['expression']:
                     self.pars['likelihood']['fcsinc'].append(item)
 
+
     @abstractmethod
     def decode_function(self):
         self.fcs = {}
         self.exprs = {}
+        self.func = {}
         for sc in self.scf.sections():
             if "Function" == sc[0:8] and self.scf.get(sc, "method") == "expression":
                 name = "&FC_{}".format(self.scf.get(sc, "name"))
@@ -139,7 +142,11 @@ class Sampling_method():
                     self.fcs[name]['expr'] = interp1d(data['x'], data['y'], kind=method, fill_value=fill_value)
                 else:
                     self.fcs[name]['expr'] = interp1d(data['x'], data['y'], kind=method)    
-    
+        from inner_func import update_funcs
+        for kk, vv in self.fcs.items():
+            self.func[kk] = vv['expr']
+        self.func = update_funcs(self.func)
+
     @abstractmethod
     def check_generator_status(self):
         pass 

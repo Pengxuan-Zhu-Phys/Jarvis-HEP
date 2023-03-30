@@ -24,23 +24,24 @@
             "maxTry": 10,
             "TSavePoint":   60,
             "seed": null,
-            "NSpack":   1000
+            "NSpack":   1000,
+            "use_consts":   false
         },
         "dynesty paras":    {
             "bound":    "multi",
             "sample":   "unif"
         },
         "run nested":   {
-            "nlive_init":   500,
-            "nlive_batch":  500,
-            "dlogz_init":   0.01,
+            "nlive_init":   100,
+            "nlive_batch":  200,
+            "dlogz_init":   0.03,
             "wt_kwargs":    {
                 "pfrac":    0.8
             },
             "stop_kwargs":  {
                 "pfrac":    1.0
             },
-            "checkpoint_every": 50
+            "checkpoint_every": 10
         }
     }
 }
