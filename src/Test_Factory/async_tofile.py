@@ -13,4 +13,3 @@ ds = Series(data)
 
 # to_file_woblk(data=data, pth=pt, method="to_json")
 to_file_woblk(data=ds, pth=pt, method="to_csv")
-print(ds)

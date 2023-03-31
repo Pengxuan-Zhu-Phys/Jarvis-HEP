@@ -11,21 +11,21 @@ from sympy import *
 
 class Sample():
     def __init__(self) -> None:
-        self.par = None
+        self.par    = None
         self.status = "init"
-        self.pack = None
-        self.id = None
-        self.vars = {}
-        self.path = {}
-        self.info = {}
-        self.const = None
+        self.pack   = None
+        self.id     = None
+        self.vars   = {}
+        self.path   = {}
+        self.info   = {}
+        self.const  = None
         self.worker = {}
         self.children = []
         self.mother = None
-        self.func = None
-        self.expr = None
+        self.func   = None
+        self.expr   = None
         self.likelihood = None
-        self.fdir = None
+        self.fdir   = None
 
     def update_dirs(self):
         self.get_fdir()
@@ -48,13 +48,9 @@ class Sample():
     def delete_uid_dirs(self):
         with open(self.path['ruid'], 'r') as f1:
             ruid = json.loads(f1.read())
-        # print(len(ruid))
         ruid.pop(self.id)
-        # print(len(ruid))
         with open(self.path['ruid'], 'w') as f1:
             json.dump(ruid, f1, indent=4)        
-        # from time import sleep
-        # sleep(3)
 
     def get_fdir(self):
         with open(self.path['slive_info'], 'r') as f1:

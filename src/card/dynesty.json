@@ -19,12 +19,12 @@
     },
     "default setting":  {
         "sampling": {
-            "Scale":   1.0,
+            "Scale":        1.0,
             "CountStep":    1,
-            "maxTry": 10,
+            "maxTry":       10,
             "TSavePoint":   60,
-            "seed": null,
-            "NSpack":   1000,
+            "seed":         null,
+            "NSpack":       1000,
             "use_consts":   false
         },
         "dynesty paras":    {
