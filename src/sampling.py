@@ -188,3 +188,7 @@ class Sampling_method():
         except:
             print(errs)
         sys.exit(1)
+
+    @abstractmethod
+    def hire_manager(self):
+        pass 

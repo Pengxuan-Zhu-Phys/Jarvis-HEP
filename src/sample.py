@@ -8,6 +8,7 @@ from pandas import Series
 from sympy.core import numbers as SCNum
 from inner_func import _AllSCNum
 from sympy import *
+from copy import deepcopy 
 
 class Sample():
     def __init__(self) -> None:
@@ -26,6 +27,7 @@ class Sample():
         self.expr   = None
         self.likelihood = None
         self.fdir   = None
+        self.mana   = None
 
     def update_dirs(self):
         self.get_fdir()
@@ -37,35 +39,31 @@ class Sample():
             "fdir":     self.fdir,
             "path":     self.path['info']
         }
+
         if not os.path.exists(self.path['info']):
             os.makedirs(self.path['info'])
-        with open(self.path['ruid'], 'r') as f1:
-            ruid = json.loads(f1.read())
-        ruid[self.id] = self.info['RunWeb']
-        with open(self.path['ruid'], 'w') as f1:
-            json.dump(ruid, f1, indent=4)
+        self.mana.ruid[self.id] = self.info['RunWeb']
+        from IOs import to_file_woblk
+        to_file_woblk(dict(self.mana.ruid), self.mana.path['ruid'], method="to_json")
+
 
     def delete_uid_dirs(self):
-        with open(self.path['ruid'], 'r') as f1:
-            ruid = json.loads(f1.read())
-        ruid.pop(self.id)
-        with open(self.path['ruid'], 'w') as f1:
-            json.dump(ruid, f1, indent=4)        
+        self.mana.ruid.pop(self.id)
+        from IOs import to_file_woblk
+        to_file_woblk(dict(self.mana.ruid), self.mana.path['ruid'], method='to_json')
+
 
     def get_fdir(self):
-        with open(self.path['slive_info'], 'r') as f1:
-            sinfo = json.loads(f1.read())
-            if sinfo['NLPp'] < sinfo['NSpack']:
-                sinfo['NLPp'] += 1 
-                self.fdir = sinfo['LPid']
-            else:
-                from Func_lib import format_PID
-                sinfo['NLPp'] = 0
-                sinfo['NLpack'] += 1
-                sinfo['LPid'] = format_PID(sinfo['NLpack'])
-                self.fdir = sinfo['LPid']
-        with open(self.path['slive_info'], 'w') as f1:
-            json.dump(sinfo, f1, indent=4)
+        if self.mana.sinf['NLPp'] < self.mana.sinf['NSpack']:
+            self.mana.sinf['NLPp'] += 1
+            self.fdir = deepcopy(self.mana.sinf['LPid'])
+        else:
+            from Func_lib import format_PID
+            self.mana.sinf['NLPp'] = 0
+            self.mana.sinf['NLpack'] += 1 
+            self.mana.sinf['LPid'] = format_PID(self.mana.sinf['NLpack'])
+        from IOs import to_file_woblk
+        to_file_woblk(dict(self.mana.sinf), self.mana.path['sinf'], method="to_json")
 
     def get_par(self, pars):
         pass
@@ -93,14 +91,12 @@ class Sample():
     
     def close_logger(self):
         self.handler['ff'].close()
-        # self.vars['ID'] = str(self.vars['ID'])
-        # with open(self.path['datapath'], 'w') as f1:
-            # json.dump(self.vars, f1, indent=2)
         import pandas as pd 
         self.vars = pd.Series(self.vars)
         self.vars.to_csv(self.path['datapath'])
-        from shutil import rmtree
-        rmtree(self.path['tempath'])
+        if os.path.exists(self.path['tempath']):
+            from shutil import rmtree
+            rmtree(self.path['tempath'])
     
     def start_run(self):
         self.status = "Running"
@@ -141,6 +137,7 @@ class Sample():
                 self.worker[pkg].config['name'] = deepcopy(pkg)
                 self.worker[pkg].vars   = dict(deepcopy(self.vars))
                 self.worker[pkg].path   = deepcopy(self.path)
+                self.worker[pkg].mana   = self.mana.pack
                 self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
                 self.worker[pkg].init()            
             else:
@@ -159,6 +156,7 @@ class Sample():
                 self.worker[pkg].config['name'] = deepcopy(pkg)
                 self.worker[pkg].vars   = dict(deepcopy(self.vars))
                 self.worker[pkg].path   = deepcopy(self.path)
+                self.worker[pkg].mana   = self.mana.pack
                 self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
                 self.worker[pkg].init()
         # sys.exit()

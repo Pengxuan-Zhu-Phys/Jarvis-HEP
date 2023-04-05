@@ -17,6 +17,7 @@ class Pack():
         self.rinfo = None 
         self.smp = None
         self.generator_vars = None 
+        self.mana = None
         
     def set_logger_setting(self, config):
         self.log_config = config 
@@ -364,6 +365,8 @@ class program():
         self.inp   = {}
         self.oup   = {}
         self.logpath = None
+        self.mana = None
+
         
     def set_logger_setting(self, config):
         self.logger = logging.getLogger(config['name'])
@@ -471,14 +474,41 @@ class program():
                 self.run_next_command()
             elif self.run_info['workers'][self.packid] == "running":
                 self.status = "waiting"
+    
+    def get_package_pool(self):
+        print(self.config.keys())
+        print(self.mana, self.config['clone shadow'])
+        if self.config['clone shadow']:
+            print(self.config['workers'], self.mana[self.config['name']]['workers'])
+            if self.mana[self.config['name']]['workers']:
+                print(self.mana)
+            else:
+                self.packid = "{:03d}".format(len(self.mana[self.config['name']]['workers'].keys()) + 1)
+                self.status = "installing"
+                self.run_next_command()
+            if self.status != "waiting":
+                self.config['PackID'] = self.packid
+                self.update_mana_status("running")
+            print("after getting ID", self.mana, self.status, self.packid)
+            
+
+
+        import time 
+        time.sleep(10)
+
                         
     def init(self):
         if self.config['clone shadow']:
             self.packid = None
         else:
             self.packid = "Naruto"
-
-        self.get_package()
+        # print(self.mana, self.config['name'])
+        # import time
+        # time.sleep(10)
+        if self.mana is None:
+            self.get_package()
+        else:
+            self.get_package_pool()
         
     def update_status(self):
         if self.status == "installing":
@@ -669,6 +699,10 @@ class program():
         with open(self.config['run info'], 'w') as f1:
             json.dump(self.run_info, f1, indent=4)
              
+    def update_mana_status(self, status):
+        self.mana[self.config['name']]['workers'][self.packid] =  status
+
+
     def stop_calculation(self):
         self.logger.warning("Sample is force stopped by error calculation")
         if "force quit" not in self.config.keys():

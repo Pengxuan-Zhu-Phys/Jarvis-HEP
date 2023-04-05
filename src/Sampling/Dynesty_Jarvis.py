@@ -29,12 +29,12 @@ import sys
 pwd = os.path.abspath(os.path.dirname(__file__))
 # print(dynesty._DYNASTY)
 # from dynesty import plotting as dyplot
-from multiprocessing import Manager
+from manager import SManager
 from copy import deepcopy
 
 class Dynesty(Sampling_method):
     def __init__(self) -> None:
-        self.manager = {}
+        self.manager = None
         super().__init__()
 
     def set_config(self, cf):
@@ -183,6 +183,9 @@ class Dynesty(Sampling_method):
             self.path['Samples_info'], "sinfo.json")
         self.path['alldata'] = os.path.join(
             self.path['Samples_info'], "FDIR", "AllData.csv")
+        self.path['prwb'] = os.path.abspath(os.path.join(
+            self.path['Samples_info'], "prwb.json"
+        ))
         # self.live_sample_
         # print(self.path)
         self.status = "READY"
@@ -194,7 +197,8 @@ class Dynesty(Sampling_method):
                                {
                                    "ruid": self.path['ruid'],
                                    "ckpf": self.path['ckpf'],
-                                   "slif": self.path['slive_info']
+                                   "slif": self.path['slive_info'],
+                                   "prwb": self.path['prwb']
                                }
                                )
         if not os.path.exists(self.path['Samples_info']):
@@ -207,6 +211,7 @@ class Dynesty(Sampling_method):
         uid = kwarg['uid']
         time.sleep(np.random.rand())
         print("Sampling evaluting {}".format(uid))
+        print("Self Manager =>", self.manager.sinf)
         self.samples[uid] = Sample()
         self.samples[uid].id = uid
         self.samples[uid].status = "Ready"
@@ -217,8 +222,9 @@ class Dynesty(Sampling_method):
         self.samples[uid].path['slive_info'] = self.path['slive_info']
         self.samples[uid].path['scanner_run_info'] = self.path['run_info']
         self.samples[uid].path['ruid'] = self.path['ruid']
+        self.samples[uid].mana = self.manager
         self.samples[uid].likelihood = self.pars['likelihood']
-        if self.cf['default setting']['sampling']['use_const']:
+        if self.cf['default setting']['sampling']['use_consts']:
             self.sampler[uid].const = self.pars['constant']
         self.samples[uid].update_dirs()
         self.samples[uid].init_logger(self.cf['logging']['scanner'])
@@ -246,14 +252,9 @@ class Dynesty(Sampling_method):
         return np.asarray(v)
 
     def generate_events(self):
-        print(self.pack)
-        # time.sleep(10)
-        self.manager = {
-            "ruid": Manager().dict(),
-            "pack": Manager().dict()
-        }
+        self.hire_manager()
         self.logger.warning("Start sampling")
-        use_pool = False
+        use_pool = True
         if use_pool:
             with dypool.Pool(2, self.evalate_likelihood, self.prior_transform) as pool:
                 self.sampler = DynamicNestedSampler(
@@ -331,3 +332,28 @@ class Dynesty(Sampling_method):
             json.dump(sinfo, f1, indent=4)
         with open(sinfo['RunSP'], 'w') as f1:
             json.dump({}, f1, indent=4)
+
+    def hire_manager(self):
+        self.logger.warning("Hiring task manager for sampler")
+        # print(self.pack)
+        self.manager = SManager()
+        from Func_lib import format_PID
+        sinfo = {
+            "NSpack":   self.cf['default setting']['sampling']['NSpack'],
+            "NLpack":   1,
+            "LPid":     format_PID(1),
+            "NLPp":     0,
+            "RunSP":    self.path['ruid']
+        }
+        self.manager.sinf.update(sinfo)
+        self.manager.info['pack'] = self.pack
+        self.manager.path = {
+            "ruid": self.path['ruid'],
+            "prwb": self.path['prwb'],
+            "sinf": self.path['slive_info']
+        }
+        self.manager.make_factory()
+
+
+        time.sleep(1)
+        # sys.exit()
