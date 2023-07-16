@@ -43,7 +43,7 @@
             "ax": {
                 "c": "black",
                 "solid_joinstyle": "miter",
-                "linewidth": 2.5,
+                "linewidth": 1.5,
                 "zorder": 4.0
             }
         },
@@ -52,7 +52,7 @@
         },
         "marker": {
             "marker": "^",
-            "s": 4.0,
+            "s": 2.0,
             "edgecolor": null,
             "zorder": 10
         },
@@ -67,19 +67,19 @@
                 "solid_capstyle": "round"
             },
             "bottom_tick_label": {
-                "fontsize": 10,
+                "fontsize": 14,
                 "horizontalalignment": "center",
                 "verticalalignment": "top",
                 "rotation": 60
             },
             "right_tick_label": {
-                "fontsize": 10,
+                "fontsize": 14,
                 "horizontalalignment": "left",
                 "verticalalignment": "center",
                 "rotation": 0
             },
             "left_tick_label": {
-                "fontsize": 10,
+                "fontsize": 14,
                 "horizontalalignment": "right",
                 "verticalalignment": "bottom",
                 "rotation": -60
@@ -123,9 +123,9 @@
                 "zorder": 10 
             }
         },
-        "axc_ticks_parameter": {
-            "which": "both",
-            "labelsize": 10,
+        "axc_major_ticks_parameter": {
+            "which": "major",
+            "labelsize": 14,
             "length": 6,
             "color": "black",
             "direction": "in",
@@ -133,7 +133,18 @@
             "top": false,
             "left": false,
             "right": true
-        }
+        },
+        "axc_minor_ticks_parameter": {
+            "which": "minor",
+            "labelsize": 10,
+            "length": 4,
+            "color": "black",
+            "direction": "in",
+            "bottom": false,
+            "top": false,
+            "left": false,
+            "right": true
+        }    
     },
     "default": {
         "print mode": [

@@ -14,6 +14,9 @@ import json
 import matplotlib.pyplot as plt
 from matplotlib import rc, rcParams
 import emoji
+from matplotlib.ticker import LinearLocator, FixedLocator, AutoMinorLocator, MaxNLocator
+
+
 
 config = {
     "font.family": ["serif", "Times New Roman"],
@@ -251,8 +254,8 @@ class Ternary(Figure):
     def make_canvas(self, ax):
         if self.mode == "C_Scatter":
             self.ax.plot(
-                self.ternary['ax']['x0'][0] + [0., 1., 0.5, 0.],
-                self.ternary['ax']['x0'][1] + [0., 0., 1.0, 0.],
+                self.ternary['ax']['x0'][0] + np.array([0., 1., 0.5, 0.]),
+                self.ternary['ax']['x0'][1] + np.array([0., 0., 1.0, 0.]),
                 '-',
                 **self.cs['TSC']['canvas'][ax]
             )
@@ -261,8 +264,8 @@ class Ternary(Figure):
             for ii in range(self.cs['TSC']['ticks']['N'] + 1):
                 self.ax.plot(
                     self.ternary['ax']['x0'][0] + ii /
-                    (self.cs['TSC']['ticks']['N']) + [0.0, -0.5 * tlength],
-                    self.ternary['ax']['x0'][1] + [0.0, -1.0 * tlength], "-",
+                    (self.cs['TSC']['ticks']['N']) + np.array([0.0, -0.5 * tlength]),
+                    self.ternary['ax']['x0'][1] + np.array([0.0, -1.0 * tlength]), "-",
                     **self.cs['TSC']['ticks']['tick']
                 ),
                 self.ax.text(
@@ -276,9 +279,9 @@ class Ternary(Figure):
                 )
                 self.ax.plot(
                     self.ternary['ax']['x0'][0] - 0.5 * ii /
-                    (self.cs['TSC']['ticks']['N']) + [1.0, 1.0 + tlength],
+                    (self.cs['TSC']['ticks']['N']) + np.array([1.0, 1.0 + tlength]),
                     self.ternary['ax']['x0'][1] + ii /
-                    (self.cs['TSC']['ticks']['N']) + [0.0, 0.0], "-",
+                    (self.cs['TSC']['ticks']['N']) + np.array([0.0, 0.0]), "-",
                     **self.cs['TSC']['ticks']['tick']
                 )
                 self.ax.text(
@@ -294,9 +297,9 @@ class Ternary(Figure):
                 self.ax.plot(
                     self.ternary['ax']['x0'][0] - 0.5 * ii /
                     (self.cs['TSC']['ticks']['N']) +
-                    [0.5, 0.5 - 0.5 * tlength],
+                    np.array([0.5, 0.5 - 0.5 * tlength]),
                     self.ternary['ax']['x0'][1] - ii /
-                    (self.cs['TSC']['ticks']['N']) + [1.0, 1.0 + tlength], "-",
+                    (self.cs['TSC']['ticks']['N']) + np.array([1.0, 1.0 + tlength]), "-",
                     **self.cs['TSC']['ticks']['tick']
                 )
                 self.ax.text(
@@ -314,24 +317,24 @@ class Ternary(Figure):
                     gg = ii + 1
                     gridlength = 1.0 - gg
                     self.ax.plot(
-                        self.ternary['ax']['x0'][0] + gg/(self.cs['TSC']['ticks']['N']) + [
-                            0.0, 0.5 * (1.0 - gg/(self.cs['TSC']['ticks']['N']))],
-                        self.ternary['ax']['x0'][1] + [0.0,
-                                                       (1.0 - gg/(self.cs['TSC']['ticks']['N']))], ":",
+                        self.ternary['ax']['x0'][0] + gg/(self.cs['TSC']['ticks']['N']) + np.array([
+                            0.0, 0.5 * (1.0 - gg/(self.cs['TSC']['ticks']['N']))]),
+                        self.ternary['ax']['x0'][1] + np.array([0.0,
+                                                       (1.0 - gg/(self.cs['TSC']['ticks']['N']))]), ":",
                         **self.cs['TSC']['grid']['style']
                     )
                     self.ax.plot(
-                        self.ternary['ax']['x0'][0] + [0.5 * gg/(
-                            self.cs['TSC']['ticks']['N']), 1.0 - 0.5 * gg/(self.cs['TSC']['ticks']['N'])],
+                        self.ternary['ax']['x0'][0] + np.array([0.5 * gg/(
+                            self.cs['TSC']['ticks']['N']), 1.0 - 0.5 * gg/(self.cs['TSC']['ticks']['N'])]),
                         self.ternary['ax']['x0'][1] + gg /
-                        (self.cs['TSC']['ticks']['N']) + [0.0, 0.0], ":",
+                        (self.cs['TSC']['ticks']['N']) + np.array([0.0, 0.0]), ":",
                         **self.cs['TSC']['grid']['style']
                     )
                     self.ax.plot(
-                        self.ternary['ax']['x0'][0] + 0.5 + [- 0.5 * gg/(
-                            self.cs['TSC']['ticks']['N']), 0.5 - gg/(self.cs['TSC']['ticks']['N'])],
-                        self.ternary['ax']['x0'][1] + [1.0 - gg /
-                                                       (self.cs['TSC']['ticks']['N']), 0.0], ":",
+                        self.ternary['ax']['x0'][0] + 0.5 + np.array([- 0.5 * gg/(
+                            self.cs['TSC']['ticks']['N']), 0.5 - gg/(self.cs['TSC']['ticks']['N'])]),
+                        self.ternary['ax']['x0'][1] + np.array([1.0 - gg /
+                                                       (self.cs['TSC']['ticks']['N']), 0.0]), ":",
                         **self.cs['TSC']['grid']['style']
                     )
             self.ax.text(
@@ -376,6 +379,8 @@ class Ternary(Figure):
             self.load_colormap()
             if self.vars['c']['scale'] == "linear":
                 from matplotlib.colors import Normalize
+                if self.vars['c']['lim']:
+                    (self.cmap['vmin'], self.cmap['vmax']) = self.vars['c']['lim']
                 a1 = self.ax.scatter(self.vars['x']['data'],
                                      self.vars['y']['data'],
                                      c=self.vars['c']['data'],
@@ -389,7 +394,9 @@ class Ternary(Figure):
                         norm=Normalize(vmin=self.cmap['vmin'], vmax=self.cmap['vmax']),
                         extend='neither'
                     )
-                self.axc.tick_params(**self.cs['TSC']['axc_ticks_parameter'])
+                self.axc.yaxis.set_minor_locator(AutoMinorLocator())
+                self.axc.tick_params(**self.cs['TSC']['axc_major_ticks_parameter'])
+                self.axc.tick_params(**self.cs['TSC']['axc_minor_ticks_parameter'])
                 self.axc.set_ylabel(
                     self.inf['c_label'], **self.cs['TSC']['label']['c'])
 
