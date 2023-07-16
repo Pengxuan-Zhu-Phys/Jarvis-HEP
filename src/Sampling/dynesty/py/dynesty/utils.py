@@ -171,18 +171,18 @@ class LogLikelihood:
         ret: The list of LoglOutput objects
         """
         # print(self.loglikelihood, pars, kwarg)
-        ppar = [{"x": pars[i], "uid": kwarg['uids'][i]} for i in range(len(pars))]
+        # ppar = [{"x": pars[i], "uid": kwarg['uids'][i]} for i in range(len(pars))]
         # for item in ppar:
         # print("utils 175: ppar => {}".format( ppar[0], ppar[1]))
-        print("utils 175: ppar => {}".format( len(ppar)))
+        # print("utils 175: ppar => {}".format( len(ppar)))
         if self.pool is None:
             ret = list([
-                LoglOutput(_, self.blob) for _ in map(self.loglikelihood, ppar)
+                LoglOutput(_, self.blob) for _ in map(self.loglikelihood, pars)
             ])
         else:
             ret = [
                 LoglOutput(_, self.blob)
-                for _ in self.pool.map(self.loglikelihood, ppar)
+                for _ in self.pool.map(self.loglikelihood, pars)
             ]
         if self.save:
             self.history_append([_.val for _ in ret], pars)

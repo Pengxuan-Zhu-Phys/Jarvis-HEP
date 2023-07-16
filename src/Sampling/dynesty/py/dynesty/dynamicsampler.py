@@ -388,6 +388,7 @@ def _initialize_live_points(live_points,
         The fourth are the log-likelihood valuess.
         The fifth are the array of blobs (or None)
     """
+    logger.info("Initilizing the dynesty sampling")
     if live_points is None:
         # If no live points are provided, propose them by randomly
         # sampling from the unit cube.
@@ -407,10 +408,17 @@ def _initialize_live_points(live_points,
                 live_v = map(prior_transform, np.asarray(live_u))
                 live_uid = map(_generate_uuid_list, np.asarray(live_u))
             live_v = np.array(list(live_v))
-            live_uid = np.array(list(live_uid))
+            live_uid = np.array([list(live_uid)])
+            # logger.warning("Live_V is => {} {}".format(live_v, live_uid) )
+            # logger.warning("Live_V with uid => {}".format(np.concatenate((live_v, live_uid.T), axis=1)))
+            live_v = np.concatenate((live_v, live_uid.T), axis=1)
+            # sys.exit()
+            live_logl = loglikelihood.map(np.asarray(live_v))
             if logger is None:
                 print("dynamicsampler 408: mapping loglikelihood  ")
-            live_logl = loglikelihood.map(np.asarray(live_v), uids=live_uid)
+            else:
+                logger.warning("Maping loglikelihood ")
+            
             if blob:
                 live_blobs = np.array([_.blob for _ in live_logl])
             live_logl = np.array([_.val for _ in live_logl])
@@ -1088,6 +1096,8 @@ class DynamicSampler:
 
         return self.cite
 
+
+
     def sample_initial(self,
                        nlive=None,
                        update_interval=None,
@@ -1245,8 +1255,11 @@ class DynamicSampler:
             # Reset saved results to avoid any possible conflicts.
             self.reset()
 
-            print("dynamicsampler 1233: Init the logging: step 0:, ", live_points)
-
+            # print("\ndynamicsampler 1233: Init the logging: step 0:, ", live_points)
+            self.logger.warning("Start initialize samples: => Flag 0")
+            # print("====================================HHHHHHHHHHHHHH")
+            import time 
+            time.sleep(10)
             (self.live_u, self.live_v, self.live_uid, self.live_logl, blobs) = _initialize_live_points(
                  live_points,
                  self.prior_transform,
@@ -1259,6 +1272,8 @@ class DynamicSampler:
                  use_pool_ptform=self.use_pool_ptform,
                  logger=logger
             )
+            import time 
+            time.sleep(2)
             print("dynamicsampler 1246: Live points achieved")
             if self.blob:
                 self.live_blobs = blobs
@@ -2037,6 +2052,7 @@ class DynamicSampler:
                                    nbatch=0,
                                    dlogz=dlogz_init,
                                    logl_max=logl_max_init)
+
             if self.logger is None:
                 print("Start looping ...", self.batch, maxbatch)
                 print(self.batch, maxbatch, '\n')

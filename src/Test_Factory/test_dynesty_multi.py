@@ -1,7 +1,7 @@
 #!/usr/bin/env python3 
 
 import time, sys, os
-sys.path.append("/home/buding/Jarvis-HEP/src/Sampling/dynesty/py")
+sys.path.append("/home/buding/Jarvis-HEP/src/Sampling/PyneSTY/py")
 import numpy as np
 from numpy import linalg
 

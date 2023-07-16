@@ -15,7 +15,7 @@ from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
 from random import randint
-from multiprocessing import Manager
+from multiprocessing import Manager, Lock
 import json
 
 pwd = os.path.abspath(os.path.dirname(__file__))
@@ -30,6 +30,7 @@ class SManager():
         self.ruid = Manager().dict()
         self.pack = Manager().dict()
         self.sinf = Manager().dict()
+        # self.lock = Lock()
         self.info = {}
         self.path = {}
         self.logger = None
@@ -42,6 +43,7 @@ class SManager():
             self.pack[pkg] = {
                 "workers":  {},
                 "status":   "Init",
+                "lock":     "OPEN",
                 "runweb":   os.path.join(os.path.dirname(self.info['pack']['include'][pkg]["run info"]), "runweb.json")
             }
         to_file_woblk(self.pack.copy(), self.path['prwb'], method='to_json')

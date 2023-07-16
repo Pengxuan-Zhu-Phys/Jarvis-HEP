@@ -34,7 +34,7 @@
         "run nested":   {
             "nlive_init":   100,
             "nlive_batch":  200,
-            "dlogz_init":   0.03,
+            "dlogz_init":   0.1,
             "wt_kwargs":    {
                 "pfrac":    0.8
             },

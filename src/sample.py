@@ -9,6 +9,7 @@ from sympy.core import numbers as SCNum
 from inner_func import _AllSCNum
 from sympy import *
 from copy import deepcopy 
+from time import sleep
 
 class Sample():
     def __init__(self) -> None:
@@ -30,6 +31,10 @@ class Sample():
         self.mana   = None
 
     def update_dirs(self):
+        # self.lock.acquire(timeout=2)
+        # while self.lock != "OPEN":
+        #     sleep(0.00001)
+
         self.get_fdir()
         self.path['info'] = os.path.abspath(os.path.join(
             self.path['Samples_info'], self.fdir, self.id
@@ -45,6 +50,11 @@ class Sample():
         self.mana.ruid[self.id] = self.info['RunWeb']
         from IOs import to_file_woblk
         to_file_woblk(dict(self.mana.ruid), self.mana.path['ruid'], method="to_json")
+        # self.lock.release()
+        # self.lock = "OPEN"
+        # print("sample 55: ", dict(self.mana.sinf))
+        # self.mana.sinf['Status'] = "FREE"
+
 
 
     def delete_uid_dirs(self):
@@ -54,6 +64,12 @@ class Sample():
 
 
     def get_fdir(self):
+        # self.lock = "CLOSE"
+        # while self.mana.sinf['Status'] != "FREE":
+        #     print(self.id, " is waiting ...")
+        #     sleep(0.00001)
+            
+        self.mana.sinf['Status'] = self.id
         if self.mana.sinf['NLPp'] < self.mana.sinf['NSpack']:
             self.mana.sinf['NLPp'] += 1
             self.fdir = deepcopy(self.mana.sinf['LPid'])
@@ -64,6 +80,7 @@ class Sample():
             self.mana.sinf['LPid'] = format_PID(self.mana.sinf['NLpack'])
         from IOs import to_file_woblk
         to_file_woblk(dict(self.mana.sinf), self.mana.path['sinf'], method="to_json")
+        # self.mana.sinf['Lock'] = "OPEN"
 
     def get_par(self, pars):
         pass
@@ -88,6 +105,10 @@ class Sample():
         self.logger.warning("Sample created in the disk")
         self.logger.info("\nSample info: {}\n".format(self.par))
         self.logger.info("Current status is {}".format(self.status))
+        self.mana.pack['TestFunction']['workers']['001'] = self.id
+        print("sample 108 =>", self.mana.pack)
+        import time 
+        time.sleep(4)
     
     def close_logger(self):
         self.handler['ff'].close()
@@ -133,11 +154,13 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
+                # print(self.id, pname)
+                self.worker[pkg].suid   = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][psect])
                 self.worker[pkg].config['name'] = deepcopy(pkg)
                 self.worker[pkg].vars   = dict(deepcopy(self.vars))
                 self.worker[pkg].path   = deepcopy(self.path)
-                self.worker[pkg].mana   = self.mana.pack
+                self.worker[pkg].mana   = self.mana
                 self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
                 self.worker[pkg].init()            
             else:
@@ -152,11 +175,12 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
+                self.worker[pkg].suid = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][pkg])
                 self.worker[pkg].config['name'] = deepcopy(pkg)
                 self.worker[pkg].vars   = dict(deepcopy(self.vars))
                 self.worker[pkg].path   = deepcopy(self.path)
-                self.worker[pkg].mana   = self.mana.pack
+                self.worker[pkg].mana   = self.mana
                 self.worker[pkg].config['paraller number'] = deepcopy(self.pack['config']['paraller number'])
                 self.worker[pkg].init()
         # sys.exit()

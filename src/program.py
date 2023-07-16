@@ -354,6 +354,7 @@ class Pack():
 class program():
     def __init__(self) -> None:
         self.cmds = []
+        self.suid = None
         self.status = "free"
         self.subp = None
         self.pid = None
@@ -476,25 +477,32 @@ class program():
                 self.status = "waiting"
     
     def get_package_pool(self):
-        print(self.config.keys())
-        print(self.mana, self.config['clone shadow'])
+        # print(self.config.keys())
+        print("program 480:", self.mana.pack, "<<<<")
         if self.config['clone shadow']:
-            print(self.config['workers'], self.mana[self.config['name']]['workers'])
-            if self.mana[self.config['name']]['workers']:
+            # print("program 482", self.config['workers'], self.config['name'], "manager =>", self.mana)
+            if self.mana.pack[self.config['name']]['workers']:
                 print(self.mana)
+                # self.mana[self.config['name']]['workers'][self.packid] = 
             else:
-                self.packid = "{:03d}".format(len(self.mana[self.config['name']]['workers'].keys()) + 1)
+                self.packid = "{:03d}".format(len(self.mana.pack[self.config['name']]['workers'].keys()) + 1)
                 self.status = "installing"
+
                 self.run_next_command()
+            print(self.packid, self.suid)
+            print("before Getting ID", self.mana.pack)
+            self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
             if self.status != "waiting":
                 self.config['PackID'] = self.packid
                 self.update_mana_status("running")
-            print("after getting ID", self.mana, self.status, self.packid)
+            print("after getting ID", self.mana.pack, self.status, self.packid)
+            import time
+            # time.sleep(3)
             
 
 
         import time 
-        time.sleep(10)
+        # time.sleep(10)
 
                         
     def init(self):
@@ -700,7 +708,7 @@ class program():
             json.dump(self.run_info, f1, indent=4)
              
     def update_mana_status(self, status):
-        self.mana[self.config['name']]['workers'][self.packid] =  status
+        self.mana.pack[self.config['name']]['workers'][self.packid] =  status
 
 
     def stop_calculation(self):

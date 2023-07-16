@@ -34,6 +34,7 @@ class Sampling_method():
         self.timelock       = None 
         self.run_info       = {}
         self.manager        = None
+        self.lock           = "OPEN"
         
     
     @abstractmethod

@@ -195,7 +195,7 @@ def wait_for_input(info, timeout, default):
     return ipt
 
 def get_sample_id():
-    return uuid4()
+    return str(uuid4())
 
 def Help():
     print("Help")

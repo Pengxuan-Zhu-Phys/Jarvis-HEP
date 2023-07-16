@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-from Sampling.dynesty.py.dynesty.results import print_fn
-from Sampling.dynesty.py.dynesty import DynamicNestedSampler
-from Sampling.dynesty.py.dynesty import pool as dypool
-import Sampling.dynesty.py.dynesty.utils
+from    Sampling.PyneSTY.py.dynesty.results import print_fn
+from    Sampling.PyneSTY.py.dynesty import DynamicNestedSampler
+from    Sampling.PyneSTY.py.dynesty import pool as dypool
+import  Sampling.PyneSTY.py.dynesty.utils
+
+# from Sampling.dynesty.py.dynesty.results import print_fn
+# from Sampling.dynesty.py.dynesty import DynamicNestedSampler
+# from Sampling.dynesty.py.dynesty import pool as dypool
+# import Sampling.dynesty.py.dynesty.utils
+
 import dill 
 from sympy import sympify
 import dynesty
@@ -30,12 +36,16 @@ pwd = os.path.abspath(os.path.dirname(__file__))
 # print(dynesty._DYNASTY)
 # from dynesty import plotting as dyplot
 from manager import SManager
+import asyncio 
 from copy import deepcopy
 
 class Dynesty(Sampling_method):
     def __init__(self) -> None:
-        self.manager = None
         super().__init__()
+        self.manager = None
+        from multiprocessing import Lock
+        # self.lock = "OPEN"
+        self.lock = False
 
     def set_config(self, cf):
         return super().set_config(cf)
@@ -206,23 +216,25 @@ class Dynesty(Sampling_method):
         self.make_sinfo()
 
     def evalate_likelihood(self, cube, **kwarg):
-        # print("LL call for {}".format(kwarg))
+        logl = 0.0
+
         from sample import Sample
-        uid = kwarg['uid']
-        time.sleep(np.random.rand())
-        print("Sampling evaluting {}".format(uid))
-        print("Self Manager =>", self.manager.sinf)
+        # uid = kwarg['uid']
+        uid = cube[-1]
+        self.logger.warning("Sampling evaluting {}".format(uid))
+        # print("Self Manager =>", self.manager.sinf)
         self.samples[uid] = Sample()
         self.samples[uid].id = uid
         self.samples[uid].status = "Ready"
         self.samples[uid].pack = self.pack
         self.samples[uid].func = deepcopy(self.func)
-        self.samples[uid].par = self.transfer_vars_from_array_to_dict(cube)
+        self.samples[uid].par = self.transfer_vars_from_array_to_dict(cube[0:-1])
         self.samples[uid].path['Samples_info'] = self.path['Samples_info']
         self.samples[uid].path['slive_info'] = self.path['slive_info']
         self.samples[uid].path['scanner_run_info'] = self.path['run_info']
         self.samples[uid].path['ruid'] = self.path['ruid']
         self.samples[uid].mana = self.manager
+        self.samples[uid].lock = self.lock
         self.samples[uid].likelihood = self.pars['likelihood']
         if self.cf['default setting']['sampling']['use_consts']:
             self.sampler[uid].const = self.pars['constant']
@@ -235,11 +247,19 @@ class Dynesty(Sampling_method):
         # time.sleep(20)
         logl = self.samples[uid].logl
         vrs = self.samples[uid].vars
+
+        if self.samples[uid].status == "Done":
+            pass
+
+        # print(cube[0:-1], cube[1], logl)
+        # uid = str(cube[-1])
+        # # cube = cube[0:-1]
+        # from numpy import sin 
+        # if cube[0] > cube[1]:
+        #     logl = (2.0 + sin(float(cube[0]) / 2.0) * sin(float(cube[1]) / 2.0)) ** 4
+        # # else:
+        # #     return 0.
         self.samples.pop(uid)
-
-        # if self.samples[uid].status == "Done":
-        #     pass
-
         return logl
 
     def prior_transform(self, cube):
@@ -249,6 +269,8 @@ class Dynesty(Sampling_method):
             expr = sympify(self.pars['vars'][self.pars['vname'][kk]]['expr'])
             v.append(expr.subs(cdt))
         # time.sleep(5)
+        from Func_lib import get_sample_id
+        v.append(get_sample_id())
         return np.asarray(v)
 
     def generate_events(self):
@@ -315,6 +337,8 @@ class Dynesty(Sampling_method):
 
     def transfer_vars_from_array_to_dict(self, v):
         cdt = {}
+        print(v, self.pars['vname'])
+        # sys.exit()
         for ii in range(len(v)):
             cdt[self.pars['vname'][ii]] = v[ii]
         return cdt
@@ -326,7 +350,8 @@ class Dynesty(Sampling_method):
             "NLpack":   1,
             "LPid":     format_PID(1),
             "NLPp":     0,
-            "RunSP":    self.path['ruid']
+            "RunSP":    self.path['ruid'],
+            "Status":   "FREE"
         }
         with open(self.path['slive_info'], 'w') as f1:
             json.dump(sinfo, f1, indent=4)
@@ -343,7 +368,8 @@ class Dynesty(Sampling_method):
             "NLpack":   1,
             "LPid":     format_PID(1),
             "NLPp":     0,
-            "RunSP":    self.path['ruid']
+            "RunSP":    self.path['ruid'],
+            "Status":   "FREE"
         }
         self.manager.sinf.update(sinfo)
         self.manager.info['pack'] = self.pack
