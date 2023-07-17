@@ -102,7 +102,8 @@ class Pool:
                  logl_args=None,
                  logl_kwargs=None,
                  ptform_args=None,
-                 ptform_kwargs=None):
+                 ptform_kwargs=None,
+                 manager=None):
         self.logl_args = logl_args
         self.logl_kwargs = logl_kwargs
         self.ptform_args = ptform_args
@@ -113,7 +114,7 @@ class Pool:
         self.loglike = loglike_cache
         self.prior_transform = prior_transform_cache
         self.pool = None
-        self.manager = None
+        self.manager = manager
 
     def __enter__(self):
         """
@@ -148,8 +149,8 @@ class Pool:
         F: function
         x: iterable
         """
-        print(len(x))
-        return self.pool.apply(F, x)
+        fargs = [( xx, self.manager) for xx in x]
+        return self.pool.map(F, fargs)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:

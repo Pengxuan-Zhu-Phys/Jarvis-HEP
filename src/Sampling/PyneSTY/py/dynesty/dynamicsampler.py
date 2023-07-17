@@ -841,7 +841,7 @@ class DynamicSampler:
 
     def __init__(self, loglikelihood, prior_transform, npdim, bound, method,
                  update_interval_ratio, first_update, rstate, queue_size, pool,
-                 use_pool, ncdim, nlive0, kwargs, logger):
+                 use_pool, ncdim, nlive0, kwargs, logger, manager):
 
         # distributions
         self.loglikelihood = loglikelihood

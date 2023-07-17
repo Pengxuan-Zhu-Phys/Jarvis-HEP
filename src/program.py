@@ -478,12 +478,14 @@ class program():
     
     def get_package_pool(self):
         # print(self.config.keys())
-        print("program 480:", self.mana.pack, "<<<<")
+        print("program 480:", self.mana.pack[self.config['name']]['workers'], "<<<<")
         if self.config['clone shadow']:
+            print("program 483", self.mana.pack[self.config['name']]['workers'])
+            print(self.mana.pack[self.config['name']]['runweb'])
             # print("program 482", self.config['workers'], self.config['name'], "manager =>", self.mana)
             if self.mana.pack[self.config['name']]['workers']:
-                print(self.mana)
-                # self.mana[self.config['name']]['workers'][self.packid] = 
+                # print(self.mana)
+                self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
             else:
                 self.packid = "{:03d}".format(len(self.mana.pack[self.config['name']]['workers'].keys()) + 1)
                 self.status = "installing"

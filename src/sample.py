@@ -105,10 +105,12 @@ class Sample():
         self.logger.warning("Sample created in the disk")
         self.logger.info("\nSample info: {}\n".format(self.par))
         self.logger.info("Current status is {}".format(self.status))
-        self.mana.pack['TestFunction']['workers']['001'] = self.id
-        print("sample 108 =>", self.mana.pack)
-        import time 
-        time.sleep(4)
+        # print("sample 108 =>", self.mana.sinf)
+
+        # self.mana.pack['TestFunction']['workers'].update({"001": self.id})
+        # print("sample 108 =>", self.mana.pack['TestFunction']['workers'])
+        # import time 
+        # time.sleep(4)
     
     def close_logger(self):
         self.handler['ff'].close()
@@ -154,7 +156,7 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
-                # print(self.id, pname)
+                print("Sample 157:", self.id, pname, self.mana)
                 self.worker[pkg].suid   = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][psect])
                 self.worker[pkg].config['name'] = deepcopy(pkg)
@@ -175,6 +177,8 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
+                print("Sample 157:", self.id, pname, self.mana)
+
                 self.worker[pkg].suid = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][pkg])
                 self.worker[pkg].config['name'] = deepcopy(pkg)

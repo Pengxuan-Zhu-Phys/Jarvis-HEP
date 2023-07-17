@@ -125,6 +125,7 @@ class LogLikelihood:
                  pool=None,
                  save=False,
                  history_filename=None,
+                 manager=None,
                  blob=False):
         """ Initialize the object.
 
@@ -153,6 +154,8 @@ class LogLikelihood:
         self.ndim = ndim
         self.failed_save = False
         self.blob = blob
+        self.manager = manager
+        self.loglikelihood.manager = self.manager
         if save:
             self.history_init()
 
@@ -170,12 +173,17 @@ class LogLikelihood:
                 LoglOutput(_, self.blob) for _ in map(self.loglikelihood, pars)
             ])
         else:
-            # print(pars)
-            # print(self.loglikelihood)
+            
+            print(">>>>>>>>>>>>>>>>>>line 175:\n", [(x, self.manager) for x in pars][0])
+            print(self.loglikelihood)
+            time.sleep(5)
+            print(self.loglikelihood)
             # time.sleep(2)
+
+
             ret = [
                 LoglOutput(_, self.blob)
-                # for _ in self.pool.map(self.loglikelihood, pars)
+                # for _ in self.pool.map(self.loglikelihood, [(x, self.manager) for x in pars])
                 for _ in self.pool.apply(self.loglikelihood, pars)
             ]
         if self.save:
@@ -186,7 +194,7 @@ class LogLikelihood:
         """
         Evaluate the likelihood f-n once
         """
-        ret = LoglOutput(self.loglikelihood(x), self.blob)
+        ret = LoglOutput(self.loglikelihood(x, self.manager), self.blob)
         if self.save:
             self.history_append([ret.val], [x])
         return ret

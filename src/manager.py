@@ -28,7 +28,7 @@ class SManager():
     """
     def __init__(self) -> None:
         self.ruid = Manager().dict()
-        self.pack = Manager().dict()
+        self.pack = {}
         self.sinf = Manager().dict()
         # self.lock = Lock()
         self.info = {}
@@ -38,10 +38,12 @@ class SManager():
     def make_factory(self):
         from IOs import to_file_woblk
         # print(self.path)
-        # print(self.info['pack']['incl'])
+        print(self.info['pack']['incl'])
+        # sys.exit()
+
         for pkg in self.info['pack']['incl']:
             self.pack[pkg] = {
-                "workers":  {},
+                "workers":   Manager().dict(),
                 "status":   "Init",
                 "lock":     "OPEN",
                 "runweb":   os.path.join(os.path.dirname(self.info['pack']['include'][pkg]["run info"]), "runweb.json")

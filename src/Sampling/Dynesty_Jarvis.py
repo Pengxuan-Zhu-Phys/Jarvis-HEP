@@ -215,14 +215,14 @@ class Dynesty(Sampling_method):
             os.makedirs(self.path['Samples_info'])
         self.make_sinfo()
 
-    def evalate_likelihood(self, cube, **kwarg):
+    def evalate_likelihood(self, cube, manager):
         logl = 0.0
 
         from sample import Sample
         # uid = kwarg['uid']
         uid = cube[-1]
         self.logger.warning("Sampling evaluting {}".format(uid))
-        # print("Self Manager =>", self.manager.sinf)
+        
         self.samples[uid] = Sample()
         self.samples[uid].id = uid
         self.samples[uid].status = "Ready"
@@ -233,8 +233,8 @@ class Dynesty(Sampling_method):
         self.samples[uid].path['slive_info'] = self.path['slive_info']
         self.samples[uid].path['scanner_run_info'] = self.path['run_info']
         self.samples[uid].path['ruid'] = self.path['ruid']
-        self.samples[uid].mana = self.manager
-        self.samples[uid].lock = self.lock
+        self.samples[uid].mana = manager
+        # self.samples[uid].lock = self.lock
         self.samples[uid].likelihood = self.pars['likelihood']
         if self.cf['default setting']['sampling']['use_consts']:
             self.sampler[uid].const = self.pars['constant']
@@ -278,7 +278,7 @@ class Dynesty(Sampling_method):
         self.logger.warning("Start sampling")
         use_pool = True
         if use_pool:
-            with dypool.Pool(2, self.evalate_likelihood, self.prior_transform) as pool:
+            with dypool.Pool(2, self.evalate_likelihood, self.prior_transform, manager=self.manager) as pool:
                 self.sampler = DynamicNestedSampler(
                     self.evalate_likelihood,
                     self.prior_transform,
@@ -288,7 +288,8 @@ class Dynesty(Sampling_method):
                         self.cf['default setting']['sampling']['seed']),
                     queue_size=2,
                     logger=self.logger,
-                    pool=pool
+                    pool=pool,
+                    manager=self.manager
                 )
                 # print(pool.loglike)
                 # time.sleep(10)

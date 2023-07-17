@@ -739,6 +739,7 @@ class DynamicNestedSampler(DynamicSampler):
                  blob=False,
                  save_history=False,
                  history_filename=None,
+                 manager=None,
                  logger=None):
 
         # Prior dimensions.
@@ -797,7 +798,6 @@ class DynamicNestedSampler(DynamicSampler):
             logl_args = []
         if logl_kwargs is None:
             logl_kwargs = {}
-
         # Prior transform.
         if ptform_args is None:
             ptform_args = []
@@ -851,6 +851,7 @@ class DynamicNestedSampler(DynamicSampler):
                                 history_filename=history_filename
                                 or 'dynesty_logl_history.h5',
                                 save=save_history,
+                                manager=manager,
                                 blob=blob)
 
         # Add in gradient.
@@ -866,7 +867,7 @@ class DynamicNestedSampler(DynamicSampler):
         # Initialize our nested sampler.
         super().__init__(loglike, ptform, npdim, bound, sample,
                          update_interval_ratio, first_update, rstate,
-                         queue_size, pool, use_pool, ncdim, nlive, kwargs, logger)
+                         queue_size, pool, use_pool, ncdim, nlive, kwargs, manager, logger)
 
 
 DynamicNestedSampler.__init__.__doc__ = _assemble_sampler_docstring(True)
@@ -888,13 +889,17 @@ class _function_wrapper:
 
     def __call__(self, x):
         try:
+            # print(self.args, self.kwargs)
             # IMPORTANT
             # Here we make a copy if the input vector just to ensure
             # that users can safely modify in-place the arguments to
             # say prior_transform or likelihood
             # This comes at performance cost, but it's worthwhile
             # as it may lead to hard to diagnose weird behaviour
-            return self.func(np.asarray(x).copy(), *self.args, **self.kwargs)
+            if self.name != "loglikelihood":
+                return self.func(np.asarray(x).copy(), *self.args, **self.kwargs)
+            else:
+                return self.func(np.asarray(x[0]), x[1])
         except:  # noqa
             print(f"Exception while calling {self.name} function:")
             print("  params:", x)
