@@ -481,30 +481,54 @@ class program():
         print("program 480:", self.mana.pack[self.config['name']]['workers'], "<<<<")
         if self.config['clone shadow']:
             print("program 483", self.mana.pack[self.config['name']]['workers'])
-            print(self.mana.pack[self.config['name']]['runweb'])
-            # print("program 482", self.config['workers'], self.config['name'], "manager =>", self.mana)
-            if self.mana.pack[self.config['name']]['workers']:
-                # print(self.mana)
-                self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
+            # print(self.packid, self.config)
+            if self.mana.pack[self.config['name']]['workers']:       
+                if self.packid is None:         
+                    for worker, stt in self.mana.pack[self.config['name']]['workers'].items():
+                        if stt == "died":
+                            self.packid = worker 
+                            self.clear_space()
+                            self.status = 'installing'
+                            break
+                        if stt == 'free':
+                            self.packid = worker
+                            self.status = "prerun"
+                            break 
+                    if self.packid is None and len(self.mana.pack[self.config['name']]['workers']) < self.config['paraller number']:
+                        self.packid = "{:03d}".format(len(self.mana.pack[self.config['name']]['workers'].keys()) + 1)
+                        self.status = "installing"
+                        self.run_next_command()
+                    elif self.packid is None and len(self.mana.pack[self.config['name']]['workers']) >= self.config['paraller number']:
+                        self.status = "waiting"
+                    elif self.packid is not None:
+                        self.run_next_command()
             else:
                 self.packid = "{:03d}".format(len(self.mana.pack[self.config['name']]['workers'].keys()) + 1)
                 self.status = "installing"
-
                 self.run_next_command()
-            print(self.packid, self.suid)
-            print("before Getting ID", self.mana.pack)
-            self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
+            # print("program 494: packid -> {}, \t calculating sample {}".format(self.packid, self.suid))
+            # print("before Getting ID", self.mana.pack[self.config['name']]['workers'])
+            # self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
             if self.status != "waiting":
                 self.config['PackID'] = self.packid
-                self.update_mana_status("running")
-            print("after getting ID", self.mana.pack, self.status, self.packid)
-            import time
+                self.update_mana_status()
+            # print("after getting ID", self.mana.pack[self.config['name']]['workers'], self.status, self.packid)
+            # import time
             # time.sleep(3)
             
+        # else:
 
 
-        import time 
+        # import time 
+
         # time.sleep(10)
+
+    def check_worker_status(self, pkgname):
+        for worker, status in self.mana.pack[pkgname]['workers'].items():
+            if status == "free":
+                return worker
+        return None
+
 
                         
     def init(self):
@@ -709,8 +733,8 @@ class program():
         with open(self.config['run info'], 'w') as f1:
             json.dump(self.run_info, f1, indent=4)
              
-    def update_mana_status(self, status):
-        self.mana.pack[self.config['name']]['workers'][self.packid] =  status
+    def update_mana_status(self):
+        self.mana.pack[self.config['name']]['workers'][self.packid] =  self.status
 
 
     def stop_calculation(self):

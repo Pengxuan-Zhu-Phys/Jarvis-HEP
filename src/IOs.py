@@ -755,16 +755,25 @@ def to_file_woblk(data, pth, method="to_csv"):
     -------------------
     Nothing 
     """
-    import fcntl, asyncio, aiofiles, time, threading
+    import fcntl, asyncio, aiofiles, time, threading, types 
     async def to_csv(data, pth):
         async with aiofiles.open(pth, 'w') as f1:
             fcntl.flock(f1, fcntl.LOCK_EX)
             data.to_csv(f1, index=False)
             fcntl.flock(f1, fcntl.LOCK_UN)
 
+    from multiprocessing.managers import DictProxy
+
+    def dict_proxy_serializer(obj):
+        """Custom JSON serializer for DictProxy objects."""
+        print(f"Trying to serialize: {type(obj)}")  # Debugging line
+        if isinstance(obj, DictProxy):
+            return dict(obj)  # Convert DictProxy to a regular dictionary
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
     async def to_json(data, pth):
         async with aiofiles.open(pth, 'w') as f1:
-            await f1.write(json.dumps(data, indent=4))
+            await f1.write(json.dumps(data, indent=4, default=dict_proxy_serializer))
 
     def run_coroutine(mtd):
         lp = asyncio.new_event_loop()
