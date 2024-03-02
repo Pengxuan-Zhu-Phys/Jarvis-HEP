@@ -1,0 +1,39 @@
+{
+    "positionals": [
+        {
+          "name": "file",
+          "help": "path of the input file, in yaml format"
+        }
+      ],
+    "options": [
+        {
+            "short": "-o",
+            "long": "--option",
+            "dest": "option",
+            "help": "描述这个选项的作用",
+            "type": "str",
+            "default": null
+        },
+        {
+            "short": "-d",
+            "long": "--debug",
+            "dest": "debug",
+            "help": "Run Jarvis-HEP in debug mode, debug mode is testing the program linking",
+            "action": "store_true"
+        },
+        {
+            "short": "-n",
+            "long": "--number",
+            "dest": "number",
+            "help": "数字选项示例",
+            "type": "int",
+            "default": 10
+        },
+        {
+            "long": "--plot",
+            "action": "store_true",
+            "dest": "plot",
+            "help": "Using the plotting mode"
+        }
+    ]
+}
