@@ -1,0 +1,26 @@
+version: 1
+disable_existing_loggers: False
+formatters:
+  simple:
+    format: "%(asctime)s - %(name)s - %(levelname)s -> \n%(message)s"
+    datefmt: '%Y-%m-%d %H:%M:%S'
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: WARNING
+    formatter: simple
+    stream: ext://sys.stdout
+  file_parent:
+    class: logging.FileHandler
+    level: DEBUG
+    formatter: simple
+    filename: 'main_logger.log'
+    encoding: 'utf-8'
+loggers:
+  Jarvis-HEP:
+    level: DEBUG
+    handlers: [console, file_parent]
+    propagate: no
+root:
+  level: DEBUG
+  handlers: [console]
