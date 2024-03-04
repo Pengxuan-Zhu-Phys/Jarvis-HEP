@@ -21,24 +21,27 @@ class AppLogger:
         self.info = {
             "parent_logger_name":   logger_name,
             "parent_logger_handler": None,
-            "parent_log_file_name": log_file_name
+            "parent_log_file_name": log_file_name,
+            "parent_config_path":   config_path,
+            "debug_mode":   False
         }
-        self.configure_logging(config_path, log_file_name)
-        self.logger = logging.getLogger(logger_name)
+        # self.configure_logging(config_path, log_file_name)
 
-    def configure_logging(self, config_path, log_file_name):
-        with open(config_path, 'r') as f:
+    def configure_logging(self):
+        with open(self.info['parent_config_path'], 'r') as f:
             config = yaml.safe_load(f.read())
             config['handlers']['file_parent']['class'] = 'logging.handlers.TimedRotatingFileHandler'
-            config['handlers']['file_parent']['filename'] = log_file_name
+            config['handlers']['file_parent']['filename'] = self.info['parent_log_file_name']
             config['handlers']['file_parent']['when'] = 'D'  
             config['handlers']['file_parent']['interval'] = 1  
             config['handlers']['file_parent']['backupCount'] = 0  
             config['handlers']['file_parent']['encoding'] = 'utf-8'
+            if self.info['debug_mode']:
+                config['handlers']['console']['level'] = logging.DEBUG
             logging.config.dictConfig(config)
+        self.logger = logging.getLogger(self.info['parent_logger_name'])
 
     def get_parent_file_handlers(self):
-        print(self.logger.handlers)
         for handler in self.logger.handlers:
             if isinstance(handler, (logging.FileHandler, logging.handlers.RotatingFileHandler, logging.handlers.TimedRotatingFileHandler)):
                 return handler

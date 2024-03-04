@@ -71,8 +71,12 @@ class Core():
             logger_name="Jarvis-HEP",
             log_file_name=f"{self.info['project_name']}.log"
         )
+        self.logger.info['debug_mode'] = self.args.debug
+        self.logger.configure_logging()
         self.logger.print_logo()
-        self.logger.logger.info("Loding Jarvis-HEP logging system successful!")
+        self.logger.logger.info("Jarvis-HEP logging system initialized successful!")
+        if self.args.debug:
+            self.logger.logger.info("Jarvis-HEP in debug mode currently!")
         
         # child_logger = self.logger.create_dynamic_logger("Test_Child_Logger", log_file="child.log")
         # self.logger.delete_child_logger("Test_Child_Logger", child_logger)
@@ -87,7 +91,6 @@ class Core():
     def check_init_args(self) -> None:
         try:
             self.args = self.argparser.parse_args()
-            # print(self.args)
         except argparse.ArgumentError as e:
             print(str(e))
             self.argparser.print_help()
