@@ -1,21 +1,50 @@
 #!/usr/bin/env python3
 
 import yaml 
+import platform
 import importlib
 import math 
 import os, sys 
+import re 
+
 
 class ConfigLoader():
     def __init__(self) -> None:
         self.filepath   = None
         self.config     = None
         self.schema     = None
+        self.logger     = None 
+        self.legal      = False 
+        self.summary    = {}
+        self.path       = None 
+
+    def decode_path(self, path) -> None: 
+        """
+        Resolves special markers in the provided path.
+
+        Parameters:
+        - path: The path to be resolved.
+        - jarvis_root: The root directory path of Jarvis.
+
+        Returns:
+        - The resolved full path.
+        """
+        # Replace the Jarvis root directory marker &J
+        if "&J" in path:
+            path = path.replace("&J", self.path['jpath'])
+
+        # Replace the user home directory marker ~
+        if "~" in path:
+            path = os.path.expanduser(path)
+
+        return path        
 
     def set_schema(self, schema) -> None:
         self.schema = schema
 
-    def load_yaml(self, filepath):
+    def load_config(self, filepath):
         try:
+            self.logger.info(f"Start configuring the input file -> {filepath}")
             with open(filepath, 'r') as file:
                 self.config = yaml.safe_load(file)
                 self.filepath = filepath
@@ -23,8 +52,61 @@ class ConfigLoader():
             print(f"Error: loading config file -> {e}")
             sys.exit(2)
 
+    def check_dependency_installed(self) -> None:
+        dependencies = self.config["EnvironmentRequirements"]
+        # Update the environment requirement by default setting 
+        if "Check_default_dependences" in dependencies:
+            self.update_dependences()
+        # Check the system version
+        if "OS" in dependencies:
+            self.check_OS_requirement(dependencies["OS"])
+        # Check the CERN-ROOT setting
+        # if ""
+    
+
+        
+
     def validate_config(self) -> None: 
         validator = ConfigValidator(self.config, self.schema)
+
+    def check_OS_requirement(self, os_requirement) -> None: 
+        def compare_versions(version1, version2):
+            v1 = tuple(map(int, version1.split('.')))
+            v2 = tuple(map(int, version2.split('.')))
+            return v1 >= v2
+        
+        current_os = platform.system()
+        current_version = platform.release()
+        self.summary['OS'] = "{}-{}".format(current_os, current_version)
+
+        os_matched = False
+        for os_req in os_requirement:
+            if os_req['name'].lower() == current_os.lower(): 
+                version_matched = re.match(r">=(\d+(?:\.\d+)?)", os_req['version'])
+                if version_matched:
+                    min_version = version_matched.group(1)
+                    if compare_versions(current_version, min_version):
+                        os_matched = True
+                        self.logger.info(f"{current_os} version {current_version} meets the requirement >= {min_version}.")
+                    else:
+                        os_matched = False
+                        self.logger.critical(f"{current_os} version {current_version} does not meet the requirement >= {min_version}.")
+                break
+        if not os_matched:
+            sys.exit(2)
+
+    def update_dependences(self) -> None:
+        if "required" in self.config['EnvironmentRequirements']['Check_default_dependences'] and "default_yaml_path" in self.config['EnvironmentRequirements']['Check_default_dependences']: 
+            if self.config['EnvironmentRequirements']['Check_default_dependences']['required']:
+                try:
+                    self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path'] = self.decode_path(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path'])
+                    with open(self.decode_path(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']), 'r') as file:
+                        default_env = yaml.safe_load(file)
+                        self.config['EnvironmentRequirements'].update(default_env['EnvironmentRequirements'])
+                        from pprint import pprint
+                except FileExistsError:
+                    self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvironmentRequirements']['default_yaml_path']))
+        self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']))
 
 class ConfigValidator():
     def __init__(self) -> None:

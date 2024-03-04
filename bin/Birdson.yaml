@@ -1,0 +1,59 @@
+Sampling:
+  Variables:
+    - name: X
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 2.0
+          max: 5.0
+          step: 0.3
+
+    - name: Y
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Log
+        parameters:
+          min: 0.01
+          max: 10.0
+          step: 1.0
+
+  min_R: 0.01
+  likelihood: "Gauss(Z, 1, 0.2)"
+  selection: "(2.0 * X < Y)"
+
+Config:
+  scheme: /src/card/preference.json
+
+EnvironmentRequirements:
+  OS: 
+    - name: linux 
+      version: ">=18.04"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+
+SupportingLibrary:
+  OS_required:
+    - linux
+    - Darwin
+  make_paraller: cpu_count
+  root_required: true
+  root_path: "@C root-config --prefix"
+  python_version: 2.7.3
+  package_path: /External/Library
+  include:
+    - Delphes
+    - HepMC
+    - Pythia8
+    - MadGraph
+
+Calculators:
+  package_path: /External/Program
+  make_paraller: 16
+  include:
+    - TestFunction
+    - TestMulti

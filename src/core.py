@@ -16,20 +16,21 @@ import logging
 class Core():
     def __init__(self) -> None:
         # print("Testing the first logging line")
-        self.argparser  = None
-        self.info       = {}
-        self.yaml       = ConfigLoader()
-        self.path = {
-            "jpath":    os.path.abspath(os.path.dirname(__file__))            
+        self.argparser: Any         = None
+        self.info: Dict[str, Any]   = {}
+        self.yaml: ConfigLoader     = ConfigLoader()
+        self.path: Dict[str, str]   = {
+            "jpath":    os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))            
         }
-        
-        self.init_argparser()
-        self.init_logger()
-        self.init_configparser()
+        self.sampler: Any           = None
+        self.factory: Any           = None 
+        self.likelihood: Any        = None 
+        self.logger: AppLogger      = None
+
         
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
-        self.path['args_info'] = os.path.join(self.path['jpath'], "card/argparser.json")
+        self.path['args_info'] = os.path.join(self.path['jpath'], "src/card/argparser.json")
         self.info['args'] = load_args_config(self.path['args_info'])
         
         for pos_arg in self.info['args'].get('positionals', []):
@@ -60,14 +61,12 @@ class Core():
                 self.argparser.add_argument(
                     opt['long'], **kwargs
                 )
-
-        # print(self.path)
         self.check_init_args()
 
     def init_logger(self) -> None:
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
         self.logger = AppLogger(
-            config_path=os.path.join(self.path['jpath'], "card/jarvis_logging_config.yaml"),
+            config_path=os.path.join(self.path['jpath'], "src/card/jarvis_logging_config.yaml"),
             logger_name="Jarvis-HEP",
             log_file_name=f"{self.info['project_name']}.log"
         )
@@ -81,12 +80,12 @@ class Core():
         # child_logger = self.logger.create_dynamic_logger("Test_Child_Logger", log_file="child.log")
         # self.logger.delete_child_logger("Test_Child_Logger", child_logger)
 
-
-
-
     def init_configparser(self) -> None: 
-        self.yaml.load_yaml(os.path.abspath(self.args.file))
-
+        self.yaml.logger = self.logger.create_dynamic_logger("ConfigParser")
+        from copy import deepcopy
+        self.yaml.path = deepcopy(self.path)
+        self.yaml.load_config(os.path.abspath(self.args.file))
+        self.yaml.check_dependency_installed()
 
     def check_init_args(self) -> None:
         try:
@@ -96,6 +95,10 @@ class Core():
             self.argparser.print_help()
             sys.exit(2)
 
+    def initialization(self) -> None:
+        self.init_argparser()
+        self.init_logger()
+        self.init_configparser()
 
 
 

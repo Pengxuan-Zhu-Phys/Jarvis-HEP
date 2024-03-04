@@ -53,7 +53,7 @@ class AppLogger:
         with open(logo_file, 'r') as f1:
             self.logger.warning(f"\n{f1.read()}")
 
-    def create_dynamic_logger(self, logger_name, level=logging.DEBUG, log_file=None):
+    def create_dynamic_logger(self, logger_name, level=logging.WARNING, log_file=None):
         """
         Dynamically creates a logger.
 
@@ -61,6 +61,8 @@ class AppLogger:
         :param level: The logging level for the new logger.
         :param propagate: Whether to allow the log messages to propagate to the parent logger.
         """
+        if self.info['debug_mode']:
+            level = logging.DEBUG
         full_logger_name = f"{self.info['parent_logger_name']}.{logger_name}"
         logger = logging.getLogger(full_logger_name)
         logger.setLevel(level)
@@ -68,14 +70,14 @@ class AppLogger:
 
         if not logger.handlers:
             console_handler = logging.StreamHandler()
-            console_handler.setLevel(logging.WARNING)
-            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s - \n%(message)s")
+            console_handler.setLevel(level)
+            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
         if log_file is not None: 
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(logging.DEBUG)
-            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s - \n%(message)s")
+            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
@@ -86,13 +88,11 @@ class AppLogger:
             backupCount=0,
             encoding='utf-8'
         )
-        formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s - \n%(message)s")
+        formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
         parent_file_handler.setFormatter(formatter)
-        parent_file_handler.setLevel(logging.WARNING)
+        parent_file_handler.setLevel(level)
         logger.addHandler(parent_file_handler)
 
-        print(self.logger.handlers)
-        print(logger.handlers)
         return logger
     
     def delete_child_logger(self, logger_name, clogger):
@@ -100,8 +100,6 @@ class AppLogger:
         if logger_name in logging.root.manager.loggerDict:
             del logging.root.manager.loggerDict[logger_name]
         del clogger
-        print(logging.root.manager.loggerDict)
-
         self.logger.warning(f"Logger is deleted-> {logger_name}")
 
 
