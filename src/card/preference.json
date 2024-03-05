@@ -1,37 +1,9 @@
 {
-    "Sampling method":  {
-        "Dynesty":       "&J/src/card/dynesty.json",
-        "Poisson Disk":  "&J/src/card/possion.json",
-        "Grid":          "&J/src/card/grid.json",
-        "Birdson":       "&J/src/card/birdson.json"
+    "Schema":  {
+        "DynestySchema":       "&J/src/card/dynesty.json",
+        "PoissonSchema":  "&J/src/card/possion.json",
+        "GridSchema":          "&J/src/card/grid.json",
+        "BirdsonSchema":       "&J/src/card/Birdson_schema.json"
     },
-    "parser_default":   {
-        "Scan": {
-            "name":{
-                "type":     "string",
-                "in":       [],
-                "smpset":   true
-            },
-            "save dir": {
-                "type":     "path",
-                "in":       [],
-                "smpset":   true 
-            },
-            "sampling method": {
-                "type":     "string",
-                "in":       [
-                    "Poisson Disk"
-                ],
-                "smpset":   true
-            },
-            "force new run":    {
-                "type":     "bool",
-                "in":       [],
-                "smpset":   true
-            }
-        }
-    },
-    "logo path":    "&J/src/card/logo",
-    "BudingPLOT path":  "~/BudingPlot/Plot",
-    "Plot_input":   "&J/src/card/Jarvis.ini"
+    "logo":    "&J/src/card/logo"
 }

@@ -16,14 +16,16 @@ import time
 from Func_lib import decode_path_from_file
 from random import randint
 import json
+from base import Base
 
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(pwd, "Sampling"))) 
 
 
-class Sampling_method():
+class SamplingVirtial(Base):
     __metaclass__ = ABCMeta
     def __init__(self) -> None:
+        super().__init__()
         self.info           = {}
         self.status         = 'FREE'
         self.runing_card    = None

@@ -29,7 +29,7 @@ EnvironmentRequirements:
       version: ">=3.10"
     - name: pandas
       required: true
-      version: ">=3.10"
+      version: ">=2.1.0"
     - name: matplotlib
       required: true
       version: ">=3.3"

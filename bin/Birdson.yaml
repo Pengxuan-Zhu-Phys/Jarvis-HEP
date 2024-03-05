@@ -1,4 +1,8 @@
+Scan: 
+  name: "Test_Birdson"
+  save_dir: "&J/Results"
 Sampling:
+  Method: "Birdson" 
   Variables:
     - name: X
       description: "Variable X following a Flat distribution for sampling."
@@ -19,11 +23,8 @@ Sampling:
           step: 1.0
 
   min_R: 0.01
-  likelihood: "Gauss(Z, 1, 0.2)"
+  LogLikelihood: "Gauss(Z, 1, 0.2)"
   selection: "(2.0 * X < Y)"
-
-Config:
-  scheme: /src/card/preference.json
 
 EnvironmentRequirements:
   OS: 
@@ -37,14 +38,7 @@ EnvironmentRequirements:
 
 
 SupportingLibrary:
-  OS_required:
-    - linux
-    - Darwin
-  make_paraller: cpu_count
-  root_required: true
-  root_path: "@C root-config --prefix"
-  python_version: 2.7.3
-  package_path: /External/Library
+  path: /External/Library
   include:
     - Delphes
     - HepMC

@@ -12,25 +12,24 @@ import argparse
 from config import ConfigLoader
 from logger import AppLogger
 import logging
+from base import Base
+from sampler import Distributor
 
-class Core():
+class Core(Base):
     def __init__(self) -> None:
         # print("Testing the first logging line")
-        self.argparser: Any         = None
-        self.info: Dict[str, Any]   = {}
-        self.yaml: ConfigLoader     = ConfigLoader()
-        self.path: Dict[str, str]   = {
-            "jpath":    os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))            
-        }
-        self.sampler: Any           = None
-        self.factory: Any           = None 
-        self.likelihood: Any        = None 
-        self.logger: AppLogger      = None
+        super().__init__()
+        self.argparser: Any             = None
+        self.info: Dict[str, Any]       = {}
+        self.yaml: ConfigLoader         = ConfigLoader()
+        self.sampler: Any               = None
+        self.factory: Any               = None 
+        self.likelihood: Any            = None 
+        self.logger: AppLogger          = None
 
         
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
-        self.path['args_info'] = os.path.join(self.path['jpath'], "src/card/argparser.json")
         self.info['args'] = load_args_config(self.path['args_info'])
         
         for pos_arg in self.info['args'].get('positionals', []):
@@ -66,7 +65,7 @@ class Core():
     def init_logger(self) -> None:
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
         self.logger = AppLogger(
-            config_path=os.path.join(self.path['jpath'], "src/card/jarvis_logging_config.yaml"),
+            config_path=self.path['logger_config_path'],
             logger_name="Jarvis-HEP",
             log_file_name=f"{self.info['project_name']}.log"
         )
@@ -86,6 +85,10 @@ class Core():
         self.yaml.path = deepcopy(self.path)
         self.yaml.load_config(os.path.abspath(self.args.file))
         self.yaml.check_dependency_installed()
+        self.sampler = Distributor.set_method(self.yaml.get_sampling_method()) 
+        self.yaml.set_schema(self.sampler.schema)
+        self.yaml.validate_config()
+
 
     def check_init_args(self) -> None:
         try:
@@ -99,6 +102,7 @@ class Core():
         self.init_argparser()
         self.init_logger()
         self.init_configparser()
+
 
 
 

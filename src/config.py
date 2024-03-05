@@ -8,9 +8,14 @@ import os, sys
 import re 
 import subprocess
 import pkg_resources
+from base import Base
+import json
+from jsonschema import validate
+from jsonschema.exceptions import ValidationError
 
-class ConfigLoader():
+class ConfigLoader(Base):
     def __init__(self) -> None:
+        super().__init__()
         self.filepath   = None
         self.config     = None
         self.schema     = None
@@ -19,34 +24,11 @@ class ConfigLoader():
         self.summary    = {}
         self.path       = None 
 
-    def decode_path(self, path) -> None: 
-        """
-        Resolves special markers in the provided path.
-
-        Parameters:
-        - path: The path to be resolved.
-        - jarvis_root: The root directory path of Jarvis.
-
-        Returns:
-        - The resolved full path.
-        """
-        # Replace the Jarvis root directory marker &J
-        if "&J" in path:
-            path = path.replace("&J", self.path['jpath'])
-
-        # Replace the user home directory marker ~
-        if "~" in path:
-            path = os.path.expanduser(path)
-
-        return path        
-
     def get_cmd_output(self, cmd):
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         if result.stderr:
             self.logger.warning("An error happend when excute: \n -> {} \n\t{}".format(cmd, result.stderr))    
         return result.stdout.strip()
-        
-
 
     def set_schema(self, schema) -> None:
         self.schema = schema
@@ -58,7 +40,7 @@ class ConfigLoader():
                 self.config = yaml.safe_load(file)
                 self.filepath = filepath
         except Exception as e: 
-            print(f"Error: loading config file -> {e}")
+            self.logger.error(f"Error: loading config file -> {e}")
             sys.exit(2)
 
     def check_dependency_installed(self) -> None:
@@ -75,14 +57,24 @@ class ConfigLoader():
         # Check the Python Dependences 
         if "Python" in dependencies:
             self.check_PYTHON_env()
-
-        print(self.summary)
-    
-
         
+        # from pprint import pprint
+        # pprint(self.summary)
+    
+    def get_sampling_method(self) -> str:
+        try: 
+            return self.config['Sampling']['Method']
+        except:
+            self.logger.error(f"Iegal configparser file, No Sampling method founded -> {self.filepath}")
+            sys.exit(2)
+
 
     def validate_config(self) -> None: 
-        validator = ConfigValidator(self.config, self.schema)
+        validator = ConfigValidator()
+        validator.logger = self.logger
+        validator.set_config(self.config)
+        validator.set_schema(self.schema)
+        validator.validate_yaml()
 
     def check_PYTHON_env(self) -> None: 
         py_env = self.config['EnvironmentRequirements']['Python']
@@ -94,7 +86,6 @@ class ConfigLoader():
         def check_package_requirement(name, required, min_version):
             try:
                 dist = pkg_resources.get_distribution(name)
-                print(dist, min_version)
                 if pkg_resources.parse_version(dist.version) >= pkg_resources.parse_version(min_version):
                     self.logger.info(f"{name} is found, version: {dist.version} meets the requirement")
                     self.summary[name] = dist.version
@@ -132,7 +123,6 @@ class ConfigLoader():
                     check_package_requirement(lib['name'], lib['required'], min_version)
                 except:
                     self.logger.warning("Python library {} checking un-successful!")
-
 
     def check_ROOT(self) -> None:
         def compare_versions(version1, version2):
@@ -187,8 +177,6 @@ class ConfigLoader():
                 sys.exit(2)
             else:
                 self.logger.info("CERN ROOT meets the requirements!")
-            from pprint import pprint
-            pprint(self.summary)
 
     def check_OS_requirement(self, os_requirement) -> None: 
         def compare_versions(version1, version2):
@@ -231,6 +219,7 @@ class ConfigLoader():
 
 class ConfigValidator():
     def __init__(self) -> None:
+        self.logger = None
         self.config = None
         self.schema = None
         self.passcheck = False
@@ -239,25 +228,20 @@ class ConfigValidator():
         self.config = config
 
     def set_schema(self, schema):
-        self.schema = schema
+        with open(schema, 'r') as file:
+            self.schema = json.load(file)
 
-    def validate(self):
+    def validate_yaml(self):
         if self.config is None or self.schema is None:
-            print("Error: Config or schema not set.")
+            self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
-        
-        missing_sections = [section for section in self.schema if section not in self.config]
-        if missing_sections:
-            print(f"配置文件缺少必需的部分: {missing_sections}")
-            return False
-        
-        for section, params in self.schema.items():
-            missing_params = [param for param in params if param not in self.config.get(section, {})]
-            if missing_params:
-                print(f"在 '{section}' 部分缺少参数: {missing_params}")
-                return False
-        
-        self.passcheck = True
+        try:
+            validate(instance=self.config, schema=self.schema)
+            self.logger.warning("Validation successful. The input YAML file meets the schema requirement.")
+            self.passcheck = True
+        except ValidationError as e:
+            self.logger.error(f"Validation error: {e.message}")
+                    
 
 class ConfigTemplateGenerator():
     def __init__(self) -> None:

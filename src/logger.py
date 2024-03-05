@@ -11,13 +11,14 @@ import logging.config
 import time 
 from program import Pack
 import yaml
+from base import Base
 
-jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.abspath(os.path.join(pwd, "Sampling"))) 
 
-class AppLogger:
+class AppLogger(Base):
     def __init__(self, config_path=os.path.join(pwd, 'card/jarvis_logging_config.yaml'), logger_name='Jarvis', log_file_name="Jarvis.log"):
+        super().__init__()
         self.info = {
             "parent_logger_name":   logger_name,
             "parent_logger_handler": None,
@@ -49,8 +50,8 @@ class AppLogger:
     def get_logger(self):
         return self.logger
     
-    def print_logo(self, logo_file=os.path.join(pwd, "card/logo")):
-        with open(logo_file, 'r') as f1:
+    def print_logo(self):
+        with open(self.path['logo'], 'r') as f1:
             self.logger.warning(f"\n{f1.read()}")
 
     def create_dynamic_logger(self, logger_name, level=logging.WARNING, log_file=None):
