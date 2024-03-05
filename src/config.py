@@ -6,7 +6,8 @@ import importlib
 import math 
 import os, sys 
 import re 
-
+import subprocess
+import pkg_resources
 
 class ConfigLoader():
     def __init__(self) -> None:
@@ -39,6 +40,14 @@ class ConfigLoader():
 
         return path        
 
+    def get_cmd_output(self, cmd):
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        if result.stderr:
+            self.logger.warning("An error happend when excute: \n -> {} \n\t{}".format(cmd, result.stderr))    
+        return result.stdout.strip()
+        
+
+
     def set_schema(self, schema) -> None:
         self.schema = schema
 
@@ -61,13 +70,125 @@ class ConfigLoader():
         if "OS" in dependencies:
             self.check_OS_requirement(dependencies["OS"])
         # Check the CERN-ROOT setting
-        # if ""
+        if "CERN_ROOT" in dependencies:
+            self.check_ROOT()
+        # Check the Python Dependences 
+        if "Python" in dependencies:
+            self.check_PYTHON_env()
+
+        print(self.summary)
     
 
         
 
     def validate_config(self) -> None: 
         validator = ConfigValidator(self.config, self.schema)
+
+    def check_PYTHON_env(self) -> None: 
+        py_env = self.config['EnvironmentRequirements']['Python']
+        def compare_versions(version1, version2):
+            v1 = tuple(map(int, version1.split('.')))
+            v2 = tuple(map(int, version2.split('.')))
+            return v1 >= v2
+        
+        def check_package_requirement(name, required, min_version):
+            try:
+                dist = pkg_resources.get_distribution(name)
+                print(dist, min_version)
+                if pkg_resources.parse_version(dist.version) >= pkg_resources.parse_version(min_version):
+                    self.logger.info(f"{name} is found, version: {dist.version} meets the requirement")
+                    self.summary[name] = dist.version
+                else:
+                    self.logger.info(f"{name} version: {dist.version} is installed but does not meet the requirement")
+                    subprocess.run(f"python -m pip install --upgrade {name} --user", shell=True)
+                    dist = pkg_resources.get_distribution(name)
+                    self.logger.warning(f"Jarvis-HEP is trying to upgrade {name}, please check the current version")
+                    self.summary[name] = dist.version
+            except pkg_resources.DistributionNotFound:
+                if required:
+                    self.logger.warning(f"{name} is required but not installed, Jarvis-HEP is trying to install it via pip")
+                    subprocess.run(f"python -m pip install {name}", shell=True)
+                    self.summary[name] = dist.version
+                else:
+                    self.logger.warning(f"{name} is optional and not installed")
+                    self.summary[name] = None
+       
+        vf = sys.version_info
+        py_version = f"{vf.major}.{vf.minor}.{vf.micro}"
+        version_matched = re.match(r">=(\d+(?:\.\d+)?)", py_env['version'])
+        if version_matched:
+            min_version = version_matched.group(1)
+            if compare_versions(py_version, min_version):
+                self.summary["Python version"] = py_version
+                self.logger.info(f"Python-{py_version} found.")
+            else:
+                self.logger.error(f"Python-{py_version} version does not meet the requirement >= {min_version}.")
+                sys.exit(2)
+        
+        if "Dependencies" in py_env:
+            for lib in py_env["Dependencies"]:
+                try:
+                    min_version = re.match(r">=(\d+(?:\.\d+)?)", lib['version']).group(1)
+                    check_package_requirement(lib['name'], lib['required'], min_version)
+                except:
+                    self.logger.warning("Python library {} checking un-successful!")
+
+
+    def check_ROOT(self) -> None:
+        def compare_versions(version1, version2):
+            v1 = tuple(map(int, version1.split('.')))
+            v2 = tuple(map(int, version2.split('.')))
+            return v1 >= v2
+        
+        root_req = self.config['EnvironmentRequirements']['CERN_ROOT']
+        if root_req['required']:
+            try:
+                result = subprocess.run("root-config --version", shell=True, capture_output=True, text=True)
+                self.summary['ROOT'] = True
+            except subprocess.CalledProcessError:
+                self.logger.error("CERN ROOT is not installed or root-config is not in the PATH")
+                self.summary['ROOT'] = False
+            except FileNotFoundError:
+                self.logger.error("CERN ROOT is not installed or root-config is not in the PATH")
+                self.summary['ROOT'] = False
+
+            if self.summary['ROOT']:
+                if "get_path_command" in root_req:
+                    root_prefix = self.get_cmd_output(root_req['get_path_command'])
+                elif "path" in root_req:
+                    root_prefix = self.decode_path(root_req['path'])
+                self.summary['ROOT path'] = root_prefix
+
+                if "version" in root_req:
+                    root_version = self.get_cmd_output("root-config --version")
+                    version_matched = re.match(r">=(\d+(?:\.\d+)?)", root_req['version'])
+                    if version_matched:
+                        min_version = version_matched.group(1)
+                        if compare_versions(root_version, min_version):
+                            self.summary["ROOT version"] = root_version
+                            self.logger.info(f"CERN ROOT-{root_version} found.")
+                        else:
+                            self.logger.error(f"ROOT Version-{root_version} version does not meet the requirement >= {min_version}.")
+                            sys.exit(2)
+                
+                if "Dependencies" in root_req:
+                    for dep in root_req['Dependencies']:
+                        if dep['required']:
+                            result = subprocess.run(dep['check_command'], shell=True, capture_output=True, text=True)
+                            if not result.stdout.strip() == dep['expected_output']:
+                                self.logger.error("ROOT-{} not founded, please check the CERN ROOT installation".format(dep['name']))
+                                self.summary['ROOT-{}'.format(dep['name'])] = False
+                                self.summary['ROOT'] = False
+                            else:
+                                self.summary['ROOT-{}'.format(dep['name'])] = True 
+
+            if not self.summary['ROOT']:
+                self.logger.error("ROOT installation is not meeting the requirements!")
+                sys.exit(2)
+            else:
+                self.logger.info("CERN ROOT meets the requirements!")
+            from pprint import pprint
+            pprint(self.summary)
 
     def check_OS_requirement(self, os_requirement) -> None: 
         def compare_versions(version1, version2):
