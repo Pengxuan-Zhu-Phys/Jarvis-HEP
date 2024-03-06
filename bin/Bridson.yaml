@@ -1,8 +1,8 @@
 Scan: 
-  name: "Test_Birdson"
+  name: "Test_Bridson"
   save_dir: "&J/Results"
 Sampling:
-  Method: "Birdson" 
+  Method: "Bridson" 
   Variables:
     - name: X
       description: "Variable X following a Flat distribution for sampling."
@@ -11,7 +11,7 @@ Sampling:
         parameters:
           min: 2.0
           max: 5.0
-          step: 0.3
+          length: 60
 
     - name: Y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -20,9 +20,10 @@ Sampling:
         parameters:
           min: 0.01
           max: 10.0
-          step: 1.0
+          length: 100
 
-  min_R: 0.01
+  Radius: 1.0
+  MaxAttempt:  30
   LogLikelihood: "Gauss(Z, 1, 0.2)"
   selection: "(2.0 * X < Y)"
 

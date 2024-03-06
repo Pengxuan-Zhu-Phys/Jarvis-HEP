@@ -15,7 +15,7 @@ from sympy.geometry import parabola
 import time 
 from Func_lib import decode_path_from_file
 from random import randint
-from sampling import Sampling_method
+from Sampling.sampler import Sampling_method
 import json
 
 class Annealing(Sampling_method):

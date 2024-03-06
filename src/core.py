@@ -13,7 +13,9 @@ from config import ConfigLoader
 from logger import AppLogger
 import logging
 from base import Base
-from sampler import Distributor
+from distributor import Distributor
+import dill 
+from threading import Timer
 
 class Core(Base):
     def __init__(self) -> None:
@@ -26,6 +28,7 @@ class Core(Base):
         self.factory: Any               = None 
         self.likelihood: Any            = None 
         self.logger: AppLogger          = None
+        self.__state_saver              = None
 
         
     def init_argparser(self) -> None:
@@ -89,6 +92,26 @@ class Core(Base):
         self.yaml.set_schema(self.sampler.schema)
         self.yaml.validate_config()
 
+    def init_StateSaver(self) -> None:
+        logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
+        logger.warning("Enabling breakpoint resume function ... ")
+        filename = f"{self.info['project_name']}.pkl"
+        self.__state_saver = self.__StateSaver(self, filename=filename, logger=logger, save_interval_seconds=30)
+
+    def init_sampler(self) -> None:
+        self.sampler.set_config(self.yaml.config)
+        logger = self.logger.create_dynamic_logger(self.sampler.method)
+        self.sampler.set_logger(logger)
+
+    def initialization(self) -> None:
+        self.init_argparser()
+        self.init_logger()
+        self.init_configparser()
+        self.init_StateSaver()
+        self.init_sampler()
+
+
+
 
     def check_init_args(self) -> None:
         try:
@@ -98,12 +121,48 @@ class Core(Base):
             self.argparser.print_help()
             sys.exit(2)
 
-    def initialization(self) -> None:
-        self.init_argparser()
-        self.init_logger()
-        self.init_configparser()
 
 
+
+    class __StateSaver:
+        def __init__(self, 
+                     obj, 
+                     filename='my_object.pkl', 
+                     save_interval_seconds=30, 
+                     logger=logging.getLogger('MyClassStateSaver')
+            ):
+            self.obj = obj  # Save the outside object 
+            self.filename = os.path.abspath(filename)
+            self.save_interval_seconds = save_interval_seconds
+            self.logger = logger
+            self.timer = None
+            self.start_auto_save()
+            self.logger.warning(f"Started successfully, Jarvis-HEP create the storage station -> {self.filename}")
+
+        def save_state(self):
+            try:
+                with open(self.filename, 'wb') as f:
+                    dill.dump(self.obj, f)
+                self.logger.info(f"Progress has been saved to hard disk space -> {self.filename}")
+            except Exception as e:
+                self.logger.error(f"Failed to save state: {e}")
+
+        def start_auto_save(self):
+            """Start auto saving mission"""
+            self.timer = Timer(self.save_interval_seconds, self.auto_save)
+            self.timer.daemon = True
+            self.timer.start()
+
+        def auto_save(self):
+            """Auto saving the object, and restart the timer"""
+            self.save_state()
+            self.start_auto_save()  # save the state, restart the auto save 
+
+        def stop_auto_save(self):
+            """Stop auto saving method"""
+            if self.timer is not None:
+                self.timer.cancel()
+                self.timer = None
 
 
 

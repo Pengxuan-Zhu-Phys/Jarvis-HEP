@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Test Multi-mode Programs
-# Used by the bin/test_birdson.ini
+# Used by the bin/test_bridson.ini
 # Xuan, 2019.01.23
 from os import path
 from numpy import loadtxt, sin, cos

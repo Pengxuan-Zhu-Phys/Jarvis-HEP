@@ -17,7 +17,7 @@ import json
 import pandas as pd
 from re import S
 from dynesty import *
-from sampling import Sampling_method
+from Sampling.sampler import Sampling_method
 from random import randint
 from Func_lib import decode_path_from_file
 from sympy.geometry import parabola

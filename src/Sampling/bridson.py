@@ -1,17 +1,84 @@
 #!/usr/bin/env python3 
-# Poisson disc sampling in arbitrary dimensions via Bridson algorithm
-# Implementation by Pavel Zun, pavel.zun@gmail.com
-# BSD licence - https://github.com/diregoblin/poisson_disc_sampling
-
-# -----------------------------------------------------------------------------
-# Based on 2D sampling by Nicolas P. Rougier - https://github.com/rougier/numpy-book
-# -----------------------------------------------------------------------------
-
+from calendar import day_name
+from lib2to3.pgen2.token import RPAR
+import logging
+import os, sys
+from re import S 
+from abc import ABCMeta, abstractmethod
+from mpmath.functions.functions import re
 import numpy as np
+import pandas as pd 
+from numpy.lib.function_base import meshgrid
+from pandas.core.series import Series
+from sympy import sympify
+from sympy.geometry import parabola
+import time 
+from Func_lib import decode_path_from_file
+from random import randint
+from Sampling.sampler import SamplingVirtial
+import json
 from scipy.special import gammainc
 
-# Uniform sampling in a hyperspere
-# Based on Matlab implementation by Roger Stafford
+class Bridson(SamplingVirtial):
+    def __init__(self) -> None:
+        super().__init__()
+        self.load_schema_file()
+        self.method = "Bridson"
+
+    def load_schema_file(self):
+        self.schema = self.path['BridsonSchema']
+
+    def set_config(self, config_info) -> None:
+        self.config = config_info
+        self.init_generator()
+
+    def __iter__(self):
+        self.active_list = [np.random.uniform(np.zeros(self.dims.size), self.dims)]
+        self.samples = []
+        self.grid = self.initialize_grid()
+        return self
+
+    def __next__(self):
+        if not self.active_list:
+            raise StopIteration
+        # Sampling logic here, modifying to yield a sample at a time
+        point = self.active_list.pop()
+        new_points = self.generate_points_around(point)
+        for new_point in new_points:
+            if self.is_valid_point(new_point):
+                self.active_list.append(new_point)
+                self.samples.append(new_point)
+                return new_point
+        raise StopIteration
+
+    def set_logger(self, logger) -> None:
+        super().set_logger(logger)
+        self.logger.warning("Sampling method initializaing ...")
+
+    def init_generator(self):
+        self.load_variable()
+        self._radius = self.config['Sampling']['Radius']
+        self._k = self.config['Sampling']['MaxAttempt']
+        self._dimensions = len(self.vars)
+
+        # ps2d = Bridson_sampling(np.array([15, 15, 15, 15, 15]), radius=1.0, k=30, hypersphere_sample=hypersphere_surface_sample)
+
+        # print(self._k, self._ndim, self._radius)
+        # from pprint import pprint
+        # for var in self.vars:
+        #     pprint(var.parameters)
+
+    def generate_point(self):
+        self.logger.warning 
+        dims = np.array([var.parameters["length"] for var in self.vars])
+        print(dims)
+        
+
+
+
+
+
+
 # Can be optimized for Bridson algorithm by excluding all points within the r/2 sphere
 def hypersphere_volume_sample(center,radius,k=1):
     ndim = center.size
@@ -102,5 +169,6 @@ def Bridson_sampling(dims=np.array([1.0,1.0]), radius=0.05, k=30, hypersphere_sa
 if __name__ == "__main__":
     import time 
     start = time.time()
-    ps2d = Bridson_sampling(np.array([15, 15, 15, 15, 15]), radius=1.0, k=30, hypersphere_sample=hypersphere_surface_sample)
     print(time.time() - start, ps2d.shape)
+
+

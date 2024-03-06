@@ -2,7 +2,7 @@
 
 import os
 import sys
-from sampling import Sampling_method
+from Sampling.sampler import Sampling_method
 from random import randint
 import numpy as np
 import pandas as pd

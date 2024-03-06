@@ -138,7 +138,8 @@
                                                     },
                                                     "required": [
                                                         "location",
-                                                        "scale"
+                                                        "scale",
+                                                        "length"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -167,7 +168,8 @@
                                                     },
                                                     "required": [
                                                         "mean",
-                                                        "stddev"
+                                                        "stddev",
+                                                        "length"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -196,153 +198,8 @@
                                                     },
                                                     "required": [
                                                         "mean",
-                                                        "stddev"
-                                                    ],
-                                                    "additionalProperties": false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "if": {
-                                            "properties": {
-                                                "type": {
-                                                    "const": "Binomial"
-                                                }
-                                            }
-                                        },
-                                        "then": {
-                                            "properties": {
-                                                "parameters": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "n": {
-                                                            "type": "integer",
-                                                            "minimum": 1
-                                                        },
-                                                        "p": {
-                                                            "type": "number",
-                                                            "minimum": 0,
-                                                            "maximum": 1
-                                                        }
-                                                    },
-                                                    "required": [
-                                                        "n",
-                                                        "p"
-                                                    ],
-                                                    "additionalProperties": false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "if": {
-                                            "properties": {
-                                                "type": {
-                                                    "const": "Poisson"
-                                                }
-                                            }
-                                        },
-                                        "then": {
-                                            "properties": {
-                                                "parameters": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "lambda": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        }
-                                                    },
-                                                    "required": [
-                                                        "lambda"
-                                                    ],
-                                                    "additionalProperties": false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "if": {
-                                            "properties": {
-                                                "type": {
-                                                    "const": "Beta"
-                                                }
-                                            }
-                                        },
-                                        "then": {
-                                            "properties": {
-                                                "parameters": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "alpha": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        },
-                                                        "beta": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        }
-                                                    },
-                                                    "required": [
-                                                        "alpha",
-                                                        "beta"
-                                                    ],
-                                                    "additionalProperties": false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "if": {
-                                            "properties": {
-                                                "type": {
-                                                    "const": "Exponential"
-                                                }
-                                            }
-                                        },
-                                        "then": {
-                                            "properties": {
-                                                "parameters": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "rate": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        }
-                                                    },
-                                                    "required": [
-                                                        "rate"
-                                                    ],
-                                                    "additionalProperties": false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    {
-                                        "if": {
-                                            "properties": {
-                                                "type": {
-                                                    "const": "Gamma"
-                                                }
-                                            }
-                                        },
-                                        "then": {
-                                            "properties": {
-                                                "parameters": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "shape": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        },
-                                                        "scale": {
-                                                            "type": "number",
-                                                            "minimum": 0
-                                                        }
-                                                    },
-                                                    "required": [
-                                                        "shape",
-                                                        "scale"
+                                                        "stddev",
+                                                        "length"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -356,7 +213,8 @@
                             "name",
                             "description",
                             "distribution"
-                        ]
+                        ],
+                        "additionalProperties": false
                     }
                 },
                 "Radius": {

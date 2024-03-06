@@ -11,3 +11,5 @@ src/__pycache__/
 cmdRun.py
 *.log 
 scanRun.py 
+*.pkl 
+py.py 
