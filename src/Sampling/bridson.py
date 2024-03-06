@@ -68,11 +68,23 @@ class Bridson(SamplingVirtial):
         # for var in self.vars:
         #     pprint(var.parameters)
 
-    def generate_point(self):
-        self.logger.warning 
-        dims = np.array([var.parameters["length"] for var in self.vars])
-        print(dims)
-        
+    def initialize(self):
+        self.logger.warning("Initializing the Bridson Sampling")
+        if self._dimensions < 2 or self._dimensions >= 5:
+            self.logger.error("Bridson Sampling Algorithm only support 2d to 4d parameter space.")
+            sys.exit(2)
+        try:
+            t0 = time.time()
+            dims = np.array([var.parameters["length"] for var in self.vars])
+            self._P = Bridson_sampling(
+                dims=dims, radius=self._radius, k=self._k, hypersphere_sample=hypersphere_surface_sample
+            )
+            self.info["NSamples"] = self._P.shape[0]
+            self.info["t0"]       = time.time() - t0 
+            self.logger.info("Bridson Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
+        except:
+            self.logger.error("Bridson Sampler meets error when trying to scan the parameter space.")
+            sys.exit(2)
 
 
 
@@ -166,9 +178,5 @@ def Bridson_sampling(dims=np.array([1.0,1.0]), radius=0.05, k=30, hypersphere_sa
                 add_point(q)
     return P[~np.isnan(P).any(axis=ndim)]
 
-if __name__ == "__main__":
-    import time 
-    start = time.time()
-    print(time.time() - start, ps2d.shape)
 
 

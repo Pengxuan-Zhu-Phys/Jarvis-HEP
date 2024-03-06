@@ -102,6 +102,7 @@ class Core(Base):
         self.sampler.set_config(self.yaml.config)
         logger = self.logger.create_dynamic_logger(self.sampler.method)
         self.sampler.set_logger(logger)
+        self.sampler.initialize()
 
     def initialization(self) -> None:
         self.init_argparser()
