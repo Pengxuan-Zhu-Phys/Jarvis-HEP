@@ -29,7 +29,7 @@ class Base():
         # Replace the user home directory marker ~
         if "~" in path:
             path = os.path.expanduser(path)
-
+        
         return path  
 
     def load_schema_paths(self) -> None:

@@ -4,7 +4,7 @@ Scan:
 Sampling:
   Method: "Bridson" 
   Variables:
-    - name: X
+    - name: mn1
       description: "Variable X following a Flat distribution for sampling."
       distribution:
         type: Flat
@@ -13,14 +13,14 @@ Sampling:
           max: 5.0
           length: 60
 
-    - name: Y
+    - name: msmuR
       description: "Variable Y following a Logarithmic distribution for sampling."
       distribution:
         type: Log
         parameters:
           min: 0.01
           max: 10.0
-          length: 100
+          length: 50
 
   Radius: 1.0
   MaxAttempt:  30
@@ -39,16 +39,135 @@ EnvironmentRequirements:
 
 
 SupportingLibrary:
-  path: /External/Library
-  include:
-    - Delphes
-    - HepMC
-    - Pythia8
-    - MadGraph
+  path: "&J/External/Library"
+  make_paraller: 16
+  Modules:
+    - name: "Delphes"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/Delphes"
+        source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf Delphes*"
+          - "cp ${source} ./"
+          - "tar -xzf Delphes-3.5.0.tar.gz"
+          - "mv -T ./Delphes-3.5.0 ${path}"
+          - "cd ${path}"
+          - "source @{ROOT path}/bin/thisroot.sh"
+          - "./configure"
+          - "make -j${SupportingLibrary:make_paraller}"
+
+    - name: "HepMC"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/HepMC"
+        source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf HepMC*"
+          - "cp ${source} ./"
+          - "tar -xzf HepMC-2.06.09.tar.gz"
+          - "cd ${SupportingLibrary:path}/HepMC-2.06.09"
+          - "./bootstrap"
+          - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
+    - name: "Pythia8"
+      required_modules: 
+        - "HepMC"
+      installed: False
+      installation:
+        path: "&J/External/Library/Pythia8"
+        source: "&J/External/Library/Source/pythia8230.tgz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "mkdir Pythia8"
+          - "cd ${SupportingLibrary:path}/Source"
+          - "tar -zxvf pythia8230.tgz"
+          - "cd ${SupportingLibrary:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${SupportingLibrary:path}/HepMC --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
 
 Calculators:
-  package_path: /External/Program
   make_paraller: 16
-  include:
-    - TestFunction
-    - TestMulti
+  path: "&J/Workshop/Program"
+  Modules:
+    - name: SUSYHIT
+      required_modules: [] 
+      clone_shadow: True
+      path: &susyhit_path "&J/WorkShop/Program/susyhit/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/susyhit"
+      installation:
+          - "cp ${source}/susyhit.tar.gz ${path}"
+          - "cd ${path}"
+          - "tar -zxvf susyhit.tar.gz"
+          - "make -j${Calculators:make_paraller}"
+      initialization:
+          - "cp ${Calculators:source}/susyhit.in ${path}"
+          - "make"
+          - "cp ${Calculators:source}/slhaspectrum.in ${path}"
+      execution:
+        path: *susyhit_path  # using the Anchor point
+        commands:
+          - "rm susyhit_slha.out"
+          - "./run slhaspectrum.in"
+        input:
+          - name: input_file
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            variables:
+              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
+              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+            save: true
+        output:
+          - name: output_file
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: False
+            variables:
+              - { name: WSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: WSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: WSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: WSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+
+    - name: XSect_Smuon
+      required_modules: ["SUSYHIT"] # Assuming SUSYHIT is a required module
+      clone_shadow: False
+      path: "&J/External/Library/XSect_SmuonR"
+      source: "&J/External/Library/Source/smuonR_pair/smuonR_pair.dat"
+      installation:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf XSect_SmuonR*"
+          - "cp ${source} ./"
+          - "tar -xzf smuonR_pair.dat"
+          - "cd ${SupportingLibrary:path}/XSect_SmuonR"
+          - "./configure"
+          - "make -j${Calculators:make_paraller}"
+      initialization: []
+      execution:
+        path: "${XSect_SmuonR:path}"
+        commands:
+          - "rm -rf Events/*"
+          - "./run simulation"
+        input:
+          - name: input_file
+            path: "${XSect_SmuonR:path}/input.dat"
+            save: False
+            type: "Json" 
+            variables:
+              - name: msmuR
+                method: Replace
+                placeholder: ">>>>MSLEP<<<<"
+        output:
+          - name: output_file
+            path: "${XSect_SmuonR:installation:path}/output.txt"
+            variables: []
+            type: "text"
+            save: False
+

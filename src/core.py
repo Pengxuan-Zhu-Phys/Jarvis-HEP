@@ -16,6 +16,8 @@ from base import Base
 from distributor import Distributor
 import dill 
 from threading import Timer
+from library import Library
+from workflow import Workflow
 
 class Core(Base):
     def __init__(self) -> None:
@@ -25,6 +27,7 @@ class Core(Base):
         self.info: Dict[str, Any]       = {}
         self.yaml: ConfigLoader         = ConfigLoader()
         self.sampler: Any               = None
+        self.libraries: Any             = None
         self.factory: Any               = None 
         self.likelihood: Any            = None 
         self.logger: AppLogger          = None
@@ -96,13 +99,35 @@ class Core(Base):
         logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
         logger.warning("Enabling breakpoint resume function ... ")
         filename = f"{self.info['project_name']}.pkl"
-        self.__state_saver = self.__StateSaver(self, filename=filename, logger=logger, save_interval_seconds=30)
+        self.__state_saver = self.__StateSaver(self, filename=filename, logger=logger, save_interval_seconds=60)
 
     def init_sampler(self) -> None:
         self.sampler.set_config(self.yaml.config)
         logger = self.logger.create_dynamic_logger(self.sampler.method)
         self.sampler.set_logger(logger)
         self.sampler.initialize()
+        self.yaml.vars = self.sampler.vars 
+
+    def init_librarys(self) -> None:
+        # print(self.yaml.config['SupportingLibrary'])
+        self.libraries = Library()
+        logger = self.logger.create_dynamic_logger("Library", logging.INFO)
+        self.libraries.set_logger(logger)
+
+    def init_workflow(self) -> None: 
+        self.workflow = Workflow()
+        modules = self.yaml.get_modules()
+        self.workflow.set_modules(modules)
+        self.workflow.resolve_dependencies()
+        # self.workflow.analyze()
+        
+
+
+
+    def init_WorkerFactory(self) -> None: 
+        pass 
+
+
 
     def initialization(self) -> None:
         self.init_argparser()
@@ -110,6 +135,9 @@ class Core(Base):
         self.init_configparser()
         self.init_StateSaver()
         self.init_sampler()
+        self.init_librarys()
+        self.init_workflow()
+        self.init_WorkerFactory()
 
 
 

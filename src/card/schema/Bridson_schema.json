@@ -1,5 +1,130 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "initialization": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "execution": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "input": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "variables": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "method": {
+                                            "type": "string"
+                                        },
+                                        "placeholder": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "method",
+                                        "placeholder"
+                                    ]
+                                }
+                            },
+                            "save": {
+                                "type": "boolean"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "path",
+                            "variables",
+                            "save",
+                            "type"
+                        ]
+                    }
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "variables": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "method": {
+                                            "type": "string"
+                                        },
+                                        "block": {
+                                            "type": "string"
+                                        },
+                                        "id": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "method",
+                                        "block",
+                                        "id"
+                                    ]
+                                }
+                            },
+                            "save": {
+                                "type": "boolean"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "path",
+                            "variables",
+                            "save",
+                            "type"
+                        ]
+                    }
+                }
+            },
+            "required": ["path", "commands", "input", "output"]
+        }
+    },
     "type": "object",
     "properties": {
         "Scan": {
@@ -12,10 +137,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "name",
-                "save_dir"
-            ],
+            "required": ["name", "save_dir"],
             "additionalProperties": false
         },
         "Sampling": {
@@ -45,10 +167,7 @@
                                         "type": "object"
                                     }
                                 },
-                                "required": [
-                                    "type",
-                                    "parameters"
-                                ],
+                                "required": ["type", "parameters"],
                                 "allOf": [
                                     {
                                         "if": {
@@ -209,11 +328,7 @@
                                 ]
                             }
                         },
-                        "required": [
-                            "name",
-                            "description",
-                            "distribution"
-                        ],
+                        "required": ["name", "description", "distribution"],
                         "additionalProperties": false
                     }
                 },
@@ -230,10 +345,7 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "Variables",
-                "LogLikelihood"
-            ],
+            "required": ["Variables", "LogLikelihood"],
             "additionalProperties": false
         },
         "EnvironmentRequirements": {
@@ -251,10 +363,7 @@
                                 "type": "string"
                             }
                         },
-                        "required": [
-                            "name",
-                            "version"
-                        ],
+                        "required": ["name", "version"],
                         "additionalProperties": false
                     }
                 },
@@ -268,10 +377,7 @@
                             "type": "string"
                         }
                     },
-                    "required": [
-                        "required",
-                        "default_yaml_path"
-                    ],
+                    "required": ["required", "default_yaml_path"],
                     "additionalProperties": false
                 },
                 "CERN_ROOT": {
@@ -342,33 +448,161 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": [
-                                    "name",
-                                    "required",
-                                    "version"
-                                ]
+                                "required": ["name", "required", "version"]
                             }
                         }
                     },
-                    "required": [
-                        "version",
-                        "Dependencies"
-                    ]
+                    "required": ["version", "Dependencies"]
                 }
             },
-            "required": [
-                "OS",
-                "CERN_ROOT",
-                "Python"
-            ],
+            "required": ["OS", "CERN_ROOT", "Python"],
             "additionalProperties": true
+        },
+        "Calculators": {
+            "type": "object",
+            "properties": {
+                "make_paraller": {
+                    "type": "integer"
+                },
+                "Modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "required_modules": {
+                                "oneOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            },
+                            "clone_shadow": {
+                                "type": "boolean"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "source": {
+                                "type": "string"
+                            },
+                            "installation": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "required_modules",
+                            "clone_shadow",
+                            "installation"
+                        ],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "modes": {
+                                        "type": "object",
+                                        "patternProperties": {
+                                            "^[a-zA-Z0-9]+$": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "initialization": {
+                                                        "$ref": "#/definitions/initialization"
+                                                    },
+                                                    "execution": {
+                                                        "$ref": "#/definitions/execution"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "initialization",
+                                                    "execution"
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "required": ["modes"]
+                            },
+                            {
+                                "properties": {
+                                    "initialization": {
+                                        "$ref": "#/definitions/initialization"
+                                    },
+                                    "execution": {
+                                        "$ref": "#/definitions/execution"
+                                    }
+                                },
+                                "required": ["initialization", "execution"]
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": ["make_paraller", "Modules"]
+        },
+        "SupportingLibrary": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "make_paraller": {
+                    "type": "integer"
+                },
+                "Modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "required_modules": {
+                                "type": ["array", "null"],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "installed": {
+                                "type": "boolean"
+                            },
+                            "installation": {
+                                "type": "object",
+                                "properties": {
+                                    "path": { "type": "string" },
+                                    "source": { "type": "string" },
+                                    "commands": {
+                                        "type": "array",
+                                        "items": { "type": "string" },
+                                        "minItems": 1
+                                    }
+                                },
+                                "required": ["path", "source", "commands"]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "required_modules",
+                            "installed",
+                            "installation"
+                        ]
+                    }
+                }
+            },
+            "required": ["path", "make_paraller", "Modules"]
         }
     },
-    "required": [
-        "Scan",
-        "Sampling",
-        "EnvironmentRequirements",
-        "Calculators"
-    ],
+    "required": ["Scan", "Sampling", "EnvironmentRequirements", "Calculators"],
     "additionalProperties": true
 }

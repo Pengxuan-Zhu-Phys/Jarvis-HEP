@@ -12,6 +12,8 @@ from base import Base
 import json
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
+from module import Module
+from pprint import pprint
 
 class ConfigLoader(Base):
     def __init__(self) -> None:
@@ -67,7 +69,6 @@ class ConfigLoader(Base):
         except:
             self.logger.error(f"Iegal configparser file, No Sampling method founded -> {self.filepath}")
             sys.exit(2)
-
 
     def validate_config(self) -> None: 
         validator = ConfigValidator()
@@ -217,6 +218,168 @@ class ConfigLoader(Base):
                     self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvironmentRequirements']['default_yaml_path']))
         self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']))
 
+    def get_modules(self):
+        modules = {
+            "Parameter": self.config['Sampling']['Variables']
+        }
+        if self.config["SupportingLibrary"]["Modules"]:
+            self.analysis_Library()
+            modules['Library'] = self.config["SupportingLibrary"]["Modules"]
+        if self.config["Calculators"]["Modules"]:
+            self.analysis_calculator()
+            modules['Calculator'] = self.config["Calculators"]["Modules"]
+        return modules
+        
+    def decode_lib_command_via_config(self, command, pwd, pack):
+        def parse_cd_command(command, cwd):
+            parts = command.split()
+            if len(parts) == 2 and parts[0] == "cd":
+                return parts[1]
+            else:
+                return cwd 
+        cmd = self.resolve_placeholders_config(self.config, command)
+        cmd = self.resolve_placeholders_config(pack, cmd)
+        cmd = self.resolve_placeholders_summary(cmd)
+        cmdd =  {"cmd": cmd, "cwd": pwd}
+        cwd = parse_cd_command(cmd, pwd)
+        return cmdd, cwd  
+
+    def analysis_Library(self):
+        def analysis_path(lib):
+            lib['installation']['path'] = self.decode_path(lib['installation']['path'])
+            lib['installation']['source'] = self.decode_path(lib['installation']['source'])
+            return lib 
+
+        def analysis_commands(lib):
+            cmds = lib['installation']['commands']
+            cwd  = self.config['SupportingLibrary']['path']
+            commands = []
+            for command in cmds:
+                cmd, cwd = self.decode_lib_command_via_config(command, cwd, lib['installation'])
+                commands.append(cmd)
+            lib['installation']['commands'] = commands
+            return lib 
+
+        self.config["SupportingLibrary"]['path'] = self.decode_path(self.config["SupportingLibrary"]['path'])
+        libs_config = self.config["SupportingLibrary"]["Modules"]
+        for lib in libs_config:
+            lib.update(analysis_path(lib))
+            lib.update(analysis_commands(lib))
+
+    def decode_calc_command_via_config(self, command, pwd, pack):
+        def parse_cd_command(command, cwd):
+            parts = command.split()
+            if len(parts) == 2 and parts[0] == "cd":
+                return parts[1]
+            else:
+                return cwd 
+        # print("0 ->", command)
+        cmd = self.resolve_placeholders_config(self.config, command)
+        # print("1 ->", cmd)
+        cmd = self.resolve_placeholders_config(pack, cmd)
+        # print("2 ->", cmd)
+        cmd = self.resolve_placeholders_summary(cmd)
+        # print("3 ->", cmd)
+        cmdd =  {"cmd": cmd, "cwd": pwd}
+        cwd = parse_cd_command(cmd, pwd)
+        return cmdd, cwd  
+
+    def analysis_calculator(self):
+        def analysis_path(calc):
+            if 'path' in calc:
+                calc['path'] = self.decode_path(calc['path'])
+            if "source" in calc:
+                calc['source'] = self.decode_path(calc['source'])
+            return calc 
+
+        def analysis_install_commands(calc):
+            cmds = calc['installation']
+            cwd  = self.config['Calculators']['path']
+            commands = []
+            for command in cmds:
+                cmd, cwd = self.decode_calc_command_via_config(command, cwd, calc)
+                commands.append(cmd)
+            calc['installation'] = commands
+            return calc 
+        
+        def analysis_initialization_commands_single(calc):
+            cmds = calc['initialization']
+            cwd  = calc['path']
+            commands = []
+            for command in cmds:
+                cmd, cwd = self.decode_calc_command_via_config(command, cwd, calc)
+                commands.append(cmd)
+            calc['initialization'] = commands
+            return calc
+        
+        def analysis_execution_single(calc):
+            calc_setting = calc['execution']
+
+            calc_setting['path'] = self.decode_path(calc_setting['path'])
+
+            commands = []
+            for command in calc_setting['commands']:
+                cmd, cwd = self.decode_calc_command_via_config(command, calc_setting['path'], calc_setting)
+                commands.append(cmd)
+            calc_setting['commands'] = commands
+
+            for ipf in calc_setting['input']:
+                ipf['path'] = self.decode_path(ipf['path'])
+
+            for opf in calc_setting['output']:
+                opf['path'] = self.decode_path(opf['path'])
+
+            return calc
+
+        self.config['Calculators']['path'] = self.decode_path(self.config['Calculators']['path'])
+        calc_config = self.config["Calculators"]['Modules']
+        for calc in calc_config:
+            calc.update(analysis_path(calc))
+            calc.update(analysis_install_commands(calc))
+            if "modes" in calc:
+                self.logger.info(f"Loading configuration of Module {calc['name']} in multiple modes")
+            else:
+                self.logger.info(f"Loading configuration of Module {calc['name']} in single mode")
+                calc['modes'] = False
+                calc.update(analysis_initialization_commands_single(calc))
+                calc.update(analysis_execution_single(calc))
+
+    def decode_path(self, path) -> None:
+        return super().decode_path(path)
+
+    def resolve_placeholders_config(self, data, text, separator=':'):
+        pattern = re.compile(r'\$\{([^}]+)\}')
+        def find_value(d, keys):
+            if keys and keys[0] in d:
+                return find_value(d[keys[0]], keys[1:]) if len(keys) > 1 else d[keys[0]]
+            return None
+        for match in pattern.finditer(text):
+            key_path = match.group(1)
+            keys = key_path.split(separator)
+            value = find_value(data, keys)
+            if value is not None:
+                text = text.replace(match.group(0), str(value))
+        return text
+    
+    def resolve_placeholders_summary(self, text):
+        pattern = re.compile(r'\@\{([^}]+)\}')
+        def find_value(d, keys):
+            if keys and keys[0] in d:
+                return find_value(d[keys[0]], keys[1:]) if len(keys) > 1 else d[keys[0]]
+            return None
+
+        for match in pattern.finditer(text):
+            key_path = match.group(1)
+            keys = key_path.split(":")
+            value = find_value(self.summary, keys)
+            if value is not None:
+                text = text.replace(match.group(0), str(value).strip())
+        return text
+
+
+
+
+
 class ConfigValidator():
     def __init__(self) -> None:
         self.logger = None
@@ -240,8 +403,8 @@ class ConfigValidator():
             self.logger.warning("Validation successful. The input YAML file meets the schema requirement.")
             self.passcheck = True
         except ValidationError as e:
-            self.logger.error(f"Validation error: {e.message}")
-                    
+            self.logger.error(f"Validation error: {e.message},\n the problematic module data: {e.instance}")
+
 
 class ConfigTemplateGenerator():
     def __init__(self) -> None:

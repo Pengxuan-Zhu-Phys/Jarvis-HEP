@@ -504,6 +504,191 @@
                 "Python"
             ],
             "additionalProperties": true
+        },
+        "Calculators": {
+            "type": "object",
+            "properties": {
+                "make_paraller": {
+                    "type": "integer"
+                },
+                "Modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "required_modules": {
+                                "oneOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            },
+                            "clone_shadow": {
+                                "type": "boolean"
+                            },
+                            "installation": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {
+                                        "type": "string"
+                                    },
+                                    "source": {
+                                        "type": "string"
+                                    },
+                                    "commands": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "path",
+                                    "source",
+                                    "commands"
+                                ]
+                            },
+                            "initialzation": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "execution": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {
+                                        "type": "string"
+                                    },
+                                    "commands": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "input": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "path": {
+                                                    "type": "string"
+                                                },
+                                                "variables": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "name": {
+                                                                "type": "string"
+                                                            },
+                                                            "method": {
+                                                                "type": "string"
+                                                            },
+                                                            "placeholder": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "name",
+                                                            "method",
+                                                            "placeholder"
+                                                        ]
+                                                    }
+                                                },
+                                                "save": {
+                                                    "type": "boolean"
+                                                }
+                                            },
+                                            "required": [
+                                                "name",
+                                                "path",
+                                                "variables",
+                                                "save"
+                                            ]
+                                        }
+                                    },
+                                    "output": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "path": {
+                                                    "type": "string"
+                                                },
+                                                "variables": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "name": {
+                                                                "type": "string"
+                                                            },
+                                                            "method": {
+                                                                "type": "string"
+                                                            },
+                                                            "block": {
+                                                                "type": "string"
+                                                            },
+                                                            "id": {
+                                                                "type": "integer"
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "name",
+                                                            "method",
+                                                            "block",
+                                                            "id"
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "required": [
+                                                "name",
+                                                "path",
+                                                "variables"
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "path",
+                                    "commands",
+                                    "input",
+                                    "output"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "required_modules",
+                            "clone_shadow",
+                            "installation",
+                            "initialzation",
+                            "execution"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "make_paraller",
+                "Modules"
+            ]
         }
     },
     "required": [

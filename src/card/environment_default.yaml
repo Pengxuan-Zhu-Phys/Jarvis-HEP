@@ -36,5 +36,16 @@ EnvironmentRequirements:
     - name: pyhf
       required: true
       version: ">=0.7"
+    - name: networkx
+      required: true 
+      version: ">=3.2.1"
+    - name: xslha
+      required: true 
+      version: ">=1.0.0"
+    - name: pyslha
+      required: true 
+      version: ">=3.2.5"    
+    - name: xmltodict
+      required: true 
+      version: ">=0.13.0"
 
-      

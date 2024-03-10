@@ -61,13 +61,6 @@ class Bridson(SamplingVirtial):
         self._k = self.config['Sampling']['MaxAttempt']
         self._dimensions = len(self.vars)
 
-        # ps2d = Bridson_sampling(np.array([15, 15, 15, 15, 15]), radius=1.0, k=30, hypersphere_sample=hypersphere_surface_sample)
-
-        # print(self._k, self._ndim, self._radius)
-        # from pprint import pprint
-        # for var in self.vars:
-        #     pprint(var.parameters)
-
     def initialize(self):
         self.logger.warning("Initializing the Bridson Sampling")
         if self._dimensions < 2 or self._dimensions >= 5:
