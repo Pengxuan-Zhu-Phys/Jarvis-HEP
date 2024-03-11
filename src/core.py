@@ -119,7 +119,7 @@ class Core(Base):
         modules = self.yaml.get_modules()
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
-        # self.workflow.analyze()
+        self.workflow.draw_flowchart()
         
 
 

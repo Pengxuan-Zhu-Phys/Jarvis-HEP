@@ -3,6 +3,7 @@
 import networkx as nx 
 from base import Base
 from module import Module
+import numpy as np 
 
 class Workflow(Base):
     def __init__(self):
@@ -103,8 +104,6 @@ class Workflow(Base):
         pprint(self.libr_layer)
         pprint(self.calc_layer)
 
-
-
     def resolve_dependencies(self):
         # Resolve dependencies based on the IOs 
         output_to_module = {} 
@@ -125,7 +124,6 @@ class Workflow(Base):
 
         # Resolve the layers using the current dependencies  
         self.resolve_layers()
-
 
     def analyze(self):
         # First, add edges based on module dependencies
@@ -174,4 +172,74 @@ class Workflow(Base):
             else:
                 print(f"Workflow completed successfully for sample point {sample}.")
 
+    def draw_flowchart(self):
+        import matplotlib.pyplot as plt 
+        import shapely as sp 
+        import logging
+        logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
+        from matplotlib.collections import LineCollection
+        from plot import draw_logo_in_square
+        from plot import create_round_square
+        from PIL import Image
+        
+        fig = plt.figure(figsize=(10, 8))
+        ax  = fig.add_axes([0., 0., 1., 1.])
+        axlogo = fig.add_axes([0.02, 0.875, 0.08, 0.1])
+        draw_logo_in_square(axlogo)
+        ax.axis("off")
+        
+        def arraw_from_V2F(pA, pB, ax):
+            tt = np.linspace(-0.5 * np.pi, 0.4 * np.pi, 100)
+            xx = np.linspace(pA[0], pB[0], 100)
+            yy = pA[1] + (np.sin(np.sin(tt)) + 0.8414709848078965)/1.6555005931675704 * (pB[1]-pA[1])
+            points = np.array([xx, yy]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+            cmap = plt.get_cmap('coolwarm')  
+            norm = plt.Normalize(1.5, 5)
+            colors = cmap(norm(xx[:-1]))             
+            lc = LineCollection(segments, colors=colors, linewidth=2)
+            ax.add_collection(lc)
+            ax.plot(pA[0]-0.04, pA[1], 's', c="gray", markersize=4)
+            ax.plot(pA[0], pA[1], 's', c="darkgray", markersize=6)
+        
+        def line_from_V2M(pA, pB, ax):
+            tt = np.linspace(-0.5 * np.pi, 0.5 * np.pi, 100)
+            xx = np.linspace(pA[0], pB[0], 100)
+            yy = pA[1] + ((np.sin(np.sin(tt)) / 2 / 0.8414709848078965) + 0.5)  * (pB[1]-pA[1])
+            
+            ax.plot(xx, yy, "-", c="#3b4dc0", lw=2)
+        
+        def input_file_at_pos(pos, ax):
+            image_path = "src/icons/inputfile.png"  
+            image = Image.open(image_path)
+            image = np.array(image)
+            ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25])
 
+        
+        def module_at_pos(pos, ax):
+            image_path = "src/icons/calculator.png"  
+            image = Image.open(image_path)
+            image = np.array(image)
+            ax.imshow(image, extent=[pos[0]-0.65, pos[0]+0.65, pos[1]-0.65, pos[1]+0.65])
+        
+        outframe = create_round_square([2, 4,])
+        x_coords = [point[0] for point in outframe.exterior.coords]
+        y_coords = [point[1] for point in outframe.exterior.coords]  
+        # ax.plot(x_coords, y_coords, '-', color='grey', lw=0.3)
+        # ax.fill(x_coords, y_coords, fc='#072348', ec=None)
+        ax.set_xlim([0, 10])
+        ax.set_ylim([0, 8])
+        arraw_from_V2F([1., 1.], [4., 3], ax)
+        arraw_from_V2F([1., 1.3], [4., 3], ax)
+        line_from_V2M([1., 1.3], [4.5, 7], ax)
+        input_file_at_pos([4.5, 3], ax)
+        module_at_pos([5.4, 2.7], ax)
+        
+
+
+        
+
+        
+              
+        # plt.show()
+        plt.savefig("flowchart.png", dpi=300)
