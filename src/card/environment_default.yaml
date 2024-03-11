@@ -48,4 +48,9 @@ EnvironmentRequirements:
     - name: xmltodict
       required: true 
       version: ">=0.13.0"
-
+    - name: shapely
+      required: true 
+      version: ">=2.0.0"
+    - name: emoji
+      required: true 
+      version: ">=2.10.1"

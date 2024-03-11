@@ -118,23 +118,49 @@ Calculators:
           - "rm susyhit_slha.out"
           - "./run slhaspectrum.in"
         input:
-          - name: input_file
+          - name: input_file1
             path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
             type: "SLHA"
             variables:
               - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
               - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
             save: true
+          - name: input_file2
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            variables:
+              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
+              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+            save: true  
         output:
-          - name: output_file
+          - name: output_file1
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: False
+            variables:
+              - { name: aWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: aWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: aWStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: aWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: aWStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: aWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: aWSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: aWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: aWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
+          - name: output_file2
             path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
             type: "SLHA"
             save: False
             variables:
               - { name: WSmuR, method: "SLHA", block: DECAY, id: 2000013 }
               - { name: WSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: WStaR, method: "SLHA", block: DECAY, id: 2000015 }
               - { name: WSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: WStaL, method: "SLHA", block: DECAY, id: 1000015 }
               - { name: WSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: WSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: WSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: WSvta,  method: "SLHA", block: DECAY, id: 1000016 }
 
     - name: XSect_Smuon
       required_modules: ["SUSYHIT"] # Assuming SUSYHIT is a required module
