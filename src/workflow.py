@@ -169,101 +169,288 @@ class Workflow(Base):
                 print(f"Workflow completed successfully for sample point {sample}.")
 
     def draw_flowchart(self):
-        # print(self.libr_layer) 
-        # print(self.calc_layer)        
-        def resolve_module(module):
-            print("resolve module", module)
-            res = {"ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'ohh': 0.9, "ihh": 0.9}
-            if self.modules[module].input:
-                print("resolve ipf", module)
-                ipfl = []
-                nn = len(self.modules[module].input)
-                hh = 0.7 * nn - 0.2
-                for ii in range(nn):
-                    ipf = self.modules[module].input[ii]
-                    ipfl.append({
-                        "nam": ipf['name'],
-                        "pos": np.array([-1.1, ((nn - 1)/2 - ii) * 0.7 + 0.2]),
-                        "inc": [var for var in ipf['variables']]
-                    })
-                res["ipf"] = ipfl
-                res['ihh'] = hh 
-
-            if self.modules[module].output:
-                opfl = []
-                nn = len(self.modules[module].output)
-                hh = 0.7 * nn - 0.2 
-                h0 = 0.
-                for ii in range(nn):
-                    opf = self.modules[module].output[ii]
-                    nv = len(opf['variables'])
-                    if nv <= 2:
-                        hl = 0.5 
-                    else:
-                        hl = 0.2 * nv
-
-                    op = {
-                        "nam": opf['name'],
-                        "pos": np.array([1.1, -h0 - 0.5*hl ]),
-                        "inc": [var['name'] for var in opf['variables']]
-                    }
-                    h0 += hl 
-                    h0 += 0.1
-                    for jj in range(nv):
-                        print(jj, opf['variables'][jj])
-                        res['opv'][opf['variables'][jj]['name']] = {
-                            "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]),
-                        }
-                    opfl.append(op)
-                h0 -= 0.1
-                res["opf"] = opfl 
-                res['ohh'] = h0
-                from pprint import pprint
-            return res 
-
-        def draw_layer_module(kk, mod, ax):
-            bs = np.array([(kk-1)*7.0, 0.0])
-            oh = np.array([0., + 0.5 * mod['ohh'] - 0.2])
-
-
-            module_at_pos(bs, ax)
-            for ipf in mod['ipf']:
-                input_file_at_pos(ipf['pos'] + bs, ax)
-                line_from_F2M(ipf['pos'] + bs, bs, ax)
-            for opf in mod['opf']:
-                print(opf['pos'], oh)
-                output_file_at_pos(opf['pos'] + bs + oh, ax)
-                line_from_M2F(opf['pos'] + oh, bs, ax)
-            for op in mod['opv']:
-                pos = mod['opv'][op]['pos'] + bs + oh
-                ax.text(pos[0], pos[1], op, fontsize="small", ha="right", va="center")
-
-
-
-
-                            
-
-
-
-        with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        # with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             import matplotlib.pyplot as plt 
             import shapely as sp 
             import logging
             logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
+            logging.getLogger('PIL.PngImagePlugin').setLevel(logging.CRITICAL)
             from matplotlib.collections import LineCollection
             from plot import draw_logo_in_square
             from plot import create_round_square
             from PIL import Image
 
-            fig = plt.figure(figsize=(10, 8))
-            ax  = fig.add_axes([0., 0., 1., 1.])
-            axlogo = fig.add_axes([0.02, 0.875, 0.08, 0.1])
-            draw_logo_in_square(axlogo)
-            ax.axis("off")
+            layerW = 6.0 
+            figL = layerW * len(self.calc_layer) - 3
 
-            def arraw_from_V2F(pA, pB, ax):
+            figH = 4
+
+
+
+            def resolve_module(module, lid):
+                if lid == 1:
+                    res = {"name": module, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9, 'ohh': 0., "ihh": 0., "bp": np.array([0.85, 0.]), "width": 0.9}
+                else:     
+                    res = {"name": module, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9,'ohh': 0., "ihh": 0.0, "bp": np.array([0., 0.]), "width": 0.9}
+                if self.modules[module].input:
+                    ipfl = {}
+                    nn = len(self.modules[module].input)
+                    hh = 0.7 * nn - 0.2
+                    for ii in range(nn):
+                        ipf = self.modules[module].input[ii]
+                        ipfl[ipf['name']] ={
+                            "nam": ipf['name'],
+                            "pos": np.array([-1.1, ((nn - 1)/2 - ii) * 0.7 + 0.2]) + res["bp"],
+                            "inc": [var for var in ipf['variables']],
+                            "fil": os.path.basename(ipf['path'])
+                        }
+                    res["ipf"] = ipfl
+                    if hh > 0.:
+                        res['ihh'] = hh 
+
+                if self.modules[module].output:
+                    opfl = {}
+                    nn = len(self.modules[module].output)
+                    hh = 0.7 * nn - 0.2 
+                    h0 = 0.
+                    for ii in range(nn):
+                        opf = self.modules[module].output[ii]
+                        nv = len(opf['variables'])
+                        if nv <= 2:
+                            hl = 0.5 
+                        else:
+                            hl = 0.2 * nv
+                        # print(opf['name'],)
+                        op = {
+                            "nam": opf['name'],
+                            "pos": np.array([1.1, -h0 - 0.5*hl -0.2 ]) + res["bp"],
+                            "inc": [var['name'] for var in opf['variables']],
+                            'fil': os.path.basename(opf['path'])
+                        }
+                        h0 += hl 
+                        h0 += 0.1
+                        for jj in range(nv):
+                            res['opv'][opf['variables'][jj]['name']] = {
+                                "nam": opf['variables'][jj]['name'],
+                                "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
+                                "wid": 0.
+                            }
+                        opfl[opf['name']] = (op)
+                    h0 -= 0.1
+                    res["opf"] = opfl 
+                    if h0 > 0.:
+                        res['ohh'] = h0
+                    for op in res['opf']:
+                        res['opf'][op]['pos'] += np.array([0., + 0.5 * h0])
+                    for op in res["opv"]:
+                        res['opv'][op]["pos"] += np.array([0., + 0.5 * h0])
+
+                    from pprint import pprint
+                elif self.modules[module].outputs:
+                    nv = (len(self.modules[module].outputs) - 1)/2
+                    h0 = nv * 0.2
+                    ii = 0
+                    for op in self.modules[module].outputs:
+                        res['opv'][op] = {
+                            "nam": op, 
+                            "pos": np.array([2.5, h0 - ii * 0.2]),
+                            "wid": 0.
+                        }
+                        ii += 1
+                
+                
+                if res['ipf']:
+                    res['width'] += 0.65 
+                if res['opf']:
+                    res['width'] += 0.65
+                if res['opv']:
+                    res['width'] += 1.5 
+    
+                return res 
+
+            def resolve_layer():
+                for kk, item in self.calc_layer.items():
+                    if kk == 1:
+                        self.layer_info[1] = {
+                            item["module"][0]: resolve_module(item["module"][0], kk)
+                        }
+                    else:
+                        self.layer_info[kk] = {}
+                        for module in item['module']:
+                            self.layer_info[kk][module] = resolve_module(module, kk)
+
+                layinfo = [None for ii in range(len(self.layer_info))]
+                nlay = len(self.layer_info)
+                for ii in range(nlay):
+                    lid = len(self.layer_info) - ii
+                    layer = self.layer_info[len(self.layer_info) - ii]
+                    h0 = 0. 
+
+                    y0 = {}
+                    opvs = {}
+                    for kk, item in layer.items():
+                        mh = max([item['ihh'] + 0.4, item['ohh'] + 0.4, item['mhh']])
+                        y00 = 0.5*mh + h0
+                        item['bp'] += np.array([layerW * (lid - 1), y00])
+                        h0 += mh 
+                        y0[kk] = y00
+                        for op, val in item['opv'].items():
+                            opvs[op] = val
+                        
+                    layinfo[lid - 1] = {
+                        "height": h0, 
+                        "ipvars": {}, 
+                        "y0":   y0, 
+                        "opvars": opvs,
+                        "bridge": {}
+                    }
+                for ii in range(nlay - 1):
+                    clid = len(self.layer_info) - ii
+                    # print(clid, "current layer")
+                    layer = self.layer_info[clid]
+                    layer_before = layinfo[clid - 2]
+                    layer_current = layinfo[clid - 1]
+                    # print(layer_before['opvars'])
+
+                    bridge = {}
+                    h0bf = layer_before['height']
+                    for kk, item in layer.items():
+                        # print(kk, item)
+                        for iif, ipf in item['ipf'].items():
+                            ipvs = {}
+                            for ipvv in ipf['inc']:
+                                # print("bg", ipvv, layer_before['opvars'].keys(), "end")
+                                if ipvv["name"] not in layer_before['opvars'].keys() and ipvv['name'] not in layer_before['bridge'].keys():
+                                    # print(ipvv, "Not Find in before in layer", clid - 1, len(layer_before["bridge"]))
+                                    if not len(layer_before["bridge"]):
+                                        h0bf += 1
+                                    bridge[ipvv['name']] = {
+                                        "nam": ipvv['name'],
+                                        "pos": np.array([layerW*(clid - 2),  h0bf + 0.1])
+                                    }
+                                    layer_before['bridge'].update(bridge)
+                                    ipvs[ipvv['name']] = {
+                                        "nam": ipvv['name'],
+                                        "pos": np.array([layerW*(clid - 2),  h0bf + 0.1])
+                                    }
+                                    h0bf += 0.2 
+                                elif ipvv["name"] in layer_before['opvars'].keys(): 
+                                    ipvs[ipvv['name']] = layer_before['opvars'][ipvv['name']]
+                                elif ipvv['name'] in layer_before['bridge'].keys():
+                                    # print(ipvv, "find in before", layer_before['bridge'])
+                                    ipvs[ipvv['name']] = layer_before['bridge'][ipvv['name']]
+                            
+                            layer_current['ipvars'][iif] = [ipvs, ipf['pos']] 
+                            layer_before['height'] = h0bf 
+                
+                for ii in range(nlay - 1):
+                    clid = ii + 1 
+                    layer = self.layer_info[clid]
+                    layer_next = layinfo[clid]
+                    if clid != 1:
+                        for kk, mod in layer.items():
+                            for off, opf in mod['opf'].items():
+                                for op in opf['inc']:
+                                    if op in layer_next['bridge'].keys():
+                                        mod['opv'][op]['brg'] = layer_next['bridge'][op]['pos']
+                    else: 
+                        mod = layer['Parameters']
+                        for op, opv in mod['opv'].items():
+                            if op in layer_next['bridge'].keys():
+                                opv['brg'] = layer_next['bridge'][op]['pos']
+                
+                maxh = max([layinfo[ii]['height'] for ii in range(nlay)]) + 0.4 
+                figH = maxh
+                for ii in range(nlay):
+                    # print(layinfo[ii]['height'], layinfo[ii]['y0'], layinfo[ii]['bridge'])
+                    lid =  ii + 1
+                    layer = self.layer_info[lid]
+                    for mm, mod in layer.items():
+                        if ii != 0:
+                            arrbp = mod['bp'] + np.array([0., 0.5 * (maxh - layinfo[ii]['height'])])
+                        else: 
+                            arrbp = np.array([0., 0.5 * (maxh - layinfo[ii]['height']) + mod['bp'][1]])
+                        # update_module_pos(mod, arrbp)
+                        mod['bp'] = mod['bp'] + np.array([0., 0.5 * (maxh - layinfo[ii]['height'])])
+                        for oof, opf in mod['opf'].items():
+                            opf['pos'] += arrbp
+                        for oov, opv in mod['opv'].items():
+                            opv['pos'] += arrbp 
+                        for iif, ipf in mod['ipf'].items():
+                            ipf['pos'] += arrbp
+                for ii in range(nlay):
+                    layer = self.layer_info[ii + 1]
+                    layer_current = layinfo[ii]
+                    for item in layer.values():
+                        for kk, ipf in item['ipf'].items():
+                            # pF = layer_current["ipvars"][kk][1]
+                            # for op in layer_current["ipvars"][kk][0].values():
+                            #     arraw_from_V2F(op['pos'], pF )
+                            # print(kk, layer_current["ipvars"][kk])
+                            ipf['link'] = layer_current["ipvars"][kk][0]
+                            # break
+
+
+
+                return layinfo, figH
+
+            def update_module_pos(mod, arbp):
+                from pprint import pprint
+                pprint(mod)
+
+            def draw_layer_module(klayer, mod):
+                oh = np.array([0., + 0.5 * mod['ohh']])
+                # ax.plot([(klayer-1)*layerW, (klayer-1)*layerW], [-100, 100], "-", c='grey', lw=0.6, alpha=0.2)
+                if klayer != 1:
+                    # print(mod)
+                    module_at_pos(mod['bp'])
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+                    for kk, ipf in mod['ipf'].items():
+                        # print(kk, ipf.keys())
+                        input_file_at_pos(ipf['pos'] )
+                        ax.text(
+                            ipf['pos'][0] - 0.25, ipf['pos'][1] - 0.27, ipf['fil'], 
+                            ha="center", va='top', 
+                            fontfamily="sans-serif", fontsize="x-small", fontstyle="normal", fontweight="light"
+                        )
+                        line_from_F2M(ipf['pos'] , mod['bp'])
+                        for link in ipf['link'].values():
+                            # print(kk, link)
+                            arraw_from_V2F(link['pos'], ipf['pos'])
+                    for op in mod['opv']:
+                        mod['opv'][op]['pos'] = mod['opv'][op]['pos'] 
+                        mod['opv'][op] = outvar_at_OP(mod['opv'][op])
+                    # ax.plot([bs[0] + 2.6, bs[0] + 2.6], [-oh[1] - 0.2, oh[1] -0.2], "-", c='grey', lw=0.6, alpha=0.2)
+                    for kk, opf in mod['opf'].items():
+                        # print(kk, opf.keys())
+                        output_file_at_pos(opf['pos'])
+                        ax.text(
+                            opf['pos'][0] + 0.25, opf['pos'][1] - 0.27, opf['fil'], 
+                            ha="center", va='top', 
+                            fontfamily="sans-serif", fontsize="x-small", fontstyle="normal", fontweight="light"
+                        )
+                        
+                        line_from_M2F(opf['pos'], mod['bp'])
+
+                        for op in opf['inc']:
+                            opp = mod['opv'][op]
+                            line_from_F2V(opf['pos'], opp)
+                else:
+                    sampler_at_pos(mod['bp'])
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+
+                    for op in mod['opv']:
+                        mod['opv'][op] = outvar_at_OP(mod['opv'][op])
+                        line_from_F2V(mod['bp'], mod['opv'][op])
+                        if "brg" in mod['opv'][op].keys():
+                            line_from_V2B(mod['opv'][op]['pos'], mod['opv'][op]['brg'])
+
+            
+
+                
+            def arraw_from_V2F(pA, pB):
                 tt = np.linspace(-0.5 * np.pi, 0.4 * np.pi, 100)
-                xx = np.linspace(pA[0], pB[0], 100)
+                xx = np.linspace(pA[0] + 0.14, pB[0] - 0.5, 100)
                 yy = pA[1] + (np.sin(np.sin(tt)) + 0.8414709848078965)/1.6555005931675704 * (pB[1]-pA[1])
                 points = np.array([xx, yy]).T.reshape(-1, 1, 2)
                 segments = np.concatenate([points[:-1], points[1:]], axis=1)
@@ -272,96 +459,116 @@ class Workflow(Base):
                 colors = cmap(norm(tt[:-1]))             
                 lc = LineCollection(segments, colors=colors, linewidth=2)
                 ax.add_collection(lc)
-                ax.plot(pA[0]-0.04, pA[1], 's', c="gray", markersize=4)
-                ax.plot(pA[0], pA[1], 's', c="darkgray", markersize=6)
+                ax.plot(pA[0] + 0.1, pA[1], 's', c="gray", markersize=4)
+                ax.plot(pA[0] + 0.14, pA[1], 's', c="darkgray", markersize=6)
 
-            def line_from_V2M(pA, pB, ax):
+            def line_from_V2B(pV, pB):
+                tt = np.linspace(-0.15 * np.pi, 0.5 * np.pi, 100)
+                xx = np.linspace(pV[0] + 0.16, pB[0], 100)
+                yy = pV[1] + (np.sin(np.sin(np.sin(np.sin(np.sin(tt))))) + 0.4004294116620898)/1.028001243711249 * (pB[1]-pV[1])
+                ax.plot(xx, yy, "-", c="#3b4dc0", lw=2)
+
+            def line_from_V2M(pA, pB):
                 tt = np.linspace(-0.5 * np.pi, 0.5 * np.pi, 100)
                 xx = np.linspace(pA[0], pB[0], 100)
                 yy = pA[1] + ((np.sin(np.sin(tt)) / 2 / 0.8414709848078965) + 0.5)  * (pB[1]-pA[1])
-
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=2)
 
-            def line_from_M2F(pF, pM, ax):
+            def line_from_M2F(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)
-                xx = np.linspace(0.43 + pM[0], pF[0] + pM[0], 100 )
-                yy = pM[1] - 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] + 0.2)
-                ax.plot(xx, yy, "-", c="#6a97ff", lw=3)
+                xx = np.linspace(0.43 + pM[0], pF[0], 100 )
+                yy = pM[1] - 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] + 0.2 - pM[1])
+                ax.plot(xx, yy, "-", c="#3b4dc0", lw=3)
 
-            def line_from_F2M(pF, pM, ax):
-                tt = np.linspace(-0.5*np.pi, 0., 100)
-                xx = np.linspace(pF[0], pM[0] -0.44, 100 )
-                yy = pM[1] + 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] - 0.2)
-                ax.plot(xx, yy, "-", c="#6a97ff", lw=3)
+            def line_from_F2V(pF, op):
+                tt = np.linspace(-0.5*np.pi, 0.5*np.pi, 100)
+                xx = np.linspace(pF[0] + 0.44, op['pos'][0] - op['wid'] -0.1 , 100)
+                yy = pF[1] + (np.sin(np.sin(tt)) / 0.8414709848078965  + 1)/2 * (op['pos'][1] - pF[1])  
+                ax.plot(xx, yy, "-", c="#3b4dc0", lw=0.8, alpha=0.7)
+                ax.plot([op['pos'][0] - op['wid'] -0.1], [op['pos'][1]], "o", markersize=4, c="#3b4dc0", alpha=0.7)
 
-            def input_file_at_pos(pos, ax):
+            def line_from_F2M(pF, pM):
+                tt = np.linspace(0., 0.5*np.pi, 100)
+                xx = np.linspace(-0.43 + pM[0], pF[0], 100 )
+                yy = pM[1] + 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] - 0.2 - pM[1])
+                ax.plot(xx, yy, "-", c="#d45040", lw=3)
+
+            def input_file_at_pos(pos):
                 image_path = "src/icons/inputfile.png"  
                 image = Image.open(image_path)
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
 
-            def output_file_at_pos(pos, ax):
+            def output_file_at_pos(pos):
                 image_path = "src/icons/outputfile.png"  
                 image = Image.open(image_path)
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
+                # ax.plot([-100, 100], [pos[1], pos[1]], "-", c='grey', lw=0.4, alpha=0.2)
 
-            def module_at_pos(pos, ax):
+            def outvar_at_OP(op):
+                text = ax.text(op["pos"][0], op["pos"][1], op['nam'], ha="right", va="center", fontfamily="monospace", variant="small-caps", fontsize="x-small", fontstyle="normal", fontweight="bold")
+                bbox = text.get_window_extent(renderer=fig.canvas.get_renderer())
+                bbox_data = inv.transform([(bbox.x0, bbox.y0), (bbox.x1, bbox.y1)])
+                op['wid'] = bbox_data[1][0] - bbox_data[0][0]
+                return op 
+                # ax.plot([op["pos"][0] - op['wid'], op["pos"][0]], [op["pos"][1], op["pos"][1]], "-")
+
+            def module_at_pos(pos):
                 image_path = "src/icons/calculator.png"  
                 image = Image.open(image_path)
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
-            def lib_at_pos(pos, ax):
+            def lib_at_pos(pos):
                 image_path = "src/icons/library.png"  
                 image = Image.open(image_path)
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
-            def sampler_at_pos(pos, ax):
+            def sampler_at_pos(pos):
                 image_path = "src/icons/sampler.png"  
                 image = Image.open(image_path)
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
-            
+            # def draw_layer_sub(layer):
+            #     print(layer)
+            #     for ipf in layer['ipvars'].values():
+            #         pF = ipf['']
+
+            layerInfo, figH = resolve_layer()
+
+            fig = plt.figure(figsize=(figL, figH))
+            lx0 = 0.2 / figL 
+            lx1 = 0.8 / figL
+            ly0 = 1.0 - 1.0 / figH 
+            ly1 = 0.8 / figH
+
+            ax  = fig.add_axes([0., 0., 1., 1.])
+            axlogo = fig.add_axes([lx0, ly0, lx1, ly1])
+            draw_logo_in_square(axlogo)
+            ax.axis("off")
+            ax.set_xlim([0, figL])
+            ax.set_ylim([0, figH])
+            inv = ax.transData.inverted()
+
+            # ax.plot([-100, 100], [0., 0.], "-", c='grey', lw=0.4, alpha=0.2)
+            # ax.plot([-100, 100], [-0.2, -0.2], "-", c='grey', lw=0.4, alpha=0.2)
+            # ax.plot([-100, 100], [0.2, 0.2], "-", c='grey', lw=0.4, alpha=0.2)    
             outframe = create_round_square([2, 4,])
             x_coords = [point[0] for point in outframe.exterior.coords]
             y_coords = [point[1] for point in outframe.exterior.coords]  
-            # ax.plot(x_coords, y_coords, '-', color='grey', lw=0.3)
-            # ax.fill(x_coords, y_coords, fc='#072348', ec=None)
-            ax.set_xlim([0, 10])
-            ax.set_ylim([-4, 4])
 
-            lib_at_pos([1, 6], ax)
-            sampler_at_pos([1, 3], ax)
-            arraw_from_V2F([2., 1.], [4., 3], ax)
-            arraw_from_V2F([2., 1.3], [4., 3], ax)
-            line_from_V2M([2., 1.3], [4.5, 7], ax)
-            input_file_at_pos([4.8, 3], ax)
-            module_at_pos([5.4, 2.8], ax)
-            output_file_at_pos([6.0, 2.6], ax)
-            ax.text(7, 2.6, r"{mn1}", ha="right", va="center")
-            ax.text(7, 2.3, r"{mn1}", ha="right", va="center")
-            ax.text(7, 2.05, r"{mn1}", ha="right", va="center")
-            ax.text(7, 1.85, r"{mn1}", ha="right", va="center")
-
-        # print(self.calc_layer)
-        # for kk, item in self.calc_layer.items():
-        #     for mdl in item['mdls']:
-        #         module_at_pos(item['mdls'][mdl]['pos'], ax)
-
-        #     for opf in item['opfs']:
-        #         # print(opf, item)
-        #         output_file_at_pos(item["opfs"][opf]['pos'], ax)
-
-        for kk, item in self.calc_layer.items():
-            for module in item['module']:
-                mod = resolve_module(module)
-                # print(mod)
-                draw_layer_module(kk, mod, ax)
+            for kk, item in self.layer_info.items():
+                for mod, info in item.items():
+                    draw_layer_module(kk, info)
+            
+            # for ii in range(len(layerInfo)):
+            #     draw_layer_sub(layerInfo[ii])
 
 
 
-        plt.show()
-            # plt.savefig("flowchart.png", dpi=300)
+
+            # plt.show()
+            plt.savefig("flowchart.png", dpi=300)

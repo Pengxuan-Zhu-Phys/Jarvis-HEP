@@ -161,6 +161,56 @@ Calculators:
               - { name: WSve,  method: "SLHA", block: DECAY, id: 1000012 }
               - { name: WSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
               - { name: WSvta,  method: "SLHA", block: DECAY, id: 1000016 }
+    
+    - name: SUSYHIT2
+      required_modules: [] 
+      clone_shadow: True
+      path: *susyhit_path  # Define Anchor point 
+      source: "&J/External/Program/susyhit"
+      installation:
+          - "cp ${source}/susyhit.tar.gz ${path}"
+          - "cd ${path}"
+          - "tar -zxvf susyhit.tar.gz"
+          - "make -j${Calculators:make_paraller}"
+      initialization:
+          - "cp ${Calculators:source}/susyhit.in ${path}"
+          - "make"
+          - "cp ${Calculators:source}/slhaspectrum.in ${path}"
+      execution:
+        path: *susyhit_path  # using the Anchor point
+        commands:
+          - "rm susyhit_slha.out"
+          - "./run slhaspectrum.in"
+        input:
+          - name: input_file3
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            variables:
+              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
+              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+            save: true
+          - name: input_file4
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            variables:
+              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
+              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+            save: true  
+        output:
+          - name: output_file3
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: False
+            variables:
+              - { name: bWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: bWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: bWStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: bWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: bWStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: bWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: bWSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: bWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: bWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
 
     - name: XSect_Smuon
       required_modules: ["SUSYHIT"] # Assuming SUSYHIT is a required module
@@ -187,13 +237,52 @@ Calculators:
             save: False
             type: "Json" 
             variables:
-              - name: msmuR
-                method: Replace
-                placeholder: ">>>>MSLEP<<<<"
+              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
+              - { name: WStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: WSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: WStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: WSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: WSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: WSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: WSvta,  method: "SLHA", block: DECAY, id: 1000016 }
         output:
           - name: output_file
             path: "${XSect_SmuonR:installation:path}/output.txt"
-            variables: []
+            variables: 
+              - { name: dWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: dWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: dWStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: dWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: dWStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: dWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: dWSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: dWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: dWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
+              - { name: fWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: fWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: fWStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: fWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: fWStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: fWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: fWSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: fWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: fWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
+
             type: "text"
             save: False
 
+          - name: output_file4
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: False
+            variables:
+              - { name: gWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
+              - { name: gWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
+              - { name: gWStaR, method: "SLHA", block: DECAY, id: 2000015 }
+              - { name: gWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
+              - { name: gWStaL, method: "SLHA", block: DECAY, id: 1000015 }
+              - { name: gWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
+              - { name: gWSve,  method: "SLHA", block: DECAY, id: 1000012 }
+              - { name: gWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
+              - { name: gWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
