@@ -24,6 +24,8 @@ class Bridson(SamplingVirtial):
         super().__init__()
         self.load_schema_file()
         self.method = "Bridson"
+        self._P     = None
+        self._index = 0 
 
     def load_schema_file(self):
         self.schema = self.path['BridsonSchema']
@@ -33,23 +35,26 @@ class Bridson(SamplingVirtial):
         self.init_generator()
 
     def __iter__(self):
-        self.active_list = [np.random.uniform(np.zeros(self.dims.size), self.dims)]
-        self.samples = []
-        self.grid = self.initialize_grid()
+        if self._P is None:
+            self.initialize()  # ensure the _P is generated before iteration 
+        self._index = 0  # Ensure the index starting from 0
         return self
 
     def __next__(self):
-        if not self.active_list:
-            raise StopIteration
-        # Sampling logic here, modifying to yield a sample at a time
-        point = self.active_list.pop()
-        new_points = self.generate_points_around(point)
-        for new_point in new_points:
-            if self.is_valid_point(new_point):
-                self.active_list.append(new_point)
-                self.samples.append(new_point)
-                return new_point
-        raise StopIteration
+        if self._P is None or not isinstance(self._P, np.ndarray):
+            raise StopIteration  # Stop iteration, if _P is not defined or _P is not np.array
+        if self._index < len(self._P):
+            result = self._P[self._index]
+            result = self.map_point_into_distribution(result)
+            self._index += 1
+            return result
+        else:
+            # raise StopIteration
+            return None
+
+    def map_point_into_distribution(self, row) -> np.ndarray:
+        result = np.array([self.vars[ii].map_standard_random_to_distribution(row[ii]/self.vars[ii]._parameters['length']) for ii in range(len(row))])
+        return result
 
     def set_logger(self, logger) -> None:
         super().set_logger(logger)
@@ -74,6 +79,7 @@ class Bridson(SamplingVirtial):
             )
             self.info["NSamples"] = self._P.shape[0]
             self.info["t0"]       = time.time() - t0 
+            self._index           = 0
             self.logger.info("Bridson Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
         except:
             self.logger.error("Bridson Sampler meets error when trying to scan the parameter space.")

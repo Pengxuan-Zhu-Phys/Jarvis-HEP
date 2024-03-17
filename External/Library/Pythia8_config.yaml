@@ -1,0 +1,25 @@
+installation:
+  commands:
+  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library
+    cwd: /Users/buding/Workshop/Jarvis/External/Library
+  - cmd: mkdir Pythia8
+    cwd: /Users/buding/Workshop/Jarvis/External/Library
+  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library/Source
+    cwd: /Users/buding/Workshop/Jarvis/External/Library
+  - cmd: tar -zxvf pythia8230.tgz
+    cwd: /Users/buding/Workshop/Jarvis/External/Library/Source
+  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library/Source/pythia8230
+    cwd: /Users/buding/Workshop/Jarvis/External/Library/Source
+  - cmd: ./configure --with-hepmc2=/Users/buding/Workshop/Jarvis/External/Library/HepMC
+      --prefix=/Users/buding/Workshop/Jarvis/External/Library/Pythia8
+    cwd: /Users/buding/Workshop/Jarvis/External/Library/Source/pythia8230
+  - cmd: make -j16
+    cwd: /Users/buding/Workshop/Jarvis/External/Library/Source/pythia8230
+  - cmd: make install
+    cwd: /Users/buding/Workshop/Jarvis/External/Library/Source/pythia8230
+  path: /Users/buding/Workshop/Jarvis/External/Library/Pythia8
+  source: /Users/buding/Workshop/Jarvis/External/Library/Source/pythia8230.tgz
+installed: true
+name: Pythia8
+required_modules:
+- HepMC

@@ -18,6 +18,7 @@ import dill
 from threading import Timer
 from library import Library
 from workflow import Workflow
+from factory import WorkerFactory 
 
 class Core(Base):
     def __init__(self) -> None:
@@ -40,7 +41,6 @@ class Core(Base):
         
         for pos_arg in self.info['args'].get('positionals', []):
             self.argparser.add_argument(pos_arg['name'], help=pos_arg['help'])
-        
         for opt in self.info['args'].get('options', []):
             kwargs = {
                 'help': opt['help'],
@@ -109,25 +109,39 @@ class Core(Base):
         self.yaml.vars = self.sampler.vars 
 
     def init_librarys(self) -> None:
-        # print(self.yaml.config['SupportingLibrary'])
         self.libraries = Library()
+        self.libraries._skip_library = self.args.skiplibrary
         logger = self.logger.create_dynamic_logger("Library", logging.INFO)
         self.libraries.set_logger(logger)
+        self.libraries.set_config(self.yaml.config)
+        for module in self.libraries.modules:
+            mod = self.libraries.modules[module]
+            log_file = mod.path['log_file_path']
+            logger = self.logger.create_dynamic_logger(mod.name, logging.WARNING, log_file=log_file)
+            mod.set_logger(logger)
+        self.libraries.display_installation_summary()
+        for module in self.libraries.modules.values():
+            module.install()
 
     def init_workflow(self) -> None: 
         self.workflow = Workflow()
         modules = self.yaml.get_modules()
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
-        self.workflow.draw_flowchart()
-        
-
-
+        if not self.args.skipFC:
+            self.workflow.draw_flowchart()
 
     def init_WorkerFactory(self) -> None: 
-        pass 
-
-
+        self.factory = WorkerFactory(max_workers=self.yaml.config['Calculators']['make_paraller'])
+        logger = self.logger.create_dynamic_logger("Manager")
+        self.factory.set_logger(logger)
+        self.factory.set_config(self.yaml.config)
+        for kk, layer in self.workflow.calc_layer.items():
+            if kk > 1: 
+                self.factory.add_layer(layer['module'])
+                for module in layer['module']:
+                    logger = self.logger.create_dynamic_logger(module)
+                    self.factory.add_module(self.workflow.modules[module], logger=logger)
 
     def initialization(self) -> None:
         self.init_argparser()
@@ -135,10 +149,19 @@ class Core(Base):
         self.init_configparser()
         self.init_StateSaver()
         self.init_sampler()
-        self.init_librarys()
         self.init_workflow()
+        self.init_librarys()
         self.init_WorkerFactory()
 
+    def run_sampling(self)->None:
+        self.test_assembly_line()
+
+    def test_assembly_line(self):
+        if self.args.testcalculator:
+            param = next(self.sampler)
+            for mpool in self.factory.module_pools.values():
+                # print(mpool.name, mpool.instances, mpool.id_counter)
+                self.factory.module_pools[mpool.name].submit_task(param)
 
 
 

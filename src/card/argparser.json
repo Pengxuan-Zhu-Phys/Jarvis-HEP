@@ -34,6 +34,24 @@
             "action": "store_true",
             "dest": "plot",
             "help": "Using the plotting mode"
+        },
+        {
+            "long": "--skip-library-installation",
+            "action": "store_true",
+            "dest": "skiplibrary",
+            "help": "Skipping the library installation"
+        },
+        {
+            "long": "--test-calc",
+            "action": "store_true",
+            "dest": "testcalculator",
+            "help": "For the Calculator test"
+        },
+        {
+            "long": "--skip-draw-flowchart",
+            "action": "store_true",
+            "dest": "skipFC",
+            "help": "Skipping the flowchart drawing"
         }
     ]
 }

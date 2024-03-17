@@ -8,6 +8,7 @@ from core import Core
 def main():
     jc = Core()
     jc.initialization()
+    jc.run_sampling()
 
 
 if __name__ == "__main__":

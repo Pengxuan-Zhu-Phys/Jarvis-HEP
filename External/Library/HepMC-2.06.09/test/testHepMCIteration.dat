@@ -1,0 +1,225 @@
+Event 9 is good 
+photons in event 9:
+GenParticle: 7 ID:22 (P,E)=-35.8473,-6.12284,-383.843,385.562 Stat:3 PV:-5 EV:-6 Pol:(0,0) F:0
+GenParticle: 9 ID:22 (P,E)=-35.8473,-6.12284,-383.843,385.562 Stat:1 PV:-6 EV:0 Pol:(0,0) F:0
+
+A W boson has been found in event: 9
+GenParticle: 8 ID:-24 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 5 ID:-2 (P,E)=0.216419,2.15858,6.72107,7.06251 Stat:3 PV:-3 EV:-5 Pol:(0,0) F:0
+	GenParticle: 6 ID:1 (P,E)=0.258424,1.02092,-721.608,721.609 Stat:3 PV:-4 EV:-5 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) -24 10 2
+		 Its descendants are: 
+		GenParticle: 348 ID:-211 (P,E)=6.93515,-9.95716,-54.4707,55.8061 Stat:1 PV:-23 EV:0 Pol:(0,0) F:0
+		GenParticle: 349 ID:211 (P,E)=1.18151,-1.97831,-11.941,12.1621 Stat:1 PV:-23 EV:0 Pol:(0,0) F:0
+		GenParticle: 681 ID:22 (P,E)=0.752791,-0.806798,-4.68143,4.80972 Stat:1 PV:-182 EV:0 Pol:(0,0) F:0
+		GenParticle: 682 ID:22 (P,E)=0.69264,-0.850998,-4.18926,4.33057 Stat:1 PV:-182 EV:0 Pol:(0,0) F:0
+		GenParticle: 350 ID:211 (P,E)=3.01865,-4.58869,-25.1672,25.7599 Stat:1 PV:-24 EV:0 Pol:(0,0) F:0
+		GenParticle: 351 ID:111 (P,E)=1.44543,-1.6578,-8.87069,9.14029 Stat:2 PV:-24 EV:-182 Pol:(0,0) F:0
+		GenParticle: 683 ID:22 (P,E)=1.35018,-0.49391,-8.87935,8.99498 Stat:1 PV:-183 EV:0 Pol:(0,0) F:0
+		GenParticle: 684 ID:22 (P,E)=0.357246,-0.113731,-1.9313,1.96735 Stat:1 PV:-183 EV:0 Pol:(0,0) F:0
+		GenParticle: 352 ID:-211 (P,E)=0.914552,-0.98289,-4.94835,5.12915 Stat:1 PV:-25 EV:0 Pol:(0,0) F:0
+		GenParticle: 353 ID:111 (P,E)=1.70742,-0.607641,-10.8106,10.9623 Stat:2 PV:-25 EV:-183 Pol:(0,0) F:0
+		GenParticle: 685 ID:22 (P,E)=-0.000123784,-0.0202557,-1.27202,1.27218 Stat:1 PV:-184 EV:0 Pol:(0,0) F:0
+		GenParticle: 686 ID:22 (P,E)=-0.0519781,-0.00769611,-0.186392,0.193657 Stat:1 PV:-184 EV:0 Pol:(0,0) F:0
+		GenParticle: 687 ID:22 (P,E)=0.0606408,0.0465357,-0.328398,0.337177 Stat:1 PV:-185 EV:0 Pol:(0,0) F:0
+		GenParticle: 688 ID:22 (P,E)=-0.00923098,-0.0583619,-0.114798,0.129112 Stat:1 PV:-185 EV:0 Pol:(0,0) F:0
+		GenParticle: 689 ID:22 (P,E)=-0.126406,0.0471778,-0.33746,0.363433 Stat:1 PV:-186 EV:0 Pol:(0,0) F:0
+		GenParticle: 690 ID:22 (P,E)=0.0216985,-0.0264081,-0.0504729,0.0609568 Stat:1 PV:-186 EV:0 Pol:(0,0) F:0
+		GenParticle: 354 ID:111 (P,E)=-0.0521019,-0.0279518,-1.45842,1.46584 Stat:2 PV:-26 EV:-184 Pol:(0,0) F:0
+		GenParticle: 355 ID:111 (P,E)=0.0514098,-0.0118262,-0.443196,0.466288 Stat:2 PV:-26 EV:-185 Pol:(0,0) F:0
+		GenParticle: 356 ID:111 (P,E)=-0.104707,0.0207697,-0.387933,0.42439 Stat:2 PV:-26 EV:-186 Pol:(0,0) F:0
+		GenParticle: 691 ID:22 (P,E)=0.00793944,-0.0290189,-0.0310185,0.043212 Stat:1 PV:-187 EV:0 Pol:(0,0) F:0
+		GenParticle: 692 ID:22 (P,E)=0.0013361,-0.360006,-1.44858,1.49264 Stat:1 PV:-187 EV:0 Pol:(0,0) F:0
+		GenParticle: 357 ID:211 (P,E)=0.346846,0.162917,-0.662966,0.778362 Stat:1 PV:-27 EV:0 Pol:(0,0) F:0
+		GenParticle: 358 ID:111 (P,E)=0.00927554,-0.389025,-1.4796,1.53585 Stat:2 PV:-27 EV:-187 Pol:(0,0) F:0
+		GenParticle: 359 ID:22 (P,E)=0.313201,0.486794,-1.76801,1.86036 Stat:1 PV:-28 EV:0 Pol:(0,0) F:0
+		GenParticle: 360 ID:22 (P,E)=1.06097,1.56889,-5.05762,5.40061 Stat:1 PV:-28 EV:0 Pol:(0,0) F:0
+		GenParticle: 361 ID:22 (P,E)=0.0118411,1.01695,-6.14181,6.22545 Stat:1 PV:-29 EV:0 Pol:(0,0) F:0
+		GenParticle: 362 ID:22 (P,E)=-0.0392098,0.118509,-0.623717,0.636086 Stat:1 PV:-29 EV:0 Pol:(0,0) F:0
+		GenParticle: 693 ID:22 (P,E)=0.503143,2.42416,-7.18654,7.60105 Stat:1 PV:-188 EV:0 Pol:(0,0) F:0
+		GenParticle: 694 ID:22 (P,E)=0.0852507,0.301268,-1.04807,1.09383 Stat:1 PV:-188 EV:0 Pol:(0,0) F:0
+		GenParticle: 363 ID:2212 (P,E)=1.48826,4.58611,-13.7216,14.5743 Stat:1 PV:-30 EV:0 Pol:(0,0) F:0
+		GenParticle: 364 ID:111 (P,E)=0.588394,2.72543,-8.2346,8.69489 Stat:2 PV:-30 EV:-188 Pol:(0,0) F:0
+		GenParticle: 695 ID:130 (P,E)=1.00006,3.5442,-10.8415,11.4607 Stat:1 PV:-189 EV:0 Pol:(0,0) F:0
+		GenParticle: 365 ID:-311 (P,E)=1.00006,3.5442,-10.8415,11.4607 Stat:2 PV:-31 EV:-189 Pol:(0,0) F:0
+		GenParticle: 366 ID:-211 (P,E)=0.289664,0.656716,-1.51891,1.68575 Stat:1 PV:-31 EV:0 Pol:(0,0) F:0
+		GenParticle: 899 ID:-2112 (P,E)=2.24335,9.29907,-28.9549,30.5086 Stat:1 PV:-294 EV:0 Pol:(0,0) F:0
+		GenParticle: 900 ID:211 (P,E)=0.955761,4.14508,-13.4757,14.1319 Stat:1 PV:-294 EV:0 Pol:(0,0) F:0
+		GenParticle: 929 ID:130 (P,E)=1.51446,7.25901,-23.9839,25.109 Stat:1 PV:-309 EV:0 Pol:(0,0) F:0
+		GenParticle: 901 ID:311 (P,E)=1.51446,7.25901,-23.9839,25.109 Stat:2 PV:-295 EV:-309 Pol:(0,0) F:0
+		GenParticle: 902 ID:211 (P,E)=0.959074,3.55331,-11.0091,11.6089 Stat:1 PV:-295 EV:0 Pol:(0,0) F:0
+		GenParticle: 696 ID:-211 (P,E)=0.207255,1.11244,-3.59343,3.76998 Stat:1 PV:-190 EV:0 Pol:(0,0) F:0
+		GenParticle: 697 ID:-211 (P,E)=0.313377,1.05379,-3.03519,3.23118 Stat:1 PV:-190 EV:0 Pol:(0,0) F:0
+		GenParticle: 698 ID:-3112 (P,E)=3.19911,13.4442,-42.4307,44.6405 Stat:2 PV:-190 EV:-294 Pol:(0,0) F:0
+		GenParticle: 699 ID:323 (P,E)=2.47353,10.8123,-34.9931,36.7179 Stat:2 PV:-190 EV:-295 Pol:(0,0) F:0
+		GenParticle: 367 ID:-4132 (P,E)=6.19327,26.4227,-84.0523,88.3596 Stat:2 PV:-32 EV:-190 Pol:(0,0) F:0
+		GenParticle: 368 ID:22 (P,E)=0.142817,0.365437,-0.959274,1.03641 Stat:1 PV:-32 EV:0 Pol:(0,0) F:0
+		GenParticle: 130 ID:-321 (P,E)=8.47742,-11.5752,-66.0176,67.5605 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 131 ID:113 (P,E)=8.11665,-11.9355,-66.4117,67.9682 Stat:2 PV:-12 EV:-23 Pol:(0,0) F:0
+		GenParticle: 132 ID:213 (P,E)=4.46409,-6.24649,-34.0378,34.9002 Stat:2 PV:-12 EV:-24 Pol:(0,0) F:0
+		GenParticle: 133 ID:-213 (P,E)=2.62198,-1.59053,-15.759,16.0915 Stat:2 PV:-12 EV:-25 Pol:(0,0) F:0
+		GenParticle: 134 ID:211 (P,E)=1.09917,-1.77479,-6.26429,6.60446 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 135 ID:221 (P,E)=-0.105399,-0.0190082,-2.28954,2.35652 Stat:2 PV:-12 EV:-26 Pol:(0,0) F:0
+		GenParticle: 136 ID:-211 (P,E)=0.37094,1.08489,-4.55358,4.69778 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 137 ID:213 (P,E)=0.356121,-0.226108,-2.14256,2.31422 Stat:2 PV:-12 EV:-27 Pol:(0,0) F:0
+		GenParticle: 138 ID:-211 (P,E)=-0.128069,0.0933565,-0.64814,0.681676 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 139 ID:111 (P,E)=1.37417,2.05568,-6.82563,7.26097 Stat:2 PV:-12 EV:-28 Pol:(0,0) F:0
+		GenParticle: 140 ID:111 (P,E)=-0.0273688,1.13546,-6.76553,6.86153 Stat:2 PV:-12 EV:-29 Pol:(0,0) F:0
+		GenParticle: 141 ID:2214 (P,E)=2.07666,7.31154,-21.9562,23.2692 Stat:2 PV:-12 EV:-30 Pol:(0,0) F:0
+		GenParticle: 142 ID:-323 (P,E)=1.28973,4.20092,-12.3604,13.1464 Stat:2 PV:-12 EV:-31 Pol:(0,0) F:0
+		GenParticle: 143 ID:-4314 (P,E)=6.33609,26.7881,-85.0116,89.396 Stat:2 PV:-12 EV:-32 Pol:(0,0) F:0
+		GenParticle: 129 ID:92 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:2 PV:-11 EV:-12 Pol:(0,0) F:0
+		GenParticle: 13 ID:3 (P,E)=23.6305,-33.4859,-187.168,191.604 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 14 ID:21 (P,E)=2.16785,-0.576478,-9.12382,9.39553 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 15 ID:21 (P,E)=-0.00673469,0.0214143,-0.661076,0.661457 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 16 ID:21 (P,E)=0.337647,0.732295,-0.927447,1.22899 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 17 ID:21 (P,E)=0.0795054,2.07871,-5.14705,5.55153 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 18 ID:-4 (P,E)=10.1134,40.5323,-128.016,134.668 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 10 ID:-24 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+
+A W boson has been found in event: 9
+GenParticle: 10 ID:-24 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 8 ID:-24 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) 3 13 2
+			 (id,barcode,status) 21 14 2
+			 (id,barcode,status) 21 15 2
+			 (id,barcode,status) 21 16 2
+			 (id,barcode,status) 21 17 2
+			 (id,barcode,status) -4 18 2
+		 Its descendants are: 
+		GenParticle: 348 ID:-211 (P,E)=6.93515,-9.95716,-54.4707,55.8061 Stat:1 PV:-23 EV:0 Pol:(0,0) F:0
+		GenParticle: 349 ID:211 (P,E)=1.18151,-1.97831,-11.941,12.1621 Stat:1 PV:-23 EV:0 Pol:(0,0) F:0
+		GenParticle: 681 ID:22 (P,E)=0.752791,-0.806798,-4.68143,4.80972 Stat:1 PV:-182 EV:0 Pol:(0,0) F:0
+		GenParticle: 682 ID:22 (P,E)=0.69264,-0.850998,-4.18926,4.33057 Stat:1 PV:-182 EV:0 Pol:(0,0) F:0
+		GenParticle: 350 ID:211 (P,E)=3.01865,-4.58869,-25.1672,25.7599 Stat:1 PV:-24 EV:0 Pol:(0,0) F:0
+		GenParticle: 351 ID:111 (P,E)=1.44543,-1.6578,-8.87069,9.14029 Stat:2 PV:-24 EV:-182 Pol:(0,0) F:0
+		GenParticle: 683 ID:22 (P,E)=1.35018,-0.49391,-8.87935,8.99498 Stat:1 PV:-183 EV:0 Pol:(0,0) F:0
+		GenParticle: 684 ID:22 (P,E)=0.357246,-0.113731,-1.9313,1.96735 Stat:1 PV:-183 EV:0 Pol:(0,0) F:0
+		GenParticle: 352 ID:-211 (P,E)=0.914552,-0.98289,-4.94835,5.12915 Stat:1 PV:-25 EV:0 Pol:(0,0) F:0
+		GenParticle: 353 ID:111 (P,E)=1.70742,-0.607641,-10.8106,10.9623 Stat:2 PV:-25 EV:-183 Pol:(0,0) F:0
+		GenParticle: 685 ID:22 (P,E)=-0.000123784,-0.0202557,-1.27202,1.27218 Stat:1 PV:-184 EV:0 Pol:(0,0) F:0
+		GenParticle: 686 ID:22 (P,E)=-0.0519781,-0.00769611,-0.186392,0.193657 Stat:1 PV:-184 EV:0 Pol:(0,0) F:0
+		GenParticle: 687 ID:22 (P,E)=0.0606408,0.0465357,-0.328398,0.337177 Stat:1 PV:-185 EV:0 Pol:(0,0) F:0
+		GenParticle: 688 ID:22 (P,E)=-0.00923098,-0.0583619,-0.114798,0.129112 Stat:1 PV:-185 EV:0 Pol:(0,0) F:0
+		GenParticle: 689 ID:22 (P,E)=-0.126406,0.0471778,-0.33746,0.363433 Stat:1 PV:-186 EV:0 Pol:(0,0) F:0
+		GenParticle: 690 ID:22 (P,E)=0.0216985,-0.0264081,-0.0504729,0.0609568 Stat:1 PV:-186 EV:0 Pol:(0,0) F:0
+		GenParticle: 354 ID:111 (P,E)=-0.0521019,-0.0279518,-1.45842,1.46584 Stat:2 PV:-26 EV:-184 Pol:(0,0) F:0
+		GenParticle: 355 ID:111 (P,E)=0.0514098,-0.0118262,-0.443196,0.466288 Stat:2 PV:-26 EV:-185 Pol:(0,0) F:0
+		GenParticle: 356 ID:111 (P,E)=-0.104707,0.0207697,-0.387933,0.42439 Stat:2 PV:-26 EV:-186 Pol:(0,0) F:0
+		GenParticle: 691 ID:22 (P,E)=0.00793944,-0.0290189,-0.0310185,0.043212 Stat:1 PV:-187 EV:0 Pol:(0,0) F:0
+		GenParticle: 692 ID:22 (P,E)=0.0013361,-0.360006,-1.44858,1.49264 Stat:1 PV:-187 EV:0 Pol:(0,0) F:0
+		GenParticle: 357 ID:211 (P,E)=0.346846,0.162917,-0.662966,0.778362 Stat:1 PV:-27 EV:0 Pol:(0,0) F:0
+		GenParticle: 358 ID:111 (P,E)=0.00927554,-0.389025,-1.4796,1.53585 Stat:2 PV:-27 EV:-187 Pol:(0,0) F:0
+		GenParticle: 359 ID:22 (P,E)=0.313201,0.486794,-1.76801,1.86036 Stat:1 PV:-28 EV:0 Pol:(0,0) F:0
+		GenParticle: 360 ID:22 (P,E)=1.06097,1.56889,-5.05762,5.40061 Stat:1 PV:-28 EV:0 Pol:(0,0) F:0
+		GenParticle: 361 ID:22 (P,E)=0.0118411,1.01695,-6.14181,6.22545 Stat:1 PV:-29 EV:0 Pol:(0,0) F:0
+		GenParticle: 362 ID:22 (P,E)=-0.0392098,0.118509,-0.623717,0.636086 Stat:1 PV:-29 EV:0 Pol:(0,0) F:0
+		GenParticle: 693 ID:22 (P,E)=0.503143,2.42416,-7.18654,7.60105 Stat:1 PV:-188 EV:0 Pol:(0,0) F:0
+		GenParticle: 694 ID:22 (P,E)=0.0852507,0.301268,-1.04807,1.09383 Stat:1 PV:-188 EV:0 Pol:(0,0) F:0
+		GenParticle: 363 ID:2212 (P,E)=1.48826,4.58611,-13.7216,14.5743 Stat:1 PV:-30 EV:0 Pol:(0,0) F:0
+		GenParticle: 364 ID:111 (P,E)=0.588394,2.72543,-8.2346,8.69489 Stat:2 PV:-30 EV:-188 Pol:(0,0) F:0
+		GenParticle: 695 ID:130 (P,E)=1.00006,3.5442,-10.8415,11.4607 Stat:1 PV:-189 EV:0 Pol:(0,0) F:0
+		GenParticle: 365 ID:-311 (P,E)=1.00006,3.5442,-10.8415,11.4607 Stat:2 PV:-31 EV:-189 Pol:(0,0) F:0
+		GenParticle: 366 ID:-211 (P,E)=0.289664,0.656716,-1.51891,1.68575 Stat:1 PV:-31 EV:0 Pol:(0,0) F:0
+		GenParticle: 899 ID:-2112 (P,E)=2.24335,9.29907,-28.9549,30.5086 Stat:1 PV:-294 EV:0 Pol:(0,0) F:0
+		GenParticle: 900 ID:211 (P,E)=0.955761,4.14508,-13.4757,14.1319 Stat:1 PV:-294 EV:0 Pol:(0,0) F:0
+		GenParticle: 929 ID:130 (P,E)=1.51446,7.25901,-23.9839,25.109 Stat:1 PV:-309 EV:0 Pol:(0,0) F:0
+		GenParticle: 901 ID:311 (P,E)=1.51446,7.25901,-23.9839,25.109 Stat:2 PV:-295 EV:-309 Pol:(0,0) F:0
+		GenParticle: 902 ID:211 (P,E)=0.959074,3.55331,-11.0091,11.6089 Stat:1 PV:-295 EV:0 Pol:(0,0) F:0
+		GenParticle: 696 ID:-211 (P,E)=0.207255,1.11244,-3.59343,3.76998 Stat:1 PV:-190 EV:0 Pol:(0,0) F:0
+		GenParticle: 697 ID:-211 (P,E)=0.313377,1.05379,-3.03519,3.23118 Stat:1 PV:-190 EV:0 Pol:(0,0) F:0
+		GenParticle: 698 ID:-3112 (P,E)=3.19911,13.4442,-42.4307,44.6405 Stat:2 PV:-190 EV:-294 Pol:(0,0) F:0
+		GenParticle: 699 ID:323 (P,E)=2.47353,10.8123,-34.9931,36.7179 Stat:2 PV:-190 EV:-295 Pol:(0,0) F:0
+		GenParticle: 367 ID:-4132 (P,E)=6.19327,26.4227,-84.0523,88.3596 Stat:2 PV:-32 EV:-190 Pol:(0,0) F:0
+		GenParticle: 368 ID:22 (P,E)=0.142817,0.365437,-0.959274,1.03641 Stat:1 PV:-32 EV:0 Pol:(0,0) F:0
+		GenParticle: 130 ID:-321 (P,E)=8.47742,-11.5752,-66.0176,67.5605 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 131 ID:113 (P,E)=8.11665,-11.9355,-66.4117,67.9682 Stat:2 PV:-12 EV:-23 Pol:(0,0) F:0
+		GenParticle: 132 ID:213 (P,E)=4.46409,-6.24649,-34.0378,34.9002 Stat:2 PV:-12 EV:-24 Pol:(0,0) F:0
+		GenParticle: 133 ID:-213 (P,E)=2.62198,-1.59053,-15.759,16.0915 Stat:2 PV:-12 EV:-25 Pol:(0,0) F:0
+		GenParticle: 134 ID:211 (P,E)=1.09917,-1.77479,-6.26429,6.60446 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 135 ID:221 (P,E)=-0.105399,-0.0190082,-2.28954,2.35652 Stat:2 PV:-12 EV:-26 Pol:(0,0) F:0
+		GenParticle: 136 ID:-211 (P,E)=0.37094,1.08489,-4.55358,4.69778 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 137 ID:213 (P,E)=0.356121,-0.226108,-2.14256,2.31422 Stat:2 PV:-12 EV:-27 Pol:(0,0) F:0
+		GenParticle: 138 ID:-211 (P,E)=-0.128069,0.0933565,-0.64814,0.681676 Stat:1 PV:-12 EV:0 Pol:(0,0) F:0
+		GenParticle: 139 ID:111 (P,E)=1.37417,2.05568,-6.82563,7.26097 Stat:2 PV:-12 EV:-28 Pol:(0,0) F:0
+		GenParticle: 140 ID:111 (P,E)=-0.0273688,1.13546,-6.76553,6.86153 Stat:2 PV:-12 EV:-29 Pol:(0,0) F:0
+		GenParticle: 141 ID:2214 (P,E)=2.07666,7.31154,-21.9562,23.2692 Stat:2 PV:-12 EV:-30 Pol:(0,0) F:0
+		GenParticle: 142 ID:-323 (P,E)=1.28973,4.20092,-12.3604,13.1464 Stat:2 PV:-12 EV:-31 Pol:(0,0) F:0
+		GenParticle: 143 ID:-4314 (P,E)=6.33609,26.7881,-85.0116,89.396 Stat:2 PV:-12 EV:-32 Pol:(0,0) F:0
+		GenParticle: 129 ID:92 (P,E)=36.3222,9.30234,-331.044,343.109 Stat:2 PV:-11 EV:-12 Pol:(0,0) F:0
+		GenParticle: 13 ID:3 (P,E)=23.6305,-33.4859,-187.168,191.604 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 14 ID:21 (P,E)=2.16785,-0.576478,-9.12382,9.39553 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 15 ID:21 (P,E)=-0.00673469,0.0214143,-0.661076,0.661457 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 16 ID:21 (P,E)=0.337647,0.732295,-0.927447,1.22899 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 17 ID:21 (P,E)=0.0795054,2.07871,-5.14705,5.55153 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+		GenParticle: 18 ID:-4 (P,E)=10.1134,40.5323,-128.016,134.668 Stat:2 PV:-8 EV:-11 Pol:(0,0) F:0
+Event 18 is good 
+photons in event 18:
+GenParticle: 7 ID:22 (P,E)=23.7859,34.5098,42.0174,59.3478 Stat:3 PV:-5 EV:-6 Pol:(0,0) F:0
+GenParticle: 9 ID:22 (P,E)=23.7859,34.5098,42.0174,59.3478 Stat:1 PV:-6 EV:0 Pol:(0,0) F:0
+
+A W boson has been found in event: 18
+GenParticle: 8 ID:24 (P,E)=-22.4676,-32.3496,651.024,657.947 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 5 ID:2 (P,E)=-0.3102,4.06731,705.033,705.044 Stat:3 PV:-3 EV:-5 Pol:(0,0) F:0
+	GenParticle: 6 ID:-1 (P,E)=1.62851,-1.90715,-11.9913,12.2508 Stat:3 PV:-4 EV:-5 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) 24 10 2
+		 Its descendants are: 
+		GenParticle: 524 ID:22 (P,E)=0.289314,0.55118,8.87858,8.90038 Stat:1 PV:-142 EV:0 Pol:(0,0) F:0
+		GenParticle: 525 ID:22 (P,E)=1.08563,2.28815,32.6894,32.7874 Stat:1 PV:-142 EV:0 Pol:(0,0) F:0
+		GenParticle: 283 ID:211 (P,E)=5.69759,11.3309,150.218,150.753 Stat:1 PV:-30 EV:0 Pol:(0,0) F:0
+		GenParticle: 284 ID:111 (P,E)=1.37495,2.83933,41.568,41.6878 Stat:2 PV:-30 EV:-142 Pol:(0,0) F:0
+		GenParticle: 99 ID:-16 (P,E)=3.778,8.81722,104.259,104.699 Stat:1 PV:-9 EV:0 Pol:(0,0) F:0
+		GenParticle: 100 ID:213 (P,E)=7.07253,14.1702,191.786,192.44 Stat:2 PV:-9 EV:-30 Pol:(0,0) F:0
+		GenParticle: 11 ID:-15 (P,E)=10.8505,22.9874,296.045,297.139 Stat:2 PV:-8 EV:-9 Pol:(0,0) F:0
+		GenParticle: 12 ID:16 (P,E)=-33.3181,-55.337,354.979,360.808 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0
+		GenParticle: 10 ID:24 (P,E)=-22.4676,-32.3496,651.024,657.947 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+
+A W boson has been found in event: 18
+GenParticle: 10 ID:24 (P,E)=-22.4676,-32.3496,651.024,657.947 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 8 ID:24 (P,E)=-22.4676,-32.3496,651.024,657.947 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) -15 11 2
+			 (id,barcode,status) 16 12 1
+		 Its descendants are: 
+		GenParticle: 524 ID:22 (P,E)=0.289314,0.55118,8.87858,8.90038 Stat:1 PV:-142 EV:0 Pol:(0,0) F:0
+		GenParticle: 525 ID:22 (P,E)=1.08563,2.28815,32.6894,32.7874 Stat:1 PV:-142 EV:0 Pol:(0,0) F:0
+		GenParticle: 283 ID:211 (P,E)=5.69759,11.3309,150.218,150.753 Stat:1 PV:-30 EV:0 Pol:(0,0) F:0
+		GenParticle: 284 ID:111 (P,E)=1.37495,2.83933,41.568,41.6878 Stat:2 PV:-30 EV:-142 Pol:(0,0) F:0
+		GenParticle: 99 ID:-16 (P,E)=3.778,8.81722,104.259,104.699 Stat:1 PV:-9 EV:0 Pol:(0,0) F:0
+		GenParticle: 100 ID:213 (P,E)=7.07253,14.1702,191.786,192.44 Stat:2 PV:-9 EV:-30 Pol:(0,0) F:0
+		GenParticle: 11 ID:-15 (P,E)=10.8505,22.9874,296.045,297.139 Stat:2 PV:-8 EV:-9 Pol:(0,0) F:0
+		GenParticle: 12 ID:16 (P,E)=-33.3181,-55.337,354.979,360.808 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0
+Event 56 is good 
+photons in event 56:
+GenParticle: 7 ID:22 (P,E)=7.92316,-57.3898,-530.978,534.129 Stat:3 PV:-5 EV:-6 Pol:(0,0) F:0
+GenParticle: 9 ID:22 (P,E)=7.92316,-57.3898,-530.978,534.129 Stat:1 PV:-6 EV:0 Pol:(0,0) F:0
+
+A W boson has been found in event: 56
+GenParticle: 8 ID:-24 (P,E)=3.24583,59.0393,-1247.75,1252.04 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 5 ID:-2 (P,E)=10.0036,-1.02577,-3.08057,10.5173 Stat:3 PV:-3 EV:-5 Pol:(0,0) F:0
+	GenParticle: 6 ID:1 (P,E)=1.16537,2.67523,-1775.65,1775.65 Stat:3 PV:-4 EV:-5 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) -24 10 2
+		 Its descendants are: 
+		GenParticle: 11 ID:11 (P,E)=38.8894,9.95748,-643.488,644.739 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0
+		GenParticle: 12 ID:-12 (P,E)=-35.6436,49.0818,-604.26,607.297 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0
+		GenParticle: 10 ID:-24 (P,E)=3.24583,59.0393,-1247.75,1252.04 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+
+A W boson has been found in event: 56
+GenParticle: 10 ID:-24 (P,E)=3.24583,59.0393,-1247.75,1252.04 Stat:2 PV:-7 EV:-8 Pol:(0,0) F:0
+	 Its parents are: 
+	GenParticle: 8 ID:-24 (P,E)=3.24583,59.0393,-1247.75,1252.04 Stat:3 PV:-5 EV:-7 Pol:(0,0) F:0
+		Its children are: 
+			 (id,barcode,status) 11 11 1
+			 (id,barcode,status) -12 12 1
+		 Its descendants are: 
+		GenParticle: 11 ID:11 (P,E)=38.8894,9.95748,-643.488,644.739 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0
+		GenParticle: 12 ID:-12 (P,E)=-35.6436,49.0818,-604.26,607.297 Stat:1 PV:-8 EV:0 Pol:(0,0) F:0

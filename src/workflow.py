@@ -16,6 +16,7 @@ class Workflow(Base):
         self.library_modules = {}
         self.graph = {}
         self.layer_info = {}
+        self.layers = []
 
     def add_module(self, module):
         self.modules[module.name] = module
@@ -98,7 +99,6 @@ class Workflow(Base):
             unresolved = [item for item in unresolved if item not in resolved]
             self.calc_layer[current_layer] = {"module": new_resolved, "ipfs": {}, "opfs": {}, "ipvs": {}, "opvs": {}, "mdls": {}}
             current_layer += 1 
-        
         from pprint import pprint
 
     def resolve_dependencies(self):

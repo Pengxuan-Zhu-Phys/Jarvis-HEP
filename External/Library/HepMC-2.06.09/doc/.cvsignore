@@ -1,0 +1,14 @@
+Makefile.in
+*.ps
+*.pdf
+*.aux
+*.log
+*.dvi
+*.toc
+*.lot
+*.lof
+html
+latex
+doxygen.warnings
+buildManual.sh
+buildDoxy.sh
