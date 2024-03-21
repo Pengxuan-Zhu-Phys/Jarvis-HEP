@@ -105,7 +105,7 @@ Calculators:
           - "cp ${source}/susyhit.tar.gz ${path}"
           - "cd ${path}"
           - "tar -zxvf susyhit.tar.gz"
-          - "make -j${Calculators:make_paraller}"
+          - "make -j${Calculators:make_paraller}" 
       initialization:
           - "cp ${Calculators:source}/susyhit.in ${path}"
           - "make"
@@ -123,29 +123,8 @@ Calculators:
               - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
               - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
             save: true
-          - name: input_file2
-            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
-            type: "SLHA"
-            variables:
-              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
-              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
-            save: true  
         output:
           - name: output_file1
-            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
-            type: "SLHA"
-            save: False
-            variables:
-              - { name: aWSmuR, method: "SLHA", block: DECAY, id: 2000013 }
-              - { name: aWSeR,  method: "SLHA", block: DECAY, id: 2000011 }
-              - { name: aWStaR, method: "SLHA", block: DECAY, id: 2000015 }
-              - { name: aWSmuL, method: "SLHA", block: DECAY, id: 1000013 }
-              - { name: aWStaL, method: "SLHA", block: DECAY, id: 1000015 }
-              - { name: aWSeL,  method: "SLHA", block: DECAY, id: 1000011 }
-              - { name: aWSve,  method: "SLHA", block: DECAY, id: 1000012 }
-              - { name: aWSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
-              - { name: aWSvta,  method: "SLHA", block: DECAY, id: 1000016 }
-          - name: output_file2
             path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
             type: "SLHA"
             save: False

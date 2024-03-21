@@ -80,10 +80,10 @@ class CalculatorModule(Module):
             self.is_busy = False
             self.PackID  = None
             self.analyze_config()
+            self.run_log_file   = None
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
-        print(self.config.keys())
 
     def analyze_config(self):
         # get the variables for inputs and outputs, prepare for the workflow chart 
@@ -101,13 +101,17 @@ class CalculatorModule(Module):
     def analyze_config_multi(self):
         pass 
 
+    def create_child_logger(self, logger_name):
+        child_installation_logger_name = f"{self.logger.name}.{logger_name}"
+        self.child_logger = logging.getLogger(child_installation_logger_name)
+        self.child_logger.propagate = False
+
     def install(self):
         self.basepath = self.decode_shadow_path(self.basepath)
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
 
-        self.logger.setLevel(logging.DEBUG)  # 或更低的级别
-
+        self.logger.setLevel(logging.DEBUG) 
         install_file_log = os.path.join(self.basepath, f"Installation_{self.name}-{self.PackID}.log")
         formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
         Afile_handler = logging.FileHandler(install_file_log, mode='a')
@@ -115,32 +119,50 @@ class CalculatorModule(Module):
         Afile_handler.setFormatter(formatter)
         self.logger.addHandler(Afile_handler)
         self.logger.info(f"Installing {self.name}-{self.PackID} ....")
-
-
-        child_installation_logger_name = f"{self.logger.name}.command_logger"
-        self.child_installation_logger = logging.getLogger(child_installation_logger_name)
-        self.child_installation_logger.propagate = False
+        self.create_child_logger("Installation")
         
-        # setting a simple formmater for each command 
         simple_formatter = logging.Formatter('%(message)s')
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(simple_formatter)
-        stream_handler.setLevel(logging.DEBUG)
-        # self.child_installation_logger.addHandler(stream_handler)
-
         file_handler = logging.FileHandler(install_file_log, mode="a")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(simple_formatter)
-        self.child_installation_logger.addHandler(file_handler)
+        self.child_logger.addHandler(file_handler)
 
 
         for cmd in self.installation:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(cmd)
                 self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-                self.run_command(command=command, child_logger=self.child_installation_logger)
+                self.run_command(command=command, child_logger=self.child_logger)
             else: 
-                self.run_command(command=cmd, child_logger=self.child_installation_logger)
+                self.run_command(command=cmd, child_logger=self.child_logger)
+
+        self.logger.removeHandler(Afile_handler)
+        Afile_handler.close()
+        self.child_logger = None
+
+    def set_running_file_log(self, run_log_file):
+        print("Line 145", run_log_file)
+        self.logger.setLevel(logging.DEBUG) 
+
+        self.run_log_handler = logging.FileHandler(run_log_file, mode="a")
+        formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
+        self.run_log_handler.setLevel(logging.DEBUG)
+        self.run_log_handler.setFormatter(formatter)
+        self.logger.addHandler(self.run_log_handler)
+
+        if self.child_logger is not None: 
+            simple_formatter = logging.Formatter('%(message)s')
+            file_handler    = logging.FileHandler(run_log_file, mode="a")
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(simple_formatter)
+            self.child_logger.addHandler(file_handler)
+
+        self.logger.info("Succefully set the logging file")
+
+    def remove_running_file_log(self):
+        self.logger.removeHandler(self.run_log_handler)
+        self.run_log_handler.close()
+        self.child_logger = None
 
     def run_command(self, command, child_logger):
         with subprocess.Popen(
@@ -165,15 +187,40 @@ class CalculatorModule(Module):
         for line in iter(stream.readline, ''):
             logger.log(level, "\t{}".format(line.strip()))
 
-
     def initialize(self):
-        # 模拟初始化逻辑
-        print(f"Initializing {self.name} with: {self.initialization}")
+        self.create_child_logger("Initialization")
+        self.set_running_file_log(self.decode_shadow_path(os.path.join(self.basepath, "Running.log")))
+        for command in self.initialization:
+            if self.clone_shadow: 
+                command = self.decode_shadow_commands(command)
+                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                self.run_command(command=command, child_logger=self.child_logger)
+        
+
 
     def execute(self, input_data):
-        # 执行模块计算逻辑，处理输入和产生输出
-        print(f"Executing {self.name} on inputs: {input_data}")
-        # 此处应根据模块具体逻辑处理输入数据和执行命令
+        self.initialize()
+        self.logger.info(f"Executing {self.name} on inputs: {input_data}")
+        self.load_input(input_data=input_data)
+        self.remove_running_file_log()
+
+    def load_input(self, input_data):
+        from IOs import IOfile
+        for ffile in self.input:
+            self.logger.info(f"Preparing the input file {ffile['name']}")
+            input_file = IOfile.create(
+                ffile["name"], 
+                path_template=None,
+                file_type=ffile["type"],
+                variables=ffile["variables"],
+                save=ffile['save'],
+                logger=self.logger, 
+                PackID=self.PackID
+            )
+            input_file.write()
+
+
+
 
     def decode_shadow_commands(self, cmd):
         command = {
@@ -190,6 +237,11 @@ class CalculatorModule(Module):
         return path
 
 
+
+
+
+
+
 class LibraryModule(Module):
     def __init__(self, name, required_modules, installed, installation):
         super().__init__(name)
@@ -200,6 +252,24 @@ class LibraryModule(Module):
         self._skip_library = False
 
     def set_logger(self, logger):
+        """
+            Assigns a logger instance to the module and logs an initialization message.
+
+            This method allows an externally created logger instance to be associated with the current module,
+            enabling the logging of messages within this module to be handled by the shared logger. This approach
+            facilitates sharing the same logging configuration across different parts of the application and centralizes
+            the management of how and where log messages are output.
+
+            Upon assigning the logger, this method immediately uses the provided logger to record a warning level log message,
+            indicating that the corresponding library module is being initialized. This helps in tracking the execution flow
+            and status of the program.
+
+            Parameters:
+            - logger: A configured logging.Logger object that will be used for logging within this module.
+
+            Returns:
+            None
+        """
         self.logger = logger
         self.logger.warning("Initializating Library -> {}".format(self.name))
 
@@ -223,7 +293,6 @@ class LibraryModule(Module):
         else:
             self.logger.info(f"No existing installation found for {self.name}.")
             self.installed = False
-
 
     def set_config(self, config):
         self.config = config 

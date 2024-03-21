@@ -41,7 +41,11 @@ class WorkerFactory:
         if module.name not in self.module_pools:
             self.logger.warning(f"Adding ModulePool {module.name}. ")
             self.module_pools[module.name] = ModulePool(module, max_workers=self._max_workers)
-            self.module_pools[module.name].logger = logger
+            self.module_pools[module.name].set_logger(logger)
+            self.module_pools[module.name].load_installed_instances()
+
+
+
         else:
             self.logger.warning(f"ModulePool for {module.name} already exists.")
 
@@ -80,32 +84,6 @@ class WorkerFactory:
     #     return result
 
 
-
-# class WorkerFactory:
-#     _instance = None
-#     _lock = threading.Lock()
-
-#     def __new__(cls, *args, **kwargs):
-#         with cls._lock:
-#             if cls._instance is None:
-#                 cls._instance = super(WorkerFactory, cls).__new__(cls)
-#                 cls._instance.executor = ProcessPoolExecutor(max_workers=4)
-#                 cls._instance.active_tasks = 0  # 初始化活跃任务计数
-#         return cls._instance
-
-#     def submit_task(self, params):
-#         # 提交任务前增加活跃任务计数
-#         self.active_tasks += 1
-#         future = self.executor.submit(simulate_external_likelihood_calculation, params)
-#         future.add_done_callback(self.task_done)
-#         return future
-
-#     def task_done(self, future):
-#         # 任务完成时减少活跃任务计数
-#         self.active_tasks -= 1
-
-#     def get_active_tasks_count(self):
-#         return self.active_tasks
 
 def sampler_generator(factory, max_active_tasks, sampler):
     while True:

@@ -17,12 +17,15 @@ import pandas as pd
 from base import Base
 
 class IOfile(Base):
-    def __init__(self) -> None:
-        self.filepath   = None
-        self.vars       = None
-        self.type       = None
-        self.logger     = None
-        self.PackID     = None 
+    def __init__(self, name, path, file_type, variables, save, logger, PackID):
+        self.logger     = logger
+        self.PackID     = PackID
+        self.name       = name
+        self.path_template = None
+        self.file_type = file_type
+        self.variables = variables
+        self.save = save
+        self.path = path  
 
     def decode_path(self, path, PackID=None) -> None:
         """
@@ -62,13 +65,82 @@ class IOfile(Base):
             self.logger.error(f"File not found: {filepath}")
             raise FileNotFoundError
 
+    @classmethod
+    def create(cls, name, path, file_type, variables, save, logger, PackID):
+        if file_type == "Json":
+            return JsonInputFile(name, path, file_type, variables, save, logger, PackID)
+        elif file_type == "SLHA":
+            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID)
+        else:
+            raise ValueError(f"Unsupported file type: {file_type}")
+
 class InputFile(IOfile):
-    def __init__(self) -> None:
-        super().__init__()
-        self.type = 'input'
-    
-    def load_config(self, config):
-        print(config)
+    def write(self, param_values):
+        raise NotImplementedError("This method should be implemented by subclasses.")
+
+class SLHAInputFile(InputFile):
+    def write(self, param_values):
+        """将参数值以SLHA格式写入文件"""
+        if not self.path:
+            self.logger.error()
+            raise ValueError("File path not generated. Call 'generate_path' first.")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+
+        # SLHA文件写入逻辑的简化示例
+        try:
+            with open(self.path, 'w') as slha_file:
+                for var in self.variables:
+                    if var['method'] == "Replace":
+                        value = param_values.get(var['name'], "MISSING_VALUE")
+                        placeholder = var['placeholder']
+                        # 在这里添加具体的SLHA格式处理逻辑
+                        content = f"{placeholder} {value}\n"
+                        slha_file.write(content)
+        except Exception as e:
+            self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")
+
+class JsonInputFile(InputFile):
+    def write(self, param_values):
+        """将参数值以Json格式写入文件"""
+        if not self.path:
+            raise ValueError("File path not generated. Call 'generate_path' first.")
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+
+        data_to_write = {}
+        for var in self.variables:
+            # 假设每个变量都需要写入Json文件，且param_values包含所有必需的值
+            value = param_values.get(var['name'], "MISSING_VALUE")
+            data_to_write[var['name']] = value
+
+        try:
+            with open(self.path, 'w') as json_file:
+                json.dump(data_to_write, json_file, indent=4)
+        except Exception as e:
+            self.logger.error(f"Error writing Json input file '{self.name}': {e}")
+
+
+class OutputFile(IOfile):
+    def read_variables(self):
+        """读取并处理文件中的变量"""
+        if not self.path or not os.path.exists(self.path):
+            raise ValueError("File not found. Ensure the path is correct and file exists.")
+        
+        try:
+            with open(self.path, 'r') as file:
+                content = file.read()
+                # 示例：根据SLHA文件类型和变量配置处理文件内容
+                extracted_variables = {}
+                for var in self.variables:
+                    if var['method'] == "SLHA":
+                        # 示例：从内容中提取SLHA块中的变量值
+                        block_name = var['block']
+                        # 这里需要实现具体的内容提取逻辑
+                        extracted_variables[var['name']] = "extracted_value"  # 示例值
+                return extracted_variables
+        except Exception as e:
+            self.logger.error(f"Error reading output file '{self.name}': {e}")
+
+
 
 
 class Parameter:
@@ -87,23 +159,3 @@ class Parameter:
             return (self.distribution['parameters']['min'] + self.distribution['parameters']['max']) / 2
         else:
             raise ValueError("Unsupported distribution type")
-
-# class Parameters(Module):
-#     def __init__(self, name, parameter_definitions):
-#         super().__init__(name)
-#         # 将参数字典转化为Parameter实例的列表
-#         self.parameters = [Parameter(**param_def) for param_def in parameter_definitions]
-
-#     def generate_parameters(self):
-#         # 生成并返回所有参数的值
-#         return {param.name: param.generate_value() for param in self.parameters}
-
-# # 使用示例
-# parameter_definitions = [
-#     {'name': 'mn1', 'description': 'Variable X following a Flat distribution for sampling.', 'distribution': {'type': 'Flat', 'parameters': {'min': 2.0, 'max': 5.0, 'length': 60}}},
-#     {'name': 'msmuR', 'description': 'Variable Y following a Logarithmic distribution for sampling.', 'distribution': {'type': 'Log', 'parameters': {'min': 0.01, 'max': 10.0, 'length': 50}}}
-# ]
-
-# parameters_module = Parameters("Sampling Parameters", parameter_definitions)
-# generated_parameters = parameters_module.generate_parameters()
-# print(generated_parameters)
