@@ -8,7 +8,7 @@ from base import Base
 from pprint import pprint
 jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 import yaml 
-from module import LibraryModule
+from Module.library import LibraryModule
 
 
 class Library(Base):

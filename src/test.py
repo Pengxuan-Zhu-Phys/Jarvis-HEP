@@ -1,6 +1,6 @@
 #!/usr/bin/env python3 
 
-from IOs import YodaFile
+from IOs.IOs import YodaFile
 yd = YodaFile()
 yd.file = "/home/buding/Workshop/CEPC/Signal/output/test03.dat"    
 yd.vinf = [

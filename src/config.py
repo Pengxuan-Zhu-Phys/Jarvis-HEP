@@ -12,7 +12,7 @@ from base import Base
 import json
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
-from module import Module
+from Module.module import Module
 from pprint import pprint
 
 class ConfigLoader(Base):

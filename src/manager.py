@@ -36,7 +36,7 @@ class SManager():
         self.logger = None
 
     def make_factory(self):
-        from IOs import to_file_woblk
+        from IOs.IOs import to_file_woblk
         # print(self.path)
         print(self.info['pack']['incl'])
         # sys.exit()

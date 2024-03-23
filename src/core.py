@@ -19,9 +19,13 @@ from threading import Timer
 from library import Library
 from workflow import Workflow
 from factory import WorkerFactory 
+from sample import Sample
+from moduleManager import ModuleManager
+from pprint import pprint
+
 
 class Core(Base):
-    def __init__(self) -> None:
+    def __init__(self, logger) -> None:
         # print("Testing the first logging line")
         super().__init__()
         self.argparser: Any             = None
@@ -33,8 +37,8 @@ class Core(Base):
         self.likelihood: Any            = None 
         self.logger: AppLogger          = None
         self.__state_saver              = None
+        self.module_manager             = None
 
-        
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
         self.info['args'] = load_args_config(self.path['args_info'])
@@ -67,6 +71,20 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
+
+    def init_project(self) -> None: 
+        self.info['scan_name'] = self.yaml.config['Scan']['name']
+        task_result_dir = os.path.join(self.yaml.config['Scan']['save_dir'], self.info['scan_name'])
+        task_result_dir = self.decode_path(task_result_dir)
+        self.info['sample'] = {
+            "task_result_dir": self.decode_path(task_result_dir),
+            "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
+            "jarvis_log":  os.path.abspath(f"{self.info['project_name']}.log")
+        }
+        if not os.path.exists(task_result_dir):
+            os.makedirs(task_result_dir)
+            os.makedirs(os.path.join(task_result_dir, "SAMPLE"))
+        # pprint(self.yaml.config)
 
     def init_logger(self) -> None:
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
@@ -130,18 +148,25 @@ class Core(Base):
         self.workflow.resolve_dependencies()
         if not self.args.skipFC:
             self.workflow.draw_flowchart()
+        self.workflow.get_workflow_dict()
 
     def init_WorkerFactory(self) -> None: 
-        self.factory = WorkerFactory(max_workers=self.yaml.config['Calculators']['make_paraller'])
+        self.factory = WorkerFactory()
+        self.module_manager = ModuleManager()
+        self.factory.configure(module_manager=self.module_manager,
+            max_workers=self.yaml.config['Calculators']['make_paraller']
+            )
         logger = self.logger.create_dynamic_logger("Manager")
         self.factory.set_logger(logger)
-        self.factory.set_config(self.yaml.config)
+        self.module_manager.set_logger(logger)
+        self.module_manager.set_max_worker(self.yaml.config['Calculators']['make_paraller'])
+        self.module_manager.set_config(self.yaml.config)
+        self.module_manager.workflow = deepcopy(self.workflow.workflow)
         for kk, layer in self.workflow.calc_layer.items():
             if kk > 1: 
-                self.factory.add_layer(layer['module'])
                 for module in layer['module']:
                     logger = self.logger.create_dynamic_logger(module)
-                    self.factory.add_module(self.workflow.modules[module], logger=logger)
+                    self.module_manager.add_module_pool(self.workflow.modules[module], logger=logger)
 
     def initialization(self) -> None:
         self.init_argparser()
@@ -152,16 +177,27 @@ class Core(Base):
         self.init_workflow()
         self.init_librarys()
         self.init_WorkerFactory()
+        self.init_project()
 
     def run_sampling(self)->None:
+        print(self.module_manager.module_pools)
         self.test_assembly_line()
 
     def test_assembly_line(self):
         if self.args.testcalculator:
-            param = next(self.sampler)
-            for mpool in self.factory.module_pools.values():
-                # print(mpool.name, mpool.instances, mpool.id_counter)
-                self.factory.module_pools[mpool.name].submit_task(param)
+            try:
+                param = next(self.sampler)
+                # print(self.factory.config['Scan'])
+                sample = Sample(param)
+                sample.set_config(deepcopy(self.info['sample']))
+                future = self.factory.submit_task(sample.params, sample.info)
+                # 等待任务完成并获取结果
+                likelihood = future.result()
+                print(likelihood)
+            except Exception as e:
+                # 异常处理
+                print(f"An error occurred: {e}")
+
 
 
 

@@ -4,9 +4,12 @@ import os, sys
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.join(pwd, "src"))
 from core import Core 
+from logger import AppLogger
+
+logger = AppLogger()
 
 def main():
-    jc = Core()
+    jc = Core(logger=logger)
     jc.initialization()
     jc.run_sampling()
 

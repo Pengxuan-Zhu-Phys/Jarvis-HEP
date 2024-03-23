@@ -216,7 +216,7 @@ class Pack():
     def decode_outputs(self, pkg):                    
         if not self.pack['include'][pkg]['output variables'].strip() == '':
             self.pack['include'][pkg]['output file'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['output file'], self.pack['include'][pkg]['install path'])['cmd'])
-            from IOs import IOs
+            from IOs.IOs import IOs
             self.pack['include'][pkg]['ops'] = IOs()
             self.pack['include'][pkg]['ops'].setinfos(
                 finf=self.pack['include'][pkg]['output file'],
@@ -239,7 +239,7 @@ class Pack():
     def decode_outputs_via_rdic(self, rdic):
         if not rdic['output variables'].strip() == "":
             rdic['output file'] = self.decode_path(self.decode_command(rdic['output file'], rdic['install cmd'])['cmd'])
-            from IOs import IOs
+            from IOs.IOs import IOs
             rdic['ops'] = IOs()
             rdic['ops'].setinfos(
                 finf = rdic['output file'],
@@ -264,7 +264,7 @@ class Pack():
 
     def decode_inputs(self, pkg):
         if not self.pack['include'][pkg]['input variables'].strip() == '':
-            from IOs import IOs
+            from IOs.IOs import IOs
             self.pack['include'][pkg]['input file'] = self.decode_path(self.decode_command(self.pack['include'][pkg]['input file'], self.pack['include'][pkg]['install path'])['cmd'])
             self.pack['include'][pkg]['ips'] = IOs()
             self.pack['include'][pkg]['ips'].setinfos(
@@ -288,7 +288,7 @@ class Pack():
 
     def decode_inputs_via_rdic(self, rdic):
         if not rdic['input variables'].strip() == "":
-            from IOs import IOs 
+            from IOs.IOs import IOs 
             rdic['input file'] = self.decode_path(self.decode_command(rdic['input file'], rdic['install cmd'])['cmd'])
             rdic['ips'] = IOs()
             rdic['ips'].setinfos(
@@ -681,7 +681,7 @@ class program():
             ips = self.config['modes'][self.config['name']]['input'].items()
         else:
             ips = self.config['input'].items() 
-        from IOs import InputsFile
+        from IOs.IOs import InputsFile
         for kk, ff in ips:
             ff['path'] = self.decode_path(ff['path'])
             if os.path.exists(ff['path']):
@@ -700,7 +700,7 @@ class program():
             ops = self.config['modes'][self.config['name']]['output'].items()
         else:
             ops = self.config['output'].items()         
-        from IOs import OutputsFile
+        from IOs.IOs import OutputsFile
         for kk, ff in ops:
             ff['path'] = self.decode_path(ff['path'])
             if os.path.exists(ff['path']):

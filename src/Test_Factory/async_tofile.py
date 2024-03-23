@@ -3,7 +3,7 @@
 import os, sys 
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from IOs import to_file_woblk
+from IOs.IOs import to_file_woblk
 
 data = {'a': 5, "b": 3}
 pt = "./test_woblk.json"

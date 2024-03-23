@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 from concurrent.futures import ThreadPoolExecutor
-from module import Parameters, CalculatorModule
+from Module.parameters import Parameters
+from Module.library import LibraryModule
+from Module.calculator import CalculatorModule
 from copy import deepcopy
 from concurrent.futures import as_completed
 import json
@@ -48,7 +50,37 @@ class ModulePool:
         self.update_instances_info_file()
         return instance
 
+    def execute(self, params, sample_info):
+        """Submit parameters to a module instance for calculation and return the calculation results.
 
+        Args:
+            params (dict): The parameters required for the calculation.
+
+        Returns:
+            dict: The updated observables dictionary.
+        """
+
+        instance = self.get_available_instance()
+        if instance is None:
+            # 如果没有可用的实例，创建一个新的实例
+            instance = self.create_instance()
+            # Make sure the instance is corrected installed 
+            self.install_instances()
+
+        # submit the task and tagging the instance into busy
+
+        future = self.executor.submit(instance.execute, params, sample_info)
+        instance.is_busy = True
+
+        # 等待计算完成
+        result = future.result()
+        
+        # 计算完成后，更新实例状态
+        instance.is_busy = False
+        self.update_instances_info_file()
+
+        # 返回计算结果
+        return result
 
     def install_instances(self):
         futures = []

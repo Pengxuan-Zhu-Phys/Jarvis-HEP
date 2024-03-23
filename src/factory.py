@@ -1,31 +1,38 @@
 #!/usr/bin/env python3
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import threading
 from modulePool import ModulePool
 from pprint import pprint
-
+from sample import Sample
+import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 class WorkerFactory:
     _instance = None
     _lock = threading.Lock()
-    _max_workers = 4  # 默认的最大工作线程数
 
-    def __new__(cls, max_workers=None, *args, **kwargs):
+    def __new__(cls, *args, **kwargs):
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super(WorkerFactory, cls).__new__(cls)
-                if max_workers is not None:
-                    cls._max_workers = max_workers
-                cls._instance.executor = ProcessPoolExecutor(max_workers=cls._max_workers)
+                cls._instance.module_manager = args[0] if args else None
+                cls._instance.executor = None  # 延迟executor的创建
         return cls._instance
 
-    def __init__(self, max_workers=None):
-        self.workflow = None  # Initialize with None
-        self.active_task = 0
-        self.module_pools = {}
-        self.layer = []
-        self.config = None
+    def configure(self, module_manager=None, max_workers=4):
+        if not hasattr(self, 'initialized'):
+            self.module_manager = module_manager if module_manager else self.module_manager
+            self.executor = ThreadPoolExecutor(max_workers=max_workers)
+            self.initialized = True
+            # 其他一次性初始化逻辑...
+
+
+    def get_executor(self):
+        if self.executor is None:
+            self.executor = ProcessPoolExecutor(max_workers=self._max_workers)
+        return self.executor
 
     def set_config(self, config):
         self.config = config
@@ -49,17 +56,21 @@ class WorkerFactory:
         else:
             self.logger.warning(f"ModulePool for {module.name} already exists.")
 
-    def submit_task(self, params):
-        # 提交任务前增加活跃任务计数
-        self.active_tasks += 1
-        future = self.executor.submit(self.likelihood, params)
-        future.add_done_callback(self.task_done)
+    def submit_task(self, params, uuid):
+        # 这个方法使用ModuleManager来执行一个特定的工作流
+        # 通过ThreadPoolExecutor来异步执行
+        future = self.executor.submit(self.module_manager.execute_workflow, params, uuid)
         return future
 
-    def task_done(self, future):
-        # 任务完成时减少活跃任务计数
-        self.active_tasks -= 1
-        
+    def task_done(self, future, uuid):
+        # 此处处理任务完成的逻辑，不论成功还是失败
+        del self.active_tasks[uuid]
+        try:
+            result = future.result()
+            print(f"Task {uuid} result: {result}")
+        except Exception as e:
+            print(f"Task {uuid} failed with error: {e}")
+
 
     def setup_workflow(self, workflow):
         self.workflow = workflow  # Assign the workflow
@@ -72,27 +83,18 @@ class WorkerFactory:
         # 设置用于计算的外部函数
         self.likelihood = func
 
-    def compute_likelihood(self, params):
-        if not self.workflow:
-            raise ValueError("Workflow is not set up.")
-        # Use the workflow to compute the likelihood
-        result = self.workflow.run(params)  # Assuming 'run' is the method that executes the workflow and computes the result
-        return result
 
-    # def compute_likelihood(self, params):
-    #     result = simulate_external_likelihood_calculation(params)
-    #     return result
-
-
-
-def sampler_generator(factory, max_active_tasks, sampler):
-    while True:
-        # 检查活跃任务数是否小于最大允许并行任务数
-        if factory.get_active_tasks_count() < max_active_tasks:
-            # 获取下一个采样点
-            params = next(sampler)
-            # 提交新的任务
-            yield factory.submit_task(params)
-        else:
-            # 暂时没有可用的工作线程，稍后再试
-            time.sleep(0.1)
+    def compute_likelihood(self, sample):
+        # 直接操作sample对象，包括其logger
+        print("Testing the compute likelihood")
+        # sample.logger.warning(f"Compute the sample {sample.params}")
+        observables = sample.params
+        for layer in self.workflow.values():
+            for mod in layer:
+                output = self.module_pools[mod].submit_task(observables)
+                # 等待并处理每个模块的输出结果
+                observables.update(output.result())  # 假设output.result()返回了所需的更新字典
+        
+        # 更新sample的状态或结果
+        sample.likelihood = 0.5
+        return sample

@@ -16,6 +16,7 @@ import xmltodict
 import pandas as pd 
 from base import Base
 
+
 class IOfile(Base):
     def __init__(self, name, path, file_type, variables, save, logger, PackID):
         self.logger     = logger
@@ -27,7 +28,7 @@ class IOfile(Base):
         self.save = save
         self.path = path  
 
-    def decode_path(self, path, PackID=None) -> None:
+    def decode_path(self, path) -> None:
         """
         Resolves special markers in the provided path.
 
@@ -46,7 +47,7 @@ class IOfile(Base):
         if "~" in path:
             path = os.path.expanduser(path)
 
-        if PackID is not None and self.PackID is not None:
+        if self.PackID is not None:
             path = path.replace("@PackID", self.PackID)
         
         return path  
@@ -67,9 +68,14 @@ class IOfile(Base):
 
     @classmethod
     def create(cls, name, path, file_type, variables, save, logger, PackID):
+        print(file_type)
         if file_type == "Json":
+            from IOs.Input import JsonInputFile
+            logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
             return JsonInputFile(name, path, file_type, variables, save, logger, PackID)
         elif file_type == "SLHA":
+            from IOs.Input import SLHAInputFile
+            logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
             return SLHAInputFile(name, path, file_type, variables, save, logger, PackID)
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
@@ -77,47 +83,6 @@ class IOfile(Base):
 class InputFile(IOfile):
     def write(self, param_values):
         raise NotImplementedError("This method should be implemented by subclasses.")
-
-class SLHAInputFile(InputFile):
-    def write(self, param_values):
-        """将参数值以SLHA格式写入文件"""
-        if not self.path:
-            self.logger.error()
-            raise ValueError("File path not generated. Call 'generate_path' first.")
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-
-        # SLHA文件写入逻辑的简化示例
-        try:
-            with open(self.path, 'w') as slha_file:
-                for var in self.variables:
-                    if var['method'] == "Replace":
-                        value = param_values.get(var['name'], "MISSING_VALUE")
-                        placeholder = var['placeholder']
-                        # 在这里添加具体的SLHA格式处理逻辑
-                        content = f"{placeholder} {value}\n"
-                        slha_file.write(content)
-        except Exception as e:
-            self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")
-
-class JsonInputFile(InputFile):
-    def write(self, param_values):
-        """将参数值以Json格式写入文件"""
-        if not self.path:
-            raise ValueError("File path not generated. Call 'generate_path' first.")
-        os.makedirs(os.path.dirname(self.path), exist_ok=True)
-
-        data_to_write = {}
-        for var in self.variables:
-            # 假设每个变量都需要写入Json文件，且param_values包含所有必需的值
-            value = param_values.get(var['name'], "MISSING_VALUE")
-            data_to_write[var['name']] = value
-
-        try:
-            with open(self.path, 'w') as json_file:
-                json.dump(data_to_write, json_file, indent=4)
-        except Exception as e:
-            self.logger.error(f"Error writing Json input file '{self.name}': {e}")
-
 
 class OutputFile(IOfile):
     def read_variables(self):

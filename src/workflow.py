@@ -2,7 +2,7 @@
 
 import networkx as nx 
 from base import Base
-from module import Module
+from Module.module import Module
 import numpy as np 
 import contextlib
 import os, io 
@@ -17,6 +17,7 @@ class Workflow(Base):
         self.graph = {}
         self.layer_info = {}
         self.layers = []
+        self.workflow = {}
 
     def add_module(self, module):
         self.modules[module.name] = module
@@ -27,7 +28,9 @@ class Workflow(Base):
         self.modules[module.name] = module
 
     def set_modules(self, modules):
-        from module import Parameters, LibraryModule, CalculatorModule
+        from Module.parameters import Parameters
+        from Module.library import LibraryModule
+        from Module.calculator import CalculatorModule
         
         parameter_module = Parameters("Parameters", modules['Parameter'])
         parameter_module.analyze_ios()
@@ -50,6 +53,10 @@ class Workflow(Base):
             )
             self.add_module(module)
 
+    def get_workflow_dict(self):
+        for kk, layer in self.layer_info.items():
+            if kk > 1: 
+                self.workflow[kk] = list(layer.keys())
     
     def resolve_layers(self):
         self.calc_layer = {}  

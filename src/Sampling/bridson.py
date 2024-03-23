@@ -53,7 +53,9 @@ class Bridson(SamplingVirtial):
             return None
 
     def map_point_into_distribution(self, row) -> np.ndarray:
-        result = np.array([self.vars[ii].map_standard_random_to_distribution(row[ii]/self.vars[ii]._parameters['length']) for ii in range(len(row))])
+        result = {}
+        for ii in range(len(row)):
+            result[self.vars[ii].name] = self.vars[ii].map_standard_random_to_distribution(row[ii]/self.vars[ii]._parameters['length'])
         return result
 
     def set_logger(self, logger) -> None:

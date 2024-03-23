@@ -107,9 +107,9 @@ Calculators:
           - "tar -zxvf susyhit.tar.gz"
           - "make -j${Calculators:make_paraller}" 
       initialization:
-          - "cp ${Calculators:source}/susyhit.in ${path}"
+          - "cp ${source}/susyhit.in ${path}"
           - "make"
-          - "cp ${Calculators:source}/slhaspectrum.in ${path}"
+          - "cp ${source}/slhaspectrum.in ${path}"
       execution:
         path: *susyhit_path  # using the Anchor point
         commands:
