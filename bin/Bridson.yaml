@@ -9,22 +9,23 @@ Sampling:
       distribution:
         type: Flat
         parameters:
-          min: 2.0
-          max: 5.0
-          length: 60
+          min: 0
+          max: 100
+          length: 100
 
     - name: msmuR
       description: "Variable Y following a Logarithmic distribution for sampling."
       distribution:
         type: Log
         parameters:
-          min: 0.01
-          max: 10.0
+          min: 100.0
+          max: 150.0
           length: 50
 
   Radius: 1.0
   MaxAttempt:  30
-  LogLikelihood: "Gauss(Z, 1, 0.2)"
+  LogLikelihood: 
+    - "Gauss(Z, 1, 0.2)"
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
@@ -119,9 +120,11 @@ Calculators:
           - name: input_file1
             path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
             type: "SLHA"
-            variables:
-              - { name: mn1,   method: Replace, placeholder: ">>>>MN1<<<<" }
-              - { name: msmuR, method: Replace, placeholder: ">>>>MSLEP<<<<" }
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "msmuR", placeholder: ">>>>MSLEP<<<<" }
+                  - { name: "mn1", placeholder: ">>>>MN1<<<<" }
             save: true
         output:
           - name: output_file1
@@ -129,12 +132,7 @@ Calculators:
             type: "SLHA"
             save: False
             variables:
-              - { name: WSmuR, method: "SLHA", block: DECAY, id: 2000013 }
-              - { name: WSeR,  method: "SLHA", block: DECAY, id: 2000011 }
-              - { name: WStaR, method: "SLHA", block: DECAY, id: 2000015 }
-              - { name: WSmuL, method: "SLHA", block: DECAY, id: 1000013 }
-              - { name: WStaL, method: "SLHA", block: DECAY, id: 1000015 }
-              - { name: WSeL,  method: "SLHA", block: DECAY, id: 1000011 }
-              - { name: WSve,  method: "SLHA", block: DECAY, id: 1000012 }
-              - { name: WSvmu,  method: "SLHA", block: DECAY, id: 1000014 }
-              - { name: WSvta,  method: "SLHA", block: DECAY, id: 1000016 }
+              - { name: WSmuL, block: DECAY, entry: 1000013 }
+              - { name: BRSnuL2N1mu, block: DECAY, entry: [1000013, 13, 1000022]}
+              - { name: mStaL, block: MASS, entry: 1000015 }
+              - { name: N11, block: NMIX, entry: [1, 1]}

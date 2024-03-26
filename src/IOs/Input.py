@@ -15,31 +15,105 @@ import pyslha
 import xmltodict
 import pandas as pd 
 from base import Base
+import asyncio 
+import aiofiles
 
-from IOs.IOs import InputFile, IOfile
+from IOs.IOs import InputFile
 
 class SLHAInputFile(InputFile):
-    def write(self, param_values):
-        """Writing the input variables using the SLHA format"""
-
+    async def write(self, param_values):
+        """
+        Asynchronously writes the input variables to the file in the SLHA format.
+        
+        This method supports different actions for updating the file, including:
+        - Replace: Directly replaces placeholders in the file content with new values.
+        - SLHA: Updates specific entries within SLHA blocks using pyslha library.
+        - File: Copies the content from another source file to this file.
+        
+        Args:
+            param_values (dict): A dictionary containing the new values for variables.
+                                 The keys should match the variable names expected by the actions.
+        
+        The method first reads the entire content of the target file, then processes
+        each action specified in `self.variables`. Depending on the action type, it updates
+        the file content accordingly. After processing all actions, it writes the updated
+        content back to the file. If `self.save` is True, it also saves a copy of the updated
+        file in a specified directory with a modified name indicating the module name.
+        
+        Raises:
+            Exception: If an error occurs during file reading or writing.
+        """
+        
+        # Decode the file path to handle any special characters or template strings
         self.path = self.decode_path(self.path)
-        self.logger.info(f"Loading {self.path}")
+        self.logger.warning(f"Start writing the input file -> {self.path}")
+        
+        # Ensure the file path is not empty
         if not self.path:
             self.logger.error(f"Input file {self.path} not found")
+        
+        # Create the directory for the file if it doesn't exist
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
 
         self.logger.debug(f"Writing the {param_values} -> \n\t{self.path}")
         try:
-            with open(self.path, 'w') as slha_file:
-                for var in self.variables:
-                    if var['method'] == "Replace":
+            content = ""
+            async with aiofiles.open(self.path, 'r') as slha_file:
+                content = await slha_file.read()
+
+            for action in self.variables:
+                # Direct replacement of placeholders with new values
+                if action['type'] == "Replace":
+                    for var in action['variables']:
                         value = param_values.get(var['name'], "MISSING_VALUE")
                         placeholder = var['placeholder']
-                        # 在这里添加具体的SLHA格式处理逻辑
-                        content = f"{placeholder} {value}\n"
-                        slha_file.write(content)
+                        if value != "MISSING_VALUE":
+                            value = f"{float(value):.1E}"
+                        content = content.replace(placeholder, value)
+                
+                # Update SLHA blocks using pyslha
+                elif action['type'] == "SLHA":
+                    content = pyslha.readSLHA(content)
+                    # self.logger.info(content.blocks)
+                    for var in action['variables']:
+                        if "block" in var.keys():
+                            if isinstance(var['entry'], int):
+                                value = param_values.get(var['name'], "MISSING_VALUE")
+                                if value != "MISSING_VALUE":
+                                    value = f"{float(value):.1E}"
+                                content.blocks[var['block']][var['entry']] = value 
+                            elif isinstance(var['entry'], tuple):
+                                value = param_values.get(var['name'], "MISSING_VALUE")
+                                if value != "MISSING_VALUE":
+                                    value = f"{float(value):.1E}"
+                                content.blocks[var['block']][tuple(var['entry'])] = value 
+                            else: 
+                                self.logger.warning(f"Invalid Entry type: {type(var['entry'])}. Entry must be an integer or a tuple of integers.")
+                    content = pyslha.writeSLHA(content, ignorenobr=True)
+                
+                
+                # Copy content from another file
+                elif action['type'] == "File":
+                    source_path = param_values.get(action['source'], None)
+                    if os.path.exists(source_path):
+                        async with aiofiles.open(source_path, 'r') as source_file: 
+                            content = await source_file.read()
+                        break
+                    else: 
+                        self.logger.warning(f"Input source file is not found: -> \n\t{action['source']} \n\t{source_path}")
+            
+            # Write the updated content back to the file
+            async with aiofiles.open(self.path, 'w') as slha_file:
+                await slha_file.write(content)
+            
+            # Save a copy of the file if required
+            if self.save:
+                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
+                async with aiofiles.open(target, "w") as dst_file:
+                    await dst_file.write(content)
         except Exception as e:
             self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")
+        self.logger.warning(f"Finish writing the input file -> {self.path}")
 
 class JsonInputFile(InputFile):
     def write(self, param_values):

@@ -73,8 +73,7 @@ class ModulePool:
         instance.is_busy = True
 
         # 等待计算完成
-        result = future.result()
-        
+        result = future.result()        
         # 计算完成后，更新实例状态
         instance.is_busy = False
         self.update_instances_info_file()

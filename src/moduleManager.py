@@ -27,6 +27,11 @@ class ModuleManager:
     def set_max_worker(self, nmax):
         self._max_worker = nmax
 
+    def set_likelihood(self):
+        from Module.likelihood import Likelihood
+        self.likelihood = Likelihood(self.config['Sampling']['LogLikelihood'])
+        self.logger.warning(self.likelihood)
+
     @property
     def max_worker(self):
         return self._max_worker
@@ -42,6 +47,8 @@ class ModuleManager:
             float: The calculated likelihood value.
         """
         # Execute according to the workflow's layer sequence
+        self.logger.warning(f"Start execute workflow for sample {sample_info['uuid']}")
+
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
             with ThreadPoolExecutor(max_workers=len(module_names)) as executor:
@@ -73,9 +80,8 @@ class ModuleManager:
             dict: The updated observables dictionary.
         """
         module_pool = self.module_pools.get(module_name)
-        print(module_pool)
         if not module_pool:
-            print(f"Module pool for '{module_name}' not found.")
+            self.logger.info(f"Module pool for '{module_name}' not found.")
             return observables
 
         # Assume the ModulePool's execute method accepts observables dictionary and uuid, and returns an updated observables dictionary
@@ -92,6 +98,7 @@ class ModuleManager:
             float: The calculated likelihood value.
         """
         # Calculate likelihood based on observables, this is pseudocode for the calculation logic
+        self.logger.warning(observables)
         likelihood = observables.get('TestOutPutVar', 0.5)  # Example calculation logic
         return likelihood
 

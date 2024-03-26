@@ -30,41 +30,116 @@
                             "path": {
                                 "type": "string"
                             },
-                            "variables": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "method": {
-                                            "type": "string"
-                                        },
-                                        "placeholder": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "required": [
-                                        "name",
-                                        "method",
-                                        "placeholder"
-                                    ]
-                                }
-                            },
                             "save": {
                                 "type": "boolean"
-                            },
-                            "type": {
-                                "type": "string"
                             }
                         },
-                        "required": [
-                            "name",
-                            "path",
-                            "variables",
-                            "save",
-                            "type"
+                        "required": ["name", "path", "actions", "save", "type"],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": { "const": "SLHA" },
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "Replace"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "placeholder": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "name",
+                                                                    "placeholder"
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "SLHA"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "block": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "entry": {
+                                                                        "oneOf": [
+                                                                            {
+                                                                                "type": "integer"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "integer"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "block",
+                                                                    "entry"
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "File"
+                                                        },
+                                                        "source": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "source"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": ["type", "actions"]
+                            }
                         ]
                     }
                 },
@@ -73,51 +148,57 @@
                     "items": {
                         "type": "object",
                         "properties": {
-                            "name": {
-                                "type": "string"
-                            },
-                            "path": {
-                                "type": "string"
-                            },
+                            "name": { "type": "string" },
+                            "path": { "type": "string" },
+                            "save": { "type": "boolean" },
+                            "type": { "type": "string" },
                             "variables": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "name": {
-                                            "type": "string"
-                                        },
-                                        "method": {
-                                            "type": "string"
-                                        },
-                                        "block": {
-                                            "type": "string"
-                                        },
-                                        "id": {
-                                            "type": "integer"
-                                        }
-                                    },
-                                    "required": [
-                                        "name",
-                                        "method",
-                                        "block",
-                                        "id"
-                                    ]
-                                }
-                            },
-                            "save": {
-                                "type": "boolean"
-                            },
-                            "type": {
-                                "type": "string"
+                                "type": "array"
                             }
                         },
                         "required": [
                             "name",
                             "path",
-                            "variables",
+                            "type",
                             "save",
-                            "type"
+                            "variables"
+                        ],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": { "const": "SLHA" },
+                                    "variables": {
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": { "type": "string" },
+                                                "block": { "type": "string" },
+                                                "entry": {
+                                                    "oneOf": [
+                                                        { "type": "integer" },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "integer"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 3
+                                                        }
+                                                    ]
+                                                },
+                                                "expression": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "name",
+                                                "block",
+                                                "entry"
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
                         ]
                     }
                 }
@@ -339,7 +420,11 @@
                     "type": "integer"
                 },
                 "LogLikelihood": {
-                    "type": "string"
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "minItems": 1
                 },
                 "selection": {
                     "type": "string"
@@ -580,11 +665,17 @@
                             "installation": {
                                 "type": "object",
                                 "properties": {
-                                    "path": { "type": "string" },
-                                    "source": { "type": "string" },
+                                    "path": {
+                                        "type": "string"
+                                    },
+                                    "source": {
+                                        "type": "string"
+                                    },
                                     "commands": {
                                         "type": "array",
-                                        "items": { "type": "string" },
+                                        "items": {
+                                            "type": "string"
+                                        },
                                         "minItems": 1
                                     }
                                 },

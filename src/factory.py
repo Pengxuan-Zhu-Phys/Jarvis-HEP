@@ -56,10 +56,10 @@ class WorkerFactory:
         else:
             self.logger.warning(f"ModulePool for {module.name} already exists.")
 
-    def submit_task(self, params, uuid):
+    def submit_task(self, params, sample_info):
         # 这个方法使用ModuleManager来执行一个特定的工作流
         # 通过ThreadPoolExecutor来异步执行
-        future = self.executor.submit(self.module_manager.execute_workflow, params, uuid)
+        future = self.executor.submit(self.module_manager.execute_workflow, params, sample_info)
         return future
 
     def task_done(self, future, uuid):

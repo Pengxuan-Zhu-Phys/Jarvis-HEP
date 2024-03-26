@@ -208,7 +208,7 @@ class Workflow(Base):
                         ipfl[ipf['name']] ={
                             "nam": ipf['name'],
                             "pos": np.array([-1.1, ((nn - 1)/2 - ii) * 0.7 + 0.2]) + res["bp"],
-                            "inc": [var for var in ipf['variables']],
+                            "inc": [var for var in ipf['variables'].values()],
                             "fil": os.path.basename(ipf['path'])
                         }
                     res["ipf"] = ipfl
@@ -326,6 +326,7 @@ class Workflow(Base):
                         for iif, ipf in item['ipf'].items():
                             ipvs = {}
                             for ipvv in ipf['inc']:
+                                # print(ipvv['name'], layer_before['opvars'], layer_before['bridge'])
                                 # print("bg", ipvv, layer_before['opvars'].keys(), "end")
                                 if ipvv["name"] not in layer_before['opvars'].keys() and ipvv['name'] not in layer_before['bridge'].keys():
                                     # print(ipvv, "Not Find in before in layer", clid - 1, len(layer_before["bridge"]))

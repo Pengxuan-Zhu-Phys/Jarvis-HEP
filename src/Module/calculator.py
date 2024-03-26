@@ -10,6 +10,7 @@ import threading
 import os
 from time import sleep
 from Module.module import Module
+import asyncio
 
 class CalculatorModule(Module):
     def __init__(self, name, config):
@@ -34,6 +35,7 @@ class CalculatorModule(Module):
             self.PackID  = None
             self.analyze_config()
             self.run_log_file   = None
+            self.sample_info    = {}
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
@@ -41,10 +43,24 @@ class CalculatorModule(Module):
     def analyze_config(self):
         # get the variables for inputs and outputs, prepare for the workflow chart 
         for ipf in self.input:
-            # self.inputs[ipf['name']] = None
-            for ipv in ipf['variables']:
-                self.inputs[ipv['name']] = None
-        
+            if ipf['type'] == "SLHA":
+                ipf['variables'] = {}
+                for act in ipf['actions']:
+                    if act['type'] == "Replace":
+                        for var in act['variables']:
+                            self.inputs[var['name']] = None
+                            ipf['variables'][var['name']] = var
+                    elif act['type'] == "SLHA":
+                        for var in act['variables']:
+                            self.inputs[var['name']] = None
+                            ipf['variables'][var['name']] = var
+                    elif act['type'] == "File":
+                        self.inputs[act['source']] = None
+                        ipf['variables'][act['source']] = {"name": act['source']}
+            else:
+                for ipv in ipf['variables']:
+                    self.inputs[ipv['name']] = None
+        # pprint(self.input)
         for opf in self.output:
             # self.outputs[opf['name']] = None
             for opv in opf['variables']:
@@ -64,7 +80,6 @@ class CalculatorModule(Module):
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(simple_formatter)
         self.child_logger.addHandler(file_handler)
-
 
     def update_sample_logger(self, sample_info):
         logger_name = f"Sample@{sample_info['uuid']} <{self.name}-No.{self.PackID}>"
@@ -93,7 +108,6 @@ class CalculatorModule(Module):
 
 
         self.logger.warning("Sample created into the Disk")
-        self.logger.warning(self.logger.handlers)
 
 
     def install(self):
@@ -165,34 +179,88 @@ class CalculatorModule(Module):
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
                 self.run_command(command=command, child_logger=self.child_logger)
-        
-
 
     def execute(self, input_data, sample_info):
+        self.sample_info = sample_info
         self.update_sample_logger(sample_info)
         self.initialize(sample_info['uuid'])
         self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {input_data}")
-        self.load_input(input_data=input_data)
+        asyncio.run(self.load_input(input_data=input_data))
 
+        self.create_child_logger("execution")
+        for command in self.execution['commands']:
+            if self.clone_shadow:
+                command = self.decode_shadow_commands(command)
+                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                self.run_command(command=command, child_logger=self.child_logger)
+
+        result = asyncio.run(self.read_output())
 
         self.remove_running_file_log()
-        return {"TestOutPutVar": 50.}
+        return result
 
-    def load_input(self, input_data):
+    async def read_output(self):
         from IOs.IOs import IOfile
-        for ffile in self.input:
-            input_file = IOfile.create(
+        read_coroutines = [
+            IOfile.load(
+                ffile['name'],
+                path=ffile['path'],
+                file_type=ffile['type'],
+                variables=ffile['variables'],
+                save=ffile['save'],
+                logger=self.logger,
+                PackID=self.PackID,
+                sample_save_dir=self.sample_info['save_dir'],
+                module=self.name
+            ).read()
+            for ffile in self.output
+        ]
+        observables = await asyncio.gather(*read_coroutines) 
+        merged_observables = {key: val for d in observables for key, val in d.items()}
+        return merged_observables
+
+
+    async def load_input(self, input_data):
+        """
+            Asynchronously loads input data into SLHA files based on the specified configuration.
+
+            This method reads the configuration for each file from the `self.input` list, creates 
+            instances for handling the files, and then concurrently writes the input data to these 
+            files using their respective `write` methods. The operation is performed asynchronously 
+            to improve performance when dealing with I/O operations and multiple files.
+
+            Args:
+            input_data (dict): The input data to be written into the files. This dictionary should 
+                               contain the necessary information that matches the expected structure 
+                               for each file type being written.
+
+            The method uses `asyncio.gather` to concurrently execute all write operations for the 
+            files defined in `self.input`. Each file is handled based on its configuration, including 
+            the path, type, actions (variables), and whether it should be saved, along with other 
+            metadata like `PackID`, the directory to save the file (`sample_save_dir`), and the 
+            module name (`self.name`). The logger is used for logging purposes, and it's passed to 
+            each file handler instance for consistent logging throughout the operation.
+
+            After all files have been processed and the input data written, a log message is generated 
+            to indicate completion of the loading process.
+        """
+        from IOs.IOs import IOfile
+        write_coroutines = [
+            IOfile.create(
                 ffile["name"], 
                 path=ffile['path'],
                 file_type=ffile["type"],
-                variables=ffile["variables"],
+                variables=ffile["actions"],
                 save=ffile['save'],
                 logger=self.logger, 
-                PackID=self.PackID
-            )
-            input_file.write(input_data)
-
-
+                PackID=self.PackID,
+                sample_save_dir=self.sample_info['save_dir'],
+                module=self.name
+            ).write(input_data)  # Return directly to the coroutine
+            for ffile in self.input
+        ]
+        # Perform all write operations concurrently and wait for them all to complete
+        await asyncio.gather(*write_coroutines)
 
 
     def decode_shadow_commands(self, cmd):

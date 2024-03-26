@@ -168,6 +168,13 @@ class Core(Base):
                     logger = self.logger.create_dynamic_logger(module)
                     self.module_manager.add_module_pool(self.workflow.modules[module], logger=logger)
 
+    def init_likelihood(self) -> None: 
+        self.module_manager.set_likelihood()
+
+        pprint(self.factory.__dict__)
+        pprint(self.module_manager.__dict__.keys())
+        pass 
+
     def initialization(self) -> None:
         self.init_argparser()
         self.init_logger()
@@ -178,9 +185,11 @@ class Core(Base):
         self.init_librarys()
         self.init_WorkerFactory()
         self.init_project()
+        self.init_likelihood()
+
 
     def run_sampling(self)->None:
-        print(self.module_manager.module_pools)
+        # print(self.module_manager.module_pools)
         self.test_assembly_line()
 
     def test_assembly_line(self):
