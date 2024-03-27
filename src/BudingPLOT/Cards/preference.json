@@ -10,5 +10,8 @@
     },
     "Ternary": {
         "Setting":"&BP/Cards/Ternary.json"
+    },
+    "Hist": {
+        "1D_CSV":"&BP/Cards/Hist_1D_CSV.json"
     }
 }

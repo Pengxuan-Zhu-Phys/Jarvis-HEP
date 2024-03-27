@@ -175,12 +175,6 @@ class LogLikelihood:
         else:
             
             print(">>>>>>>>>>>>>>>>>>line 175:\n", [(x, self.manager) for x in pars][0])
-            print(self.loglikelihood)
-            time.sleep(5)
-            print(self.loglikelihood)
-            # time.sleep(2)
-
-
             ret = [
                 LoglOutput(_, self.blob)
                 # for _ in self.pool.map(self.loglikelihood, [(x, self.manager) for x in pars])
@@ -194,7 +188,10 @@ class LogLikelihood:
         """
         Evaluate the likelihood f-n once
         """
+        print("Utils 191: x -> {}, manager -> {}".format(x, self.manager) )
+        print("Self.loglikelihood ->", self.loglikelihood)
         ret = LoglOutput(self.loglikelihood(x, self.manager), self.blob)
+        # ret = LoglOutput(self.loglikelihood(x), self.blob)
         if self.save:
             self.history_append([ret.val], [x])
         return ret

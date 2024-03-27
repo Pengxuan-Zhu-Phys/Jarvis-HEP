@@ -47,6 +47,7 @@ class Sample():
 
         if not os.path.exists(self.path['info']):
             os.makedirs(self.path['info'])
+        print("Sample 50: self.mana.ruid ->" , self.mana.ruid )
         self.mana.ruid[self.id] = self.info['RunWeb']
         from IOs import to_file_woblk
         to_file_woblk(dict(self.mana.ruid), self.mana.path['ruid'], method="to_json")
@@ -138,9 +139,9 @@ class Sample():
                 "stream_format":    temp['sp']['cf']['logging']['package']['stream_format'],
                 "file_format":      temp['sp']['cf']['logging']['package']['file_format']
             }
-        self.run_next_layer_function(0)
+        self.run_next_layer_package(0)
         
-    def run_next_layer_function(self, dps):
+    def run_next_layer_package(self, dps):
         pkgs = self.pack['tree'].layer[dps]
         from program import program
         for pname in pkgs:
@@ -156,7 +157,7 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
-                print("Sample 157:", self.id, pname, self.mana)
+                print("Sample 159:", self.id, pname, self.mana)
                 self.worker[pkg].suid   = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][psect])
                 self.worker[pkg].config['name'] = deepcopy(pkg)
@@ -177,7 +178,7 @@ class Sample():
                     "file_format":          self.info['log']['file_format']
                 })
                 from copy import deepcopy
-                print("Sample 157:", self.id, pname, self.mana)
+                print("Sample 180:", self.id, pname, self.mana)
 
                 self.worker[pkg].suid = deepcopy(self.id)
                 self.worker[pkg].config = deepcopy(self.pack['include'][pkg])
@@ -307,7 +308,7 @@ class Sample():
             if not nxtt and self.status != "Erroring":
                 if self.info['current_depth'] < len(self.pack['tree'].layer) - 1:
                     self.info['current_depth'] += 1
-                    self.run_next_layer_function(self.info['current_depth'])
+                    self.run_next_layer_package(self.info['current_depth'])
                 elif self.info['current_depth'] == len(self.pack['tree'].layer) - 1:
                     self.status = "Finish"
         elif self.status == "Finish":

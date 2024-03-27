@@ -4,7 +4,7 @@ from curses import noecho
 import logging
 import os, sys 
 import json
-
+from time import sleep 
 from tree import Tree
 
 jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -478,9 +478,9 @@ class program():
     
     def get_package_pool(self):
         # print(self.config.keys())
-        print("program 480:", self.mana.pack[self.config['name']]['workers'], "<<<<")
+        # print("program 480:", self.mana.pack[self.config['name']]['workers'], "<<<<")
         if self.config['clone shadow']:
-            print("program 483", self.mana.pack[self.config['name']]['workers'])
+            # print("program 483", self.mana.pack[self.config['name']]['workers'])
             # print(self.packid, self.config)
             if self.mana.pack[self.config['name']]['workers']:       
                 if self.packid is None:         
@@ -509,7 +509,12 @@ class program():
             # print("program 494: packid -> {}, \t calculating sample {}".format(self.packid, self.suid))
             # print("before Getting ID", self.mana.pack[self.config['name']]['workers'])
             # self.mana.pack[self.config['name']]['workers'][self.packid] = self.suid
+            # print("Program 512: SUID -> {} \n\t PackID -> {} \n\t Status -> {} \n\t Manager -> {}".format(self.suid, self.packid, self.status, self.mana.pack[self.config['name']]['workers']))
             if self.status != "waiting":
+                if self.packid is None:
+                    # print("program 515:", self.packid, self.status, self.suid, self.mana.pack[self.config['name']]['workers'], "<<<<")
+                    import time 
+                    time.sleep(2)
                 self.config['PackID'] = self.packid
                 self.update_mana_status()
             # print("after getting ID", self.mana.pack[self.config['name']]['workers'], self.status, self.packid)
@@ -543,25 +548,56 @@ class program():
             self.get_package()
         else:
             self.get_package_pool()
-        
+            
     def update_status(self):
-        if self.status == "installing":
-            self.update_installing()
-        elif self.status == "prerun":
-            self.update_prerun()
-        elif self.status == "running":
-            self.update_running()
-        elif self.status == "finish":
-            self.status = "done"
-            self.read_output()
-            self.logpath.close()
-            self.update_runweb_status('free')
-        elif self.status == "error":
-            self.stop_calculation()
-            self.logpath.close()
-            self.status = "done"
-        elif self.status == "waiting":
-            self.get_package()
+        if self.mana is None: 
+            if self.status == "installing":
+                self.update_installing()
+            elif self.status == "prerun":
+                self.update_prerun()
+            elif self.status == "running":
+                self.update_running()
+            elif self.status == "finish":
+                self.status = "done"
+                self.read_output()
+                self.logpath.close()
+                self.update_runweb_status('free')
+            elif self.status == "error":
+                self.stop_calculation()
+                self.logpath.close()
+                self.status = "done"
+            elif self.status == "waiting":
+                    self.get_package()
+        else:
+            # print("program 572:", self.packid, self.status, self.suid, self.mana.pack[self.config['name']]['workers'], "<<<<")
+            # sleep(1)
+            self.update_mana_status()
+            if self.status == "installing":
+                self.update_installing()
+            elif self.status == "prerun":
+                self.update_prerun()
+            elif self.status == "running":
+                self.update_running()
+            elif self.status == "finish":
+                self.status = "done"
+                # print("Program 763:", self.packid, self.status, self.suid, self.mana.pack[self.config['name']]['workers'])
+                self.mana_free_worker()
+                self.read_output()
+                self.logpath.close()
+                self.update_runweb_status('free')
+            elif self.status == "error":
+                self.stop_calculation()
+                self.logpath.close()
+                self.status = "done"
+            elif self.status == "waiting":
+                self.get_package_pool()
+
+    def mana_free_worker(self):
+        """
+        to free the manager list after the worker status is done!
+        """
+        
+        self.mana.pack[self.config['name']]['workers'][self.packid] = "free"
 
     def update_installing(self):
         if self.subp == None:
@@ -734,8 +770,11 @@ class program():
             json.dump(self.run_info, f1, indent=4)
              
     def update_mana_status(self):
-        self.mana.pack[self.config['name']]['workers'][self.packid] =  self.status
-
+        if self.packid is not None:
+            self.mana.pack[self.config['name']]['workers'][self.packid] =  self.suid
+        else:
+            # print("Program 750:", self.packid, self.suid, self.mana.pack[self.config['name']]['workers'])
+            pass 
 
     def stop_calculation(self):
         self.logger.warning("Sample is force stopped by error calculation")

@@ -138,6 +138,9 @@ class Pool:
         F: function
         x: iterable
         """
+        print("Dynesty Pool 141: map args -> {}".format(x))
+        import time 
+        time.sleep(1)
         return self.pool.map(F, x)
 
     def apply(self, F, x):
@@ -150,6 +153,9 @@ class Pool:
         x: iterable
         """
         fargs = [( xx, self.manager) for xx in x]
+        import time 
+        print("Dynesty Pool 153: Pool args -> {}".format(fargs[0]))
+        time.sleep(.5)
         return self.pool.map(F, fargs)
 
     def __exit__(self, exc_type, exc_val, exc_tb):

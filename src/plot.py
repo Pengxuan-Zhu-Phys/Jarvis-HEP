@@ -49,6 +49,8 @@ class Plot():
             path = path.replace("&BP", self.path['pwd'])
         if "&J" in path:
             path = path.replace("&J", self.path['jarvis'])
+        if "/" != path[0] and os.path.exists(os.path.join(self.path['path'], path)):
+            path = os.path.join(self.path['path'], path)
         return path
 
     def figures_inf(self):
@@ -148,7 +150,22 @@ class Plot():
                     self.set_fig_info(fig)
                     if "name" not in fig.inf:
                         fig.inf['name'] = plot 
-                    fig.plot()                    
+                    fig.plot()   
+                elif ftype == "Hist":
+                    if dict(self.cf.items())[plot]['mode'] == "1D_CSV":
+                        from Hist import Hist1d 
+                        fig = Hist1d()
+                        fig.type = "Hist"
+                        fig.mode = "1D_CSV"
+                        fig.pconfig = dict(dict(self.cf.items())['PLOT_CONFI'].items())
+                        fig.cs = self.decode_path(self.cs['Hist']['1D_CSV'])
+                        fig.inf = dict(dict(self.cf.items())[plot].items())
+                        fig.inf['sect'] = plot 
+                        self.set_fig_info(fig)
+                        fig.load_json()
+                        # if "name" not in fig.inf:
+                        #     fig.inf['name'] = plot 
+                        fig.plot()
 
     def print_figure(self, plt):
         if "print mode" in self.inf.keys():
