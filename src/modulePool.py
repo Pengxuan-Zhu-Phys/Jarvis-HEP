@@ -21,6 +21,7 @@ class ModulePool:
         self.id_counter = 0 
         self.instances_info_file = self.get_instances_info_file_path()
         self._info_loaded = False 
+        self._funcs = {}
 
     def set_logger(self, logger):
         self.logger = logger
@@ -34,6 +35,7 @@ class ModulePool:
         instance = CalculatorModule(self.name, config=config)
         instance.assign_ID(id)
         instance.logger = self.logger
+        instance._funcs = self.funcs
         self.instances.append(instance)
         return instance
 
@@ -46,9 +48,18 @@ class ModulePool:
         instance.logger = self.logger
         instance.is_installed = True
         instance.is_busy = False
+        instance._funcs = self.funcs
         self.instances.append(instance)
         self.update_instances_info_file()
         return instance
+
+    def set_funcs(self, funcs):
+        self._funcs = funcs
+        # self.logger.warning(f"ModulePool {self.name} funcs -> {self.funcs}")
+
+    @property
+    def funcs(self):
+        return self._funcs
 
     def execute(self, params, sample_info):
         """Submit parameters to a module instance for calculation and return the calculation results.
@@ -61,9 +72,12 @@ class ModulePool:
         """
 
         instance = self.get_available_instance()
+        # self.logger.warning(f"Line 64 -> {instance}")
         if instance is None:
             # 如果没有可用的实例，创建一个新的实例
+            self.logger.warning(f"No availiable instance for Module {self.name} found, trying to install a new one")
             instance = self.create_instance()
+            # self.logger.warning(f"Line 69 -> {instance}")
             # Make sure the instance is corrected installed 
             self.install_instances()
 
@@ -105,11 +119,12 @@ class ModulePool:
             self.install_instances()  # Ensure the instance are installed 
         future = self.executor.submit(instance.execute, params)
         instance.is_busy = True
-        print("Line 77, modulePool -> Test after the task is summited ... ")
+        # print("Line 77, modulePool -> Test after the task is summited ... ")
         self.update_instances_info_file()
         return future
 
     def get_available_instance(self):
+        # print(self.instances)
         for instance in self.instances:
             if not instance.is_busy and instance.is_installed:
                 return instance
@@ -130,6 +145,7 @@ class ModulePool:
         if self._info_loaded:
             self.logger.warning("Instance information has already been loaded.")
             return
+        
         if not os.path.exists(self.instances_info_file):
             self.logger.warning(f"{self.instances_info_file} not found. Initializing a new instances info file.")
             self.init_instances_info_file()
@@ -141,6 +157,7 @@ class ModulePool:
                     installed_ids = installed_instances_info.get("installed_instances", [])
                     for pack_id, info in installed_ids.items():
                         self.reload_instance(pack_id=pack_id, pack_info=info)
+                    self.logger.warning("Instance reloaded!")
             except FileNotFoundError:
                 self.logger.info(f"{self.instances_info_file} not found. Assuming no instances are installed.")
         self._info_loaded = True
@@ -149,6 +166,9 @@ class ModulePool:
         return os.path.join(self.config['path'].replace("/@PackID", ""), f"{self.name}_instance_info.json")
 
     def init_instances_info_file(self):
+        if not os.path.exists(os.path.dirname(self.instances_info_file)):
+            # self.logger.warning("Init instance info file ")
+            os.makedirs(os.path.dirname(self.instances_info_file))
         data_to_save = {"installed_instances": {}}
         with open(self.instances_info_file, 'w') as file:
             json.dump(data_to_save, file, indent=4)

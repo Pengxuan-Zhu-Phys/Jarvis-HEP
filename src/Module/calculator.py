@@ -36,6 +36,7 @@ class CalculatorModule(Module):
             self.analyze_config()
             self.run_log_file   = None
             self.sample_info    = {}
+            self._funcs         = {}
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
@@ -66,6 +67,9 @@ class CalculatorModule(Module):
             for opv in opf['variables']:
                 self.outputs[opv['name']] = None
 
+    @property
+    def funcs(self):
+        return self._funcs
 
     def analyze_config_multi(self):
         pass 
@@ -74,12 +78,12 @@ class CalculatorModule(Module):
         child_installation_logger_name = f"{self.logger.name}.{logger_name}"
         self.child_logger = logging.getLogger(child_installation_logger_name)
         self.child_logger.propagate = False
-
-        simple_formatter    = logging.Formatter('%(message)s')
-        file_handler        = logging.FileHandler(self.path['run_log_file'], mode="a")
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(simple_formatter)
-        self.child_logger.addHandler(file_handler)
+        if "run_log_file" in self.path:
+            simple_formatter    = logging.Formatter('%(message)s')
+            file_handler        = logging.FileHandler(self.path['run_log_file'], mode="a")
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(simple_formatter)
+            self.child_logger.addHandler(file_handler)
 
     def update_sample_logger(self, sample_info):
         logger_name = f"Sample@{sample_info['uuid']} <{self.name}-No.{self.PackID}>"
@@ -89,7 +93,8 @@ class CalculatorModule(Module):
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
 
-        self.path['run_log_file'] = os.path.join(sample_info['save_dir'], "Sample_running.log")
+        # self.path['run_log_file'] = os.path.join(sample_info['save_dir'], "Sample_running.log")
+        self.path['run_log_file'] = sample_info['run_log']
         formatter = logging.Formatter("\n·•· %(name)s\n\t -> %(asctime)s - %(levelname)s >>> \n%(message)s")
         file_handler = logging.FileHandler(self.path['run_log_file'], mode='a')
         file_handler.setFormatter(formatter)
@@ -111,6 +116,7 @@ class CalculatorModule(Module):
 
 
     def install(self):
+        self.logger.warning(f"Start install {self.name}-{self.PackID}")
         self.basepath = self.decode_shadow_path(self.basepath)
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
@@ -130,6 +136,8 @@ class CalculatorModule(Module):
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(simple_formatter)
         self.child_logger.addHandler(file_handler)
+
+        # self.logger.warning(f"Line 135 @calculator.py Logger initiliazed ")
 
 
         for cmd in self.installation:
@@ -185,7 +193,10 @@ class CalculatorModule(Module):
         self.update_sample_logger(sample_info)
         self.initialize(sample_info['uuid'])
         self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {input_data}")
-        asyncio.run(self.load_input(input_data=input_data))
+        result = {}
+        input_obs = asyncio.run(self.load_input(input_data=input_data))
+        if isinstance(input_obs, dict):
+            result.update(input_obs)
 
         self.create_child_logger("execution")
         for command in self.execution['commands']:
@@ -194,7 +205,9 @@ class CalculatorModule(Module):
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
                 self.run_command(command=command, child_logger=self.child_logger)
 
-        result = asyncio.run(self.read_output())
+        output_obs = asyncio.run(self.read_output())
+        if isinstance(output_obs, dict):
+            result.update(output_obs)
 
         self.remove_running_file_log()
         return result
@@ -211,14 +224,14 @@ class CalculatorModule(Module):
                 logger=self.logger,
                 PackID=self.PackID,
                 sample_save_dir=self.sample_info['save_dir'],
-                module=self.name
+                module=self.name,
+                funcs=self.funcs
             ).read()
             for ffile in self.output
         ]
         observables = await asyncio.gather(*read_coroutines) 
         merged_observables = {key: val for d in observables for key, val in d.items()}
         return merged_observables
-
 
     async def load_input(self, input_data):
         """
@@ -255,12 +268,16 @@ class CalculatorModule(Module):
                 logger=self.logger, 
                 PackID=self.PackID,
                 sample_save_dir=self.sample_info['save_dir'],
-                module=self.name
+                module=self.name,
+                funcs=self.funcs
             ).write(input_data)  # Return directly to the coroutine
             for ffile in self.input
         ]
         # Perform all write operations concurrently and wait for them all to complete
-        await asyncio.gather(*write_coroutines)
+        observables = await asyncio.gather(*write_coroutines)
+        merged_observables = {key: val for d in observables for key, val in d.items()}
+        return merged_observables
+        # self.logger.warn(self.funcs)
 
 
     def decode_shadow_commands(self, cmd):

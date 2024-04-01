@@ -22,6 +22,7 @@ from factory import WorkerFactory
 from sample import Sample
 from moduleManager import ModuleManager
 from pprint import pprint
+import pandas as pd 
 
 
 class Core(Base):
@@ -38,6 +39,7 @@ class Core(Base):
         self.logger: AppLogger          = None
         self.__state_saver              = None
         self.module_manager             = None
+        self._funcs                     = {}
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -113,6 +115,20 @@ class Core(Base):
         self.yaml.set_schema(self.sampler.schema)
         self.yaml.validate_config()
 
+    def init_utils(self) -> None: 
+        if "Utils" in self.yaml.config:
+            if "interpolations_1D" in self.yaml.config['Utils']:
+                from utils import get_interpolate_1D_function_from_config
+                for item in self.yaml.config['Utils']['interpolations_1D']:
+                    if "file" in item:
+                        item['file'] = self.decode_path(item['file'])
+                    func = get_interpolate_1D_function_from_config(item)
+                    if func is not None: 
+                        self._funcs[item['name']] = func
+                        self.logger.logger.info(f"Succefully resolve the interpolate function -> {item['name']}")
+                    else: 
+                        self.logger.logger.info(f"Illegal setting for interpolate function -> {item['name']}")
+
     def init_StateSaver(self) -> None:
         logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
         logger.warning("Enabling breakpoint resume function ... ")
@@ -161,6 +177,7 @@ class Core(Base):
         self.module_manager.set_logger(logger)
         self.module_manager.set_max_worker(self.yaml.config['Calculators']['make_paraller'])
         self.module_manager.set_config(self.yaml.config)
+        self.module_manager.set_funcs(self._funcs)
         self.module_manager.workflow = deepcopy(self.workflow.workflow)
         for kk, layer in self.workflow.calc_layer.items():
             if kk > 1: 
@@ -170,15 +187,17 @@ class Core(Base):
 
     def init_likelihood(self) -> None: 
         self.module_manager.set_likelihood()
+        self.module_manager.loglikelihood.update_funcs(self._funcs)
 
-        pprint(self.factory.__dict__)
-        pprint(self.module_manager.__dict__.keys())
-        pass 
+        # pprint(self.factory.__dict__)
+        # pprint(self.module_manager.__dict__.keys())
+        # pass 
 
     def initialization(self) -> None:
         self.init_argparser()
         self.init_logger()
         self.init_configparser()
+        self.init_utils()
         self.init_StateSaver()
         self.init_sampler()
         self.init_workflow()
@@ -190,23 +209,28 @@ class Core(Base):
 
     def run_sampling(self)->None:
         # print(self.module_manager.module_pools)
-        self.test_assembly_line()
+        if self.args.testcalculator:
+            self.test_assembly_line()
+        else:
+            self.run_until_finished()
 
     def test_assembly_line(self):
-        if self.args.testcalculator:
-            try:
-                param = next(self.sampler)
-                # print(self.factory.config['Scan'])
-                sample = Sample(param)
-                sample.set_config(deepcopy(self.info['sample']))
-                future = self.factory.submit_task(sample.params, sample.info)
-                # 等待任务完成并获取结果
-                likelihood = future.result()
-                print(likelihood)
-            except Exception as e:
-                # 异常处理
-                print(f"An error occurred: {e}")
+        try:
+            param = next(self.sampler)
+            # print(self.factory.config['Scan'])
+            sample = Sample(param)
+            sample.set_config(deepcopy(self.info['sample']))
+            self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
+            future = self.factory.submit_task(sample.params, sample.info)
+            # 等待任务完成并获取结果
+            output = future.result()
+            print(output)
+        except Exception as e:
+            # 异常处理
+            print(f"An error occurred: {e}")
 
+    def run_until_finished(self) -> None: 
+        pass 
 
 
 

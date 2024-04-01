@@ -20,7 +20,7 @@ import aiofiles
 
 
 class IOfile(Base):
-    def __init__(self, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module):
+    def __init__(self, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
         self.logger     = logger
         self.PackID     = PackID
         self.name       = name
@@ -31,6 +31,7 @@ class IOfile(Base):
         self.path = path  
         self.sample_save_dir = sample_save_dir
         self.module = module
+        self.funcs = funcs
 
     def decode_path(self, path) -> None:
         """
@@ -71,24 +72,24 @@ class IOfile(Base):
             raise FileNotFoundError
 
     @classmethod
-    def create(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module):
+    def create(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
         if file_type == "Json":
             from IOs.Input import JsonInputFile
             logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
-            return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module)
+            return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
         elif file_type == "SLHA":
             from IOs.Input import SLHAInputFile
             logger.debug(f"Adding the file {name} as 'SLHAInputFile' type")
-            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module)
+            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
 
     @classmethod
-    def load(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module):
+    def load(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
         if file_type == "SLHA":
             from IOs.Output import SLHAOutputFile
             logger.debug(f"Loading the file {name} as 'SLHAOutputFile' type")
-            return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module)
+            return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
 
 class InputFile(IOfile):
     async def write(self, param_values):

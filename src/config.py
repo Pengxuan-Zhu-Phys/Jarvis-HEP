@@ -99,7 +99,7 @@ class ConfigLoader(Base):
             except pkg_resources.DistributionNotFound:
                 if required:
                     self.logger.warning(f"{name} is required but not installed, Jarvis-HEP is trying to install it via pip")
-                    subprocess.run(f"python -m pip install {name}", shell=True)
+                    subprocess.run(f"python3 -m pip install {name}", shell=True)
                     self.summary[name] = dist.version
                 else:
                     self.logger.warning(f"{name} is optional and not installed")
@@ -123,10 +123,11 @@ class ConfigLoader(Base):
                     min_version = re.match(r">=(\d+(?:\.\d+)?)", lib['version']).group(1)
                     check_package_requirement(lib['name'], lib['required'], min_version)
                 except:
-                    self.logger.warning("Python library {} checking un-successful!")
+                    self.logger.warning(f"Python library {lib['name']} checking un-successful!")
 
     def check_ROOT(self) -> None:
         def compare_versions(version1, version2):
+            version1 = version1.replace("/", '.')
             v1 = tuple(map(int, version1.split('.')))
             v2 = tuple(map(int, version2.split('.')))
             return v1 >= v2
@@ -180,11 +181,25 @@ class ConfigLoader(Base):
                 self.logger.info("CERN ROOT meets the requirements!")
 
     def check_OS_requirement(self, os_requirement) -> None: 
+        # def compare_versions(version1, version2):
+        #     v1 = tuple(map(int, version1.split('.')))
+        #     v2 = tuple(map(int, version2.split('.')))
+        #     return v1 >= v2
+
         def compare_versions(version1, version2):
-            v1 = tuple(map(int, version1.split('.')))
-            v2 = tuple(map(int, version2.split('.')))
+            # Extract numeric parts of the version strings
+            numeric_version1 = re.findall(r'\d+', version1)
+            numeric_version2 = re.findall(r'\d+', version2)
+
+            # Convert numeric strings to integers
+            v1 = tuple(map(int, numeric_version1))
+            v2 = tuple(map(int, numeric_version2))
+
+            # Compare version tuples
             return v1 >= v2
-        
+
+
+
         current_os = platform.system()
         current_version = platform.release()
         self.summary['OS'] = "{}-{}".format(current_os, current_version)

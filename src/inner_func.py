@@ -77,16 +77,20 @@ _Constant = {
     "E":    sympy.E
 }
 
-
 def Gauss(xx, mean, err):
-    from math import sqrt, pi, exp
-    # prob = 1./ (err * sqrt(2 * pi)) * exp(-0.5*((xx - mean)/err)**2)
-    prob = exp(-0.5*((xx - mean)/err)**2)
-    return prob
+    prob = sympy.exp(-0.5 * ((xx - mean) / err)**2)
+    return prob 
+
+
+# def Gauss(xx, mean, err):
+#     from math import sqrt, pi, exp
+#     # prob = 1./ (err * sqrt(2 * pi)) * exp(-0.5*((xx - mean)/err)**2)
+#     prob = exp(-0.5*((xx - mean)/err)**2)
+#     return prob
 
 def Normal(xx, mean, err):
-    from math import sqrt, pi, exp
-    prob = 1./ (err * sqrt(2 * pi)) * exp(-0.5*((xx - mean)/err)**2)
+    # from math import sqrt, pi, exp
+    prob = 1./ (err * sympy.sqrt(2 * sympy.pi)) * sympy.exp(-0.5*((xx - mean)/err)**2)
     return prob
 
 def LogGauss(xx, mean, err):
@@ -97,6 +101,7 @@ def update_funcs(funcs):
     funcs['Gauss'] = Gauss
     funcs['LogGauss'] = LogGauss
     funcs['Normal'] = Normal
+    funcs['Heaviside'] = sympy.Heaviside
     funcs.update(_Inner_FCs)
     return funcs
 

@@ -114,6 +114,8 @@ class SLHAOutputFile(OutputFile):
                 async with aiofiles.open(target, "w") as dst_file: 
                     await dst_file.write(source)
                 observables[self.name] = target
+            observables['TestFunc'] = self.funcs['XenonSD2019'](100)
+
 
             self.logger.warning(f"Finish reading the input file -> {self.path}")
             return observables

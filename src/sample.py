@@ -45,7 +45,8 @@ class Sample(Base):
         save_dir = self.manage_directories(self.info['sample_dirs'])
         self.info.update({
             "uuid": self.uuid,
-            "save_dir": os.path.join(save_dir, self.uuid)
+            "save_dir": os.path.join(save_dir, self.uuid),
+            "run_log":  os.path.join(save_dir, self.uuid, "Sample_running.log")
         })
     
     def manage_directories(self, base_path):

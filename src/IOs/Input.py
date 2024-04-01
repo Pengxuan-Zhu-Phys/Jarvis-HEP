@@ -17,7 +17,8 @@ import pandas as pd
 from base import Base
 import asyncio 
 import aiofiles
-
+from sympy.utilities.lambdify import lambdify
+import sympy as sp 
 from IOs.IOs import InputFile
 
 class SLHAInputFile(InputFile):
@@ -54,6 +55,7 @@ class SLHAInputFile(InputFile):
         
         # Create the directory for the file if it doesn't exist
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        observables = {}
 
         self.logger.debug(f"Writing the {param_values} -> \n\t{self.path}")
         try:
@@ -65,7 +67,18 @@ class SLHAInputFile(InputFile):
                 # Direct replacement of placeholders with new values
                 if action['type'] == "Replace":
                     for var in action['variables']:
-                        value = param_values.get(var['name'], "MISSING_VALUE")
+                        if not "expression" in var:
+                            value = param_values.get(var['name'], "MISSING_VALUE")
+                        else: 
+                            # self.logger.warning(f"{var} -> {param_values} <- {self.funcs}")
+                            expr = sp.sympify(var['expression'], locals=self.funcs)
+                            para = set(expr.free_symbols)
+                            num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
+                            symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
+                            value = num_expr(**symbol_values_strs)
+                            observables[var['name']] = value
+                            # self.logger.warning(f"{expr} -> {param_values} -> {value}")
+                            # value = f"{float(value):.1E}"
                         placeholder = var['placeholder']
                         if value != "MISSING_VALUE":
                             value = f"{float(value):.1E}"
@@ -78,12 +91,31 @@ class SLHAInputFile(InputFile):
                     for var in action['variables']:
                         if "block" in var.keys():
                             if isinstance(var['entry'], int):
-                                value = param_values.get(var['name'], "MISSING_VALUE")
+                                if not "expression" in var:
+                                    value = param_values.get(var['name'], "MISSING_VALUE")
+                                else:
+                                    # self.logger.warning(f"{var} -> {param_values} <- {self.funcs}")
+                                    expr = sp.sympify(var['expression'], locals=self.funcs)
+                                    para = set(expr.free_symbols)
+                                    num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
+                                    symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
+                                    value = num_expr(**symbol_values_strs)
+                                    observables[var['name']] = value
+                                    # self.logger.warning(f"{expr} -> {param_values} -> {value}")
+                                    # value = f"{float(value):.1E}"
                                 if value != "MISSING_VALUE":
                                     value = f"{float(value):.1E}"
                                 content.blocks[var['block']][var['entry']] = value 
                             elif isinstance(var['entry'], tuple):
-                                value = param_values.get(var['name'], "MISSING_VALUE")
+                                if not "expression" in var:
+                                    value = param_values.get(var['name'], "MISSING_VALUE")
+                                else:
+                                    expr = sp.sympify(var['expression'], locals=self.funcs)
+                                    para = set(expr.free_symbols)
+                                    num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
+                                    symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
+                                    value = num_expr(**symbol_values_strs)
+                                    observables[var['name']] = value
                                 if value != "MISSING_VALUE":
                                     value = f"{float(value):.1E}"
                                 content.blocks[var['block']][tuple(var['entry'])] = value 
@@ -111,9 +143,12 @@ class SLHAInputFile(InputFile):
                 target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
                 async with aiofiles.open(target, "w") as dst_file:
                     await dst_file.write(content)
+                observables[self.name] = target
+
+            self.logger.warning(f"Finish writing the input file -> {self.path}")
+            return observables
         except Exception as e:
             self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")
-        self.logger.warning(f"Finish writing the input file -> {self.path}")
 
 class JsonInputFile(InputFile):
     def write(self, param_values):

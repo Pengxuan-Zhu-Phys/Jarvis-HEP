@@ -1,7 +1,7 @@
 EnvironmentRequirements:
   CERN_ROOT:
     required: true
-    version: ">=6.22"
+    version: ">=6.20"
     get_path_command: "root-config --prefix"
     Dependencies:
     - name: minuit2
