@@ -12,7 +12,7 @@
 ################################################################################ Define directory paths 
 #    You may have to change PYTHIA8_HOME and/or other variables
 #
-  HepMCdir      = /Users/buding/Workshop/Jarvis/External/Library/HepMC
+  HepMCdir      = /home/buding/Jarvis-HEP/External/Library/HepMC
   HEPMCLOCATION = $(HepMCdir)
   HepMClib      = -L$(HEPMCLOCATION)/lib -Wl,-rpath -Wl,$(HEPMCLOCATION)/lib \
                   -lHepMC
@@ -21,7 +21,7 @@
 
 ################################################################################ Compiler options
 #
-  CXX           = g++ -std=gnu++11
+  CXX           = g++
   INCLUDES 	= -I$(HEPMCLOCATION)/include -I$(PYTHIA8_HOME)/include
   CXXFLAGS      =  -ansi -pedantic -Wall -g -O2 -Wshadow -fbounds-check $(INCLUDES)
 ifeq "$(CXX)" "g++"

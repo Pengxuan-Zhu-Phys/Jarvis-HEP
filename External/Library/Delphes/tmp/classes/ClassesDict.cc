@@ -78,7 +78,7 @@
 #include <string.h>
 #include <assert.h>
 #define G__DICTIONARY
-#include "ROOT/RConfig.hxx"
+#include "RConfig.h"
 #include "TClass.h"
 #include "TDictAttributeMap.h"
 #include "TInterpreter.h"
@@ -102,6 +102,9 @@
 
 #include "TDataMember.h"
 
+// The generated code does not explicitly qualifies STL entities
+namespace std {} using namespace std;
+
 // Header files passed as explicit arguments
 #include "classes/DelphesModule.h"
 #include "classes/DelphesFactory.h"
@@ -110,11 +113,8 @@
 
 // Header files passed via #pragma extra_include
 
-// The generated code does not explicitly qualify STL entities
-namespace std {} using namespace std;
-
 namespace ROOT {
-   static void *new_DelphesModule(void *p = nullptr);
+   static void *new_DelphesModule(void *p = 0);
    static void *newArray_DelphesModule(Long_t size, void *p);
    static void delete_DelphesModule(void *p);
    static void deleteArray_DelphesModule(void *p);
@@ -123,8 +123,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::DelphesModule*)
    {
-      ::DelphesModule *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::DelphesModule >(nullptr);
+      ::DelphesModule *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::DelphesModule >(0);
       static ::ROOT::TGenericClassInfo 
          instance("DelphesModule", ::DelphesModule::Class_Version(), "classes/DelphesModule.h", 43,
                   typeid(::DelphesModule), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -139,14 +139,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::DelphesModule*)
    {
-      return GenerateInitInstanceLocal(static_cast<::DelphesModule*>(nullptr));
+      return GenerateInitInstanceLocal((::DelphesModule*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::DelphesModule*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::DelphesModule*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_DelphesFactory(void *p = nullptr);
+   static void *new_DelphesFactory(void *p = 0);
    static void *newArray_DelphesFactory(Long_t size, void *p);
    static void delete_DelphesFactory(void *p);
    static void deleteArray_DelphesFactory(void *p);
@@ -155,8 +155,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::DelphesFactory*)
    {
-      ::DelphesFactory *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::DelphesFactory >(nullptr);
+      ::DelphesFactory *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::DelphesFactory >(0);
       static ::ROOT::TGenericClassInfo 
          instance("DelphesFactory", ::DelphesFactory::Class_Version(), "classes/DelphesFactory.h", 41,
                   typeid(::DelphesFactory), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -171,10 +171,10 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::DelphesFactory*)
    {
-      return GenerateInitInstanceLocal(static_cast<::DelphesFactory*>(nullptr));
+      return GenerateInitInstanceLocal((::DelphesFactory*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::DelphesFactory*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::DelphesFactory*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
@@ -185,8 +185,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::SortableObject*)
    {
-      ::SortableObject *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::SortableObject >(nullptr);
+      ::SortableObject *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::SortableObject >(0);
       static ::ROOT::TGenericClassInfo 
          instance("SortableObject", ::SortableObject::Class_Version(), "classes/SortableObject.h", 46,
                   typeid(::SortableObject), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -199,14 +199,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::SortableObject*)
    {
-      return GenerateInitInstanceLocal(static_cast<::SortableObject*>(nullptr));
+      return GenerateInitInstanceLocal((::SortableObject*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::SortableObject*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::SortableObject*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Event(void *p = nullptr);
+   static void *new_Event(void *p = 0);
    static void *newArray_Event(Long_t size, void *p);
    static void delete_Event(void *p);
    static void deleteArray_Event(void *p);
@@ -215,8 +215,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Event*)
    {
-      ::Event *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Event >(nullptr);
+      ::Event *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Event >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Event", ::Event::Class_Version(), "classes/DelphesClasses.h", 46,
                   typeid(::Event), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -231,14 +231,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Event*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Event*>(nullptr));
+      return GenerateInitInstanceLocal((::Event*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Event*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Event*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_LHCOEvent(void *p = nullptr);
+   static void *new_LHCOEvent(void *p = 0);
    static void *newArray_LHCOEvent(Long_t size, void *p);
    static void delete_LHCOEvent(void *p);
    static void deleteArray_LHCOEvent(void *p);
@@ -247,8 +247,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::LHCOEvent*)
    {
-      ::LHCOEvent *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHCOEvent >(nullptr);
+      ::LHCOEvent *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHCOEvent >(0);
       static ::ROOT::TGenericClassInfo 
          instance("LHCOEvent", ::LHCOEvent::Class_Version(), "classes/DelphesClasses.h", 59,
                   typeid(::LHCOEvent), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -263,14 +263,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::LHCOEvent*)
    {
-      return GenerateInitInstanceLocal(static_cast<::LHCOEvent*>(nullptr));
+      return GenerateInitInstanceLocal((::LHCOEvent*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::LHCOEvent*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::LHCOEvent*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_LHEFEvent(void *p = nullptr);
+   static void *new_LHEFEvent(void *p = 0);
    static void *newArray_LHEFEvent(Long_t size, void *p);
    static void delete_LHEFEvent(void *p);
    static void deleteArray_LHEFEvent(void *p);
@@ -279,8 +279,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::LHEFEvent*)
    {
-      ::LHEFEvent *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHEFEvent >(nullptr);
+      ::LHEFEvent *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHEFEvent >(0);
       static ::ROOT::TGenericClassInfo 
          instance("LHEFEvent", ::LHEFEvent::Class_Version(), "classes/DelphesClasses.h", 69,
                   typeid(::LHEFEvent), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -295,14 +295,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::LHEFEvent*)
    {
-      return GenerateInitInstanceLocal(static_cast<::LHEFEvent*>(nullptr));
+      return GenerateInitInstanceLocal((::LHEFEvent*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::LHEFEvent*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::LHEFEvent*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_LHEFWeight(void *p = nullptr);
+   static void *new_LHEFWeight(void *p = 0);
    static void *newArray_LHEFWeight(Long_t size, void *p);
    static void delete_LHEFWeight(void *p);
    static void deleteArray_LHEFWeight(void *p);
@@ -311,8 +311,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::LHEFWeight*)
    {
-      ::LHEFWeight *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHEFWeight >(nullptr);
+      ::LHEFWeight *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::LHEFWeight >(0);
       static ::ROOT::TGenericClassInfo 
          instance("LHEFWeight", ::LHEFWeight::Class_Version(), "classes/DelphesClasses.h", 85,
                   typeid(::LHEFWeight), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -327,14 +327,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::LHEFWeight*)
    {
-      return GenerateInitInstanceLocal(static_cast<::LHEFWeight*>(nullptr));
+      return GenerateInitInstanceLocal((::LHEFWeight*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::LHEFWeight*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::LHEFWeight*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_HepMCEvent(void *p = nullptr);
+   static void *new_HepMCEvent(void *p = 0);
    static void *newArray_HepMCEvent(Long_t size, void *p);
    static void delete_HepMCEvent(void *p);
    static void deleteArray_HepMCEvent(void *p);
@@ -343,8 +343,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::HepMCEvent*)
    {
-      ::HepMCEvent *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::HepMCEvent >(nullptr);
+      ::HepMCEvent *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::HepMCEvent >(0);
       static ::ROOT::TGenericClassInfo 
          instance("HepMCEvent", ::HepMCEvent::Class_Version(), "classes/DelphesClasses.h", 96,
                   typeid(::HepMCEvent), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -359,14 +359,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::HepMCEvent*)
    {
-      return GenerateInitInstanceLocal(static_cast<::HepMCEvent*>(nullptr));
+      return GenerateInitInstanceLocal((::HepMCEvent*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::HepMCEvent*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::HepMCEvent*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_GenParticle(void *p = nullptr);
+   static void *new_GenParticle(void *p = 0);
    static void *newArray_GenParticle(Long_t size, void *p);
    static void delete_GenParticle(void *p);
    static void deleteArray_GenParticle(void *p);
@@ -375,8 +375,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::GenParticle*)
    {
-      ::GenParticle *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::GenParticle >(nullptr);
+      ::GenParticle *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::GenParticle >(0);
       static ::ROOT::TGenericClassInfo 
          instance("GenParticle", ::GenParticle::Class_Version(), "classes/DelphesClasses.h", 126,
                   typeid(::GenParticle), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -391,14 +391,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::GenParticle*)
    {
-      return GenerateInitInstanceLocal(static_cast<::GenParticle*>(nullptr));
+      return GenerateInitInstanceLocal((::GenParticle*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::GenParticle*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::GenParticle*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Vertex(void *p = nullptr);
+   static void *new_Vertex(void *p = 0);
    static void *newArray_Vertex(Long_t size, void *p);
    static void delete_Vertex(void *p);
    static void deleteArray_Vertex(void *p);
@@ -407,8 +407,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Vertex*)
    {
-      ::Vertex *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Vertex >(nullptr);
+      ::Vertex *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Vertex >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Vertex", ::Vertex::Class_Version(), "classes/DelphesClasses.h", 170,
                   typeid(::Vertex), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -423,14 +423,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Vertex*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Vertex*>(nullptr));
+      return GenerateInitInstanceLocal((::Vertex*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Vertex*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Vertex*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_MissingET(void *p = nullptr);
+   static void *new_MissingET(void *p = 0);
    static void *newArray_MissingET(Long_t size, void *p);
    static void delete_MissingET(void *p);
    static void deleteArray_MissingET(void *p);
@@ -439,8 +439,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::MissingET*)
    {
-      ::MissingET *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::MissingET >(nullptr);
+      ::MissingET *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::MissingET >(0);
       static ::ROOT::TGenericClassInfo 
          instance("MissingET", ::MissingET::Class_Version(), "classes/DelphesClasses.h", 203,
                   typeid(::MissingET), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -455,14 +455,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::MissingET*)
    {
-      return GenerateInitInstanceLocal(static_cast<::MissingET*>(nullptr));
+      return GenerateInitInstanceLocal((::MissingET*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::MissingET*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::MissingET*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_ScalarHT(void *p = nullptr);
+   static void *new_ScalarHT(void *p = 0);
    static void *newArray_ScalarHT(Long_t size, void *p);
    static void delete_ScalarHT(void *p);
    static void deleteArray_ScalarHT(void *p);
@@ -471,8 +471,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ScalarHT*)
    {
-      ::ScalarHT *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ScalarHT >(nullptr);
+      ::ScalarHT *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ScalarHT >(0);
       static ::ROOT::TGenericClassInfo 
          instance("ScalarHT", ::ScalarHT::Class_Version(), "classes/DelphesClasses.h", 217,
                   typeid(::ScalarHT), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -487,14 +487,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ScalarHT*)
    {
-      return GenerateInitInstanceLocal(static_cast<::ScalarHT*>(nullptr));
+      return GenerateInitInstanceLocal((::ScalarHT*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ScalarHT*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ScalarHT*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Rho(void *p = nullptr);
+   static void *new_Rho(void *p = 0);
    static void *newArray_Rho(Long_t size, void *p);
    static void delete_Rho(void *p);
    static void deleteArray_Rho(void *p);
@@ -503,8 +503,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Rho*)
    {
-      ::Rho *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Rho >(nullptr);
+      ::Rho *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Rho >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Rho", ::Rho::Class_Version(), "classes/DelphesClasses.h", 227,
                   typeid(::Rho), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -519,14 +519,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Rho*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Rho*>(nullptr));
+      return GenerateInitInstanceLocal((::Rho*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Rho*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Rho*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Weight(void *p = nullptr);
+   static void *new_Weight(void *p = 0);
    static void *newArray_Weight(Long_t size, void *p);
    static void delete_Weight(void *p);
    static void deleteArray_Weight(void *p);
@@ -535,8 +535,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Weight*)
    {
-      ::Weight *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Weight >(nullptr);
+      ::Weight *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Weight >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Weight", ::Weight::Class_Version(), "classes/DelphesClasses.h", 238,
                   typeid(::Weight), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -551,14 +551,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Weight*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Weight*>(nullptr));
+      return GenerateInitInstanceLocal((::Weight*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Weight*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Weight*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Photon(void *p = nullptr);
+   static void *new_Photon(void *p = 0);
    static void *newArray_Photon(Long_t size, void *p);
    static void delete_Photon(void *p);
    static void deleteArray_Photon(void *p);
@@ -567,8 +567,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Photon*)
    {
-      ::Photon *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Photon >(nullptr);
+      ::Photon *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Photon >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Photon", ::Photon::Class_Version(), "classes/DelphesClasses.h", 248,
                   typeid(::Photon), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -583,14 +583,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Photon*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Photon*>(nullptr));
+      return GenerateInitInstanceLocal((::Photon*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Photon*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Photon*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Electron(void *p = nullptr);
+   static void *new_Electron(void *p = 0);
    static void *newArray_Electron(Long_t size, void *p);
    static void delete_Electron(void *p);
    static void deleteArray_Electron(void *p);
@@ -599,8 +599,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Electron*)
    {
-      ::Electron *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Electron >(nullptr);
+      ::Electron *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Electron >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Electron", ::Electron::Class_Version(), "classes/DelphesClasses.h", 282,
                   typeid(::Electron), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -615,14 +615,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Electron*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Electron*>(nullptr));
+      return GenerateInitInstanceLocal((::Electron*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Electron*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Electron*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Muon(void *p = nullptr);
+   static void *new_Muon(void *p = 0);
    static void *newArray_Muon(Long_t size, void *p);
    static void delete_Muon(void *p);
    static void deleteArray_Muon(void *p);
@@ -631,8 +631,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Muon*)
    {
-      ::Muon *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Muon >(nullptr);
+      ::Muon *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Muon >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Muon", ::Muon::Class_Version(), "classes/DelphesClasses.h", 319,
                   typeid(::Muon), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -647,14 +647,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Muon*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Muon*>(nullptr));
+      return GenerateInitInstanceLocal((::Muon*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Muon*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Muon*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Jet(void *p = nullptr);
+   static void *new_Jet(void *p = 0);
    static void *newArray_Jet(Long_t size, void *p);
    static void delete_Jet(void *p);
    static void deleteArray_Jet(void *p);
@@ -663,8 +663,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Jet*)
    {
-      ::Jet *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Jet >(nullptr);
+      ::Jet *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Jet >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Jet", ::Jet::Class_Version(), "classes/DelphesClasses.h", 354,
                   typeid(::Jet), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -679,14 +679,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Jet*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Jet*>(nullptr));
+      return GenerateInitInstanceLocal((::Jet*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Jet*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Jet*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Track(void *p = nullptr);
+   static void *new_Track(void *p = 0);
    static void *newArray_Track(Long_t size, void *p);
    static void delete_Track(void *p);
    static void deleteArray_Track(void *p);
@@ -695,8 +695,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Track*)
    {
-      ::Track *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Track >(nullptr);
+      ::Track *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Track >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Track", ::Track::Class_Version(), "classes/DelphesClasses.h", 428,
                   typeid(::Track), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -711,14 +711,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Track*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Track*>(nullptr));
+      return GenerateInitInstanceLocal((::Track*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Track*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Track*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Tower(void *p = nullptr);
+   static void *new_Tower(void *p = 0);
    static void *newArray_Tower(Long_t size, void *p);
    static void delete_Tower(void *p);
    static void deleteArray_Tower(void *p);
@@ -727,8 +727,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Tower*)
    {
-      ::Tower *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Tower >(nullptr);
+      ::Tower *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Tower >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Tower", ::Tower::Class_Version(), "classes/DelphesClasses.h", 503,
                   typeid(::Tower), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -743,14 +743,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Tower*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Tower*>(nullptr));
+      return GenerateInitInstanceLocal((::Tower*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Tower*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Tower*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_ParticleFlowCandidate(void *p = nullptr);
+   static void *new_ParticleFlowCandidate(void *p = 0);
    static void *newArray_ParticleFlowCandidate(Long_t size, void *p);
    static void delete_ParticleFlowCandidate(void *p);
    static void deleteArray_ParticleFlowCandidate(void *p);
@@ -759,8 +759,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ParticleFlowCandidate*)
    {
-      ::ParticleFlowCandidate *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ParticleFlowCandidate >(nullptr);
+      ::ParticleFlowCandidate *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ParticleFlowCandidate >(0);
       static ::ROOT::TGenericClassInfo 
          instance("ParticleFlowCandidate", ::ParticleFlowCandidate::Class_Version(), "classes/DelphesClasses.h", 532,
                   typeid(::ParticleFlowCandidate), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -775,14 +775,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ParticleFlowCandidate*)
    {
-      return GenerateInitInstanceLocal(static_cast<::ParticleFlowCandidate*>(nullptr));
+      return GenerateInitInstanceLocal((::ParticleFlowCandidate*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ParticleFlowCandidate*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_HectorHit(void *p = nullptr);
+   static void *new_HectorHit(void *p = 0);
    static void *newArray_HectorHit(Long_t size, void *p);
    static void delete_HectorHit(void *p);
    static void deleteArray_HectorHit(void *p);
@@ -791,8 +791,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::HectorHit*)
    {
-      ::HectorHit *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::HectorHit >(nullptr);
+      ::HectorHit *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::HectorHit >(0);
       static ::ROOT::TGenericClassInfo 
          instance("HectorHit", ::HectorHit::Class_Version(), "classes/DelphesClasses.h", 617,
                   typeid(::HectorHit), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -807,14 +807,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::HectorHit*)
    {
-      return GenerateInitInstanceLocal(static_cast<::HectorHit*>(nullptr));
+      return GenerateInitInstanceLocal((::HectorHit*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::HectorHit*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::HectorHit*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_Candidate(void *p = nullptr);
+   static void *new_Candidate(void *p = 0);
    static void *newArray_Candidate(Long_t size, void *p);
    static void delete_Candidate(void *p);
    static void deleteArray_Candidate(void *p);
@@ -823,8 +823,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::Candidate*)
    {
-      ::Candidate *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Candidate >(nullptr);
+      ::Candidate *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::Candidate >(0);
       static ::ROOT::TGenericClassInfo 
          instance("Candidate", ::Candidate::Class_Version(), "classes/DelphesClasses.h", 641,
                   typeid(::Candidate), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -839,14 +839,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::Candidate*)
    {
-      return GenerateInitInstanceLocal(static_cast<::Candidate*>(nullptr));
+      return GenerateInitInstanceLocal((::Candidate*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::Candidate*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::Candidate*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 //______________________________________________________________________________
-atomic_TClass_ptr DelphesModule::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr DelphesModule::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *DelphesModule::Class_Name()
@@ -857,31 +857,31 @@ const char *DelphesModule::Class_Name()
 //______________________________________________________________________________
 const char *DelphesModule::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int DelphesModule::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *DelphesModule::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *DelphesModule::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesModule*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr DelphesFactory::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr DelphesFactory::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *DelphesFactory::Class_Name()
@@ -892,31 +892,31 @@ const char *DelphesFactory::Class_Name()
 //______________________________________________________________________________
 const char *DelphesFactory::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int DelphesFactory::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *DelphesFactory::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *DelphesFactory::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::DelphesFactory*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr SortableObject::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr SortableObject::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *SortableObject::Class_Name()
@@ -927,31 +927,31 @@ const char *SortableObject::Class_Name()
 //______________________________________________________________________________
 const char *SortableObject::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int SortableObject::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *SortableObject::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *SortableObject::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::SortableObject*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Event::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Event::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Event::Class_Name()
@@ -962,31 +962,31 @@ const char *Event::Class_Name()
 //______________________________________________________________________________
 const char *Event::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Event*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Event*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Event::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Event*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Event*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Event::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Event*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Event*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Event::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Event*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Event*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr LHCOEvent::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr LHCOEvent::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *LHCOEvent::Class_Name()
@@ -997,31 +997,31 @@ const char *LHCOEvent::Class_Name()
 //______________________________________________________________________________
 const char *LHCOEvent::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int LHCOEvent::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *LHCOEvent::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *LHCOEvent::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHCOEvent*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr LHEFEvent::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr LHEFEvent::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *LHEFEvent::Class_Name()
@@ -1032,31 +1032,31 @@ const char *LHEFEvent::Class_Name()
 //______________________________________________________________________________
 const char *LHEFEvent::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int LHEFEvent::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *LHEFEvent::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *LHEFEvent::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFEvent*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr LHEFWeight::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr LHEFWeight::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *LHEFWeight::Class_Name()
@@ -1067,31 +1067,31 @@ const char *LHEFWeight::Class_Name()
 //______________________________________________________________________________
 const char *LHEFWeight::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int LHEFWeight::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *LHEFWeight::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *LHEFWeight::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::LHEFWeight*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr HepMCEvent::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr HepMCEvent::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *HepMCEvent::Class_Name()
@@ -1102,31 +1102,31 @@ const char *HepMCEvent::Class_Name()
 //______________________________________________________________________________
 const char *HepMCEvent::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int HepMCEvent::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *HepMCEvent::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *HepMCEvent::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HepMCEvent*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr GenParticle::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr GenParticle::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *GenParticle::Class_Name()
@@ -1137,31 +1137,31 @@ const char *GenParticle::Class_Name()
 //______________________________________________________________________________
 const char *GenParticle::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int GenParticle::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *GenParticle::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *GenParticle::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::GenParticle*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Vertex::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Vertex::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Vertex::Class_Name()
@@ -1172,31 +1172,31 @@ const char *Vertex::Class_Name()
 //______________________________________________________________________________
 const char *Vertex::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Vertex::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Vertex::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Vertex::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Vertex*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr MissingET::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr MissingET::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *MissingET::Class_Name()
@@ -1207,31 +1207,31 @@ const char *MissingET::Class_Name()
 //______________________________________________________________________________
 const char *MissingET::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int MissingET::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *MissingET::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *MissingET::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::MissingET*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr ScalarHT::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr ScalarHT::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ScalarHT::Class_Name()
@@ -1242,31 +1242,31 @@ const char *ScalarHT::Class_Name()
 //______________________________________________________________________________
 const char *ScalarHT::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ScalarHT::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ScalarHT::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ScalarHT::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ScalarHT*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Rho::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Rho::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Rho::Class_Name()
@@ -1277,31 +1277,31 @@ const char *Rho::Class_Name()
 //______________________________________________________________________________
 const char *Rho::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Rho*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Rho*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Rho::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Rho*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Rho*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Rho::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Rho*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Rho*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Rho::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Rho*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Rho*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Weight::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Weight::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Weight::Class_Name()
@@ -1312,31 +1312,31 @@ const char *Weight::Class_Name()
 //______________________________________________________________________________
 const char *Weight::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Weight*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Weight*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Weight::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Weight*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Weight*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Weight::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Weight*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Weight*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Weight::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Weight*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Weight*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Photon::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Photon::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Photon::Class_Name()
@@ -1347,31 +1347,31 @@ const char *Photon::Class_Name()
 //______________________________________________________________________________
 const char *Photon::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Photon*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Photon*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Photon::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Photon*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Photon*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Photon::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Photon*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Photon*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Photon::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Photon*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Photon*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Electron::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Electron::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Electron::Class_Name()
@@ -1382,31 +1382,31 @@ const char *Electron::Class_Name()
 //______________________________________________________________________________
 const char *Electron::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Electron*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Electron*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Electron::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Electron*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Electron*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Electron::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Electron*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Electron*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Electron::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Electron*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Electron*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Muon::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Muon::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Muon::Class_Name()
@@ -1417,31 +1417,31 @@ const char *Muon::Class_Name()
 //______________________________________________________________________________
 const char *Muon::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Muon*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Muon*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Muon::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Muon*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Muon*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Muon::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Muon*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Muon*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Muon::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Muon*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Muon*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Jet::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Jet::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Jet::Class_Name()
@@ -1452,31 +1452,31 @@ const char *Jet::Class_Name()
 //______________________________________________________________________________
 const char *Jet::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Jet*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Jet*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Jet::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Jet*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Jet*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Jet::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Jet*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Jet*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Jet::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Jet*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Jet*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Track::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Track::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Track::Class_Name()
@@ -1487,31 +1487,31 @@ const char *Track::Class_Name()
 //______________________________________________________________________________
 const char *Track::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Track*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Track*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Track::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Track*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Track*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Track::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Track*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Track*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Track::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Track*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Track*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Tower::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Tower::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Tower::Class_Name()
@@ -1522,31 +1522,31 @@ const char *Tower::Class_Name()
 //______________________________________________________________________________
 const char *Tower::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Tower*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Tower*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Tower::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Tower*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Tower*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Tower::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Tower*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Tower*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Tower::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Tower*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Tower*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr ParticleFlowCandidate::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr ParticleFlowCandidate::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ParticleFlowCandidate::Class_Name()
@@ -1557,31 +1557,31 @@ const char *ParticleFlowCandidate::Class_Name()
 //______________________________________________________________________________
 const char *ParticleFlowCandidate::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ParticleFlowCandidate::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ParticleFlowCandidate::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ParticleFlowCandidate::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ParticleFlowCandidate*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr HectorHit::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr HectorHit::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *HectorHit::Class_Name()
@@ -1592,31 +1592,31 @@ const char *HectorHit::Class_Name()
 //______________________________________________________________________________
 const char *HectorHit::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int HectorHit::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *HectorHit::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *HectorHit::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::HectorHit*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr Candidate::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr Candidate::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *Candidate::Class_Name()
@@ -1627,26 +1627,26 @@ const char *Candidate::Class_Name()
 //______________________________________________________________________________
 const char *Candidate::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int Candidate::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *Candidate::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *Candidate::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::Candidate*)0x0)->GetClass(); }
    return fgIsA;
 }
 
@@ -1672,14 +1672,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_DelphesModule(void *p) {
-      delete (static_cast<::DelphesModule*>(p));
+      delete ((::DelphesModule*)p);
    }
    static void deleteArray_DelphesModule(void *p) {
-      delete [] (static_cast<::DelphesModule*>(p));
+      delete [] ((::DelphesModule*)p);
    }
    static void destruct_DelphesModule(void *p) {
       typedef ::DelphesModule current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::DelphesModule
 
@@ -1705,14 +1705,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_DelphesFactory(void *p) {
-      delete (static_cast<::DelphesFactory*>(p));
+      delete ((::DelphesFactory*)p);
    }
    static void deleteArray_DelphesFactory(void *p) {
-      delete [] (static_cast<::DelphesFactory*>(p));
+      delete [] ((::DelphesFactory*)p);
    }
    static void destruct_DelphesFactory(void *p) {
       typedef ::DelphesFactory current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::DelphesFactory
 
@@ -1731,14 +1731,14 @@ void SortableObject::Streamer(TBuffer &R__b)
 namespace ROOT {
    // Wrapper around operator delete
    static void delete_SortableObject(void *p) {
-      delete (static_cast<::SortableObject*>(p));
+      delete ((::SortableObject*)p);
    }
    static void deleteArray_SortableObject(void *p) {
-      delete [] (static_cast<::SortableObject*>(p));
+      delete [] ((::SortableObject*)p);
    }
    static void destruct_SortableObject(void *p) {
       typedef ::SortableObject current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::SortableObject
 
@@ -1764,14 +1764,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Event(void *p) {
-      delete (static_cast<::Event*>(p));
+      delete ((::Event*)p);
    }
    static void deleteArray_Event(void *p) {
-      delete [] (static_cast<::Event*>(p));
+      delete [] ((::Event*)p);
    }
    static void destruct_Event(void *p) {
       typedef ::Event current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Event
 
@@ -1797,14 +1797,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_LHCOEvent(void *p) {
-      delete (static_cast<::LHCOEvent*>(p));
+      delete ((::LHCOEvent*)p);
    }
    static void deleteArray_LHCOEvent(void *p) {
-      delete [] (static_cast<::LHCOEvent*>(p));
+      delete [] ((::LHCOEvent*)p);
    }
    static void destruct_LHCOEvent(void *p) {
       typedef ::LHCOEvent current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::LHCOEvent
 
@@ -1830,14 +1830,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_LHEFEvent(void *p) {
-      delete (static_cast<::LHEFEvent*>(p));
+      delete ((::LHEFEvent*)p);
    }
    static void deleteArray_LHEFEvent(void *p) {
-      delete [] (static_cast<::LHEFEvent*>(p));
+      delete [] ((::LHEFEvent*)p);
    }
    static void destruct_LHEFEvent(void *p) {
       typedef ::LHEFEvent current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::LHEFEvent
 
@@ -1863,14 +1863,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_LHEFWeight(void *p) {
-      delete (static_cast<::LHEFWeight*>(p));
+      delete ((::LHEFWeight*)p);
    }
    static void deleteArray_LHEFWeight(void *p) {
-      delete [] (static_cast<::LHEFWeight*>(p));
+      delete [] ((::LHEFWeight*)p);
    }
    static void destruct_LHEFWeight(void *p) {
       typedef ::LHEFWeight current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::LHEFWeight
 
@@ -1896,14 +1896,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_HepMCEvent(void *p) {
-      delete (static_cast<::HepMCEvent*>(p));
+      delete ((::HepMCEvent*)p);
    }
    static void deleteArray_HepMCEvent(void *p) {
-      delete [] (static_cast<::HepMCEvent*>(p));
+      delete [] ((::HepMCEvent*)p);
    }
    static void destruct_HepMCEvent(void *p) {
       typedef ::HepMCEvent current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::HepMCEvent
 
@@ -1929,14 +1929,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_GenParticle(void *p) {
-      delete (static_cast<::GenParticle*>(p));
+      delete ((::GenParticle*)p);
    }
    static void deleteArray_GenParticle(void *p) {
-      delete [] (static_cast<::GenParticle*>(p));
+      delete [] ((::GenParticle*)p);
    }
    static void destruct_GenParticle(void *p) {
       typedef ::GenParticle current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::GenParticle
 
@@ -1962,14 +1962,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Vertex(void *p) {
-      delete (static_cast<::Vertex*>(p));
+      delete ((::Vertex*)p);
    }
    static void deleteArray_Vertex(void *p) {
-      delete [] (static_cast<::Vertex*>(p));
+      delete [] ((::Vertex*)p);
    }
    static void destruct_Vertex(void *p) {
       typedef ::Vertex current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Vertex
 
@@ -1995,14 +1995,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_MissingET(void *p) {
-      delete (static_cast<::MissingET*>(p));
+      delete ((::MissingET*)p);
    }
    static void deleteArray_MissingET(void *p) {
-      delete [] (static_cast<::MissingET*>(p));
+      delete [] ((::MissingET*)p);
    }
    static void destruct_MissingET(void *p) {
       typedef ::MissingET current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::MissingET
 
@@ -2028,14 +2028,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ScalarHT(void *p) {
-      delete (static_cast<::ScalarHT*>(p));
+      delete ((::ScalarHT*)p);
    }
    static void deleteArray_ScalarHT(void *p) {
-      delete [] (static_cast<::ScalarHT*>(p));
+      delete [] ((::ScalarHT*)p);
    }
    static void destruct_ScalarHT(void *p) {
       typedef ::ScalarHT current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::ScalarHT
 
@@ -2061,14 +2061,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Rho(void *p) {
-      delete (static_cast<::Rho*>(p));
+      delete ((::Rho*)p);
    }
    static void deleteArray_Rho(void *p) {
-      delete [] (static_cast<::Rho*>(p));
+      delete [] ((::Rho*)p);
    }
    static void destruct_Rho(void *p) {
       typedef ::Rho current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Rho
 
@@ -2094,14 +2094,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Weight(void *p) {
-      delete (static_cast<::Weight*>(p));
+      delete ((::Weight*)p);
    }
    static void deleteArray_Weight(void *p) {
-      delete [] (static_cast<::Weight*>(p));
+      delete [] ((::Weight*)p);
    }
    static void destruct_Weight(void *p) {
       typedef ::Weight current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Weight
 
@@ -2127,14 +2127,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Photon(void *p) {
-      delete (static_cast<::Photon*>(p));
+      delete ((::Photon*)p);
    }
    static void deleteArray_Photon(void *p) {
-      delete [] (static_cast<::Photon*>(p));
+      delete [] ((::Photon*)p);
    }
    static void destruct_Photon(void *p) {
       typedef ::Photon current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Photon
 
@@ -2160,14 +2160,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Electron(void *p) {
-      delete (static_cast<::Electron*>(p));
+      delete ((::Electron*)p);
    }
    static void deleteArray_Electron(void *p) {
-      delete [] (static_cast<::Electron*>(p));
+      delete [] ((::Electron*)p);
    }
    static void destruct_Electron(void *p) {
       typedef ::Electron current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Electron
 
@@ -2193,14 +2193,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Muon(void *p) {
-      delete (static_cast<::Muon*>(p));
+      delete ((::Muon*)p);
    }
    static void deleteArray_Muon(void *p) {
-      delete [] (static_cast<::Muon*>(p));
+      delete [] ((::Muon*)p);
    }
    static void destruct_Muon(void *p) {
       typedef ::Muon current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Muon
 
@@ -2226,14 +2226,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Jet(void *p) {
-      delete (static_cast<::Jet*>(p));
+      delete ((::Jet*)p);
    }
    static void deleteArray_Jet(void *p) {
-      delete [] (static_cast<::Jet*>(p));
+      delete [] ((::Jet*)p);
    }
    static void destruct_Jet(void *p) {
       typedef ::Jet current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Jet
 
@@ -2259,14 +2259,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Track(void *p) {
-      delete (static_cast<::Track*>(p));
+      delete ((::Track*)p);
    }
    static void deleteArray_Track(void *p) {
-      delete [] (static_cast<::Track*>(p));
+      delete [] ((::Track*)p);
    }
    static void destruct_Track(void *p) {
       typedef ::Track current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Track
 
@@ -2292,14 +2292,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Tower(void *p) {
-      delete (static_cast<::Tower*>(p));
+      delete ((::Tower*)p);
    }
    static void deleteArray_Tower(void *p) {
-      delete [] (static_cast<::Tower*>(p));
+      delete [] ((::Tower*)p);
    }
    static void destruct_Tower(void *p) {
       typedef ::Tower current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Tower
 
@@ -2325,14 +2325,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ParticleFlowCandidate(void *p) {
-      delete (static_cast<::ParticleFlowCandidate*>(p));
+      delete ((::ParticleFlowCandidate*)p);
    }
    static void deleteArray_ParticleFlowCandidate(void *p) {
-      delete [] (static_cast<::ParticleFlowCandidate*>(p));
+      delete [] ((::ParticleFlowCandidate*)p);
    }
    static void destruct_ParticleFlowCandidate(void *p) {
       typedef ::ParticleFlowCandidate current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::ParticleFlowCandidate
 
@@ -2358,14 +2358,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_HectorHit(void *p) {
-      delete (static_cast<::HectorHit*>(p));
+      delete ((::HectorHit*)p);
    }
    static void deleteArray_HectorHit(void *p) {
-      delete [] (static_cast<::HectorHit*>(p));
+      delete [] ((::HectorHit*)p);
    }
    static void destruct_HectorHit(void *p) {
       typedef ::HectorHit current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::HectorHit
 
@@ -2391,21 +2391,21 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_Candidate(void *p) {
-      delete (static_cast<::Candidate*>(p));
+      delete ((::Candidate*)p);
    }
    static void deleteArray_Candidate(void *p) {
-      delete [] (static_cast<::Candidate*>(p));
+      delete [] ((::Candidate*)p);
    }
    static void destruct_Candidate(void *p) {
       typedef ::Candidate current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::Candidate
 
 namespace ROOT {
    static TClass *vectorlEpairlEfloatcOfloatgRsPgR_Dictionary();
    static void vectorlEpairlEfloatcOfloatgRsPgR_TClassManip(TClass*);
-   static void *new_vectorlEpairlEfloatcOfloatgRsPgR(void *p = nullptr);
+   static void *new_vectorlEpairlEfloatcOfloatgRsPgR(void *p = 0);
    static void *newArray_vectorlEpairlEfloatcOfloatgRsPgR(Long_t size, void *p);
    static void delete_vectorlEpairlEfloatcOfloatgRsPgR(void *p);
    static void deleteArray_vectorlEpairlEfloatcOfloatgRsPgR(void *p);
@@ -2414,10 +2414,10 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const vector<pair<float,float> >*)
    {
-      vector<pair<float,float> > *ptr = nullptr;
+      vector<pair<float,float> > *ptr = 0;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<pair<float,float> >));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<pair<float,float> >", -2, "vector", 383,
+         instance("vector<pair<float,float> >", -2, "vector", 386,
                   typeid(vector<pair<float,float> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEpairlEfloatcOfloatgRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<pair<float,float> >) );
@@ -2428,15 +2428,15 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEpairlEfloatcOfloatgRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<pair<float,float> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<pair<float,float> >","std::__1::vector<std::__1::pair<float, float>, std::__1::allocator<std::__1::pair<float, float>>>"));
+      ::ROOT::AddClassAlternate("vector<pair<float,float> >","std::vector<std::pair<float, float>, std::allocator<std::pair<float, float> > >");
       return &instance;
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const vector<pair<float,float> >*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const vector<pair<float,float> >*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *vectorlEpairlEfloatcOfloatgRsPgR_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const vector<pair<float,float> >*>(nullptr))->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const vector<pair<float,float> >*)0x0)->GetClass();
       vectorlEpairlEfloatcOfloatgRsPgR_TClassManip(theClass);
    return theClass;
    }
@@ -2449,41 +2449,41 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
-      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<float,float> > : new vector<pair<float,float> >;
+      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<float,float> > : new vector<pair<float,float> >;
    }
    static void *newArray_vectorlEpairlEfloatcOfloatgRsPgR(Long_t nElements, void *p) {
-      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<float,float> >[nElements] : new vector<pair<float,float> >[nElements];
+      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<float,float> >[nElements] : new vector<pair<float,float> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
-      delete (static_cast<vector<pair<float,float> >*>(p));
+      delete ((vector<pair<float,float> >*)p);
    }
    static void deleteArray_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
-      delete [] (static_cast<vector<pair<float,float> >*>(p));
+      delete [] ((vector<pair<float,float> >*)p);
    }
    static void destruct_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
       typedef vector<pair<float,float> > current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class vector<pair<float,float> >
 
 namespace {
   void TriggerDictionaryInitialization_ClassesDict_Impl() {
     static const char* headers[] = {
-nullptr
+0
     };
     static const char* includePaths[] = {
 "external",
-"/opt/homebrew/Cellar/root/6.30.04/include/root",
-"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
-nullptr
+"/home/buding/Heptools/root/include/",
+"/home/buding/Jarvis-HEP/External/Library/Delphes/",
+0
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(
 #line 1 "ClassesDict dictionary forward declarations' payload"
 #pragma clang diagnostic ignored "-Wkeyword-compat"
 #pragma clang diagnostic ignored "-Wignored-attributes"
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-extern int __Cling_AutoLoading_Map;
+extern int __Cling_Autoloading_Map;
 class __attribute__((annotate("$clingAutoload$classes/DelphesModule.h")))  DelphesModule;
 class __attribute__((annotate("$clingAutoload$classes/DelphesFactory.h")))  DelphesFactory;
 class __attribute__((annotate("$clingAutoload$classes/SortableObject.h")))  SortableObject;

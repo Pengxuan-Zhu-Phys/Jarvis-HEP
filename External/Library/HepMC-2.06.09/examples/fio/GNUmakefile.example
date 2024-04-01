@@ -11,7 +11,7 @@
 ################################################################################ Define directory paths 
 #    You may have to change GENSERdir and/or other variables
 #
-  HepMCdir             = /Users/buding/Workshop/Jarvis/External/Library/HepMC
+  HepMCdir             = /home/buding/Jarvis-HEP/External/Library/HepMC
   HepMClib             = -L$(HepMCdir)/lib -lHepMC
   HepMCfiolib          = -L$(HepMCdir)/lib -lHepMCfio
   GENSERdir            =  
@@ -22,7 +22,7 @@
 
 ################################################################################ Compiler options
 #
-  CXX           = g++ -std=gnu++11
+  CXX           = g++
   F77		= gfortran
   INCLUDES 	= -I$(HepMCdir)/include -I$(CLHEPdir)/include
   CXXFLAGS      =  -ansi -pedantic -Wall -g -O2 $(INCLUDES)

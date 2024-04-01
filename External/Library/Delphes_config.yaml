@@ -1,26 +1,25 @@
 installation:
   commands:
-  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: rm -rf Delphes*
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: cp /Users/buding/Workshop/Jarvis/External/Library/Source/Delphes-3.5.0.tar.gz
-      ./
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: cp /home/buding/Jarvis-HEP/External/Library/Source/Delphes-3.5.0.tar.gz ./
+    cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: tar -xzf Delphes-3.5.0.tar.gz
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: mv ./Delphes-3.5.0 /Users/buding/Workshop/Jarvis/External/Library/Delphes
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library/Delphes
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: source /opt/homebrew/Cellar/root/6.30.04/bin/thisroot.sh
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/Delphes
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: mv ./Delphes-3.5.0 /home/buding/Jarvis-HEP/External/Library/Delphes
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library/Delphes
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: source /home/buding/Heptools/root/bin/thisroot.sh
+    cwd: /home/buding/Jarvis-HEP/External/Library/Delphes
   - cmd: ./configure
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/Delphes
+    cwd: /home/buding/Jarvis-HEP/External/Library/Delphes
   - cmd: make -j16
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/Delphes
-  path: /Users/buding/Workshop/Jarvis/External/Library/Delphes
-  source: /Users/buding/Workshop/Jarvis/External/Library/Source/Delphes-3.5.0.tar.gz
+    cwd: /home/buding/Jarvis-HEP/External/Library/Delphes
+  path: /home/buding/Jarvis-HEP/External/Library/Delphes
+  source: /home/buding/Jarvis-HEP/External/Library/Source/Delphes-3.5.0.tar.gz
 installed: true
 name: Delphes
 required_modules: []

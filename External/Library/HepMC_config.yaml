@@ -1,26 +1,25 @@
 installation:
   commands:
-  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: rm -rf HepMC*
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: cp /Users/buding/Workshop/Jarvis/External/Library/Source/HepMC-2.06.09.tar.gz
-      ./
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: cp /home/buding/Jarvis-HEP/External/Library/Source/HepMC-2.06.09.tar.gz ./
+    cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: tar -xzf HepMC-2.06.09.tar.gz
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
-  - cmd: cd /Users/buding/Workshop/Jarvis/External/Library/HepMC-2.06.09
-    cwd: /Users/buding/Workshop/Jarvis/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library/HepMC-2.06.09
+    cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: ./bootstrap
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/HepMC-2.06.09
-  - cmd: ./configure --with-momentum=GEV --with-length=MM --prefix=/Users/buding/Workshop/Jarvis/External/Library/HepMC
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/HepMC-2.06.09
+    cwd: /home/buding/Jarvis-HEP/External/Library/HepMC-2.06.09
+  - cmd: ./configure --with-momentum=GEV --with-length=MM --prefix=/home/buding/Jarvis-HEP/External/Library/HepMC
+    cwd: /home/buding/Jarvis-HEP/External/Library/HepMC-2.06.09
   - cmd: make -j16
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/HepMC-2.06.09
+    cwd: /home/buding/Jarvis-HEP/External/Library/HepMC-2.06.09
   - cmd: make install
-    cwd: /Users/buding/Workshop/Jarvis/External/Library/HepMC-2.06.09
-  path: /Users/buding/Workshop/Jarvis/External/Library/HepMC
-  source: /Users/buding/Workshop/Jarvis/External/Library/Source/HepMC-2.06.09.tar.gz
+    cwd: /home/buding/Jarvis-HEP/External/Library/HepMC-2.06.09
+  path: /home/buding/Jarvis-HEP/External/Library/HepMC
+  source: /home/buding/Jarvis-HEP/External/Library/Source/HepMC-2.06.09.tar.gz
 installed: true
 name: HepMC
 required_modules: []

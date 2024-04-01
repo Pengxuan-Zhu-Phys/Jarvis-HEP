@@ -52,7 +52,7 @@
 #include <string.h>
 #include <assert.h>
 #define G__DICTIONARY
-#include "ROOT/RConfig.hxx"
+#include "RConfig.h"
 #include "TClass.h"
 #include "TDictAttributeMap.h"
 #include "TInterpreter.h"
@@ -76,6 +76,9 @@
 
 #include "TDataMember.h"
 
+// The generated code does not explicitly qualifies STL entities
+namespace std {} using namespace std;
+
 // Header files passed as explicit arguments
 #include "modules/FastJetFinder.h"
 #include "modules/FastJetGridMedianEstimator.h"
@@ -83,11 +86,8 @@
 
 // Header files passed via #pragma extra_include
 
-// The generated code does not explicitly qualify STL entities
-namespace std {} using namespace std;
-
 namespace ROOT {
-   static void *new_FastJetFinder(void *p = nullptr);
+   static void *new_FastJetFinder(void *p = 0);
    static void *newArray_FastJetFinder(Long_t size, void *p);
    static void delete_FastJetFinder(void *p);
    static void deleteArray_FastJetFinder(void *p);
@@ -96,8 +96,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::FastJetFinder*)
    {
-      ::FastJetFinder *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::FastJetFinder >(nullptr);
+      ::FastJetFinder *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::FastJetFinder >(0);
       static ::ROOT::TGenericClassInfo 
          instance("FastJetFinder", ::FastJetFinder::Class_Version(), "modules/FastJetFinder.h", 51,
                   typeid(::FastJetFinder), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -112,14 +112,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::FastJetFinder*)
    {
-      return GenerateInitInstanceLocal(static_cast<::FastJetFinder*>(nullptr));
+      return GenerateInitInstanceLocal((::FastJetFinder*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::FastJetFinder*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::FastJetFinder*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_FastJetGridMedianEstimator(void *p = nullptr);
+   static void *new_FastJetGridMedianEstimator(void *p = 0);
    static void *newArray_FastJetGridMedianEstimator(Long_t size, void *p);
    static void delete_FastJetGridMedianEstimator(void *p);
    static void deleteArray_FastJetGridMedianEstimator(void *p);
@@ -128,8 +128,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::FastJetGridMedianEstimator*)
    {
-      ::FastJetGridMedianEstimator *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::FastJetGridMedianEstimator >(nullptr);
+      ::FastJetGridMedianEstimator *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::FastJetGridMedianEstimator >(0);
       static ::ROOT::TGenericClassInfo 
          instance("FastJetGridMedianEstimator", ::FastJetGridMedianEstimator::Class_Version(), "modules/FastJetGridMedianEstimator.h", 41,
                   typeid(::FastJetGridMedianEstimator), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -144,14 +144,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::FastJetGridMedianEstimator*)
    {
-      return GenerateInitInstanceLocal(static_cast<::FastJetGridMedianEstimator*>(nullptr));
+      return GenerateInitInstanceLocal((::FastJetGridMedianEstimator*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::FastJetGridMedianEstimator*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_RunPUPPI(void *p = nullptr);
+   static void *new_RunPUPPI(void *p = 0);
    static void *newArray_RunPUPPI(Long_t size, void *p);
    static void delete_RunPUPPI(void *p);
    static void deleteArray_RunPUPPI(void *p);
@@ -160,8 +160,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::RunPUPPI*)
    {
-      ::RunPUPPI *ptr = nullptr;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::RunPUPPI >(nullptr);
+      ::RunPUPPI *ptr = 0;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::RunPUPPI >(0);
       static ::ROOT::TGenericClassInfo 
          instance("RunPUPPI", ::RunPUPPI::Class_Version(), "modules/RunPUPPI.h", 11,
                   typeid(::RunPUPPI), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -176,14 +176,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::RunPUPPI*)
    {
-      return GenerateInitInstanceLocal(static_cast<::RunPUPPI*>(nullptr));
+      return GenerateInitInstanceLocal((::RunPUPPI*)0);
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::RunPUPPI*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::RunPUPPI*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 //______________________________________________________________________________
-atomic_TClass_ptr FastJetFinder::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr FastJetFinder::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *FastJetFinder::Class_Name()
@@ -194,31 +194,31 @@ const char *FastJetFinder::Class_Name()
 //______________________________________________________________________________
 const char *FastJetFinder::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int FastJetFinder::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *FastJetFinder::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *FastJetFinder::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetFinder*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr FastJetGridMedianEstimator::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr FastJetGridMedianEstimator::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *FastJetGridMedianEstimator::Class_Name()
@@ -229,31 +229,31 @@ const char *FastJetGridMedianEstimator::Class_Name()
 //______________________________________________________________________________
 const char *FastJetGridMedianEstimator::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int FastJetGridMedianEstimator::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *FastJetGridMedianEstimator::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *FastJetGridMedianEstimator::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::FastJetGridMedianEstimator*)0x0)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr RunPUPPI::fgIsA(nullptr);  // static to hold class pointer
+atomic_TClass_ptr RunPUPPI::fgIsA(0);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *RunPUPPI::Class_Name()
@@ -264,26 +264,26 @@ const char *RunPUPPI::Class_Name()
 //______________________________________________________________________________
 const char *RunPUPPI::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)nullptr)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)0x0)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int RunPUPPI::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)nullptr)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)0x0)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *RunPUPPI::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)nullptr)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)0x0)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *RunPUPPI::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)nullptr)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::RunPUPPI*)0x0)->GetClass(); }
    return fgIsA;
 }
 
@@ -309,14 +309,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_FastJetFinder(void *p) {
-      delete (static_cast<::FastJetFinder*>(p));
+      delete ((::FastJetFinder*)p);
    }
    static void deleteArray_FastJetFinder(void *p) {
-      delete [] (static_cast<::FastJetFinder*>(p));
+      delete [] ((::FastJetFinder*)p);
    }
    static void destruct_FastJetFinder(void *p) {
       typedef ::FastJetFinder current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::FastJetFinder
 
@@ -342,14 +342,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_FastJetGridMedianEstimator(void *p) {
-      delete (static_cast<::FastJetGridMedianEstimator*>(p));
+      delete ((::FastJetGridMedianEstimator*)p);
    }
    static void deleteArray_FastJetGridMedianEstimator(void *p) {
-      delete [] (static_cast<::FastJetGridMedianEstimator*>(p));
+      delete [] ((::FastJetGridMedianEstimator*)p);
    }
    static void destruct_FastJetGridMedianEstimator(void *p) {
       typedef ::FastJetGridMedianEstimator current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::FastJetGridMedianEstimator
 
@@ -375,21 +375,21 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_RunPUPPI(void *p) {
-      delete (static_cast<::RunPUPPI*>(p));
+      delete ((::RunPUPPI*)p);
    }
    static void deleteArray_RunPUPPI(void *p) {
-      delete [] (static_cast<::RunPUPPI*>(p));
+      delete [] ((::RunPUPPI*)p);
    }
    static void destruct_RunPUPPI(void *p) {
       typedef ::RunPUPPI current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class ::RunPUPPI
 
 namespace ROOT {
    static TClass *vectorlEintgR_Dictionary();
    static void vectorlEintgR_TClassManip(TClass*);
-   static void *new_vectorlEintgR(void *p = nullptr);
+   static void *new_vectorlEintgR(void *p = 0);
    static void *newArray_vectorlEintgR(Long_t size, void *p);
    static void delete_vectorlEintgR(void *p);
    static void deleteArray_vectorlEintgR(void *p);
@@ -398,10 +398,10 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const vector<int>*)
    {
-      vector<int> *ptr = nullptr;
+      vector<int> *ptr = 0;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<int>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<int>", -2, "vector", 383,
+         instance("vector<int>", -2, "vector", 386,
                   typeid(vector<int>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEintgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<int>) );
@@ -412,15 +412,15 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEintgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<int> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<int>","std::__1::vector<int, std::__1::allocator<int>>"));
+      ::ROOT::AddClassAlternate("vector<int>","std::vector<int, std::allocator<int> >");
       return &instance;
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const vector<int>*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const vector<int>*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *vectorlEintgR_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const vector<int>*>(nullptr))->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const vector<int>*)0x0)->GetClass();
       vectorlEintgR_TClassManip(theClass);
    return theClass;
    }
@@ -433,28 +433,28 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEintgR(void *p) {
-      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<int> : new vector<int>;
+      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<int> : new vector<int>;
    }
    static void *newArray_vectorlEintgR(Long_t nElements, void *p) {
-      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<int>[nElements] : new vector<int>[nElements];
+      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<int>[nElements] : new vector<int>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEintgR(void *p) {
-      delete (static_cast<vector<int>*>(p));
+      delete ((vector<int>*)p);
    }
    static void deleteArray_vectorlEintgR(void *p) {
-      delete [] (static_cast<vector<int>*>(p));
+      delete [] ((vector<int>*)p);
    }
    static void destruct_vectorlEintgR(void *p) {
       typedef vector<int> current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class vector<int>
 
 namespace ROOT {
    static TClass *vectorlEfloatgR_Dictionary();
    static void vectorlEfloatgR_TClassManip(TClass*);
-   static void *new_vectorlEfloatgR(void *p = nullptr);
+   static void *new_vectorlEfloatgR(void *p = 0);
    static void *newArray_vectorlEfloatgR(Long_t size, void *p);
    static void delete_vectorlEfloatgR(void *p);
    static void deleteArray_vectorlEfloatgR(void *p);
@@ -463,10 +463,10 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const vector<float>*)
    {
-      vector<float> *ptr = nullptr;
+      vector<float> *ptr = 0;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<float>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<float>", -2, "vector", 383,
+         instance("vector<float>", -2, "vector", 386,
                   typeid(vector<float>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEfloatgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<float>) );
@@ -477,15 +477,15 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEfloatgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<float> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<float>","std::__1::vector<float, std::__1::allocator<float>>"));
+      ::ROOT::AddClassAlternate("vector<float>","std::vector<float, std::allocator<float> >");
       return &instance;
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const vector<float>*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const vector<float>*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *vectorlEfloatgR_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const vector<float>*>(nullptr))->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const vector<float>*)0x0)->GetClass();
       vectorlEfloatgR_TClassManip(theClass);
    return theClass;
    }
@@ -498,28 +498,28 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEfloatgR(void *p) {
-      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<float> : new vector<float>;
+      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<float> : new vector<float>;
    }
    static void *newArray_vectorlEfloatgR(Long_t nElements, void *p) {
-      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<float>[nElements] : new vector<float>[nElements];
+      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<float>[nElements] : new vector<float>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEfloatgR(void *p) {
-      delete (static_cast<vector<float>*>(p));
+      delete ((vector<float>*)p);
    }
    static void deleteArray_vectorlEfloatgR(void *p) {
-      delete [] (static_cast<vector<float>*>(p));
+      delete [] ((vector<float>*)p);
    }
    static void destruct_vectorlEfloatgR(void *p) {
       typedef vector<float> current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class vector<float>
 
 namespace ROOT {
    static TClass *vectorlEboolgR_Dictionary();
    static void vectorlEboolgR_TClassManip(TClass*);
-   static void *new_vectorlEboolgR(void *p = nullptr);
+   static void *new_vectorlEboolgR(void *p = 0);
    static void *newArray_vectorlEboolgR(Long_t size, void *p);
    static void delete_vectorlEboolgR(void *p);
    static void deleteArray_vectorlEboolgR(void *p);
@@ -528,10 +528,10 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const vector<bool>*)
    {
-      vector<bool> *ptr = nullptr;
+      vector<bool> *ptr = 0;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<bool>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<bool>", -2, "vector", 2055,
+         instance("vector<bool>", -2, "vector", 592,
                   typeid(vector<bool>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEboolgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<bool>) );
@@ -542,15 +542,15 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEboolgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<bool> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<bool>","std::__1::vector<bool, std::__1::allocator<bool>>"));
+      ::ROOT::AddClassAlternate("vector<bool>","std::vector<bool, std::allocator<bool> >");
       return &instance;
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const vector<bool>*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const vector<bool>*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *vectorlEboolgR_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const vector<bool>*>(nullptr))->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const vector<bool>*)0x0)->GetClass();
       vectorlEboolgR_TClassManip(theClass);
    return theClass;
    }
@@ -563,41 +563,41 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEboolgR(void *p) {
-      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<bool> : new vector<bool>;
+      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<bool> : new vector<bool>;
    }
    static void *newArray_vectorlEboolgR(Long_t nElements, void *p) {
-      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<bool>[nElements] : new vector<bool>[nElements];
+      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<bool>[nElements] : new vector<bool>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEboolgR(void *p) {
-      delete (static_cast<vector<bool>*>(p));
+      delete ((vector<bool>*)p);
    }
    static void deleteArray_vectorlEboolgR(void *p) {
-      delete [] (static_cast<vector<bool>*>(p));
+      delete [] ((vector<bool>*)p);
    }
    static void destruct_vectorlEboolgR(void *p) {
       typedef vector<bool> current_t;
-      (static_cast<current_t*>(p))->~current_t();
+      ((current_t*)p)->~current_t();
    }
 } // end of namespace ROOT for class vector<bool>
 
 namespace {
   void TriggerDictionaryInitialization_FastJetDict_Impl() {
     static const char* headers[] = {
-nullptr
+0
     };
     static const char* includePaths[] = {
 "external",
-"/opt/homebrew/Cellar/root/6.30.04/include/root",
-"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
-nullptr
+"/home/buding/Heptools/root/include/",
+"/home/buding/Jarvis-HEP/External/Library/Delphes/",
+0
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(
 #line 1 "FastJetDict dictionary forward declarations' payload"
 #pragma clang diagnostic ignored "-Wkeyword-compat"
 #pragma clang diagnostic ignored "-Wignored-attributes"
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-extern int __Cling_AutoLoading_Map;
+extern int __Cling_Autoloading_Map;
 class __attribute__((annotate("$clingAutoload$modules/FastJetFinder.h")))  FastJetFinder;
 class __attribute__((annotate("$clingAutoload$modules/FastJetGridMedianEstimator.h")))  FastJetGridMedianEstimator;
 class __attribute__((annotate("$clingAutoload$modules/RunPUPPI.h")))  RunPUPPI;

@@ -1,7 +1,5 @@
 # Ignore the local Folder
-External/Prospino
-External/Library/*.json
-External/*.json
+External/*
 Results/*
 TestScan/
 WorkShop/* 
@@ -13,3 +11,4 @@ cmdRun.py
 scanRun.py 
 *.pkl 
 py.py 
+*.png 
