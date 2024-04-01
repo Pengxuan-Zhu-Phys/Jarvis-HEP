@@ -1,16 +1,17 @@
 Scan: 
   name: "Test_Bridson"
   save_dir: "&J/Results"
+
 Sampling:
   Method: "Bridson" 
   Variables:
-    - name: mn1
+    - name: ratio
       description: "Variable X following a Flat distribution for sampling."
       distribution:
         type: Flat
         parameters:
           min: 0
-          max: 100
+          max: 1
           length: 100
 
     - name: msmuR
@@ -25,13 +26,15 @@ Sampling:
   Radius: 1.0
   MaxAttempt:  30
   LogLikelihood: 
-    - "Gauss(Z, 1, 0.2)"
+    - {name: "LogL_Higgs",  expression: "LogGauss(mh1, 125, 1)"}
+    - {name: "LogL_spectr", expression: "msmuR"}
+    - {name: "LogL_DM",     expression: "XenonSD2019(mn1+100)"}
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
   OS: 
     - name: linux 
-      version: ">=18.04"
+      version: ">=5.15.0"
     - name: Darwin
       version: ">=10.14"
   Check_default_dependences:
@@ -95,7 +98,7 @@ SupportingLibrary:
 
 Calculators:
   make_paraller: 16
-  path: "&J/Workshop/Program"
+  path: "&J/WorkShop/Program"
   Modules:
     - name: SUSYHIT
       required_modules: [] 
@@ -124,7 +127,7 @@ Calculators:
               - type: "Replace"
                 variables:
                   - { name: "msmuR", placeholder: ">>>>MSLEP<<<<" }
-                  - { name: "mn1", placeholder: ">>>>MN1<<<<" }
+                  - { name: "mn1", placeholder: ">>>>MN1<<<<", expression: "msmuR * ratio" }
             save: true
         output:
           - name: output_file1
@@ -136,3 +139,16 @@ Calculators:
               - { name: BRSnuL2N1mu, block: DECAY, entry: [1000013, 13, 1000022]}
               - { name: mStaL, block: MASS, entry: 1000015 }
               - { name: N11, block: NMIX, entry: [1, 1]}
+              - { name: mh1, block: MASS, entry: 25 }
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"
