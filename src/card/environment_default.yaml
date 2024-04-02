@@ -60,3 +60,6 @@ EnvironmentRequirements:
     - name: aiofiles
       required: true 
       version: ">=23.2.1"
+    - name: sqlalchemy
+      required: true 
+      version: ">=2.0.29"

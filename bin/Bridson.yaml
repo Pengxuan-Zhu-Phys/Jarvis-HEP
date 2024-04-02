@@ -23,7 +23,7 @@ Sampling:
           max: 150.0
           length: 50
 
-  Radius: 1.0
+  Radius: 3
   MaxAttempt:  30
   LogLikelihood: 
     - {name: "LogL_Higgs",  expression: "LogGauss(mh1, 125, 1)"}

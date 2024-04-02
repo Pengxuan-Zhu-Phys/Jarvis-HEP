@@ -23,7 +23,8 @@ from sample import Sample
 from moduleManager import ModuleManager
 from pprint import pprint
 import pandas as pd 
-
+import concurrent.futures
+from db import SampleDatabase
 
 class Core(Base):
     def __init__(self, logger) -> None:
@@ -40,6 +41,7 @@ class Core(Base):
         self.__state_saver              = None
         self.module_manager             = None
         self._funcs                     = {}
+        self.tasks                      = []
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -82,6 +84,10 @@ class Core(Base):
             "task_result_dir": self.decode_path(task_result_dir),
             "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
             "jarvis_log":  os.path.abspath(f"{self.info['project_name']}.log")
+        }
+        self.info["db"] = {
+            "path":  os.path.join(task_result_dir, "samples.hdf5"),
+            "out_csv":  os.path.join(task_result_dir, "samples.csv")
         }
         if not os.path.exists(task_result_dir):
             os.makedirs(task_result_dir)
@@ -187,7 +193,13 @@ class Core(Base):
 
     def init_likelihood(self) -> None: 
         self.module_manager.set_likelihood()
-        self.module_manager.loglikelihood.update_funcs(self._funcs)
+        self.module_manager.set_funcs(self._funcs)
+
+    def init_database(self) -> None: 
+        from hdf5writer import GlobalHDF5Writer
+        self.module_manager._database = GlobalHDF5Writer(self.info['db']['path'])
+        self.module_manager.database.start()
+
 
         # pprint(self.factory.__dict__)
         # pprint(self.module_manager.__dict__.keys())
@@ -205,6 +217,7 @@ class Core(Base):
         self.init_WorkerFactory()
         self.init_project()
         self.init_likelihood()
+        self.init_database()
 
 
     def run_sampling(self)->None:
@@ -229,10 +242,56 @@ class Core(Base):
             # 异常处理
             print(f"An error occurred: {e}")
 
-    def run_until_finished(self) -> None: 
-        pass 
+    def run_until_finished(self):
+        total_cores = os.cpu_count()  # Total number of CPU cores
+
+        N_done = 0
+
+        try:
+            while True:
+                # Submit tasks if running tasks are fewer than total cores
+                while len(self.tasks) < total_cores:
+                    try:
+                        param = next(self.sampler)
+                        if param is not None:
+                            sample = Sample(param)
+                            sample.set_config(deepcopy(self.info['sample']))
+                            future = self.factory.submit_task(sample.params, sample.info)
+                            self.tasks.append(future)
+                        else:
+                            break
+                    except StopIteration:
+                        break  # No more samples to process
+
+                # Check for completed tasks and remove them from the list
+                done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+
+                for future in done:
+                    output = future.result()
+                    # self.logger.logger.warning(f"Sample {output['uuid']} processed with LogL -> {output['LogL']}")
+                    from time import time
+                    start = time()
+                    self.module_manager.database.add_data(output)
+                    total = (time() - start ) * 1000
+                    self.logger.logger.warn(f"Writing into database cast -> {total} millisecond")
+                    # Process the output as needed
+                    N_done += 1
+                    # if "LogL" in output:
+
+                # Remove completed futures
+                self.tasks = [f for f in self.tasks if f not in done]
+                # self.logger.logger.warn(f"{len(self.sampler._P)} tasks in line, {len(self.tasks)} in run, {N_done} is done!")
+
+                if not self.tasks and not param:
+                    break  # Exit loop if no tasks are pending and no more samples
 
 
+        finally:
+            self.factory.executor.shutdown()
+        
+        self.module_manager.database.stop()
+        self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
+        self.logger.logger.info("All samples have been processed.")
 
     def check_init_args(self) -> None:
         try:

@@ -47,7 +47,7 @@ class SLHAInputFile(InputFile):
         
         # Decode the file path to handle any special characters or template strings
         self.path = self.decode_path(self.path)
-        self.logger.warning(f"Start writing the input file -> {self.path}")
+        self.logger.info(f"Start writing the input file -> {self.path}")
         
         # Ensure the file path is not empty
         if not self.path:
@@ -81,7 +81,7 @@ class SLHAInputFile(InputFile):
                             # value = f"{float(value):.1E}"
                         placeholder = var['placeholder']
                         if value != "MISSING_VALUE":
-                            value = f"{float(value):.1E}"
+                            value = f"{float(value):.8E}"
                         content = content.replace(placeholder, value)
                 
                 # Update SLHA blocks using pyslha
@@ -104,7 +104,7 @@ class SLHAInputFile(InputFile):
                                     # self.logger.warning(f"{expr} -> {param_values} -> {value}")
                                     # value = f"{float(value):.1E}"
                                 if value != "MISSING_VALUE":
-                                    value = f"{float(value):.1E}"
+                                    value = f"{float(value):.8E}"
                                 content.blocks[var['block']][var['entry']] = value 
                             elif isinstance(var['entry'], tuple):
                                 if not "expression" in var:
@@ -117,7 +117,7 @@ class SLHAInputFile(InputFile):
                                     value = num_expr(**symbol_values_strs)
                                     observables[var['name']] = value
                                 if value != "MISSING_VALUE":
-                                    value = f"{float(value):.1E}"
+                                    value = f"{float(value):.8E}"
                                 content.blocks[var['block']][tuple(var['entry'])] = value 
                             else: 
                                 self.logger.warning(f"Invalid Entry type: {type(var['entry'])}. Entry must be an integer or a tuple of integers.")
@@ -145,7 +145,7 @@ class SLHAInputFile(InputFile):
                     await dst_file.write(content)
                 observables[self.name] = target
 
-            self.logger.warning(f"Finish writing the input file -> {self.path}")
+            self.logger.info(f"Finish writing the input file -> {self.path}")
             return observables
         except Exception as e:
             self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")

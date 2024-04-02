@@ -63,7 +63,7 @@ class SLHAOutputFile(OutputFile):
         """
 
         self.path = self.decode_path(self.path)
-        self.logger.warning(f"Start reading the output file -> {self.path}")
+        self.logger.info(f"Start reading the output file -> {self.path}")
 
         observables = {}
         content = None
@@ -117,7 +117,7 @@ class SLHAOutputFile(OutputFile):
             observables['TestFunc'] = self.funcs['XenonSD2019'](100)
 
 
-            self.logger.warning(f"Finish reading the input file -> {self.path}")
+            self.logger.info(f"Finish reading the input file -> {self.path}")
             return observables
         except Exception as e: 
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")

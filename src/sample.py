@@ -20,6 +20,7 @@ class Sample(Base):
         # 可以添加更多属性
         self.processed = False
         self.observables = params 
+        self.observables['uuid'] = self.uuid
 
     @property
     def uuid(self):
@@ -43,9 +44,10 @@ class Sample(Base):
 
     def create_info(self):
         save_dir = self.manage_directories(self.info['sample_dirs'])
+        print(f"{self.uuid} -> save_dir is \n{save_dir}")
         self.info.update({
             "uuid": self.uuid,
-            "save_dir": os.path.join(save_dir, self.uuid),
+            "save_dir": os.path.join(save_dir, self.uuid), 
             "run_log":  os.path.join(save_dir, self.uuid, "Sample_running.log")
         })
     

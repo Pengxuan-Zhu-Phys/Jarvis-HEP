@@ -3,7 +3,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from modulePool import ModulePool
-
+import pandas as pd
+import asyncio
 
 class ModuleManager:
     _instance = None
@@ -35,6 +36,10 @@ class ModuleManager:
     def set_funcs(self, funcs):
         from inner_func import update_funcs
         self._funcs = update_funcs(funcs)
+
+    @property
+    def database(self):
+        return self._database
 
     @property
     def funcs(self):
@@ -74,8 +79,10 @@ class ModuleManager:
                         self.logger.error(f'Module {module_name} generated an exception: {exc}')
                         
         # After all modules have executed, calculate likelihood based on the final observables
-        loglikelihood = self.calculate_likelihood(observables, sample_info)
-        observables.update(loglikelihood)
+        observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
+        # observables.update(loglikelihood)
+        # self.logger.warning(observables)
+        # self.database.insert_sample_row(observables)
         return observables
 
     def execute_module(self, module_name, observables, sample_info):
@@ -99,7 +106,7 @@ class ModuleManager:
         updated_observables = module_pool.execute(observables, sample_info)
         return updated_observables
 
-    def calculate_likelihood(self, observables, sample_info):
+    async def calculate_likelihood(self, observables, sample_info):
         """Calculate the likelihood based on the updated observables.
 
         Args:
@@ -111,9 +118,14 @@ class ModuleManager:
         # Calculate likelihood based on observables, this is pseudocode for the calculation logic
         # self.logger.warning(f"observables -> {set(observables.keys())},\n likelihood.variables -> {self.likelihood.variables}")
         # self.logger.warning({str(var) for var in self.likelihood.variables}.issubset(set(observables.keys())))
-        loglikelihood = self.loglikelihood.calculate(observables, sample_info)
+        from Module.likelihood import LogLikelihood
+        loglikelihood = LogLikelihood(self.config['Sampling']['LogLikelihood'])
+        loglikelihood.update_funcs(self.funcs)
+        logl = loglikelihood.calculate(observables, sample_info)
+        observables.update(logl)
+        loglikelihood.childlogger.warning(f"Sample SUMMARY\n{pd.Series(observables)}\n")
         # likelihood = observables.get('TestOutPutVar', 0.5)  # Example calculation logic
-        return loglikelihood
+        return observables
 
     def add_module_pool(self, module, logger):
         if module.name not in self.module_pools:

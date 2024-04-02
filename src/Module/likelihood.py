@@ -36,7 +36,7 @@ class LogLikelihood(Base):
 
     def update_funcs(self, funcs):
         self.custom_functions.update(funcs)
-        self.logger.info(f"Jarvis-HEP likelihood now support the following inner functions -> \n{self.custom_functions.keys()}")
+        # self.logger.info(f"Jarvis-HEP likelihood now support the following inner functions -> \n{self.custom_functions.keys()}")
 
     def calculate(self, values, sample_info):
         """
@@ -48,10 +48,10 @@ class LogLikelihood(Base):
         Returns:
             float: The calculated Likelihood value. If there are multiple expressions, the sum of their values is returned.
         """
+        self.update_logger(sample_info)
         try: 
             # Ensure that values for all variables are provided
             assert {str(var) for var in self.variables}.issubset(values.keys()), "Not all variables have values provided."
-            self.update_logger(sample_info)
 
             total_loglikelihood = 0. 
             self.values = {}
@@ -66,12 +66,12 @@ class LogLikelihood(Base):
                 self.values[name] = likelihood
                 total_loglikelihood += likelihood
 
-            self.childlogger.warning(f"\t Total LogLikelihood -> \n\t LogL: {total_loglikelihood}")
+            # self.childlogger.warning(f"\t Total LogLikelihood -> \n\t LogL: {total_loglikelihood}")
             self.values['LogL'] = total_loglikelihood
             return self.values 
         except Exception as exc:
             print(exc)
-            return {"LogL": -sp.core.numbers.Infinity()}
+            return {"LogL": float(-sp.core.numbers.Infinity())}
 
 
     def update_logger(self, sample_info):
