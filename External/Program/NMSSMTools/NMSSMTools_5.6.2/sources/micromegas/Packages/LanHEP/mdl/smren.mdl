@@ -1,0 +1,257 @@
+%
+% Standard Model - t'Hooft-Feynman gauge, R.C.
+%
+
+model 'Stand. Model +rc+qcd)'/3.
+
+option ReduceGamma5=0.
+%option chepBreakLines=1.
+%option SmartAngleComb=0.
+%option DoSymmetrize=0.
+
+let g5=gamma5.
+use sm_tex.
+
+parameter  EE  = 0.302822: 'Elementary charge (alpha=1/127.9, on-shell, MZ point, PDG2002)',
+	   GG  = 1.21358 : 'Strong coupling constant (Z pnt, alp=0.1172\pm0.002  (PDG2002)',
+	   SW  = 0.470785: 'sin of the Weinberg angle (MZ point -> MW=79.958GeV, PDG2002)' .
+
+parameter  CW  = sqrt(1-SW**2) : 'cos of the Weinberg angle'.
+
+
+
+vector G/G: (gluon, color c8, gauge).
+
+
+vector  
+	A/A: (photon, gauge),
+	Z/Z:('Z boson', mass MZ = 91.1875, width wZ = 2.43631, gauge),
+	'W+'/'W-': ('W boson', mass MW = MZ*CW, width wW = 2.02798, gauge).
+
+
+spinor 		ne:(neutrino,left), 	   e:(electron, mass Me = 0.00051099907),
+		nm/Nm:('mu-neutrino',left),   m:(muon, mass Mm  = 0.10566),
+		nl:('tau-neutrino',left),  l:('tau-lepton', mass Mtau  = 1.77699).
+
+spinor		u:('u-quark',color c3, mass Mu = 0.0538),
+		d:('d-quark',color c3, mass Md = 0.0538),
+		c:('c-quark',color c3, mass Mc  = 1.5),
+		s:('s-quark',color c3, mass Ms = 0.15),
+		t:('t-quark',color c3, mass Mtop = 174.3, width wtop = 1.54688),
+		b:('b-quark',color c3, mass Mb =  4.7 ).
+
+scalar H/H:(Higgs, mass MH = 100, width wH = 0.0061744).
+
+
+
+
+
+infinitesimal dMHsq, dMZsq, dMWsq, dMe, dMm, dMtau, 
+		dMc, dMu, dMd, dMs, dMtop, dMb.
+infinitesimal dZAA, dZAZ, dZZA, dZZZ, dZW, dZH, dZZf, dZWf, 
+	dZeL, dZeR, dZne, dZmL, dZmR, dZnm, dZlL, dZlR, dZnl,
+	dZuL, dZuR, dZdL, dZdR, dZcL, dZcR, dZsL, dZsR, dZtL, dZtR,dZbL,dZbR.
+infinitesimal   dEE= -(dZAA - SW/CW*dZZA)/2,
+		dSW= CW^2/SW/2*(dMZsq/MZ^2 - dMWsq/MW^2), 
+		dTad='-ReTilde[SelfEnergy[prt["H"] -> {}, -1]]'.
+
+
+transform A->A*(1+dZAA/2)+dZAZ*Z/2, Z->Z*(1+dZZZ/2)+dZZA*A/2,
+	'W+'->'W+'*(1+dZW/2),'W-'->'W-'*(1+dZW/2).
+
+transform H->H*(1+dZH/2), 'Z.f'->'Z.f'*(1+dZZf/2),
+	'W+.f'->'W+.f'*(1+dZWf/2),'W-.f'->'W-.f'*(1+dZWf/2).
+
+transform e->(1+dZeL/2*(1-g5)/2+dZeR/2*(1+g5)/2)*e,
+	  E->E*(1+dZeL/2*(1+g5)/2+dZeR/2*(1-g5)/2),
+	  ne->(1+dZne/2*(1-g5)/2)*ne, Ne->Ne*(1+dZne/2*(1+gamma5)/2).
+transform m->(1+dZmL/2*(1-g5)/2+dZmR/2*(1+g5)/2)*m,
+	  M->M*(1+dZmL/2*(1+g5)/2+dZmR/2*(1-g5)/2),
+	  nm->(1+dZnm/2*(1-g5)/2)*nm, Nm->Nm*(1+dZnm/2*(1+gamma5)/2).
+transform l->(1+dZlL/2*(1-g5)/2+dZlR/2*(1+g5)/2)*l,
+	  L->L*(1+dZlL/2*(1+g5)/2+dZlR/2*(1-g5)/2),
+	  nl->(1+dZnl/2*(1-g5)/2)*nl, Nl->Nl*(1+dZnl/2*(1+gamma5)/2).
+
+transform u->(1+dZuL/2*(1-g5)/2+dZuR/2*(1+g5)/2)*u,
+	  U->U*(1+dZuL/2*(1+g5)/2+dZuR/2*(1-g5)/2),
+	  d->(1+dZdL/2*(1-g5)/2+dZdR/2*(1+g5)/2)*d,
+	  D->D*(1+dZdL/2*(1+g5)/2+dZdR/2*(1-g5)/2).
+transform c->(1+dZcL/2*(1-g5)/2+dZcR/2*(1+g5)/2)*c,
+	  C->C*(1+dZcL/2*(1+g5)/2+dZcR/2*(1-g5)/2),
+	  s->(1+dZsL/2*(1-g5)/2+dZsR/2*(1+g5)/2)*s,
+	  S->S*(1+dZsL/2*(1+g5)/2+dZsR/2*(1-g5)/2).
+transform t->(1+dZtL/2*(1-g5)/2+dZtR/2*(1+g5)/2)*t,
+	  T->T*(1+dZtL/2*(1+g5)/2+dZtR/2*(1-g5)/2),
+	  b->(1+dZbL/2*(1-g5)/2+dZbR/2*(1+g5)/2)*b,
+	  B->B*(1+dZbL/2*(1+g5)/2+dZbR/2*(1-g5)/2).
+
+transform EE->EE*(1+dEE),  
+	Me->Me+dMe, Mu->Mu+dMu, Md->Md+dMd,
+	Mc->Mc+dMc, Ms->Ms+dMs, Mb->Mb+dMb, Mtop->Mtop+dMtop,
+	Mm->Mm+dMm, Mtau->Mtau+dMtau, MH->MH+dMHsq/2/MH.
+
+transform SW->SW+dSW, CW->CW-dSW*SW/CW, MZ->MZ+dMZsq/2/MZ, MW->MW+dMWsq/MW/2.
+
+
+
+let l1={ne,e}, L1=anti(l1).
+let l2={nm,m}, L2=anti(l2).
+let l3={nl,l}, L3=anti(l3).
+
+let q1={u,d}, Q1={U,D}.
+let q2={c,s}, Q2={C,S}. 
+let q3={t,b}, Q3={T,B}.
+
+let pp = { -i*'W+.f',  (vev(2*MW/EE*SW)+H+i*'Z.f')/Sqrt2 }, 
+    PP = {  i*'W-.f',  (vev(2*MW/EE*SW)+H-i*'Z.f')/Sqrt2 }.
+
+
+let B0= -SW*Z+CW*A, W3=CW*Z+SW*A, W1=('W+'+'W-')/Sqrt2,
+	 W2 = i*('W+'-'W-')/Sqrt2.
+
+
+let WW1 = {W1,  W2 , W3}, WW = {'W+',W3,'W-'}.
+
+let g=EE/SW, g1=EE/CW.
+
+
+
+
+% Self-interaction of gauge bosons
+
+
+lterm -F**2/4   where 
+	F=deriv^mu*B0^nu-deriv^nu*B0^mu.
+
+lterm -F**2/4  where
+	F=deriv^mu*G^nu^a-deriv^nu*G^mu^a+i*GG*f_SU3^a^b^c*G^mu^b*G^nu^c.
+
+lterm -F**2/4  where
+F=deriv^mu*WW1^nu^a-deriv^nu*WW1^mu^a -g*eps^a^b^c*WW1^mu^b*WW1^nu^c.
+
+
+
+% left fermion interaction with gauge fields
+
+
+lterm  	anti(psi)*gamma*(1-g5)/2*(i*deriv-g*taupm*WW/2-Y*g1*B0)*psi
+		where 
+			psi=l1, Y=-1/2;
+			psi=l2, Y=-1/2;
+			psi=l3, Y=-1/2;
+			psi=q1, Y= 1/6;
+			psi=q2, Y= 1/6;
+			psi=q3, Y= 1/6.
+
+% right fermion interaction with gauge fields
+
+lterm  	anti(psi)*gamma*(1+g5)/2*(i*deriv - Y*g1*B0)*psi
+		where 
+			psi=e,Y= -1;
+			psi=m,Y= -1;
+			psi=l,Y= -1;
+			psi=u, Y=  2/3;
+			psi=c, Y=  2/3;
+			psi=t, Y=  2/3;
+			psi=d, Y= -1/3;
+			psi=s, Y= -1/3;
+			psi=b, Y= -1/3.
+
+
+% quark-gluon interaction
+
+%do_if Fermi==never.
+lterm  GG*anti(psi)*lambda*gamma*G*psi where
+	psi=q1; psi=q2; psi=q3.
+%end_if.
+
+
+
+lterm  -M/MW/Sqrt2*g*(anti(pl)*(1+g5)/2*pr*pp + anti(pr)*(1-g5)/2*pl*PP )
+    where
+	M=Md, pl=q1, pr=d;          
+	M=Ms, pl=q2, pr=s;
+	M=Mb, pl=q3, pr=b.
+
+lterm  -M/MW/Sqrt2*g*(anti(pl)*(1+g5)/2*i*tau2*pr*PP 
+		+ anti(pr)*(1-g5)/2*i*pl*tau2*pp ) 
+ where
+	M=Mu , pl=q1, pr=u;
+	M=Mc,  pl=q2, pr=c;
+	M=Mtop,pl=q3, pr=t.
+
+lterm  -M/MW/Sqrt2*g*(anti(pl)*(1+g5)/2*pr*pp + anti(pr)*(1-g5)/2*pl*PP )
+    where	
+    	M=Me,    pl=l1,  pr=e;
+	M=Mm,    pl=l2,  pr=m;
+	M=Mtau,  pl=l3,  pr=l.
+	
+
+
+lterm dTad*((EE**3/MW**3/SW**3/16)*(12/EE**2*MW**2*SW**2)*pp*PP-(EE**3/MW**3/SW**3/16)*pp*PP*pp*PP).
+
+
+lterm -2*lambda*(pp*PP-v**2/2)**2 
+	 where 
+	lambda=(EE*MH/MW/SW)**2/16, v=2*MW*SW/EE .
+
+
+
+let Dpp^mu^a = (deriv^mu+i*g1/2*B0^mu)*pp^a +
+	 i*g/2*taupm^a^b^c*WW^mu^c*pp^b.
+
+let DPP^mu^a = (deriv^mu-i*g1/2*B0^mu)*PP^a 
+	-i*g/2*taupm^a^b^c*{'W-'^mu,W3^mu,'W+'^mu}^c*PP^b.
+
+	
+
+lterm DPP*Dpp.
+
+
+lterm -i*GG*f_SU3*ccghost(G)*G^mu*deriv^mu*ghost(G).
+lterm  -1/2*(deriv*G)**2.
+
+
+CheckHerm.
+
+parameter S2W=2*CW*SW, C2W=CW**2-SW**2.
+
+option SmartAngleComb=0.
+
+parameter SW2=SW**2, CW2=CW**2, MW2=MW**2, MZ2=MZ**2, EE2=EE**2,
+	GG2=GG**2, MH2=MH**2.
+
+option SmartAngleComb=1.
+
+%SetAngle(1-SW**2=CW**2).
+
+%%%  Gauge fixing & ghost terms
+
+option InfiOrder=0.
+
+let gh1 = ('W+.c'+'W-.c')/Sqrt2, gh2= i*('W+.c'-'W-.c')/Sqrt2,
+		gh3= CW*'Z.c'+SW*'A.c', gh={gh1,gh2,gh3}.
+
+let Gh1 = ('W+.C'+'W-.C')/Sqrt2, Gh2=i*('W+.C'-'W-.C')/Sqrt2, 
+		Gh3= CW*'Z.C'+SW*'A.C', Gh={Gh1,Gh2,Gh3}. 
+
+read sm_brst.
+parameter nla=0.3, nlb=1.4, nld=1.22, nlk=0.876, nle=-1.2.
+%let nla=0, nlb=0, nld=0, nlk=0, nle=0.
+
+let G_A = deriv*A.
+let G_Z = deriv*Z+(MW/CW+EE/SW/CW/2*nle*H)*'Z.f'.
+let G_Wp= (deriv-i*nla*EE*A-i*EE/SW*CW*nlb*Z)*'W+'+(MW+nld/2*EE/SW*H+i*nlk*EE/SW/2*'Z.f')*'W+.f'.
+let G_Wm= (deriv+i*nla*EE*A+i*EE/SW*CW*nlb*Z)*'W-'+(MW+nld/2*EE/SW*H-i*nlk*EE/SW/2*'Z.f')*'W-.f'. 
+
+lterm -G_A**2/2 - G_Wp*G_Wm - G_Z**2/2.
+
+lterm -'A.C'*brst(G_A) .
+lterm -'Z.C'*brst(G_Z).
+lterm -'W+.C'*brst(G_Wm).
+lterm -'W-.C'*brst(G_Wp).
+
+option InfiOrder=1.
+
+CheckMasses.
+

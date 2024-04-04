@@ -1,0 +1,20 @@
+<!--
+ATLAS result for mu(mumu) at mH = 125.36 GeV
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2014-06/
+ -->
+
+<expmu decay="mumu" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2014-06</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.36</mass>
+
+  <eff prod="ggH">0.87</eff>
+  <eff prod="VVH">0.13</eff>
+
+  <bestfit>-0.7</bestfit>
+  
+  <param>
+    <uncertainty>3.7</uncertainty>
+  </param>
+</expmu>

@@ -1,0 +1,39 @@
+NMSSMTools scan info               
+Version number: 5.6.2              
+
+
+Number of points:                  
+
+  scanned                                1000
+  mu=0 or (kappa=0 and Akappa=/=0)          0
+  with mh1^2 or ma1^2 or mhc^2 < 0         65
+  with m_sfermion^2 < 0                     0
+  violating constraints                   565
+  RGE integration problem                   0
+  convergence problem                       0
+
+Remaining good points                     370
+
+
+Contraints taken into account:                    
+ - Landau poles and false minima                  
+ - LEP/Tevatron Higgs+sparticle                   
+ - LHC Higgs                                      
+ - Upsilon, B and K decays                        
+
+
+                 Parameter ranges for good points:
+
+     TANB:      0.6851E+01     0.7025E+01     0.1258E-01
+       M2:      0.2484E+03     0.2484E+03     0.0000E+00
+   LAMBDA:      0.4196E+00     0.5001E+00     0.8760E-01
+    KAPPA:      0.0000E+00     0.0000E+00     0.0000E+00
+    MUEFF:      0.3735E+03     0.3735E+03     0.0000E+00
+  ALAMBDA:      0.2596E+04     0.2596E+04     0.0000E+00
+       MA:      0.2594E+04     0.2594E+04     0.0000E+00
+      XIF:     -0.5842E+05    -0.7947E+04
+     (XIF is not an input parameter)
+   AKAPPA:      0.0000E+00     0.0000E+00     0.0000E+00
+       MP:      0.8633E+02     0.8633E+02     0.0000E+00
+      XIS:     -0.2130E+07    -0.1053E+06
+     (XIS is not an input parameter)

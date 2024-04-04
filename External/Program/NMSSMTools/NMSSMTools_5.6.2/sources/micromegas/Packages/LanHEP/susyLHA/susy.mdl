@@ -1,0 +1,148 @@
+% Copyright (c) Andrei Semenov, 1996-2013.
+% This is LanHEP input file for MSSM and some extensions
+
+use slhaplus.
+
+% Set up SLHA file to be used to read model values
+
+parameter  rd=slhaRead(str("slha-mssm"),0). % To be used by MatEl calculator
+slhaRead('./slha-mssm'). % Used by LanHEP to check mass matrix diagonalization numerically
+
+% First, switches to set up the model.
+
+%  mass and mixing calculation: 'slha' for reading from file, 'tree' for
+%  tree-level calculation from soft parameters to ensure gauge invariance
+keys MMCALC=slha.
+
+
+%   Gauge fixing  ('unitary' or 'Feynman')
+keys gauge_fixing=Feynman.
+
+
+% CKM matrix dimension: 1 for no mixing, 2 for Cabbibo angle only, 3 for full
+keys CKMdim=2.
+
+%  1,2 generation sfermion mixing (off for left/right states, on for mass states)
+%keys sel1_mix=on, sel2_mix=on, sq1_mix=on, usq2_mix=on, dsq2_mix=on.
+keys sel1_mix=off, sel2_mix=off, sq1_mix=off, usq2_mix=off, dsq2_mix=off.
+
+% Same soft masses for 1 and 2 sfermion generation (to avoid FCNC) on/off
+keys ms1eq2=on.
+
+% 1,2 generation leptons/quarks masses on/off
+%keys e_mass=on, u_mass=on, d_mass=on, mu_mass=on, s_mass=on, c_mass=on.
+keys e_mass=off, u_mass=off, d_mass=off, mu_mass=off, s_mass=off, c_mass=off.
+
+
+%  R-parity violation (for lepton number violation) (on/off)
+keys RPV=off.
+
+%  Include gravitino interaction (on/off)
+keys GRAVITINO=off.
+
+%  NMSSM extension (on/off)
+keys NMSSM=off.
+
+%  CP violation (on/off)
+keys CPV=off.
+
+% Flavour violation (on/off)
+keys FV=off.
+
+
+% Complex neutralino mixing matrix
+keys ZNCMPLX=off.
+
+
+option chepCFWidth=60.
+option chepPDWidth=240.
+
+
+%
+% Model name and number setup.
+%
+
+do_if FV==on.
+  model 'MSSM+FV'/14.
+
+do_else_if CPV==on.
+  option chepPDWidth=190.
+  model 'MSSM&CPV'/12.
+  
+do_else_if NMSSM==on.
+  model 'NMSSM-Ug'/11.
+  option chepPDWidth=240.
+  
+do_else_if RPV==on.
+  model 'MSSM+rpv'/10.
+  
+do_else_if GRAVITINO==on.
+  model 'MSSM+sgld'/9.
+  
+do_else.
+
+
+		do_if gauge_fixing==Feynman.
+		model 'MSSM, Feynman gauge'/7.
+		do_else_if gauge_fixing==unitary.
+		model 'MSSM, unitary gauge'/5.
+		do_else.
+		write('Error: the key "gauge" should be either "Feynman" or "unitary".').
+		quit.
+		end_if.
+
+end_if.
+
+%option SplitCol1=1.
+%option SplitCol2=0.
+
+
+let g5=gamma5.
+let eps2 = {{0,1},{-1,0}}.
+special sigma:(spinor2, spinor2, vector).
+
+read susy_var.     % parameters setup
+read susy_prt.     % particles
+
+% Following 2 lines used to generate Feynarts model for chi^0,chi^0->(gamma,gamma),(gamma,Z)
+%infinitesimal dZAA, dZAZ, dZZA, dZZZ.
+%transform A->A*(1+dZAA/2)+dZAZ*Z/2, Z->Z*(1+dZZZ/2)+dZZA*A/2.
+
+read susy_let.     % multiplets
+read susy_tex.     % define latex names for particles
+
+% classes definition for FeynArts output
+/*
+class quu=[u,c,t],  qud=[d,s,b], lpu=[ne,nm,nl],  lpd=[e,m,l].
+class  neu=['~o1','~o2','~o3','~o4'], cha=['~1+','~2+'].
+
+class slu=['~ne','~nm','~nl'], sld=['~e1','~m1','~l1'], sle=['~e2','~m2','~l2'],
+      squ=['~u1','~c1','~t1'],sqv=['~u2','~c2','~t2'],
+	  sqd=['~d1','~s1','~b1'],sqe=['~d2','~s2','~b2'].
+class his=[h1,h2,h3].
+*/
+
+do_if(GRAVITINO==on, (read susy_grv)). % Gravitino & sgoldstino interaction
+
+read susy_ggi.     % gauge fields interaction
+
+read susy_gmi.     % gauge-matter interaction
+
+read susy_dd.      % DD terms
+
+read susy_w.       % Terms going from super-potential (FF & Yukawa)
+
+read susy_sbt.     % Soft SUSY-breaking terms
+
+read susy_fpg.     % Faddeev-Popov ghosts
+
+read susy_end.
+
+
+
+
+
+
+
+
+

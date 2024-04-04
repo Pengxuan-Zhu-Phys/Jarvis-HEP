@@ -1,0 +1,95 @@
+
+keys scenario=micro.  % micro nmhdecay nmspec slha
+
+do_if scenario==micro.
+   keys  mix2g  =   on.
+   keys  slha   =   off.
+   keys hgg=On.
+   model 'NMSSM(micro)'/1.
+   parameter Am=0.
+end_if.
+
+do_if scenario==nmhdecay.
+   keys  mix2g  =   off .
+   keys  slha   =   on  .
+   keys hgg=Off.
+   model 'NMSSM(nmhdecay)'/1.
+end_if.
+
+do_if scenario==nmspec.
+   keys  mix2g  =   off .
+   keys  slha   =   on  .
+   keys hgg=Off.
+   model 'NMSSM(nmspec)'/3.
+end_if.
+
+do_if scenario==slha.
+   keys  mix2g  =   off .
+   keys  slha   =   on  .
+    keys hgg=Off.
+   model 'NMSSM(../spect.dat)+hgg'/5.
+end_if.
+
+
+keys gi_Nmass=on.
+keys gi_squarks=Off.
+
+keys tree_sleptons=off.
+keys Check3SQmass=on.
+
+/*   Gauge fixing  ('unitary' or 'Feynman') */ 
+keys gauge_fixing=Feynman.
+
+/*  Dimension of sfermion mixing matrices (one of 0, 2, 6) */
+%keys sel_mix=2, usq_mix=2, dsq_mix=2.
+
+/*  Additional supersymmetry breaking terms (by Rosiek) (on/off) */
+%keys  extra_sbt=off.
+
+/*  Mass & mixing matrices calculated from initial parameters */
+keys AutoNeuMass=on, AutoChMass=on, AutoSlq12Mass=on, AutoSlq3Mass=on.
+
+
+
+% =============== Model name and number setup.
+
+%option chepCFWidth=50.
+%option chepLPWidth=5000.
+option chepPDWidth=800.
+
+let g5=gamma5.
+let eps2 = {{0, 1},{-1,0}}.
+special sigma:(spinor2, spinor2, vector).
+
+read "susy_var.lhp".
+read "treeHmix.lhp".          
+read "rq_mass.lhp".
+read "2genDDmix.lhp". 
+do_if tree_sleptons==on.
+read "treeSlepton.lhp".
+end_if.
+read "susy_prt.lhp".
+read "susy_let.lhp".
+read "improve_squarks.lhp".
+read "higgsPot.lhp".      % Higgs potential
+read "susy_tex.lhp".
+read "susy_ggi.lhp".     % gauge fields interaction
+read "susy_gmi.lhp".     % gauge-matter interaction
+read "susy_dd.lhp".      % DD terms
+read "susy_w.lhp".       % Terms going from super-potential (FF & Yukawa)
+read "Yukawa.lhp".       % improve Yukawa: dMb,dMd, Mc without mixiing
+read "gi_Nmass.lhp".     % neutralino mass matrix is reproduced by Lagrangian.
+read "susy_sbt.lhp".     % Soft SUSY-breaking terms
+read "susy_fpg.lhp".     % Faddeev-Popov ghosts
+read "susy_end.lhp".
+
+%read "susy_tex.lhp".
+%read "susy_sel.lhp".     % Vertices selection
+
+do_if hgg==On.
+read 'gg+.lhp'.
+end_if.
+
+SetEM(A,EE). 
+CheckHerm.
+CheckMasses.

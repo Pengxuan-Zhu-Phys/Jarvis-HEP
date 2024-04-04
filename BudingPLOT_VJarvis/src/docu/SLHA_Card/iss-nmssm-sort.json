@@ -1,0 +1,175 @@
+{
+    "Sectors": [
+        "SM",
+        "SMFermion",
+        "SMGauge",
+        "SMLepton",
+        "SMQuark",
+        "SMScalar",
+        "Higgs",
+        "SUSYParticle",
+        "Electroweakino",
+        "Neutralino",
+        "Chargino",
+        "SLepton",
+        "Slepton",
+        "Sneutrino",
+        "SQuark",
+        "Squark",
+        "Gluino"
+    ],
+    "Sections": {
+        "SM": {
+            "subsection": [
+                "SMFermion",
+                "SMGauge",
+                "SMScalar",
+                "SMLepton",
+                "SMQuark"
+            ],
+            "particles": []
+        },
+        "SMFermion": {
+            "subsection": [
+                "SMLepton",
+                "SMQuark"
+            ],
+            "particles": []
+        },
+        "SMGauge": {
+            "subsection": [],
+            "particles": [
+                "g",
+                "a",
+                "w",
+                "z"
+            ]
+        },
+        "SMLepton": {
+            "subsection": [],
+            "particles": [
+                "IFe1",
+                "IFe2",
+                "IFe3",
+                "IFv1",
+                "IFv2",
+                "IFv3",
+                "IFv4",
+                "IFv5",
+                "IFv6",
+                "IFv7",
+                "IFv8",
+                "IFv9"
+            ]
+        },
+        "SMQuark": {
+            "subsection": [],
+            "particles": [
+                "u",
+                "d",
+                "s",
+                "c",
+                "b",
+                "t"
+            ]
+        },
+        "SMScalar": {
+            "subsection": [],
+            "particles": []
+        },
+        "Higgs": {
+            "subsection": [],
+            "particles": [
+                "h1",
+                "h2",
+                "h3",
+                "a1",
+                "a2",
+                "hpm"
+            ]
+        },
+        "SUSYParticle": {
+            "subsection": [
+                "Higgs",
+                "Electroweakino",
+                "SLepton",
+                "SQuark"
+            ],
+            "particles": []
+        },
+        "Electroweakino": {
+            "subsection": [
+                "Neutralino",
+                "Chargino"
+            ],
+            "particles": []
+        },
+        "Neutralino": {
+            "subsection": [],
+            "particles": [
+                "N1",
+                "N2",
+                "N3",
+                "N4",
+                "N5"
+            ]
+        },
+        "Chargino": {
+            "subsection": [],
+            "particles": [
+                "C1",
+                "C2"
+            ]
+        },
+        "SLepton": {
+            "subsection": [
+                "Slepton",
+                "Sneutrino"
+            ],
+            "particles": []
+        },
+        "Slepton": {
+            "subsection": [],
+            "particles": [
+                "ISEL",
+                "ISER",
+                "ISMuL",
+                "ISMuR",
+                "ISTauL",
+                "ISTauR"
+            ]
+        },
+        "Sneutrino": {
+            "subsection": [],
+            "particles": [
+                "ISVeL",
+                "ISVeR",
+                "ISVeX",
+                "ISVmuL",
+                "ISVmuR",
+                "ISVmuX",
+                "ISVtauL",
+                "ISVtauR",
+                "ISVtauX"
+            ]
+        },
+        "SQuark": {
+            "subsection": [],
+            "particles": [
+                "Glu",
+                "Sd1",
+                "Sd2",
+                "Su1",
+                "Su2",
+                "Ss1",
+                "Ss2",
+                "Sc1",
+                "Sc2",
+                "Sb1",
+                "Sb2",
+                "St1",
+                "St2"
+            ]
+        }
+    }
+}

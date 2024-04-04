@@ -1,0 +1,76 @@
+{
+    "ruler": {
+        "h0": 0.2,
+        "h1": 0.5,
+        "h2": 0.35,
+        "h3": 0.34,
+        "h4": 0.5,
+        "h5": 0.15,
+        "h6": 0.16,
+        "hv": 0.21,
+        "w0": 0.2,
+        "wv": 1.6,
+        "wvc": 1.2,
+        "ws": 1.8,
+        "wsfv": 0.4,
+        "wvcb": 0.05,
+        "wn": 0.4,
+        "wns": 0.18,
+        "wt": 0.12
+    },
+    "label": {
+        "scan_offset": 0.05,
+        "fill": {
+            "color":"#343A40",
+            "linewidth": 0.5
+        },
+        "plot": {
+            "color":"#343A40",
+            "linewidth": 0.5
+        },
+        "var_offset": 0.05,
+        "file_offset": 0.05
+    },
+    "flow": {
+        "edgecolor":"None", 
+        "alpha":0.3
+    },
+    "text": {
+        "scanvar": {
+            "fontsize": 8.8,
+            "color": "w",
+            "fontname": "Fira code",
+            "fontweight": "bold",
+            "fontstyle": "normal",
+            "horizontalalignment": "center",
+            "verticalalignment": "center"
+        },
+        "varname": {
+            "fontsize": 10,
+            "color": "black",
+            "fontname": "Monospace",
+            "fontstyle": "normal",
+            "fontweight": "bold"
+        },
+        "varmeth":{
+            "fontsize": 10,
+            "color": "black",
+            "fontname": "stix",
+            "fontstyle": "italic",
+            "fontweight": "normal"
+        },
+        "file": {
+            "fontsize": 10,
+            "fontname": "Monospace",
+            "fontstyle": "normal",
+            "fontweight": "bold"
+        },
+        "node": {
+            "fontsize": 12,
+            "color": "w",
+            "fontname": "Fira code",
+            "fontstyle": "normal",
+            "fontweight": "heavy"
+        }
+    }
+}

@@ -1,0 +1,33 @@
+% Definitions specific for CalcHEP format of Feynman rules.
+
+keys OutputFormat=CalcHEP.
+
+prtcformat fullname: 'Full   Name     ', 
+           name:' P ', aname:' aP', pdg:'  number  ',
+           spin2,mass,width, color, aux, texname: ' LaTeX(A)       ',  
+           atexname:'  LateX(A+)         '.
+
+prtcproperty pdg:(A=22, Z=23, 'W+'=24, G=21, 
+				d=1, u=2, s=3, c=4, b=5, t=6,
+                ne=12, nm=14, nl=16,
+                e=11, m=13, l=15,
+  ~ne=1000012, ~nm=1000014, ~nl=1000016,  
+  ~e1=1000011, ~m1=1000013, ~l1=1000015,
+  ~e2=2000011, ~m2=2000013, ~l2=2000015,
+  ~eL=1000011, ~mL=1000013,
+  ~eR=2000011, ~mR=2000013,
+  
+  ~u1=1000002, ~c1=1000004, ~t1=1000006,
+  ~u2=2000002, ~c2=2000004, ~t2=2000006,
+  ~uL=1000002, ~cL=1000004,
+  ~uR=2000002, ~cR=2000004,
+
+  ~d1=1000001, ~s1=1000003, ~b1=1000005,
+  ~d2=2000001, ~s2=2000003, ~b2=2000005,
+  ~dL=1000001, ~sL=1000003,
+  ~dR=2000001, ~sR=2000003,
+
+   h=25, H=35, H3=36, 'H+'=37,
+   ~o1=1000022, ~o2=1000023, ~o3=1000025, ~o4=1000035,
+   '~1+'=1000024, '~2+'=1000037, ~g=1000021).
+ 

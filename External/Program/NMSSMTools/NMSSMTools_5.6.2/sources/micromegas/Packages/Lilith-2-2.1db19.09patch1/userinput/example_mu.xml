@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+
+<lilithinput>
+  <!-- signal strengths in theory space, like mu(gg -> H -> ZZ), as input -->
+  <signalstrengths part="h">
+    <mass>125</mass>
+    <!-- optionnal:
+    if not given, Higgs mass of 125 GeV is assumed
+    valid Higgs masses are in the [123,128] GeV range
+    -->
+
+    <!--
+    "VV" decay can be splitted into "WW" and "ZZ" in all what follows
+    -->
+    <mu prod="ggH" decay="gammagamma">1.0</mu>
+    <mu prod="ggH" decay="VV">1.0</mu>
+    <mu prod="ggH" decay="bb">1.0</mu>
+    <mu prod="ggH" decay="tautau">1.0</mu>
+    <mu prod="ggH" decay="mumu">1.0</mu>
+
+    <!--
+    if necessary, possible to specify "VBF", "WH" and "ZH" production
+    instead of a common "VVH"
+    -->
+    <mu prod="VVH" decay="gammagamma">1.0</mu>
+    <mu prod="VVH" decay="VV">1.0</mu>
+    <mu prod="VVH" decay="bb">1.0</mu>
+    <mu prod="VVH" decay="tautau">1.0</mu>
+    <mu prod="VVH" decay="mumu">1.0</mu>
+
+    <!--
+    ttH is optionnal: if not provided, SM-like ttH is assumed
+    -->
+    <mu prod="ttH" decay="gammagamma">1.0</mu>
+    <mu prod="ttH" decay="VV">1.0</mu>
+    <mu prod="ttH" decay="bb">1.0</mu>
+    <mu prod="ttH" decay="tautau">1.0</mu>
+    <mu prod="ttH" decay="mumu">1.0</mu>
+
+    <!--
+    the following is optionnal: if not given, no decay into invisible particles
+    used for the ZH/VBF->ll+invisible constraint
+    corresponds to (sigma(ZH)/sigma(ZH_SM))*BR(H->invisible)
+    and similarly for VBF
+    -->
+    <redxsBR prod="ZH" decay="invisible">0.0</redxsBR>
+    <redxsBR prod="VBF" decay="invisible">0.0</redxsBR>
+  </signalstrengths>
+</lilithinput>
+

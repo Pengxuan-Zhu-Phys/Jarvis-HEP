@@ -1,0 +1,50 @@
+model 'qed+ued'/3.
+
+parameter ee = 0.3133: 'Electric charge', invR=5000, R=1/invR.
+
+vector A/A:photon, A1/A1:(photon1, mass Ma1=1/R, gauge),
+				   A2/A2:(photon2, mass Ma2=2/R, gauge).
+
+spinor e:(electron, mass me=190.0511), 
+
+    e11:(electron11, mass me11=sqrt(1/R**2+me**2)),
+	e12:(electron12, mass me12=sqrt(1/R**2+me**2)),
+	e21:(electron21, mass me21=sqrt(4/R**2+me**2)),
+	e22:(electron22, mass me22=sqrt(4/R**2+me**2)).
+
+
+_x=[1,2] in parameter aa_x=atan(me*R/ _x)/2, sa_x=sin(aa_x), ca_x=cos(aa_x).
+_x=[1,2] in angle sin=sa_x, cos=ca_x.
+_x=[1,2] in let e_xl=ca_x*e_x2+sa_x*gamma5*e_x1, E_xl=anti(e_xl),
+                e_xr=sa_x*e_x2-ca_x*gamma5*e_x1, E_xr=anti(e_xr).
+
+
+let PL=(1-gamma5)/2, PR=(1+gamma5)/2.
+
+transform A -> A*cos(0) + (A1*cos(1) + A2*cos(2))*Sqrt2,
+
+		  e -> e*cos(0) + (PL*cos(1)*e1l+PR*sin(1)*e1l 
+		               +   PL*cos(2)*e2l+PR*sin(2)*e2l+
+			               PL*sin(1)*e1r+PR*cos(1)*e1r 
+		               +   PL*sin(2)*e2r+PR*cos(2)*e2r)*Sqrt2 ,
+			   
+		  E -> E*cos(0) + (E1l*(1+gamma5)/2*cos(1) + E1l*(1-gamma5)/2*sin(1) 
+		  + E2l*(1+gamma5)/2*cos(2) + E2l*(1-gamma5)/2*sin(2)+
+		    E1r*(1+gamma5)/2*sin(1) + E1r*(1-gamma5)/2*cos(1) 
+		  + E2r*(1+gamma5)/2*sin(2) + E2r*(1-gamma5)/2*cos(2))*Sqrt2.
+		  
+% The 5th components of the photon KK modes become goldstone bosons.
+
+let       A5 = ('A1.f'*sin(1) + 'A2.f'*sin(2))*Sqrt2.
+
+ued_5th deriv->deriv5/R, A->A5.
+
+
+lterm -F*F/4 where F=deriv^mu*A^nu-deriv^nu*A^mu.
+
+lterm E*(gamma*(i*deriv - ee*A) -me)*e.
+
+lterm  -1/2*(deriv*A)**2.
+
+CheckHerm.
+CheckMasses.

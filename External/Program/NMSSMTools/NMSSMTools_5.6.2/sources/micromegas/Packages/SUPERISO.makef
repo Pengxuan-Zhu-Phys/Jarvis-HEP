@@ -1,0 +1,24 @@
+SuIso=superiso_v$(VERSION)
+
+SOURCE=superiso.in2p3.fr/download
+
+
+all:$(SuIso)/slha.x
+
+
+$(SuIso)/slha.x:$(SuIso)
+	make -C $(SuIso)
+	make -C $(SuIso) slha
+
+$(SuIso):
+ifneq (, $(shell command -v curl 2> /dev/null))
+	curl https://$(SOURCE)/$(SuIso).tgz  -O -L
+else 
+ifneq (, $(shell command -v wget 2> /dev/null))
+	wget http://$(SOURCE)/$(SuIso).tgz
+else 
+	$(error "Neither wget nor curl are available, please install wget or curl or change SSUSY.make accordingly.")
+endif
+endif
+	tar -xvzf $(SuIso).tgz
+	rm $(SuIso).tgz

@@ -1,0 +1,65 @@
+EnvironmentRequirements:
+  CERN_ROOT:
+    required: true
+    version: ">=6.20"
+    get_path_command: "root-config --prefix"
+    Dependencies:
+    - name: minuit2
+      required: true
+      check_command: "root-config --has-minuit2"
+      expected_output: "yes"
+
+  Python:
+    version: ">=3.10"
+    Dependencies:
+    - name: numpy 
+      required: true 
+      version: ">=1.18.0"
+    - name: scipy
+      required: true 
+      version: ">=1.4.0"
+    - name: pyyaml
+      required: true
+      version: ">=5.1"
+    - name: dynesty
+      required: true
+      version: ">=2.1.0"
+    - name: h5py
+      required: true
+      version: ">=3.10"
+    - name: pandas
+      required: true
+      version: ">=2.1.0"
+    - name: matplotlib
+      required: true
+      version: ">=3.3"
+    - name: pyhf
+      required: true
+      version: ">=0.7"
+    - name: networkx
+      required: true 
+      version: ">=3.2.1"
+    - name: xslha
+      required: true 
+      version: ">=1.0.0"
+    - name: pyslha
+      required: true 
+      version: ">=3.2.5"    
+    - name: xmltodict
+      required: true 
+      version: ">=0.13.0"
+    - name: shapely
+      required: true 
+      version: ">=2.0.0"
+    - name: emoji
+      required: true 
+      version: ">=2.10.1"
+    - name: prettytable
+      required: true 
+      version: ">=3.10.0"
+    - name: aiofiles
+      required: true 
+      version: ">=23.2.1"
+    - name: sqlalchemy
+      required: true 
+      version: ">=2.0.29"

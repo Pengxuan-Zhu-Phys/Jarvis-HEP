@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+
+import os, sys 
+pwd = os.path.abspath(os.path.dirname(__file__))
+sys.path.append("{}/src/".format(pwd))
+
+if __name__ == "__main__":
+    with open("{}/src/Info/logo".format(pwd), 'r') as f1:
+        with open("{}/Version".format(pwd), 'r') as f2:
+            vs = f2.read()
+        print(f1.read().replace(">>>VERSION<<<", vs))
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "-V":
+            pass 
+        elif os.path.exists(sys.argv[1]):    
+            from reader import reader
+            slhareader = reader()
+            slhareader.set_parser(os.path.abspath(sys.argv[1]))

@@ -1,0 +1,75 @@
+
+1. ============  Spectrum Calculation ======================
+For computing the spectrum we rely on NMSSMTools.
+Two options are available,  SUGRA and LowScaleInput depending whether input
+parameters are defined at the GUT scale or at the EWSB scale.
+To choose one option, please uncomment one of the  instructions  
+// #define EWSB
+// #define SUGRA
+at the top of the main.c file.
+
+For example, for the SUGRA option call
+   ./main 1000 130 -1500 10 0.1 -50 1 171.4
+and for  LowScaleInput
+   ./main data1.par
+
+In both cases if you launch 'main' without parameters, the parameters needed are
+specified on the screen. 
+
+2. If both #define instructions are commented then micrOMEGAs expects that a SLHA file
+containing the calculated spectrum is passed in command line, for example 
+   ./main spectr
+micrOMEGAs  works  only  with SLHA spectrum files obtained by NMSSMTools
+because they contain the effective couplings in the Higgs potential.  
+ 
+3. New parameters are added in the NMSSM Lagrangian. In terms of Eq.(2.1) and
+(2.5) of [1]  they are
+ mXiS= $\xi_S/\sqrt{|\xi_S|}$
+ muP = $\mu^'$
+ m3h = $m_3^2/\sqrt{|m_3^2|}$
+ msP = $m_S^{'2}/\sqrt{|m_S^{'2}|}$
+ mXiF= $\xi_F^\frac{1}{3}$
+
+All these parameters are given in GeV units.
+
+The file  data_notZ3.par contains a set of electroweak scale  input parameters with non zero
+mXiS and mXiF. It corresponds to ../Packages/NMSSMToosl_4.4.1/SAMPLES/inp.par
+
+4. The SUGRA scenario is realized by a call to the function
+    nmssmSUGRA($M_0$,$M_\frac{1}{2}$ ,$A_0$ ,$tb(MZ)$, $sgn(\mu)$,
+               $\lambda(SUSY)$, $A_\lambda$, $A_\kappa$,
+               mXiF, mXiS, muP, msP,m3h)
+
+where all parameters except tb and \lambda are defined at the GUT scale. 
+When calling the main program with the SUGRA option, main.c 
+uses zero values for the last 5 parameters. To use other values the user has to define 
+them explicitly in main.c[F].
+
+5. The NMSSM Lagrangian realized in micrOMEGAs is presented here 
+1.%\cite{Ellwanger:2009dp}
+  \bibitem{Ellwanger:2009dp}
+  U.~Ellwanger, C.~Hugonie and A.~M.~Teixeira,
+  %``The Next-to-Minimal Supersymmetric Standard Model,''
+  Phys.\ Rept.\  {\bf 496} (2010) 1
+  [arXiv:0910.1785 [hep-ph]].
+  %%CITATION = ARXIV:0910.1785;%
+
+======= Citations if you are using micrOMEGAs with NMSSMTools  ========
+
+2.%\cite{Belanger:2005kh}
+  \bibitem{Belanger:2005kh}
+  G.~Belanger, F.~Boudjema, C.~Hugonie, A.~Pukhov and A.~Semenov,
+  %``Relic density of dark matter in the NMSSM,''
+  JCAP {\bf 0509} (2005) 001
+  [arXiv:hep-ph/0505142].
+  %%CITATION = JCAPA,0509,001;%%
+
+3.%\cite{Ellwanger:2006rn}
+  \bibitem{Ellwanger:2006rn}
+  U.~Ellwanger and C.~Hugonie,
+  %``NMSPEC: A Fortran code for the sparticle and Higgs masses in the NMSSM with
+  %GUT scale boundary conditions,''
+  Comput.\ Phys.\ Commun.\  {\bf 177} (2007) 399
+  [arXiv:hep-ph/0612134].
+  %%CITATION = CPHCB,177,399;%%
+

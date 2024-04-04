@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+
+import os, sys
+import json
+
+pwd = os.path.abspath(os.path.dirname(__file__))
+sys.path.append("{}/src/".format(pwd))
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        if sys.argv[1] == 'init':
+            from Func_lab import init 
+            init(sys.argv[1:])
+        elif sys.argv[1] == '-h':
+            from Func_lab import helptool
+            helptool(sys.argv[1:])
+        elif sys.argv[1] == '-V':
+            from Func_lab import helptool
+            helptool(sys.argv[1:])
+        else:
+            from Buding_Plot import Figure
+            fig = Figure()
+            fig.get_inf(os.path.abspath(sys.argv[1]))
+            fig.plot()
+
+
+
+

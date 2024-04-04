@@ -1,0 +1,305 @@
+% Copyright (c) Andrei Semenov, 1996-2001.
+
+
+do_if NMSSM==on. /*  NMSSM case - more higgs fields */
+
+let sa=0, ca=0.
+
+parameter dlh2.
+
+let  dlh1=0,dlh3=0,dlh4=0,dlh5=0, dlh6=0, dlh7=0, dlh8s=0,dlhss=0,dlh5s=0, dlh1s=0,dlh2s=0.
+
+
+parameter wh1=0:'Width of 1st Higgs',
+          wh2=0:'Width of 2nd higgs',
+	      wh3=0:'Width of 3rd Higgs',
+          wha=0:'Width of higgs A1',
+	      whb=0:'Width of Higgs A2',
+	      wHc=0:'Width of charged Higgs'.
+
+external_func(higs1,11,'nmssm.so').
+external_func(higs2,3, 'nmssm.so').
+
+
+parameter ntkhs=higs1(SW,MW,EE,sb,cb,hK,hL,xvev,hKs,hLs,dlh2).
+
+_x=1-3 in parameter Mh_x=higs2(0,_x,ntkhs).
+_x=1-3 in _y=1-3 in parameter Zh_x_y=higs2(_x,_y,ntkhs). 
+
+OrthMatrix({{Zh11, Zh12, Zh13}, {Zh21, Zh22, Zh23}, {Zh31, Zh32, Zh33}}).
+
+external_func(higp1,10,'nmssm.so').
+external_func(higp2,3, 'nmssm.so').
+
+parameter ntkhp=higp1(SW, MW, EE, sb, cb, hK,hL,xvev,hKs,hLs).
+
+parameter Mha=higp2(0,1,ntkhs),Mhb=higp2(0,2,ntkhp).
+
+_x=1-5 in _y=1-5 in parameter Za_x_y=-higp2(_x,_y,ntkhp).
+OrthMatrix({{Za11, Za12, Za13}, {Za21, Za22, Za23}, {Za31, Za32, Za33}}).
+
+parameter MHc=sqrt(MW**2*(1-2/EE**2*SW**2*hL**2)+2*hL*xvev/s2b*(hLs+hK*xvev)).
+
+
+let M2_H1 = -(-2/cb*hL*hLs*sb*xvev
+              -2/cb*hK*hL*sb*xvev**2
+              +4/EE**2*MW**2*SW**2*hL**2*sb**2
+              +2*hL**2*xvev**2
+              +1*(1-2*sb**2)/CW**2*MW**2
+	      +4/EE**2*MW**2*SW**2*(cb**2*dlh1+sb**2*dlh3+sb**2*dlh4+sb**2*dlh5)+xvev**2*(2*dlh1s-sb/cb*dlh5s))/2.
+
+let M2_H2 = -(-2*cb*hL*hLs/sb*xvev
+              -2*cb*hK*hL/sb*xvev**2
+              +4/EE**2*MW**2*SW**2*cb**2*hL**2
+              +2*hL**2*xvev**2
+              -1*(1-2*sb**2)/CW**2*MW**2+4/EE**2*MW**2*SW**2*(sb**2*dlh2+cb**2*dlh3+cb**2*dlh4+cb**2*dlh5)+xvev**2*(2*dlh2s-cb/sb*dlh5s))/2.
+
+let M2_H3 = -( 2*hK*hKs*xvev
+              -4/EE**2*MW**2*SW**2*cb*hL*hLs*sb/xvev
+              +4*hK**2*xvev**2
+              -8/EE**2*MW**2*SW**2*cb*hK*hL*sb
+              +4/EE**2*MW**2*SW**2*hL**2+2*xvev**2*dlhss+4/EE**2*MW**2*SW**2*(cb**2*dlh1s+sb**2*dlh2s-cb*sb*dlh5s)+8*xvev**2*dlh8s)/2.
+
+
+do_else. /* MSSM case */
+
+parameter MH3=susycalc(3):'Mass of CP-odd Higgs'.
+
+do_if HiggsMasses==0.
+
+/* effective potential parameters*/
+parameter dlh1, dlh2=0, dlh3, dlh4, dlh5, dlh6, dlh7. 
+let ka1=0, ka2=0, ka3=0.
+parameter vevv=2*MW**2*SW**2/EE**2.
+
+
+parameter t2a1=(MH3**2*s2b+MZ**2*s2b-
+		2*vevv*(s2b*(dlh3+dlh4)-2*cb**2*dlh6-2*sb**2*dlh7)),
+          t2a2=(MH3**2*c2b-MZ**2*c2b-
+	  	2*vevv*(dlh1*cb**2-dlh2*sb**2-dlh5*c2b-(dlh6-dlh7)*s2b)),
+	  hha2=atan2(-t2a1,-t2a2).
+
+parameter ca=cos(hha2/2), sa=sin(hha2/2).
+
+angle     sin=sa, cos=ca, texname='\\alpha'.
+
+
+
+parameter sapb=sa*cb+ca*sb : 'sin(a+b)'.
+parameter samb=sa*cb-ca*sb : 'sin(a-b)'.
+parameter capb=ca*cb-sa*sb : 'cos(a+b)'.
+parameter camb=ca*cb+sa*sb : 'cos(a-b)'.
+
+parameter s2a=2*sa*ca :     'sin(2a)'.
+parameter c2a=ca**2-sa**2.
+
+
+parameter dMHH1=dlh1*ca**2*cb**2+dlh2*sa**2*sb**2+2*(dlh3+dlh4)*ca*cb*sa*sb,
+	  dMHH2= (ca**2*sb**2+sa**2*cb**2)*dlh5-2*sapb*(dlh6*ca*cb+dlh7*sa*sb),
+	  MHH=sqrt(MZ**2*capb**2+MH3**2*samb**2
+	  		+2*vevv*(dMHH1+dMHH2)):'Mass of heavy Higgs',
+			
+	  dMh1=dlh1*sa**2*cb**2+dlh2*ca**2*sb**2-2*(dlh3+dlh4)*ca*sa*cb*sb,
+	  dMh2= (ca**2*cb**2+sa**2*sb**2)*dlh5+2*capb*(dlh6*cb*sa-dlh7*ca*sb),				
+          Mh =sqrt(MZ**2*sapb**2+MH3**2*camb**2
+	        	+2*vevv*(dMh1+dMh2)):'Mass of light Higgs',
+					
+	  MHc=sqrt(MH3**2+MW**2-vevv*(dlh4-dlh5)):'Mass of charged Higgs'.
+
+
+do_else_if HiggsMasses==2.  /* Analitical formulae for Higgs masses */
+
+let ka1=0, ka2=0, ka3=0.
+
+parameter Msusy=1000:'susy scale',
+	  hMtop=166:'Top mass for Higgs mass calculation',
+	  hMbot=3:'Bottom mass for Higgs mass calculation',
+	  lnMT=log(Msusy**2/hMtop**2):'ln(Msusy**2/Mtop**2)',
+	  hg3=0.61:'g_3 coupling for Higgs mass calculation'.
+	  
+parameter htb=tb*(1+3/32/pi**2*(hMtop**2/sb**2-hMbot**2/cb**2)
+			/MW**2*EE**2/SW**2/2*log(MH3**2/hMtop**2)),
+	  hsb=htb/sqrt(1+htb**2):'Sinus beta at MH3',
+	  hcb=sqrt(1-hsb**2):'Cosine beta at MH3',
+	  hht=hMtop/hsb/MW*EE/SW/Sqrt2,
+          hhb=hMbot/hcb/MW*EE/SW/Sqrt2,
+	  hXt=2*At**2/Msusy**2*(1-At**2/12/Msusy**2),
+	  hXb=2*Ab**2/Msusy**2*(1-Ab**2/12/Msusy**2),
+	  hAtb=(-6*mu**2/Msusy**2-(mu**2-Ab*At)**2/Msusy**4
+	  		+3*(Atop+Ab)**2/Msusy**2)/6.
+
+  
+parameter dlh1a=-EE**2*(1/SW**2+1/CW**2)/4*3/8/pi**2*hhb**2*lnMT,
+          dlh1b=lnMT+hXb/2+
+	           (hhb**2*3/2+hht**2/2-8*hg3)*(hXb*lnMT+lnMT**2)/16/pi**2,
+	  dlh1c=1+(9*hht**2-5*hhb**2-16*hg3**2)*lnMT/16/pi**2,
+	  dlh1=dlh1a+3/8/pi**2*hhb**4*dlh1b
+	  	    -3/96/pi**2*hht**4*mu**4/Msusy**4*dlh1c.
+		    
+parameter dlh2a=-EE**2*(1/SW**2+1/CW**2)/4/8*3/pi**2*hht**2*lnMT,
+          dlh2b=lnMT+hXt/2+
+	           (hht**2*3/2+hhb**2/2-8*hg3)*(hXt*lnMT+lnMT**2)/16/pi**2,
+	  dlh2c=1+(9*hhb**2-5*hht**2-16*hg3**2)*lnMT/16/pi**2,
+	  dlh2=dlh2a+3/8/pi**2*hht**4*dlh2b
+	  	    -3/96/pi**2*hhb**4*mu**4/Msusy**4*dlh1c.
+		    
+parameter dlh3a=-EE**2*(1/SW**2-1/CW**2)/4/16*3/pi**3*(hhb**2+hht**2)*lnMT,
+          dlh3b=lnMT+hAtb/2
+	         +(hht**2+hhb**2-8*hg3**2)*(hAtb*lnMT+lnMT**2)/16/pi**2,
+	  dlh3c=(3*mu**2/Msusy**2-mu**2*Atop**2/Msusy**4),
+	  dlh3d=1+(6*hht**2-2*hhb**2-16*hg3**2)*lnMT/16/pi**2,
+	  dlh3e=(3*mu**2/Msusy**2-mu**2*Ab**2/Msusy**4),
+	  dlh3f=1+(6*hhb**2-2*hht**2-16*hg3**2)*lnMT/16/pi**2,
+	  dlh3=dlh3a+6/16/pi**2*hht**2*hhb**2*dlh3b
+	        +3/96/pi**2*hht**4*dlh3c*dlh3d+3/96/pi**2*hhb**4*dlh3e*dlh3f.
+		
+parameter dlh4a=EE**2*3/32/CW**2/pi**2*(hhb**2+hht**2)*lnMT,
+          dlh4=dlh4a-6/16/pi**2*hht**2*hhb**2*dlh3b
+	        +3/96/pi**2*hht**4*dlh3c*dlh3d+3/96/pi**2*hhb**4*dlh3e*dlh3f.
+		
+parameter dlh5a=1+(6*hht**2-2*hhb**2-16*hg3**2)*lnMT/16/pi**2,
+          dlh5b=1+(6*hhb**2-2*hht**2-16*hg3**2)*lnMT/16/pi**2,
+	  dlh5=-3/96/pi**2*mu**2/Msusy**4*(dlh5a*hht**4*Atop**2+dlh5b*hhb**4*Ab**2).
+	  
+parameter dlh6a=(1-(7*hhb**2-15*hht**2+32*hg3**2)/32/pi**2*lnMT),
+          dlh6b=(Ab**3/Msusy**3-6*Ab/Msusy)*mu/Msusy,
+	  dlh6c=1-(hht**2-9*hhb**2+32*hg3**2)/32/pi**2*lnMT,
+	  dlh6=-3/96/pi**2*(hht**4*dlh6a*mu**3*Atop/Msusy**4+hhb**4*dlh6b*dlh6c).
+	  
+parameter dlh7a=(1-(7*hht**2-15*hhb**2+32*hg3**2)/32/pi**2*lnMT),
+          dlh7b=(Atop**3/Msusy**3-6*Atop/Msusy)*mu/Msusy,
+	  dlh7c=1-(hhb**2-9*hht**2+32*hg3**2)/32/pi**2*lnMT,
+	  dlh7=-3/96/pi**2*(hhb**4*dlh7a*mu**3*Ab/Msusy**4+hht**4*dlh7b*dlh7c).
+
+
+parameter vevv=2*MW**2*SW**2/EE**2.
+
+
+parameter t2a1=(MH3**2*s2b+MZ**2*s2b-
+		2*vevv*(s2b*(dlh3+dlh4)-2*cb**2*dlh6-2*sb**2*dlh7)),
+          t2a2=(MH3**2*c2b-MZ**2*c2b-
+	  	2*vevv*(dlh1*cb**2-dlh2*sb**2-dlh5*c2b-(dlh6-dlh7)*s2b)),
+	   hha2=atan2(-t2a1,-t2a2).
+
+
+parameter ca=cos(hha2/2), sa=sin(hha2/2).
+
+angle     sin=sa, cos=ca, texname='\\alpha'.
+
+parameter sapb=sa*cb+ca*sb : 'sin(a+b)'.
+parameter samb=sa*cb-ca*sb : 'sin(a-b)'.
+parameter capb=ca*cb-sa*sb : 'cos(a+b)'.
+parameter camb=ca*cb+sa*sb : 'cos(a-b)'.
+
+parameter s2a=2*sa*ca :     'sin(2a)'.
+parameter c2a=ca**2-sa**2.
+
+
+
+parameter dMHH1=dlh1*ca**2*cb**2+dlh2*sa**2*sb**2+2*(dlh3+dlh4)*ca*cb*sa*sb,
+	  dMHH2= (ca**2*sb**2+sa**2*cb**2)*dlh5-2*sapb*(dlh6*ca*cb+dlh7*sa*sb),
+	  MHH=sqrt(MZ**2*capb**2+MH3**2*samb**2
+	  		+2*vevv*(dMHH1+dMHH2)):'Mass of heavy Higgs',
+			
+	  dMh1=dlh1*sa**2*cb**2+dlh2*ca**2*sb**2-2*(dlh3+dlh4)*ca*sa*cb*sb,
+	  dMh2= (ca**2*cb**2+sa**2*sb**2)*dlh5+2*capb*(dlh6*cb*sa-dlh7*ca*sb),				
+          Mh =sqrt(MZ**2*sapb**2+MH3**2*camb**2
+	        	+2*vevv*(dMh1+dMh2)):'Mass of light Higgs',
+					
+	  MHc=sqrt(MH3**2+MW**2-vevv*(dlh4-dlh5)):'Mass of charged Higgs'.
+
+
+do_else_if HiggsMasses==1.
+
+
+do_if SUSYCALC==mssm.
+
+external_func(feynhiggs1,12,'fhf3.so').
+external_func(feynhiggs2,12,'fhf3.so').
+external_func(feynhiggs,2,  'fhf3.so').
+
+parameter fh1=feynhiggs1(tb,mu,Mq3,Mu3,Md3,Ml3,Mr3,Mq2,Mu2,Md2,Ml2,Mr2),
+          fh2=feynhiggs2(fh1,At,Ab,Al,MH3,MG1,MG2,MG3,MW,MZ,Mt,Mb).
+		  
+parameter Mh= feynhiggs(fh2,1),
+          MHH=feynhiggs(fh2,2),
+          sa =feynhiggs(fh2,3),
+          ca =feynhiggs(fh2,4),
+          MHc=feynhiggs(fh2,5).
+
+
+do_else.
+
+parameter ca=susycalc(34),
+          sa=susycalc(33),
+		  Mh=susycalc(31),
+		  MHH=susycalc(32),
+		  MHc=susycalc(35).
+end_if.
+
+
+angle sin=sa, cos=ca, texname='\\alpha'.
+let ka1=0, ka2=0, ka3=0.
+
+parameter vevv=2*MW**2*SW**2/EE**2.
+SetTexName([vevv='\\upsilon']).
+
+parameter s2a=2*sa*ca :     'sin(2a)'.
+parameter c2a=ca**2-sa**2.
+parameter sapb=sa*cb+ca*sb : 'sin(a+b)'.
+parameter samb=sa*cb-ca*sb : 'sin(a-b)'.
+parameter capb=ca*cb-sa*sb : 'cos(a+b)'.
+parameter camb=ca*cb+sa*sb : 'cos(a-b)'.
+
+
+
+
+
+
+parameter  dlh5, dlh6, dlh7.
+
+
+
+let dlh4=(MH3**2+MW**2-MHc**2)/vevv+dlh5, 
+     dlh1=(Mh**2*sa**2+MHH**2*ca**2-MW**2/CW**2*cb**2-MH3**2*sb**2)
+		/4/MW**2/SW**2*EE**2/cb**2 - dlh5*sb**2/cb**2 + 2*sb*dlh6/cb,
+     dlh2=(Mh**2*ca**2+MHH**2*sa**2-MW**2/CW**2*sb**2-MH3**2*cb**2)
+     		/4/MW**2/SW**2*EE**2/sb**2 - dlh5*cb**2/sb**2 + 2*cb*dlh7/sb,
+     dlh3=(-Mh**2*ca*sa+MHH**2*ca*sa+cb*sb*(MW**2/CW**2+MH3**2))
+     		/4/MW**2/SW**2*EE**2/cb/sb - dlh4 + dlh6*cb/sb + dlh7*sb/cb.
+
+
+
+
+%parameter MHc=sqrt(MH3**2+MW**2-vevv*(dlh4-dlh5)):'Mass of charged Higgs'.
+
+do_else.
+write("HiggsMasses should be 0 or 1 or 2.").
+quit.
+end_if.
+
+
+parameter wh=0 :'Width of light Higgs',
+          wHh=0:'Width of heavy higgs',
+	  wH3=0:'Width of CP-odd Higgs',
+	  wHc=0:'Width of charged Higgs'.
+
+
+let dh1=2*MW**2/EE**2*SW**2*
+     (-dlh1*cb**2-dlh3*sb**2-sb**2*dlh4-sb**2*dlh5
+       +3*cb*sb*dlh6+sb**3/cb*dlh7 + 3*ka1*cb**4 +2*cb**2*sb**2*ka3).
+let dh2=2*MW**2/EE**2*SW**2*
+     (-dlh2*sb**2-dlh3*cb**2-cb**2*dlh4-cb**2*dlh5
+       +cb**3/sb*dlh6+3*cb*sb*dlh7 + 3*ka2*sb**4 +cb**4*ka3).
+
+let dhs= -2/EE**2*MW**2*SW**2*cb*sb*(2*dlh5-dlh6*cb/sb-dlh7*sb/cb).
+
+parameter alpha=atan2(sa,ca).
+
+
+let hs= -MH3**2*cb*sb +dhs.
+let M2_H1= -hs*sb/cb-mu**2-MW**2/2/CW**2*(cb**2-sb**2) +dh1.
+let M2_H2= -hs*cb/sb-mu**2+MW**2/2/CW**2*(cb**2-sb**2) +dh2.
+
+
+end_if. % MSSM case

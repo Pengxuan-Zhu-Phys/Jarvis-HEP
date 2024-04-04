@@ -1,0 +1,424 @@
+<!--
+CMS combination of the H -> gammagamma, ZZ, WW, tautau, bb and mumu decay modes.
+Best-fit values and uncertainties taken from Table 3, correlations from Additional Figure 1 at 
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-17-031/
+-->
+
+<expmu dim="24" type="vn">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-17-031</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ggH" decay="gammagamma">1.0</eff>
+  <eff axis="d2" prod="ggH" decay="ZZ">1.0</eff>
+  <eff axis="d3" prod="ggH" decay="WW">1.0</eff>
+  <eff axis="d4" prod="ggH" decay="tautau">1.0</eff>
+  <eff axis="d5" prod="ggH" decay="bb">1.0</eff>
+  <eff axis="d6" prod="ggH" decay="mumu">1.0</eff>
+  
+  <eff axis="d7" prod="VBF" decay="gammagamma">1.0</eff>
+  <eff axis="d8" prod="VBF" decay="ZZ">1.0</eff>
+  <eff axis="d9" prod="VBF" decay="WW">1.0</eff>
+  <eff axis="d10" prod="VBF" decay="tautau">1.0</eff>
+  <eff axis="d11" prod="VBF" decay="mumu">1.0</eff>  
+  
+  <eff axis="d12" prod="WH" decay="gammagamma">1.0</eff>
+  <eff axis="d13" prod="WH" decay="ZZ">1.0</eff>
+  <eff axis="d14" prod="WH" decay="WW">1.0</eff>
+  <eff axis="d15" prod="WH" decay="bb">1.0</eff>
+
+  <eff axis="d16" prod="ZH" decay="gammagamma">1.0</eff>
+  <eff axis="d17" prod="ZH" decay="ZZ">1.0</eff>
+  <eff axis="d18" prod="ZH" decay="WW">1.0</eff>
+  <eff axis="d19" prod="ZH" decay="bb">1.0</eff>
+
+  <eff axis="d20" prod="ttH" decay="gammagamma">1.0</eff>
+  <eff axis="d21" prod="ttH" decay="ZZ">1.0</eff>
+  <eff axis="d22" prod="ttH" decay="WW">1.0</eff>
+  <eff axis="d23" prod="ttH" decay="bb">1.0</eff>
+  <eff axis="d24" prod="ttH" decay="tautau">1.0</eff>
+
+  <bestfit>
+    <d1>1.16</d1>
+    <d2>1.22</d2>
+    <d3>1.35</d3>
+    <d4>1.05</d4>
+	<d5>2.51</d5>
+	<d6>0.31</d6>
+	
+	<d7>0.67</d7>
+	<d8>-0.09</d8>
+	<d9>0.28</d9>
+	<d10>1.12</d10>
+	<d11>2.72</d11>
+	
+	<d12>3.76</d12>
+	<d13>0.00</d13>
+	<d14>3.91</d14>
+	<d15>1.73</d15>
+	
+	<d16>0.00</d16>
+	<d17>0.00</d17>
+	<d18>0.96</d18>
+	<d19>0.99</d19>
+	
+	<d20>2.18</d20>
+	<d21>0.00</d21>
+	<d22>1.60</d22>
+	<d23>0.91</d23>
+	<d24>0.23</d24>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-0.18</uncertainty>
+    <uncertainty axis="d1" side="right">+0.21</uncertainty>
+    <uncertainty axis="d2" side="left">-0.21</uncertainty>
+    <uncertainty axis="d2" side="right">+0.23</uncertainty>
+    <uncertainty axis="d3" side="left">-0.19</uncertainty>
+    <uncertainty axis="d3" side="right">+0.21</uncertainty>
+    <uncertainty axis="d4" side="left">-0.47</uncertainty>
+    <uncertainty axis="d4" side="right">+0.53</uncertainty>
+    <uncertainty axis="d5" side="left">-2.01</uncertainty>
+    <uncertainty axis="d5" side="right">+2.43</uncertainty>
+    <uncertainty axis="d6" side="left">-1.79</uncertainty>
+    <uncertainty axis="d6" side="right">+1.80</uncertainty>
+    <uncertainty axis="d7" side="left">-0.46</uncertainty>
+    <uncertainty axis="d7" side="right">+0.59</uncertainty>
+    <uncertainty axis="d8" side="left">-0.76</uncertainty>
+    <uncertainty axis="d8" side="right">+1.02</uncertainty>
+    <uncertainty axis="d9" side="left">-0.6</uncertainty>
+    <uncertainty axis="d9" side="right">+0.64</uncertainty>
+    <uncertainty axis="d10" side="left">-0.43</uncertainty>
+    <uncertainty axis="d10" side="right">+0.45</uncertainty>
+    <uncertainty axis="d11" side="left">-7.03</uncertainty>
+    <uncertainty axis="d11" side="right">+7.12</uncertainty>
+    <uncertainty axis="d12" side="left">-1.35</uncertainty>
+    <uncertainty axis="d12" side="right">+1.48</uncertainty>
+    <uncertainty axis="d13" side="left">1e-6</uncertainty>
+    <uncertainty axis="d13" side="right">+2.33</uncertainty>
+    <uncertainty axis="d14" side="left">-2.01</uncertainty>
+    <uncertainty axis="d14" side="right">+2.26</uncertainty>
+    <uncertainty axis="d15" side="left">-0.68</uncertainty>
+    <uncertainty axis="d15" side="right">+0.70</uncertainty>
+    <uncertainty axis="d16" side="left">1e-6</uncertainty>
+    <uncertainty axis="d16" side="right">+1.14</uncertainty>
+    <uncertainty axis="d17" side="left">1e-6</uncertainty>
+    <uncertainty axis="d17" side="right">+4.26</uncertainty>
+    <uncertainty axis="d18" side="left">-1.46</uncertainty>
+    <uncertainty axis="d18" side="right">+1.81</uncertainty>	
+    <uncertainty axis="d19" side="left">-0.45</uncertainty>
+    <uncertainty axis="d19" side="right">+0.47</uncertainty>
+    <uncertainty axis="d20" side="left">-0.75</uncertainty>
+    <uncertainty axis="d20" side="right">+0.88</uncertainty>
+    <uncertainty axis="d21" side="left">1e-6</uncertainty>
+    <uncertainty axis="d21" side="right">+1.50</uncertainty>
+    <uncertainty axis="d22" side="left">-0.59</uncertainty>
+    <uncertainty axis="d22" side="right">+0.65</uncertainty>
+    <uncertainty axis="d23" side="left">-0.43</uncertainty>
+    <uncertainty axis="d23" side="right">+0.45</uncertainty>
+    <uncertainty axis="d24" side="left">-0.88</uncertainty>
+    <uncertainty axis="d24" side="right">+1.03</uncertainty>
+    
+	<correlation entry="d1d2">0.12</correlation>
+    <correlation entry="d1d3">0.16</correlation>
+    <correlation entry="d1d4">0.08</correlation>
+	<correlation entry="d1d5">0</correlation>
+    <correlation entry="d1d6">0</correlation>
+    <correlation entry="d1d7">-0.28</correlation>
+	<correlation entry="d1d8">0</correlation>
+    <correlation entry="d1d9">0</correlation>
+    <correlation entry="d1d10">0</correlation>
+	<correlation entry="d1d11">0</correlation>
+    <correlation entry="d1d12">-0.15</correlation>
+    <correlation entry="d1d13">0</correlation>
+	<correlation entry="d1d14">0</correlation>
+	<correlation entry="d1d15">0</correlation>
+    <correlation entry="d1d16">-0.08</correlation>
+    <correlation entry="d1d17">0</correlation>
+	<correlation entry="d1d18">0</correlation>
+	<correlation entry="d1d19">0</correlation>
+    <correlation entry="d1d20">0.02</correlation>
+    <correlation entry="d1d21">0</correlation>
+	<correlation entry="d1d22">0</correlation>
+	<correlation entry="d1d23">0</correlation>
+    <correlation entry="d1d24">0</correlation>
+    
+	<correlation entry="d2d3">0.14</correlation>
+    <correlation entry="d2d4">0.04</correlation>
+	<correlation entry="d2d5">0</correlation>
+    <correlation entry="d2d6">0</correlation>
+    <correlation entry="d2d7">0</correlation>
+	<correlation entry="d2d8">-0.41</correlation>
+    <correlation entry="d2d9">0</correlation>
+    <correlation entry="d2d10">0</correlation>
+	<correlation entry="d2d11">0</correlation>
+    <correlation entry="d2d12">0</correlation>
+    <correlation entry="d2d13">-0.09</correlation>
+	<correlation entry="d2d14">0</correlation>
+	<correlation entry="d2d15">0</correlation>
+    <correlation entry="d2d16">0</correlation>
+    <correlation entry="d2d17">-0.20</correlation>
+	<correlation entry="d2d18">0</correlation>
+	<correlation entry="d2d19">0</correlation>
+    <correlation entry="d2d20">0</correlation>
+    <correlation entry="d2d21">0</correlation>
+	<correlation entry="d2d22">0.02</correlation>
+	<correlation entry="d2d23">0</correlation>
+    <correlation entry="d2d24">0</correlation>
+	
+	<correlation entry="d3d4">0.05</correlation>
+	<correlation entry="d3d5">0</correlation>
+    <correlation entry="d3d6">0</correlation>
+    <correlation entry="d3d7">0</correlation>
+	<correlation entry="d3d8">0</correlation>
+    <correlation entry="d3d9">-0.21</correlation>
+    <correlation entry="d3d10">0.02</correlation>
+	<correlation entry="d3d11">0</correlation>
+    <correlation entry="d3d12">0</correlation>
+    <correlation entry="d3d13">0</correlation>
+	<correlation entry="d3d14">-0.11</correlation>
+	<correlation entry="d3d15">0</correlation>
+    <correlation entry="d3d16">0</correlation>
+    <correlation entry="d3d17">0</correlation>
+	<correlation entry="d3d18">-0.02</correlation>
+	<correlation entry="d3d19">0.02</correlation>
+    <correlation entry="d3d20">0</correlation>
+    <correlation entry="d3d21">0</correlation>
+	<correlation entry="d3d22">0</correlation>
+	<correlation entry="d3d23">0</correlation>
+    <correlation entry="d3d24">0</correlation>
+	
+	<correlation entry="d4d5">0</correlation>
+    <correlation entry="d4d6">0</correlation>
+    <correlation entry="d4d7">0.06</correlation>
+	<correlation entry="d4d8">0.05</correlation>
+    <correlation entry="d4d9">0.03</correlation>
+    <correlation entry="d4d10">-0.32</correlation>
+	<correlation entry="d4d11">0</correlation>
+    <correlation entry="d4d12">0.05</correlation>
+    <correlation entry="d4d13">0</correlation>
+	<correlation entry="d4d14">0.02</correlation>
+	<correlation entry="d4d15">0</correlation>
+    <correlation entry="d4d16">0</correlation>
+    <correlation entry="d4d17">0</correlation>
+	<correlation entry="d4d18">0</correlation>
+	<correlation entry="d4d19">0.02</correlation>
+    <correlation entry="d4d20">0.02</correlation>
+    <correlation entry="d4d21">-0.02</correlation>
+	<correlation entry="d4d22">0</correlation>
+	<correlation entry="d4d23">0</correlation>
+    <correlation entry="d4d24">0</correlation>
+	
+    <correlation entry="d5d6">0</correlation>
+    <correlation entry="d5d7">0</correlation>
+	<correlation entry="d5d8">0</correlation>
+    <correlation entry="d5d9">0</correlation>
+    <correlation entry="d5d10">0</correlation>
+	<correlation entry="d5d11">0</correlation>
+    <correlation entry="d5d12">0</correlation>
+    <correlation entry="d5d13">0</correlation>
+	<correlation entry="d5d14">0</correlation>
+	<correlation entry="d5d15">-0.02</correlation>
+    <correlation entry="d5d16">-0.02</correlation>
+    <correlation entry="d5d17">0</correlation>
+	<correlation entry="d5d18">0</correlation>
+	<correlation entry="d5d19">0</correlation>
+    <correlation entry="d5d20">0</correlation>
+    <correlation entry="d5d21">0</correlation>
+	<correlation entry="d5d22">0</correlation>
+	<correlation entry="d5d23">0</correlation>
+    <correlation entry="d5d24">0</correlation>
+
+    <correlation entry="d6d7">0</correlation>
+	<correlation entry="d6d8">0</correlation>
+    <correlation entry="d6d9">0</correlation>
+    <correlation entry="d6d10">0</correlation>
+	<correlation entry="d6d11">-0.54</correlation>
+    <correlation entry="d6d12">0</correlation>
+    <correlation entry="d6d13">0</correlation>
+	<correlation entry="d6d14">0</correlation>
+	<correlation entry="d6d15">0</correlation>
+    <correlation entry="d6d16">0</correlation>
+    <correlation entry="d6d17">0</correlation>
+	<correlation entry="d6d18">0</correlation>
+	<correlation entry="d6d19">0</correlation>
+    <correlation entry="d6d20">0</correlation>
+    <correlation entry="d6d21">0</correlation>
+	<correlation entry="d6d22">0</correlation>
+	<correlation entry="d6d23">0</correlation>
+    <correlation entry="d6d24">0</correlation>
+
+	<correlation entry="d7d8">0.03</correlation>
+    <correlation entry="d7d9">0.02</correlation>
+    <correlation entry="d7d10">0</correlation>
+	<correlation entry="d7d11">0</correlation>
+    <correlation entry="d7d12">0.03</correlation>
+    <correlation entry="d7d13">0</correlation>
+	<correlation entry="d7d14">0</correlation>
+	<correlation entry="d7d15">0</correlation>
+    <correlation entry="d7d16">0.02</correlation>
+    <correlation entry="d7d17">0</correlation>
+	<correlation entry="d7d18">0</correlation>
+	<correlation entry="d7d19">0</correlation>
+    <correlation entry="d7d20">-0.02</correlation>
+    <correlation entry="d7d21">0</correlation>
+	<correlation entry="d7d22">0</correlation>
+	<correlation entry="d7d23">0</correlation>
+    <correlation entry="d7d24">0</correlation>
+
+    <correlation entry="d8d9">0</correlation>
+    <correlation entry="d8d10">0</correlation>
+	<correlation entry="d8d11">0</correlation>
+    <correlation entry="d8d12">0</correlation>
+    <correlation entry="d8d13">0</correlation>
+	<correlation entry="d8d14">0</correlation>
+	<correlation entry="d8d15">0</correlation>
+    <correlation entry="d8d16">0</correlation>
+    <correlation entry="d8d17">0</correlation>
+	<correlation entry="d8d18">0</correlation>
+	<correlation entry="d8d19">0</correlation>
+    <correlation entry="d8d20">0</correlation>
+    <correlation entry="d8d21">-0.02</correlation>
+	<correlation entry="d8d22">0</correlation>
+	<correlation entry="d8d23">0</correlation>
+    <correlation entry="d8d24">0</correlation>
+
+    <correlation entry="d9d10">-0.03</correlation>
+	<correlation entry="d9d11">0</correlation>
+    <correlation entry="d9d12">0</correlation>
+    <correlation entry="d9d13">0</correlation>
+	<correlation entry="d9d14">0</correlation>
+	<correlation entry="d9d15">0</correlation>
+    <correlation entry="d9d16">0</correlation>
+    <correlation entry="d9d17">0</correlation>
+	<correlation entry="d9d18">0</correlation>
+	<correlation entry="d9d19">0</correlation>
+    <correlation entry="d9d20">0</correlation>
+    <correlation entry="d9d21">0</correlation>
+	<correlation entry="d9d22">0</correlation>
+	<correlation entry="d9d23">0</correlation>
+    <correlation entry="d9d24">0</correlation>
+
+	<correlation entry="d10d11">0</correlation>
+    <correlation entry="d10d12">0</correlation>
+    <correlation entry="d10d13">0</correlation>
+	<correlation entry="d10d14">0</correlation>
+	<correlation entry="d10d15">0</correlation>
+    <correlation entry="d10d16">0</correlation>
+    <correlation entry="d10d17">0.02</correlation>
+	<correlation entry="d10d18">0</correlation>
+	<correlation entry="d10d19">0</correlation>
+    <correlation entry="d10d20">0</correlation>
+    <correlation entry="d10d21">0.02</correlation>
+	<correlation entry="d10d22">0</correlation>
+	<correlation entry="d10d23">0</correlation>
+    <correlation entry="d10d24">0</correlation>
+
+    <correlation entry="d11d12">0</correlation>
+    <correlation entry="d11d13">0</correlation>
+	<correlation entry="d11d14">0</correlation>
+	<correlation entry="d11d15">0</correlation>
+    <correlation entry="d11d16">0</correlation>
+    <correlation entry="d11d17">0</correlation>
+	<correlation entry="d11d18">0</correlation>
+	<correlation entry="d11d19">0</correlation>
+    <correlation entry="d11d20">0</correlation>
+    <correlation entry="d11d21">0</correlation>
+	<correlation entry="d11d22">0</correlation>
+	<correlation entry="d11d23">0</correlation>
+    <correlation entry="d11d24">0</correlation>
+
+    <correlation entry="d12d13">0</correlation>
+	<correlation entry="d12d14">0</correlation>
+	<correlation entry="d12d15">0</correlation>
+    <correlation entry="d12d16">-0.2</correlation>
+    <correlation entry="d12d17">0</correlation>
+	<correlation entry="d12d18">0</correlation>
+	<correlation entry="d12d19">0</correlation>
+    <correlation entry="d12d20">-0.08</correlation>
+    <correlation entry="d12d21">0</correlation>
+	<correlation entry="d12d22">0</correlation>
+	<correlation entry="d12d23">0</correlation>
+    <correlation entry="d12d24">0</correlation>
+
+	<correlation entry="d13d14">0</correlation>
+	<correlation entry="d13d15">0</correlation>
+    <correlation entry="d13d16">0</correlation>
+    <correlation entry="d13d17">-0.30</correlation>
+	<correlation entry="d13d18">0</correlation>
+	<correlation entry="d13d19">0</correlation>
+    <correlation entry="d13d20">0</correlation>
+    <correlation entry="d13d21">0</correlation>
+	<correlation entry="d13d22">0</correlation>
+	<correlation entry="d13d23">0</correlation>
+    <correlation entry="d13d24">0</correlation>
+
+	<correlation entry="d14d15">0</correlation>
+    <correlation entry="d14d16">0</correlation>
+    <correlation entry="d14d17">0</correlation>
+	<correlation entry="d14d18">-0.05</correlation>
+	<correlation entry="d14d19">0</correlation>
+    <correlation entry="d14d20">0</correlation>
+    <correlation entry="d14d21">0</correlation>
+	<correlation entry="d14d22">0</correlation>
+	<correlation entry="d14d23">0</correlation>
+    <correlation entry="d14d24">0</correlation>
+	
+    <correlation entry="d15d16">0</correlation>
+    <correlation entry="d15d17">0</correlation>
+	<correlation entry="d15d18">0</correlation>
+	<correlation entry="d15d19">-0.03</correlation>
+    <correlation entry="d15d20">0</correlation>
+    <correlation entry="d15d21">0</correlation>
+	<correlation entry="d15d22">0</correlation>
+	<correlation entry="d15d23">0</correlation>
+    <correlation entry="d15d24">0</correlation>
+	
+    <correlation entry="d16d17">0</correlation>
+	<correlation entry="d16d18">0</correlation>
+	<correlation entry="d16d19">0</correlation>
+    <correlation entry="d16d20">-0.03</correlation>
+    <correlation entry="d16d21">0</correlation>
+	<correlation entry="d16d22">0</correlation>
+	<correlation entry="d16d23">0</correlation>
+    <correlation entry="d16d24">0</correlation>
+	
+	<correlation entry="d17d18">0</correlation>
+	<correlation entry="d17d19">0</correlation>
+    <correlation entry="d17d20">0</correlation>
+    <correlation entry="d17d21">-0.02</correlation>
+	<correlation entry="d17d22">0</correlation>
+	<correlation entry="d17d23">0</correlation>
+    <correlation entry="d17d24">0</correlation>
+	
+	<correlation entry="d18d19">0</correlation>
+    <correlation entry="d18d20">0</correlation>
+    <correlation entry="d18d21">0</correlation>
+	<correlation entry="d18d22">0</correlation>
+	<correlation entry="d18d23">0</correlation>
+    <correlation entry="d18d24">0</correlation>
+	
+    <correlation entry="d19d20">0</correlation>
+    <correlation entry="d19d21">0</correlation>
+	<correlation entry="d19d22">0</correlation>
+	<correlation entry="d19d23">0</correlation>
+    <correlation entry="d19d24">0</correlation>
+	
+    <correlation entry="d20d21">0</correlation>
+	<correlation entry="d20d22">0.05</correlation>
+	<correlation entry="d20d23">0.04</correlation>
+    <correlation entry="d20d24">0</correlation>
+	
+	<correlation entry="d21d22">-0.08</correlation>
+	<correlation entry="d21d23">0</correlation>
+    <correlation entry="d21d24">-0.04</correlation>
+	
+	<correlation entry="d22d23">0.03</correlation>
+    <correlation entry="d22d24">-0.42</correlation>
+	
+    <correlation entry="d23d24">0</correlation>
+	
+  </param>
+</expmu>

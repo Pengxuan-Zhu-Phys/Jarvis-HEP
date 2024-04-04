@@ -1,0 +1,4 @@
+import model MSSM_SLHA2 
+generate e+ e- > mur+ > mur- mu+ n1 
+add process e+ e- > mul+ > mul- mu+ n1
+output smuon

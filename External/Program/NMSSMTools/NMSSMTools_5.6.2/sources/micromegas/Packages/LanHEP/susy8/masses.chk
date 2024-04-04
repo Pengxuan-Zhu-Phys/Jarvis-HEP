@@ -1,0 +1,62 @@
+WARNING: some functions from external libraries were not loaded.
+WARNING: Numerical values may be incorrect.
+
+----------------------------------------------------------------
+Particles without kinetic term:
+['~00', '~01', '~02', '~03', '~04']
+
+----------------------------------------------------------------
+Particles without mass term:
+['~00', '~01', '~02', '~03', '~04']
+
+----------------------------------------------------------------
+Linear term with particle h
+Expression: (+4/EE**3*MW**3*SW**3*capb*cb*dlh3*sb+4/EE**3*MW**3*SW**3*capb*cb*dlh4*sb+4/EE**3*MW**3*SW**3*capb*cb*dlh5*sb-4/EE**3*MW**3*SW**3*capb*cb*dlh3*sb-4/EE**3*MW**3*SW**3*capb*cb*dlh4*sb-4/EE**3*MW**3*SW**3*capb*cb*dlh5*sb)
+Numeric value: +0.000000*i
+
+Linear term with particle H
+Expression: (+4/EE**3*MW**3*SW**3*cb*dlh3*sapb*sb+4/EE**3*MW**3*SW**3*cb*dlh4*sapb*sb+4/EE**3*MW**3*SW**3*cb*dlh5*sapb*sb-4/EE**3*MW**3*SW**3*cb*dlh3*sapb*sb-4/EE**3*MW**3*SW**3*cb*dlh4*sapb*sb-4/EE**3*MW**3*SW**3*cb*dlh5*sapb*sb)
+Numeric value: +0.000000*i
+
+
+---------------------------------------------------------------
+Mixing of particles ['H+', 'W+.f']
+
+M11 (H+/H-) = (+1*MW**2+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh5*sb**2+1/2/CW**2/EE**2*MW**2*S2W**2*dlh5-1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh6*sb+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh3*sb**2-1/2/CW**2/EE**2*MW**2*S2W**2*dlh3+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh4*sb**2-1/2/CW**2/EE**2*MW**2*S2W**2*dlh4+1*MH3**2+1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh7*sb-1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh3*sb**2+1/2/CW**2/EE**2*MW**2*S2W**2*dlh3-4/EE**2*MW**2*SW**2*cb**2*dlh4*sb**2-4/EE**2*MW**2*SW**2*cb**2*dlh5*sb**2+1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh6*sb-1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh7*sb)
+    = +1003.190651**2
+    Declared mass MHc=1003.190651
+
+
+M12 (H-/W+.f) = (-2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb)
+    = +0.000000*i
+
+
+M21 (H+/W-.f) = (-2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb)
+    = +0.000000*i
+
+
+M22 (W+.f/W-.f) = (+1*MW**2)
+    = +79.946748**2
+
+
+Looking for the mixing matrix...
+No mixing matrices found.
+
+---------------------------------------------------------------
+Mixing of particles [H3, 'Z.f']
+
+M11 (H3/H3) = (+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh5*sb**2+1/2/CW**2/EE**2*MW**2*S2W**2*dlh5-1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh6*sb+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh3*sb**2-1/2/CW**2/EE**2*MW**2*S2W**2*dlh3+1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh4*sb**2-1/2/CW**2/EE**2*MW**2*S2W**2*dlh4+1*MH3**2+1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh7*sb-1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh3*sb**2+1/2/CW**2/EE**2*MW**2*S2W**2*dlh3-1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh4*sb**2+1/2/CW**2/EE**2*MW**2*S2W**2*dlh4-1/CW**2/EE**2*MW**2*S2W**2*cb**2*dlh5*sb**2-1/2/CW**2/EE**2*MW**2*S2W**2*dlh5+1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh6*sb-1/CW**2/EE**2*MW**2*S2W**2*c2b*cb*dlh7*sb)
+    = +1000.000000**2
+    Declared mass MH3=1000.000000
+
+
+M12 (H3/Z.f) = (-2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb-2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh3*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh4*sb+2/EE**2*MW**2*SW**2*c2b*cb*dlh5*sb)
+    = +0.000000*i
+
+
+M22 (Z.f/Z.f) = (+1/CW**2*MW**2)
+    = +91.188400**2
+
+
+Looking for the mixing matrix...
+No mixing matrices found.

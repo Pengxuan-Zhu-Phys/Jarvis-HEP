@@ -1,0 +1,21 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+SetEM(A,EE).
+CheckHerm.
+
+
+
+%%%%%%%%%%%%%%%%%%% Higgs radiative corrections %%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+lterm  - dlh1*(s_h1*s_H1)**2/2
+       - dlh2*(s_h2*s_H2)**2/2
+       - dlh3*(s_h1*s_H1)*(s_h2*s_H2)
+       - dlh4*(eps2*s_h1*s_h2)*(eps2*s_H1*s_H2) 
+       - dlh5*((eps2*s_h1*s_h2)**2+(eps2*s_H1*s_H2)**2)/2
+       - dlh6*(s_h1*s_H1)*(eps2*s_h1*s_h2+eps2*s_H1*s_H2)
+       - dlh7*(s_h2*s_H2)*(eps2*s_h1*s_h2+eps2*s_H1*s_H2).
+
+
+CheckMasses(RedDiag=Vud,numcheck).

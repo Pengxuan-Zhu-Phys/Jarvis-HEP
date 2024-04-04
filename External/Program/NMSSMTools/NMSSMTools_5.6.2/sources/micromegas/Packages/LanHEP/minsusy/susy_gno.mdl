@@ -1,0 +1,108 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+
+parameter Zcsx = (MG2**2+mu**2)/2 + MW**2,
+          Zctx = (MG2**2-mu**2)**2/4+MW**4*c2b**2
+			+MW**2*(MG2**2+mu**2+2*mu*MG2*s2b),
+
+          MC01 = sqrt( Zcsx - sqrt(Zctx)),
+          MC02 = sqrt( Zcsx + sqrt(Zctx)),
+
+          Zcc2u  = -(MG2**2 - mu**2 - 2*MW**2*c2b )/(MC02**2-MC01**2),
+          Zcc2v  = -(MG2**2 - mu**2 + 2*MW**2*c2b )/(MC02**2-MC01**2),
+
+          Zcsigu = -(MG2*cb+mu*sb)/sqrt((MG2*cb+mu*sb)**2),
+          Zcsigv = -(MG2*sb+mu*cb)/sqrt((MG2*sb+mu*cb)**2),
+ 
+          Zccu   = sqrt((1+Zcc2u)/2),
+          Zcsu   = sqrt((1-Zcc2u)/2)*Zcsigu,
+          Zccv   = sqrt((1+Zcc2v)/2),
+          Zcsv   = sqrt((1-Zcc2v)/2)*Zcsigv,
+
+          Zcsig1 = (mu*MG2-MW**2*s2b)/sqrt((mu*MG2-MW**2*s2b)**2),
+          Zcsig2 = MW*Sqrt2*(cb*Zcsu*Zccv+sb*Zccu*Zcsv)+
+                                            mu*Zcsv*Zcsu+MG2*Zccu*Zccv,
+          Zcsig3 = Zcsig1*Zcsig2/sqrt(Zcsig2**2),
+          Zcsig4 = -MW*Sqrt2*(cb*Zccu*Zcsv+sb*Zcsu*Zccv)+
+                                            mu*Zccv*Zccu+MG2*Zcsu*Zcsv,
+
+          MC1    = Zcsig2**2/sqrt(Zcsig2**2):'1st chargino mass',
+          MC2    = Zcsig4**2/sqrt(Zcsig4**2):'2nd chargino mass',
+
+          Zm11   = Zccu*Zcsig1*Zcsig3,
+          Zm12   = -Zcsu*Zcsig3,
+          Zm21   = Zcsu*Zcsig1*Zcsig3,
+          Zm22   = Zccu*Zcsig3,
+ 
+          Zp11   = Zccv,
+          Zp12   = -Zcsv,
+          Zp21   = Zcsv,
+          Zp22   = Zccv.
+
+
+
+OrthMatrix({{Zp11, Zp12}, {Zp21, Zp22}}).
+OrthMatrix({{Zm11, Zm12}, {Zm21, Zm22}}).
+
+
+parameter Znx0 = (MG1+MG2)/4,
+          Znxc2 = MG1*MG2 - MZ**2 - mu**2 - 3/8*(MG1+MG2)**2,
+          Znxc3a = -1/8*(MG1+MG2)**3+1/2*(MG1+MG2)*(MG1*MG2-MZ**2-mu**2),
+          Znxc3 = Znxc3a + (MG1+MG2)*mu**2 + (MG1*CW**2+MG2*SW**2)*MZ**2
+                   - mu*MZ**2*s2b,
+          Znxc4b = (MG1*CW**2+MG2*SW**2)*mu*MZ**2*s2b - MG1*MG2*mu**2,
+          Znxc4a = Znxc4b
+                   + Znx0**2*(MG1*MG2-MZ**2-mu**2)- 3/256*(MG1+MG2)**4,
+		   
+          Znxc4= Znxc4a + Znx0*( (MG1+MG2)*mu**2+(MG1*CW**2
+	                      +MG2*SW**2)*MZ**2  -mu*MZ**2*s2b),
+	  
+          Znxs = - Znxc3**2 - 2/27*Znxc2**3 + 8/3*Znxc2*Znxc4,
+          Znxu = - 1/3*Znxc2**2 - 4*Znxc4.
+	  
+parameter Zncxd =  -4*Znxu**3 - 27*Znxs**2,
+          Zncua=atan2(sqrt(Zncxd/27)/2,-Znxs/2)/3,
+          Zncxa=(Zncxd/108+Znxs**2/4)**(1/6)*cos(Zncua),
+          Zncxb = 8*Zncxa - 8/3*Znxc2,
+          Zncx1 =  Zncxa/2 - Znxc2/6,
+          Zncx2 = -Zncxa/2 - Znxc2/3,
+          Zncx3 = Znxc3/sqrt(Zncxb).
+
+
+parameter MNE1a = Znx0 - sqrt(Zncx1) + sqrt(Zncx2+Zncx3):'1st neutralino mass',
+          MNE2a = Znx0 + sqrt(Zncx1) - sqrt(Zncx2-Zncx3):'2nd neutralino mass',
+          MNE3a = Znx0 - sqrt(Zncx1) - sqrt(Zncx2+Zncx3):'3rd neutralino mass',
+          MNE4a = Znx0 + sqrt(Zncx1) + sqrt(Zncx2-Zncx3):'4th neutralino mass'.
+
+external_func(sort4,5).
+
+_x=1-4 in parameter MNE_x=sort4(MNE1a,MNE2a,MNE3a,MNE4a,_x).
+
+
+% Neutralino mixing matrix
+
+_i=1-4 in
+parameter Znx_i2 = -CW/SW*(MG1-MNE_i)/(MG2-MNE_i),
+          Znx_ix = MZ*(MG2-MNE_i)*SW*(mu*cb+MNE_i*sb),  
+          Znx_i3 = ( mu*(MG2-MNE_i)*(MG1-MNE_i)-MZ**2*sb*cb * 
+                  ((MG1-MG2)*CW**2+MG2-MNE_i))/Znx_ix,
+          Znx_i4 = (-MNE_i*(MG2-MNE_i)*(MG1-MNE_i) - MZ**2*cb*cb * 
+                      ( (MG1-MG2)*CW**2+MG2-MNE_i))/Znx_ix,
+          Zn1_i = 1/sqrt(1+Znx_i2**2+Znx_i3**2+Znx_i4**2),
+          Zn2_i = Zn1_i*Znx_i2,
+          Zn3_i = Zn1_i*Znx_i3,
+          Zn4_i = Zn1_i*Znx_i4.
+		  
+OrthMatrix(Zn__,4).
+
+
+parameter wC1=0     :'width of chargino 1',
+          wC2=0     :'width of chargino 2'.
+	  
+parameter wNE2=0    :'width of neutralino 2',
+          wNE3=0    :'width of neutralino 3',
+          wNE4=0    :'width of neutralino 4'.
+
+parameter MSG=MG3   :'mass of gluino'.
+parameter wSG=0     :'width of gluino'.
+

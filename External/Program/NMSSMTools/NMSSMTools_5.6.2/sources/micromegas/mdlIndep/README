@@ -1,0 +1,16 @@
+Example of a code to compute certain observables for model-free  analysis.
+The free parameters are
+ 1- The WIMP mass (Mcdm)
+ 2- SI cross-sections on protons (csSIp) and neutrons (csSIn) in pb.
+ 3- SD cross-sections on protons (csSDp) and neutrons (csSDn) in pb.
+ 4- Cross section for DM annihihilation in the galaxy ( vcs ) in pb. = 0.310;
+ 5- The branching rations for DM pair annihilation in SM final states, the final states are specified by an array containing
+ the pdgCode (pdgCH[nCH]) and the branching fraction are specified in the array  fracCH[nCH]. For example
+int    pdgCH[nCH] ={   6,   5,  15,  23,   24};
+double fracCH[nCH]={0.59,0.12,0.20,0.03, 0.06};
+
+The observables computed are:
+  1- Indirect detection : the fluxes for photons, positrons and antiprotons
+  2- Direct detection on nuclei: the distribution for the recoil energy of the nucleus
+    and the total number of events in an energy range
+  3- Neutrino flux for DM captured in the Sun : number of events and exclusion level for IceCube22

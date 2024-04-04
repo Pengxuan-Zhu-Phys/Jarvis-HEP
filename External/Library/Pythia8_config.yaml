@@ -1,0 +1,25 @@
+installation:
+  commands:
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: mkdir Pythia8
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library/Source
+    cwd: /home/buding/Jarvis-HEP/External/Library
+  - cmd: tar -zxvf pythia8230.tgz
+    cwd: /home/buding/Jarvis-HEP/External/Library/Source
+  - cmd: cd /home/buding/Jarvis-HEP/External/Library/Source/pythia8230
+    cwd: /home/buding/Jarvis-HEP/External/Library/Source
+  - cmd: ./configure --with-hepmc2=/home/buding/Jarvis-HEP/External/Library/HepMC
+      --prefix=/home/buding/Jarvis-HEP/External/Library/Pythia8
+    cwd: /home/buding/Jarvis-HEP/External/Library/Source/pythia8230
+  - cmd: make -j16
+    cwd: /home/buding/Jarvis-HEP/External/Library/Source/pythia8230
+  - cmd: make install
+    cwd: /home/buding/Jarvis-HEP/External/Library/Source/pythia8230
+  path: /home/buding/Jarvis-HEP/External/Library/Pythia8
+  source: /home/buding/Jarvis-HEP/External/Library/Source/pythia8230.tgz
+installed: true
+name: Pythia8
+required_modules:
+- HepMC

@@ -1,0 +1,26 @@
+<!--
+ATLAS result for mu(ttH, 1l 2tau) at mH = 125. GeV
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2013-26/
+ -->
+
+<expmu dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2013-26</source>
+  <sqrts>8</sqrts>
+  <mass>125.</mass>
+
+
+  <eff prod="ttH" decay="WW">0.04</eff>
+  <eff prod="ttH" decay="tautau">0.93</eff>
+  <eff prod="ttH" decay="ZZ">0.00</eff>
+  <eff prod="ttH" decay="bb">0.03</eff>
+
+
+  <bestfit>-9.6</bestfit>
+  
+  <param>
+    <uncertainty side="left">-9.7</uncertainty>
+    <uncertainty side="right">9.6</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

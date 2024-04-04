@@ -1,0 +1,258 @@
+% Copyright (c) Andrei Semenov, 1996-2013.
+
+parameter pi=4*atan(1).
+
+% Standard model parameters
+
+parameter EE  = 0.3123 : 'Electromagnetic coupling constant (<->1/128)',
+          SW  = 0.4810  : 'sin of the Weinberg angle (PDG)'.
+		  
+
+parameter s12 = 0.221   : 'Parameter of C-K-M matrix (PDG)',
+          s23 = 0.041   : 'Parameter of C-K-M matrix (PDG)',
+          s13 = 0.0035  : 'Parameter of C-K-M matrix (PDG)'.
+
+parameter  GG  = 1.238.
+
+parameter  CW  = sqrt(1-SW**2) : 'cos of the Weinberg angle'.
+parameter  S2W = 2*SW*CW, C2W=CW**2-SW**2.
+
+let g=EE/SW, g1=EE/CW.
+
+parameter MZ = 91.1884:'Z mass', MW=MZ*CW:'W mass'.
+
+parameter Q=MZ:'scale parameter for reading slha file'.
+
+parameter  c12  = sqrt(1-s12**2) : 	'parameter  of C-K-M matrix',
+           c23  = sqrt(1-s23**2) : 	'parameter  of C-K-M matrix',
+           c13  = sqrt(1-s13**2) : 	'parameter  of C-K-M matrix'.
+
+do_if CKMdim==3.
+parameter  Vud = c12*c13                : 'C-K-M matrix element',
+           Vus = s12*c13                : 'C-K-M matrix element',
+           Vub = s13     	            : 'C-K-M matrix element',
+           Vcd = (-s12*c23-c12*s23*s13) : 'C-K-M matrix element',
+           Vcs = (c12*c23-s12*s23*s13)  : 'C-K-M matrix element',
+           Vcb = s23*c13                : 'C-K-M matrix element',
+           Vtd = (s12*s23-c12*c23*s13) 	: 'C-K-M matrix element',
+           Vts = (-c12*s23-s12*c23*s13)	: 'C-K-M matrix element',
+           Vtb = c23*c13  	            : 'C-K-M matrix element'.
+OrthMatrix( { {Vud,Vus,Vub}, {Vcd,Vcs,Vcb}, {Vtd,Vts,Vtb}} ).
+
+do_else_if CKMdim==2.
+let  Vud = c12, Vus = s12 , Vcs = Vud, Vcd = -Vus.
+let        Vub = 0, Vcb = 0, Vtd = 0, Vts = 0, Vtb = 1.
+do_else_if CKMdim==1.
+let  Vub=0, Vcb=0, Vtd=0, Vts=0, Vtb=1, Vud=1, Vus=0, Vcs=1, Vcd=0.
+end_if.
+
+do_if FV==on.
+alias ckm(1,1)=Vud, ckm(2,1)=Vus, ckm(3,1)=Vub,
+      ckm(1,2)=Vcd, ckm(2,2)=Vcs, ckm(3,2)=Vcb,
+      ckm(1,3)=Vtd, ckm(2,3)=Vts, ckm(3,3)=Vtb.
+end_if.
+
+do_if( e_mass==on,(parameter Me=5.11e-4:'electron mass'),(alias Me=0)).
+do_if(mu_mass==on,(parameter Mm=0.1057:'mass of muon'),  (alias Mm=0)).
+do_if( u_mass==on,(parameter Mu=46.0e-3:'u-quark mass'), (alias Mu=0)).
+do_if( d_mass==on,(parameter Md=46.0e-3:'d-quark mass'), (alias Md=0)).
+do_if( c_mass==on,(parameter Mc=1.27   :'c-quark mass'), (alias Mc=0)).
+do_if( s_mass==on,(parameter Ms=0.2    :'s-quark mass'), (alias Ms=0)).
+
+	  
+do_if u_mass==on.
+alias mu=mue.
+end_if.
+
+parameter wt = 1.7524:'width of top quark'.
+parameter wZ = 2.4944:'Z-boson width',
+          wW = 2.08895:'W-boson width'.
+
+do_if CPV==off.
+parameter tb=slhaVal1(str(hmix),MZ,2).
+do_else.
+parameter tb=slhaVal1(str(EXTPAR),MZ,25).
+end_if.
+
+parameter Mb=slhaVal1(str(SMINPUTS),MZ,5),
+          Mt=slhaVal1(str(SMINPUTS),MZ,6),
+		  Ml=slhaVal1(str(SMINPUTS),MZ,7).
+
+
+%define soft susy parameters
+
+do_if CPV==on.
+alias MSOFT=EXTPAR.
+parameter MG1r=slhaVal1(str(EXTPAR),Q,1),
+          MG1i=slhaVal1(str(IMEXTPAR),Q,1),
+		  MG2r=slhaVal1(str(EXTPAR),Q,2),
+          MG2i=slhaVal1(str(IMEXTPAR),Q,2),
+          MG3r=slhaVal1(str(EXTPAR),Q,3),
+		  MG3i=slhaVal1(str(IMEXTPAR),Q,3),
+          mur= slhaVal1(str(EXTPAR),Q,23),
+		  mui =slhaVal1(str(IMEXTPAR),Q,23),
+          Atr= slhaVal1(str(EXTPAR),Q,11),
+		  Ati =slhaVal1(str(IMEXTPAR),Q,11),
+          Abr= slhaVal1(str(EXTPAR),Q,12),
+		  Abi =slhaVal1(str(IMEXTPAR),Q,12),
+          Alr= slhaVal1(str(EXTPAR),Q,13),
+		  Ali =slhaVal1(str(IMEXTPAR),Q,13).
+
+let mu=mur+i*mui, mucc=anti(mu), MG1=MG1r+i*MG1i, MG2=MG2r+i*MG2i, MG3=MG3r+i*MG3i.
+let At=Atr+i*Ati,  Ab=Abr+i*Abi,  Al=Alr+i*Ali.
+do_else.
+
+parameter mu=slhaVal1(str(hmix),MZ,1).
+parameter MG1=slhaVal1(str(MSOFT),Q,1),
+          MG2=slhaVal1(str(MSOFT),Q,2),
+          MG3=slhaVal1(str(MSOFT),Q,3).
+end_if.
+
+do_if FV==off.
+parameter Mq1=slhaVal1(str(MSOFT),Q,41),
+          Mq2=slhaVal1(str(MSOFT),Q,42),
+          Mq3=slhaVal1(str(MSOFT),Q,43),
+          Mu1=slhaVal1(str(MSOFT),Q,44),
+          Mu2=slhaVal1(str(MSOFT),Q,45),
+          Mu3=slhaVal1(str(MSOFT),Q,46),
+          Md1=slhaVal1(str(MSOFT),Q,47),
+          Md2=slhaVal1(str(MSOFT),Q,48),
+          Md3=slhaVal1(str(MSOFT),Q,49),
+          Ml1=slhaVal1(str(MSOFT),Q,31),
+          Ml2=slhaVal1(str(MSOFT),Q,32),
+          Ml3=slhaVal1(str(MSOFT),Q,33),
+          Mr1=slhaVal1(str(MSOFT),Q,34),
+          Mr2=slhaVal1(str(MSOFT),Q,35),
+          Mr3=slhaVal1(str(MSOFT),Q,36).
+parameter At= slhaVal2(str(Au),Q,3,3),
+          Ab= slhaVal2(str(Ad),Q,3,3),
+          Al= slhaVal2(str(Ae),Q,3,3).
+
+do_else.
+_i=1-3, _j=1-3 in 
+parameter Mlsq_i_j=slhaVal2(str(msl2),Q,_i,_j),
+          Mrsq_i_j=slhaVal2(str(mse2),Q,_i,_j),
+		  Mq1sq_i_j=slhaVal2(str(msq2),Q,_i,_j),
+		  Musq_i_j=slhaVal2(str(msu2),Q,_i,_j),
+		  Mdsq_i_j=slhaVal2(str(msd2),Q,_i,_j),
+		  ls_i_j=slhaVal2(str(te),Q,_i,_j),
+		  us_i_j=slhaVal2(str(tu),Q,_i,_j),
+		  dsm_i_j=slhaVal2(str(td),Q,_i,_j),
+		  Zsn_i_j=slhaVal2(str(SNUMIX),Q,_j,_i).
+_i=1-3, _j=1-3 in let ds_j_i=dsm1_i*ckm(1,_j)+dsm2_i*ckm(2,_j)+dsm3_i*ckm(3,_j) .
+end_if.
+
+
+ /******************** Higgs sector constrains ************************/
+
+
+parameter sb=tb/sqrt(1+tb**2):'Sinus beta', cb=sqrt(1-sb**2):'Cosine beta'.
+parameter t2b=2*tb/(1-tb**2).
+
+angle     sin=sb, cos=cb, tan=tb, texname='\\beta'.
+
+parameter c2b=cb**2-sb**2 : 'cos(2b)'.
+parameter s2b=4*sb*cb/2 :     'sin(2b)'.
+
+do_if NMSSM==on.
+
+parameter hL=slhaVal1(str(NMSSMRUN),Q,1):'lambda higgs parameter'.
+parameter hK=slhaVal1(str(NMSSMRUN),Q,2):'kappa higgs parameter'.
+
+parameter hLs=slhaVal1(str(NMSSMRUN),Q,3):'lambda soft higgs parameter'.
+parameter hKs=slhaVal1(str(NMSSMRUN),Q,4):'kappa soft higgs parameter'.
+
+parameter xvev=mu/hL.
+
+end_if.
+
+
+
+
+ /*********************** Slepton sector *******************************/
+
+
+do_if FV==on.
+
+alias MtopS=Mt.
+
+parameter MSd1=slhaVal1(str(MASS),Q,1000001),
+          MSd2=slhaVal1(str(MASS),Q,1000003),
+          MSd3=slhaVal1(str(MASS),Q,1000005),
+		  MSd4=slhaVal1(str(MASS),Q,2000001),
+          MSd5=slhaVal1(str(MASS),Q,2000003),
+          MSd6=slhaVal1(str(MASS),Q,2000005).
+parameter MSu1=slhaVal1(str(MASS),Q,1000002),
+          MSu2=slhaVal1(str(MASS),Q,1000004),
+          MSu3=slhaVal1(str(MASS),Q,1000006),
+		  MSu4=slhaVal1(str(MASS),Q,2000002),
+          MSu5=slhaVal1(str(MASS),Q,2000004),
+          MSu6=slhaVal1(str(MASS),Q,2000006).
+parameter MSe1=slhaVal1(str(MASS),Q,1000011),
+          MSe2=slhaVal1(str(MASS),Q,1000013),
+          MSe3=slhaVal1(str(MASS),Q,1000015),
+		  MSe4=slhaVal1(str(MASS),Q,2000011),
+          MSe5=slhaVal1(str(MASS),Q,2000013),
+          MSe6=slhaVal1(str(MASS),Q,2000015).
+parameter MSn1=slhaVal1(str(MASS),Q,1000012),
+          MSn2=slhaVal1(str(MASS),Q,1000014),
+          MSn3=slhaVal1(str(MASS),Q,1000016).
+
+
+
+/*
+_i=1-3, _j=1-3 in parameter Mqsq_i_j=
+ckm(1,_i)*Mq1sq11*ckm(1,_j)+ckm(1,_i)*Mq1sq12*ckm(2,_j)+ckm(1,_i)*Mq1sq13*ckm(3,_j)+
+ckm(2,_i)*Mq1sq21*ckm(1,_j)+ckm(2,_i)*Mq1sq22*ckm(2,_j)+ckm(2,_i)*Mq1sq23*ckm(3,_j)+
+ckm(3,_i)*Mq1sq31*ckm(1,_j)+ckm(3,_i)*Mq1sq32*ckm(2,_j)+ckm(3,_i)*Mq1sq33*ckm(3,_j).
+*/
+_i=1-3, _j=1-3 in let Mqsq_i_j=Mq1sq_i_j.
+
+
+_i=1-6, _j=1-6 in 
+parameter Zl_i_j=slhaVal2(str(SELMIX),Q,_j,_i),
+          Zu_i_j=slhaVal2(str(USQMIX),Q,_j,_i),
+          Zd_i_j=slhaVal2(str(DSQMIX),Q,_j,_i).
+
+_x=[q,r,l,u,d] in alias M_xsq21=M_xsq12, M_xsq31=M_xsq13, M_xsq32=M_xsq23.
+
+
+OrthMatrix(Zu__,6).
+OrthMatrix(Zd__,6).
+OrthMatrix(Zl__,6).
+OrthMatrix(Zsn__,3).
+
+do_else.
+
+do_if ms1eq2==on.
+clear Ml1, Mr1.
+alias Ml1=Ml2 . 
+alias Mr1=Mr2.
+end_if.
+
+
+read susy_sle. % Slepton masses and mixing matrices
+
+ /***************** Squarks sector ****************************/
+
+
+
+do_if ms1eq2==on.
+clear Mq1, Mu1, Md1.
+alias Mq1=Mq2. 
+alias Mu1=Mu2. 
+alias Md1=Md2.
+end_if.
+ 
+read susy_squ.  % Squark masses and mixing matrices
+
+end_if. % FV==off
+
+ /******************** Higgs sector constrains ************************/
+
+
+
+read susy_hig.  % Higgs masses & mixings
+read susy_gno.  % Chargino and neutralino masses & mixings
+
+

@@ -1,0 +1,30 @@
+<!--
+ATLAS result for mu(ggH, tautau) & mu(VBF, tautau) at mH = 125.09 GeV,
+with profile likelihood and their correlation fitted
+from 95% CL in Aux. Fig. 5, shown in HIGG-2017-07
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2017-07/
+-->
+
+<expmu decay="tautau" dim="2" type="vn">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2017-07</source>
+  <sqrts>13</sqrts>
+  <mass>125</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="x" prod="ggH">1.0</eff>
+  <eff axis="y" prod="VBF">1.0</eff>
+
+  <bestfit>
+    <x>0.9994350282485871</x>
+    <y>1.1998058252427213</y>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="x" side="left">-0.593134046061</uncertainty>
+    <uncertainty axis="x" side="right">+0.724600428375</uncertainty>
+    <uncertainty axis="y" side="left">-0.562319990147</uncertainty>
+    <uncertainty axis="y" side="right">+0.62291154423</uncertainty>
+    <correlation>-0.451624456885</correlation>
+  </param>
+</expmu>

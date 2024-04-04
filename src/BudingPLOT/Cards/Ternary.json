@@ -1,0 +1,175 @@
+{
+    "colormap_path": "&BP/Cards/colormap.json",
+    "TS": {
+        "figsize": {
+            "figsize": [
+                10,
+                8
+            ]
+        },
+        "axsize": {
+            "rect": [
+                0.13,
+                0.13,
+                0.83,
+                0.83
+            ]
+        }
+    },
+    "TSC": {
+        "figsize": {
+            "figsize": [
+                8,
+                8
+            ]
+        },
+        "axsize": {
+            "rect": [
+                0.0,
+                0.0,
+                1.0,
+                1.0
+            ]
+        },
+        "axcsize": {
+            "rect": [
+                0.8,
+                0.64,
+                0.02,
+                0.3
+            ]
+        },
+        "canvas": {
+            "ax": {
+                "c": "black",
+                "solid_joinstyle": "miter",
+                "linewidth": 1.5,
+                "zorder": 4.0
+            }
+        },
+        "colormap": {
+            "cmap": "Default_Rainbow"
+        },
+        "marker": {
+            "marker": "^",
+            "s": 2.0,
+            "edgecolor": null,
+            "zorder": 10
+        },
+        "ticks": {
+            "N": 10,
+            "length": 0.01,
+            "label_off": 0.017,
+            "tick": {
+                "c": "black",
+                "zorder": 4.0,
+                "linewidth": 1.2,
+                "solid_capstyle": "round"
+            },
+            "bottom_tick_label": {
+                "fontsize": 14,
+                "horizontalalignment": "center",
+                "verticalalignment": "top",
+                "rotation": 60
+            },
+            "right_tick_label": {
+                "fontsize": 14,
+                "horizontalalignment": "left",
+                "verticalalignment": "center",
+                "rotation": 0
+            },
+            "left_tick_label": {
+                "fontsize": 14,
+                "horizontalalignment": "right",
+                "verticalalignment": "bottom",
+                "rotation": -60
+            }
+        },
+        "grid": {
+            "switch": true,
+            "style": {
+                "linewidth": 0.8,
+                "color": "gray",
+                "alpha": 0.6,
+                "zorder": 3.0
+            }
+        },
+        "label": {
+            "off_set": 0.49,
+            "bottom": {
+                "fontsize": 26,
+                "color": "black",
+                "horizontalalignment": "center",
+                "verticalalignment": "center",
+                "rotation": 0
+            },
+            "right": {
+                "fontsize": 26,
+                "color": "black",
+                "horizontalalignment": "center",
+                "verticalalignment": "center",
+                "rotation": -60
+            },
+            "left": {
+                "fontsize": 26,
+                "color": "black",
+                "horizontalalignment": "center",
+                "verticalalignment": "center",
+                "rotation": 60
+            },
+            "c": {
+                "fontsize": 26,
+                "color": "black",
+                "zorder": 10 
+            }
+        },
+        "axc_major_ticks_parameter": {
+            "which": "major",
+            "labelsize": 14,
+            "length": 6,
+            "color": "black",
+            "direction": "in",
+            "bottom": false,
+            "top": false,
+            "left": false,
+            "right": true
+        },
+        "axc_minor_ticks_parameter": {
+            "which": "minor",
+            "labelsize": 10,
+            "length": 4,
+            "color": "black",
+            "direction": "in",
+            "bottom": false,
+            "top": false,
+            "left": false,
+            "right": true
+        }    
+    },
+    "default": {
+        "print mode": [
+            "save"
+        ],
+        "ternary coord": {
+            "bottom": [
+                0.0,
+                1.0
+            ],
+            "left": [
+                0.0,
+                1.0
+            ],
+            "right": [
+                0.0,
+                1.0
+            ]
+        },
+        "n_ticks": {
+            "TSC": 10
+        },
+        "coords_format": "{0:.0%}"
+    },
+    "alter":{
+        "coords_format": "{:.1f}"
+    }
+}

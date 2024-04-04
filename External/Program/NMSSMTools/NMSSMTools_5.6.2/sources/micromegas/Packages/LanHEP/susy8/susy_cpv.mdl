@@ -1,0 +1,146 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Definitions for SUSY with CP violation 
+
+clear mu, MG1, MG2.
+
+parameter  aMG1=200, fiMG1=20, aMG2=500, fiMG2=70.
+
+parameter MG1r=aMG1*cos(fiMG1*pi/180),
+          MG1i=aMG1*sin(fiMG1*pi/180),
+		  MG2r=aMG2*cos(fiMG2*pi/180),
+          MG2i=aMG2*sin(fiMG2*pi/180),
+		  MG3i=0,
+		  amu=300, fimu=70,
+       	  mur=amu*cos(fimu/180*pi),
+		  mui=amu*sin(fimu/180*pi), 
+	Alr=1000, Ali=500, Atr=1000, Ati=600, Abr=1000, Abi=-400, MHc=500, wHc.
+
+let mu=mur+i*mui, muc=anti(mu), MG1=MG1r+i*MG1i, MG2=MG2r+i*MG2i.
+
+
+parameter fMG1=fiMG1*pi/180, fMG2=fiMG2*pi/180, fmu=fimu*pi/180. 
+
+
+external_func(neutcp1,10,'./cpviol.so').
+external_func(neutcp2, 4,'./cpviol.so').
+external_func(chacp1,  8,'./cpviol.so').
+external_func(chacp2,  4,'./cpviol.so').
+fainclude('cpvf.F').
+
+parameter neutct=neutcp1(MZ,MW,SW,aMG1,aMG2,amu,tb,fMG1,fMG2,fmu).
+
+_x=1-4, _y=1-4 in parameter Zn_x_yr=neutcp2(neutct, 1, _x, _y),  
+			                Zn_x_yi=-neutcp2(neutct, 2, _x, _y). 
+_x=1-4         in parameter MNE_x=  neutcp2(neutct, 3, _x, _x):'Neutralino _x mass', wNE_x.
+_x=1-4, _y=1-4 in let Zn_x_y=Zn_x_yr+i*Zn_x_yi.
+
+
+HermMatrix(Zn__r,Zn__i,4).
+
+parameter chatkn=chacp1(MZ,MW,SW,aMG2,amu,tb,fMG2,fmu).
+
+_x=1-2 in _y=1-2 in parameter Zm_x_yr= chacp2(chatkn,1, _x, _y), Zp_x_yr= chacp2(chatkn,3, _x, _y),
+					          Zm_x_yi= chacp2(chatkn,2, _x, _y), Zp_x_yi=-chacp2(chatkn,4, _x, _y).
+_x=1-2 in           parameter MC_x=chacp2(chatkn,5, _x, _x):'Chargino _x mass', wC_x.
+
+
+_x=1-2 in _y=1-2 in let Zp_x_y=Zp_x_yr+i*Zp_x_yi, Zm_x_y=Zm_x_yr+i*Zm_x_yi.
+
+
+HermMatrix(Zm__r,Zm__i,2).
+HermMatrix(Zp__r,Zp__i,2).
+
+parameter MSG=MG3:'gluino mass', wSG.
+
+parameter hM11 = MZ**2-2*MZ**2*sb**2+MZ**2*SW**2*sb**2+MHc**2*sb**2,
+          hM12 = -MZ**2*SW**2*cb*sb-MHc**2*cb*sb,
+          hM22 = -MZ**2+MZ**2*SW**2+2*MZ**2*sb**2-MZ**2*SW**2*sb**2+MHc**2*cb**2,
+          hM33 = -MW**2+MHc**2.
+		  
+alias hM13 = 0, hM23 = 0.
+
+parameter htkn=rDiagonal(3,hM11,hM12,hM13,hM22,hM23,hM33).
+
+
+_x=1-3 in         parameter Mh_x=sqrt(MassArray(htkn,  _x)), wh_x.
+_x=1-3, _y=1-3 in parameter Zh_x_y=MixMatrix(htkn, _y, _x).
+
+
+_x=1-4 in let dlh_x=0.
+_x=5-7 in let dlh_xr=0, dlh_xi=0.
+OrthMatrix(Zh__,3).
+
+
+let dh1=2*MW**2/EE**2*SW**2*
+     (-2*dlh1*cb**2-dlh3*sb**2-sb**2*dlh4-sb**2*dlh5r
+       -3*cb*sb*dlh6r-sb**3/cb*dlh7r ).
+let dh2=2*MW**2/EE**2*SW**2*
+     (-2*dlh2*sb**2-dlh3*cb**2-cb**2*dlh4-cb**2*dlh5r
+       -cb**3/sb*dlh6r-3*cb*sb*dlh7r).
+
+
+let dhsr= -2/EE**2*MW**2*SW**2*cb*sb*(dlh4+dlh5r+dlh6r*cb/sb+dlh7r*sb/cb).
+let dhsi= -2/EE**2*MW**2*SW**2*cb*sb*(dlh5i+dlh6i*cb/sb+dlh7i*sb/cb).
+
+
+let hsr= -(MHc**2-MW**2)*cb*sb+dhsr.
+let hs=hsr+i*dhsi.
+let M2_H1= -hsr*sb/cb-(mur**2+mui**2)-MW**2/2/CW**2*(cb**2-sb**2) +dh1.
+let M2_H2= -hsr*cb/sb-(mur**2+mui**2)+MW**2/2/CW**2*(cb**2-sb**2) +dh2.
+
+
+clear MSbLL-Zd66, ds3, Ab.
+
+parameter MSbLL= Mq3**2 + Mb**2 - MW**2/CW**2*(1/2-1/3*SW**2)*c2b,
+          MSbLRr= Mb*(Abr - mur*tb),
+		  MSbLRi= Mb*(Abi + mui*tb),
+          MSbRR= Md3**2 + Mb**2 - 1/3*MW**2/CW**2*SW**2*c2b,
+          MSb1= sqrt((MSbLL+MSbRR-sqrt((MSbLL-MSbRR)**2+4*(MSbLRr**2+MSbLRi**2)))/2),
+          MSb2= sqrt((MSbLL+MSbRR+sqrt((MSbLL-MSbRR)**2+4*(MSbLRr**2+MSbLRi**2)))/2),
+          MSbth=atan2(-2*sqrt(MSbLRr**2+MSbLRi**2),-MSbLL+MSbRR)*MSbLRr/sqrt(MSbLRr**2)/2,
+		  MSbfi=atan(-MSbLRi/MSbLRr).
+parameter Zd33r=cos(MSbth), Zd36r=-sin(MSbth)*cos(MSbfi), Zd63r=-Zd36r, Zd66r=Zd33r.
+parameter Zd33i=sin(0), Zd36i=-sin(MSbth)*sin(MSbfi), Zd63i=Zd36i, Zd66i=Zd33i.
+
+let Ab=Abr+i*Abi, ds3=Mb*Ab*EE/SW/MW/Sqrt2/cb.
+_x=[3,6], _y=[3,6] in let Zd_x_y=Zd_x_yr+i*Zd_x_yi.
+HermMatrix({{Zd33r, Zd36r}, {Zd63r, Zd66r}},{{Zd33i, Zd36i}, {Zd63i, Zd66i}}).
+
+clear MStLL-Zu66, us3, At.
+
+parameter MStLL= Mq3**2 + MtopS**2 + MW**2/CW**2*(1/2-2/3*SW**2)*c2b,
+          MStLRr= MtopS*(Atr - mur/tb),
+		  MStLRi= MtopS*(-Ati - mui/tb),
+          MStRR= Mu3**2 + MtopS**2 + 2/3*MW**2/CW**2*SW**2*c2b,
+          MSt1=sqrt((MStLL+MStRR-sqrt((MStLL-MStRR)**2+4*(MStLRr**2+MStLRi**2)))/2),
+          MSt2=sqrt((MStLL+MStRR+sqrt((MStLL-MStRR)**2+4*(MStLRr**2+MStLRi**2)))/2), 
+          MStth=atan2(-2*sqrt(MStLRr**2+MStLRi**2),-MStLL+MStRR)*MStLRr/sqrt(MStLRr**2)/2,
+		  MStfi=atan(MStLRi/MStLRr).
+parameter Zu33r=cos(MStth), Zu36r=-sin(MStth)*cos(MStfi), Zu63r=-Zu36r, Zu66r=Zu33r.
+parameter Zu33i=sin(0), Zu36i=-sin(MStth)*sin(MStfi), Zu63i=Zu36i, Zu66i=Zu33i.
+
+let At=Atr+i*Ati, us3=-At*MtopS*EE/SW/MW/Sqrt2/sb.
+
+_x=[3,6], _y=[3,6] in let Zu_x_y=Zu_x_yr+i*Zu_x_yi.
+HermMatrix({{Zu33r, Zu36r}, {Zu63r, Zu66r}},{{Zu33i, Zu36i}, {Zu63i, Zu66i}}).
+
+clear MSlLL-Zl66, ls3, Al.
+
+parameter MSlLL = Ml3**2 + Ml**2 - MW**2/CW**2*(1/2-SW**2)*c2b,
+          MSlLRr = Ml*(Alr - mur*tb),
+		  MSlLRi = Ml*(Ali + mui*tb),
+          MSlRR = Mr3**2 + Ml**2 - MW**2/CW**2*SW**2*c2b,
+          MSl1= sqrt((MSlLL+MSlRR-sqrt((MSlLL-MSlRR)**2+4*(MSlLRr**2+MSlLRi**2)))/2):'light stau mass',
+          MSl2= sqrt((MSlLL+MSlRR+sqrt((MSlLL-MSlRR)**2+4*(MSlLRr**2+MSlLRi**2)))/2):'heavy stau mass',
+          MSlth=atan2(-2*sqrt(MSlLRr**2+MSlLRi**2),-MSlLL+MSlRR)*MSlLRr/sqrt(MSlLRr**2)/2:'stau mixing angle',
+		  MSlfi=atan(-MSlLRi/MSlLRr).
+parameter Zl33r=cos(MSlth), Zl36r=-sin(MSlth)*cos(MSlfi), Zl63r=-Zl36r, Zl66r=Zl33r.
+parameter Zl33i=0, Zl36i=-sin(MSlth)*sin(MSlfi), Zl63i=Zl36i, Zl66i=Zl33i.
+
+
+let Al=Alr+i*Ali, ls3= Ml*Al/Sqrt2*EE/SW/MW/cb.
+
+_x=[3,6] in _y=[3,6] in let Zl_x_y=Zl_x_yr+i*Zl_x_yi.
+HermMatrix({{Zl33r, Zl36r}, {Zl63r, Zl66r}},{{Zl33i, Zl36i}, {Zl63i, Zl66i}}).
+

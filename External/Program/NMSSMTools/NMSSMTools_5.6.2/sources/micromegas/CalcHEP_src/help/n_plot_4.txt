@@ -1,0 +1,8 @@
+3 5 50 Plot
+In general plot presents histograms and curves.
+Curves can be presented by lines or by spline.
+This menu allows the user  to define which curves 
+should be presented by splines. 
+
+The curve presented by spline in PAW,Gnuplot,
+Root output will be presented by spline as well.

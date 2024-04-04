@@ -1,0 +1,28 @@
+<!--
+parametrization of a 2D Gaussian fitted from the 68% CL contour
+in the plane mu(gg+ttH, gamma gamma) vs. mu(VBF+VH, gamma gamma)
+at mH = 125.02 GeV, shown in CMS-HIG-14-009
+https://twiki.cern.ch/twiki/bin/view/CMSPublic/Hig14009PaperTwiki
+-->
+
+<expmu decay="gammagamma" dim="2" type="n">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-14-009</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.02</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="x" prod="ggH">1.0</eff>
+  <eff axis="y" prod="VVH">1.0</eff>
+
+  <bestfit>
+    <x>1.10322</x>
+    <y>1.2787</y>
+  </bestfit>
+  
+  <param>
+    <a>10.6267</a>
+    <b>1.99533</b>
+    <c>3.21172</c>
+  </param>
+</expmu>

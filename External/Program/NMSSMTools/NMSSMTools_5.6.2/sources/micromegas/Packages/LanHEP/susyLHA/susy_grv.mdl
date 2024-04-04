@@ -1,0 +1,113 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+
+
+%
+% (s)Goldstino interaction to MSSM particles
+% A. Semenov, 7.11.2001.
+%
+
+parameter Sqrt3=sqrt(3), Mplank=2.4e18.
+parameter sqF=3000, F=sqF*sqF, mua=0, muhh=0.5.
+
+do_if SUSYCALC==gmsb.
+parameter Mgrv=gmLAM*gmMES*gmCGV/Sqrt3/Mplank:'gravitino mass'.
+do_else.
+parameter Mgrv=F/(Mplank*Sqrt3):'gravitino mass'.
+end_if.
+let Lgrv1=1/4/F*Sqrt2.
+
+
+spinor '~gr'/'~gr':(gravitino /*, mass Mgrv*/).
+scalar  sS/sS:(sgoldstinoS, mass  MsS=1.0e3, width wsS=0).
+scalar  sP/sP:(sgoldstinoP, mass  MsP=1.0e3, width wsP=0).
+let sgld=(sS+i*sP)/Sqrt2, Sgld=anti(sgld).
+
+special sigma2:(spinor2, spinor2, vector, vector).
+
+
+% Strength tensors 
+
+let F_B^mu^nu=deriv^mu*B0^nu-deriv^nu*B0^mu.
+
+let F_G^mu^nu^a=deriv^mu*G^nu^a-deriv^nu*G^mu^a+i*GG*f_SU3^a^b^c*G^mu^b*G^nu^c.
+
+let F_W^mu^nu^a=deriv^mu*W^nu^a-deriv^nu*W^mu^a +i*g*eps^a^b^c*Wc^mu^b*Wc^nu^c.
+let F_Wc^mu^nu^a=deriv^mu*Wc^nu^a-deriv^nu*Wc^mu^a +i*g*eps^a^b^c*W^mu^b*W^nu^c.
+
+
+/****** Gravitino interaction ***********/
+
+
+lterm -Sqrt2/F*F_B*deriv*down(~gr)*sigma*f_B0 + AddHermConj.
+lterm -Sqrt2/F*F_Wc*deriv*down(~gr)*sigma*f_W + AddHermConj.
+lterm -Sqrt2/F*F_G*deriv*down(~gr)*sigma*f_G + AddHermConj.
+
+
+
+lterm 2/F*(i*deriv+g*taupm*W/2-g1*B0/2)*s_H1*f_h1*deriv*up(~gr) +AddHermConj.
+lterm 2/F*(i*deriv+g*taupm*W/2+g1*B0/2)*s_H2*f_h2*deriv*up(~gr) +AddHermConj.
+
+
+lterm 2/F*(i*deriv+g*taupm*W/2-g1*B0/2)*sPhi*fphi*deriv*up(~gr) + AddHermConj
+							where
+		sPhi=s_L1, fphi=f_l1;
+		sPhi=s_L2, fphi=f_l2;
+		sPhi=s_L3, fphi=f_l3.
+
+
+lterm 2/F*(i*deriv+g1*B0)*sPhi*fphi*deriv*up(~gr) + AddHermConj
+							where
+		sPhi=s_R1, fphi=f_r1;
+		sPhi=s_R2, fphi=f_r2;
+		sPhi=s_R3, fphi=f_r3.
+
+lterm 2/F*(i*deriv-GG*lambda*G+g*taupm*W/2+g1*B0/6)
+			*sPhi*fphi*deriv*up(~gr) + AddHermConj
+							where
+		sPhi=s_Q1, fphi=f_q1;
+		sPhi=s_Q2, fphi=f_q2;
+		sPhi=s_Q3, fphi=f_q3.
+		
+lterm 2/F*(i*deriv+GG*lambda*G - 2*g1*B0/3)
+			*sPhi*fphi*deriv*up(~gr) + AddHermConj
+							where
+		sPhi=s_U1, fphi=f_u1;
+		sPhi=s_U2, fphi=f_u2;
+		sPhi=s_U3, fphi=f_u3.
+
+lterm 2/F*(i*deriv+GG*lambda*G + g1*B0/3)
+			*sPhi*fphi*deriv*up(~gr) + AddHermConj
+							where
+		sPhi=s_D1, fphi=f_d1;
+		sPhi=s_D2, fphi=f_d2;
+		sPhi=s_D3, fphi=f_d3.
+
+
+
+
+lterm -Lgrv1*MG3*F_G^mu^nu*F_G^mu^nu*sS.
+
+lterm -Lgrv1*MG1*F_B^mu^nu*F_B^mu^nu*sS.
+
+lterm -Lgrv1*MG2*F_W^mu^nu^a*F_Wc^mu^nu^a*sS.
+
+lterm Lgrv1/2*MG3*epsv*F_G*F_G*sP.
+
+lterm Lgrv1/2*MG1*epsv*F_B*F_B*sP.
+
+lterm Lgrv1/2*MG2*epsv*F_W*F_Wc*sP.
+
+lterm Lgrv1*(-MsS**2*sS*cc('~gr')*'~gr'+i*MsP**2*sP*cc('~gr')*gamma5*'~gr').
+
+
+
+
+lterm MsS**2*sS/2/Sqrt2/F*up(~g)*up(~g)
+   -i*MsP**2*sP/2/Sqrt2/F*up(~g)*up(~g) + AddHermConj.
+
+
+lterm -eps2*sgld*(Al*ml3*s_h1*f_l3*f_r3+
+		Ab*md3*s_h1*(Vub*f_q1+Vcb*f_q2+Vtb*f_q3)*f_d3+
+		At*mu3*s_h2*f_q3*f_u3)/F + AddHermConj.
+

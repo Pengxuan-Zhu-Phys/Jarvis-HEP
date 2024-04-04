@@ -1,0 +1,14 @@
+To make test run,
+
+1) be sure you have already compiled LanHEP ('make' command
+   in the previous directory)
+
+2) run LanHEP, type in this directory:
+ ../lhep -co -OutDir tmp input/stand.mdl
+
+3) Files are created in tmp/ subdirectory, compare them with
+  reference data in output/ subdirectory. Type
+ diff output/ tmp/
+
+  This command should give to output if the data are identical
+  in both directories.

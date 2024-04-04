@@ -1,0 +1,66 @@
+{
+    "canvas": {
+        "height": 6,
+        "left": 1.2,
+        "bottom": 0.4,
+        "top": 0.4,
+        "right": 0.2,
+        "block": 2.0
+    },
+    "axis_visible": {
+        "left": "on",
+        "right": "off",
+        "top":  "off",
+        "bottom": "off"
+    },
+    "yaxis": {
+        "label":    "Mass (GeV)",
+        "extend":   0.02,
+        "fontsize": 30,
+        "rotation": 90,
+        "head_width": 0.007,
+        "head_length": 0.02,
+        "x":  -0.068,
+        "y":  0.5,
+        "fc": "#363e42",
+        "ec": "#363e42",
+        "shape": "right",
+        "joinstyle": "miter",
+        "scale": "flat"
+    },
+    "yticks": {
+        "majorlength": 7,
+        "minorlength": 4.5,
+        "color": "#363e42",
+        "direction": "in",
+        "width": 1.0,
+        "labelsize": 20
+    },
+    "mass": {
+        "linewidth": 1.7,
+        "chargedpos": [0.25, 0.65],
+        "chargedcolor": "#CF2121",
+        "neutralpos": [0.35, 0.75],
+        "neutralcolor": "#404BB3",
+        "defaultpos": [0.3, 0.73],
+        "defaultcolor": "#363e42",
+        "labeloffline": 0.04,
+        "labelsize":   20,
+        "labelcolor": "#161F1A"  
+    },
+    "decay": {
+        "minbr": 0.05,
+        "minwidth": 0.5,
+        "maxwidth": 2.5,
+        "colormap": "Grey",
+        "head_width": 0.006,
+        "head_outer":  0.004,
+        "head_length": 0.015,
+        "linestyle": "dotted",
+        "minlens":  0.03
+    },
+    "colormappath": "&BP/docu/Card/colormap.json",
+    "colorcardpath":    "&BP/docu/Color_Card/Particle_Color_Card.json",
+    "fillstylepath":  "&BP/docu/Card/fillstyle.json",
+    "linestylepath":  "&BP/docu/Card/linestyle.json"
+}

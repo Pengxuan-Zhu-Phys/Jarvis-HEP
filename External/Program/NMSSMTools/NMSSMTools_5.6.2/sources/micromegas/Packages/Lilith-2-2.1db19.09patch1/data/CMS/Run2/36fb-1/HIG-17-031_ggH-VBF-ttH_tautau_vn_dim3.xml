@@ -1,0 +1,37 @@
+<!--
+CMS result for H -> tau tau decay mode from the combination paper HIG-17-031.
+Best-fit values and uncertainties taken from Table 3, correlations from Add. Fig. 1 at 
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-17-031/
+-->
+
+<expmu dim="3" type="vn">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-17-031</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ggH" decay="tautau">1.0</eff>
+  <eff axis="d2" prod="VBF" decay="tautau">1.0</eff>
+  <eff axis="d3" prod="ttH" decay="tautau">1.0</eff>
+
+  <bestfit>
+    <d1>1.05</d1>
+	  <d2>1.12</d2>
+	  <d3>0.23</d3>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-0.47</uncertainty>
+    <uncertainty axis="d1" side="right">+0.53</uncertainty>
+    <uncertainty axis="d2" side="left">-0.43</uncertainty>
+    <uncertainty axis="d2" side="right">+0.45</uncertainty>
+    <uncertainty axis="d3" side="left">-0.88</uncertainty>
+    <uncertainty axis="d3" side="right">+1.03</uncertainty>
+
+    <correlation entry="d1d2">-0.32</correlation>
+    <correlation entry="d1d3">0</correlation>
+	
+    <correlation entry="d2d3">0</correlation>
+  </param>
+</expmu>

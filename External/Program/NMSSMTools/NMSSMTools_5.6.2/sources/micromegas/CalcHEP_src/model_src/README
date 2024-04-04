@@ -1,0 +1,32 @@
+
+This directory contains LanHEP source files for SM and Inert Doublet Model.
+
+LanHEP code is available by http://theory.sinp.msu.ru/~semenov/lanhep.html
+
+Inert Doublet Models is realized according to  
+  Lopez Honorez, Laura and Yaguna, Carlos E.,
+  "The inert doublet model of dark matter revisited"
+  JHEP,09 (2010),046, arXiv:1003.3125[hep-ph]
+
+Model compilation
+  lhep -ca sm.lhep     # for SM 
+  lhep -ca idm.lhep    # for IDM 
+
+sm.inc  is included both into sm.lhep and idm.lhep
+
+Compilation flags:
+
+model 'Model Name'/ModelNumber.
+
+hgg  On/Off    if "On", effective vertices for Higgs-glue-glue and         
+               Higgs-gamma-gamma are added.                                
+               Glue-glue vertex is normalozed on Mh.                       
+               RQCDh takes into account cadiation corrections to           
+               Higgs-glue-glue for case of Higgs decay. Higgs-3glue 
+               and Higgs-4glue are ommited. 
+h4G  On/Off    Includes Higgs-3glue and Higgs-4glue vertices.
+                                
+
+CKMdim         1 - no CKM mixing                                           
+               2 - mixing for first 2 generations                          
+               3 - 3d CKM without complex phase.                                                          

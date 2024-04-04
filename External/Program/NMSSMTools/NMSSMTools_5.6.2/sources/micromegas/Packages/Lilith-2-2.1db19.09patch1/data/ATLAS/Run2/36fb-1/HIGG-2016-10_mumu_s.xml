@@ -1,0 +1,24 @@
+<!--
+ATLAS result for mu(mumu) at mH = 125 GeV  
+Implementation mimicks 95% CL limit of mu<3 reported in 1705.04582  
+Production mode efficiencies derived from Aux. Table 3 provided on
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2016-10/
+!! NB measured mu_S = -0.1 \pm 1.5, p.6 in 1705.04582, not used !!
+-->
+
+<expmu decay="mumu" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2016-10</source>
+  <sqrts>13</sqrts>
+  <mass>125</mass>
+
+  <eff prod="ggH">0.90</eff>
+  <eff prod="VBF">0.07</eff>
+  <eff prod="VH">0.03</eff>
+
+  <bestfit>0.</bestfit>
+  
+  <param>
+    <uncertainty>1.53</uncertainty>
+  </param>
+</expmu>

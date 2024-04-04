@@ -1,0 +1,92 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Soft SUSY-breaking terms
+
+lterm  -M2_H1*s_h1*s_H1.
+lterm  -M2_H2*s_h2*s_H2.
+
+do_if NMSSM==on.
+
+lterm  -M2_H3*s_n*s_N.
+lterm  -hL*hLs*eps2*s_h1*s_h2*s_n - hK*hKs*s_n**3/3 +AddHermConj.
+
+do_else.
+
+lterm   hs*eps2*(s_h1*s_h2)+AddHermConj.
+
+end_if.
+
+
+do_if FV==on.
+
+_i=1-3, _j=1-3 in 
+lterm -Mqsq_i_j*s_q_i*s_Q_j - Musq_i_j*s_u_i*s_U_j - Mdsq_i_j*s_d_i*s_D_j
+      -Mlsq_i_j*s_l_i*s_L_j - Mrsq_i_j*s_r_i*s_R_j.
+
+do_else.
+
+lterm  -Mq1**2*s_q1*s_Q1  -Mq2**2*s_q2*s_Q2  -Mq3**2*s_q3*s_Q3.
+lterm  -Mu1**2*s_u1*s_U1  -Mu2**2*s_u2*s_U2  -Mu3**2*s_u3*s_U3.
+lterm  -Md1**2*s_d1*s_D1  -Md2**2*s_d2*s_D2  -Md3**2*s_d3*s_D3.
+
+lterm  -Ml1**2*s_l1*s_L1  -Ml2**2*s_l2*s_L2  -Ml3**2*s_l3*s_L3.
+lterm  -Mr1**2*s_r1*s_R1  -Mr2**2*s_r2*s_R2  -Mr3**2*s_r3*s_R3.
+
+end_if.
+
+lterm    MG1*f_B0*f_B0/2+AddHermConj.
+lterm    MG2*f_W*f_Wi/2+AddHermConj.
+lterm    MG3*(~g)*cc(~g)/2.
+
+
+
+do_if CPV==on.
+
+lterm  ls1*(s_H1*eps2*s_L1*s_R1+s_h1*eps2*s_l1*s_r1)
+      +ls2*(s_H1*eps2*s_L2*s_R2+s_h1*eps2*s_l2*s_r2).
+lterm  ls3*s_h1*eps2*s_l3*s_r3+AddHermConj.
+
+lterm us1*(s_h2*eps2*s_q1*s_u1+s_H2*eps2*s_Q1*s_U1)+
+      us2*(s_h2*eps2*s_q2*s_u2+s_H2*eps2*s_Q2*s_U2).
+lterm us3*s_h2*eps2*s_q3*s_u3+AddHermConj.
+
+lterm	s_h1*eps2*(
+		 ds1*(Vud*s_q1+Vcd*s_q2+Vtd*s_q3)*s_d1
+		+ds2*(Vus*s_q1+Vcs*s_q2+Vts*s_q3)*s_d2
+		+ds3*(Vub*s_q1+Vcb*s_q2+Vtb*s_q3)*s_d3) + AddHermConj.
+
+do_else_if FV==on.
+
+_i=1-3, _j=1-3 in 
+lterm ls_i_j*(s_H1*eps2*s_L_i*s_R_j+s_h1*eps2*s_l_i*s_r_j)
+     +us_i_j*(s_H2*eps2*s_Q_i*s_U_j+s_h2*eps2*s_q_i*s_u_j)
+     +ds_i_j*(s_H1*eps2*s_Q_i*s_D_j+s_h1*eps2*s_q_i*s_d_j).
+/*
+_i=1-3, _j=1-3 in 
+lterm s_h1*eps2*(ds1_i*ckm(1,_i)*s_q1+ds2_i*ckm(2,_i)*s_q2+ds3_i*ckm(3,_i)*s_q3)*s_d_j +AddHermConj.
+*/
+
+/*
+lterm	s_h1*eps2*(
+		 (ds11*Vud*s_q1+ds12*Vcd*s_q2+Vtd*s_q3)*s_d1
+		+(dsVus*s_q1+Vcs*s_q2+Vts*s_q3)*s_d2
+		+(Vub*s_q1+Vcb*s_q2+Vtb*s_q3)*s_d3) + AddHermConj.
+*/
+
+do_else.
+
+lterm  ls1*(s_H1*eps2*s_L1*s_R1+s_h1*eps2*s_l1*s_r1)
+      +ls2*(s_H1*eps2*s_L2*s_R2+s_h1*eps2*s_l2*s_r2)
+      +ls3*(s_H1*eps2*s_L3*s_R3+s_h1*eps2*s_l3*s_r3).
+
+lterm us1*(s_h2*eps2*s_q1*s_u1+s_H2*eps2*s_Q1*s_U1)+
+      us2*(s_h2*eps2*s_q2*s_u2+s_H2*eps2*s_Q2*s_U2)+
+      us3*(s_h2*eps2*s_q3*s_u3+s_H2*eps2*s_Q3*s_U3).
+
+
+lterm	s_h1*eps2*(
+		 ds1*(Vud*s_q1+Vcd*s_q2+Vtd*s_q3)*s_d1
+		+ds2*(Vus*s_q1+Vcs*s_q2+Vts*s_q3)*s_d2
+		+ds3*(Vub*s_q1+Vcb*s_q2+Vtb*s_q3)*s_d3) + AddHermConj.
+
+end_if.

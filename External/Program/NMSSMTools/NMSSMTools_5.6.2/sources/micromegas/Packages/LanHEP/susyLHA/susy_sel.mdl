@@ -1,0 +1,755 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+%
+% Vertices according to J.Rosiek Phys.Rev.D41 (1990)
+%
+
+SetProperty(chepOutput, BreakLines, 1).
+
+SelectVertices('1-1',[  u/c/t,
+                        u/c/t,
+                        A],
+                        WithAnti, Delete).
+
+SelectVertices('1-2',[  u/c/t,
+                        u/c/t,
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-3',[  d/s/b,
+                        d/s/b,
+                        A],
+                        WithAnti, Delete).
+
+
+SelectVertices('1-4',[  d/s/b,
+                        d/s/b,
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-5',[  u/c/t,
+                        d/s/b,
+                        'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('1-6',[  '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        A],
+                        WithAnti, Delete).
+
+
+SelectVertices('1-7',[  '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        A],
+                        WithAnti, Delete).
+
+
+SelectVertices('1-8',[  '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        Z],
+                        WithAnti, Delete).
+
+
+SelectVertices('1-9',[  '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-10',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('1-11',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        'W+', 'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('1-12',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        A, A],
+                        WithAnti, Delete).
+
+SelectVertices('1-13',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        A, Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-14',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-15',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        'W-','W-'],
+                        WithAnti, Delete).
+
+SelectVertices('1-16',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        A, A],
+                        WithAnti, Delete).
+
+SelectVertices('1-17',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        A, Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-18',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('1-19',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        'W+', A],
+                        WithAnti, Delete).
+
+SelectVertices('1-20',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        'W+', Z],
+                        WithAnti, Delete).
+
+
+SelectVertices('2-1',[  e1/e2/e3,
+                        e1/e2/e3,
+                        A],
+                        WithAnti, Delete).
+
+SelectVertices('2-2',[  e1/e2/e3,
+                        e1/e2/e3,
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-3',[  n1/n2/n3,
+                        n1/n2/n3,
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-4',[  e1/e2/e3,
+                        n1/n2/n3,
+                        'W-' ],
+                        WithAnti, Delete).
+
+
+SelectVertices('2-5',[  '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        A],
+                        WithAnti, Delete).
+
+SelectVertices('2-6',[  '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3',
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-7',[  '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-8',[  '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3',
+                        'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('2-9',[  '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3',
+                        'W-','W+'],
+                        WithAnti, Delete).
+
+SelectVertices('2-10',[  '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3',
+                        Z , Z ],
+                        WithAnti, Delete).
+
+SelectVertices('2-11',[  '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3',
+                        'W+', Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-12',[  '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3',
+                        'W+', A],
+                        WithAnti, Delete).
+
+SelectVertices('2-13',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-14',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        A, A],
+                        WithAnti, Delete).
+
+SelectVertices('2-15',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        A, Z],
+                        WithAnti, Delete).
+
+SelectVertices('2-16',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        'W+', 'W+'],
+                        WithAnti, Delete).
+
+
+SelectVertices('3-1',[ H3/'Z.f',
+                       H/h,
+                       Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-2',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-3',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       A],
+                        WithAnti, Delete).
+
+
+SelectVertices('3-4',[ 'H+'/'W+.f',
+                       H/h,
+                       'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('3-5',[ 'H+'/'W+.f',
+                        H3/'Z.f',
+                       'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('3-6',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       'W+', 'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('3-7',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-8',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       Z, A],
+                        WithAnti, Delete).
+
+SelectVertices('3-9',[ 'H+'/'W+.f',
+                       'H+'/'W+.f',
+                       A, A],
+                        WithAnti, Delete).
+
+SelectVertices('3-10',[ H/h,
+                        H/h,
+                       'W+', 'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('3-11',[ H/h,
+                        H/h,
+                        Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-12',[ H3/'Z.f',
+                        H3/'Z.f',
+                       'W+', 'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('3-13',[ H3/'Z.f',
+                        H3/'Z.f',
+                        Z, Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-14',[ H/h,
+                        'H+'/'W+.f',
+                        'W+', Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-15',[ H/h,
+                        'H+'/'W+.f',
+                        'W+', A],
+                        WithAnti, Delete).
+
+SelectVertices('3-16',[ H3/'Z.f',
+                        'H+'/'W+.f',
+                        'W+', Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-17',[ H3/'Z.f',
+                        'H+'/'W+.f',
+                        'W+', A],
+                        WithAnti, Delete).
+
+SelectVertices('3-18',[ 'H+'/'W+.f',
+                        'W+', Z],
+                        WithAnti, Delete).
+
+SelectVertices('3-19',[ 'H+'/'W+.f',
+                        'W+', A],
+                        WithAnti, Delete).
+
+
+SelectVertices('3-20',[ H/h/H3/'Z.f',
+                        'W+', 'W-'],
+                        WithAnti, Delete).
+
+SelectVertices('3-21',[ H/h/H3/'Z.f',
+                        Z, Z],
+                        WithAnti, Delete).
+
+
+SelectVertices('4-1',[  '~1+'/'~2+',
+                        '~1+'/'~2+',
+                        A],
+                        WithAnti, Delete).
+
+SelectVertices('4-2',[  '~1+'/'~2+',
+                        '~1+'/'~2+',
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('4-3',[  '~o1'/'~o2'/'~o3'/'~o4',
+                        '~1+'/'~2+',
+                        'W+'],
+                        WithAnti, Delete).
+
+SelectVertices('4-4',[  '~o1'/'~o2'/'~o3'/'~o4',
+                        '~o1'/'~o2'/'~o3'/'~o4',
+                        Z],
+                        WithAnti, Delete).
+
+SelectVertices('5-1',[  '~o1'/'~o2'/'~o3'/'~o4',
+                        u/c/t,
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+                        WithAnti, Delete).
+
+SelectVertices('5-2',[  '~o1'/'~o2'/'~o3'/'~o4',
+                        d/s/b,
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+                        WithAnti, Delete).
+
+SelectVertices('5-3',[  '~1+'/'~2+'/'~1+.c'/'~2+.c',
+                        d/s/b,
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+                        WithAnti, Delete).
+
+SelectVertices('5-4',[  '~1+'/'~2+'/'~1+.c'/'~2+.c',
+                        u/c/t,
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+                        WithAnti, Delete).
+
+
+SelectVertices('6-1',[	n1/n2/n3,
+			'~n1'/'~n2'/'~n3',
+			'~o1'/'~o2'/'~o3'/'~o4'],
+		WithAnti, Delete).
+
+SelectVertices('6-2',[	e1/e2/e3,
+			'~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+			'~o1'/'~o2'/'~o3'/'~o4'],
+		WithAnti, Delete).
+
+SelectVertices('6-3',[	e1/e2/e3,
+			'~n1'/'~n2'/'~n3',
+			'~1+'/'~2+'],
+		WithAnti, Delete).
+
+SelectVertices('6-4',[	n1/n2/n3,
+			'~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+			'~1+'/'~2+'],
+		WithAnti, Delete).
+
+SelectVertices('7-1',[  H/h,
+                        '~o1'/'~o2'/'~o3'/'~o4',
+                        '~o1'/'~o2'/'~o3'/'~o4'],
+		WithAnti, Delete).
+
+SelectVertices('7-2',[  H3/'Z.f',
+                        '~o1'/'~o2'/'~o3'/'~o4',
+                        '~o1'/'~o2'/'~o3'/'~o4'],
+		WithAnti, Delete).
+
+SelectVertices('7-3',[  H/h,
+                        '~1+'/'~2+',
+                        '~1+'/'~2+'],
+		WithAnti, Delete).
+
+SelectVertices('7-4',[  H3/'Z.f',
+                        '~1+'/'~2+',
+                        '~1+'/'~2+'],
+		WithAnti, Delete).
+
+SelectVertices('7-5',[  'H+'/'W+.f',
+                        '~1+'/'~2+',
+                        '~o1'/'~o2'/'~o3'/'~o4'],
+		WithAnti, Delete).
+
+SelectVertices('8-1',[  H/h,
+                        e1/e2/e3,
+                        e1/e2/e3],
+		WithAnti, Delete).
+
+SelectVertices('8-2',[  H3/'Z.f',
+                        e1/e2/e3,
+                        e1/e2/e3],
+		WithAnti, Delete).
+
+SelectVertices('8-3',[  'H+'/'W+.f',
+                        e1/e2/e3,
+                        n1/n2/n3],
+		WithAnti, Delete).
+
+SelectVertices('8-4',[  H/h,
+                        d/s/b,
+                        d/s/b],
+		WithAnti, Delete).
+
+SelectVertices('8-5',[  H/h,
+                        u/c/t,
+                        u/c/t],
+		WithAnti, Delete).
+
+SelectVertices('8-6',[  H3/'Z.f',
+                        d/s/b,
+                        d/s/b],
+		WithAnti, Delete).
+
+SelectVertices('8-7',[  H3/'Z.f',
+                        u/c/t,
+                        u/c/t],
+		WithAnti, Delete).
+
+SelectVertices('8-8',[  'H+'/'W+.f',
+                        u/c/t,
+                        d/s/b],
+		WithAnti, Delete).
+
+SelectVertices('9-a',[  A/Z/'W+',
+                        A/Z/'W+',
+                        A/Z/'W+'],
+		WithAnti, Delete).
+
+SelectVertices('9-b',[  A/Z/'W+',
+                        A/Z/'W+',
+                        A/Z/'W+',
+                        A/Z/'W+'],
+		WithAnti, Delete).
+
+
+
+SelectVertices('10-a',[  A/Z/'W-',
+                        'W+.c'/'W-.c'/'Z.c'/'A.c',
+                        'W+.c'/'W-.c'/'Z.c'/'A.c'],
+		WithAnti, Delete).
+
+SelectVertices('10-b',[  H/h/'H-'/'W-.f'/H3/'Z.f',
+                        'W+.c'/'W-.c'/'Z.c'/'A.c',
+                        'W+.c'/'W-.c'/'Z.c'/'A.c'],
+		WithAnti, Delete).
+
+SelectVertices('11-1',[  H/h,
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-2',[  'H+'/'W+.f',
+                        '~n1'/'~n2'/'~n3',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('11-3',[ H3/'Z.f',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('11-4',[ H/h,
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('11-5',[ H3/'Z.f' , H3/'Z.f',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-6',[ H/h , H/h,
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-7',[ 'H+'/'W+.f' , 'H+'/'W+.f',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-8',[ 'H+'/'W+.f' , H3/'Z.f',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-9',[ 'H+'/'W+.f' , H/h,
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('11-10',[ H3/'Z.f' , H3/'Z.f',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('11-11',[ H/h , H/h,
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('11-12',[ 'H+'/'W+.f' , 'H+'/'W+.f',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('12-1',[ H3/'Z.f',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('12-2',[ H/h,
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('12-3',[ H3/'Z.f',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-4',[ H/h,
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-5',[ 'H+'/'W+.f',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('12-6',[ H3/'Z.f',H3/'Z.f',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+
+SelectVertices('12-7',[ H/h, H/h,
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('12-8',[ 'H+'/'W+.f' , 'H+'/'W+.f',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('12-9',[ H3/'Z.f' , H3/'Z.f',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-10',[ H/h , H/h,
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-11',[ 'H+'/'W+.f' , 'H+'/'W+.f',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-12',[ H3/'Z.f' , 'H+'/'W+.f',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('12-13',[ H/h , 'H+'/'W+.f',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+
+SelectVertices('13-1',[ H/h , H/h, H/h ],
+		WithAnti, Delete).
+
+SelectVertices('13-2',[ H/h , H3/'Z.f', H3/'Z.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-3',[ 'H+'/'W+.f' , 'H+'/'W+.f' , H3/'Z.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-4',[ 'H+'/'W+.f' , 'H+'/'W+.f' , H/h ],
+		WithAnti, Delete).
+
+SelectVertices('13-5',[ H/h , H/h, H/h, H/h ],
+		WithAnti, Delete).
+
+SelectVertices('13-6',[ H3/'Z.f', H3/'Z.f', H3/'Z.f', H3/'Z.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-7',[ H/h , H/h, H3/'Z.f', H3/'Z.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-8',[ 'H+'/'W+.f', 'H+'/'W+.f', 'H+'/'W+.f', 'H+'/'W+.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-9',[ 'H+'/'W+.f', 'H+'/'W+.f',H/h, H3/'Z.f' ],
+		WithAnti, Delete).
+
+SelectVertices('13-10',[ 'H+'/'W+.f', 'H+'/'W+.f',H/h, H/h ],
+		WithAnti, Delete).
+
+SelectVertices('13-11',[ 'H+'/'W+.f', 'H+'/'W+.f', H3/'Z.f', H3/'Z.f'],
+		WithAnti, Delete).
+
+SelectVertices('14-1',[ '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-2',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-2',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-3',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-4',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~n1'/'~n2'/'~n3',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-5',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~n1'/'~n2'/'~n3'],
+		WithAnti, Delete).
+
+SelectVertices('14-6',[ '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('14-7',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('14-8',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6',
+                        '~e1'/'~e2'/'~e3'/'~e4'/'~e5'/'~e6'],
+		WithAnti, Delete).
+
+SelectVertices('15-1',[ u/c/t,
+                        u/c/t,
+                        G ],
+		WithAnti, Delete).
+
+SelectVertices('15-2',[ d/s/b,
+                        d/s/b,
+                        G ],
+		WithAnti, Delete).
+
+SelectVertices('15-3',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        G ],
+		WithAnti, Delete).
+
+SelectVertices('15-4',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        G ],
+		WithAnti, Delete).
+
+SelectVertices('15-5',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        G , G ],
+		WithAnti, Delete).
+
+SelectVertices('15-6',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        G , A ],
+		WithAnti, Delete).
+
+SelectVertices('15-7',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        G , Z ],
+		WithAnti, Delete).
+
+SelectVertices('15-8',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        G, G ],
+		WithAnti, Delete).
+
+SelectVertices('15-9',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        G, A ],
+		WithAnti, Delete).
+
+SelectVertices('15-10',[ '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        G, Z ],
+		WithAnti, Delete).
+
+SelectVertices('15-11',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        G, 'W+' ],
+		WithAnti, Delete).
+
+SelectVertices('15-12',[ u/c/t,
+                         '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~g' ],
+		WithAnti, Delete).
+
+SelectVertices('15-13',[ d/s/b,
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~g' ],
+		WithAnti, Delete).
+
+SelectVertices('15-14',[ G/G, '~g', '~g' ],
+		WithAnti, Delete).
+
+SelectVertices('15-15',[ G/G, G, G ],
+		WithAnti, Delete).
+
+SelectVertices('15-16',[ G/G, G, G, G ],
+		WithAnti, Delete).
+
+SelectVertices('15-17',[ G/G, 'G.c', 'G.c' ],
+		WithAnti, Delete).
+
+SelectVertices('15-18',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2'],
+		WithAnti, Delete).
+
+SelectVertices('15-19',['~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2' ],
+		WithAnti, Delete).
+
+SelectVertices('15-20',[ '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~u1'/'~u2'/'~c1'/'~c2'/'~t1'/'~t2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2',
+                        '~d1'/'~d2'/'~s1'/'~s2'/'~b1'/'~b2'],
+		WithAnti, Delete).
+

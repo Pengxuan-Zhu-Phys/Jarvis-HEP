@@ -16,5 +16,12 @@
             "file_format":      "%(name)s [%(levelname)s] @ %(asctime)s =>\n\t%(message)s",
             "stream_format":    "%(name)s [%(levelname)s]  \t%(asctime)s \n\t=> %(message)s"
         }
+    },
+    "default setting":  {
+        "sampling": {
+            "TSavePoint":   10,
+            "maxTry": 10,
+            "demo": true
+        }
     }
 }

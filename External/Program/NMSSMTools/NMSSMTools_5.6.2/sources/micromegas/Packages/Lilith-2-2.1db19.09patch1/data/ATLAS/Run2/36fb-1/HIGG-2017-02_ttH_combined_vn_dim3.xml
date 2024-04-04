@@ -1,0 +1,42 @@
+<!--
+ATLAS result for mu(ttH) at mH = 125.09 GeV combining various decay modes.
+Best-fit values and uncertainties taken from Fig. 16;  
+the correlations are fitted from 95% CLs of Fig. 17a and Fig. 17b 
+for mu(ttH, VV) vs. mu(ttH, bb) and mu(ttH, VV) vs. mu(ttH, tautau). 
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2017-02/
+
+NB more precise value for bbar taken from HIGG-2017-03.
+-->
+
+<expmu dim="3" type="vn">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2017-02</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ttH" decay="tautau">1.0</eff>
+  <eff axis="d2" prod="ttH" decay="bb">1.0</eff>
+  <eff axis="d3" prod="ttH" decay="WW">0.95</eff>
+  <eff axis="d3" prod="ttH" decay="ZZ">0.05</eff>
+
+  <bestfit>
+  	<d1>1.5</d1>
+	  <d2>0.84</d2>
+	  <d3>1.5</d3>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-1.0</uncertainty>
+    <uncertainty axis="d1" side="right">+1.2</uncertainty>
+    <uncertainty axis="d2" side="left">-0.61</uncertainty>
+    <uncertainty axis="d2" side="right">+0.64</uncertainty>
+    <uncertainty axis="d3" side="left">-0.6</uncertainty>
+    <uncertainty axis="d3" side="right">+0.6</uncertainty>
+	  
+    <correlation entry="d1d2">0</correlation>
+    <correlation entry="d1d3">-0.347141995727</correlation>    
+    <correlation entry="d2d3">0.038132894549</correlation>
+	
+  </param>
+</expmu>

@@ -1,0 +1,117 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+% Terms going from superpotential (FF and Yukawa)
+%
+
+% Separate file for NMSSM
+
+do_if NMSSM==on.
+read susy_wn. 
+do_else.
+
+
+keep_lets superW, superWrpv, superWS.
+
+do_if RPV==on.
+
+parameter Ll121, Ll122, Ll123, Ll131, Ll132, Ll133, Ll231, Ll232, Ll233.
+parameter Lq111, Lq112, Lq113, Lq121, Lq122, Lq123, Lq131, Lq132, Lq133,
+          Lq211, Lq212, Lq213, Lq221, Lq222, Lq223, Lq231, Lq232, Lq233,
+          Lq311, Lq312, Lq313, Lq321, Lq322, Lq323, Lq331, Lq332, Lq333.
+
+let superWrpv=eps2*(Ll121*(s_l1*s_l2*s_r1-s_l2*s_l1*s_r1)
+                  +Ll122*(s_l1*s_l2*s_r2-s_l2*s_l1*s_r2)
+                  +Ll123*(s_l1*s_l2*s_r3-s_l2*s_l1*s_r3)
+                  +Ll131*(s_l1*s_l3*s_r1-s_l3*s_l1*s_r1)
+                  +Ll132*(s_l1*s_l3*s_r2-s_l3*s_l1*s_r2)
+                  +Ll133*(s_l1*s_l3*s_r3-s_l3*s_l1*s_r3)
+                  +Ll231*(s_l2*s_l3*s_r1-s_l3*s_l2*s_r1)
+                  +Ll232*(s_l2*s_l3*s_r2-s_l3*s_l2*s_r2)
+                  +Ll233*(s_l2*s_l3*s_r3-s_l3*s_l2*s_r3)
+
+      +Lq111*s_l1*s_q1*s_d1+Lq112*s_l1*s_q1*s_d2+Lq113*s_l1*s_q1*s_d3
+      +Lq121*s_l1*s_q2*s_d1+Lq122*s_l1*s_q2*s_d2+Lq123*s_l1*s_q2*s_d3
+      +Lq131*s_l1*s_q3*s_d1+Lq132*s_l1*s_q3*s_d2+Lq133*s_l1*s_q3*s_d3
+      +Lq211*s_l2*s_q1*s_d1+Lq212*s_l2*s_q1*s_d2+Lq213*s_l2*s_q1*s_d3
+      +Lq221*s_l2*s_q2*s_d1+Lq222*s_l2*s_q2*s_d2+Lq223*s_l2*s_q2*s_d3
+      +Lq231*s_l2*s_q3*s_d1+Lq232*s_l2*s_q3*s_d2+Lq233*s_l2*s_q3*s_d3
+      +Lq311*s_l3*s_q1*s_d1+Lq312*s_l3*s_q1*s_d2+Lq313*s_l3*s_q1*s_d3
+      +Lq321*s_l3*s_q2*s_d1+Lq322*s_l3*s_q2*s_d2+Lq323*s_l3*s_q2*s_d3
+      +Lq331*s_l3*s_q3*s_d1+Lq332*s_l3*s_q3*s_d2+Lq333*s_l3*s_q3*s_d3).
+
+do_else.
+let superWrpv=0.
+end_if.
+
+
+let superW = superWrpv+
+	    eps2*(
+		 mu*s_h1*s_h2
+ 
+		+ml1*s_h1*s_l1*s_r1
+		+ml2*s_h1*s_l2*s_r2
+		+ml3*s_h1*s_l3*s_r3
+
+		+md1*s_h1*(Vud*s_q1+Vcd*s_q2+Vtd*s_q3)*s_d1
+		+md2*s_h1*(Vus*s_q1+Vcs*s_q2+Vts*s_q3)*s_d2
+		+md3*s_h1*(Vub*s_q1+Vcb*s_q2+Vtb*s_q3)*s_d3
+
+		+mu1*s_h2*s_q1*s_u1
+		+mu2*s_h2*s_q2*s_u2
+		+mu3*s_h2*s_q3*s_u3
+		).
+		
+
+let superWS = superWrpv+
+	    eps2*(
+		 mu*s_h1*s_h2
+ 
+		+ml1*s_h1*s_l1*s_r1
+		+ml2*s_h1*s_l2*s_r2
+		+ml3*s_h1*s_l3*s_r3
+
+		+md1*s_h1*(Vud*s_q1+Vcd*s_q2+Vtd*s_q3)*s_d1
+		+md2*s_h1*(Vus*s_q1+Vcs*s_q2+Vts*s_q3)*s_d2
+		+md3*s_h1*(Vub*s_q1+Vcb*s_q2+Vtb*s_q3)*s_d3
+
+		+mu1*s_h2*s_q1*s_u1
+		+mu2*s_h2*s_q2*s_u2
+		+mu3*s_h2*s_q3*s_u3*MtopS/Mt
+		).
+
+% FF terms
+
+lterm -dfdfc(superWS,Ai) where
+	Ai=s_h1; Ai=s_h2;
+	Ai=s_l1; Ai=s_l2; Ai=s_l3;
+	Ai=s_r1; Ai=s_r2; Ai=s_r3;
+	Ai=s_q1; Ai=s_q2; Ai=s_q3;
+	Ai=s_u1; Ai=s_u2; Ai=s_u3;
+	Ai=s_d1; Ai=s_d2; Ai=s_d3. 
+
+% Yukawa terms
+
+lterm ( -df(superW,Ai,Aj)*Fi*Fj/2 + AddHermConj            
+							   where
+	Ai=s_h1,Fi=f_h1; Ai=s_h2,Fi=f_h2;
+	Ai=s_l1,Fi=f_l1; Ai=s_l2,Fi=f_l2; Ai=s_l3,Fi=f_l3;
+	Ai=s_r1,Fi=f_r1; Ai=s_r2,Fi=f_r2; Ai=s_r3,Fi=f_r3;
+	Ai=s_q1,Fi=f_q1; Ai=s_q2,Fi=f_q2; Ai=s_q3,Fi=f_q3;
+	Ai=s_u1,Fi=f_u1; Ai=s_u2,Fi=f_u2; Ai=s_u3,Fi=f_u3;
+	Ai=s_d1,Fi=f_d1; Ai=s_d2,Fi=f_d2; Ai=s_d3,Fi=f_d3) 
+							   where 
+	Aj=s_h1,Fj=f_h1; Aj=s_h2,Fj=f_h2;
+	Aj=s_l1,Fj=f_l1; Aj=s_l2,Fj=f_l2; Aj=s_l3,Fj=f_l3;
+	Aj=s_r1,Fj=f_r1; Aj=s_r2,Fj=f_r2; Aj=s_r3,Fj=f_r3;
+	Aj=s_q1,Fj=f_q1; Aj=s_q2,Fj=f_q2; Aj=s_q3,Fj=f_q3;
+	Aj=s_u1,Fj=f_u1; Aj=s_u2,Fj=f_u2; Aj=s_u3,Fj=f_u3;
+	Aj=s_d1,Fj=f_d1; Aj=s_d2,Fj=f_d2; Aj=s_d3,Fj=f_d3.
+	
+
+end_if. /* MSSM case */
+
+
+
+
+
+

@@ -1,0 +1,20 @@
+
+all:smodels-$(VERSION)/runSModelS.py 
+
+smodels-$(VERSION)/runSModelS.py: smodels-$(VERSION)/Makefile
+	$(MAKE)  smodels_noexternaltools  -C smodels-$(VERSION)
+#	$(MAKE)  resolve_deps  -C smodels-$(VERSION)
+	$(MAKE)  nllfast  -C smodels-$(VERSION)/smodels/lib
+
+smodels-$(VERSION)/Makefile:
+ifneq (, $(shell command -v curl 2> /dev/null))
+	curl https://github.com/SModelS/smodels/archive/v$(VERSION).tar.gz  -O -L
+else 
+ifneq (, $(shell command -v wget 2> /dev/null))
+	wget https://github.com/SModelS/smodels/archive/v$(VERSION).tar.gz 
+else 
+	$(error "Neither wget nor curl are available, please install wget or curl or change SMODELS.make accordingly.")
+endif
+endif
+	tar -xvzf v$(VERSION).tar.gz
+	rm v$(VERSION).tar.gz

@@ -1,0 +1,126 @@
+% Copyright (c) Andrei Semenov, 1996-2008.
+
+SetTexName([EE=e, GG='g_s', SW='s_w', CW='c_w',
+            S2W='s_{2w}', C2W='c_{2w}', MZ='M_Z']).
+
+SetTexName([Me='M_e', Mm='M_\\mu', Mt='M_\\tau', Ms='M_s',
+		Mc='M_c', Mb=M_b, Mtop=M_t, wtop='\\Gamma_t',
+		wW='\\Gamma_W', wZ='\\Gamma_Z', MW=M_W, MZ=M_Z]).
+
+
+SetTexName([sa='s_\\alpha', ca='c_\\alpha', cb='c_\\beta', sb='s_\\beta']).
+
+SetTexName([dlh1='\\lambda_1', dlh2='\\lambda_2',
+            dlh3='\\lambda_3', dlh4='\\lambda_4',
+	    dlh5='\\lambda_5', dlh6='\\lambda_6',
+	    dlh7='\\lambda_7', mu='\\mu']).
+
+SetTexName([Zp11='Z^+_{11}',Zp12='Z^+_{12}',Zp21='Z^+_{21}',Zp22='Z^+_{22}']).
+SetTexName([Zm11='Z^-_{11}',Zm12='Z^-_{12}',Zm21='Z^-_{21}',Zm22='Z^-_{22}']).
+
+SetTexName([Zn11='Z^N_{11}',Zn12='Z^N_{12}',Zn13='Z^N_{13}',Zn14='Z^N_{14}',
+	    Zn21='Z^N_{21}',Zn22='Z^N_{22}',Zn23='Z^N_{23}',Zn24='Z^N_{24}',
+            Zn31='Z^N_{31}',Zn32='Z^N_{32}',Zn33='Z^N_{33}',Zn34='Z^N_{34}',
+            Zn41='Z^N_{41}',Zn42='Z^N_{42}',Zn43='Z^N_{43}',Zn44='Z^N_{44}']).
+
+SetTexName([Zu11='Z^u_{11}',Zu12='Z^u_{12}',Zu13='Z^u_{13}',
+            Zu14='Z^u_{14}',Zu15='Z^u_{15}',Zu16='Z^u_{16}',
+            Zu21='Z^u_{21}',Zu22='Z^u_{22}',Zu23='Z^u_{23}',
+            Zu24='Z^u_{24}',Zu25='Z^u_{25}',Zu26='Z^u_{26}',
+            Zu31='Z^u_{31}',Zu32='Z^u_{32}',Zu33='Z^u_{33}',
+            Zu34='Z^u_{34}',Zu35='Z^u_{35}',Zu36='Z^u_{36}',
+            Zu41='Z^u_{41}',Zu42='Z^u_{42}',Zu43='Z^u_{43}',
+            Zu44='Z^u_{44}',Zu45='Z^u_{45}',Zu46='Z^u_{46}',
+            Zu51='Z^u_{51}',Zu52='Z^u_{52}',Zu53='Z^u_{53}',
+            Zu54='Z^u_{54}',Zu55='Z^u_{55}',Zu56='Z^u_{56}',
+            Zu61='Z^u_{61}',Zu62='Z^u_{62}',Zu63='Z^u_{63}',
+            Zu64='Z^u_{64}',Zu65='Z^u_{65}',Zu66='Z^u_{66}']).
+
+SetTexName([Zd11='Z^d_{11}',Zd12='Z^d_{12}',Zd13='Z^d_{13}',
+            Zd14='Z^d_{14}',Zd15='Z^d_{15}',Zd16='Z^d_{16}',
+            Zd21='Z^d_{21}',Zd22='Z^d_{22}',Zd23='Z^d_{23}',
+            Zd24='Z^d_{24}',Zd25='Z^d_{25}',Zd26='Z^d_{26}',
+            Zd31='Z^d_{31}',Zd32='Z^d_{32}',Zd33='Z^d_{33}',
+            Zd34='Z^d_{34}',Zd35='Z^d_{35}',Zd36='Z^d_{36}',
+            Zd41='Z^d_{41}',Zd42='Z^d_{42}',Zd43='Z^d_{43}',
+            Zd44='Z^d_{44}',Zd45='Z^d_{45}',Zd46='Z^d_{46}',
+            Zd51='Z^d_{51}',Zd52='Z^d_{52}',Zd53='Z^d_{53}',
+            Zd54='Z^d_{54}',Zd55='Z^d_{55}',Zd56='Z^d_{56}',
+            Zd61='Z^d_{61}',Zd62='Z^d_{62}',Zd63='Z^d_{63}',
+            Zd64='Z^d_{64}',Zd65='Z^d_{65}',Zd66='Z^d_{66}']).
+
+SetTexName([Zl11='Z^l_{11}',Zl12='Z^l_{12}',Zl13='Z^l_{13}',
+            Zl14='Z^l_{14}',Zl15='Z^l_{15}',Zl16='Z^l_{16}',
+            Zl21='Z^l_{21}',Zl22='Z^l_{22}',Zl23='Z^l_{23}',
+            Zl24='Z^l_{24}',Zl25='Z^l_{25}',Zl26='Z^l_{26}',
+            Zl31='Z^l_{31}',Zl32='Z^l_{32}',Zl33='Z^l_{33}',
+            Zl34='Z^l_{34}',Zl35='Z^l_{35}',Zl36='Z^l_{36}',
+            Zl41='Z^l_{41}',Zl42='Z^l_{42}',Zl43='Z^l_{43}',
+            Zl44='Z^l_{44}',Zl45='Z^l_{45}',Zl46='Z^l_{46}',
+            Zl51='Z^l_{51}',Zl52='Z^l_{52}',Zl53='Z^l_{53}',
+            Zl54='Z^l_{54}',Zl55='Z^l_{55}',Zl56='Z^l_{56}',
+            Zl61='Z^l_{61}',Zl62='Z^l_{62}',Zl63='Z^l_{63}',
+            Zl64='Z^l_{64}',Zl65='Z^l_{65}',Zl66='Z^l_{66}']).
+
+
+SetTexName([u=u,U='\\bar{u}','u.c'='\\bar{u^c}','U.c'='u^c']).
+SetTexName([d=d,D='\\bar{d}','d.c'='\\bar{d^c}','D.c'='d^c']).
+SetTexName([s=s,S='\\bar{s}','s.c'='\\bar{s^c}','S.c'='s^c']).
+SetTexName([b=b,B='\\bar{b}','b.c'='\\bar{b^c}','B.c'='b^c']).
+SetTexName([c=c,C='\\bar{c}','c.c'='\\bar{c^c}','C.c'='c^c']).
+SetTexName([t=t,T='\\bar{t}','t.c'='\\bar{t^c}','T.c'='t^c']).
+SetTexName([e1=e,E1='\\bar{e}', n1='\\nu^e', N1='\\bar{\\nu}^e']).
+SetTexName([e2='\\mu',E2='\\bar{\\mu}', n2='\\nu^\\mu', N2='\\bar{\\nu}^\\mu']).
+SetTexName([e3='\\tau',E3='\\bar{\\tau}', n3='\\nu^\\tau',
+			N3='\\bar{\\nu}^\\tau']).
+SetTexName(['e1.c'='e','E1.c'='\\bar{e}', 
+             'n1.c'='\\nu^e', N1='\\bar{\\nu}^e']).
+SetTexName(['e2.c'='\\mu','E2.c'='\\bar{\\mu}', 'n2.c'='\\nu^\\mu', 'N2.c'='\\bar{\\nu}^\\mu']).
+SetTexName(['e3.c'='\\tau','E3.c'='\\bar{\\tau}', 'n3.c'='\\nu^\\tau',
+			'N3.c'='\\bar{\\nu}^\\tau']).
+SetTexName([ ~e1='\\tilde{e}_1', ~e2='\\tilde{e}_2', ~e3='\\tilde{e}_3',
+             ~e4='\\tilde{e}_4', ~e5='\\tilde{e}_5', ~e6='\\tilde{e}_6',
+  	     ~E1='\\bar{\\tilde{e}}_1', ~E2='\\bar{\\tilde{e}}_2', ~E3='\\bar{\\tilde{e}}_3',
+	     ~E4='\\bar{\\tilde{e}}_4', ~E5='\\bar{\\tilde{e}}_5', ~E6='\\bar{\\tilde{e}}_6']).
+SetTexName([ ~u1='\\tilde{u}_1', ~u2='\\tilde{u}_2', ~d1='\\tilde{d}_1',
+             ~d2='\\tilde{d}_2', ~s1='\\tilde{s}_1', ~s2='\\tilde{s}_2',
+	     ~U1='\\bar{\\tilde{u}}_1', ~U2='\\bar{\\tilde{u}}_2',
+	     ~D1='\\bar{\\tilde{d}}_1', ~D2='\\bar{\\tilde{d}}_2',
+	     ~S1='\\bar{\\tilde{s}}_1', ~S2='\\bar{\\tilde{s}}_2']).
+SetTexName([ ~c1='\\tilde{c}_1', ~c2='\\tilde{c}_2', ~b1='\\tilde{b}_1',
+             ~b2='\\tilde{b}_2', ~t1='\\tilde{t}_1', ~t2='\\tilde{t}_2',
+	     ~C1='\\bar{\\tilde{c}}_1', ~C2='\\bar{\\tilde{c}}_2',
+	     ~B1='\\bar{\\tilde{b}}_1', ~B2='\\bar{\\tilde{b}}_2',
+	     ~T1='\\bar{\\tilde{t}}_1', ~T2='\\bar{\\tilde{t}}_2']).
+	     
+SetTexName([ ~n1='\\tilde{\\nu}_1', ~n2='\\tilde{\\nu}_2', ~n3='\\tilde{\\nu}_3',
+	 ~N1='\\bar{\\tilde{\\nu}}_1', ~N2='\\bar{\\tilde{\\nu}}_2',
+	 ~N3='\\bar{\\tilde{\\nu}}_3']).
+SetTexName([ '~o1'='\\chi^0_1', '~o2'='\\chi^0_2', 
+             '~o3'='\\chi^0_3', '~o4'='\\chi^0_4', 
+             '~o1.c'='\\chi^0_1', '~o2.c'='\\chi^0_2',
+	     '~o3.c'='\\chi^0_3', '~o4.c'='\\chi^0_4']).
+SetTexName([ '~1+'='\\chi^+_1', '~1-'='\\chi^-_1', 
+             '~2+'='\\chi^+_2', '~2-'='\\chi^-_2']).
+SetTexName([ '~1+.c'='\\chi^+_1', '~1-.c'='\\chi^-_1', 
+             '~2+.c'='\\chi^+_2', '~2-.c'='\\chi^-_2']).
+SetTexName([ H3='H_3', 'H+'='H^+', 'H-'='H^-']).
+
+SetTexName([Mh=M_h, MHH=M_H, MH3='M_{H_3}',MHc='M_{H\\pm}']). 
+
+SetTexName(['W+'='W^+', 'W+.c'='C^{W+}', 'W+.C'='\\bar{C}^{W+}',
+	'W+.f'='W^+_F',G=g, '~g'='\\tilde{g}']).
+SetTexName(['W-'='W^-', 'W-.c'='C^{W-}', 'W-.C'='\\bar{C}^{W-}',
+	'W-.f'='W^-_F']).
+
+SetTexName([ 'Z.c'='C^{Z}', 'Z.C'='\\bar{C}^{Z}',
+	'Z.f'='Z_F', 'A.c'='C^{Z}', 'A.C'='\\bar{C}^A',
+	'G.c'='C^G','G.C'='\\bar{C}^G']).
+
+
+SetTexName([Atop=A_t, Ab=A_b, Atau='A_\\tau', MG1='M_{g1}',
+		 MG2='M_{g2}', MG3='M_{g3}']).
+
+SetTexName([Sqrt3='\\sqrt{3}',Mplank='M_P',Mgrv='M_G',
+           '~G'='\\tilde{G}', '~G.c'='\\tilde{G}^c']).
+

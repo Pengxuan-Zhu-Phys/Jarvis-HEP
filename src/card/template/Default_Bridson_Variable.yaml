@@ -1,0 +1,85 @@
+Variables:
+  # Flat distribution
+  - name: X_Flat
+    description: "Variable X following a Flat distribution for sampling."
+    distribution:
+      type: Flat
+      parameters:
+        min: 0.0
+        max: 1.0
+        length: 1.0   # Optional, default value is 1.0
+        
+
+  # Log distribution
+  - name: X_Log
+    description: "Variable X following a Logarithmic distribution for sampling."
+    distribution:
+      type: Log
+      parameters:
+        min: 0.01   # Must be positive
+        max: 10.0
+        step: 1.0   # Optional, only for specific uses
+
+  # Normal distribution
+  - name: X_Normal
+    description: "Variable X following a Normal distribution for sampling."
+    distribution:
+      type: Normal
+      parameters:
+        mean: 0.0
+        stddev: 1.0
+
+  # Log-Normal distribution
+  - name: X_LogNormal
+    description: "Variable X following a Log-Normal distribution for sampling."
+    distribution:
+      type: Log-Normal
+      parameters:
+        mean: 0.0   # Mean of the underlying normal distribution
+        stddev: 1.0 # Standard deviation of the underlying normal distribution
+
+  # Binomial distribution
+  - name: X_Binomial
+    description: "Variable X following a Binomial distribution for sampling."
+    distribution:
+      type: Binomial
+      parameters:
+        n: 10    # Number of trials
+        p: 0.5   # Probability of success on each trial
+
+  # Poisson distribution
+  - name: X_Poisson
+    description: "Variable X following a Poisson distribution for sampling."
+    distribution:
+      type: Poisson
+      parameters:
+        lambda: 1.0 # Event rate
+
+  # Beta distribution
+  - name: X_Beta
+    description: "Variable X following a Beta distribution for sampling."
+    distribution:
+      type: Beta
+      parameters:
+        alpha: 0.5 # Alpha parameter
+        beta: 0.5  # Beta parameter
+
+  # Exponential distribution
+  - name: X_Exponential
+    description: "Variable X following an Exponential distribution for sampling."
+    distribution:
+      type: Exponential
+      parameters:
+        rate: 1.0 # Rate parameter, inverse of mean
+
+  # Gamma distribution
+  - name: X_Gamma
+    description: "Variable X following a Gamma distribution for sampling."
+    distribution:
+      type: Gamma
+      parameters:
+        shape: 2.0 # Shape parameter
+        scale: 2.0 # Scale parameter
+
+
+

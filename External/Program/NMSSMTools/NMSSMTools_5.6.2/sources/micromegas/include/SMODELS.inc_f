@@ -1,0 +1,20 @@
+        call    smodels(LHCrun, 5, 0.1D0, 'smodels.in',0)
+        call system('make -C ../Packages/smodels-v1.1.0patch1  1>/dev/null') 
+        call system("../Packages/smodels-v1.1.0patch1/smodelsTools.py -particles ./ xseccomputer -p -s 8 -N -v warning  -O -f smodels.in 2>smodels.out");
+        call system("../Packages/smodels-v1.1.0patch1/runSModelS.py -f smodels.in -o ./ -particles ./ -v error 2>> smodels.out");
+
+        err=slhaRead('smodels.in.smodelsslha', 1)
+        err= slhaSTRFormat("SModelS_Settings"," 0 %s",smodels_version);
+        write(*,*)  smodels_version 
+        result=slhaVal2('SModelS_Exclusion',0.d0,0,0)
+ 
+        if(result.ge.0) then 
+           err=slhaSTRFormat('SModelS_Exclusion',' 1 0  %s',topology)
+           Rvalue=slhaVal2('SModelS_Exclusion',0.D0,1,1)
+           err=slhaSTRFormat('SModelS_Exclusion',' 1 4 %s',analysis)
+C           write(*,*) "highest R=", Rvalue, " from ", analysis, topology
+        endif
+c        if(result.eq.-1) write(*,*) "no channels for testing."
+c        if(result.eq. 0) write(*,*) "not excluded."
+c        if(result.eq. 1) write(*,*) "excluded."  
+      endif

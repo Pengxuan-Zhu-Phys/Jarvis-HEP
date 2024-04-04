@@ -1,0 +1,23 @@
+<!--
+Tevatron result for mu(VH, bb) at mH = 125 GeV
+http://tevnphwg.fnal.gov/results/SM_Higgs_Summer_13/index.html
+-->
+
+<expmu decay="bb" dim="1" type="n">
+  <experiment>Tevatron</experiment>
+  <source type="published">FERMILAB-PUB-13-081-E</source>
+  <sqrts>1.96</sqrts>
+  <mass>125</mass>
+
+
+  <eff prod="WH">0.62</eff>
+  <eff prod="ZH">0.38</eff>
+
+  <bestfit>1.59</bestfit>
+  
+  <param>
+    <uncertainty side="left">-0.72</uncertainty>
+    <uncertainty side="right">0.69</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

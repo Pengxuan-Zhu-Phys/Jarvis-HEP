@@ -1,0 +1,115 @@
+{
+    "2D": {
+        "axis": {
+            "figsize": {
+                "figsize": [
+                    10,
+                    8
+                ]
+            },
+            "axsize": {
+                "rect": [
+                    0.13,
+                    0.13,
+                    0.83,
+                    0.83
+                ]
+            }
+        }
+    },
+    "2DC": {
+        "axis": {
+            "figsize": {
+                "figsize": [
+                    10,
+                    8
+                ]
+            },
+            "axsize": {
+                "rect": [
+                    0.13,
+                    0.13,
+                    0.715,
+                    0.83
+                ]
+            },
+            "axcsize": {
+                "rect": [
+                    0.85,
+                    0.15,
+                    0.02,
+                    0.79
+                ]
+            }
+        }
+    },
+    "default": {
+        "XLabel": {
+            "loc": "center",
+            "fontsize": 30,
+            "color": "black"
+        },
+        "YLabel": {
+            "loc": "center",
+            "fontsize": 30,
+            "color": "black"
+        },
+        "voronoiPlot": {
+            "show_points": false,
+            "show_vertices": false,
+            "line_colors": "#343A40",
+            "line_width": 0.5
+        },
+        "axtick": {
+            "major": {
+                "which": "major",
+                "length": 7,
+                "color": "black"
+            },
+            "minor": {
+                "which": "minor",
+                "length": 4,
+                "color": "black"
+            },
+            "both": {
+                "which": "both",
+                "labelsize": 17,
+                "bottom": true,
+                "top": true,
+                "left": true,
+                "right": true,
+                "direction": "in"
+            }
+        },
+        "axctick": {
+            "major": {
+                "which": "major",
+                "length": 7,
+                "color": "black"
+            },
+            "minor": {
+                "which": "minor",
+                "length": 4,
+                "color": "black"
+            },
+            "both": {
+                "which": "both",
+                "labelsize": 17,
+                "bottom": false,
+                "top": false,
+                "left": false,
+                "right": true,
+                "direction": "in"
+            }
+        },
+        "label_format": {
+            "axis": "y",
+            "style": "scientific",
+            "scilimits": [
+                -4,
+                5
+            ],
+            "useMathText": true
+        }
+    }
+}

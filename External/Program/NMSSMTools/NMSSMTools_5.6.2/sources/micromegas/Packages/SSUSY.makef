@@ -1,0 +1,25 @@
+SSUSY=softsusy-$(VERSION)
+#SOURCE=theory.sinp.msu.ru/~pukhov
+SOURCE=www.hepforge.org/archive/softsusy
+
+
+all:$(SSUSY)/softpoint.x
+
+
+$(SSUSY)/softpoint.x: $(SSUSY)/configure
+#	cd $(SSUSY); autoreconf -vif;  
+	cd $(SSUSY); ./configure 
+	make -C $(SSUSY)
+
+$(SSUSY)/configure:
+ifneq (, $(shell command -v curl 2> /dev/null))
+	curl https://$(SOURCE)/$(SSUSY).tar.gz  -O -L
+else 
+ifneq (, $(shell command -v wget 2> /dev/null))
+	wget http://$(SOURCE)/$(SSUSY).tar.gz
+else 
+	$(error "Neither wget nor curl are available, please install wget or curl or change SSUSY.make accordingly.")
+endif
+endif
+	tar -xvzf $(SSUSY).tar.gz
+	rm $(SSUSY).tar.gz

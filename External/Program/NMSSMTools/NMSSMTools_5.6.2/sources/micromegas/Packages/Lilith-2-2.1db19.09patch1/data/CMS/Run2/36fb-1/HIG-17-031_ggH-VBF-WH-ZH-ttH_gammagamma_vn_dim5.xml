@@ -1,0 +1,54 @@
+<!--
+CMS result for H -> diphoton decay mode from the combination paper HIG-17-031.
+Best-fit values and uncertainties taken from Table 3, correlations from Add. Fig. 1 at 
+http://cms-results.web.cern.ch/cms-results/public-results/publications/HIG-17-031/
+-->
+
+<expmu dim="5" type="vn">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-17-031</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+  <CL>68%</CL> <!-- optional -->
+
+  <eff axis="d1" prod="ggH" decay="gammagamma">1.0</eff>
+  <eff axis="d2" prod="VBF" decay="gammagamma">1.0</eff>
+  <eff axis="d3" prod="WH" decay="gammagamma">1.0</eff>
+  <eff axis="d4" prod="ZH" decay="gammagamma">1.0</eff>
+  <eff axis="d5" prod="ttH" decay="gammagamma">1.0</eff>
+
+  <bestfit>
+    <d1>1.16</d1>
+	  <d2>0.67</d2>
+	  <d3>3.76</d3>
+	  <d4>0.00</d4>
+	  <d5>2.18</d5>
+  </bestfit>
+ 
+  <param>
+    <uncertainty axis="d1" side="left">-0.18</uncertainty>
+    <uncertainty axis="d1" side="right">+0.21</uncertainty>
+    <uncertainty axis="d2" side="left">-0.46</uncertainty>
+    <uncertainty axis="d2" side="right">+0.59</uncertainty>
+    <uncertainty axis="d3" side="left">-1.35</uncertainty>
+    <uncertainty axis="d3" side="right">+1.48</uncertainty>
+    <uncertainty axis="d4" side="left">-1e-5</uncertainty>
+    <uncertainty axis="d4" side="right">+1.14</uncertainty>
+    <uncertainty axis="d5" side="left">-0.75</uncertainty>
+    <uncertainty axis="d5" side="right">+0.88</uncertainty>
+	
+    <correlation entry="d1d2">-0.28</correlation>
+    <correlation entry="d1d3">-0.15</correlation>
+    <correlation entry="d1d4">-0.08</correlation>
+    <correlation entry="d1d5">0.02</correlation>
+
+    <correlation entry="d2d3">0.03</correlation>
+    <correlation entry="d2d4">0.02</correlation>
+    <correlation entry="d2d5">-0.02</correlation>
+
+    <correlation entry="d3d4">-0.2</correlation>
+    <correlation entry="d3d5">-0.08</correlation>
+
+    <correlation entry="d4d5">-0.03</correlation>	
+  </param>
+</expmu>

@@ -1,0 +1,38 @@
+NMSSMTools scan info                    
+Version number: 5.6.2                   
+
+
+Number of points:                       
+
+  scanned                                      100
+  no electroweak symmetry breaking               0
+  with mh1^2 or ma1^2 or mhc^2 < 0               0
+  with m_sfermion^2 < 0                          0
+  violating constraints                         30
+  RGE integration problem                        0
+  convergence problem                            0
+
+Remaining good points                           70
+
+
+Contraints taken into account:                    
+ - Relic density from Planck upper bound < 0.131  
+ - Landau poles and false minima                  
+ - Upsilon, B and K decays                        
+
+
+Parameter ranges for good points:                 
+
+ MSUSYEFF:      0.4000E+05     0.4000E+05     0.0000E+00
+    MMESS:      0.1000E+08     0.1000E+08     0.0000E+00
+     TANB:      0.1500E+01     0.2000E+01     0.1429E+00
+   LAMBDA:      0.4000E+00     0.6000E+00     0.2000E+00
+  ALAMBDA:      0.0000E+00     0.0000E+00     0.0000E+00
+    MUEFF:      0.4579E+03     0.5942E+03     0.1296E+00
+   (MUEFF is not an input parameter)
+    KAPPA:      0.1974E+00     0.3525E+00     0.2822E+00
+   (KAPPA is not an input parameter)
+      XIF:      0.5000E+05     0.5000E+05     0.3426E-05
+       MS:      0.1050E+00     0.3676E+00     0.5556E+00
+      XIS:     -0.5273E+09    -0.1023E+09     0.6750E+00
+     (XIS is not an input parameter)

@@ -1,0 +1,89 @@
+{
+    "colormappath": "&BP/docu/Card/colormap.json",
+    "colormap": "Default_Scatter",
+    "colorpath": "&BP/docu/Color_Card/Scatter_Color_Card.json",
+    "markercodepath": "&BP/docu/Card/marker.json",
+    "fillstylepath":  "&BP/docu/Card/fillstyle.json",
+    "linestylepath":  "&BP/docu/Card/linestyle.json",
+    "marker": {
+        "size": 6,
+        "alpha": 0.95,
+        "edgecolor": "None"
+    },
+    "legend": {
+        "markersize":   9,
+        "alpha":        0.95,
+        "edgecolor":    "None",
+        "offset":       0.03,
+        "roundpad":     0.01,
+        "fontsize":     20,
+        "fontcolor":    "black",
+        "markerbttext": 0.017,
+        "markersplit":  0.025,
+        "dy":           0.003,
+        "pad":          0.01,
+        "padlc":        "#616161",
+        "padalpha":     0.4,
+        "padcolor":     "w"
+    },
+    "figureSize":{
+        "width":    10,
+        "height":   8,
+        "axbox":    {
+            "x0":   0.13,
+            "y0":   0.13,
+            "width":    0.74,
+            "height":   0.84
+        },
+        "axcbox":    {
+            "x0":   0.875,
+            "y0":   0.13,
+            "width":    0.015,
+            "height":   0.84
+        },
+        "axxbox":    {
+            "x0":   0.13,
+            "y0":   0.13,
+            "width":    0.84,
+            "height":   0.84
+        }
+    },
+    "canvas":   {
+        "x_label":{
+            "size":     30,
+            "offline":  -0.068,
+            "color":    "black"
+        },
+        "yl_label":{
+            "size":     30,
+            "offline":  -0.068,
+            "color":    "black"
+        },
+        "yr_label":{
+            "size":     30,
+            "offline":  4.4,
+            "color":    "black"
+        }
+    },
+    "ticks": {
+        "bottom":   true,
+        "left":     true,
+        "right":    true,
+        "top":      true,
+        "labelsize": 20,
+        "direction": "in",
+        "majorlength": 7,
+        "minorlength": 4.5,
+        "majorcolor":   "Black",
+        "minorcolor":   "Black"
+    },
+    "colorticks": {
+        "labelsize": 20,
+        "direction":    "in",
+        "bottom":   false,
+        "top":      false,
+        "left":     false,
+        "right":    true,
+        "color":    "Black"
+    }
+}

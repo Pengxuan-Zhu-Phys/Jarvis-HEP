@@ -1,0 +1,154 @@
+Scan: 
+  name: "Test_Bridson"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Dynesty" 
+  Variables:
+    - name: ratio
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 1
+          length: 100
+
+    - name: msmuR
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Log
+        parameters:
+          min: 100.0
+          max: 150.0
+          length: 50
+
+  Radius: 6
+  MaxAttempt:  30
+  LogLikelihood: 
+    - {name: "LogL_Higgs",  expression: "LogGauss(mh1, 125, 1)"}
+    - {name: "LogL_spectr", expression: "msmuR"}
+    - {name: "LogL_DM",     expression: "XenonSD2019(mn1+100)"}
+  selection: "(2.0 * X < Y)"
+
+EnvironmentRequirements:
+  OS: 
+    - name: linux 
+      version: ">=5.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+SupportingLibrary:
+  path: "&J/External/Library"
+  make_paraller: 16
+  Modules:
+    - name: "Delphes"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/Delphes"
+        source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf Delphes*"
+          - "cp ${source} ./"
+          - "tar -xzf Delphes-3.5.0.tar.gz"
+          - "mv ./Delphes-3.5.0 ${path}"
+          - "cd ${path}"
+          - "source @{ROOT path}/bin/thisroot.sh"
+          - "./configure"
+          - "make -j${SupportingLibrary:make_paraller}"
+
+    - name: "HepMC"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/HepMC"
+        source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf HepMC*"
+          - "cp ${source} ./"
+          - "tar -xzf HepMC-2.06.09.tar.gz"
+          - "cd ${SupportingLibrary:path}/HepMC-2.06.09"
+          - "./bootstrap"
+          - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
+    - name: "Pythia8"
+      required_modules: 
+        - "HepMC"
+      installed: False
+      installation:
+        path: "&J/External/Library/Pythia8"
+        source: "&J/External/Library/Source/pythia8230.tgz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "mkdir Pythia8"
+          - "cd ${SupportingLibrary:path}/Source"
+          - "tar -zxvf pythia8230.tgz"
+          - "cd ${SupportingLibrary:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${SupportingLibrary:path}/HepMC --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
+Calculators:
+  make_paraller: 16
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: SUSYHIT
+      required_modules: [] 
+      clone_shadow: True
+      path: &susyhit_path "&J/WorkShop/Program/susyhit/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/susyhit"
+      installation:
+          - "cp ${source}/susyhit.tar.gz ${path}"
+          - "cd ${path}"
+          - "tar -zxvf susyhit.tar.gz"
+          - "make -j${Calculators:make_paraller}" 
+      initialization:
+          - "cp ${source}/susyhit.in ${path}"
+          - "make"
+          - "cp ${source}/slhaspectrum.in ${path}"
+      execution:
+        path: *susyhit_path  # using the Anchor point
+        commands:
+          - "rm -f susyhit_slha.out"
+          - "./run slhaspectrum.in"
+        input:
+          - name: input_file1
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "msmuR", placeholder: ">>>>MSLEP<<<<" }
+                  - { name: "mn1", placeholder: ">>>>MN1<<<<", expression: "msmuR * ratio" }
+            save: true
+        output:
+          - name: output_file1
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: False
+            variables:
+              - { name: WSmuL,        block: DECAY,   entry: 1000013 }
+              - { name: BRSnuL2N1mu,  block: DECAY,   entry: [1000013, 13, 1000022] }
+              - { name: mStaL,        block: MASS,    entry: 1000015 }
+              - { name: N11,          block: NMIX,    entry: [1, 1] }
+              - { name: mh1,          block: MASS,    entry: 25 }
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"

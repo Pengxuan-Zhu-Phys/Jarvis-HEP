@@ -1,0 +1,142 @@
+:
+
+#======================================
+USR=`pwd`
+bin=`echo $0_A_E_P |sed s/par_scan_A_E_P//`; cd $bin; bin=`pwd`
+export bin
+cd $USR
+#======================================
+# echo bin=$bin
+
+LANG=
+
+clean=
+
+if(test  $# -ge 1 -a $1=clean ) then
+  clean=clean
+fi 
+
+PAR=
+while(test  -z "$PAR") 
+do  
+  read  BUFF
+  PAR=`echo  $BUFF| cut -d'#' -f1`
+  FUNC=`echo $PAR | cut -sd'&' -f2`
+  PAR=`echo $PAR  | cut -d'&' -f1`       
+
+#  NAMES=`echo "$NAMES"| sed 's/#.*$//'`
+#  FUNC='echo $NAMES |cut -d'|' -f2|` 
+#  NAMES=`echo $NAMES | sed 's/|.*$//'`
+
+done
+
+for name in $PAR 
+do 
+   printf " %10.10s" $name
+done
+
+if(test -n "$FUNC") then 
+  printf " & "
+  for name in $FUNC
+  do 
+    printf " %10.10s" $name
+  done
+fi 
+printf " & Cross section         "
+if(test -z "$clean") then 
+    printf " & prt_First-Last"
+fi
+printf "\n"
+read VALUES
+while (test -n "$VALUES") 
+do 
+  n=1
+  SUM=  
+  for name in $PAR 
+  do 
+     val=`echo $VALUES |cut -f$n -d" "` 
+     if(test $name = "momentum1") then 
+        ./n_calchep -blind "[{[[{$val{}0"
+     elif(test $name = momentum2) then 
+        ./n_calchep -blind "[{[[[{$val{}0"  
+     else  
+       SUM="$SUM $name $val "
+     fi
+     printf " %10.3E" $val
+     n=`expr $n + 1` 
+  done 
+  printf " & " 
+  
+  allDist=
+
+  err=`$bin/set_param  $SUM`
+  if(test $? -eq 0) then 
+   nFirst=`grep "Session_number" session.dat| cut -d' ' -f2`
+   strCom="{}0"
+   nOld=1
+   nSub=0
+   CSt=0
+   dCSt=0
+   while(test $nSub -ne  $nOld)
+   do
+       nOld=$nSub
+      ./n_calchep -blind "{$strCom" 1>/dev/null 2>/dev/null 
+       err=$?; if(test $err -ne 0) then break; fi
+       info=`grep Subprocess  session.dat`
+       nSub=`echo $info|cut -f2 -d" "`
+
+       if(test $nSub -ne $nOld) then
+          CSi=`$bin/run_vegas`
+          err=$?; if(test $err -ne 0) then break; fi   
+          dCSi=`echo $CSi|cut -f2 -d" "`
+          CSi=`echo $CSi|cut -f1 -d" "`  
+          CSt=`$bin/calc "($CSt) + ($CSi)"` 
+          dCSt=`$bin/calc "($dCSt) + ($dCSi)*($dCSi)"`
+          strCom="[$strCom"
+          nSess=`grep "Session_number" session.dat| cut -d' ' -f2` 
+          if(test -n "$clean") then 
+            rm  prt_$nSess
+          fi
+
+          if(test -r distr_$nSess) then  
+            allDist="$allDist   distr_$nSess"
+          fi
+       fi
+   done 
+
+   nLast=`grep "Session_number" session.dat| cut -d' ' -f2` 
+   if(test -n  "$FUNC")then 
+     ./n_calchep -blind "[[[{{{{0"
+     for name in $FUNC
+     do 
+       if( test $name = Widths) then 
+        ./n_calchep -blind "[[[{[{{0"
+         printf " %10d" $nLast
+       else 
+         val=`grep -w $name Constraints_$nLast| sed s/$name//`
+         printf " %10.3E" $val
+       fi
+     done 
+     rm Constraints_$nLast
+     printf " & "
+   fi
+   if(test $err -eq 0) then
+      printf " %10.3E +- %7.1E "    $CSt  `$bin/calc "sqrt($dCSt)"`
+   if(test -z "$clean") then     
+      printf "& %d-%d" $nFirst $nLast
+   fi    
+   else 
+      echo   " * * *" 
+   fi
+  else 
+      printf "! %s"  " $err "
+  fi 
+       printf "\n"
+
+  if(test -n "$allDist") then  
+     $bin/sum_distr  $allDist  > distr_$nFirst-$nLast
+     rm  $allDist
+  fi 
+ 
+  read VALUES 
+done

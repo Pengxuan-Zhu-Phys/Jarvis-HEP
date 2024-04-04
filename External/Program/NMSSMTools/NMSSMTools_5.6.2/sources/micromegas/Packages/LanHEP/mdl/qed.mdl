@@ -1,0 +1,6 @@
+model qed/1.
+parameter ee = 0.3133: 'Electric charge'.
+vector A/A:photon.
+let F^mu^nu=deriv^mu*A^nu-deriv^nu*A^mu.
+spinor e1:(electron, mass me=0.000511).
+lterm ee*E1*gamma*A*e1.

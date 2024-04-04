@@ -1,0 +1,37 @@
+# --- variables defined by configure ---
+
+all:lGamma.exe
+
+CHEP   =  ../../../CalcHEP_src
+LOOPTOOLS = ../../../Packages/LoopTools-2.12-v0/
+
+include   $(LOOPTOOLS)FlagsForMake
+
+.PHONY: force squared_me_gg squared_me_gz  renconst util
+
+export VPATH := $(CURDIR):$(CURDIR)/renconst
+
+INCLUDE := $(patsubst %,-I%,$(subst :, ,$(VPATH)))
+
+FFLAGS += $(INCLUDE)
+
+ifdef DEBUG
+FFLAGS +=  -DDEBUG
+endif
+
+export FC
+export FFLAGS
+
+
+
+
+lGamma.exe : main.f   nngg.a util.a
+	$(FC) $(FFLAGS) -o lGamma.exe $^ $(LOOPTOOLS)build/libooptools.a  $(CHEP)/lib/libSLHAplus.a $(CHEP)/c_source/SLHAplus/faux.f $(LDFLAGS)
+
+utileOBJ = $(subst .F,.o,$(wildcard util/univariate/*.F util/kin/*.F)) $(subst .f,.o,$(wildcard  util/kin/*.f  ))
+util.a: util.a($(utileOBJ))
+
+nnggOBJ = $(subst .F,.o, $(wildcard *.F  squared_me_gg/*.F  squared_me_gz/*.F  renconst/*.F)) run_gg.o run_gz.o mdl_ini.o interfacegz.o interface.o nmssmf.o
+nngg.a :  nngg.a( $(nnggOBJ) )  
+nngg.a(run.o): 2to2.h renconst.h looptools.h model.h
+nngg.a(mdl_ini.o):model.h

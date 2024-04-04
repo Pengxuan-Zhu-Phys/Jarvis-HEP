@@ -1,0 +1,49 @@
+#!/bin/sh
+
+if test -f slhaInput.sav && test -f slhaOutput.sav && \
+         diff slhaInput slhaInput.sav > /dev/null ; 
+then cp slhaOutput.sav slhaOutput && exit;
+fi
+
+rm -f slhaOutput.sav
+cp slhaInput slhaInput.sav
+
+rm -f suspect2_lha.in
+cat > suspect2_lha.in <<END
+Block SU_ALGO  # !specific SUSPECT2.3 block: algorithm control parameters
+     2    21  # 2-loop RGE (1-loop RGE is: 11 instead)
+     3    1   # 1: g_1(gut) = g_2(gut) consistently calculated from input
+#  NB other possibility is 0: High scale input (=HIGH in block EXTPAR below):
+     4    2   # RGE accuracy: 1: moderate, 2: accurate (but slower)  
+     6    0    #  1: M_Hu, M_Hd input (default in constrained models)
+#        (or 0: MA_pole, MU input instead: only possible in gen. MSSM!)
+     8    1   # if = 1: Default EWSB scale=(mt_L*mt_R)^(1/2) 
+#          if = 0: arbitrary EWSB scale (give EWSB in Block EXTPAR below) 
+     9    2   # Final spectrum accuracy: 1 -> 1% acc.; 2 -> 0.01 % acc.
+     10   2   # Higgs boson masses calculation options: 
+#             A simple approximation                            : 0
+#             One-loop calculation                              : 1
+#             One-loop  + dominant DSVZ 2-loop (recommended)    : 2
+     11   0   # Higher order Higgs 'scheme' choice in rad. corr. at mZ:
+#          RUNNING DRbar Higgs masses at loop-level at mZ (preferred!): 0
+#          POLE          Higgs masses at loop-level at mZ             : 1
+#
+Block MODSEL  # Select model: 
+#            Arbitrary soft-terms at low scale               : 0
+#            Arbitrary soft-terms at high scale (large RGE)  : 1
+#            mSUGRA (cMSSM)                                  : 10
+#            GMSB   (cMSSM)                                  : 11
+#            AMSB   (cMSSM)                                  : 12
+    1   10  # general MSSM
+#
+Block SMINPUTS   # Standard Model inputs
+     1     127.934  # alpha_em^(-1)(MZ) SM MSbar 
+     3      0.1172  # alpha_s(MZ) SM MSbar
+     5      4.25    # Mb(mb) SM MSbar
+     6    178.      # Mtop(pole)
+     7    1.777     # Mtau(pole)
+END
+grep -v MODSEL  slhaInput | grep -v sugra >> suspect2_lha.in
+$COMPHEP/slhasuspect
+mv suspect2_lha.out slhaOutput
+cp slhaOutput slhaOutput.sav

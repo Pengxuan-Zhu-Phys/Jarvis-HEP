@@ -1,0 +1,22 @@
+<!--
+CMS result for mu(ttH, 2SS) at mH = 125.6 GeV
+http://cds.cern.ch/record/1748396?ln=en
+ -->
+
+<expmu dim="1" type="n">
+  <experiment>CMS</experiment>
+  <source type="published">HIG-13-029</source>
+  <sqrts>8</sqrts>
+  <mass>125.6</mass>
+
+  <eff prod="ttH" decay="WW">0.75</eff>
+  <eff prod="ttH" decay="tautau">0.25</eff>
+
+  <bestfit>5.3</bestfit>
+  
+  <param>
+    <uncertainty side="left">-1.8</uncertainty>
+    <uncertainty side="right">2.1</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

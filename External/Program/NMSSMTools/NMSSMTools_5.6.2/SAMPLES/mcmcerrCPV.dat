@@ -1,0 +1,38 @@
+NMSSMTools scan info          
+Version number: 5.6.2         
+
+
+Number of points:             
+
+  scanned                           1000
+  mu = 0 | k=0 & (Ak|XiS)=/=0          0
+  with mh1^2 or mhc^2 < 0             58
+  with m_sfermion^2 < 0                0
+  violating constraints               24
+
+Remaining good points                918
+
+
+Contraints taken into account:     
+ - Landau poles and false minima   
+ - LEP/Tevatron Higgs+sparticle    
+ - EDMs                            
+
+
+Parameter ranges for good points:  
+
+        TANB:      0.6613E+01     0.7954E+01     0.9210E-01
+      RE(M2):      0.2484E+03     0.2484E+03     0.0000E+00
+     RE(AU3):      0.1500E+04     0.1500E+04     0.0000E+00
+         MQ3:      0.1000E+07     0.1000E+07     0.0000E+00
+  RE(LAMBDA):      0.4298E+00     0.5279E+00     0.1024E+00
+   RE(KAPPA):      0.0000E+00     0.0000E+00     0.0000E+00
+   RE(MUEFF):      0.3735E+03     0.3735E+03     0.0000E+00
+ RE(ALAMBDA):      0.2596E+04     0.2596E+04     0.0000E+00
+          MA:      0.2594E+04     0.2594E+04     0.0000E+00
+     RE(XIF):      0.0000E+00     0.0000E+00
+    (RE(XIF) is not an input parameter)
+  RE(AKAPPA):      0.0000E+00     0.0000E+00     0.0000E+00
+          MP:      0.8633E+02     0.8633E+02     0.0000E+00
+     RE(XIS):      0.0000E+00     0.0000E+00
+    (RE(XIS) is not an input parameter)

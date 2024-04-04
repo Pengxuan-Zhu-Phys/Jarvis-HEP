@@ -1,0 +1,22 @@
+<!--
+ATLAS result for mu(ZGamma) at mH = 125.36 GeV
+https://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2014-06/
+ -->
+
+<expmu decay="Zgamma" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2014-06</source>
+  <sqrts>7+8</sqrts>
+  <mass>125.36</mass>
+
+  <eff prod="ggH">0.87</eff>
+  <eff prod="VVH">0.13</eff>
+
+  <bestfit>2.7</bestfit>
+  
+  <param>
+    <uncertainty side="left">-4.5</uncertainty>
+    <uncertainty side="right">4.6</uncertainty>
+    <!-- if not needed, just <uncertainty></uncertainty> -->
+  </param>
+</expmu>

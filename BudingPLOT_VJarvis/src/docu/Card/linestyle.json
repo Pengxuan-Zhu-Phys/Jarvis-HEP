@@ -1,0 +1,614 @@
+{
+    "Default1": [
+        {
+            "label": "1",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#b71c1c",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#b71c1c",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "2",
+            "LineStyle": {
+                "width": 2,
+                "color": "#880e4f",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#880E4F",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "3",
+            "LineStyle": {
+                "width": 2,
+                "color": "#4a148c",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#4a148c",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "4",
+            "LineStyle": {
+                "width": 2,
+                "color": "#311b92",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#311b92",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "5",
+            "LineStyle": {
+                "width": 2,
+                "color": "#1a237e",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#1a237e",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "6",
+            "LineStyle": {
+                "width": 2,
+                "color": "#0d47a1",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#0d47a1",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "7",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#01579b",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#01579b",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "8",
+            "LineStyle": {
+                "width": 2,
+                "color": "#006064",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#006064",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "9",
+            "LineStyle": {
+                "width": 2,
+                "color": "#004d40",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#004d40",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "10",
+            "LineStyle": {
+                "width": 2,
+                "color": "#1b5e20",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#1b5e20",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "11",
+            "LineStyle": {
+                "width": 2,
+                "color": "#33691e",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#33691e",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "12",
+            "LineStyle": {
+                "width": 2,
+                "color": "#827717",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#827717",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "13",
+            "LineStyle": {
+                "width": 2,
+                "color": "#f57f17",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#f57f17",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "14",
+            "LineStyle": {
+                "width": 2,
+                "color": "#ff6f00",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ff6f00",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "15",
+            "LineStyle": {
+                "width": 2,
+                "color": "#e65100",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#e65100",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "16",
+            "LineStyle": {
+                "width": 2,
+                "color": "#bf360c",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#bf360c",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "17",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#3e2723",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#3e2723",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "18",
+            "LineStyle": {
+                "width": 2,
+                "color": "#757575",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#757575",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "19",
+            "LineStyle": {
+                "width": 2,
+                "color": "#607d8b",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#607d8b",
+                "alpha": 1
+            }
+        }
+    ],
+    "Default2": [
+        {
+            "label": "1",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#ff5252",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ff5252",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "2",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#f50057",
+                "style": "--",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#f50057",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "3",
+            "LineStyle": {
+                "width": 2,
+                "color": "#e040fb",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#e040fb",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "4",
+            "LineStyle": {
+                "width": 2,
+                "color": "#7c4dff",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#7c4dff",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "5",
+            "LineStyle": {
+                "width": 2,
+                "color": "#3d5afe",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#3d5afe",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "6",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#448aff",
+                "style": "--",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#448aff",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "7",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#40c4ff",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#40c4ff",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "8",
+            "LineStyle": {
+                "width": 2,
+                "color": "#18ffff",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#18ffff",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "9",
+            "LineStyle": {
+                "width": 2,
+                "color": "#64ffda",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#64ffda",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "10",
+            "LineStyle": {
+                "width": 2,
+                "color": "#00e676",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#00e676",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "11",
+            "LineStyle": {
+                "width": 2,
+                "color": "#b2ff59",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#b2ff59",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "12",
+            "LineStyle": {
+                "width": 2,
+                "color": "#eeff41",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#eeff41",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "13",
+            "LineStyle": {
+                "width": 2,
+                "color": "#ffff8d",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ffff8d",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "14",
+            "LineStyle": {
+                "width": 2,
+                "color": "#ffd740",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ffd740",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "15",
+            "LineStyle": {
+                "width": 2,
+                "color": "#ffab40",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ffab40",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "16",
+            "LineStyle": {
+                "width": 3.6,
+                "color": "#ff6e40",
+                "style": "--",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#ff6e40",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "17",
+            "LineStyle": {
+                "width": 2,
+                "color": "#8d6e63",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#8d6e63",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "18",
+            "LineStyle": {
+                "width": 2,
+                "color": "#bdbdbd",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#bdbdbd",
+                "alpha": 1
+            }
+        },
+        {
+            "label": "19",
+            "LineStyle": {
+                "width": 2,
+                "color": "#90a4ae",
+                "style": "-",
+                "alpha": 1,
+                "marker": "None",
+                "markersize": 5
+            },
+            "TextStyle": {
+                "FontSize": 20,
+                "color": "#90a4ae",
+                "alpha": 1
+            }
+        }
+    ]
+}

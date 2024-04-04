@@ -15,7 +15,6 @@ import emoji
 config = {
     "font.family":["serif", "Times New Roman"],
     "mathtext.fontset":'stix',
-    "font.serif": ['Computer Modern'],
     "text.latex.preamble": r"\usepackage{amsmath}"
 }
 rcParams.update(config)
@@ -48,7 +47,7 @@ class PlotYoda1D(Figure):
             self.cumyds = {}
             self.plots = {}
             nn = 1
-            from IOs import YodaFile
+            from IOs.IOs import YodaFile
             for cumd in self.inf['accumulate data'].split("\n"):
                 cumd = list(map(str.strip, cumd.split(",")))
                 cname = "CUM{}".format(nn)
@@ -68,7 +67,7 @@ class PlotYoda1D(Figure):
         if "data path" in self.inf and "separate data" in self.inf:
             self.inf['data path'] = self.decode_path(self.inf['data path'])
             self.sepyds = {}
-            from IOs import YodaFile
+            from IOs.IOs import YodaFile
             nn = 1
             for sepd in self.inf['separate data'].split("\n"):
                 sped = list(map(str.strip, sepd.split(",")))
@@ -87,7 +86,7 @@ class PlotYoda1D(Figure):
                         from copy import deepcopy
                         self.plots[hname] = deepcopy(self.cs['plot_temp']['histo1d'])
         if "yoda setting" in self.inf:
-            from IOs import YodaPlotFile
+            from IOs.IOs import YodaPlotFile
             self.ydinf = YodaPlotFile()
             self.ydinf.cs = self.cs['plot_temp']['histo1d']
             self.ydinf.file = self.decode_path(self.inf['yoda setting'])
@@ -324,7 +323,7 @@ class PlotYoda1D(Figure):
             if self.cf.has_section(plot):
                 self.inf = deepcopy(self.sinf)
                 self.inf['name'] = self.sinf["name"] + plot
-                print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art:plotting {} ....".format(
-                    time.time()-self.time, self.inf['name']), use_aliases=True))
+                print(emoji.emojize("\n\t:clock2: {:.2f} Sec;  :art::art::art: plotting {} ....".format(
+                    time.time()-self.time, self.inf['name']), language="alias"))
                 self.draw_plot(plot)
                 

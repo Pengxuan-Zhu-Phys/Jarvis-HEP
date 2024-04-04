@@ -1,0 +1,21 @@
+<!--
+ATLAS result for mu(ttH, ZZ) at mH = 125.09 GeV
+mimicking 95% CL limit of mu<7.5 in Table 9, shown in HIGG-2016-22
+http://atlas.web.cern.ch/Atlas/GROUPS/PHYSICS/PAPERS/HIGG-2016-22/
+-->
+
+<expmu decay="ZZ" dim="1" type="n">
+  <experiment>ATLAS</experiment>
+  <source type="published">HIGG-2016-22</source>
+  <sqrts>13</sqrts>
+  <mass>125.09</mass>
+
+  <eff prod="ttH">1.0</eff>
+
+  <bestfit>0.</bestfit>
+  
+  <param>
+  <uncertainty side="left">3.83</uncertainty>
+  <uncertainty side="right">3.83</uncertainty>
+  </param>
+</expmu>

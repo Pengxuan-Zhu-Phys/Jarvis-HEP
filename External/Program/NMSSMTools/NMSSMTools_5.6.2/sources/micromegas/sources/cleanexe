@@ -1,0 +1,10 @@
+:
+
+for FILE in * 
+do  
+  if(test -x $FILE -a ! -d $FILE) then 
+     if(test -e  $FILE.c -o -e $FILE.cpp -o -e $FILE.F ) then
+        rm $FILE
+     fi 
+  fi
+done

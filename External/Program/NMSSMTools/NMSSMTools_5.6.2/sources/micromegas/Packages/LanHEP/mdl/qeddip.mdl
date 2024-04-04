@@ -1,0 +1,3 @@
+use qed.
+parameter  dd = 0.01: 'dipole momentum'.
+lterm  dd/2*E1*(gamma^mu*gamma^nu-gamma^nu*gamma^mu)*gamma5*e1*F^mu^nu.

@@ -1,0 +1,837 @@
+[
+    {
+        "Model": "iss-nmssm",
+        "particles": [
+            {
+                "PDG_code": "1000012",
+                "name": "svr1",
+                "antiname": "svr1",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000014",
+                "name": "svr2",
+                "antiname": "svr2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000016",
+                "name": "svr3",
+                "antiname": "svr3",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "2000012",
+                "name": "svr4",
+                "antiname": "svr4",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "2000014",
+                "name": "svr5",
+                "antiname": "svr5",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "2000016",
+                "name": "svr6",
+                "antiname": "svr6",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "3000012",
+                "name": "svr7",
+                "antiname": "svr7",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "3000014",
+                "name": "svr8",
+                "antiname": "svr8",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "3000016",
+                "name": "svr9",
+                "antiname": "svr9",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "4000012",
+                "name": "svi1",
+                "antiname": "svi1",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "4000014",
+                "name": "svi2",
+                "antiname": "svi2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "4000016",
+                "name": "svi3",
+                "antiname": "svi3",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "5000012",
+                "name": "svi4",
+                "antiname": "svi4",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "5000014",
+                "name": "svi5",
+                "antiname": "svi5",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "5000016",
+                "name": "svi6",
+                "antiname": "svi6",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "6000012",
+                "name": "svi7",
+                "antiname": "svi7",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "6000014",
+                "name": "svi8",
+                "antiname": "svi8",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "6000016",
+                "name": "svi9",
+                "antiname": "svi9",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "12",
+                "name": "v1",
+                "antiname": "v1",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "14",
+                "name": "v2",
+                "antiname": "v2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "16",
+                "name": "v3",
+                "antiname": "v3",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "112",
+                "name": "v4",
+                "antiname": "v4",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "114",
+                "name": "v5",
+                "antiname": "v5",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "116",
+                "name": "v6",
+                "antiname": "v6",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "212",
+                "name": "v7",
+                "antiname": "v7",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "214",
+                "name": "v8",
+                "antiname": "v8",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "218",
+                "name": "v9",
+                "antiname": "v9",
+                "self_antipart": "True"
+            }
+        ],
+        "Include": [
+            "sm",
+            "mssm",
+            "nmssm"
+        ],
+        "Namespace": {
+            "ip": [
+                "MINPAR",
+                "EXTPAR",
+                "NMSSMRUN"
+            ],
+            "m": [
+                "MASS"
+            ],
+            "obs": []
+        },
+        "MixingMatrix": [
+            {
+                "block": "DSQMIX",
+                "name": "Rsq",
+                "Dimension": [
+                    6,
+                    6
+                ]
+            },
+            {
+                "block": "SNUMIXI",
+                "name": "RsvI",
+                "Dimension": [
+                    9,
+                    9
+                ]
+            },
+            {
+                "block": "SNUMIXR",
+                "name": "RsvR",
+                "Dimension": [
+                    9,
+                    9
+                ]
+            },
+            {
+                "block": "SNUMIX",
+                "name": "Rsv",
+                "Dimension": [
+                    9,
+                    9
+                ]
+            },
+            {
+                "block": "USQMIX",
+                "name": "RsvI",
+                "Dimension": [
+                    6,
+                    6
+                ]
+            },
+            {
+                "block": "USQMIX",
+                "name": "Rq",
+                "Dimension": [
+                    6,
+                    6
+                ]
+            },
+            {
+                "block": "SELMIX",
+                "name": "Rl",
+                "Dimension": [
+                    6,
+                    6
+                ]
+            },
+            {
+                "block": "NMHMIX",
+                "name": "Rh",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "NMAMIX",
+                "name": "Ra",
+                "Dimension": [
+                    2,
+                    3
+                ]
+            },
+            {
+                "block": "CHARGEMIX",
+                "name": "RHpm",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "NMNMIX",
+                "name": "RN",
+                "Dimension": [
+                    5,
+                    5
+                ]
+            },
+            {
+                "block": "UVMIX",
+                "name": "Rv",
+                "Dimension": [
+                    9,
+                    9
+                ]
+            },
+            {
+                "block": "UMIX",
+                "name": "RXU",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "VMIX",
+                "name": "RXV",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "UELMIX",
+                "name": "RlL",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "UERMIX",
+                "name": "RlR",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "UDLMIX",
+                "name": "RdL",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "UDRMIX",
+                "name": "RdR",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "UULMIX",
+                "name": "RuL",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "UURMIX",
+                "name": "RuR",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            }
+        ],
+        "Block":    [
+            
+        ]
+    },
+    {
+        "Model": "nmssm",
+        "particles": [
+            {
+                "PDG_code": "45",
+                "name": "H3",
+                "antiname": "H3",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "45",
+                "name": "HA2",
+                "antiname": "HA2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000045",
+                "name": "N5",
+                "antiname": "N5",
+                "self_antipart": "True"
+            }
+        ],
+        "Include": [
+            "sm",
+            "mssm"
+        ],
+        "Namespace": {
+            "ip": [
+                "MINPAR",
+                "EXTPAR"
+            ],
+            "m": [
+                "MASS"
+            ],
+            "obs": [
+                "LOWEN"
+            ]
+        },
+        "Block": {
+            "BLOCK": {
+                "MINPAR": {
+                    "0": "RenS",
+                    "3": "TanBeta"
+                },
+                "EXTPAR": {
+                    "1": "M1",
+                    "2": "M2",
+                    "3": "M3",
+                    "11": "Atop",
+                    "12": "Abottom",
+                    "13": "Atau",
+                    "16": "Amu",
+                    "31": "Mle",
+                    "32": "Mlmu",
+                    "33": "Mltau",
+                    "34": "Me",
+                    "35": "Mmu",
+                    "36": "Mtau",
+                    "41": "Mql1",
+                    "42": "Mql2",
+                    "43": "Mql3",
+                    "44": "Mqu",
+                    "45": "Mqc",
+                    "46": "Mqt",
+                    "47": "Mqd",
+                    "48": "Mqs",
+                    "49": "Mqb",
+                    "61": "lambda",
+                    "62": "kappa",
+                    "63": "Alambda",
+                    "64": "Akappa",
+                    "65": "Mueff",
+                    "124": "MA",
+                    "125": "MP"
+                },
+                "LOWEN": {
+                    "6": "mug2",
+                    "10": "Omegah2"
+                },
+                "HMIX": {
+                    "1": "Mueff",
+                    "2": "Tanbeta",
+                    "3": "Vq",
+                    "4": "MA2",
+                    "5": "MP2"
+                }
+            }
+        },
+        "MixingMatrix": [
+            {
+                "block": "NMHMIX",
+                "name": "Rh",
+                "Dimension": [
+                    3,
+                    3
+                ]
+            },
+            {
+                "block": "NMAMIX",
+                "name": "Ra",
+                "Dimension": [
+                    2,
+                    3
+                ]
+            },
+            {
+                "block": "NMNMIX",
+                "name": "RN",
+                "Dimension": [
+                    5,
+                    5
+                ]
+            },
+            {
+                "block": "UMIX",
+                "name": "RXU",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "VMIX",
+                "name": "RXV",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "STOPMIX",
+                "name": "Rstop",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "SBOTMIX",
+                "name": "Rsbot",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "STAUMIX",
+                "name": "Rstau",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            },
+            {
+                "block": "STAUMIX",
+                "name": "Rstau",
+                "Dimension": [
+                    2,
+                    2
+                ]
+            }
+        ]
+    },
+    {
+        "Model": "mssm",
+        "particles": [
+            {
+                "PDG_code": "1000001",
+                "name": "dl",
+                "antiname": "dlbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000001",
+                "name": "dr",
+                "antiname": "drbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000002",
+                "name": "ul",
+                "antiname": "ulbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000002",
+                "name": "ur",
+                "antiname": "urbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000003",
+                "name": "sl",
+                "antiname": "slbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000003",
+                "name": "sr",
+                "antiname": "srbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000003",
+                "name": "sl",
+                "antiname": "slbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000003",
+                "name": "sr",
+                "antiname": "srbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000004",
+                "name": "cl",
+                "antiname": "clbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000004",
+                "name": "cr",
+                "antiname": "crbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000005",
+                "name": "b1",
+                "antiname": "b1bar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000005",
+                "name": "b2",
+                "antiname": "b2bar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000006",
+                "name": "t1",
+                "antiname": "t1bar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000006",
+                "name": "t2",
+                "antiname": "t2bar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000011",
+                "name": "elm",
+                "antiname": "elp",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000011",
+                "name": "erm",
+                "antiname": "erp",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000012",
+                "name": "sve",
+                "antiname": "svebar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000013",
+                "name": "mulm",
+                "antiname": "mulp",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000013",
+                "name": "murm",
+                "antiname": "murp",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000014",
+                "name": "svm",
+                "antiname": "svmbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000015",
+                "name": "ta1m",
+                "antiname": "ta1p",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2000015",
+                "name": "ta2m",
+                "antiname": "ta2p",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000016",
+                "name": "svt",
+                "antiname": "svtbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000021",
+                "name": "sg",
+                "antiname": "sg",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000022",
+                "name": "N1",
+                "antiname": "N1",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000023",
+                "name": "N2",
+                "antiname": "N2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000025",
+                "name": "N3",
+                "antiname": "N3",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000035",
+                "name": "N4",
+                "antiname": "N4",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "1000024",
+                "name": "X1p",
+                "antiname": "X1m",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "1000037",
+                "name": "X2p",
+                "antiname": "X2m",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "35",
+                "name": "H2",
+                "antiname": "H2",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "36",
+                "name": "HA1",
+                "antiname": "HA1",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "37",
+                "name": "Hp",
+                "antiname": "Hm",
+                "self_antipart": "False"
+            }
+        ],
+        "MixingMatrix": [
+            {
+                "block": "NMIX",
+                "name": "Rn",
+                "Dimension": [
+                    4,
+                    4
+                ]
+            }
+        ],
+        "Include": [
+            "sm"
+        ]
+    },
+    {
+        "Model": "sm",
+        "particles": [
+            {
+                "PDG_code": "1",
+                "name": "d",
+                "antiname": "dbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "2",
+                "name": "u",
+                "antiname": "ubar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "3",
+                "name": "s",
+                "antiname": "sbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "4",
+                "name": "c",
+                "antiname": "cbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "5",
+                "name": "b",
+                "antiname": "bbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "6",
+                "name": "t",
+                "antiname": "tbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "11",
+                "name": "em",
+                "antiname": "ep",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "12",
+                "name": "nve",
+                "antiname": "nvebar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "13",
+                "name": "mum",
+                "antiname": "mup",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "14",
+                "name": "vm",
+                "antiname": "vmbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "15",
+                "name": "tam",
+                "antiname": "tap",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "16",
+                "name": "vt",
+                "antiname": "vtbar",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "21",
+                "name": "g",
+                "antiname": "g",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "22",
+                "name": "r",
+                "antiname": "r",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "23",
+                "name": "Z",
+                "antiname": "Z",
+                "self_antipart": "True"
+            },
+            {
+                "PDG_code": "24",
+                "name": "Wp",
+                "antiname": "Wm",
+                "self_antipart": "False"
+            },
+            {
+                "PDG_code": "25",
+                "name": "h1",
+                "antiname": "h1",
+                "self_antipart": "True"
+            }
+        ],
+        "Include": []
+    }
+]

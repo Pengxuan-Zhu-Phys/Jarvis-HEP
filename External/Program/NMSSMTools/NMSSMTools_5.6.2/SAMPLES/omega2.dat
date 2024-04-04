@@ -1,0 +1,52 @@
+# RELIC DENSITY CALCULATED BY MICROMEGAS
+#
+BLOCK RDINFO   # Program information
+     1   MicrOmegas # Dark matter package
+     2   5.6.2      # Version number
+     3   # DM relic density too large
+#
+BLOCK ABUNDANCE
+   1   3.3483E-01   #  T_f[GeV]
+   4   5.0792E+01   #  omega h^2
+   3   5.0250E-29   #  vSigma
+# contibutions to vSigma in percents
+   6   1   1000022   1000022         5        -5   2.6157E+01   # ~o1 ~o1 -> b B                                    
+   6   2   1000022   1000022         1        -1   1.2533E+01   # ~o1 ~o1 -> d D                                    
+   6   3   1000022   1000022         3        -3   1.2533E+01   # ~o1 ~o1 -> s S                                    
+   6   4   1000022   1000022         4        -4   1.1035E+01   # ~o1 ~o1 -> c C                                    
+   6   5   1000022   1000022         2        -2   9.8040E+00   # ~o1 ~o1 -> u U                                    
+   6   6   1000022   1000022        12       -12   6.1660E+00   # ~o1 ~o1 -> ne Ne                                  
+   6   7   1000022   1000022        14       -14   6.1660E+00   # ~o1 ~o1 -> nm Nm                                  
+   6   8   1000022   1000022        16       -16   6.1660E+00   # ~o1 ~o1 -> nl Nl                                  
+   6   9   1000022   1000022        15       -15   4.0400E+00   # ~o1 ~o1 -> l L                                    
+   6  10   1000022   1000022        11       -11   2.6999E+00   # ~o1 ~o1 -> e E                                    
+   6  11   1000022   1000022        13       -13   2.6999E+00   # ~o1 ~o1 -> m M                                    
+# contibutions to 1/Omega in percents
+   7   1   1000022   1000022         5        -5   3.5676E+01   # ~o1 ~o1 -> b B                                    
+   7   2   1000022   1000022         1        -1   1.0512E+01   # ~o1 ~o1 -> d D                                    
+   7   3   1000022   1000022         3        -3   1.0512E+01   # ~o1 ~o1 -> s S                                    
+   7   4   1000022   1000022         4        -4   1.0395E+01   # ~o1 ~o1 -> c C                                    
+   7   5   1000022   1000022         2        -2   8.2240E+00   # ~o1 ~o1 -> u U                                    
+   7   6   1000022   1000022        12       -12   5.1706E+00   # ~o1 ~o1 -> ne Ne                                  
+   7   7   1000022   1000022        14       -14   5.1706E+00   # ~o1 ~o1 -> nm Nm                                  
+   7   8   1000022   1000022        16       -16   5.1706E+00   # ~o1 ~o1 -> nl Nl                                  
+   7   9   1000022   1000022        15       -15   4.6421E+00   # ~o1 ~o1 -> l L                                    
+   7  10   1000022   1000022        11       -11   2.2637E+00   # ~o1 ~o1 -> e E                                    
+   7  11   1000022   1000022        13       -13   2.2637E+00   # ~o1 ~o1 -> m M                                    
+#
+BLOCK LSP
+   0   5.1553E+00   #  LSP mass
+   1   8.7251E-02   #  bino
+   2   7.5431E-02   #  wino
+   3   2.3184E-01   #  higgsino2
+   4   1.1475E-02   #  higgsino1
+   5   9.6582E-01   #  singlino
+#
+BLOCK NDMCROSSSECT
+   1   2.2594E-46   #  # csPsi [cm^2]
+   2   2.3116E-46   #  # csNsi [cm^2]
+   3   8.8348E-41   #  # csPsd [cm^2]
+   4  -6.7488E-41   #  # csNsd [cm^2]
+# Values used for sigma_piN,sigma_S (strange content of the proton)
+#  3.40000000E+01 sigma_piN
+#  4.20000000E+01 sigma_S

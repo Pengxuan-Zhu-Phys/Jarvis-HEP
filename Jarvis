@@ -3,20 +3,16 @@
 import os, sys 
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.join(pwd, "src"))
-from scan import Scan 
+from core import Core 
+from logger import AppLogger
+
+logger = AppLogger()
+
+def main():
+    jc = Core(logger=logger)
+    jc.initialization()
+    jc.run_sampling()
+
 
 if __name__ == "__main__":
-    sc = Scan()
-    if len(sys.argv) == 1:
-        sc.show_logo()
-    if len(sys.argv) >= 2:
-        if sys.argv[1] == "plot":
-            if len(sys.argv) == 3:
-                from plot import Plot 
-                fig = Plot()
-                fig.read_config(sys.argv[-1])
-                fig.plot()
-            else:
-                print("BudingPLOT needs input config file 'figconfig.ini', for example:\n\t   ->\tJPlot figconfig.ini \n\tor ->\tJarvis plot figconfig.ini")
-        else:
-            sc.init_scan_by_config_file(sys.argv[1])
+    main()

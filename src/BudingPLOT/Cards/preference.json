@@ -1,5 +1,14 @@
 {
     "Yoda": {
         "Setting": "&BP/Cards/Yoda.json"
+    },
+    "JarvisFlow": {
+        "Setting":"&BP/Cards/Jarvis.json"
+    },
+    "Voronoi2D": {
+        "Setting":"&BP/Cards/Voronoi2D.json"
+    },
+    "Ternary": {
+        "Setting":"&BP/Cards/Ternary.json"
     }
 }

@@ -1,13 +1,14 @@
 # Ignore the local Folder
-bin/
-External/
-Results/
+External/*
+Results/*
 TestScan/
-WorkShop/ 
+WorkShop/* 
 src/__pycache__/
-src/Sampling Source/
 
 # Ignore the local file 
 cmdRun.py
 *.log 
 scanRun.py 
+*.pkl 
+py.py 
+*.png 
