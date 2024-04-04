@@ -54,7 +54,7 @@
 #include <string.h>
 #include <assert.h>
 #define G__DICTIONARY
-#include "RConfig.h"
+#include "ROOT/RConfig.hxx"
 #include "TClass.h"
 #include "TDictAttributeMap.h"
 #include "TInterpreter.h"
@@ -78,9 +78,6 @@
 
 #include "TDataMember.h"
 
-// The generated code does not explicitly qualifies STL entities
-namespace std {} using namespace std;
-
 // Header files passed as explicit arguments
 #include "ExRootAnalysis/ExRootTreeReader.h"
 #include "ExRootAnalysis/ExRootTreeWriter.h"
@@ -95,8 +92,11 @@ namespace std {} using namespace std;
 
 // Header files passed via #pragma extra_include
 
+// The generated code does not explicitly qualify STL entities
+namespace std {} using namespace std;
+
 namespace ROOT {
-   static void *new_ExRootTreeReader(void *p = 0);
+   static void *new_ExRootTreeReader(void *p = nullptr);
    static void *newArray_ExRootTreeReader(Long_t size, void *p);
    static void delete_ExRootTreeReader(void *p);
    static void deleteArray_ExRootTreeReader(void *p);
@@ -105,8 +105,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootTreeReader*)
    {
-      ::ExRootTreeReader *ptr = 0;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTreeReader >(0);
+      ::ExRootTreeReader *ptr = nullptr;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTreeReader >(nullptr);
       static ::ROOT::TGenericClassInfo 
          instance("ExRootTreeReader", ::ExRootTreeReader::Class_Version(), "ExRootAnalysis/ExRootTreeReader.h", 19,
                   typeid(::ExRootTreeReader), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -121,14 +121,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootTreeReader*)
    {
-      return GenerateInitInstanceLocal((::ExRootTreeReader*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootTreeReader*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootTreeReader*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootTreeReader*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_ExRootTreeWriter(void *p = 0);
+   static void *new_ExRootTreeWriter(void *p = nullptr);
    static void *newArray_ExRootTreeWriter(Long_t size, void *p);
    static void delete_ExRootTreeWriter(void *p);
    static void deleteArray_ExRootTreeWriter(void *p);
@@ -137,8 +137,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootTreeWriter*)
    {
-      ::ExRootTreeWriter *ptr = 0;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTreeWriter >(0);
+      ::ExRootTreeWriter *ptr = nullptr;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTreeWriter >(nullptr);
       static ::ROOT::TGenericClassInfo 
          instance("ExRootTreeWriter", ::ExRootTreeWriter::Class_Version(), "ExRootAnalysis/ExRootTreeWriter.h", 21,
                   typeid(::ExRootTreeWriter), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -153,10 +153,10 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootTreeWriter*)
    {
-      return GenerateInitInstanceLocal((::ExRootTreeWriter*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootTreeWriter*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootTreeWriter*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootTreeWriter*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
@@ -169,7 +169,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootTreeBranch*)
    {
-      ::ExRootTreeBranch *ptr = 0;
+      ::ExRootTreeBranch *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootTreeBranch));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootTreeBranch", "ExRootAnalysis/ExRootTreeBranch.h", 18,
@@ -183,14 +183,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootTreeBranch*)
    {
-      return GenerateInitInstanceLocal((::ExRootTreeBranch*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootTreeBranch*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootTreeBranch*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootTreeBranch*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootTreeBranch_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeBranch*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootTreeBranch*>(nullptr))->GetClass();
       ExRootTreeBranch_TClassManip(theClass);
    return theClass;
    }
@@ -203,7 +203,7 @@ namespace ROOT {
 namespace ROOT {
    static TClass *ExRootResult_Dictionary();
    static void ExRootResult_TClassManip(TClass*);
-   static void *new_ExRootResult(void *p = 0);
+   static void *new_ExRootResult(void *p = nullptr);
    static void *newArray_ExRootResult(Long_t size, void *p);
    static void delete_ExRootResult(void *p);
    static void deleteArray_ExRootResult(void *p);
@@ -212,7 +212,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootResult*)
    {
-      ::ExRootResult *ptr = 0;
+      ::ExRootResult *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootResult));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootResult", "ExRootAnalysis/ExRootResult.h", 21,
@@ -228,14 +228,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootResult*)
    {
-      return GenerateInitInstanceLocal((::ExRootResult*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootResult*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootResult*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootResult*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootResult_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootResult*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootResult*>(nullptr))->GetClass();
       ExRootResult_TClassManip(theClass);
    return theClass;
    }
@@ -255,7 +255,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootClassifier*)
    {
-      ::ExRootClassifier *ptr = 0;
+      ::ExRootClassifier *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootClassifier));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootClassifier", "ExRootAnalysis/ExRootClassifier.h", 8,
@@ -269,14 +269,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootClassifier*)
    {
-      return GenerateInitInstanceLocal((::ExRootClassifier*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootClassifier*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootClassifier*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootClassifier*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootClassifier_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootClassifier*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootClassifier*>(nullptr))->GetClass();
       ExRootClassifier_TClassManip(theClass);
    return theClass;
    }
@@ -296,7 +296,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootFilter*)
    {
-      ::ExRootFilter *ptr = 0;
+      ::ExRootFilter *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootFilter));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootFilter", "ExRootAnalysis/ExRootFilter.h", 13,
@@ -310,14 +310,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootFilter*)
    {
-      return GenerateInitInstanceLocal((::ExRootFilter*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootFilter*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootFilter*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootFilter*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootFilter_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootFilter*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootFilter*>(nullptr))->GetClass();
       ExRootFilter_TClassManip(theClass);
    return theClass;
    }
@@ -337,7 +337,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootProgressBar*)
    {
-      ::ExRootProgressBar *ptr = 0;
+      ::ExRootProgressBar *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootProgressBar));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootProgressBar", "ExRootAnalysis/ExRootProgressBar.h", 6,
@@ -351,14 +351,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootProgressBar*)
    {
-      return GenerateInitInstanceLocal((::ExRootProgressBar*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootProgressBar*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootProgressBar*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootProgressBar*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootProgressBar_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootProgressBar*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootProgressBar*>(nullptr))->GetClass();
       ExRootProgressBar_TClassManip(theClass);
    return theClass;
    }
@@ -371,7 +371,7 @@ namespace ROOT {
 namespace ROOT {
    static TClass *ExRootConfParam_Dictionary();
    static void ExRootConfParam_TClassManip(TClass*);
-   static void *new_ExRootConfParam(void *p = 0);
+   static void *new_ExRootConfParam(void *p = nullptr);
    static void *newArray_ExRootConfParam(Long_t size, void *p);
    static void delete_ExRootConfParam(void *p);
    static void deleteArray_ExRootConfParam(void *p);
@@ -380,7 +380,7 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootConfParam*)
    {
-      ::ExRootConfParam *ptr = 0;
+      ::ExRootConfParam *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(::ExRootConfParam));
       static ::ROOT::TGenericClassInfo 
          instance("ExRootConfParam", "ExRootAnalysis/ExRootConfReader.h", 20,
@@ -396,14 +396,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootConfParam*)
    {
-      return GenerateInitInstanceLocal((::ExRootConfParam*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootConfParam*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootConfParam*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootConfParam*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 
    // Dictionary for non-ClassDef classes
    static TClass *ExRootConfParam_Dictionary() {
-      TClass* theClass =::ROOT::GenerateInitInstanceLocal((const ::ExRootConfParam*)0x0)->GetClass();
+      TClass* theClass =::ROOT::GenerateInitInstanceLocal(static_cast<const ::ExRootConfParam*>(nullptr))->GetClass();
       ExRootConfParam_TClassManip(theClass);
    return theClass;
    }
@@ -414,7 +414,7 @@ namespace ROOT {
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_ExRootConfReader(void *p = 0);
+   static void *new_ExRootConfReader(void *p = nullptr);
    static void *newArray_ExRootConfReader(Long_t size, void *p);
    static void delete_ExRootConfReader(void *p);
    static void deleteArray_ExRootConfReader(void *p);
@@ -423,8 +423,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootConfReader*)
    {
-      ::ExRootConfReader *ptr = 0;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootConfReader >(0);
+      ::ExRootConfReader *ptr = nullptr;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootConfReader >(nullptr);
       static ::ROOT::TGenericClassInfo 
          instance("ExRootConfReader", ::ExRootConfReader::Class_Version(), "ExRootAnalysis/ExRootConfReader.h", 42,
                   typeid(::ExRootConfReader), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -439,14 +439,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootConfReader*)
    {
-      return GenerateInitInstanceLocal((::ExRootConfReader*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootConfReader*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootConfReader*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootConfReader*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 namespace ROOT {
-   static void *new_ExRootTask(void *p = 0);
+   static void *new_ExRootTask(void *p = nullptr);
    static void *newArray_ExRootTask(Long_t size, void *p);
    static void delete_ExRootTask(void *p);
    static void deleteArray_ExRootTask(void *p);
@@ -455,8 +455,8 @@ namespace ROOT {
    // Function generating the singleton type initializer
    static TGenericClassInfo *GenerateInitInstanceLocal(const ::ExRootTask*)
    {
-      ::ExRootTask *ptr = 0;
-      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTask >(0);
+      ::ExRootTask *ptr = nullptr;
+      static ::TVirtualIsAProxy* isa_proxy = new ::TInstrumentedIsAProxy< ::ExRootTask >(nullptr);
       static ::ROOT::TGenericClassInfo 
          instance("ExRootTask", ::ExRootTask::Class_Version(), "ExRootAnalysis/ExRootTask.h", 19,
                   typeid(::ExRootTask), ::ROOT::Internal::DefineBehavior(ptr, ptr),
@@ -471,14 +471,14 @@ namespace ROOT {
    }
    TGenericClassInfo *GenerateInitInstance(const ::ExRootTask*)
    {
-      return GenerateInitInstanceLocal((::ExRootTask*)0);
+      return GenerateInitInstanceLocal(static_cast<::ExRootTask*>(nullptr));
    }
    // Static variable to force the class initialization
-   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal((const ::ExRootTask*)0x0); R__UseDummy(_R__UNIQUE_DICT_(Init));
+   static ::ROOT::TGenericClassInfo *_R__UNIQUE_DICT_(Init) = GenerateInitInstanceLocal(static_cast<const ::ExRootTask*>(nullptr)); R__UseDummy(_R__UNIQUE_DICT_(Init));
 } // end of namespace ROOT
 
 //______________________________________________________________________________
-atomic_TClass_ptr ExRootTreeReader::fgIsA(0);  // static to hold class pointer
+atomic_TClass_ptr ExRootTreeReader::fgIsA(nullptr);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ExRootTreeReader::Class_Name()
@@ -489,31 +489,31 @@ const char *ExRootTreeReader::Class_Name()
 //______________________________________________________________________________
 const char *ExRootTreeReader::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)0x0)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)nullptr)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ExRootTreeReader::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)0x0)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)nullptr)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ExRootTreeReader::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)0x0)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)nullptr)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ExRootTreeReader::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)0x0)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeReader*)nullptr)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr ExRootTreeWriter::fgIsA(0);  // static to hold class pointer
+atomic_TClass_ptr ExRootTreeWriter::fgIsA(nullptr);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ExRootTreeWriter::Class_Name()
@@ -524,31 +524,31 @@ const char *ExRootTreeWriter::Class_Name()
 //______________________________________________________________________________
 const char *ExRootTreeWriter::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)0x0)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)nullptr)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ExRootTreeWriter::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)0x0)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)nullptr)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ExRootTreeWriter::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)0x0)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)nullptr)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ExRootTreeWriter::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)0x0)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTreeWriter*)nullptr)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr ExRootConfReader::fgIsA(0);  // static to hold class pointer
+atomic_TClass_ptr ExRootConfReader::fgIsA(nullptr);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ExRootConfReader::Class_Name()
@@ -559,31 +559,31 @@ const char *ExRootConfReader::Class_Name()
 //______________________________________________________________________________
 const char *ExRootConfReader::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)0x0)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)nullptr)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ExRootConfReader::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)0x0)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)nullptr)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ExRootConfReader::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)0x0)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)nullptr)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ExRootConfReader::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)0x0)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootConfReader*)nullptr)->GetClass(); }
    return fgIsA;
 }
 
 //______________________________________________________________________________
-atomic_TClass_ptr ExRootTask::fgIsA(0);  // static to hold class pointer
+atomic_TClass_ptr ExRootTask::fgIsA(nullptr);  // static to hold class pointer
 
 //______________________________________________________________________________
 const char *ExRootTask::Class_Name()
@@ -594,26 +594,26 @@ const char *ExRootTask::Class_Name()
 //______________________________________________________________________________
 const char *ExRootTask::ImplFileName()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)0x0)->GetImplFileName();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)nullptr)->GetImplFileName();
 }
 
 //______________________________________________________________________________
 int ExRootTask::ImplFileLine()
 {
-   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)0x0)->GetImplFileLine();
+   return ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)nullptr)->GetImplFileLine();
 }
 
 //______________________________________________________________________________
 TClass *ExRootTask::Dictionary()
 {
-   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)0x0)->GetClass();
+   fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)nullptr)->GetClass();
    return fgIsA;
 }
 
 //______________________________________________________________________________
 TClass *ExRootTask::Class()
 {
-   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)0x0)->GetClass(); }
+   if (!fgIsA.load()) { R__LOCKGUARD(gInterpreterMutex); fgIsA = ::ROOT::GenerateInitInstanceLocal((const ::ExRootTask*)nullptr)->GetClass(); }
    return fgIsA;
 }
 
@@ -639,14 +639,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootTreeReader(void *p) {
-      delete ((::ExRootTreeReader*)p);
+      delete (static_cast<::ExRootTreeReader*>(p));
    }
    static void deleteArray_ExRootTreeReader(void *p) {
-      delete [] ((::ExRootTreeReader*)p);
+      delete [] (static_cast<::ExRootTreeReader*>(p));
    }
    static void destruct_ExRootTreeReader(void *p) {
       typedef ::ExRootTreeReader current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootTreeReader
 
@@ -672,28 +672,28 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootTreeWriter(void *p) {
-      delete ((::ExRootTreeWriter*)p);
+      delete (static_cast<::ExRootTreeWriter*>(p));
    }
    static void deleteArray_ExRootTreeWriter(void *p) {
-      delete [] ((::ExRootTreeWriter*)p);
+      delete [] (static_cast<::ExRootTreeWriter*>(p));
    }
    static void destruct_ExRootTreeWriter(void *p) {
       typedef ::ExRootTreeWriter current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootTreeWriter
 
 namespace ROOT {
    // Wrapper around operator delete
    static void delete_ExRootTreeBranch(void *p) {
-      delete ((::ExRootTreeBranch*)p);
+      delete (static_cast<::ExRootTreeBranch*>(p));
    }
    static void deleteArray_ExRootTreeBranch(void *p) {
-      delete [] ((::ExRootTreeBranch*)p);
+      delete [] (static_cast<::ExRootTreeBranch*>(p));
    }
    static void destruct_ExRootTreeBranch(void *p) {
       typedef ::ExRootTreeBranch current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootTreeBranch
 
@@ -707,56 +707,56 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootResult(void *p) {
-      delete ((::ExRootResult*)p);
+      delete (static_cast<::ExRootResult*>(p));
    }
    static void deleteArray_ExRootResult(void *p) {
-      delete [] ((::ExRootResult*)p);
+      delete [] (static_cast<::ExRootResult*>(p));
    }
    static void destruct_ExRootResult(void *p) {
       typedef ::ExRootResult current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootResult
 
 namespace ROOT {
    // Wrapper around operator delete
    static void delete_ExRootClassifier(void *p) {
-      delete ((::ExRootClassifier*)p);
+      delete (static_cast<::ExRootClassifier*>(p));
    }
    static void deleteArray_ExRootClassifier(void *p) {
-      delete [] ((::ExRootClassifier*)p);
+      delete [] (static_cast<::ExRootClassifier*>(p));
    }
    static void destruct_ExRootClassifier(void *p) {
       typedef ::ExRootClassifier current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootClassifier
 
 namespace ROOT {
    // Wrapper around operator delete
    static void delete_ExRootFilter(void *p) {
-      delete ((::ExRootFilter*)p);
+      delete (static_cast<::ExRootFilter*>(p));
    }
    static void deleteArray_ExRootFilter(void *p) {
-      delete [] ((::ExRootFilter*)p);
+      delete [] (static_cast<::ExRootFilter*>(p));
    }
    static void destruct_ExRootFilter(void *p) {
       typedef ::ExRootFilter current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootFilter
 
 namespace ROOT {
    // Wrapper around operator delete
    static void delete_ExRootProgressBar(void *p) {
-      delete ((::ExRootProgressBar*)p);
+      delete (static_cast<::ExRootProgressBar*>(p));
    }
    static void deleteArray_ExRootProgressBar(void *p) {
-      delete [] ((::ExRootProgressBar*)p);
+      delete [] (static_cast<::ExRootProgressBar*>(p));
    }
    static void destruct_ExRootProgressBar(void *p) {
       typedef ::ExRootProgressBar current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootProgressBar
 
@@ -770,14 +770,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootConfParam(void *p) {
-      delete ((::ExRootConfParam*)p);
+      delete (static_cast<::ExRootConfParam*>(p));
    }
    static void deleteArray_ExRootConfParam(void *p) {
-      delete [] ((::ExRootConfParam*)p);
+      delete [] (static_cast<::ExRootConfParam*>(p));
    }
    static void destruct_ExRootConfParam(void *p) {
       typedef ::ExRootConfParam current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootConfParam
 
@@ -803,14 +803,14 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootConfReader(void *p) {
-      delete ((::ExRootConfReader*)p);
+      delete (static_cast<::ExRootConfReader*>(p));
    }
    static void deleteArray_ExRootConfReader(void *p) {
-      delete [] ((::ExRootConfReader*)p);
+      delete [] (static_cast<::ExRootConfReader*>(p));
    }
    static void destruct_ExRootConfReader(void *p) {
       typedef ::ExRootConfReader current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootConfReader
 
@@ -836,34 +836,34 @@ namespace ROOT {
    }
    // Wrapper around operator delete
    static void delete_ExRootTask(void *p) {
-      delete ((::ExRootTask*)p);
+      delete (static_cast<::ExRootTask*>(p));
    }
    static void deleteArray_ExRootTask(void *p) {
-      delete [] ((::ExRootTask*)p);
+      delete [] (static_cast<::ExRootTask*>(p));
    }
    static void destruct_ExRootTask(void *p) {
       typedef ::ExRootTask current_t;
-      ((current_t*)p)->~current_t();
+      (static_cast<current_t*>(p))->~current_t();
    }
 } // end of namespace ROOT for class ::ExRootTask
 
 namespace {
   void TriggerDictionaryInitialization_ExRootAnalysisDict_Impl() {
     static const char* headers[] = {
-0
+nullptr
     };
     static const char* includePaths[] = {
 "external",
-"/home/buding/Heptools/root/include/",
+"/home/buding/root/include/",
 "/home/buding/Jarvis-HEP/External/Library/Delphes/",
-0
+nullptr
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(
 #line 1 "ExRootAnalysisDict dictionary forward declarations' payload"
 #pragma clang diagnostic ignored "-Wkeyword-compat"
 #pragma clang diagnostic ignored "-Wignored-attributes"
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-extern int __Cling_Autoloading_Map;
+extern int __Cling_AutoLoading_Map;
 class __attribute__((annotate("$clingAutoload$ExRootAnalysis/ExRootTreeReader.h")))  ExRootTreeReader;
 class __attribute__((annotate("$clingAutoload$ExRootAnalysis/ExRootTreeWriter.h")))  ExRootTreeWriter;
 class __attribute__((annotate("$clingAutoload$ExRootAnalysis/ExRootTreeBranch.h")))  ExRootTreeBranch;

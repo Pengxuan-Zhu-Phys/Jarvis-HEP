@@ -7,7 +7,7 @@ import os
 from subprocess import Popen, run
 import sys
 import time 
-from program import Pack
+from old_record.program import Pack
 import argparse
 from config import ConfigLoader
 from logger import AppLogger
@@ -24,7 +24,6 @@ from moduleManager import ModuleManager
 from pprint import pprint
 import pandas as pd 
 import concurrent.futures
-from db import SampleDatabase
 
 class Core(Base):
     def __init__(self, logger) -> None:
@@ -93,6 +92,8 @@ class Core(Base):
             os.makedirs(task_result_dir)
             os.makedirs(os.path.join(task_result_dir, "SAMPLE"))
         # pprint(self.yaml.config)
+        self.factory.info['sample'] = deepcopy(self.info['sample'])
+        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_logger(self) -> None:
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
@@ -221,7 +222,6 @@ class Core(Base):
 
 
     def run_sampling(self)->None:
-        # print(self.module_manager.module_pools)
         if self.args.testcalculator:
             self.test_assembly_line()
         else:
@@ -229,69 +229,48 @@ class Core(Base):
 
     def test_assembly_line(self):
         try:
-            param = next(self.sampler)
-            # print(self.factory.config['Scan'])
-            sample = Sample(param)
-            sample.set_config(deepcopy(self.info['sample']))
-            self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
-            future = self.factory.submit_task(sample.params, sample.info)
-            # 等待任务完成并获取结果
-            output = future.result()
-            print(output)
+            for ii in range(2):
+                param = next(self.sampler)
+                future = self.factory.submit_task_with_prior(param)
+                print(future)
+                # print(self.factory.config['Scan'])
+                # sample = Sample(param)
+                # sample.set_config(deepcopy(self.info['sample']))
+                # self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
+                # future = self.factory.submit_task(sample.params, sample.info)
+                # 等待任务完成并获取结果
+                # output = future.result()
+                # self.module_manager.database.add_data(output)
+                # print(output)
         except Exception as e:
             # 异常处理
             print(f"An error occurred: {e}")
 
-    def run_until_finished(self):
-        total_cores = os.cpu_count()  # Total number of CPU cores
-
-        N_done = 0
-
-        try:
-            while True:
-                # Submit tasks if running tasks are fewer than total cores
-                while len(self.tasks) < total_cores:
-                    try:
-                        param = next(self.sampler)
-                        if param is not None:
-                            sample = Sample(param)
-                            sample.set_config(deepcopy(self.info['sample']))
-                            future = self.factory.submit_task(sample.params, sample.info)
-                            self.tasks.append(future)
-                        else:
-                            break
-                    except StopIteration:
-                        break  # No more samples to process
-
-                # Check for completed tasks and remove them from the list
-                done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
-
-                for future in done:
-                    output = future.result()
-                    # self.logger.logger.warning(f"Sample {output['uuid']} processed with LogL -> {output['LogL']}")
-                    from time import time
-                    start = time()
-                    self.module_manager.database.add_data(output)
-                    total = (time() - start ) * 1000
-                    self.logger.logger.warn(f"Writing into database cast -> {total} millisecond")
-                    # Process the output as needed
-                    N_done += 1
-                    # if "LogL" in output:
-
-                # Remove completed futures
-                self.tasks = [f for f in self.tasks if f not in done]
-                # self.logger.logger.warn(f"{len(self.sampler._P)} tasks in line, {len(self.tasks)} in run, {N_done} is done!")
-
-                if not self.tasks and not param:
-                    break  # Exit loop if no tasks are pending and no more samples
-
-
         finally:
             self.factory.executor.shutdown()
-        
-        self.module_manager.database.stop()
-        self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
-        self.logger.logger.info("All samples have been processed.")
+            self.module_manager.database.stop()
+
+            from time import time
+            start = time()
+            self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
+            tot = 1000 * (time() - start)
+            print(f"{tot} millisecond -> All samples have been processed.")
+
+    def run_until_finished(self):
+        self.sampler.set_factory(factory = self.factory)
+        try:
+            self.sampler.run_nested()
+        finally:
+            self.sampler.finalize()
+            
+            from time import time
+            start = time()
+            self.factory.module_manager.database.stop()
+            self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
+            tot = 1000 * (time() - start)
+            self.logger.logger.info(f"{tot} millisecond -> All samples have been processed.")
+
+            self.factory.executor.shutdown()
 
     def check_init_args(self) -> None:
         try:
@@ -300,9 +279,6 @@ class Core(Base):
             print(str(e))
             self.argparser.print_help()
             sys.exit(2)
-
-
-
 
     class __StateSaver:
         def __init__(self, 

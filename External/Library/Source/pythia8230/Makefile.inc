@@ -1,5 +1,5 @@
 # PYTHIA configuration file.
-# Generated on 2024年 03月 29日 星期五 14:19:20 CST with the user supplied options:
+# Generated on Wed Apr 3 02:09:49 CST 2024 with the user supplied options:
 # --with-hepmc2=/home/buding/Jarvis-HEP/External/Library/HepMC
 # --prefix=/home/buding/Jarvis-HEP/External/Library/Pythia8
 
@@ -30,10 +30,10 @@ FASTJET3_INCLUDE=./
 FASTJET3_LIB=./
 
 # HEPMC2 configuration.
-HEPMC2_USE=true
-HEPMC2_BIN=/home/buding/Jarvis-HEP/External/Library/HepMC/bin/
-HEPMC2_INCLUDE=/home/buding/Jarvis-HEP/External/Library/HepMC/include
-HEPMC2_LIB=/home/buding/Jarvis-HEP/External/Library/HepMC/lib
+HEPMC2_USE=false
+HEPMC2_BIN=
+HEPMC2_INCLUDE=./
+HEPMC2_LIB=./
 
 # HEPMC3 configuration.
 HEPMC3_USE=false

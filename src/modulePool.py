@@ -8,7 +8,7 @@ from copy import deepcopy
 from concurrent.futures import as_completed
 import json
 import os, sys 
-
+import threading 
 
 class ModulePool:
     def __init__(self, module, max_workers=2):
@@ -34,9 +34,12 @@ class ModulePool:
         self.logger.info(f"Create the {id} Instance for Module {self.name}")
         instance = CalculatorModule(self.name, config=config)
         instance.assign_ID(id)
-        instance.logger = self.logger
+        instance.is_installed = False
+        instance.is_busy = False
+        instance.installation_event = threading.Event()
         instance._funcs = self.funcs
         self.instances.append(instance)
+        self.update_instances_info_file()
         return instance
 
     def reload_instance(self, pack_id, pack_info):
@@ -45,7 +48,6 @@ class ModulePool:
         self.logger.info(f"Re-loading the {pack_id} Instance for Module {self.name}")
         instance = CalculatorModule(self.name, config=config)
         instance.assign_ID(pack_id)
-        instance.logger = self.logger
         instance.is_installed = True
         instance.is_busy = False
         instance._funcs = self.funcs
@@ -74,42 +76,31 @@ class ModulePool:
         instance = self.get_available_instance()
         # self.logger.warning(f"Line 64 -> {instance}")
         if instance is None:
-            # 如果没有可用的实例，创建一个新的实例
+            # if no availiable instance found, create a new one!
             self.logger.warning(f"No availiable instance for Module {self.name} found, trying to install a new one")
             instance = self.create_instance()
-            # self.logger.warning(f"Line 69 -> {instance}")
-            # Make sure the instance is corrected installed 
-            self.install_instances()
+            self.executor.submit(self.install_instance, instance)
+            instance.installation_event.wait()
 
+        instance.is_busy = True 
         # submit the task and tagging the instance into busy
-
         future = self.executor.submit(instance.execute, params, sample_info)
-        instance.is_busy = True
 
-        # 等待计算完成
+        # waiting for calculation finished
         result = future.result()        
-        # 计算完成后，更新实例状态
+        # Update instance status 
         instance.is_busy = False
         self.update_instances_info_file()
 
-        # 返回计算结果
         return result
 
-    def install_instances(self):
-        futures = []
-        for instance in self.instances:
-            if not instance.is_installed:
-                future = self.executor.submit(self.install_instance, instance)
-                futures.append(future)
-        for future in as_completed(futures):
-            instance = future.result()
-            instance.is_installed = True
-
-        self.update_instances_info_file()
 
     @staticmethod
     def install_instance(instance):
-        instance.install()
+        if not instance.is_installed:
+            instance.install()
+            instance.is_installed = True 
+            instance.installation_event.set()
         return instance
 
     def submit_task(self, params):

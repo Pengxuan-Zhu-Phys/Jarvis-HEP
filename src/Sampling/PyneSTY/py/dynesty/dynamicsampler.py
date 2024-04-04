@@ -695,7 +695,7 @@ def _configure_batch_sampler(main_sampler,
 
 
         live_u = np.empty((nlive_new, main_sampler.npdim))
-        from Func_lib import get_sample_id
+        from old_record.Func_lib import get_sample_id
         live_uid = np.array([[get_sample_id()] for ii in range(nlive_new)])
         live_v = np.concatenate((np.empty((nlive_new, saved_v.shape[1]-1)), live_uid), axis=1)
         live_logl = np.empty(nlive_new)

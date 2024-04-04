@@ -572,11 +572,4 @@ class Workflow(Base):
                 for mod, info in item.items():
                     draw_layer_module(kk, info)
             
-            # for ii in range(len(layerInfo)):
-            #     draw_layer_sub(layerInfo[ii])
-
-
-
-
-            # plt.show()
             plt.savefig("flowchart.png", dpi=300)

@@ -1,9 +1,9 @@
 {
     "Schema":  {
-        "DynestySchema":       "&J/src/card/dynesty.json",
         "PoissonSchema":  "&J/src/card/possion.json",
         "GridSchema":          "&J/src/card/grid.json",
-        "BridsonSchema":       "&J/src/card/schema/Bridson_schema.json"
+        "BridsonSchema":       "&J/src/card/schema/Bridson_schema.json",
+        "DynestySchema":       "&J/src/card/schema/Dynesty_schema.json"
     },
     "logo":    "&J/src/card/logo"
 }

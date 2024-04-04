@@ -13,11 +13,12 @@ from pandas.core.series import Series
 from sympy import sympify
 from sympy.geometry import parabola
 import time 
-from Func_lib import decode_path_from_file
 from random import randint
 from Sampling.sampler import SamplingVirtial
 import json
 from scipy.special import gammainc
+from sample import Sample
+import concurrent.futures
 
 class Bridson(SamplingVirtial):
     def __init__(self) -> None:
@@ -26,6 +27,8 @@ class Bridson(SamplingVirtial):
         self.method = "Bridson"
         self._P     = None
         self._index = 0 
+        self.tasks  = []
+        self.info   = {}
 
     def load_schema_file(self):
         self.schema = self.path['BridsonSchema']
@@ -51,6 +54,9 @@ class Bridson(SamplingVirtial):
         else:
             # raise StopIteration
             return None
+
+    def next_sample(self):
+        return self.__next__()
 
     def map_point_into_distribution(self, row) -> np.ndarray:
         result = {}
@@ -87,10 +93,38 @@ class Bridson(SamplingVirtial):
             self.logger.error("Bridson Sampler meets error when trying to scan the parameter space.")
             sys.exit(2)
 
+    def run_nested(self):
+        total_cores = os.cpu_count()
+        from copy import deepcopy
+
+        while True:
+            while len(self.tasks) < total_cores: 
+                try: 
+                    param = self.next_sample()
+                    if param is not None: 
+                        sample = Sample(param)
+                        sample.set_config(deepcopy(self.info['sample']))
+                        future = self.factory.submit_task(sample.params, sample.info)
+                        self.tasks.append(future)
+                    else: 
+                        break
+                except StopIteration:
+                    break
+            
+            done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+            # Remove completed futures
+            self.tasks = [f for f in self.tasks if f not in done]
+            # Exit loop if no tasks are pending and no more samples
+            if not self.tasks and not param:
+                break  
+
+    def finalize(self):
+        pass
 
 
-
-
+    def set_factory(self, factory) -> None:
+        self.factory = factory
+        self.logger.warning("WorkerFactory is ready for Bridson sampler")
 
 # Can be optimized for Bridson algorithm by excluding all points within the r/2 sphere
 def hypersphere_volume_sample(center,radius,k=1):

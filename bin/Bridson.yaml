@@ -23,7 +23,7 @@ Sampling:
           max: 150.0
           length: 50
 
-  Radius: 3
+  Radius: 6
   MaxAttempt:  30
   LogLikelihood: 
     - {name: "LogL_Higgs",  expression: "LogGauss(mh1, 125, 1)"}
@@ -34,7 +34,7 @@ Sampling:
 EnvironmentRequirements:
   OS: 
     - name: linux 
-      version: ">=5.15.0"
+      version: ">=5.10.0"
     - name: Darwin
       version: ">=10.14"
   Check_default_dependences:
@@ -117,7 +117,7 @@ Calculators:
       execution:
         path: *susyhit_path  # using the Anchor point
         commands:
-          - "rm susyhit_slha.out"
+          - "rm -f susyhit_slha.out"
           - "./run slhaspectrum.in"
         input:
           - name: input_file1
@@ -135,11 +135,11 @@ Calculators:
             type: "SLHA"
             save: False
             variables:
-              - { name: WSmuL, block: DECAY, entry: 1000013 }
-              - { name: BRSnuL2N1mu, block: DECAY, entry: [1000013, 13, 1000022]}
-              - { name: mStaL, block: MASS, entry: 1000015 }
-              - { name: N11, block: NMIX, entry: [1, 1]}
-              - { name: mh1, block: MASS, entry: 25 }
+              - { name: WSmuL,        block: DECAY,   entry: 1000013 }
+              - { name: BRSnuL2N1mu,  block: DECAY,   entry: [1000013, 13, 1000022] }
+              - { name: mStaL,        block: MASS,    entry: 1000015 }
+              - { name: N11,          block: NMIX,    entry: [1, 1] }
+              - { name: mh1,          block: MASS,    entry: 25 }
 
 Utils:
   interpolations_1D:

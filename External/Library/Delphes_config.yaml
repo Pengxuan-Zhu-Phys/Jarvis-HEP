@@ -12,7 +12,7 @@ installation:
     cwd: /home/buding/Jarvis-HEP/External/Library
   - cmd: cd /home/buding/Jarvis-HEP/External/Library/Delphes
     cwd: /home/buding/Jarvis-HEP/External/Library
-  - cmd: source /home/buding/Heptools/root/bin/thisroot.sh
+  - cmd: source /home/buding/root/bin/thisroot.sh
     cwd: /home/buding/Jarvis-HEP/External/Library/Delphes
   - cmd: ./configure
     cwd: /home/buding/Jarvis-HEP/External/Library/Delphes

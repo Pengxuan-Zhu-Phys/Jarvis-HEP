@@ -29,14 +29,20 @@ class CalculatorModule(Module):
             self.input              = config["execution"].get("input", [])
             self.output             = config["execution"].get("output", [])
             self.basepath           = config['path']
-            self.modes = False
-            self.is_installed = False
-            self.is_busy = False
-            self.PackID  = None
+            self.handlers           = {}
+            self.modes              = False
+            self.is_installed       = False
+            self.installation_event = None
+            self.is_busy            = False
+            self.PackID             = None
+            self.run_log_file       = None
+            self.sample_info        = {}
+            self._funcs             = {}
             self.analyze_config()
-            self.run_log_file   = None
-            self.sample_info    = {}
-            self._funcs         = {}
+            self.formatter          = {
+                "father":   logging.Formatter("\n·•· %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s"),
+                "child":    logging.Formatter('%(message)s')
+            }
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
@@ -74,16 +80,35 @@ class CalculatorModule(Module):
     def analyze_config_multi(self):
         pass 
 
+    def add_handler(self, name, logpath, level, formatter):
+        file_handler = logging.FileHandler(logpath, mode="a")
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+
+        self.handlers[name] = file_handler
+
+    def remove_handler(self, name):
+        self.handlers[name].close()
+        del self.handlers[name]
+
+    def create_basic_logger(self):
+        self.basepath = self.decode_shadow_path(self.basepath)
+        if not os.path.exists(self.basepath):
+            os.makedirs(self.basepath)
+        logger_name = f"{self.name}-{self.PackID}"
+        self.logger = logging.getLogger(logger_name)
+        self.logger.setLevel(logging.DEBUG)
+
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.WARNING)
+        console_handler.setFormatter(self.formatter['father'])
+
+        self.logger.addHandler(console_handler)
+
     def create_child_logger(self, logger_name):
         child_installation_logger_name = f"{self.logger.name}.{logger_name}"
         self.child_logger = logging.getLogger(child_installation_logger_name)
         self.child_logger.propagate = False
-        if "run_log_file" in self.path:
-            simple_formatter    = logging.Formatter('%(message)s')
-            file_handler        = logging.FileHandler(self.path['run_log_file'], mode="a")
-            file_handler.setLevel(logging.DEBUG)
-            file_handler.setFormatter(simple_formatter)
-            self.child_logger.addHandler(file_handler)
 
     def update_sample_logger(self, sample_info):
         logger_name = f"Sample@{sample_info['uuid']} <{self.name}-No.{self.PackID}>"
@@ -93,52 +118,30 @@ class CalculatorModule(Module):
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = False
 
-        # self.path['run_log_file'] = os.path.join(sample_info['save_dir'], "Sample_running.log")
-        self.path['run_log_file'] = sample_info['run_log']
-        formatter = logging.Formatter("\n·•· %(name)s\n\t -> %(asctime)s - %(levelname)s >>> \n%(message)s")
-        file_handler = logging.FileHandler(self.path['run_log_file'], mode='a')
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.DEBUG)
-
-        jlog_handler = logging.FileHandler(sample_info['jarvis_log'])
-        jlog_handler.setFormatter(formatter)
-        jlog_handler.setLevel(logging.WARNING)
+        # self.add_handler("sample", sample_info['run_log'], logging.DEBUG, self.formatter['father'])
+        # self.add_handler("jarvis", sample_info['jarvis_log'], logging.WARNING, self.formatter['father'])
 
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.WARNING)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(self.formatter['father'])
 
         self.logger.addHandler(console_handler)
-        self.logger.addHandler(file_handler)
-
+        # self.logger.addHandler(self.handlers['sample'])
+        # self.logger.addHandler(self.handlers['jarvis'])
 
         self.logger.warning("Sample created into the Disk")
 
-
     def install(self):
-        self.logger.warning(f"Start install {self.name}-{self.PackID}")
-        self.basepath = self.decode_shadow_path(self.basepath)
-        if not os.path.exists(self.basepath):
-            os.makedirs(self.basepath)
-
-        self.logger.setLevel(logging.DEBUG) 
+        self.create_basic_logger()
         install_file_log = os.path.join(self.basepath, f"Installation_{self.name}-{self.PackID}.log")
-        formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
-        Afile_handler = logging.FileHandler(install_file_log, mode='a')
-        Afile_handler.setLevel(0)
-        Afile_handler.setFormatter(formatter)
-        self.logger.addHandler(Afile_handler)
-        self.logger.info(f"Installing {self.name}-{self.PackID} ....")
-        self.create_child_logger("Installation")
+        self.add_handler("install", install_file_log, logging.DEBUG, self.formatter['father'])
+        self.logger.addHandler(self.handlers['install'])
         
-        simple_formatter = logging.Formatter('%(message)s')
-        file_handler = logging.FileHandler(install_file_log, mode="a")
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(simple_formatter)
-        self.child_logger.addHandler(file_handler)
+        self.create_child_logger("Installation")
+        self.add_handler("install_child", install_file_log, logging.DEBUG, self.formatter['child'])
+        self.child_logger.addHandler(self.handlers['install_child'])
 
-        # self.logger.warning(f"Line 135 @calculator.py Logger initiliazed ")
-
+        self.logger.warning(f"Start install {self.name}-{self.PackID}")
 
         for cmd in self.installation:
             if self.clone_shadow:
@@ -148,14 +151,14 @@ class CalculatorModule(Module):
             else: 
                 self.run_command(command=cmd, child_logger=self.child_logger)
 
-        self.logger.removeHandler(Afile_handler)
-        Afile_handler.close()
-        self.child_logger = None
+        self.logger.removeHandler(self.handlers['install'])
+        self.child_logger.removeHandler(self.handlers['install_child'])
 
-    def remove_running_file_log(self):
-        # self.logger.removeHandler(self.run_log_handler)
-        # self.run_log_handler.close()
+        self.remove_handler("install_child")
+        self.remove_handler("install")
+
         self.child_logger = None
+        self.is_installed = True
 
     def run_command(self, command, child_logger):
         with subprocess.Popen(
@@ -181,7 +184,6 @@ class CalculatorModule(Module):
             logger.log(level, "\t{}".format(line.strip()))
 
     def initialize(self, sample_info):
-        self.create_child_logger("initialization")
         for command in self.initialization:
             if self.clone_shadow: 
                 command = self.decode_shadow_commands(command)
@@ -190,11 +192,23 @@ class CalculatorModule(Module):
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
+
         self.update_sample_logger(sample_info)
+        self.add_handler("sample", sample_info['run_log'], logging.DEBUG, self.formatter['father'])
+        self.add_handler("jarvis", sample_info['jarvis_log'], logging.WARNING, self.formatter['father'])
+        self.logger.addHandler(self.handlers['sample'])
+        self.logger.addHandler(self.handlers['jarvis'])
+        
+        self.create_child_logger("initialization")
+        self.add_handler("sample_child", sample_info['run_log'], logging.DEBUG, self.formatter['child'])
+        self.child_logger.addHandler(self.handlers['sample_child'])
+
         self.initialize(sample_info['uuid'])
         self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {input_data}")
+        
         result = {}
         input_obs = asyncio.run(self.load_input(input_data=input_data))
+        
         if isinstance(input_obs, dict):
             result.update(input_obs)
 
@@ -209,7 +223,14 @@ class CalculatorModule(Module):
         if isinstance(output_obs, dict):
             result.update(output_obs)
 
-        self.remove_running_file_log()
+        self.logger.removeHandler(self.handlers['sample'])
+        self.logger.removeHandler(self.handlers['jarvis'])
+        self.child_logger.removeHandler(self.handlers['sample_child'])
+
+        self.remove_handler('sample')
+        self.remove_handler("jarvis")
+        self.remove_handler("sample_child")
+
         return result
 
     async def read_output(self):
@@ -278,7 +299,6 @@ class CalculatorModule(Module):
         merged_observables = {key: val for d in observables for key, val in d.items()}
         return merged_observables
         # self.logger.warn(self.funcs)
-
 
     def decode_shadow_commands(self, cmd):
         command = {

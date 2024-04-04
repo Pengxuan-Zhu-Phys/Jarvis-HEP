@@ -80,10 +80,8 @@ class ModuleManager:
                         
         # After all modules have executed, calculate likelihood based on the final observables
         observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
-        # observables.update(loglikelihood)
-        # self.logger.warning(observables)
-        # self.database.insert_sample_row(observables)
-        return observables
+        self.database.add_data(observables)
+        return observables['LogL']
 
     def execute_module(self, module_name, observables, sample_info):
         """Execute a single module's computation task, updating the observables dictionary.
@@ -123,7 +121,11 @@ class ModuleManager:
         loglikelihood.update_funcs(self.funcs)
         logl = loglikelihood.calculate(observables, sample_info)
         observables.update(logl)
-        loglikelihood.childlogger.warning(f"Sample SUMMARY\n{pd.Series(observables)}\n")
+        loglikelihood.childlogger.warning(f"""Sample SUMMARY
+=================================================================
+{pd.Series(observables).to_string()}
+================================================================="""
+        )
         # likelihood = observables.get('TestOutPutVar', 0.5)  # Example calculation logic
         return observables
 

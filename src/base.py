@@ -57,7 +57,7 @@ class Base():
         if not numbered_dirs:
             # If no numbered directories exist, create the first one and exit
             os.makedirs(os.path.join(base_path, '1'))
-            print("Created directory '1' as no numbered directories existed.")
+            # print("Created directory '1' as no numbered directories existed.")
             return os.path.join(base_path, '1')
 
         # Step 2: Find the highest-numbered directory
@@ -72,8 +72,8 @@ class Base():
             new_dir_number = max_number + 1
             new_dir_path = os.path.join(base_path, str(new_dir_number))
             os.makedirs(new_dir_path)
-            print(f"Created new directory '{new_dir_number}' due to file count greater than 200 in directory '{max_number}'.")
+            # print(f"Created new directory '{new_dir_number}' due to file count greater than 200 in directory '{max_number}'.")
             return new_dir_path
         else:
-            print(f"\nDirectory '{max_dir}' contains {file_count} files, no new directory created.\n")
+            # print(f"\nDirectory '{max_dir}' contains {file_count} files, no new directory created.\n")
             return max_dir

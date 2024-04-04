@@ -25,6 +25,10 @@ class SamplingVirtial(Base):
         pass 
 
     @abstractmethod
+    def set_factory(self) -> None: 
+        pass 
+
+    @abstractmethod
     def load_variable(self) -> None:
         variables = []
         for var_config in self.config['Sampling'].get("Variables", []):  # 使用get以防'Variables'键不存在

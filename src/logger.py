@@ -9,7 +9,6 @@ import sys
 import logging 
 import logging.config
 import time 
-from program import Pack
 import yaml
 from base import Base
 
@@ -72,13 +71,13 @@ class AppLogger(Base):
         if not logger.handlers:
             console_handler = logging.StreamHandler()
             console_handler.setLevel(level)
-            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
+            formatter = logging.Formatter("\n %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s")
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
         if log_file is not None: 
             file_handler = logging.FileHandler(log_file)
             file_handler.setLevel(logging.DEBUG)
-            formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
+            formatter = logging.Formatter("\n %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s")
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
@@ -89,7 +88,7 @@ class AppLogger(Base):
             backupCount=0,
             encoding='utf-8'
         )
-        formatter = logging.Formatter(" %(name)s - %(asctime)s - %(levelname)s >>> \n%(message)s")
+        formatter = logging.Formatter("\n %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s")
         parent_file_handler.setFormatter(formatter)
         parent_file_handler.setLevel(level)
         logger.addHandler(parent_file_handler)

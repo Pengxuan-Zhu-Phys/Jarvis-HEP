@@ -8,6 +8,7 @@ from sample import Sample
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 
 class WorkerFactory:
     _instance = None
@@ -26,8 +27,6 @@ class WorkerFactory:
             self.module_manager = module_manager if module_manager else self.module_manager
             self.executor = ThreadPoolExecutor(max_workers=max_workers)
             self.initialized = True
-            # 其他一次性初始化逻辑...
-
 
     def get_executor(self):
         if self.executor is None:
@@ -43,6 +42,7 @@ class WorkerFactory:
     def set_logger(self, logger):
         self.logger = logger
         self.logger.warning("Building the factory for workers ...")
+        self.info   = {}
 
     def add_module(self, module, logger):
         if module.name not in self.module_pools:
@@ -50,15 +50,12 @@ class WorkerFactory:
             self.module_pools[module.name] = ModulePool(module, max_workers=self._max_workers)
             self.module_pools[module.name].set_logger(logger)
             self.module_pools[module.name].load_installed_instances()
-
-
-
         else:
             self.logger.warning(f"ModulePool for {module.name} already exists.")
 
     def submit_task(self, params, sample_info):
-        # 这个方法使用ModuleManager来执行一个特定的工作流
-        # 通过ThreadPoolExecutor来异步执行
+        # This method uses ModuleManager to execute a specific workflow
+        # Asynchronous execution through ThreadPoolExecutor
         future = self.executor.submit(self.module_manager.execute_workflow, params, sample_info)
         return future
 
@@ -71,17 +68,24 @@ class WorkerFactory:
         except Exception as e:
             print(f"Task {uuid} failed with error: {e}")
 
-
     def setup_workflow(self, workflow):
         self.workflow = workflow  # Assign the workflow
 
     def add_module_to_pool(self, module):
         self.module_pool.add_module(module)
 
-
     def set_likelihood_func(self, func):
         # 设置用于计算的外部函数
         self.likelihood = func
+
+    def submit_task_with_prior(self, params):
+        # This method uses ModuleManager to execute a specific workflow
+        # Asynchronous execution through ThreadPoolExecutor
+        sample = Sample(params)
+        sample.set_config(deepcopy(self.info['sample']))
+        future = self.submit_task(sample.params, sample.info)
+        return future.result()
+
 
 
     def compute_likelihood(self, sample):
