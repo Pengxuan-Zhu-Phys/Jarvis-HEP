@@ -25,7 +25,4 @@ Jarvis-HEP is released under the MIT license. For more details, see the LICENSE 
 
 ## Acknowledgements
 Special thanks to all contributors who have helped make this project possible.
-
-```vbnet
-Remember to replace placeholder URLs and paths (`#`, `yourusername`, etc.) with actual links to y
-```
+    Pengxuan thank Yang Zhang, Liangliang Shang for helpful discussion. 
