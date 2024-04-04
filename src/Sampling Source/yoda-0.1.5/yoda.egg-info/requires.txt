@@ -1,4 +1,0 @@
-PyYaml
-pycolorizer
-PrettyTable
-argcomplete
