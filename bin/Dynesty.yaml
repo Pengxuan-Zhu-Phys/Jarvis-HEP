@@ -1,5 +1,5 @@
 Scan: 
-  name: "Test_Bridson"
+  name: "Test_Dynesty_02"
   save_dir: "&J/Results"
 
 Sampling:
@@ -22,9 +22,12 @@ Sampling:
           min: 100.0
           max: 150.0
           length: 50
+  Bounds:
+    nlive:  160
+    rseed:  21
+    dlogz:  0.01
 
-  Radius: 6
-  MaxAttempt:  30
+
   LogLikelihood: 
     - {name: "LogL_Higgs",  expression: "LogGauss(mh1, 125, 1)"}
     - {name: "LogL_spectr", expression: "msmuR"}

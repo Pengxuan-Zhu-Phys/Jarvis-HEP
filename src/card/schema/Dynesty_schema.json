@@ -474,11 +474,29 @@
                         "additionalProperties": false
                     }
                 },
-                "Radius": {
-                    "type": "number"
-                },
-                "MaxAttempt": {
-                    "type": "integer"
+                "Bounds": {
+                    "title": "Bounds Configuration",
+                    "description": "Schema for the Bounds configuration settings.",
+                    "type": "object",
+                    "properties": {
+                        "nlive": {
+                            "type": "integer",
+                            "description": "The number of live points."
+                        },
+                        "rseed": {
+                            "type": "integer",
+                            "description": "The random seed for reproducibility."
+                        },
+                        "dlogz": {
+                            "type": "number",
+                            "description": "Stopping criterion: the log-likelihood difference between the worst live point and the evidence."
+                        }
+                    },
+                    "required": [
+                        "nlive",
+                        "rseed",
+                        "dlogz"
+                    ]
                 },
                 "LogLikelihood": {
                     "$ref": "#/definitions/LogLikelihood"

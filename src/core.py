@@ -89,8 +89,8 @@ class Core(Base):
             "out_csv":  os.path.join(task_result_dir, "samples.csv")
         }
         if not os.path.exists(task_result_dir):
-            os.makedirs(task_result_dir)
-            os.makedirs(os.path.join(task_result_dir, "SAMPLE"))
+            os.makedirs(task_result_dir, exist_ok=True)
+            os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         # pprint(self.yaml.config)
         self.factory.info['sample'] = deepcopy(self.info['sample'])
         self.sampler.info['sample'] = deepcopy(self.info['sample'])

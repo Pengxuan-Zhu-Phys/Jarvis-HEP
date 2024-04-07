@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 import numpy as np
-import dynesty
+# import dynesty
+
 from concurrent.futures import ProcessPoolExecutor
 import time
 from random import random

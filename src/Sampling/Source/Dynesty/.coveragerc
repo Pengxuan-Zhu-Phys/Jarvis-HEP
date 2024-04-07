@@ -1,0 +1,12 @@
+[paths]
+source =
+       py/dynesty/
+       **/site-packages/dynesty/
+
+[run]
+concurrency = multiprocessing
+parallel = true
+sigterm = false
+omit =
+     tests/*
+source = dynesty
