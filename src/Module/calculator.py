@@ -11,7 +11,7 @@ import os
 from time import sleep
 from Module.module import Module
 import asyncio
-
+import sympy as sp 
 class CalculatorModule(Module):
     def __init__(self, name, config):
         super().__init__(name)
@@ -49,25 +49,65 @@ class CalculatorModule(Module):
 
     def analyze_config(self):
         # get the variables for inputs and outputs, prepare for the workflow chart 
+        from inner_func import update_funcs, update_const
         for ipf in self.input:
             if ipf['type'] == "SLHA":
                 ipf['variables'] = {}
                 for act in ipf['actions']:
                     if act['type'] == "Replace":
                         for var in act['variables']:
-                            self.inputs[var['name']] = None
-                            ipf['variables'][var['name']] = var
+                            if "expression" in var.keys():
+                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                varis = set(expr.free_symbols)
+                                for vv in varis:
+                                    self.inputs[str(vv)] = None
+                                    # ipf['variables'][str(vv)] = var 
+                                var.update({"inc": varis})
+                                ipf['variables'][var['name']] = var 
+                            else:
+                                self.inputs[var['name']] = None
+                                ipf['variables'][var['name']] = var
                     elif act['type'] == "SLHA":
                         for var in act['variables']:
-                            self.inputs[var['name']] = None
-                            ipf['variables'][var['name']] = var
+                            if "expression" in var.keys():
+                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                varis = set(expr.free_symbols)
+                                for vv in varis:
+                                    self.inputs[str(vv)] = None
+                                    # ipf['variables'][str(vv)] = var 
+                                var.update({"inc": varis})
+                                ipf['variables'][var['name']] = var 
+                            else:
+                                self.inputs[var['name']] = None
+                                ipf['variables'][var['name']] = var
                     elif act['type'] == "File":
                         self.inputs[act['source']] = None
                         ipf['variables'][act['source']] = {"name": act['source']}
+                # print(ipf['variables'])
+
+            elif ipf['type'] == "Json":
+                ipf['variables'] = {}
+                for act in ipf['actions']:
+                    if act['type'] == "Dump":
+                        for var in act['variables']:
+                            if "expression" in var.keys():
+                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                varis = set(expr.free_symbols)
+                                for vv in varis:
+                                    self.inputs[str(vv)] = None
+                                    # ipf['variables'][str(vv)] = var 
+                                var.update({"inc": varis})
+                                ipf['variables'][var['name']] = var 
+                            # print(var.keys())
+                            else:
+                                ipf['variables'][var['name']] = var 
+                                self.inputs[var['name']] = None
+                # pprint(ipf['variables'])
+
             else:
                 for ipv in ipf['variables']:
                     self.inputs[ipv['name']] = None
-        # pprint(self.input)
+        # pprint(self.inputs)
         for opf in self.output:
             # self.outputs[opf['name']] = None
             for opv in opf['variables']:
@@ -150,6 +190,10 @@ class CalculatorModule(Module):
                 self.run_command(command=command, child_logger=self.child_logger)
             else: 
                 self.run_command(command=cmd, child_logger=self.child_logger)
+        
+        # self.logger.warn(f"Installing -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
+        # from time import sleep
+        # sleep(5)
 
         self.logger.removeHandler(self.handlers['install'])
         self.child_logger.removeHandler(self.handlers['install_child'])
@@ -189,6 +233,7 @@ class CalculatorModule(Module):
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
                 self.run_command(command=command, child_logger=self.child_logger)
+        # self.logger.warn(f"Initializing -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
@@ -208,20 +253,32 @@ class CalculatorModule(Module):
         
         result = {}
         input_obs = asyncio.run(self.load_input(input_data=input_data))
-        
+
+        # self.logger.warn(f"Input -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
+
+
         if isinstance(input_obs, dict):
             result.update(input_obs)
 
         self.create_child_logger("execution")
+        # self.add_handler("sample_child", sample_info['run_log'], logging.DEBUG, self.formatter['child'])
+        self.child_logger.addHandler(self.handlers['sample_child'])
+        
         for command in self.execution['commands']:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
                 self.run_command(command=command, child_logger=self.child_logger)
 
+        # self.logger.warn(f"Execution -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
+
+
         output_obs = asyncio.run(self.read_output())
         if isinstance(output_obs, dict):
             result.update(output_obs)
+
+        # self.logger.warn(f"Output -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
+
 
         self.logger.removeHandler(self.handlers['sample'])
         self.logger.removeHandler(self.handlers['jarvis'])

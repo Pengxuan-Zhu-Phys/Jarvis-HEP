@@ -24,6 +24,7 @@ from moduleManager import ModuleManager
 from pprint import pprint
 import pandas as pd 
 import concurrent.futures
+import asyncio 
 
 class Core(Base):
     def __init__(self, logger) -> None:
@@ -76,13 +77,21 @@ class Core(Base):
         self.check_init_args()
 
     def init_project(self) -> None: 
-        self.info['scan_name'] = self.yaml.config['Scan']['name']
-        task_result_dir = os.path.join(self.yaml.config['Scan']['save_dir'], self.info['scan_name'])
+        import yaml 
+        with open(os.path.abspath(self.args.file), 'r') as file:
+            config = yaml.safe_load(file)
+        self.info['scan_name'] = config['Scan']['name']
+        self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
+        task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
         task_result_dir = self.decode_path(task_result_dir)
+        self.info['jarvis_log'] = os.path.join(task_result_dir, f"{self.info['scan_name']}.log")
+        self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
+        self.info['flowchart_path'] = os.path.join(task_result_dir, "flowchart.png")
+
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
             "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
-            "jarvis_log":  os.path.abspath(f"{self.info['project_name']}.log")
+            "jarvis_log":  self.info['jarvis_log']
         }
         self.info["db"] = {
             "path":  os.path.join(task_result_dir, "samples.hdf5"),
@@ -91,16 +100,14 @@ class Core(Base):
         if not os.path.exists(task_result_dir):
             os.makedirs(task_result_dir, exist_ok=True)
             os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
+        
         # pprint(self.yaml.config)
-        self.factory.info['sample'] = deepcopy(self.info['sample'])
-        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_logger(self) -> None:
-        self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
         self.logger = AppLogger(
             config_path=self.path['logger_config_path'],
             logger_name="Jarvis-HEP",
-            log_file_name=f"{self.info['project_name']}.log"
+            log_file_name=self.info['jarvis_log']
         )
         self.logger.info['debug_mode'] = self.args.debug
         self.logger.configure_logging()
@@ -139,8 +146,7 @@ class Core(Base):
     def init_StateSaver(self) -> None:
         logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
         logger.warning("Enabling breakpoint resume function ... ")
-        filename = f"{self.info['project_name']}.pkl"
-        self.__state_saver = self.__StateSaver(self, filename=filename, logger=logger, save_interval_seconds=60)
+        self.__state_saver = self.__StateSaver(self, filename=self.info['pickle_file'] , logger=logger, save_interval_seconds=60)
 
     def init_sampler(self) -> None:
         self.sampler.set_config(self.yaml.config)
@@ -148,6 +154,7 @@ class Core(Base):
         self.sampler.set_logger(logger)
         self.sampler.initialize()
         self.yaml.vars = self.sampler.vars 
+        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_librarys(self) -> None:
         self.libraries = Library()
@@ -170,7 +177,7 @@ class Core(Base):
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
         if not self.args.skipFC:
-            self.workflow.draw_flowchart()
+            asyncio.run(self.workflow.draw_flowchart(save_path=self.info['flowchart_path']))
         self.workflow.get_workflow_dict()
 
     def init_WorkerFactory(self) -> None: 
@@ -191,6 +198,7 @@ class Core(Base):
                 for module in layer['module']:
                     logger = self.logger.create_dynamic_logger(module)
                     self.module_manager.add_module_pool(self.workflow.modules[module], logger=logger)
+        self.factory.info['sample'] = deepcopy(self.info['sample'])
 
     def init_likelihood(self) -> None: 
         self.module_manager.set_likelihood()
@@ -208,17 +216,19 @@ class Core(Base):
 
     def initialization(self) -> None:
         self.init_argparser()
+        self.init_project()
         self.init_logger()
         self.init_configparser()
         self.init_utils()
         self.init_StateSaver()
+
         self.init_sampler()
         self.init_workflow()
         self.init_librarys()
         self.init_WorkerFactory()
-        self.init_project()
         self.init_likelihood()
         self.init_database()
+        # sys.exit()
 
 
     def run_sampling(self)->None:
@@ -228,20 +238,21 @@ class Core(Base):
             self.run_until_finished()
 
     def test_assembly_line(self):
+        self.logger.logger.warn("Start testing assembly line")
         try:
-            for ii in range(2):
+            for ii in range(1):
                 param = next(self.sampler)
-                future = self.factory.submit_task_with_prior(param)
-                print(future)
+                self.logger.logger.warn(f"Start for testing sample -> {param}")
+                # future = self.factory.submit_task_with_prior(param)
+                # print(future)
                 # print(self.factory.config['Scan'])
-                # sample = Sample(param)
-                # sample.set_config(deepcopy(self.info['sample']))
-                # self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
-                # future = self.factory.submit_task(sample.params, sample.info)
-                # 等待任务完成并获取结果
-                # output = future.result()
-                # self.module_manager.database.add_data(output)
-                # print(output)
+                sample = Sample(param)
+                sample.set_config(deepcopy(self.info['sample']))
+                self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
+                future = self.factory.submit_task(sample.params, sample.info)
+                output = future.result()
+                self.module_manager.database.add_data(output)
+                print(output)
         except Exception as e:
             # 异常处理
             print(f"An error occurred: {e}")

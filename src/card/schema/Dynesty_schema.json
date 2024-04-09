@@ -150,6 +150,57 @@
                                     "type",
                                     "actions"
                                 ]
+                            },
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "JSON"
+                                    },
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "Dump"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "entry": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "name"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "type",
+                                    "actions"
+                                ]
                             }
                         ]
                     }
@@ -222,6 +273,32 @@
                                                 "block",
                                                 "entry"
                                             ]
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "Json"
+                                    },
+                                    "variables": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "entry": {
+                                                    "type": "string",
+                                                    "optional": true
+                                                }
+                                            },
+                                            "required": [
+                                                "name"
+                                            ],
+                                            "additionalProperties": false
                                         }
                                     }
                                 }

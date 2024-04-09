@@ -34,21 +34,16 @@ class Dynesty(SamplingVirtial):
         self.logger.warning("WorkerFactory is ready for Bridson sampler")
 
     def __next__(self):
-        if self._P is None or not isinstance(self._P, np.ndarray):
-            raise StopIteration  # Stop iteration, if _P is not defined or _P is not np.array
-        if self._index < len(self._P):
-            result = self._P[self._index]
-            result = self.map_point_into_distribution(result)
-            self._index += 1
-            return result
-        else:
-            # raise StopIteration
-            return None
+        # for dynesty sampling method, next() method is only for testing the assembing line, not the real sampling method
+        u = np.random.random(self._dimensions)
+        param = self.map_point_into_distribution(u)
+        return param
+        
 
     def map_point_into_distribution(self, row) -> np.ndarray:
         result = {}
         for ii in range(len(row)):
-            result[self.vars[ii].name] = self.vars[ii].map_standard_random_to_distribution(row[ii]/self.vars[ii]._parameters['length'])
+            result[self.vars[ii].name] = self.vars[ii].map_standard_random_to_distribution(row[ii])
         return result
 
     def set_logger(self, logger) -> None:
@@ -57,6 +52,7 @@ class Dynesty(SamplingVirtial):
 
     def init_generator(self):
         self.load_variable()
+        print(self.vars[0]._parameters)
         self._nlive = self.config['Sampling']['Bounds']['nlive']
         self._rstate = np.random.default_rng(self.config['Sampling']['Bounds']['rseed'])
         self._dlogz = self.config['Sampling']['Bounds']['dlogz']
@@ -64,6 +60,11 @@ class Dynesty(SamplingVirtial):
 
     def initialize(self):
         self.logger.warning("Initializing the Dynesty Sampling")
+
+    def init_sampler_db(self):
+        self.info['db'] = {
+            "nested result":    os.path.join(self.info['sample']['task_result_dir'], "dynesty_result.csv")
+        }
 
     def run_nested(self):
         def log_likelihood(params):
@@ -78,6 +79,8 @@ class Dynesty(SamplingVirtial):
             result = future.result()
             return result 
         
+        self.init_sampler_db()
+
         # from dynesty import DynamicNestedSampler
         from Source.Dynesty.py.dynesty import DynamicNestedSampler
         with ThreadPoolExecutor(max_workers=4) as executor:
@@ -96,4 +99,31 @@ class Dynesty(SamplingVirtial):
 
     def finalize(self):
         print(self.sampler.results)
+
         pass 
+
+    def save_dynesty_results_to_csv(self):
+        import pandas as pd 
+        data = {
+            "uuid":             self.sampler.results['samples_uid'],
+            "log_weight":       self.sampler.results['logwt'],
+            "log_Like":         self.sampler.results['logl'],
+            "log_PriorVolume":  self.sampler.results['logvol'],
+            "log_Evidence":     self.sampler.results['logz'],
+            "log_Evidence_err": self.sampler.results['logzerr'],
+            "samples_nlive":    self.sampler.results['samples_n'],
+            "ncall":            self.sampler.results['ncall'],
+            "samples_it":       self.sampler.results['samples_it'],
+            "samples_id":       self.sampler.results['samples_id'],
+            "information":      self.sampler.results['information']
+        }
+
+        for ii in range(self.sampler.results['samples'].shape[1]):
+            data[f'samples_v[{ii}]'] = self.sampler.results['samples'][:, ii]
+        for ii in range(self.sampler.results['samples_u'].shape[1]):
+            data[f'samples_u[{ii}]'] = self.sampler.results['samples'][:, ii]
+
+        df = pd.DataFrame(data)
+        df.to_csv(self.info['db']['nested result'], index=False)
+        self.logger.info(f"Results saved to {self.info['db']['nested result']}")
+        self.logger.info(self.sampler.results.summary())

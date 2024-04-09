@@ -1,5 +1,338 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "initialization": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "execution": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "input": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "save": {
+                                "type": "boolean"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "path",
+                            "actions",
+                            "save",
+                            "type"
+                        ],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "SLHA"
+                                    },
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "Replace"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "placeholder": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "name",
+                                                                    "placeholder"
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "SLHA"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "block": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "entry": {
+                                                                        "oneOf": [
+                                                                            {
+                                                                                "type": "integer"
+                                                                            },
+                                                                            {
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "integer"
+                                                                                }
+                                                                            }
+                                                                        ]
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "block",
+                                                                    "entry"
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "File"
+                                                        },
+                                                        "source": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "source"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "type",
+                                    "actions"
+                                ]
+                            },
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "JSON"
+                                    },
+                                    "actions": {
+                                        "type": "array",
+                                        "items": {
+                                            "oneOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "const": "Dump"
+                                                        },
+                                                        "variables": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "expression": {
+                                                                        "type": "string",
+                                                                        "optional": true
+                                                                    },
+                                                                    "entry": {
+                                                                        "type": "string",
+                                                                        "optional": true
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "name"
+                                                                ]
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "type",
+                                                        "variables"
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "type",
+                                    "actions"
+                                ]
+                            }
+                        ]
+                    }
+                },
+                "output": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "save": {
+                                "type": "boolean"
+                            },
+                            "type": {
+                                "type": "string"
+                            },
+                            "variables": {
+                                "type": "array"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "path",
+                            "type",
+                            "save",
+                            "variables"
+                        ],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "SLHA"
+                                    },
+                                    "variables": {
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "block": {
+                                                    "type": "string"
+                                                },
+                                                "entry": {
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "integer"
+                                                        },
+                                                        {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "integer"
+                                                            },
+                                                            "minItems": 2,
+                                                            "maxItems": 3
+                                                        }
+                                                    ]
+                                                },
+                                                "expression": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "name",
+                                                "block",
+                                                "entry"
+                                            ]
+                                        }
+                                    }
+                                }
+                            },
+                            {
+                                "properties": {
+                                    "type": {
+                                        "const": "Json"
+                                    },
+                                    "variables": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string"
+                                                },
+                                                "entry": {
+                                                    "type": "string",
+                                                    "optional": true
+                                                }
+                                            },
+                                            "required": ["name"],
+                                            "additionalProperties": false
+                                        }
+                                    }
+                                }
+                            }                            
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "path",
+                "commands",
+                "input",
+                "output"
+            ]
+        },
+        "LogLikelihood": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "expression": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "name",
+                    "expression"
+                ],
+                "additionalProperties": false
+            }
+        }
+    },
     "type": "object",
     "properties": {
         "Scan": {

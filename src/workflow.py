@@ -9,6 +9,7 @@ import os, io
 
 class Workflow(Base):
     def __init__(self):
+        super().__init__()
         self.modules = {}
         self.module_states = {}
         self.module_dependencies = {}
@@ -106,7 +107,6 @@ class Workflow(Base):
             unresolved = [item for item in unresolved if item not in resolved]
             self.calc_layer[current_layer] = {"module": new_resolved, "ipfs": {}, "opfs": {}, "ipvs": {}, "opvs": {}, "mdls": {}}
             current_layer += 1 
-        from pprint import pprint
 
     def resolve_dependencies(self):
         # Resolve dependencies based on the IOs 
@@ -175,7 +175,7 @@ class Workflow(Base):
             else:
                 print(f"Workflow completed successfully for sample point {sample}.")
 
-    def draw_flowchart(self):
+    async def draw_flowchart(self, save_path="flowchart.png"):
         # with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             import matplotlib.pyplot as plt 
             import shapely as sp 
@@ -208,9 +208,20 @@ class Workflow(Base):
                         ipfl[ipf['name']] ={
                             "nam": ipf['name'],
                             "pos": np.array([-1.1, ((nn - 1)/2 - ii) * 0.7 + 0.2]) + res["bp"],
-                            "inc": [var for var in ipf['variables'].values()],
+                            "inc": [],
                             "fil": os.path.basename(ipf['path'])
                         }
+                        for var in ipf['variables'].values():
+                            if "inc" in var.keys():
+                                for kk in var['inc']:
+                                    if kk not in ipfl[ipf['name']]['inc']:
+                                        ipfl[ipf['name']]['inc'].append(
+                                            {
+                                                "name": str(kk)
+                                            }
+                                        )
+                            else:
+                                ipfl[ipf['name']]['inc'].append(var)
                     res["ipf"] = ipfl
                     if hh > 0.:
                         res['ihh'] = hh 
@@ -252,7 +263,6 @@ class Workflow(Base):
                     for op in res["opv"]:
                         res['opv'][op]["pos"] += np.array([0., + 0.5 * h0])
 
-                    from pprint import pprint
                 elif self.modules[module].outputs:
                     nv = (len(self.modules[module].outputs) - 1)/2
                     h0 = nv * 0.2
@@ -272,7 +282,7 @@ class Workflow(Base):
                     res['width'] += 0.65
                 if res['opv']:
                     res['width'] += 1.5 
-    
+                
                 return res 
 
             def resolve_layer():
@@ -572,4 +582,4 @@ class Workflow(Base):
                 for mod, info in item.items():
                     draw_layer_module(kk, info)
             
-            plt.savefig("flowchart.png", dpi=300)
+            plt.savefig(save_path, dpi=300)

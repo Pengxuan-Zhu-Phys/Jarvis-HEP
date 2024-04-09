@@ -7,6 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 import time
 from random import random
 
+tmax = 5.0 * np.pi
+def loglike(x):
+    t = 2.0 * tmax * x - tmax
+    return (2.0 + np.cos(t[0] / 2.0) * np.cos(t[1] / 2.0)) ** 5.0
+
 # 模拟的外部命令执行函数，计算多变量高斯的对数似然值
 def simulate_external_likelihood_calculation(params):
     mean = np.zeros(len(params))
@@ -39,14 +44,14 @@ class WorkerFactory:
     def compute_likelihood(self, params):
         # 这里调用外部程序计算likelihood
         # 假设这是外部程序的调用结果
-        result = simulate_external_likelihood_calculation(params)
+        result = loglike(params)
         return result
 
 
 # 先验转换函数
-def prior_transform(utheta):
-    u = 10. * utheta - 5.
-    ret = np.append(u, str(uuid4()))
+def prior_transform(x):
+    # return x
+    ret = np.append(x, str(uuid4()))
     return ret
 
 # log_likelihood函数，通过WorkerFactory提交任务并等待结果
@@ -82,30 +87,28 @@ def log_likelihood(params):
 import pandas as pd
 
 def save_dynesty_results_to_csv(results, csv_file_path):
-    """
-    将dynesty的结果保存为CSV文件。
-
-    参数:
-        results: dynesty的结果对象。
-        csv_file_path: 保存CSV文件的路径。
-    """
-    # 创建一个字典来存储我们感兴趣的结果数据
+    import pandas as pd 
     data = {
-        'samples_uid': results['samples_uid'],  # 假设结果对象中已经有了sample_uid
-        'logl': results['logl'],  # 对数似然值
-        'logwt': results['logwt'],  # 样本权重
+        "uuid":             results['samples_uid'],
+        "log_weight":       results['logwt'],
+        "log_Like":         results['logl'],
+        "log_PriorVolume":  results['logvol'],
+        "log_Evidence":     results['logz'],
+        "log_Evidence_err": results['logzerr'],
+        "samples_nlive":    results['samples_n'],
+        "ncall":            results['ncall'],
+        "samples_it":       results['samples_it'],
+        "samples_id":       results['samples_id'],
+        "information":      results['information']
     }
-    
-    # 假设样本参数是多维的，我们需要为每个维度创建一个列
-    for i in range(results['samples'].shape[1]):  # 假设samples是二维数组，形状为(niter, ndim)
-        data[f'param_{i}'] = results['samples'][:, i]
-    
-    # 使用pandas创建数据帧
+    for ii in range(results['samples'].shape[1]):
+        data[f'samples_v[{ii}]'] = results['samples'][:, ii]
+    for ii in range(results['samples_u'].shape[1]):
+        data[f'samples_u[{ii}]'] = results['samples'][:, ii]
     df = pd.DataFrame(data)
-    
-    # 保存到CSV文件
     df.to_csv(csv_file_path, index=False)
     print(f"Results saved to {csv_file_path}")
+    print(results.summary())
 
 
 
@@ -123,22 +126,71 @@ if __name__ == "__main__":
         sampler = dynesty.DynamicNestedSampler(log_likelihood, prior_transform, ndim, pool=executor, queue_size=32)
 
         # sampler = dynesty.DynamicNestedSampler(log_likelihood, prior_transform, ndim, pool=pool, queue_size=2)
-        sampler.run_nested(dlogz_init=0.01, print_progress=False)
+        # sampler.run_nested(dlogz_init=0.01, print_progress=False, nlive_init=50, wt_kwargs={'pfrac': 1.0})
+        sampler.run_nested(print_progress=False, wt_kwargs={'pfrac': 1.0})
         results = sampler.results
         save_dynesty_results_to_csv(results, "test_dynesty.csv")
-        # print(results)
-        print("Information", results['information'])
-        print("logZ length", len(results['logz']))
+        print(results.keys())
+        # print("Information", results['information'])
+        # print("logZ length", len(results['logz']))
+        # print("samples Number", len(results['samples_uid']))
+        for kk, vv in results.items():
+            if type(vv) == np.ndarray:
+                print(f"Length {kk} \t->  {type(vv[0])}\t {vv.shape}")
+        
+        print("====================")
+        for kk, vv in results.items():
+            if type(vv) != np.ndarray:
+                print(f"{kk} \t->\t{vv}")
         print(results.summary())
         print(results.isdynamic())
         
         import matplotlib.pyplot as plt 
-        fig = plt.figure(figsize=(10, 4))
+        fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], results['samples_n'], '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_01.png", dpi=300)
+        print("figure 1 succeed")
 
-        ax.plot(- results['logvol'], results['samples_n'], 'o', color='blue' )
-        # plt.show()
-        plt.savefig("test_dynesty_02.png")
+        fig = plt.figure(figsize=(10, 3))
+        ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], np.exp(results['logl'] - max(results['logl'])), '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_02.png", dpi=300)
+        print("figure 2 succeed")
+
+
+        fig = plt.figure(figsize=(10, 3))
+        ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], np.exp(results['logwt'] - results['logz'][-1]), '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_03.png", dpi=300)
+        print("figure 3 succeed")
+
+        fig = plt.figure(figsize=(10, 3))
+        ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], np.exp(results['logz']), '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_04.png", dpi=300)
+        print("figure 4 succeed")
+
+        fig = plt.figure(figsize=(10, 3))
+        ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], results['samples_it'], '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_05.png", dpi=300)
+        print("figure 5 succeed")
+
+        fig = plt.figure(figsize=(10, 3))
+        ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
+        ax.plot(- results['logvol'], results['ncall'], '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_06.png", dpi=300)
+        print("figure 6 succeed")
+
+        fig = plt.figure(figsize=(10, 6))
+        ax1 = fig.add_axes([0.15, 0.2, 0.84, 0.4])
+        ax2 = fig.add_axes([0.15, 0.6, 0.84, 0.4])
+        ax1.plot(- results['logvol'], results['samples_u'][:, 0], '.', color='blue', markersize=1.0 )
+        ax2.plot(- results['logvol'], results['samples_u'][:, 1], '.', color='blue', markersize=1.0 )
+        plt.savefig("test_dynesty_a_07.png", dpi=300)
+        print("figure 7 succeed")
+
         # print(""results['logvol']))
 
 

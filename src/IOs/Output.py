@@ -123,3 +123,78 @@ class SLHAOutputFile(OutputFile):
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
 
 
+class JsonOutputFile(OutputFile):
+    async def read(self):
+        """
+            Asynchronously reads data from a JSON file specified by the decoded path and updates observables based on the defined variables.
+        
+            The method performs the following steps:
+            1. Decodes the file path where the JSON data is expected to be located.
+            2. Attempts to asynchronously open and read the JSON file at the decoded path. If the file does not exist or contains invalid JSON, an error is logged.
+            3. Iterates over the defined variables in self.variables. For each variable:
+                - If an 'entry' is specified, uses the read_json_value_by_entry method to fetch a value from a nested path within the JSON structure.
+                - If no 'entry' is specified, fetches the value directly from the root of the JSON object.
+            4. Depending on the value of self.save:
+                - If true, saves the read content to a file named after the module in the sample_save_dir directory.
+                - If false, saves the read content to a temporary file in the .temp directory within sample_save_dir.
+            5. Logs the completion of the reading process and returns the observables dictionary.
+        
+            Parameters:
+            None
+        
+            Returns:
+            - observables (dict): A dictionary containing the fetched values for each variable. The keys are the variable names, and the values are the fetched data from the JSON file.
+        
+            The method ensures that any reading errors are caught and logged, preventing unhandled exceptions from causing runtime errors.
+        """
+        self.path = self.decode_path(self.path)
+        self.logger.info(f"Start reading the output file -> {self.path}")
+
+        observables = {}
+        content = None
+        source = None
+
+        try:
+            try:
+                async with aiofiles.open(self.path, 'r') as f1:
+                    source = await f1.read()
+                    content = json.loads(source)
+            except FileNotFoundError:
+                self.logger.error(f"File not found: {self.path}")
+            except json.JSONDecodeError:
+                self.logger.error(f"Error decoding JSON from file: {self.path}")
+            
+            for var in self.variables:
+                if "entry" in var:
+                    observables[var['name']] = self.read_json_value_by_entry(content, var['entry'])
+                else:
+                    observables[var['name']] = content[var['name']]
+
+            if self.save:
+                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
+                async with aiofiles.open(target, "w") as dst_file:
+                    await dst_file.write(source)
+                observables[self.name] = target
+            else: 
+                target_path = os.path.join(self.sample_save_dir, ".temp")
+                if not os.path.exists(target_path):
+                    os.makedirs(target_path)
+                target = os.path.join(target_path, f"{os.path.basename(self.path)}@{self.module}")
+                async with aiofiles.open(target, "w") as dst_file: 
+                    await dst_file.write(source)
+                observables[self.name] = target
+
+            self.logger.info(f"Finish reading the input file -> {self.path}")
+            return observables
+        except Exception as e: 
+            self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
+        
+    def read_json_value_by_entry(self, json_dict, entry):
+        parts = entry.split('.')
+        current = json_dict
+        for part in parts:
+            if part not in current:
+                return None  # 如果路径的某部分不存在，则返回 None
+            current = current[part]
+    
+        return current

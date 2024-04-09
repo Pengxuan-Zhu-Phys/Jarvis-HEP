@@ -158,7 +158,7 @@ class ModulePool:
 
     def init_instances_info_file(self):
         if not os.path.exists(os.path.dirname(self.instances_info_file)):
-            # self.logger.warning("Init instance info file ")
+            self.logger.warning(f"Init instance info file -> {os.path.dirname(self.instances_info_file)}")
             os.makedirs(os.path.dirname(self.instances_info_file))
         data_to_save = {"installed_instances": {}}
         with open(self.instances_info_file, 'w') as file:
