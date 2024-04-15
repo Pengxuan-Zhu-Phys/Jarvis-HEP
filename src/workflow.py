@@ -6,6 +6,7 @@ from Module.module import Module
 import numpy as np 
 import contextlib
 import os, io 
+import asyncio
 
 class Workflow(Base):
     def __init__(self):
@@ -189,10 +190,7 @@ class Workflow(Base):
 
             layerW = 6.0 
             figL = layerW * len(self.calc_layer) - 3
-
             figH = 4
-
-
 
             def resolve_module(module, lid):
                 if lid == 1:
@@ -463,9 +461,6 @@ class Workflow(Base):
                         if "brg" in mod['opv'][op].keys():
                             line_from_V2B(mod['opv'][op]['pos'], mod['opv'][op]['brg'])
 
-            
-
-                
             def arraw_from_V2F(pA, pB):
                 tt = np.linspace(-0.5 * np.pi, 0.4 * np.pi, 100)
                 xx = np.linspace(pA[0] + 0.14, pB[0] - 0.5, 100)
@@ -583,3 +578,4 @@ class Workflow(Base):
                     draw_layer_module(kk, info)
             
             plt.savefig(save_path, dpi=300)
+            await asyncio.sleep(2)

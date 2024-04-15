@@ -19,8 +19,8 @@ class Dynesty(SamplingVirtial):
         self.load_schema_file()
         self.method = "Dynesty"
         self.sampler = None
-        # self.max_workers = os.cpu_count()
-        self.max_workers = 2
+        self.max_workers = os.cpu_count()
+        # self.max_workers = 2
 
     def load_schema_file(self):
         self.schema = self.path['DynestySchema']
@@ -83,7 +83,7 @@ class Dynesty(SamplingVirtial):
 
         # from dynesty import DynamicNestedSampler
         from Source.Dynesty.py.dynesty import DynamicNestedSampler
-        with ThreadPoolExecutor(max_workers=4) as executor:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             self.sampler = DynamicNestedSampler(
                 loglikelihood=log_likelihood, 
                 prior_transform=prior_transform,
@@ -91,13 +91,15 @@ class Dynesty(SamplingVirtial):
                 nlive=self._nlive,
                 pool=executor, 
                 rstate=self._rstate,
-                queue_size=2*self.max_workers
+                queue_size=3*self.max_workers,
+                log_file_path=self.info['logfile']
             )
             self.sampler.run_nested(
                 dlogz_init = self._dlogz
             )
 
     def finalize(self):
+        self.save_dynesty_results_to_csv()
         print(self.sampler.results)
 
         pass 

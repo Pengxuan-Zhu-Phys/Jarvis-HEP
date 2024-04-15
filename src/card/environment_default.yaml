@@ -63,3 +63,6 @@ EnvironmentRequirements:
     - name: sqlalchemy
       required: true 
       version: ">=2.0.29"
+    - name: loguru
+      required: true
+      version: ">=0.7.0"

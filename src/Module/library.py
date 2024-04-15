@@ -10,7 +10,8 @@ import os
 from base import Base
 from time import sleep
 from Module.module import Module
-
+from loguru import logger
+import asyncio
 class LibraryModule(Module):
     def __init__(self, name, required_modules, installed, installation):
         super().__init__(name)
@@ -20,7 +21,7 @@ class LibraryModule(Module):
         self.logger = None
         self._skip_library = False
 
-    def set_logger(self, logger):
+    def set_logger(self):
         """
             Assigns a logger instance to the module and logs an initialization message.
 
@@ -39,7 +40,28 @@ class LibraryModule(Module):
             Returns:
             None
         """
-        self.logger = logger
+                # def get_sample_logger(self, sample_id, module):
+                    #  sample_log_file = os.path.join(self.log_directory, f"{sample_id}_RUNNING.log")
+                    #  custom_format = "{time} {level} - {name} | {message}"
+                    #  sample_logger = logger.bind(sample_id=sample_id, module=module)
+
+                    #  sample_logger.add(sample_log_file, format=custom_format, level="INFO", rotation=None, retention=None)
+                    #  return sample_logger
+        def custom_format(record):
+            module = record["extra"].get("module", "No module")
+            if "raw" in record["extra"]:
+                return "{message}"
+            else:
+                return f"\n <cyan>{module}</cyan> \n\t- <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+
+        def filte_func(record):
+            # print(record['extra'].keys(), record['extra']['module'], f"Library.{self.name}", record['extra']['module'] == f"Library.{self.name}")
+            return record['extra']['module'] == f"Library.{self.name}"
+
+        slogger = logger.bind(module=f"Library.{self.name}", to_console=True, Jarvis=True)
+        slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
+        # slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None)
+        self.logger = slogger
         self.logger.warning("Initializating Library -> {}".format(self.name))
 
     def check_installed(self):
@@ -74,7 +96,9 @@ class LibraryModule(Module):
         # self.check_installed()
         if not self._skip_library:
             if self.installed:
-                user_input = input(f"Configuration for {self.name} has not changed. Reinstall? (y/n): ")
+                self.logger.warning(f"Configuration for {self.name} has not changed. ")
+                sleep(0.01)
+                user_input = input(f"\nReinstall? (y/n): ")
                 if user_input.lower() != 'y':
                     self.logger.warning(f"Skipping installation of {self.name}.")
                 else:
@@ -92,53 +116,34 @@ class LibraryModule(Module):
             self.logger.warning(f"Skipping the installation of library -> {self.name}")
 
     def run_install_commands(self):
-        child_logger_name = f"{self.logger.name}.command_logger"
-        self.child_logger = logging.getLogger(child_logger_name)
-        self.child_logger.propagate = False
-        
-        # setting a simple formmater for each command 
-        simple_formatter = logging.Formatter('%(message)s')
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(simple_formatter)
-        stream_handler.setLevel(logging.INFO)
-        self.child_logger.addHandler(stream_handler)
-
-        file_handler = logging.FileHandler(self.path['log_file_path'], mode="a")
-        file_handler.setLevel(logging.INFO)
-        file_handler.setFormatter(simple_formatter)
-        self.child_logger.addHandler(file_handler)
-
-        # self.child_logger.setLevel(self.logger.level)
-
         for command in self.installation['commands']:
             self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-            self.run_command(command)
+            asyncio.run(self.run_command(command))
 
-    def run_command(self, command):
-        with subprocess.Popen(
-                                command['cmd'], 
-                                shell=True, 
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, 
-                                text=True, 
-                                cwd=command['cwd']) as process:
-            stdout_thread = threading.Thread(target=self.log_stream, args=(process.stdout, logging.INFO, self.child_logger))
-            stdout_thread.start()
-            stderr_thread = threading.Thread(target=self.log_stream, args=(process.stderr, logging.ERROR, self.child_logger)) 
-            stderr_thread.start()
+    async def run_command(self, command):
+        # Create subprocess
+        process = await asyncio.create_subprocess_shell(
+            command['cmd'],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=command['cwd']
+        )
 
-            stdout_thread.join()
-            stderr_thread.join()
+        # Gather both stdout and stderr concurrently
+        stdout, stderr = await asyncio.gather(
+            self.log_stream_info(process.stdout),
+            self.log_stream_error(process.stderr)
+        )
 
-            process.wait()
-            # if process.returncode != 0:
-                # raise subprocess.CalledProcessError(process.returncode, command)
+        # Wait for the process to finish
+        await process.wait()
 
-            # child_logger.removeHandler(handler)
-        # sleep(4)
 
-    def log_stream(self, stream, level, logger):
-        # Using the child logger to handle the logging 
-        for line in iter(stream.readline, ''):
-            logger.log(level, "\t{}".format(line.strip()))
-        
+    async def log_stream_info(self, stream):
+        async for line in stream:
+            self.logger.bind(raw=True).info(f"\t{line.decode()}")
+
+    async def log_stream_error(self, stream):
+        async for line in stream:
+            self.logger.bind(raw=True).error(f"\t{line.decode()}")
+

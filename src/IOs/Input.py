@@ -58,7 +58,7 @@ class SLHAInputFile(InputFile):
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         observables = {}
 
-        self.logger.debug(f"Writing the {param_values} -> \n\t{self.path}")
+        # self.logger.debug(f"Writing the input file -> \n\t{self.path}")
         try:
             content = ""
             async with aiofiles.open(self.path, 'r') as slha_file:
@@ -78,7 +78,7 @@ class SLHAInputFile(InputFile):
                             symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
                             value = num_expr(**symbol_values_strs)
                             observables[var['name']] = value
-                            # self.logger.warning(f"{expr} -> {param_values} -> {value}")
+                            self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [ {', '.join(['{}: {}, '.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
                             # value = f"{float(value):.1E}"
                         placeholder = var['placeholder']
                         if value != "MISSING_VALUE":
@@ -102,7 +102,7 @@ class SLHAInputFile(InputFile):
                                     symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
                                     value = num_expr(**symbol_values_strs)
                                     observables[var['name']] = value
-                                    # self.logger.warning(f"{expr} -> {param_values} -> {value}")
+                                    self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
                                     # value = f"{float(value):.1E}"
                                 if value != "MISSING_VALUE":
                                     value = f"{float(value):.8E}"
@@ -117,6 +117,8 @@ class SLHAInputFile(InputFile):
                                     symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
                                     value = num_expr(**symbol_values_strs)
                                     observables[var['name']] = value
+                                    self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
+
                                 if value != "MISSING_VALUE":
                                     value = f"{float(value):.8E}"
                                 content.blocks[var['block']][tuple(var['entry'])] = value 
@@ -174,7 +176,7 @@ class JsonInputFile(InputFile):
         """
         
         self.path = self.decode_path(self.path)
-        self.logger.warning(f"Start writing the input file -> {self.path}")
+        self.logger.info(f"Start writing the input file -> {self.path}")
         observables = {}
 
         try:
@@ -201,19 +203,15 @@ class JsonInputFile(InputFile):
                         symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
                         value = num_expr(**symbol_values_strs)
                         observables[var['name']] = value
-                        self.logger.info(f"{expr} -> {param_values} -> {value}")
+                        self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
 
                     if "entry" not in var: 
                         data_to_write.update({var['name']: value})
                     else: 
                         self.update_json_by_entry(data_to_write, var['entry'], value)
 
-            self.logger.warning(data_to_write)
-
         try:
-            # 将字典转换为格式化的字符串
             json_str = json.dumps(data_to_write, indent=4)
-            # 异步写入文件
             async with aiofiles.open(self.path, 'w') as json_file:
                 await json_file.write(json_str)
         except Exception as e:

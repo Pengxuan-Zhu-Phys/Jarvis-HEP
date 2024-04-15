@@ -5,6 +5,8 @@ from base import Base
 from sympy.utilities.lambdify import lambdify
 import os
 import logging
+from loguru import logger
+from pandas import Series
 
 class LogLikelihood(Base):
     def __init__(self, expressions):
@@ -27,7 +29,7 @@ class LogLikelihood(Base):
                 self.named_expressions.append((expr_dict['name'], sympy_expr))
 
         self.variables = set().union(*[expr.free_symbols for _, expr in self.named_expressions])
-        self.logger = None
+        self.logger = logger.bind(module="Jarvis-HEP.LogLikelihood", to_console=True, Jarvis=True)
         self.custom_functions = {}
         self.custom_functions = update_funcs(self.custom_functions)
         self.constants = {}
@@ -62,40 +64,40 @@ class LogLikelihood(Base):
                 varis = set(expr.free_symbols)
                 symbol_values_strs = {str(key): value for key, value in values.items() if key in {str(var) for var in varis}}
                 likelihood = num_expr(**symbol_values_strs)
-                self.childlogger.info(f"Evaluating   {name}: \n   expression \t-> {str(expr)} \n   with input \t-> {symbol_values_strs} \n   Output \t\t-> {likelihood}")
+                self.childlogger.info(f"Evaluating   {name}: \n   expression \t-> {str(expr)} \n   with input \t-> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n   Output \t\t-> {likelihood}")
                 self.values[name] = likelihood
                 total_loglikelihood += likelihood
 
             # self.childlogger.warning(f"\t Total LogLikelihood -> \n\t LogL: {total_loglikelihood}")
             self.values['LogL'] = total_loglikelihood
+            values.update(self.values)
+            self.childlogger.info(f"""Sample SUMMARY
+=================================================================
+{Series(values).to_string()}
+================================================================="""
+        )
+
+            logger.remove(self.childhandler)
+            # self.childlogger = None
             return self.values 
         except Exception as exc:
             print(exc)
             return {"LogL": float(-sp.core.numbers.Infinity())}
 
+    def custom_format(record):
+        module = record["extra"].get("module", "No module")
+        if "raw" in record["extra"]:
+            return "{message}"
+        else:
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
 
     def update_logger(self, sample_info):
-        logger_name = f"Sample@{sample_info['uuid']} <Likelihood>"
+        logger_name = f"Sample@{sample_info['uuid']} (Likelihood)"
         if not os.path.exists(sample_info['save_dir']):
             os.makedirs(sample_info['save_dir'])
-        self.childlogger = logging.getLogger(logger_name)
-        self.childlogger.setLevel(logging.DEBUG)
-        self.childlogger.propagate = False
-
-        # self.path['run_log_file'] = os.path.join(sample_info['save_dir'], "Sample_running.log")
-        # self.path['run_log_file'] = sample_info['run_log']
-        formatter = logging.Formatter("\n·•· %(name)s\n\t -> %(asctime)s - %(levelname)s >>> \n%(message)s")
-        file_handler = logging.FileHandler(sample_info['run_log'], mode='a')
-        file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.DEBUG)
-
-        jlog_handler = logging.FileHandler(sample_info['jarvis_log'])
-        jlog_handler.setFormatter(formatter)
-        jlog_handler.setLevel(logging.WARNING)
-
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.WARNING)
-        console_handler.setFormatter(formatter)
-
-        self.childlogger.addHandler(console_handler)
-        self.childlogger.addHandler(file_handler)
+        
+        def filte_func(record):
+            return record['extra']['module'] == logger_name
+        
+        self.childlogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        self.childhandler = self.childlogger.add(sample_info['run_log'], format=LogLikelihood.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)

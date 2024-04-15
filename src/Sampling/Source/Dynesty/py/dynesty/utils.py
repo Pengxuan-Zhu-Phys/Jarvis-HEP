@@ -358,7 +358,8 @@ def print_fn(results,
              nbatch=None,
              logl_min=-np.inf,
              logl_max=np.inf,
-             pbar=None):
+             pbar=None,
+             logger=None):
     """
     The default function used to print out results in real time.
 
@@ -423,7 +424,8 @@ def print_fn(results,
                           stop_val=stop_val,
                           nbatch=nbatch,
                           logl_min=logl_min,
-                          logl_max=logl_max)
+                          logl_max=logl_max,
+                          logger=logger)
     else:
         print_fn_tqdm(pbar,
                       results,
@@ -434,7 +436,8 @@ def print_fn(results,
                       stop_val=stop_val,
                       nbatch=nbatch,
                       logl_min=logl_min,
-                      logl_max=logl_max)
+                      logl_max=logl_max,
+                      logger=logger)
 
 
 def get_print_fn_args(results,
@@ -445,7 +448,8 @@ def get_print_fn_args(results,
                       stop_val=None,
                       nbatch=None,
                       logl_min=-np.inf,
-                      logl_max=np.inf):
+                      logl_max=np.inf,
+                      logger=None):
     # Extract results at the current iteration.
     loglstar = results.loglstar
     logz = results.logz
@@ -494,6 +498,9 @@ def get_print_fn_args(results,
         long_str.append("stop: {:6.3f}".format(stop_val))
         mid_str.append("stop: {:6.3f}".format(stop_val))
 
+    # if logger is not None:
+    #     print(long_str)
+
     return PrintFnArgs(niter=niter,
                        short_str=short_str,
                        mid_str=mid_str,
@@ -509,7 +516,8 @@ def print_fn_tqdm(pbar,
                   stop_val=None,
                   nbatch=None,
                   logl_min=-np.inf,
-                  logl_max=np.inf):
+                  logl_max=np.inf,
+                  logger=None):
     """
     This is a function that does the status printing using tqdm module
     """
@@ -521,10 +529,18 @@ def print_fn_tqdm(pbar,
                                 stop_val=stop_val,
                                 nbatch=nbatch,
                                 logl_min=logl_min,
-                                logl_max=logl_max)
+                                logl_max=logl_max,
+                                logger=logger
+                                )
 
     pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
     pbar.update(fn_args.niter - pbar.n)
+    if logger is not None:
+        logger.warning(pbar)
+    # print(pbar)
+
+    # if logger is not None:
+        # logger.info(f"{fn_args.niter - pbar.n} {' | '.join(fn_args.long_str)}")
 
 
 def print_fn_fallback(results,
@@ -535,7 +551,8 @@ def print_fn_fallback(results,
                       stop_val=None,
                       nbatch=None,
                       logl_min=-np.inf,
-                      logl_max=np.inf):
+                      logl_max=np.inf,
+                      logger=None):
     """
     This is a function that does the status printing using just
     standard printing into the console
@@ -558,15 +575,22 @@ def print_fn_fallback(results,
     long_str = ' | '.join(long_str)
     mid_str = ' | '.join(mid_str)
     short_str = '|'.join(short_str)
+    # if logger is not None:
+        # logger.info(short_str)
+
     if sys.stderr.isatty() and hasattr(shutil, 'get_terminal_size'):
         columns = shutil.get_terminal_size(fallback=(80, 25))[0]
     else:
         columns = 200
     if columns > len(long_str):
+        # sys.stderr.write("Line 583 ->" + long_str + ' ' * (columns - len(long_str) - 2))
         sys.stderr.write("\r" + long_str + ' ' * (columns - len(long_str) - 2))
     elif columns > len(mid_str):
+        # sys.stderr.write("Line 585 ->" + mid_str + ' ' * (columns - len(mid_str) - 2))
         sys.stderr.write("\r" + mid_str + ' ' * (columns - len(mid_str) - 2))
     else:
+        # sys.stderr.write("Line 587 ->" + short_str + ' ' *
+                        #  (columns - len(short_str) - 2))
         sys.stderr.write("\r" + short_str + ' ' *
                          (columns - len(short_str) - 2))
     sys.stderr.flush()
@@ -857,6 +881,7 @@ def get_print_func(print_func, print_progress):
         else:
             pbar = tqdm.tqdm()
             print_func = partial(print_fn, pbar=pbar)
+    # print(pbar, print_func, "\n")
     return pbar, print_func
 
 
@@ -1683,6 +1708,8 @@ def unravel_run(res, print_progress=True):
 
         # Print progress.
         if print_progress:
+            # print("Line 1703")
+            # sys.stderr.write(f'Strand: {counter+1}/{nstrands}     ')
             sys.stderr.write(f'\rStrand: {counter+1}/{nstrands}     ')
 
     return new_res
@@ -1748,6 +1775,8 @@ def merge_runs(res_list, print_progress=True):
                 counter += 1
                 # Print progress.
                 if print_progress:
+                    # print("Line 1769")
+                    # sys.stderr.write(f'Merge: {counter}/{ntot}     ')
                     sys.stderr.write(f'\rMerge: {counter}/{ntot}     ')
             # Overwrite baseline set of results with merged results.
             rlist_base = copy.copy(rlist_new)
@@ -1767,6 +1796,7 @@ def merge_runs(res_list, print_progress=True):
         counter += 1
         # Print progress.
         if print_progress:
+            # sys.stderr.write(f'Merge: {counter}/{ntot}     ')
             sys.stderr.write(f'\rMerge: {counter}/{ntot}     ')
 
     res = check_result_static(res)

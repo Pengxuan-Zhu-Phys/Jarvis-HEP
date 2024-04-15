@@ -751,7 +751,9 @@ class DynamicNestedSampler(DynamicSampler):
                  ncdim=None,
                  blob=False,
                  save_history=False,
-                 history_filename=None):
+                 history_filename=None,
+                 log_file_path=None
+                 ):
 
         # Prior dimensions.
         if npdim is None:
@@ -879,7 +881,7 @@ class DynamicNestedSampler(DynamicSampler):
         # Initialize our nested sampler.
         super().__init__(loglike, ptform, npdim, bound, sample,
                          update_interval_ratio, first_update, rstate,
-                         queue_size, pool, use_pool, ncdim, nlive, kwargs)
+                         queue_size, pool, use_pool, ncdim, nlive, kwargs, log_file_path)
 
 
 DynamicNestedSampler.__init__.__doc__ = _assemble_sampler_docstring(True)

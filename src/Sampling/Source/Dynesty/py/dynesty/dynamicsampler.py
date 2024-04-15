@@ -26,6 +26,8 @@ from .utils import (get_seed_sequence, get_print_func, _kld_error,
                     compute_integrals, IteratorResult, IteratorResultShort,
                     get_enlarge_bootstrap, RunRecord, get_neff_from_logwt,
                     DelayTimer, save_sampler, restore_sampler, _LOWL_VAL)
+from loguru import logger
+
 
 __all__ = [
     "DynamicSampler",
@@ -959,7 +961,7 @@ class DynamicSampler:
 
     def __init__(self, loglikelihood, prior_transform, npdim, bound, method,
                  update_interval_ratio, first_update, rstate, queue_size, pool,
-                 use_pool, ncdim, nlive0, kwargs):
+                 use_pool, ncdim, nlive0, kwargs, log_file_path):
 
         # distributions
         self.loglikelihood = loglikelihood
@@ -1035,6 +1037,25 @@ class DynamicSampler:
         # the reason why we need a global object is to
         # preserve the timer betweeen batch calls
         self.live_blobs = None
+
+        # Adding the dynesty inner logger 
+        def filte_func(record):
+            return record['extra']['module'] == "Dynesty.Inner"
+
+        def custum_format(record):
+            module = record['extra']['module'] 
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+        
+        self.logger = logger.bind(module="Dynesty.Inner", to_console=True, Jarvis=False)
+        self.logger.add(
+            log_file_path, 
+            format=custum_format,
+            filter=filte_func, 
+            enqueue=True,
+            rotation=None, 
+            retention=None
+        )
+
 
     def __setstate__(self, state):
         self.__dict__ = state
@@ -2140,7 +2161,8 @@ This is not supported. No sampling was performed""", RuntimeWarning)
                                    ncall,
                                    nbatch=0,
                                    dlogz=dlogz_init,
-                                   logl_max=logl_max_init)
+                                   logl_max=logl_max_init,
+                                   logger=self.logger)
             for n in range(self.batch, maxbatch):
                 # Update stopping criteria.
                 res = self.results
@@ -2191,7 +2213,8 @@ This is not supported. No sampling was performed""", RuntimeWarning)
                                    nbatch=n,
                                    stop_val=stop_val,
                                    logl_min=logl_bounds[0],
-                                   logl_max=logl_bounds[1])
+                                   logl_max=logl_bounds[1],
+                                   logger=self.logger)
                     break
                 else:
                     # We didn't run a single batch but now we're done!
@@ -2384,7 +2407,8 @@ This is not supported. No sampling was performed""", RuntimeWarning)
                                    nbatch=n + 1,
                                    stop_val=stop_val,
                                    logl_min=logl_min,
-                                   logl_max=logl_max)
+                                   logl_max=logl_max,
+                                   logger=self.logger)
                     if (checkpoint_file is not None and self.internal_state
                             != DynamicSamplerStatesEnum.INBATCHADDLIVE
                             and self.internal_state

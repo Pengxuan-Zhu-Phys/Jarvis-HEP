@@ -56,6 +56,7 @@ class WorkerFactory:
     def submit_task(self, params, sample_info):
         # This method uses ModuleManager to execute a specific workflow
         # Asynchronous execution through ThreadPoolExecutor
+        self.logger.info(f"Submit Task {sample_info['uuid']} into WorkerFactory ...")
         future = self.executor.submit(self.module_manager.execute_workflow, params, sample_info)
         return future
 

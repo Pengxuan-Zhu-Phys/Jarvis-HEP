@@ -4,10 +4,10 @@ import h5py
 from queue import Queue, Empty
 import csv 
 import json 
-import logging 
+from loguru import logger 
 
 class GlobalHDF5Writer:
-    def __init__(self, filepath, write_interval=1):
+    def __init__(self, filepath, write_interval=15):
         super().__init__()
         self.filepath = filepath
         self.write_interval = write_interval
@@ -16,16 +16,7 @@ class GlobalHDF5Writer:
         self.writer_thread = threading.Thread(target=self._write_periodically)
         # It's safer to not rely solely on daemon threads for important cleanup.
         self.writer_thread.daemon = False
-        self.set_logger()
-
-    def set_logger(self):
-        self.logger = logging.getLogger("Jarvis-HEP.hdf5-Writter")
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter("\nϠ %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s")
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
-        self.logger.propagate = False
+        self.logger = logger.bind(module="Jarvis-HEP.hdf5-Writter", to_console=True, Jarvis=True)
 
     def start(self):
         """Start the writer thread."""
@@ -92,7 +83,8 @@ class GlobalHDF5Writer:
                     writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                     writer.writeheader()
                     for data in all_data:
-                        writer.writerow(data)
+                        if isinstance(data, dict):
+                            writer.writerow(data)
 
-        self.logger.warn(f"Converted HDF5 data to CSV at -> {csv_path}.")
+        self.logger.warning(f"Converted HDF5 data to CSV at -> {csv_path}.")
 

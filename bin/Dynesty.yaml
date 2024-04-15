@@ -1,5 +1,5 @@
 Scan: 
-  name: "EggBox_Dynesty"
+  name: "EggBox_Dynesty_04"
   save_dir: "&J/Results"
 
 Sampling:
@@ -11,7 +11,7 @@ Sampling:
         type: Flat
         parameters:
           min: 0
-          max: 10.0
+          max: 5.0
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -19,11 +19,11 @@ Sampling:
         type: Flat
         parameters:
           min: 0
-          max: 10.0
+          max: 5.0
   Bounds:
     nlive:  160
     rseed:  21
-    dlogz:  0.01
+    dlogz:  0.5
 
 
   LogLikelihood: 

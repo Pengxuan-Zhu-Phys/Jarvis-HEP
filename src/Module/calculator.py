@@ -4,7 +4,8 @@ from IOs.parameter import Parameter
 import uuid
 from pprint import pprint
 import yaml 
-import logging
+# import logging
+from loguru import logger
 import subprocess
 import threading
 import os
@@ -12,6 +13,7 @@ from time import sleep
 from Module.module import Module
 import asyncio
 import sympy as sp 
+import json
 class CalculatorModule(Module):
     def __init__(self, name, config):
         super().__init__(name)
@@ -39,10 +41,6 @@ class CalculatorModule(Module):
             self.sample_info        = {}
             self._funcs             = {}
             self.analyze_config()
-            self.formatter          = {
-                "father":   logging.Formatter("\n·•· %(name)s \n\t- %(asctime)s - [%(levelname)s] >>> \n%(message)s"),
-                "child":    logging.Formatter('%(message)s')
-            }
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
@@ -131,163 +129,115 @@ class CalculatorModule(Module):
         self.handlers[name].close()
         del self.handlers[name]
 
+    def custom_format(record):
+        module = record["extra"].get("module", "No module")
+        if "raw" in record["extra"]:
+            return "{message}"
+        else:
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+    
     def create_basic_logger(self):
+        logger_name = f"{self.name}-{self.PackID}"
+        def filte_func(record):
+            return record['extra']['module'] == logger_name
+        
         self.basepath = self.decode_shadow_path(self.basepath)
         if not os.path.exists(self.basepath):
             os.makedirs(self.basepath)
-        logger_name = f"{self.name}-{self.PackID}"
-        self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(logging.DEBUG)
 
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.WARNING)
-        console_handler.setFormatter(self.formatter['father'])
-
-        self.logger.addHandler(console_handler)
-
-    def create_child_logger(self, logger_name):
-        child_installation_logger_name = f"{self.logger.name}.{logger_name}"
-        self.child_logger = logging.getLogger(child_installation_logger_name)
-        self.child_logger.propagate = False
+        install_file_log = os.path.join(self.basepath, f"Installation_{self.name}-{self.PackID}.log")
+        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        install_handler = self.logger.add(install_file_log, format=CalculatorModule.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
+        self.handlers['install'] = install_handler
 
     def update_sample_logger(self, sample_info):
-        logger_name = f"Sample@{sample_info['uuid']} <{self.name}-No.{self.PackID}>"
+        logger_name = f"Sample@{sample_info['uuid']} ({self.name}-No.{self.PackID})"
+        def filte_func(record):
+            return record['extra']['module'] == logger_name
+        
         if not os.path.exists(sample_info['save_dir']):
             os.makedirs(sample_info['save_dir'])
-        self.logger = logging.getLogger(logger_name)
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False
-
-        # self.add_handler("sample", sample_info['run_log'], logging.DEBUG, self.formatter['father'])
-        # self.add_handler("jarvis", sample_info['jarvis_log'], logging.WARNING, self.formatter['father'])
-
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.WARNING)
-        console_handler.setFormatter(self.formatter['father'])
-
-        self.logger.addHandler(console_handler)
-        # self.logger.addHandler(self.handlers['sample'])
-        # self.logger.addHandler(self.handlers['jarvis'])
-
-        self.logger.warning("Sample created into the Disk")
+        
+        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        sample_handler = self.logger.add(sample_info['run_log'], format=CalculatorModule.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
+        self.handlers['sample'] = sample_handler
+        self.logger.info("Sample created into the Disk")
 
     def install(self):
         self.create_basic_logger()
-        install_file_log = os.path.join(self.basepath, f"Installation_{self.name}-{self.PackID}.log")
-        self.add_handler("install", install_file_log, logging.DEBUG, self.formatter['father'])
-        self.logger.addHandler(self.handlers['install'])
-        
-        self.create_child_logger("Installation")
-        self.add_handler("install_child", install_file_log, logging.DEBUG, self.formatter['child'])
-        self.child_logger.addHandler(self.handlers['install_child'])
-
         self.logger.warning(f"Start install {self.name}-{self.PackID}")
 
         for cmd in self.installation:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(cmd)
-                self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-                self.run_command(command=command, child_logger=self.child_logger)
+                self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                asyncio.run(self.run_command(command=command))
             else: 
-                self.run_command(command=cmd, child_logger=self.child_logger)
+                asyncio.run(self.run_command(command=cmd))
         
-        # self.logger.warn(f"Installing -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
-        # from time import sleep
-        # sleep(5)
-
-        self.logger.removeHandler(self.handlers['install'])
-        self.child_logger.removeHandler(self.handlers['install_child'])
-
-        self.remove_handler("install_child")
-        self.remove_handler("install")
-
-        self.child_logger = None
+        logger.remove(self.handlers['install'])
+        self.logger = None
         self.is_installed = True
 
-    def run_command(self, command, child_logger):
-        with subprocess.Popen(
-                                command['cmd'], 
-                                shell=True, 
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, 
-                                text=True, 
-                                cwd=command['cwd']) as process:
-            stdout_thread = threading.Thread(target=self.log_stream, args=(process.stdout, logging.INFO, child_logger))
-            stdout_thread.start()
-            stderr_thread = threading.Thread(target=self.log_stream, args=(process.stderr, logging.ERROR, child_logger)) 
-            stderr_thread.start()
+    async def run_command(self, command):
+        process = await asyncio.create_subprocess_shell(
+            command['cmd'],
+            stdout=asyncio.subprocess.PIPE, 
+            stderr=asyncio.subprocess.PIPE, 
+            cwd=command['cwd']
+        )
+        stdout, stderr = await asyncio.gather(
+            self.log_stream_info(process.stdout),
+            self.log_stream_error(process.stderr)
+        )
 
-            stdout_thread.join()
-            stderr_thread.join()
-
-            process.wait()
+        await process.wait()
 
     def log_stream(self, stream, level, logger):
         # Using the child logger to handle the logging 
         for line in iter(stream.readline, ''):
             logger.log(level, "\t{}".format(line.strip()))
 
-    def initialize(self, sample_info):
+    async def log_stream_info(self, stream):
+        async for line in stream:
+            self.logger.bind(raw=True).info(f"\t{line.decode()}")
+
+    async def log_stream_error(self, stream):
+        async for line in stream:
+            self.logger.bind(raw=True).error(f"\t{line.decode()}")
+
+    def initialize(self):
         for command in self.initialization:
             if self.clone_shadow: 
                 command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                self.run_command(command=command, child_logger=self.child_logger)
-        # self.logger.warn(f"Initializing -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
+                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
+                asyncio.run(self.run_command(command=command))
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
-
         self.update_sample_logger(sample_info)
-        self.add_handler("sample", sample_info['run_log'], logging.DEBUG, self.formatter['father'])
-        self.add_handler("jarvis", sample_info['jarvis_log'], logging.WARNING, self.formatter['father'])
-        self.logger.addHandler(self.handlers['sample'])
-        self.logger.addHandler(self.handlers['jarvis'])
-        
-        self.create_child_logger("initialization")
-        self.add_handler("sample_child", sample_info['run_log'], logging.DEBUG, self.formatter['child'])
-        self.child_logger.addHandler(self.handlers['sample_child'])
 
-        self.initialize(sample_info['uuid'])
-        self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {input_data}")
+        self.initialize()
+        # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
         
         result = {}
         input_obs = asyncio.run(self.load_input(input_data=input_data))
 
-        # self.logger.warn(f"Input -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
-
-
         if isinstance(input_obs, dict):
             result.update(input_obs)
-
-        self.create_child_logger("execution")
-        # self.add_handler("sample_child", sample_info['run_log'], logging.DEBUG, self.formatter['child'])
-        self.child_logger.addHandler(self.handlers['sample_child'])
         
         for command in self.execution['commands']:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                self.run_command(command=command, child_logger=self.child_logger)
-
-        # self.logger.warn(f"Execution -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
-
+                asyncio.run(self.run_command(command=command))
 
         output_obs = asyncio.run(self.read_output())
         if isinstance(output_obs, dict):
             result.update(output_obs)
 
-        # self.logger.warn(f"Output -> {os.listdir('/home/buding/Jarvis-HEP/WorkShop/Program/EggBox')}")
-
-
-        self.logger.removeHandler(self.handlers['sample'])
-        self.logger.removeHandler(self.handlers['jarvis'])
-        self.child_logger.removeHandler(self.handlers['sample_child'])
-
-        self.remove_handler('sample')
-        self.remove_handler("jarvis")
-        self.remove_handler("sample_child")
-
+        logger.remove(self.handlers['sample'])
+        self.logger = None
         return result
 
     async def read_output(self):

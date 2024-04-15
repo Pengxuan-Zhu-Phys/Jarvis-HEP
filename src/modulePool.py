@@ -9,6 +9,8 @@ from concurrent.futures import as_completed
 import json
 import os, sys 
 import threading 
+from loguru import logger
+
 
 class ModulePool:
     def __init__(self, module, max_workers=2):
@@ -23,8 +25,8 @@ class ModulePool:
         self._info_loaded = False 
         self._funcs = {}
 
-    def set_logger(self, logger):
-        self.logger = logger
+    def set_logger(self):
+        self.logger = logger.bind(module=f"Jarvis-HEP.Workflow.{self.name}", to_console=True, Jarvis=True)
         self.load_installed_instances()
 
     def create_instance(self):
@@ -105,7 +107,8 @@ class ModulePool:
 
     def submit_task(self, params):
         instance = self.get_available_instance()
-        if not instance:
+        if instance is None:
+            self.logger.warning(f"No availiable instance for Module {self.name} found, trying to install a new one")
             instance = self.create_instance()
             self.install_instances()  # Ensure the instance are installed 
         future = self.executor.submit(instance.execute, params)

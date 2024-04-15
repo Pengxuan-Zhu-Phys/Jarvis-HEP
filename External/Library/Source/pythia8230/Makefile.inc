@@ -1,5 +1,5 @@
 # PYTHIA configuration file.
-# Generated on Wed Apr 3 02:09:49 CST 2024 with the user supplied options:
+# Generated on Sun Apr 14 03:18:15 CST 2024 with the user supplied options:
 # --with-hepmc2=/home/buding/Jarvis-HEP/External/Library/HepMC
 # --prefix=/home/buding/Jarvis-HEP/External/Library/Pythia8
 
