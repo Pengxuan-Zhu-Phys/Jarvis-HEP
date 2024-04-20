@@ -4,7 +4,7 @@
 A collection of useful functions.
 
 """
-
+import io 
 import sys
 import warnings
 import math
@@ -532,11 +532,15 @@ def print_fn_tqdm(pbar,
                                 logl_max=logl_max,
                                 logger=logger
                                 )
-
+    # output = io.StringIO()
     pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
     pbar.update(fn_args.niter - pbar.n)
+    # print(fn_args.niter, pbar.n, " | ".join(fn_args.long_str))
     if logger is not None:
-        logger.warning(pbar)
+        if fn_args.niter % 100 == 0:
+            logger.warning(pbar)
+        else:
+            logger.info(pbar)
     # print(pbar)
 
     # if logger is not None:
@@ -879,7 +883,7 @@ def get_print_func(print_func, print_progress):
         if tqdm is None or not print_progress:
             print_func = print_fn
         else:
-            pbar = tqdm.tqdm()
+            pbar = tqdm.tqdm(file=io.StringIO())
             print_func = partial(print_fn, pbar=pbar)
     # print(pbar, print_func, "\n")
     return pbar, print_func

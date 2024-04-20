@@ -98,12 +98,13 @@ class Core(Base):
             "jarvis_log":  self.info['jarvis_log']
         }
         self.info["db"] = {
-            "path":  os.path.join(task_result_dir, "samples.hdf5"),
-            "out_csv":  os.path.join(task_result_dir, "samples.csv")
+            "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),
+            "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
+        os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
         
         # pprint(self.yaml.config)
 
@@ -196,8 +197,6 @@ class Core(Base):
             module = record["extra"].get("module", "No module")
             return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
     
-
-
         self.sampler.set_config(self.yaml.config)
         # logger = self.logger.create_dynamic_logger(self.sampler.method)
         slogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
@@ -320,14 +319,15 @@ class Core(Base):
         try:
             self.sampler.run_nested()
         finally:
-            self.sampler.finalize()
-            
             from time import time
             start = time()
             self.factory.module_manager.database.stop()
             self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
+            self.sampler.finalize()
+            self.sampler.combine_data(self.info['db']['out_csv'])
+            
 
             self.factory.executor.shutdown()
 

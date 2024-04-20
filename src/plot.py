@@ -23,7 +23,7 @@ def draw_logo_in_square(ax):
     with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
 
         ax.axis("off")
-        ax.text(0.5, -0.06, "Jarvis-HEP", fontsize=12, ha="center", va='top', transform=ax.transAxes)
+        # ax.text(0.5, -0.06, "Jarvis-HEP", fontsize=12, ha="center", va='top', transform=ax.transAxes)
         ax.set_xlim(-1.02, 1.02)
         ax.set_ylim(-1.02, 1.02)
 

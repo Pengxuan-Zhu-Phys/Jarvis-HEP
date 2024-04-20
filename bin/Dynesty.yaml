@@ -1,5 +1,5 @@
 Scan: 
-  name: "EggBox_Dynesty_04"
+  name: "EggBox_Dynesty_06"
   save_dir: "&J/Results"
 
 Sampling:
@@ -23,7 +23,7 @@ Sampling:
   Bounds:
     nlive:  160
     rseed:  21
-    dlogz:  0.5
+    dlogz:  1.0
 
 
   LogLikelihood: 

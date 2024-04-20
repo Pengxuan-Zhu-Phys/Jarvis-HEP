@@ -127,8 +127,14 @@ if __name__ == "__main__":
 
         # sampler = dynesty.DynamicNestedSampler(log_likelihood, prior_transform, ndim, pool=pool, queue_size=2)
         # sampler.run_nested(dlogz_init=0.01, print_progress=False, nlive_init=50, wt_kwargs={'pfrac': 1.0})
-        sampler.run_nested(print_progress=True, wt_kwargs={'pfrac': 0.8}, dlogz_init=0.01, nlive_init=360)
+        sampler.run_nested(print_progress=True, wt_kwargs={'pfrac': 0.8}, dlogz_init=0.5, nlive_init=360)
         results = sampler.results
+        from dynesty import plotting as dyplot
+        fig, axes = dyplot.runplot(results, kde=False) 
+        fig.savefig("save01.png", dpi=300)
+        fig, axes = dyplot.runplot(results, kde=True) 
+        fig.savefig("save02.png", dpi=300)
+
         save_dynesty_results_to_csv(results, "test_dynesty_02.csv")
         print(results.keys())
         # print("Information", results['information'])
@@ -149,38 +155,38 @@ if __name__ == "__main__":
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], results['samples_n'], '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_01.png", dpi=300)
+        plt.savefig("test_dynesty_d_01.png", dpi=300)
         print("figure 1 succeed")
 
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], np.exp(results['logl'] - max(results['logl'])), '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_02.png", dpi=300)
+        plt.savefig("test_dynesty_d_02.png", dpi=300)
         print("figure 2 succeed")
 
 
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], np.exp(results['logwt'] - results['logz'][-1]), '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_03.png", dpi=300)
+        plt.savefig("test_dynesty_d_03.png", dpi=300)
         print("figure 3 succeed")
 
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], np.exp(results['logz']), '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_04.png", dpi=300)
+        plt.savefig("test_dynesty_d_04.png", dpi=300)
         print("figure 4 succeed")
 
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], results['samples_it'], '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_05.png", dpi=300)
+        plt.savefig("test_dynesty_d_05.png", dpi=300)
         print("figure 5 succeed")
 
         fig = plt.figure(figsize=(10, 3))
         ax = fig.add_axes([0.15, 0.15, 0.84, 0.84])
         ax.plot(- results['logvol'], results['ncall'], '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_06.png", dpi=300)
+        plt.savefig("test_dynesty_d_06.png", dpi=300)
         print("figure 6 succeed")
 
         fig = plt.figure(figsize=(10, 6))
@@ -188,7 +194,7 @@ if __name__ == "__main__":
         ax2 = fig.add_axes([0.15, 0.6, 0.84, 0.4])
         ax1.plot(- results['logvol'], results['samples_u'][:, 0], '.', color='blue', markersize=0.5, alpha=0.6 )
         ax2.plot(- results['logvol'], results['samples_u'][:, 1], '.', color='blue', markersize=0.5, alpha=0.6 )
-        plt.savefig("test_dynesty_c_07.png", dpi=300)
+        plt.savefig("test_dynesty_d_07.png", dpi=300)
         print("figure 7 succeed")
 
         # print(""results['logvol']))
