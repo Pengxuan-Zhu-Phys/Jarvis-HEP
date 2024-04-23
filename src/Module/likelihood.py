@@ -7,7 +7,7 @@ import os
 import logging
 from loguru import logger
 from pandas import Series
-
+from numpy import Inf
 class LogLikelihood(Base):
     def __init__(self, expressions):
         """
@@ -54,7 +54,6 @@ class LogLikelihood(Base):
         try: 
             # Ensure that values for all variables are provided
             assert {str(var) for var in self.variables}.issubset(values.keys()), "Not all variables have values provided."
-
             total_loglikelihood = 0. 
             self.values = {}
             for expr_dict in self.named_expressions:
@@ -63,7 +62,7 @@ class LogLikelihood(Base):
                 num_expr = lambdify([str(var) for var in expr.free_symbols], expr, modules=[self.custom_functions, "numpy"])
                 varis = set(expr.free_symbols)
                 symbol_values_strs = {str(key): value for key, value in values.items() if key in {str(var) for var in varis}}
-                likelihood = num_expr(**symbol_values_strs)
+                likelihood = float(num_expr(**symbol_values_strs))
                 self.childlogger.info(f"Evaluating   {name}: \n   expression \t-> {str(expr)} \n   with input \t-> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n   Output \t\t-> {likelihood}")
                 self.values[name] = likelihood
                 total_loglikelihood += likelihood
@@ -81,8 +80,9 @@ class LogLikelihood(Base):
             # self.childlogger = None
             return self.values 
         except Exception as exc:
-            print(exc)
-            return {"LogL": float(-sp.core.numbers.Infinity())}
+            self.logger.warning(exc)
+            # return {"LogL": float(-sp.core.numbers.Infinity())}
+            return {"LogL": - Inf}
 
     def custom_format(record):
         module = record["extra"].get("module", "No module")

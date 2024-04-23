@@ -5,6 +5,8 @@ from queue import Queue, Empty
 import csv 
 import json 
 from loguru import logger 
+import numpy as np 
+import sympy
 
 class GlobalHDF5Writer:
     def __init__(self, filepath, write_interval=15):
@@ -22,9 +24,15 @@ class GlobalHDF5Writer:
         """Start the writer thread."""
         self.writer_thread.start()
 
+
     def add_data(self, data):
         """Add data to the queue to be written later."""
+        data = convert(data)
+        # for kk, vv in data.items():
+        #     print(kk, vv, type(vv))
+        # print("hdf5Writer Line 30 -> ", data)
         serialized_data = json.dumps(data)
+        # print("hdf5Writer Line 32 -> ", serialized_data)
         self.data_queue.put(serialized_data)
 
     def _write_periodically(self):
@@ -88,3 +96,35 @@ class GlobalHDF5Writer:
 
         self.logger.warning(f"Converted HDF5 data to CSV at -> {csv_path}.")
 
+
+""" Custom JSON encoder, converte the numpy number format into python float. """
+
+class NumpyEncoder(json.JSONEncoder):
+    """ Custom encoder for numpy data types """
+    def default(self, obj):
+        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
+                            np.int16, np.int32, np.int64, np.uint8,
+                            np.uint16, np.uint32, np.uint64)):
+            return int(obj)
+        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+            return float(obj)
+        elif isinstance(obj, (np.ndarray,)): # This includes 0-d numpy arrays.
+            return obj.tolist()  # or item()
+        return json.JSONEncoder.default(self, obj)
+    
+def convert(data):
+    if isinstance(data, dict):
+        return {k: convert(v) for k, v in data.items()}
+    elif isinstance(data, (np.int_, np.intc, np.intp, np.int8,
+                            np.int16, np.int32, np.int64, np.uint8,
+                            np.uint16, np.uint32, np.uint64)):
+        return int(data)
+    elif isinstance(data, (np.float_, np.float16, np.float32, np.float64)):
+        return float(data)
+    elif isinstance(data, np.str_):
+        return str(data)
+    elif isinstance(data, (np.ndarray,)): # This includes 0-d numpy arrays.
+        return data.item()
+    elif isinstance(data, (sympy.Float, sympy.Integer)):
+        return float(data)
+    return data

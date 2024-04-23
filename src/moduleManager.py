@@ -79,6 +79,7 @@ class ModuleManager:
         # After all modules have executed, calculate likelihood based on the final observables
         observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
         self.database.add_data(observables)
+        # print("Manager Line 82 ->", observables['LogL'])
         return observables['LogL']
 
     def execute_module(self, module_name, observables, sample_info):
@@ -119,7 +120,6 @@ class ModuleManager:
         loglikelihood.update_funcs(self.funcs)
         logl = loglikelihood.calculate(observables, sample_info)
         observables.update(logl)
-        # likelihood = observables.get('TestOutPutVar', 0.5)  # Example calculation logic
         return observables
 
     def add_module_pool(self, module):

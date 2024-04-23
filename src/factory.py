@@ -68,7 +68,7 @@ class WorkerFactory:
 
     def print_status(self):
         def format_duration(seconds):
-            """将秒转换为小时：分钟：秒的格式"""
+            """Formating into HH:MM:SS.msc format"""
             hours = seconds // 3600
             minutes = (seconds % 3600) // 60
             seconds = seconds % 60

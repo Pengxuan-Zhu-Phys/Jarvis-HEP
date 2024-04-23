@@ -52,6 +52,12 @@
             "action": "store_true",
             "dest": "skipFC",
             "help": "Skipping the flowchart drawing"
+        },
+        {
+            "long": "--convert",
+            "action": "store_true",
+            "dest": "cvtDB",
+            "help": "Convert the sample.hdf5 file into csv format"
         }
     ]
 }

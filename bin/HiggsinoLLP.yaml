@@ -1,5 +1,5 @@
 Scan: 
-  name: "Higgsino_LLP"
+  name: "Higgsino_LLP_02"
   save_dir: "&J/Results"
 
 Sampling:
@@ -10,7 +10,7 @@ Sampling:
       distribution:
         type: Flat
         parameters:
-          min: -2000
+          min: -2000.0
           max: 2000.0
     - name: M2
       description: "Wino soft mass."
@@ -40,8 +40,8 @@ Sampling:
 
 
   LogLikelihood: 
-    - {name: "LogL_Width",  expression: "(- exp(WN2)) ** 3"}
-    - {name: "LogL_LSP",    expression: "-1.e8 * Heaviside(abs(mN1) - abs(mC1))"}
+    - {name: "LogL_Width",  expression: "- 3.0 * log(WN2)"}
+    - {name: "LogL_LSP",    expression: " - 1.e6 * Heaviside(Abs(mN1) - Abs(mC1))"}
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
@@ -124,7 +124,7 @@ Calculators:
           - "tar -zxvf susyhit.tar.gz"
           - "make -j${Calculators:make_paraller}" 
       initialization:
-          - "cp ${source}/electroweakino.in ${path}"
+          - "cp ${source}/electroweakino.in ${path}/suspect2_lha.in"
           - "rm -f susyhit_slha.out"
       execution:
         path: *susyhit_path  # using the Anchor point
@@ -132,7 +132,7 @@ Calculators:
           - "./run"
         input:
           - name: slhaIn
-            path: "&J/WorkShop/Program/susyhit/@PackID/.in"  
+            path: "&J/WorkShop/Program/SusyHIT/@PackID/suspect2_lha.in"  
             type: "SLHA"
             actions:
               - type: "Replace"
@@ -141,12 +141,12 @@ Calculators:
                   - { name: "M2",       placeholder: ">>>>>M2<<<<<" }
                   - { name: "Mu",       placeholder: ">>>>>Mu<<<<<" }
                   - { name: "TanBeta",  placeholder: ">>>TanBeta<<<" }
-            save: true
+            save: False
         output:
           - name: Spectr
-            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            path: "&J/WorkShop/Program/SusyHIT/@PackID/susyhit_slha.out" 
             type: "SLHA"
-            save: False
+            save: True
             variables:
               - { name: mh1,  block: MASS,    entry: 25 }
               - { name: mN1,  block: MASS,    entry: 1000022 }

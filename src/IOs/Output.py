@@ -114,13 +114,13 @@ class SLHAOutputFile(OutputFile):
                 async with aiofiles.open(target, "w") as dst_file: 
                     await dst_file.write(source)
                 observables[self.name] = target
-            observables['TestFunc'] = self.funcs['XenonSD2019'](100)
 
 
             self.logger.info(f"Finish reading the input file -> {self.path}")
             return observables
         except Exception as e: 
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
+            return observables
 
 
 class JsonOutputFile(OutputFile):
@@ -188,6 +188,7 @@ class JsonOutputFile(OutputFile):
             return observables
         except Exception as e: 
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
+            return observables 
         
     def read_json_value_by_entry(self, json_dict, entry):
         parts = entry.split('.')

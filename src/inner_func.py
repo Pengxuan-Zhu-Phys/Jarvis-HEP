@@ -74,7 +74,8 @@ _Inner_FCs = {
 
 _Constant = {
     "Pi":   sympy.pi,
-    "E":    sympy.E
+    "E":    sympy.E,
+    "Inf":  np.Inf
 }
 
 def Gauss(xx, mean, err):

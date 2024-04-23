@@ -69,21 +69,26 @@ class Dynesty(SamplingVirtial):
 
     def run_nested(self):
         def log_likelihood(params):
+            # try:
             param = params[0:-1].astype(np.float16)
             uuid = params[-1]
-
+            # print("Dynesty Line 75 -> Start to execute", param)
             pars = self.map_point_into_distribution(param)
             sample = Sample(pars)
             sample.update_uuid(uuid)
             sample.set_config(deepcopy(self.info['sample']))
             future = self.factory.submit_task(sample.params, sample.info)
             result = future.result()
+            # print("Dynesty Line 83 -> LogL ", result, type(result))
             return result 
+            # except:
+            #     return -np.inf 
         
         self.init_sampler_db()
 
         # from dynesty import DynamicNestedSampler
         from Source.Dynesty.py.dynesty import DynamicNestedSampler
+        # with ThreadPoolExecutor(max_workers=2) as executor:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             self.sampler = DynamicNestedSampler(
                 loglikelihood=log_likelihood, 
@@ -141,6 +146,7 @@ class Dynesty(SamplingVirtial):
         nlive = self.df.iloc[0]['samples_nlive']
         fig = plt.figure(figsize=(10, 11))
         ax = fig.add_axes([0.01, 0.99-0.5/11., 0.05, 0.5/11.])
+        from plot import draw_logo_in_square
         draw_logo_in_square(ax)
         data = [
             {

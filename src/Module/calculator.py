@@ -258,7 +258,12 @@ class CalculatorModule(Module):
             for ffile in self.output
         ]
         observables = await asyncio.gather(*read_coroutines) 
-        merged_observables = {key: val for d in observables for key, val in d.items()}
+        # print("Line 261 ->", observables)
+        try:
+            merged_observables = {key: val for d in observables for key, val in d.items()}
+        except:
+            merged_observables = {}
+        # print("Line 262->", merged_observables)
         return merged_observables
 
     async def load_input(self, input_data):

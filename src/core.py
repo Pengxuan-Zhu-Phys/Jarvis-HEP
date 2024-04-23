@@ -7,7 +7,6 @@ import os
 from subprocess import Popen, run
 import sys
 import time 
-from old_record.program import Pack
 import argparse
 from config import ConfigLoader
 import logging
@@ -44,6 +43,7 @@ class Core(Base):
         self._funcs                     = {}
         self.tasks                      = []
         self.async_loop                 = asyncio.get_event_loop()
+        self.scan_mode                  = False
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -77,6 +77,8 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
+        if not self.args.cvtDB:
+            self.scan_mode = True
 
     def init_project(self) -> None: 
         import yaml 
@@ -268,14 +270,17 @@ class Core(Base):
         self.init_logger()
         self.init_configparser()
         self.init_utils()
-        self.init_StateSaver()
-
-        self.init_sampler()
-        self.init_workflow()
-        self.init_librarys()
-        self.init_WorkerFactory()
-        self.init_likelihood()
-        self.init_database()
+        
+        if self.scan_mode:
+            self.init_StateSaver()
+            self.init_sampler()
+            self.init_workflow()
+            self.init_librarys()
+            self.init_WorkerFactory()
+            self.init_likelihood()
+            self.init_database()
+        # elif self.args.cvtDB:
+        #     self.convert()
 
     def run_sampling(self)->None:
         if self.args.testcalculator:
@@ -338,6 +343,24 @@ class Core(Base):
             print(str(e))
             self.argparser.print_help()
             sys.exit(2)
+
+    def convert(self) -> None: 
+        if os.path.exists(self.info['db']['path']) and not os.path.exists(self.info['db']['out_csv']):
+            self.logger.warning("Jarvis-HEP not find the -> samples.csv.\nStarting converting from hdf5.")
+            snapshot_path = self.info['db']['path'] + ".snap"
+            import shutil 
+            shutil.copy2(self.info['db']['path'], snapshot_path)
+            try: 
+                from utils import convert_hdf5_to_csv
+                convert_hdf5_to_csv(snapshot_path, self.info['db']['out_csv'])
+                self.logger.warning(f"Data has been successfully written to -> {self.info['db']['out_csv']}")
+            finally:
+                try:
+                    os.remove(snapshot_path)
+                    self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
+                except Exception as e:
+                    self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
+        # print(self.info['db'])
 
     class __StateSaver:
         def __init__(self, 

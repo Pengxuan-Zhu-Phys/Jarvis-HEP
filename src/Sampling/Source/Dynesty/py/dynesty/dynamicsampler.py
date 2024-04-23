@@ -453,6 +453,7 @@ def _initialize_live_points(live_points,
             # Convert all `-np.inf` log-likelihoods to finite large
             # numbers. Necessary to keep estimators in our sampler from
             # breaking.
+            print("dynamicsampler Line 456 ->", cur_live_logl)
             finite = np.isfinite(cur_live_logl)
             not_finite = ~finite
             neg_infinite = np.isneginf(cur_live_logl)
