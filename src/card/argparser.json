@@ -25,7 +25,7 @@
             "short": "-n",
             "long": "--number",
             "dest": "number",
-            "help": "数字选项示例",
+            "help": "Example for number inputs",
             "type": "int",
             "default": 10
         },

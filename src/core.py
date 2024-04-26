@@ -25,6 +25,7 @@ import concurrent.futures
 import asyncio 
 from loguru import logger
 logger.remove()
+from plot import BudingPLOT
 
 class Core(Base):
     def __init__(self) -> None:
@@ -43,7 +44,8 @@ class Core(Base):
         self._funcs                     = {}
         self.tasks                      = []
         self.async_loop                 = asyncio.get_event_loop()
-        self.scan_mode                  = False
+        self.scan_mode                  = True
+        self.plotter                    = BudingPLOT()
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -77,9 +79,11 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
-        if not self.args.cvtDB:
-            self.scan_mode = True
-
+        if self.args.cvtDB:
+            self.scan_mode = False
+        if self.args.plot:
+            self.scan_mode = False
+        
     def init_project(self) -> None: 
         import yaml 
         with open(os.path.abspath(self.args.file), 'r') as file:
@@ -88,6 +92,7 @@ class Core(Base):
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
         task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
         task_result_dir = self.decode_path(task_result_dir)
+        self.info['config_file'] = os.path.abspath(self.args.file)
 
         self.info['jarvis_log'] = os.path.join(task_result_dir, "LOG", f"{self.info['scan_name']}.log")
         self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
@@ -107,6 +112,12 @@ class Core(Base):
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
+        if self.args.plot:
+            self.info['plot'] = {
+                "save_path":    os.path.join(task_result_dir, "IMAGE"),
+                "config":       os.path.join(task_result_dir, "IMAGE", f"{self.info['scan_name']}.yaml")
+            }
+            os.makedirs(os.path.join(task_result_dir, "IMAGE"), exist_ok=True)
         
         # pprint(self.yaml.config)
 
@@ -160,6 +171,9 @@ class Core(Base):
         if self.args.debug:
             self.logger.info(f"Jarvis-HEP write into main log file -> {jarvislog}")
             self.logger.info("Jarvis-HEP in debug mode currently!")
+        if self.args.plot:
+            plogger = logger.bind(module="Jarvis-PLOT", to_console=True, Jarvis=False)
+            self.plotter.logger = plogger
 
     def init_configparser(self) -> None: 
         self.yaml.logger = logger.bind(module="Jarvis-HEP.ConfigParser", to_console=True, Jarvis=True)
@@ -273,6 +287,7 @@ class Core(Base):
         
         if self.scan_mode:
             self.init_StateSaver()
+            
             self.init_sampler()
             self.init_workflow()
             self.init_librarys()
@@ -361,6 +376,17 @@ class Core(Base):
                 except Exception as e:
                     self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
         # print(self.info['db'])
+
+    def plot(self) -> None:
+        self.plotter.logger.warning(f"Data visulization for {self.info['project_name']}")
+        if "Plot" not in self.yaml.config:
+            if not os.path.exists(self.info['plot']['config']):
+                self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
+                self.plotter.plot()
+            else:
+                self.plotter.load_config(self.info['plot']['config'])
+                self.plotter.plot()
+        
 
     class __StateSaver:
         def __init__(self, 

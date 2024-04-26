@@ -20,7 +20,7 @@ class Dynesty(SamplingVirtial):
         self.load_schema_file()
         self.method = "Dynesty"
         self.sampler = None
-        self.max_workers = os.cpu_count()
+        self.max_workers = os.cpu_count() * 2
         # self.max_workers = 2
 
     def load_schema_file(self):
@@ -101,9 +101,10 @@ class Dynesty(SamplingVirtial):
                 log_file_path=self.info['logfile']
             )
             self.sampler.run_nested(
-                dlogz_init = self._dlogz,
+                maxcall=320000,
                 print_progress=True
             )
+                # dlogz_init = self._dlogz,
 
     def finalize(self):
         self.save_dynesty_results_to_csv()

@@ -229,7 +229,7 @@ class CalculatorModule(Module):
         for command in self.execution['commands']:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
                 asyncio.run(self.run_command(command=command))
 
         output_obs = asyncio.run(self.read_output())

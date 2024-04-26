@@ -12,6 +12,8 @@ def main():
         jc.run_sampling()
     elif jc.args.cvtDB:
         jc.convert()
+    elif jc.args.plot:
+        jc.plot()
 
 
 if __name__ == "__main__":

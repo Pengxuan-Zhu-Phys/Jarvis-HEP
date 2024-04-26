@@ -1,24 +1,24 @@
 Scan: 
-  name: "Higgsino_LLP_02"
+  name: "Higgsino_LLP_ratio"
   save_dir: "&J/Results"
 
 Sampling:
   Method: "Dynesty" 
   Variables:
-    - name: M1
+    - name: rM12
       description: "Bino soft mass."
       distribution:
         type: Flat
         parameters:
-          min: -2000.0
-          max: 2000.0
-    - name: M2
+          min: -3.5
+          max: -2.0
+    - name: M1
       description: "Wino soft mass."
       distribution:
         type: Flat
         parameters:
-          min: 100.0
-          max: 3000.0
+          min: -2000.0
+          max: -300.0
     - name: Mu
       description: "Ratio of two Higgs vaccum vu/vd."
       distribution:
@@ -31,7 +31,7 @@ Sampling:
       distribution:
         type: Flat
         parameters:
-          min: 0
+          min: 1
           max: 70.0
   Bounds:
     nlive:  160
@@ -41,7 +41,7 @@ Sampling:
 
   LogLikelihood: 
     - {name: "LogL_Width",  expression: "- 3.0 * log(WN2)"}
-    - {name: "LogL_LSP",    expression: " - 1.e6 * Heaviside(Abs(mN1) - Abs(mC1))"}
+    - {name: "LogL_LSP",    expression: "3.0 * log(WN2) * Heaviside(Abs(mN1) - Abs(mC1))"}
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
@@ -138,7 +138,7 @@ Calculators:
               - type: "Replace"
                 variables:
                   - { name: "M1",       placeholder: ">>>>>M1<<<<<" }
-                  - { name: "M2",       placeholder: ">>>>>M2<<<<<" }
+                  - { name: "M2",       placeholder: ">>>>>M2<<<<<", expression: "M1 * rM12"}
                   - { name: "Mu",       placeholder: ">>>>>Mu<<<<<" }
                   - { name: "TanBeta",  placeholder: ">>>TanBeta<<<" }
             save: False

@@ -9,6 +9,7 @@ class Base():
         }
         self.path['args_info'] = self.decode_path("&J/src/card/argparser.json")
         self.path['logger_config_path'] = self.decode_path("&J/src/card/jarvis_logging_config.yaml")
+        self.schemablock = {}
         self.load_schema_paths()
 
     def decode_path(self, path) -> None: 
@@ -38,8 +39,11 @@ class Base():
             js = json.loads(f1.read())
             for kk, vv in js["Schema"].items():
                 js["Schema"][kk] = self.decode_path(vv)
+            for kk, vv in js['SchemaBlock'].items():
+                js["SchemaBlock"][kk] = f"file://{self.decode_path(vv)}"
             
             self.path.update(js['Schema'])
+            self.schemablock.update(js['SchemaBlock'])
             self.path['logo'] = self.decode_path(js['logo'])
 
 

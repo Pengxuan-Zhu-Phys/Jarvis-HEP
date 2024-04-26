@@ -10,5 +10,4 @@ cmdRun.py
 *.log 
 scanRun.py 
 *.pkl 
-py.py 
-*.png 
+py.py  
