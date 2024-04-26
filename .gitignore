@@ -4,6 +4,7 @@ Results/*
 TestScan/
 WorkShop/* 
 src/__pycache__/
+src/Test_Factory/*
 
 # Ignore the local file 
 cmdRun.py
