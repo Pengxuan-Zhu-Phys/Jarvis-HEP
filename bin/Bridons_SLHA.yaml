@@ -146,21 +146,20 @@ Calculators:
             type: "xSLHA"
             save: False
             variables:
-              - { name: m0,           block: MINPAR,    entry: 1 }
-              - { name: g1GUT,        block: gaugeGUT,  entry: 1 }
-              - { name: vu,           block: HMIX,      entry: 103 }
-              - { name: mh1,          block: MASS,      entry: 25 }
-              - { name: PIDLSP,       block: LSP,       entry: 1 }
-              - { name: PIDNLSP,      block: LSP,       entry: 2 }
-              - { name: XsHggf,       block: HiggsLHC7, entry: [1, 25] }
-              - { name: CoupH1bb,     block: HiggsCouplingsFermions, entry:[25, 5, 5]}
-              - { name: CoupH1ggZ,    block: HiggsCouplingsBosons,   entry:[25, 21, 21, 23]  }
-              - { name: KappaHaa,     block: EFFHIGGSCOUPLINGS,      entry:[25, 22, 22] }
-              - { name: WN2,          block: DECAY,     entry: 1000023 }
-              - { name: BRN22N1ee,    block: DECAY,     entry: [1000023, 1000022, -11, 11] }
-              - { name: WC1,          block: DECAY1L,   entry: 1000024 }
-              - { name: BRC12N1ee,    block: DECAY1L,   entry: [1000024, 1000022, -11, 11] }
-
+              - { name: m0,           block: MINPAR,                  entry: 1 }
+              - { name: g1GUT,        block: gaugeGUT,                entry: 1 }
+              - { name: vu,           block: HMIX,                    entry: 103 }
+              - { name: mh1,          block: MASS,                    entry: 25 }
+              - { name: PIDLSP,       block: LSP,                     entry: 1 }
+              - { name: PIDNLSP,      block: LSP,                     entry: 2 }
+              - { name: XsHggf,       block: HiggsLHC7,               entry: [1, 25] }
+              - { name: CoupH1bb,     block: HiggsCouplingsFermions,  entry: [25, 5, 5]}
+              - { name: CoupH1ggZ,    block: HiggsCouplingsBosons,    entry: [25, 21, 21, 23]  }
+              - { name: KappaHaa,     block: EFFHIGGSCOUPLINGS,       entry: [25, 22, 22] }
+              - { name: WN2,          block: DECAY,                   entry: 1000023 }
+              - { name: BRN22N1ee,    block: DECAY,                   entry: [1000023, 1000022, -11, 11] }
+              - { name: WC1,          block: DECAY1L,                 entry: 1000024 }
+              - { name: BRC12N1ee,    block: DECAY1L,                 entry: [1000024, 1000022, -11, 11] }
 
 Utils:
   interpolations_1D:
