@@ -133,7 +133,7 @@
             {
                 "properties": {
                     "type": {
-                        "const": "JSON"
+                        "const": "Json"
                     },
                     "actions": {
                         "type": "array",

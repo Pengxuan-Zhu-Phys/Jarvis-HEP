@@ -854,8 +854,8 @@ nullptr
     };
     static const char* includePaths[] = {
 "external",
-"/home/buding/root/include/",
-"/home/buding/Jarvis-HEP/External/Library/Delphes/",
+"/opt/homebrew/Cellar/root/6.30.04/include/root",
+"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
 nullptr
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(

@@ -7,27 +7,11 @@
       ],
     "options": [
         {
-            "short": "-o",
-            "long": "--option",
-            "dest": "option",
-            "help": "描述这个选项的作用",
-            "type": "str",
-            "default": null
-        },
-        {
             "short": "-d",
             "long": "--debug",
             "dest": "debug",
             "help": "Run Jarvis-HEP in debug mode, debug mode is testing the program linking",
             "action": "store_true"
-        },
-        {
-            "short": "-n",
-            "long": "--number",
-            "dest": "number",
-            "help": "Example for number inputs",
-            "type": "int",
-            "default": 10
         },
         {
             "long": "--plot",

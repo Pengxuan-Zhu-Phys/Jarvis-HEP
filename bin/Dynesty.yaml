@@ -1,5 +1,5 @@
 Scan: 
-  name: "EggBox_Dynesty_06"
+  name: "EggBox_Dynesty"
   save_dir: "&J/Results"
 
 Sampling:
@@ -23,12 +23,12 @@ Sampling:
   Bounds:
     nlive:  160
     rseed:  21
-    dlogz:  1.0
-
+    run_nested: 
+      maxcall:  4000 
+      print_progress: True
 
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
-  selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
   OS: 
@@ -103,7 +103,7 @@ Calculators:
       required_modules: [] 
       clone_shadow: True
       path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
-      source: "&J/External/Program/EggBox"
+      source: "&J/External/Inertial/EggBox"
       installation:
           - "cp -r ${source}/* ${path}"
       initialization:
@@ -122,7 +122,6 @@ Calculators:
                 variables:
                   - { name: "xx", expression: "x * Pi" }
                   - { name: "yy", expression: "y * Pi" }
-                  - { name: "cx", expression: "(x + y) * Pi", entry: "test.config.x" }
             save: True
         output:
           - name: oupjson

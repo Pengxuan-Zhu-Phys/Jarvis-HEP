@@ -283,7 +283,7 @@ class BudingPLOT(Base):
         # plt.close()
         if self.yaml['Plot_Config']['screen_show']:
             plt.show(block=False)
-            plt.pause(1)
+        #     plt.pause(1)
             input("\n\tPress 'Enter' to continue ...")
         plt.close()
 
@@ -405,7 +405,7 @@ class BudingPLOT(Base):
         # plt.close()
         if self.yaml['Plot_Config']['screen_show']:
             plt.show(block=False)
-            plt.pause(1)
+            # plt.pause(1)
             input("\n\tPress 'Enter' to continue ...")
         plt.close()
             
@@ -559,7 +559,7 @@ class BudingPLOT(Base):
         self.savefig(img, plt)
         if self.yaml['Plot_Config']['screen_show']:
             plt.show(block=False)
-            plt.pause(1)
+        #     plt.pause(1)
             input("\n\tPress 'Enter' to continue ...")
         plt.close()
         

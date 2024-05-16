@@ -278,15 +278,27 @@
                             "type": "integer",
                             "description": "The random seed for reproducibility."
                         },
-                        "dlogz": {
-                            "type": "number",
-                            "description": "Stopping criterion: the log-likelihood difference between the worst live point and the evidence."
+                        "run_nested": {
+                            "type": "object",
+                            "description": "Stopping criterion: the log-likelihood difference between the worst live point and the evidence.",
+                            "properties": {
+                                "maxcall": {
+                                    "type": "integer",
+                                    "description": "Stopping sampling with a maxcall number"
+                                },
+                                "print_progress": {
+                                    "type": "boolean",
+                                    "description": "print_mode for dynesty"
+                                }
+                            },
+                            "required": [],
+                            "additionalProperties": true
                         }
                     },
                     "required": [
                         "nlive",
                         "rseed",
-                        "dlogz"
+                        "run_nested"
                     ]
                 },
                 "LogLikelihood": {

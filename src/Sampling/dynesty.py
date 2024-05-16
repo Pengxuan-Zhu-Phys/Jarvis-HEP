@@ -32,7 +32,7 @@ class Dynesty(SamplingVirtial):
 
     def set_factory(self, factory) -> None:
         self.factory = factory
-        self.logger.warning("WorkerFactory is ready for Bridson sampler")
+        self.logger.warning("WorkerFactory is ready for Dynesty sampler")
 
     def __next__(self):
         # for dynesty sampling method, next() method is only for testing the assembing line, not the real sampling method
@@ -56,7 +56,7 @@ class Dynesty(SamplingVirtial):
         print(self.vars[0]._parameters)
         self._nlive = self.config['Sampling']['Bounds']['nlive']
         self._rstate = np.random.default_rng(self.config['Sampling']['Bounds']['rseed'])
-        self._dlogz = self.config['Sampling']['Bounds']['dlogz']
+        self._runnested = self.config['Sampling']['Bounds']['run_nested']
         self._dimensions = len(self.vars)
 
     def initialize(self):
@@ -100,15 +100,12 @@ class Dynesty(SamplingVirtial):
                 queue_size=3*self.max_workers,
                 log_file_path=self.info['logfile']
             )
-            self.sampler.run_nested(
-                maxcall=320000,
-                print_progress=True
-            )
+            self.sampler.run_nested(**self._runnested)
                 # dlogz_init = self._dlogz,
 
     def finalize(self):
         self.save_dynesty_results_to_csv()
-        self.plot_dynesty_results()
+        # self.plot_dynesty_results()
 
     def save_dynesty_results_to_csv(self):
         data = {
@@ -140,7 +137,7 @@ class Dynesty(SamplingVirtial):
 
 
     def plot_dynesty_results(self) -> None: 
-        savepath = os.path.json(self.info['sample']['task_result_dir'], "dynesty_summary.png")
+        savepath = os.path.join(self.info['sample']['task_result_dir'], "dynesty_summary.png")
         import matplotlib.pyplot as plt
         maxid = self.df.shape
         print(maxid[0])

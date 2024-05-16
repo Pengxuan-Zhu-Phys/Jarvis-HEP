@@ -1,59 +1,30 @@
 #!/usr/bin/env python3 
 
-import numpy as np 
+import matplotlib.pyplot as plt
 import time
-import pandas as pd 
-import matplotlib.pyplot as plt 
 
-# Variables (x, y) is defined as (B, T) in your case
-def Entropy(x, y):
-    return np.sqrt(x**2 + y**2)
+# 数据列表，每个图形的数据
+data_list = [
+    ([1, 2, 3, 4, 5], [2, 3, 5, 7, 11], 'Plot 1'),
+    ([1, 2, 3, 4, 5], [1, 4, 9, 16, 25], 'Plot 2'),
+    ([1, 2, 3, 4, 5], [5, 4, 3, 2, 1], 'Plot 3')
+]
 
-def GammaB(xx, yy, ff):
-    dfx = np.full(ff.shape, np.NAN)
-    dfy = np.full(ff.shape, np.NAN)
-    dfxx = np.full(ff.shape, np.NAN)
-    dfyy = np.full(ff.shape, np.NAN)
-    dfxy = np.full(ff.shape, np.NAN)
+for x, y, title in data_list:
+    # 创建一个图形
+    plt.plot(x, y)
+    plt.title(title)
+    plt.xlabel('x-axis')
+    plt.ylabel('y-axis')
 
-    GammaB = np.full(ff.shape, np.NAN)
-    for ii in range(ff.shape[0]):
-        for jj in range(ff.shape[1]):
-            if ii > 0 and ii < ff.shape[0] - 1:
-                dfx[ii, jj] = (ff[ii+1, jj] - ff[ii-1, jj]) / (xx[ii+1] - xx[ii-1])
-                dfxx[ii, jj] = 4.0 * (ff[ii+1, jj] - 2.0*ff[ii, jj] + ff[ii-1, jj]) / (xx[ii+1] - xx[ii-1])**2 
-            if jj > 0 and jj < ff.shape[1] - 1:
-                dfy[ii, jj] = (ff[ii, jj+1] - ff[ii, jj-1]) / (yy[jj+1] - yy[jj-1])
-                dfyy[ii, jj] = 4.0 * (ff[ii, jj+1] - 2.0*ff[ii, jj] - ff[ii, jj-1]) / (yy[jj+1] - yy[jj-1])**2 
-            if ii > 0 and ii < ff.shape[0] - 1 and jj > 0 and jj < ff.shape[1] - 1:
-                dfxy[ii, jj] = (ff[ii+1, jj+1] - ff[ii-1, jj+1] - ff[ii+1, jj-1] + ff[ii-1, jj-1]) / (xx[ii+1] - xx[ii-1] + yy[jj+1] - yy[jj-1])
-        
-    for ii in range(ff.shape[0]):
-        for jj in range(ff.shape[1]):
-            GammaB[ii, jj] = - dfx[ii,jj] / (yy[jj] * dfy[ii, jj])
-    return dfx, dfy, dfxx, dfyy, dfxy, GammaB
-
-
-if __name__ == "__main__":
-    # Here I chose the dx and the dy are constant 
-    xx = np.linspace(2.0, 3.0, 1000)
-    yy = np.linspace(3.0, 5.0, 6)
-    
-    # xx = 2.0 + np.random.random(1000)
-    # yy = 3.0 + 2.0 * np.random.random(6)
-    xv, yv = np.meshgrid(xx, yy)
-    
-    t0 = time.time()
-    print(xx.shape, yy.shape, Entropy(xv.T, yv.T).shape)
-    
-    dfx, dfy, dfxx, dfyy, dfxy, gammb = GammaB(xx, yy, Entropy(xv.T, yv.T))
-    # print(gammb[:,2])
-    plt.plot(xx, dfx[:,2], "o")
+    # 显示图形 (非阻塞)
+    # plt.show(block=False)
     plt.show()
-    
-    
-    # df = pd.DataFrame(gammb)
-    # df.to_csv("GammaB.csv", index=False)
-    print("dfx\n", dfx)
-    # print(gammb)
-    # print(time.time() - t0)
+    time.sleep(1)
+
+
+    # 关闭当前图形
+    plt.close()
+
+# 程序结束时关闭所有图形窗口
+plt.close('all')

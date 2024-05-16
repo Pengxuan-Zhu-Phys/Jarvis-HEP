@@ -1,21 +1,21 @@
 # PYTHIA configuration file.
-# Generated on Sun Apr 14 03:18:15 CST 2024 with the user supplied options:
-# --with-hepmc2=/home/buding/Jarvis-HEP/External/Library/HepMC
-# --prefix=/home/buding/Jarvis-HEP/External/Library/Pythia8
+# Generated on Thu May 16 14:52:35 CST 2024 with the user supplied options:
+# --with-hepmc2=/Users/buding/Workshop/Jarvis/External/Library/HepMC
+# --prefix=/Users/buding/Workshop/Jarvis/External/Library/Pythia8
 
 # Install directory prefixes.
-PREFIX_BIN=/home/buding/Jarvis-HEP/External/Library/Pythia8/bin
-PREFIX_INCLUDE=/home/buding/Jarvis-HEP/External/Library/Pythia8/include
-PREFIX_LIB=/home/buding/Jarvis-HEP/External/Library/Pythia8/lib
-PREFIX_SHARE=/home/buding/Jarvis-HEP/External/Library/Pythia8/share/Pythia8
+PREFIX_BIN=/Users/buding/Workshop/Jarvis/External/Library/Pythia8/bin
+PREFIX_INCLUDE=/Users/buding/Workshop/Jarvis/External/Library/Pythia8/include
+PREFIX_LIB=/Users/buding/Workshop/Jarvis/External/Library/Pythia8/lib
+PREFIX_SHARE=/Users/buding/Workshop/Jarvis/External/Library/Pythia8/share/Pythia8
 
 # Compilation flags (see ./configure --help for further documentation).
 ENABLE_SHARED=false
 CXX=g++
 CXX_COMMON=-O2  -pedantic -W -Wall -Wshadow -fPIC
-CXX_SHARED=-shared
-CXX_SONAME=-Wl,-soname,
-LIB_SUFFIX=.so
+CXX_SHARED=-dynamiclib
+CXX_SONAME=-Wl,-dylib_install_name,@rpath/
+LIB_SUFFIX=.dylib
 
 # EVTGEN configuration.
 EVTGEN_USE=false
@@ -30,10 +30,10 @@ FASTJET3_INCLUDE=./
 FASTJET3_LIB=./
 
 # HEPMC2 configuration.
-HEPMC2_USE=false
-HEPMC2_BIN=
-HEPMC2_INCLUDE=./
-HEPMC2_LIB=./
+HEPMC2_USE=true
+HEPMC2_BIN=/Users/buding/Workshop/Jarvis/External/Library/HepMC/bin/
+HEPMC2_INCLUDE=/Users/buding/Workshop/Jarvis/External/Library/HepMC/include
+HEPMC2_LIB=/Users/buding/Workshop/Jarvis/External/Library/HepMC/lib
 
 # HEPMC3 configuration.
 HEPMC3_USE=false

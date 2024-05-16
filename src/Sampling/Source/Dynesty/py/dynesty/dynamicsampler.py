@@ -444,7 +444,7 @@ def _initialize_live_points(live_points,
             cur_live_logl       = loglikelihood.map(np.asarray(cur_live_vid))
             cur_live_v          = cur_live_vid[:, :-1].astype(float)
             cur_live_uid        = cur_live_vid[:, -1].astype("U36")
-            print("dynamicsampler Line 444 ->", cur_live_uid[0])
+            # print("dynamicsampler Line 444 ->", cur_live_uid[0])
             if blob:
                 cur_live_blobs = np.array([_.blob for _ in cur_live_logl])
             cur_live_logl = np.array([_.val for _ in cur_live_logl])
@@ -453,7 +453,7 @@ def _initialize_live_points(live_points,
             # Convert all `-np.inf` log-likelihoods to finite large
             # numbers. Necessary to keep estimators in our sampler from
             # breaking.
-            print("dynamicsampler Line 456 ->", cur_live_logl)
+            # print("dynamicsampler Line 456 ->", cur_live_logl)
             finite = np.isfinite(cur_live_logl)
             not_finite = ~finite
             neg_infinite = np.isneginf(cur_live_logl)
@@ -475,7 +475,7 @@ def _initialize_live_points(live_points,
                 live_u[ngoods:ngoods + nextra]      = cur_live_u[cur_ind]
                 live_v[ngoods:ngoods + nextra]      = cur_live_v[cur_ind]
                 live_uid[ngoods:ngoods + nextra]    = cur_live_uid[cur_ind]
-                print("Line 473 ->", live_uid[0])
+                # print("Line 473 ->", live_uid[0])
                 if blob:
                     live_blobs.extend(cur_live_blobs[cur_ind])
                 ngoods += nextra
@@ -527,7 +527,7 @@ def _initialize_live_points(live_points,
         # If live points were provided, convert the log-likelihoods and
         # then run a quick safety check.
         live_u, live_v, live_uid, live_logl = live_points[:4]
-        print("dynamicsampler Line 525 ->", live_uid[0])
+        # print("dynamicsampler Line 525 ->", live_uid[0])
         if blob:
             live_blobs = live_points[4]
         live_logl = np.asarray(live_logl)
@@ -619,7 +619,7 @@ def _configure_batch_sampler(main_sampler,
     # saved_uid = np.array(main_sampler.saved_run['uid'])
     saved_v = np.array(main_sampler.saved_run['v'])
     saved_uid = np.array(main_sampler.saved_run['uid'], dtype="U36")
-    print("\ndynamicsampler Line 616 -> start Batch sampler", saved_uid[0], np.sum(np.char.str_len(saved_uid) != 1))
+    # print("\ndynamicsampler Line 616 -> start Batch sampler", saved_uid[0], np.sum(np.char.str_len(saved_uid) != 1))
     saved_logl = np.array(main_sampler.saved_run['logl'])
     saved_logvol = np.array(main_sampler.saved_run['logvol'])
     saved_scale = np.array(main_sampler.saved_run['scale'])
@@ -682,7 +682,7 @@ def _configure_batch_sampler(main_sampler,
              rstate=main_sampler.rstate,
              blob=main_sampler.blob,
              use_pool_ptform=main_sampler.use_pool_ptform)
-        print("dynamicsampler Line 680 -> psel batch sampler\n\t", live_uid[0], np.sum(np.char.str_len(live_uid) != 1))
+        # print("dynamicsampler Line 680 -> psel batch sampler\n\t", live_uid[0], np.sum(np.char.str_len(live_uid) != 1))
         live_bound = np.zeros(nlive_new, dtype=int)
         live_it = np.zeros(nlive_new, dtype=int)
         live_nc = np.ones(nlive_new, dtype=int)
@@ -785,8 +785,8 @@ def _configure_batch_sampler(main_sampler,
         live_u = saved_u[subset, :].copy()
         live_v = saved_v[subset, :].copy()
         live_uid = saved_uid[subset].copy()
-        print(len(saved_uid), np.sum(np.char.str_len(saved_uid) == 1))
-        print("dynamicsampler Line 785 -> Non-psel batch sampler\n\t", live_uid[0])
+        # print(len(saved_uid), np.sum(np.char.str_len(saved_uid) == 1))
+        # print("dynamicsampler Line 785 -> Non-psel batch sampler\n\t", live_uid[0])
         live_logl = saved_logl[subset].copy()
         live_blobs = saved_blobs[subset].copy()
 
@@ -807,7 +807,7 @@ def _configure_batch_sampler(main_sampler,
         live_u = np.empty((nlive_new, main_sampler.npdim))
         live_v = np.empty((nlive_new, saved_v.shape[1]))
         live_uid = np.empty(nlive_new, dtype="U36")
-        print("dynamicsampler Line 806 ->", live_uid[1])
+        # print("dynamicsampler Line 806 ->", live_uid[1])
         live_logl = np.empty(nlive_new)
         live_bound = np.zeros(nlive_new, dtype=int)
         live_it = np.zeros(nlive_new, dtype=int)

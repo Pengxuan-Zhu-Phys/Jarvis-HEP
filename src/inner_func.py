@@ -24,7 +24,6 @@ _AllSCNum = (
     np.float16,
     np.float32,
     np.float64,
-    np.float128,
     np.int0,
     np.int8,
     np.int16,
