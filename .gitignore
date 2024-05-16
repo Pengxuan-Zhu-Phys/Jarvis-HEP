@@ -1,5 +1,6 @@
 # Ignore the local Folder
-External/*
+External/Library/*
+External/Program/*
 Results/*
 TestScan/
 WorkShop/* 
