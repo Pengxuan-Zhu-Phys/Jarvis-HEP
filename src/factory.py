@@ -9,6 +9,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+import time 
 
 class WorkerFactory:
     _instance = None
@@ -26,6 +27,9 @@ class WorkerFactory:
         if not hasattr(self, 'initialized'):
             self.module_manager = module_manager if module_manager else self.module_manager
             self.executor = ThreadPoolExecutor(max_workers=max_workers)
+            self.task_count = 0  
+            self.task_time = 0  
+            self.last_time_mark = time.time()  
             self.initialized = True
 
     def get_executor(self):
@@ -56,11 +60,32 @@ class WorkerFactory:
     def submit_task(self, params, sample_info):
         # This method uses ModuleManager to execute a specific workflow
         # Asynchronous execution through ThreadPoolExecutor
+        self.logger.info(f"Submit Task {sample_info['uuid']} into WorkerFactory ...")
         future = self.executor.submit(self.module_manager.execute_workflow, params, sample_info)
+        self.task_count += 1
+        self.print_status()
         return future
 
+    def print_status(self):
+        def format_duration(seconds):
+            """Formating into HH:MM:SS.msc format"""
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+            millisec = seconds % 1
+            return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{str(millisec)[2:5]}"
+
+
+        if self.task_count % 100 == 0:
+            end_time = time.time()  
+            elapsed_time = format_duration(end_time - self.last_time_mark)  
+            self.task_time += end_time - self.last_time_mark  
+            self.logger.warning(f"Completed {self.task_count} tasks, time for last 100 tasks: {elapsed_time}, total time: {format_duration(self.task_time)}")
+            self.last_time_mark = end_time  
+
+
     def task_done(self, future, uuid):
-        # 此处处理任务完成的逻辑，不论成功还是失败
+        # Deal the thing after the task finished 
         del self.active_tasks[uuid]
         try:
             result = future.result()

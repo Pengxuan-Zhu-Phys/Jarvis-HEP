@@ -1,0 +1,142 @@
+{
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string"
+            },
+            "path": {
+                "type": "string"
+            },
+            "save": {
+                "type": "boolean"
+            },
+            "type": {
+                "type": "string"
+            },
+            "variables": {
+                "type": "array"
+            }
+        },
+        "required": [
+            "name",
+            "path",
+            "type",
+            "save",
+            "variables"
+        ],
+        "oneOf": [
+            {
+                "properties": {
+                    "type": {
+                        "const": "SLHA"
+                    },
+                    "variables": {
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "block": {
+                                    "type": "string"
+                                },
+                                "entry": {
+                                    "oneOf": [
+                                        {
+                                            "type": "integer"
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "integer"
+                                            },
+                                            "minItems": 2,
+                                            "maxItems": 3
+                                        }
+                                    ]
+                                },
+                                "expression": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "block",
+                                "entry"
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "properties": {
+                    "type": {
+                        "const": "Json"
+                    },
+                    "variables": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "entry": {
+                                    "type": "string",
+                                    "optional": true
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "additionalProperties": false
+                        }
+                    }
+                }
+            },
+            {
+                "properties": {
+                    "type": {
+                        "const": "xSLHA"
+                    },
+                    "variables": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string"
+                                },
+                                "block": {
+                                    "type": "string"
+                                },
+                                "entry": {
+                                    "oneOf": [
+                                        {
+                                            "type": "integer"
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "integer"
+                                            },
+                                            "minItems": 1,
+                                            "maxItems": 4
+                                        }
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "name",
+                                "block",
+                                "entry"
+                            ]
+                        }
+                    }
+                }
+            }
+        ]
+    }
+}

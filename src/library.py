@@ -31,6 +31,7 @@ class Library(Base):
                 mod._skip_library = self._skip_library
                 mod.set_library_card(self.path['library'])
                 mod.set_config(module)
+                mod.set_logger()
                 self.modules[module['name']] = mod
 
     def display_installation_summary(self):

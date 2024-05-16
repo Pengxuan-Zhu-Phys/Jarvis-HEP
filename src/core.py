@@ -7,10 +7,8 @@ import os
 from subprocess import Popen, run
 import sys
 import time 
-from old_record.program import Pack
 import argparse
 from config import ConfigLoader
-from logger import AppLogger
 import logging
 from base import Base
 from distributor import Distributor
@@ -24,9 +22,13 @@ from moduleManager import ModuleManager
 from pprint import pprint
 import pandas as pd 
 import concurrent.futures
+import asyncio 
+from loguru import logger
+logger.remove()
+from plot import BudingPLOT
 
 class Core(Base):
-    def __init__(self, logger) -> None:
+    def __init__(self) -> None:
         # print("Testing the first logging line")
         super().__init__()
         self.argparser: Any             = None
@@ -36,11 +38,14 @@ class Core(Base):
         self.libraries: Any             = None
         self.factory: Any               = None 
         self.likelihood: Any            = None 
-        self.logger: AppLogger          = None
+        self.logger                     = None
         self.__state_saver              = None
         self.module_manager             = None
         self._funcs                     = {}
         self.tasks                      = []
+        self.async_loop                 = asyncio.get_event_loop()
+        self.scan_mode                  = True
+        self.plotter                    = BudingPLOT()
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -74,46 +79,104 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
-
+        if self.args.cvtDB:
+            self.scan_mode = False
+        if self.args.plot:
+            self.scan_mode = False
+        
     def init_project(self) -> None: 
-        self.info['scan_name'] = self.yaml.config['Scan']['name']
-        task_result_dir = os.path.join(self.yaml.config['Scan']['save_dir'], self.info['scan_name'])
+        import yaml 
+        with open(os.path.abspath(self.args.file), 'r') as file:
+            config = yaml.safe_load(file)
+        self.info['scan_name'] = config['Scan']['name']
+        self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
+        task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
         task_result_dir = self.decode_path(task_result_dir)
+        self.info['config_file'] = os.path.abspath(self.args.file)
+
+        self.info['jarvis_log'] = os.path.join(task_result_dir, "LOG", f"{self.info['scan_name']}.log")
+        self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
+        self.info['flowchart_path'] = os.path.join(task_result_dir, "flowchart.png")
+        self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{config['Sampling']['Method']}.log")
+
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
             "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
-            "jarvis_log":  os.path.abspath(f"{self.info['project_name']}.log")
+            "jarvis_log":  self.info['jarvis_log']
         }
         self.info["db"] = {
-            "path":  os.path.join(task_result_dir, "samples.hdf5"),
-            "out_csv":  os.path.join(task_result_dir, "samples.csv")
+            "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),
+            "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
-        if not os.path.exists(task_result_dir):
-            os.makedirs(task_result_dir)
-            os.makedirs(os.path.join(task_result_dir, "SAMPLE"))
+        os.makedirs(task_result_dir, exist_ok=True)
+        os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
+        os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
+        os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
+        if self.args.plot:
+            self.info['plot'] = {
+                "save_path":    os.path.join(task_result_dir, "IMAGE"),
+                "config":       os.path.join(task_result_dir, "IMAGE", f"{self.info['scan_name']}.yaml")
+            }
+            os.makedirs(os.path.join(task_result_dir, "IMAGE"), exist_ok=True)
+        
         # pprint(self.yaml.config)
-        self.factory.info['sample'] = deepcopy(self.info['sample'])
-        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_logger(self) -> None:
-        self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
-        self.logger = AppLogger(
-            config_path=self.path['logger_config_path'],
-            logger_name="Jarvis-HEP",
-            log_file_name=f"{self.info['project_name']}.log"
-        )
-        self.logger.info['debug_mode'] = self.args.debug
-        self.logger.configure_logging()
-        self.logger.print_logo()
-        self.logger.logger.info("Jarvis-HEP logging system initialized successful!")
-        if self.args.debug:
-            self.logger.logger.info("Jarvis-HEP in debug mode currently!")
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y-%m-%d[%H:%M:%S]")
+
+        def global_log_filter(record):
+            # 只有包含 'global_log' 标记的日志消息才被写入
+            return record["extra"].get("Jarvis", False)
+
+        def stream_filter(record):
+            # 检查日志记录是否包含 'to_console' 标记，并且该标记为 True
+            return record["extra"].get("to_console", False)
+
+        def custom_format(record):
+            module = record["extra"].get("module", "No module")
+            if "raw" in record["extra"]:
+                return "{message}\n"
+            elif module == "Jarvis-HEP.hdf5-Writter":
+                return f"\nϠ <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+            elif "Sample@" in module:
+                return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+            else:
+                return f"\n <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+
+        jarvislog = f"{self.info['jarvis_log']}@{current_time}"
+
+        logger.add(jarvislog, 
+                   rotation="5 MB", 
+                   encoding='utf-8', 
+                   format=custom_format, 
+                   enqueue=True, 
+                   level="WARNING",
+                   filter=global_log_filter
+                   )
         
-        # child_logger = self.logger.create_dynamic_logger("Test_Child_Logger", log_file="child.log")
-        # self.logger.delete_child_logger("Test_Child_Logger", child_logger)
+        logger.add(
+                sys.stdout, 
+                filter=stream_filter, 
+                format=custom_format,
+                colorize=True,
+                enqueue=True,
+                level="DEBUG" if self.args.debug else "WARNING",
+        )
+
+        self.logger = logger.bind(module="Jarvis-HEP", to_console=True, Jarvis=True)
+        with open(self.path['logo'], 'r') as f:
+            self.logger.warning(f"\n{f.read()}")        
+        self.logger.warning("Jarvis-HEP logging system initialized successful!")
+        if self.args.debug:
+            self.logger.info(f"Jarvis-HEP write into main log file -> {jarvislog}")
+            self.logger.info("Jarvis-HEP in debug mode currently!")
+        if self.args.plot:
+            plogger = logger.bind(module="Jarvis-PLOT", to_console=True, Jarvis=False)
+            self.plotter.logger = plogger
 
     def init_configparser(self) -> None: 
-        self.yaml.logger = self.logger.create_dynamic_logger("ConfigParser")
+        self.yaml.logger = logger.bind(module="Jarvis-HEP.ConfigParser", to_console=True, Jarvis=True)
         from copy import deepcopy
         self.yaml.path = deepcopy(self.path)
         self.yaml.load_config(os.path.abspath(self.args.file))
@@ -132,34 +195,42 @@ class Core(Base):
                     func = get_interpolate_1D_function_from_config(item)
                     if func is not None: 
                         self._funcs[item['name']] = func
-                        self.logger.logger.info(f"Succefully resolve the interpolate function -> {item['name']}")
+                        self.logger.info(f"Succefully resolve the interpolate function -> {item['name']}")
                     else: 
-                        self.logger.logger.info(f"Illegal setting for interpolate function -> {item['name']}")
+                        self.logger.info(f"Illegal setting for interpolate function -> {item['name']}")
 
     def init_StateSaver(self) -> None:
-        logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
-        logger.warning("Enabling breakpoint resume function ... ")
-        filename = f"{self.info['project_name']}.pkl"
-        self.__state_saver = self.__StateSaver(self, filename=filename, logger=logger, save_interval_seconds=60)
+        # logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
+        slogger = logger.bind(module="Jarvis-HEP.StateSaver", to_console=True, Jarvis=True)
+        slogger.warning("Enabling breakpoint resume function ... ")
+        self.__state_saver = self.__StateSaver(self, filename=self.info['pickle_file'] , logger=slogger, save_interval_seconds=60)
 
     def init_sampler(self) -> None:
+        logger_name = f"Jarvis-HEP.{self.sampler.method}"
+        def filte_func(record):
+            return record['extra']['module'] == logger_name
+        def custom_format(record):
+            module = record["extra"].get("module", "No module")
+            return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+    
         self.sampler.set_config(self.yaml.config)
-        logger = self.logger.create_dynamic_logger(self.sampler.method)
-        self.sampler.set_logger(logger)
+        # logger = self.logger.create_dynamic_logger(self.sampler.method)
+        slogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        slogger.add(self.info['sampler_log'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
+        self.sampler.info['logfile'] = self.info['sampler_log']
+        self.sampler.set_logger(slogger)
         self.sampler.initialize()
         self.yaml.vars = self.sampler.vars 
+        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_librarys(self) -> None:
         self.libraries = Library()
         self.libraries._skip_library = self.args.skiplibrary
-        logger = self.logger.create_dynamic_logger("Library", logging.INFO)
-        self.libraries.set_logger(logger)
+        # logger = self.logger.create_dynamic_logger("Library", logging.INFO)
+        slogger = logger.bind(module="Jarvis-HEP.Library", to_console=True, Jarvis=True)
+        self.libraries.set_logger(slogger)
         self.libraries.set_config(self.yaml.config)
-        for module in self.libraries.modules:
-            mod = self.libraries.modules[module]
-            log_file = mod.path['log_file_path']
-            logger = self.logger.create_dynamic_logger(mod.name, logging.WARNING, log_file=log_file)
-            mod.set_logger(logger)
+
         self.libraries.display_installation_summary()
         for module in self.libraries.modules.values():
             module.install()
@@ -170,8 +241,13 @@ class Core(Base):
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
         if not self.args.skipFC:
-            self.workflow.draw_flowchart()
+            from threading import Thread
+            self.logger.warning(f"Draw workflow chart into {self.info['flowchart_path']}")
+            asyncio.run(
+                self.workflow.draw_flowchart(save_path=self.info['flowchart_path'])
+            )
         self.workflow.get_workflow_dict()
+        self.logger.warning(self.workflow.workflow.keys())
 
     def init_WorkerFactory(self) -> None: 
         self.factory = WorkerFactory()
@@ -179,9 +255,10 @@ class Core(Base):
         self.factory.configure(module_manager=self.module_manager,
             max_workers=self.yaml.config['Calculators']['make_paraller']
             )
-        logger = self.logger.create_dynamic_logger("Manager")
-        self.factory.set_logger(logger)
-        self.module_manager.set_logger(logger)
+        flogger = logger.bind(module="Jarvis-HEP.Factory", to_console=True, Jarvis=True)
+        self.factory.set_logger(flogger)
+        mlogger = logger.bind(module="Jarvis-HEP.Factory.Manager", to_console=True, Jarvis=True)
+        self.module_manager.set_logger(mlogger)
         self.module_manager.set_max_worker(self.yaml.config['Calculators']['make_paraller'])
         self.module_manager.set_config(self.yaml.config)
         self.module_manager.set_funcs(self._funcs)
@@ -189,8 +266,8 @@ class Core(Base):
         for kk, layer in self.workflow.calc_layer.items():
             if kk > 1: 
                 for module in layer['module']:
-                    logger = self.logger.create_dynamic_logger(module)
-                    self.module_manager.add_module_pool(self.workflow.modules[module], logger=logger)
+                    self.module_manager.add_module_pool(self.workflow.modules[module])
+        self.factory.info['sample'] = deepcopy(self.info['sample'])
 
     def init_likelihood(self) -> None: 
         self.module_manager.set_likelihood()
@@ -201,25 +278,24 @@ class Core(Base):
         self.module_manager._database = GlobalHDF5Writer(self.info['db']['path'])
         self.module_manager.database.start()
 
-
-        # pprint(self.factory.__dict__)
-        # pprint(self.module_manager.__dict__.keys())
-        # pass 
-
     def initialization(self) -> None:
         self.init_argparser()
+        self.init_project()
         self.init_logger()
         self.init_configparser()
         self.init_utils()
-        self.init_StateSaver()
-        self.init_sampler()
-        self.init_workflow()
-        self.init_librarys()
-        self.init_WorkerFactory()
-        self.init_project()
-        self.init_likelihood()
-        self.init_database()
-
+        
+        if self.scan_mode:
+            self.init_StateSaver()
+            
+            self.init_sampler()
+            self.init_workflow()
+            self.init_librarys()
+            self.init_WorkerFactory()
+            self.init_likelihood()
+            self.init_database()
+        # elif self.args.cvtDB:
+        #     self.convert()
 
     def run_sampling(self)->None:
         if self.args.testcalculator:
@@ -228,23 +304,25 @@ class Core(Base):
             self.run_until_finished()
 
     def test_assembly_line(self):
+        self.logger.warning("Start testing assembly line")
         try:
             for ii in range(2):
                 param = next(self.sampler)
-                future = self.factory.submit_task_with_prior(param)
-                print(future)
+
+                # self.logger.warning(f"Start for testing sample -> {json.dumps(param)}")
+                # future = self.factory.submit_task_with_prior(param)
+                # print(future)
                 # print(self.factory.config['Scan'])
-                # sample = Sample(param)
-                # sample.set_config(deepcopy(self.info['sample']))
-                # self.logger.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
-                # future = self.factory.submit_task(sample.params, sample.info)
-                # 等待任务完成并获取结果
-                # output = future.result()
-                # self.module_manager.database.add_data(output)
-                # print(output)
+                sample = Sample(param)
+                sample.set_config(deepcopy(self.info['sample']))
+                self.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
+                future = self.factory.submit_task(sample.params, sample.info)
+                output = future.result()
+                self.module_manager.database.add_data(output)
+                print(output)
         except Exception as e:
             # 异常处理
-            print(f"An error occurred: {e}")
+            self.logger.error(f"An error occurred: {e}")
 
         finally:
             self.factory.executor.shutdown()
@@ -261,14 +339,15 @@ class Core(Base):
         try:
             self.sampler.run_nested()
         finally:
-            self.sampler.finalize()
-            
             from time import time
             start = time()
             self.factory.module_manager.database.stop()
             self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
-            self.logger.logger.info(f"{tot} millisecond -> All samples have been processed.")
+            self.logger.info(f"{tot} millisecond -> All samples have been processed.")
+            self.sampler.finalize()
+            self.sampler.combine_data(self.info['db']['out_csv'])
+            
 
             self.factory.executor.shutdown()
 
@@ -279,6 +358,35 @@ class Core(Base):
             print(str(e))
             self.argparser.print_help()
             sys.exit(2)
+
+    def convert(self) -> None: 
+        if os.path.exists(self.info['db']['path']) and not os.path.exists(self.info['db']['out_csv']):
+            self.logger.warning("Jarvis-HEP not find the -> samples.csv.\nStarting converting from hdf5.")
+            snapshot_path = self.info['db']['path'] + ".snap"
+            import shutil 
+            shutil.copy2(self.info['db']['path'], snapshot_path)
+            try: 
+                from utils import convert_hdf5_to_csv
+                convert_hdf5_to_csv(snapshot_path, self.info['db']['out_csv'])
+                self.logger.warning(f"Data has been successfully written to -> {self.info['db']['out_csv']}")
+            finally:
+                try:
+                    os.remove(snapshot_path)
+                    self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
+                except Exception as e:
+                    self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
+        # print(self.info['db'])
+
+    def plot(self) -> None:
+        self.plotter.logger.warning(f"Data visulization for {self.info['project_name']}")
+        if "Plot" not in self.yaml.config:
+            if not os.path.exists(self.info['plot']['config']):
+                self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
+                self.plotter.plot()
+            else:
+                self.plotter.load_config(self.info['plot']['config'])
+                self.plotter.plot()
+        
 
     class __StateSaver:
         def __init__(self, 

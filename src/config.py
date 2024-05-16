@@ -2,8 +2,6 @@
 
 import yaml 
 import platform
-import importlib
-import math 
 import os, sys 
 import re 
 import subprocess
@@ -395,8 +393,9 @@ class ConfigLoader(Base):
 
 
 
-class ConfigValidator():
+class ConfigValidator(Base):
     def __init__(self) -> None:
+        super().__init__()
         self.logger = None
         self.config = None
         self.schema = None
@@ -414,6 +413,10 @@ class ConfigValidator():
             self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
         try:
+            # pprint(self.schema['definitions']['execution']['properties']['input'])
+            for kk, vv in self.schemablock.items():
+                self.schema['schemaBlock'][kk]['$ref'] = self.schemablock[kk]
+            
             validate(instance=self.config, schema=self.schema)
             self.logger.warning("Validation successful. The input YAML file meets the schema requirement.")
             self.passcheck = True

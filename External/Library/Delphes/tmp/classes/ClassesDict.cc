@@ -2417,7 +2417,7 @@ namespace ROOT {
       vector<pair<float,float> > *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<pair<float,float> >));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<pair<float,float> >", -2, "vector", 389,
+         instance("vector<pair<float,float> >", -2, "vector", 383,
                   typeid(vector<pair<float,float> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEpairlEfloatcOfloatgRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<pair<float,float> >) );
@@ -2428,7 +2428,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEpairlEfloatcOfloatgRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<pair<float,float> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<pair<float,float> >","std::vector<std::pair<float, float>, std::allocator<std::pair<float, float> > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<pair<float,float> >","std::__1::vector<std::__1::pair<float, float>, std::__1::allocator<std::__1::pair<float, float>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -2449,10 +2449,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<float,float> > : new vector<pair<float,float> >;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<float,float> > : new vector<pair<float,float> >;
    }
    static void *newArray_vectorlEpairlEfloatcOfloatgRsPgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<float,float> >[nElements] : new vector<pair<float,float> >[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<float,float> >[nElements] : new vector<pair<float,float> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEpairlEfloatcOfloatgRsPgR(void *p) {
@@ -2474,8 +2474,8 @@ nullptr
     };
     static const char* includePaths[] = {
 "external",
-"/home/buding/root/include/",
-"/home/buding/Jarvis-HEP/External/Library/Delphes/",
+"/opt/homebrew/Cellar/root/6.30.04/include/root",
+"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
 nullptr
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(

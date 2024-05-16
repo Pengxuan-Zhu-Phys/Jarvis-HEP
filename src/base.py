@@ -9,6 +9,7 @@ class Base():
         }
         self.path['args_info'] = self.decode_path("&J/src/card/argparser.json")
         self.path['logger_config_path'] = self.decode_path("&J/src/card/jarvis_logging_config.yaml")
+        self.schemablock = {}
         self.load_schema_paths()
 
     def decode_path(self, path) -> None: 
@@ -38,8 +39,11 @@ class Base():
             js = json.loads(f1.read())
             for kk, vv in js["Schema"].items():
                 js["Schema"][kk] = self.decode_path(vv)
+            for kk, vv in js['SchemaBlock'].items():
+                js["SchemaBlock"][kk] = f"file://{self.decode_path(vv)}"
             
             self.path.update(js['Schema'])
+            self.schemablock.update(js['SchemaBlock'])
             self.path['logo'] = self.decode_path(js['logo'])
 
 
@@ -56,7 +60,7 @@ class Base():
 
         if not numbered_dirs:
             # If no numbered directories exist, create the first one and exit
-            os.makedirs(os.path.join(base_path, '1'))
+            os.makedirs(os.path.join(base_path, '1'), exist_ok=True)
             # print("Created directory '1' as no numbered directories existed.")
             return os.path.join(base_path, '1')
 
@@ -71,7 +75,7 @@ class Base():
         if file_count >= 200:
             new_dir_number = max_number + 1
             new_dir_path = os.path.join(base_path, str(new_dir_number))
-            os.makedirs(new_dir_path)
+            os.makedirs(new_dir_path, exist_ok=True)
             # print(f"Created new directory '{new_dir_number}' due to file count greater than 200 in directory '{max_number}'.")
             return new_dir_path
         else:

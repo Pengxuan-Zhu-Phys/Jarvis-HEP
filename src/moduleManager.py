@@ -31,7 +31,6 @@ class ModuleManager:
     def set_likelihood(self):
         from Module.likelihood import LogLikelihood
         self.loglikelihood = LogLikelihood(self.config['Sampling']['LogLikelihood'])
-        self.loglikelihood.logger = self.logger
 
     def set_funcs(self, funcs):
         from inner_func import update_funcs
@@ -60,9 +59,8 @@ class ModuleManager:
             float: The calculated likelihood value.
         """
         # Execute according to the workflow's layer sequence
-        self.logger.warning(f"Start execute workflow for sample -> {sample_info['uuid']}\n")
+        self.logger.info(f"Start execute workflow for sample -> {sample_info['uuid']}")
 
-        # self.logger.warning(self.workflow.keys())
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
             with ThreadPoolExecutor(max_workers=len(module_names)) as executor:
@@ -81,6 +79,7 @@ class ModuleManager:
         # After all modules have executed, calculate likelihood based on the final observables
         observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
         self.database.add_data(observables)
+        # print("Manager Line 82 ->", observables['LogL'])
         return observables['LogL']
 
     def execute_module(self, module_name, observables, sample_info):
@@ -96,7 +95,7 @@ class ModuleManager:
         """
         module_pool = self.module_pools.get(module_name)
         if not module_pool:
-            self.logger.info(f"Module pool for '{module_name}' not found.")
+            self.logger.error(f"Module pool for '{module_name}' not found.")
             return observables
 
         # Assume the ModulePool's execute method accepts observables dictionary and uuid, and returns an updated observables dictionary
@@ -121,18 +120,12 @@ class ModuleManager:
         loglikelihood.update_funcs(self.funcs)
         logl = loglikelihood.calculate(observables, sample_info)
         observables.update(logl)
-        loglikelihood.childlogger.warning(f"""Sample SUMMARY
-=================================================================
-{pd.Series(observables).to_string()}
-================================================================="""
-        )
-        # likelihood = observables.get('TestOutPutVar', 0.5)  # Example calculation logic
         return observables
 
-    def add_module_pool(self, module, logger):
+    def add_module_pool(self, module):
         if module.name not in self.module_pools:
             self.logger.warning(f"Manager adding ModulePool {module.name}. ")
             self.module_pools[module.name] = ModulePool(module, max_workers=self.max_worker)
             self.module_pools[module.name].set_funcs(self.funcs)
-            self.module_pools[module.name].set_logger(logger)
+            self.module_pools[module.name].set_logger()
             # self.module_pools[module.name].load_installed_instances()

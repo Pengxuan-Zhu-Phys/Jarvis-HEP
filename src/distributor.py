@@ -12,10 +12,10 @@ class Distributor(Base):
     def set_method(method) -> None:
         match method:
             case "Bridson":
-                from bridson import Bridson
+                from Sampling.bridson import Bridson
                 return Bridson()
             case "Dynesty":
-                from dynesty import Dynesty 
+                from Sampling.dynesty import Dynesty 
                 return Dynesty()
         
         

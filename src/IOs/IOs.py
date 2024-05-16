@@ -90,6 +90,15 @@ class IOfile(Base):
             from IOs.Output import SLHAOutputFile
             logger.debug(f"Loading the file {name} as 'SLHAOutputFile' type")
             return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+        elif file_type == "Json":
+            from IOs.Output import JsonOutputFile
+            logger.debug(f"Loading the file {name} as 'JsonOutputFile' type")
+            return JsonOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+        elif file_type == "xSLHA":
+            from IOs.Output import xSLHAOutputFile
+            logger.debug(f"Loading the file {name} as 'xSLHAOutputFile' type")
+            return xSLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+
 
 class InputFile(IOfile):
     async def write(self, param_values):

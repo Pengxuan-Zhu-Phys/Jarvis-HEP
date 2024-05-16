@@ -34,6 +34,10 @@ class Sample(Base):
     def likelihood(self):
         return self._likelihood
 
+    def update_uuid(self, uuid):
+        self._uuid = uuid 
+        self.observables['uuid'] = self.uuid
+
     @likelihood.setter
     def likelihood(self, value):
         self._likelihood = value  # 允许更新likelihood值

@@ -5450,7 +5450,7 @@ namespace ROOT {
       vector<vector<double>*> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<vector<double>*>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<vector<double>*>", -2, "vector", 389,
+         instance("vector<vector<double>*>", -2, "vector", 383,
                   typeid(vector<vector<double>*>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEvectorlEdoublegRmUgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<vector<double>*>) );
@@ -5461,7 +5461,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEvectorlEdoublegRmUgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<vector<double>*> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<vector<double>*>","std::vector<std::vector<double, std::allocator<double> >*, std::allocator<std::vector<double, std::allocator<double> >*> >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<vector<double>*>","std::__1::vector<std::__1::vector<double, std::__1::allocator<double>>*, std::__1::allocator<std::__1::vector<double, std::__1::allocator<double>>*>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5482,10 +5482,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEvectorlEdoublegRmUgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<vector<double>*> : new vector<vector<double>*>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<vector<double>*> : new vector<vector<double>*>;
    }
    static void *newArray_vectorlEvectorlEdoublegRmUgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<vector<double>*>[nElements] : new vector<vector<double>*>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<vector<double>*>[nElements] : new vector<vector<double>*>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEvectorlEdoublegRmUgR(void *p) {
@@ -5515,7 +5515,7 @@ namespace ROOT {
       vector<pair<unsigned int,double> > *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<pair<unsigned int,double> >));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<pair<unsigned int,double> >", -2, "vector", 389,
+         instance("vector<pair<unsigned int,double> >", -2, "vector", 383,
                   typeid(vector<pair<unsigned int,double> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEpairlEunsignedsPintcOdoublegRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<pair<unsigned int,double> >) );
@@ -5526,7 +5526,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEpairlEunsignedsPintcOdoublegRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<pair<unsigned int,double> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<pair<unsigned int,double> >","std::vector<std::pair<unsigned int, double>, std::allocator<std::pair<unsigned int, double> > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<pair<unsigned int,double> >","std::__1::vector<std::__1::pair<unsigned int, double>, std::__1::allocator<std::__1::pair<unsigned int, double>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5547,10 +5547,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEpairlEunsignedsPintcOdoublegRsPgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<unsigned int,double> > : new vector<pair<unsigned int,double> >;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<unsigned int,double> > : new vector<pair<unsigned int,double> >;
    }
    static void *newArray_vectorlEpairlEunsignedsPintcOdoublegRsPgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<pair<unsigned int,double> >[nElements] : new vector<pair<unsigned int,double> >[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<pair<unsigned int,double> >[nElements] : new vector<pair<unsigned int,double> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEpairlEunsignedsPintcOdoublegRsPgR(void *p) {
@@ -5580,7 +5580,7 @@ namespace ROOT {
       vector<int> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<int>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<int>", -2, "vector", 389,
+         instance("vector<int>", -2, "vector", 383,
                   typeid(vector<int>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEintgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<int>) );
@@ -5591,7 +5591,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEintgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<int> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<int>","std::vector<int, std::allocator<int> >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<int>","std::__1::vector<int, std::__1::allocator<int>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5612,10 +5612,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEintgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<int> : new vector<int>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<int> : new vector<int>;
    }
    static void *newArray_vectorlEintgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<int>[nElements] : new vector<int>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<int>[nElements] : new vector<int>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEintgR(void *p) {
@@ -5645,7 +5645,7 @@ namespace ROOT {
       vector<double> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<double>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<double>", -2, "vector", 389,
+         instance("vector<double>", -2, "vector", 383,
                   typeid(vector<double>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlEdoublegR_Dictionary, isa_proxy, 0,
                   sizeof(vector<double>) );
@@ -5656,7 +5656,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlEdoublegR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<double> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<double>","std::vector<double, std::allocator<double> >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<double>","std::__1::vector<double, std::__1::allocator<double>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5677,10 +5677,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlEdoublegR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<double> : new vector<double>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<double> : new vector<double>;
    }
    static void *newArray_vectorlEdoublegR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<double>[nElements] : new vector<double>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<double>[nElements] : new vector<double>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlEdoublegR(void *p) {
@@ -5710,7 +5710,7 @@ namespace ROOT {
       vector<Long64_t> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(vector<Long64_t>));
       static ::ROOT::TGenericClassInfo 
-         instance("vector<Long64_t>", -2, "vector", 389,
+         instance("vector<Long64_t>", -2, "vector", 383,
                   typeid(vector<Long64_t>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &vectorlELong64_tgR_Dictionary, isa_proxy, 0,
                   sizeof(vector<Long64_t>) );
@@ -5721,7 +5721,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_vectorlELong64_tgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< vector<Long64_t> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<Long64_t>","std::vector<long long, std::allocator<long long> >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("vector<Long64_t>","std::__1::vector<long long, std::__1::allocator<long long>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5742,10 +5742,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_vectorlELong64_tgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<Long64_t> : new vector<Long64_t>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<Long64_t> : new vector<Long64_t>;
    }
    static void *newArray_vectorlELong64_tgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) vector<Long64_t>[nElements] : new vector<Long64_t>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) vector<Long64_t>[nElements] : new vector<Long64_t>[nElements];
    }
    // Wrapper around operator delete
    static void delete_vectorlELong64_tgR(void *p) {
@@ -5775,7 +5775,7 @@ namespace ROOT {
       map<unsigned int,map<string,int> > *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<unsigned int,map<string,int> >));
       static ::ROOT::TGenericClassInfo 
-         instance("map<unsigned int,map<string,int> >", -2, "map", 100,
+         instance("map<unsigned int,map<string,int> >", -2, "map", 1018,
                   typeid(map<unsigned int,map<string,int> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEunsignedsPintcOmaplEstringcOintgRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(map<unsigned int,map<string,int> >) );
@@ -5786,7 +5786,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEunsignedsPintcOmaplEstringcOintgRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<unsigned int,map<string,int> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,int> >","std::map<unsigned int, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, int, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, int> > >, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, int, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, int> > > > > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,int> >","std::__1::map<unsigned int, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, int, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, int>>>, std::__1::less<unsigned int>, std::__1::allocator<std::__1::pair<unsigned int const, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, int, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, int>>>>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5807,10 +5807,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEunsignedsPintcOmaplEstringcOintgRsPgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,int> > : new map<unsigned int,map<string,int> >;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,int> > : new map<unsigned int,map<string,int> >;
    }
    static void *newArray_maplEunsignedsPintcOmaplEstringcOintgRsPgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,int> >[nElements] : new map<unsigned int,map<string,int> >[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,int> >[nElements] : new map<unsigned int,map<string,int> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEunsignedsPintcOmaplEstringcOintgRsPgR(void *p) {
@@ -5840,7 +5840,7 @@ namespace ROOT {
       map<unsigned int,map<string,double> > *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<unsigned int,map<string,double> >));
       static ::ROOT::TGenericClassInfo 
-         instance("map<unsigned int,map<string,double> >", -2, "map", 100,
+         instance("map<unsigned int,map<string,double> >", -2, "map", 1018,
                   typeid(map<unsigned int,map<string,double> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEunsignedsPintcOmaplEstringcOdoublegRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(map<unsigned int,map<string,double> >) );
@@ -5851,7 +5851,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEunsignedsPintcOmaplEstringcOdoublegRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<unsigned int,map<string,double> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,double> >","std::map<unsigned int, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, double, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, double> > >, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, double, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, double> > > > > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,double> >","std::__1::map<unsigned int, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, double, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, double>>>, std::__1::less<unsigned int>, std::__1::allocator<std::__1::pair<unsigned int const, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, double, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, double>>>>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5872,10 +5872,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEunsignedsPintcOmaplEstringcOdoublegRsPgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,double> > : new map<unsigned int,map<string,double> >;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,double> > : new map<unsigned int,map<string,double> >;
    }
    static void *newArray_maplEunsignedsPintcOmaplEstringcOdoublegRsPgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,double> >[nElements] : new map<unsigned int,map<string,double> >[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,double> >[nElements] : new map<unsigned int,map<string,double> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEunsignedsPintcOmaplEstringcOdoublegRsPgR(void *p) {
@@ -5905,7 +5905,7 @@ namespace ROOT {
       map<unsigned int,map<string,bool> > *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<unsigned int,map<string,bool> >));
       static ::ROOT::TGenericClassInfo 
-         instance("map<unsigned int,map<string,bool> >", -2, "map", 100,
+         instance("map<unsigned int,map<string,bool> >", -2, "map", 1018,
                   typeid(map<unsigned int,map<string,bool> >), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEunsignedsPintcOmaplEstringcOboolgRsPgR_Dictionary, isa_proxy, 0,
                   sizeof(map<unsigned int,map<string,bool> >) );
@@ -5916,7 +5916,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEunsignedsPintcOmaplEstringcOboolgRsPgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<unsigned int,map<string,bool> > >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,bool> >","std::map<unsigned int, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, bool> > >, std::less<unsigned int>, std::allocator<std::pair<unsigned int const, std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, bool> > > > > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<unsigned int,map<string,bool> >","std::__1::map<unsigned int, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, bool, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, bool>>>, std::__1::less<unsigned int>, std::__1::allocator<std::__1::pair<unsigned int const, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, bool, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, bool>>>>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -5937,10 +5937,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEunsignedsPintcOmaplEstringcOboolgRsPgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,bool> > : new map<unsigned int,map<string,bool> >;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,bool> > : new map<unsigned int,map<string,bool> >;
    }
    static void *newArray_maplEunsignedsPintcOmaplEstringcOboolgRsPgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<unsigned int,map<string,bool> >[nElements] : new map<unsigned int,map<string,bool> >[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<unsigned int,map<string,bool> >[nElements] : new map<unsigned int,map<string,bool> >[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEunsignedsPintcOmaplEstringcOboolgRsPgR(void *p) {
@@ -5970,7 +5970,7 @@ namespace ROOT {
       map<string,int> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<string,int>));
       static ::ROOT::TGenericClassInfo 
-         instance("map<string,int>", -2, "map", 100,
+         instance("map<string,int>", -2, "map", 1018,
                   typeid(map<string,int>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEstringcOintgR_Dictionary, isa_proxy, 0,
                   sizeof(map<string,int>) );
@@ -5981,7 +5981,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEstringcOintgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<string,int> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,int>","std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, int, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, int> > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,int>","std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, int, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, int>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -6002,10 +6002,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEstringcOintgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,int> : new map<string,int>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,int> : new map<string,int>;
    }
    static void *newArray_maplEstringcOintgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,int>[nElements] : new map<string,int>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,int>[nElements] : new map<string,int>[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEstringcOintgR(void *p) {
@@ -6035,7 +6035,7 @@ namespace ROOT {
       map<string,double> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<string,double>));
       static ::ROOT::TGenericClassInfo 
-         instance("map<string,double>", -2, "map", 100,
+         instance("map<string,double>", -2, "map", 1018,
                   typeid(map<string,double>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEstringcOdoublegR_Dictionary, isa_proxy, 0,
                   sizeof(map<string,double>) );
@@ -6046,7 +6046,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEstringcOdoublegR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<string,double> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,double>","std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, double, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, double> > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,double>","std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, double, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, double>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -6067,10 +6067,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEstringcOdoublegR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,double> : new map<string,double>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,double> : new map<string,double>;
    }
    static void *newArray_maplEstringcOdoublegR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,double>[nElements] : new map<string,double>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,double>[nElements] : new map<string,double>[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEstringcOdoublegR(void *p) {
@@ -6100,7 +6100,7 @@ namespace ROOT {
       map<string,bool> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(map<string,bool>));
       static ::ROOT::TGenericClassInfo 
-         instance("map<string,bool>", -2, "map", 100,
+         instance("map<string,bool>", -2, "map", 1018,
                   typeid(map<string,bool>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &maplEstringcOboolgR_Dictionary, isa_proxy, 0,
                   sizeof(map<string,bool>) );
@@ -6111,7 +6111,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_maplEstringcOboolgR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::MapInsert< map<string,bool> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,bool>","std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, bool, std::less<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > >, std::allocator<std::pair<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const, bool> > >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("map<string,bool>","std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, bool, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, bool>>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -6132,10 +6132,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_maplEstringcOboolgR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,bool> : new map<string,bool>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,bool> : new map<string,bool>;
    }
    static void *newArray_maplEstringcOboolgR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) map<string,bool>[nElements] : new map<string,bool>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) map<string,bool>[nElements] : new map<string,bool>[nElements];
    }
    // Wrapper around operator delete
    static void delete_maplEstringcOboolgR(void *p) {
@@ -6165,7 +6165,7 @@ namespace ROOT {
       deque<double> *ptr = nullptr;
       static ::TVirtualIsAProxy* isa_proxy = new ::TIsAProxy(typeid(deque<double>));
       static ::ROOT::TGenericClassInfo 
-         instance("deque<double>", -2, "deque", 767,
+         instance("deque<double>", -2, "deque", 459,
                   typeid(deque<double>), ::ROOT::Internal::DefineBehavior(ptr, ptr),
                   &dequelEdoublegR_Dictionary, isa_proxy, 0,
                   sizeof(deque<double>) );
@@ -6176,7 +6176,7 @@ namespace ROOT {
       instance.SetDestructor(&destruct_dequelEdoublegR);
       instance.AdoptCollectionProxyInfo(TCollectionProxyInfo::Generate(TCollectionProxyInfo::Pushback< deque<double> >()));
 
-      instance.AdoptAlternate(::ROOT::AddClassAlternate("deque<double>","std::deque<double, std::allocator<double> >"));
+      instance.AdoptAlternate(::ROOT::AddClassAlternate("deque<double>","std::__1::deque<double, std::__1::allocator<double>>"));
       return &instance;
    }
    // Static variable to force the class initialization
@@ -6197,10 +6197,10 @@ namespace ROOT {
 namespace ROOT {
    // Wrappers around operator new
    static void *new_dequelEdoublegR(void *p) {
-      return  p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) deque<double> : new deque<double>;
+      return  p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) deque<double> : new deque<double>;
    }
    static void *newArray_dequelEdoublegR(Long_t nElements, void *p) {
-      return p ? ::new((::ROOT::Internal::TOperatorNewHelper*)p) deque<double>[nElements] : new deque<double>[nElements];
+      return p ? ::new(static_cast<::ROOT::Internal::TOperatorNewHelper*>(p)) deque<double>[nElements] : new deque<double>[nElements];
    }
    // Wrapper around operator delete
    static void delete_dequelEdoublegR(void *p) {
@@ -6222,8 +6222,8 @@ nullptr
     };
     static const char* includePaths[] = {
 "external",
-"/home/buding/root/include/",
-"/home/buding/Jarvis-HEP/External/Library/Delphes/",
+"/opt/homebrew/Cellar/root/6.30.04/include/root",
+"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
 nullptr
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(

@@ -1,0 +1,22 @@
+{
+    "method":   ["Spectrum", "Folder"],
+    "path":     "True",
+    "format":   ["NMSSMTools", "Standard SLHA"],
+    "pattern":  {
+        "NMSSMTools":       ["inp", "spectr", "omega"],
+        "Standard SLHA":    []
+    },
+    "model":    {
+        "NMSSMTools":       [
+            "nmssm"
+        ],
+        "Standard SLHA":    [
+            "mssm",
+            "nmssm",
+            "iss-nmssm",
+            "mu-nmssm"
+        ]
+    },
+    "saveto":   "True",
+    "variable": "True"
+}

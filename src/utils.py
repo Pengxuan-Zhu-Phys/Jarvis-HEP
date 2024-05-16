@@ -81,4 +81,22 @@ def get_interpolate_1D_function_from_config(config):
     except:
         return None
 
-            
+def convert_hdf5_to_csv(snapshot_path, csv_path):
+    import h5py, csv, json
+    with h5py.File(snapshot_path, 'r') as hdf5_file:
+        all_data = []
+        # Iterate over datasets in the HDF5 file to collect data
+        for dataset_name in hdf5_file:
+            data = hdf5_file[dataset_name][()]
+            # Assuming 'data' is stored as a binary string of serialized JSON
+            json_data = json.loads(data.decode('utf-8'))
+            all_data.append(json_data)
+        # Assuming all JSON objects have the same structure (same keys)
+        if all_data:
+            fieldnames = list(all_data[0].keys())
+            with open(csv_path, 'w', newline='') as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                writer.writeheader()
+                for data in all_data:
+                    if isinstance(data, dict):
+                        writer.writerow(data)

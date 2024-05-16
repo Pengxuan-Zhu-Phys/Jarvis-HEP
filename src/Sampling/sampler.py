@@ -44,4 +44,8 @@ class SamplingVirtial(Base):
     @abstractmethod
     def set_logger(self, logger) -> None:
         self.logger = logger 
+
+    @abstractmethod 
+    def combine_data(self, df_full) -> None:
+        pass 
         
