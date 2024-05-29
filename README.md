@@ -20,7 +20,7 @@ python3 -m pip install numpy scipy pyyaml dynesty h5py pandas matplotlib pyhf ne
 Clone Jarvis-HEP directly from GitHub:
 
 ```bash
-git clone https://github.com/yourusername/Jarvis-HEP.git
+git clone https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP.git
 ```
 
 ## Contributing

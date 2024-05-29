@@ -1,0 +1,145 @@
+Scan: 
+  name: "EggBox_Dynesty_06"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Dynesty" 
+  Variables:
+    - name: x
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+
+    - name: y
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+  Bounds:
+    nlive:  160
+    rseed:  21
+    dlogz:  1.0
+
+
+  LogLikelihood: 
+    - {name: "LogL_Z",  expression: "(2 + z)**5"}
+  selection: "(2.0 * X < Y)"
+
+EnvironmentRequirements:
+  OS: 
+    - name: linux 
+      version: ">=5.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+SupportingLibrary:
+  path: "&J/External/Library"
+  make_paraller: 16
+  Modules:
+    - name: "Delphes"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/Delphes"
+        source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf Delphes*"
+          - "cp ${source} ./"
+          - "tar -xzf Delphes-3.5.0.tar.gz"
+          - "mv ./Delphes-3.5.0 ${path}"
+          - "cd ${path}"
+          - "source @{ROOT path}/bin/thisroot.sh"
+          - "./configure"
+          - "make -j${SupportingLibrary:make_paraller}"
+
+    - name: "HepMC"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/HepMC"
+        source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "rm -rf HepMC*"
+          - "cp ${source} ./"
+          - "tar -xzf HepMC-2.06.09.tar.gz"
+          - "cd ${SupportingLibrary:path}/HepMC-2.06.09"
+          - "./bootstrap"
+          - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
+    - name: "Pythia8"
+      required_modules: 
+        - "HepMC"
+      installed: False
+      installation:
+        path: "&J/External/Library/Pythia8"
+        source: "&J/External/Library/Source/pythia8230.tgz"
+        commands:
+          - "cd ${SupportingLibrary:path}"
+          - "mkdir Pythia8"
+          - "cd ${SupportingLibrary:path}/Source"
+          - "tar -zxvf pythia8230.tgz"
+          - "cd ${SupportingLibrary:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${SupportingLibrary:path}/HepMC --prefix=${path}"
+          - "make -j${SupportingLibrary:make_paraller}"
+          - "make install"
+
+Calculators:
+  make_paraller: 16
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: EggBox
+      required_modules: [] 
+      clone_shadow: True
+      path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/EggBox"
+      installation:
+          - "cp -r ${source}/* ${path}"
+      initialization:
+          - "cp -r ${source}/input.json ${path}/input.json"
+          - "rm -f output.json"
+      execution:
+        path: *eggbox_path  # using the Anchor point
+        commands:
+          - "./eggbox.py"
+        input:
+          - name: inpjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/input.json"  
+            type: "Json"
+            actions:
+              - type: "Dump"
+                variables:
+                  - { name: "xx", expression: "x * Pi" }
+                  - { name: "yy", expression: "y * Pi" }
+                  - { name: "cx", expression: "(x + y) * Pi", entry: "test.config.x" }
+            save: True
+        output:
+          - name: oupjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/output.json" 
+            type: "Json"
+            save: True
+            variables:
+              - {name: z}
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"
