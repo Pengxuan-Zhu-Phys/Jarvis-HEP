@@ -9,6 +9,10 @@ src/IOs/__pycache__/
 src/Module/__pycache__/
 src/Test_Factory/*
 
+# Ignore Python bytecode files
+*.pyc
+__pycache__/
+
 # Ignore the local file 
 cmdRun.py
 *.log 
