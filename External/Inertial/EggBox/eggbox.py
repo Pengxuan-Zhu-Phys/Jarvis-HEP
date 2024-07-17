@@ -16,9 +16,6 @@ f = {
     "Time": random()
 }
 
-
-# time.sleep(f['Time'] * 0.1)
-
 print("TestFunction: input is \n{}\nOutput is \n{}".format(data, f))
 
 with open("output.json",'w') as f1:
