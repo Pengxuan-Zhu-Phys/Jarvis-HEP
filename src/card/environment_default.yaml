@@ -5,7 +5,7 @@ EnvironmentRequirements:
     get_path_command: "root-config --prefix"
     Dependencies:
     - name: minuit2
-      required: true
+      required: false
       check_command: "root-config --has-minuit2"
       expected_output: "yes"
 

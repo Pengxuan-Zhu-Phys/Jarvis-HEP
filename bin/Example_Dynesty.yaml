@@ -24,7 +24,9 @@ Sampling:
     nlive:  160
     rseed:  21
     dlogz:  1.0
-
+    run_nested: 
+      maxcall:  4000 
+      print_progress: True
 
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
@@ -103,7 +105,7 @@ Calculators:
       required_modules: [] 
       clone_shadow: True
       path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
-      source: "&J/External/Program/EggBox"
+      source: "&J/External/Inertial/EggBox"
       installation:
           - "cp -r ${source}/* ${path}"
       initialization:
