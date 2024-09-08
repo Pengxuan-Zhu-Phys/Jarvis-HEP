@@ -21,13 +21,13 @@ Sampling:
           min: 0
           max: 5.0
   Bounds:
-    nlive:  160
+    nlive:  1600
     rseed:  21
-    dlogz:  1.0
+    dlogz:  0.1
     run_nested: 
-      maxcall:  4000 
       print_progress: True
 
+      # maxcall:  4000  
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
   selection: "(2.0 * X < Y)"
@@ -35,7 +35,7 @@ Sampling:
 EnvironmentRequirements:
   OS: 
     - name: linux 
-      version: ">=5.10.0"
+      version: ">=3.10.0"
     - name: Darwin
       version: ">=10.14"
   Check_default_dependences:

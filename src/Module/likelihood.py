@@ -7,7 +7,7 @@ import os
 import logging
 from loguru import logger
 from pandas import Series
-from numpy import Inf
+from numpy import inf
 class LogLikelihood(Base):
     def __init__(self, expressions):
         """
@@ -82,7 +82,7 @@ class LogLikelihood(Base):
         except Exception as exc:
             self.logger.warning(exc)
             # return {"LogL": float(-sp.core.numbers.Infinity())}
-            return {"LogL": - Inf}
+            return {"LogL": - inf}
 
     def custom_format(record):
         module = record["extra"].get("module", "No module")

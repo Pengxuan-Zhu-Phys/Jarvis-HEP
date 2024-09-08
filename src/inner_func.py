@@ -24,7 +24,6 @@ _AllSCNum = (
     np.float16,
     np.float32,
     np.float64,
-    np.int0,
     np.int8,
     np.int16,
     np.int32,
@@ -74,7 +73,7 @@ _Inner_FCs = {
 _Constant = {
     "Pi":   sympy.pi,
     "E":    sympy.E,
-    "Inf":  np.Inf
+    "Inf":  np.inf
 }
 
 def Gauss(xx, mean, err):

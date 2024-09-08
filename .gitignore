@@ -19,6 +19,6 @@ cmdRun.py
 scanRun.py 
 *.pkl 
 py.py 
-*.pyc 
+# *.pyc 
 src/.DS_Store
 .DS_Store

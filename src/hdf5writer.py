@@ -102,11 +102,11 @@ class GlobalHDF5Writer:
 class NumpyEncoder(json.JSONEncoder):
     """ Custom encoder for numpy data types """
     def default(self, obj):
-        if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
+        if isinstance(obj, (np.intc, np.intp, np.int8,
                             np.int16, np.int32, np.int64, np.uint8,
                             np.uint16, np.uint32, np.uint64)):
             return int(obj)
-        elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+        elif isinstance(obj, (np.float16, np.float32, np.float64)):
             return float(obj)
         elif isinstance(obj, (np.ndarray,)): # This includes 0-d numpy arrays.
             return obj.tolist()  # or item()
@@ -115,11 +115,11 @@ class NumpyEncoder(json.JSONEncoder):
 def convert(data):
     if isinstance(data, dict):
         return {k: convert(v) for k, v in data.items()}
-    elif isinstance(data, (np.int_, np.intc, np.intp, np.int8,
+    elif isinstance(data, (np.intc, np.intp, np.int8,
                             np.int16, np.int32, np.int64, np.uint8,
                             np.uint16, np.uint32, np.uint64)):
         return int(data)
-    elif isinstance(data, (np.float_, np.float16, np.float32, np.float64)):
+    elif isinstance(data, (np.float16, np.float32, np.float64)):
         return float(data)
     elif isinstance(data, np.str_):
         return str(data)
