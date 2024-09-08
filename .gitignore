@@ -1,13 +1,13 @@
 # Ignore the local Folder
-External/Library/*
-External/Program/*
-Results/*
+External/Library/
+External/Program/
+Results/
 TestScan/
-WorkShop/* 
+WorkShop/
 src/__pycache__/
 src/IOs/__pycache__/
 src/Module/__pycache__/
-src/Test_Factory/*
+src/Test_Factory/
 
 # Ignore Python bytecode files
 *.pyc
