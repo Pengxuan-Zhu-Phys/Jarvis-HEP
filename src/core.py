@@ -45,6 +45,7 @@ class Core(Base):
         self.tasks                      = []
         self.async_loop                 = asyncio.get_event_loop()
         self.scan_mode                  = True
+        self.mode                       = None
         self.plotter                    = BudingPLOT()
 
     def init_argparser(self) -> None:
@@ -81,8 +82,15 @@ class Core(Base):
         self.check_init_args()
         if self.args.cvtDB:
             self.scan_mode = False
+            self.mode = "CDB"   # CDB means Convert DataBase
         if self.args.plot:
             self.scan_mode = False
+            self.mode = "PLOT"
+        if self.args.check_modules: 
+            self.scan_mode = True  
+            self.args.debug = True
+            self.mode = "1PC"   # OPC means One point check mode  
+
         
     def init_project(self) -> None: 
         import yaml 
@@ -287,7 +295,6 @@ class Core(Base):
         
         if self.scan_mode:
             self.init_StateSaver()
-            
             self.init_sampler()
             self.init_workflow()
             self.init_librarys()
@@ -298,7 +305,7 @@ class Core(Base):
         #     self.convert()
 
     def run_sampling(self)->None:
-        if self.args.testcalculator:
+        if self.mode == "1PC":
             self.test_assembly_line()
         else:
             self.run_until_finished()
@@ -319,7 +326,8 @@ class Core(Base):
                 future = self.factory.submit_task(sample.params, sample.info)
                 output = future.result()
                 self.module_manager.database.add_data(output)
-                print(output)
+                # print(output)
+                self.logger.info(f"Factory return output -> {output}")
         except Exception as e:
             # 异常处理
             self.logger.error(f"An error occurred: {e}")
@@ -332,7 +340,7 @@ class Core(Base):
             start = time()
             self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
-            print(f"{tot} millisecond -> All samples have been processed.")
+            self.logger.warning(f"{tot} millisecond -> All samples have been processed.")
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)

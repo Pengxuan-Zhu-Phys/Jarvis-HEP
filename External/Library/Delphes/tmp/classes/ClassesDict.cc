@@ -2474,8 +2474,8 @@ nullptr
     };
     static const char* includePaths[] = {
 "external",
-"/usr/local/Cellar/root/6.32.00/include/root",
-"/Users/zhupengxuan/Buding/Jarvis/External/Library/Delphes/",
+"/opt/homebrew/Cellar/root/6.32.02/include/root",
+"/Users/buding/Workshop/Jarvis/External/Library/Delphes/",
 nullptr
     };
     static const char* fwdDeclCode = R"DICTFWDDCLS(
