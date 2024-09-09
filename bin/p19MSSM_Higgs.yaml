@@ -242,38 +242,59 @@ Calculators:
   make_paraller: 16
   path: "&J/WorkShop/Program"
   Modules:
-    - name: EggBox
+    - name: FlexibleSUSY
       required_modules: [] 
       clone_shadow: True
-      path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
-      source: "&J/External/Inertial/EggBox"
+      path: &eggbox_path "&J/WorkShop/Program/FlexibleSUSY/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/FlexibleSUSY"
       installation:
-          - "cp -r ${source}/* ${path}"
+          - "cp -r ${source}/feature-HiggsTools-interface.zip &J/WorkShop/Program/FlexibleSUSY/"
+          - "unzip ./feature-HiggsTools-interface.zip"
+          - "mv FlexibleSUSY-feature-HiggsTools-interface ${path}"
+          - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13 --enable_higgstools"
+          - "./configure  --with-models=MSSMEFTHiggs  --with-math-cmd=/usr/local/bin/math-13  --with-eigen-incdir=/remote/nas00-0/users/pzhu/sysTools/eigen-3.3.9  --with-boost-libdir=/remote/nas00-0/users/pzhu/sysTools/boost/lib  --with-boost-incdir=/remote/nas00-0/users/pzhu/sysTools/boost/include  --with-collier-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier  --with-collier-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier/modules  --with-loop-libraries=collier  --with-higgstools-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/lib64  --with-higgstools-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/include  --enable-higgstools"
+          - "make"
       initialization:
-          - "cp -r ${source}/input.json ${path}/input.json"
-          - "rm -f output.json"
+          - "cp -r ${source}/Models/LesHouches.in.MSSMEFTHiggs.template ./LesHouches.in.MSSMEFTHiggs"
+          - "rm -f LesHouches.out.MSSMEFTHiggs"
       execution:
         path: *eggbox_path  # using the Anchor point
         commands:
-          - "./eggbox.py"
+          - "./models/MSSMEFTHiggs/run_MSSMEFTHiggs.x  --higgsbounds-dataset=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/DataSet/hbdataset  --higgssignals-dataset=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/DataSet/hsdataset  --slha-input-file=./LesHouches.in.MSSMEFTHiggs  --slha-output-file=LesHouches.out.MSSMEFTHiggs"
         input:
-          - name: inpjson
-            path: "&J/WorkShop/Program/EggBox/@PackID/input.json"  
-            type: "Json"
+          - name: LHAin
+            path: "&J/WorkShop/Program/FlexibleSUSY/@PackID/LesHouches.in.MSSMEFTHiggs"  
+            type: "SLHA"
             actions:
-              - type: "Dump"
+              - type: "Replace"
                 variables:
-                  - { name: "xx", expression: "x * Pi" }
-                  - { name: "yy", expression: "y * Pi" }
-                  - { name: "cx", expression: "(x + y) * Pi", entry: "test.config.x" }
-            save: True
+                  - { name: "M1", placeholder: ">>>M1<<<" }
+                  - { name: "M2", placeholder: ">>>M2<<<" }
+                  - { name: "M3", placeholder: ">>>M3<<<" }
+                  - { name: "MU", placeholder: ">>>MU<<<" }
+                  - { name: "MA", placeholder: ">>>MA<<<" }
+                  - { name: "TanBETA",  placeholder: ">>>TB<<<" }
+                  - { name: "MEL2",     placeholder: ">>>MER2<<<",    expression: "MEL ** 2" }
+                  - { name: "MTAUL2",   placeholder: ">>>MTAUR2<<<",  expression: "MTAUL ** 2"}
+                  - { name: "MER2",     placeholder: ">>>MER2<<<",    expression: "MER ** 2" }
+                  - { name: "MTAUR2",   placeholder: ">>>MTAUR2<<<",  expression: "MTAUR ** 2" }
+                  - { name: "MQL2",     placeholder: ">>>MQL2<<<",    expression: "MQL ** 2" }
+                  - { name: "MUR2",     placeholder: ">>>MUR2<<<",    expression: "MUR ** 2" }
+                  - { name: "MDR2",     placeholder: ">>>MDR2<<<",    expression: "MDR ** 2" }
+                  - { name: "MTL2",     placeholder: ">>>MTL2<<<",    expression: "MTL ** 2" }
+                  - { name: "MTR2",     placeholder: ">>>MTR2<<<",    expression: "MTR ** 2" }
+                  - { name: "MBR2",     placeholder: ">>>MBR2<<<",    expression: "MBR ** 2" }
+                  - { name: "AE", placeholder: ">>>AE<<<" }
+                  - { name: "AU", placeholder: ">>>AU<<<" }
+                  - { name: "AD", placeholder: ">>>AD<<<" }
+            save: False
         output:
-          - name: oupjson
-            path: "&J/WorkShop/Program/EggBox/@PackID/output.json" 
-            type: "Json"
+          - name: Spectr
+            path: "&J/WorkShop/Program/FlexibleSUSY/@PackID/LesHouches.out.MSSMEFTHiggs" 
+            type: "xSLHA"
             save: True
             variables:
-              - {name: z}
+              - {name: }
 
 Utils:
   interpolations_1D:
