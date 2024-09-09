@@ -1,4 +1,0 @@
-[TYPECHECK]
-
-ignored-classes=dynesty.results.Results
-disable=C0103
