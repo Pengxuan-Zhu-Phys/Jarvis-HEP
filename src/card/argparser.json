@@ -26,9 +26,9 @@
             "help": "Skipping the library installation"
         },
         {
-            "long": "--test-calc",
+            "long": "--check-modules",
             "action": "store_true",
-            "dest": "testcalculator",
+            "dest": "checkmodules",
             "help": "For the Calculator test"
         },
         {

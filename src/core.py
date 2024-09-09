@@ -46,6 +46,7 @@ class Core(Base):
         self.async_loop                 = asyncio.get_event_loop()
         self.scan_mode                  = True
         self.plotter                    = BudingPLOT()
+        self.mode                       = None
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -81,8 +82,14 @@ class Core(Base):
         self.check_init_args()
         if self.args.cvtDB:
             self.scan_mode = False
+            self.mode      = "CDB"      # CDB means Convert DataBase from hdf5 into csv
         if self.args.plot:
             self.scan_mode = False
+            self.mode      = "PLOT"
+        if self.args.checkmodules: 
+            self.scan_mode = False
+            self.mode      = "1PC"      # 1PC means one point check mode 
+
         
     def init_project(self) -> None: 
         import yaml 

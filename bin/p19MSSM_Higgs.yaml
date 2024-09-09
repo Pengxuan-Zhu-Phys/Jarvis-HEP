@@ -294,7 +294,181 @@ Calculators:
             type: "xSLHA"
             save: True
             variables:
-              - {name: }
+              - {name: mh1,           block: MASS,                  entry: 25 }
+              - {name: mh2,           block: MASS,                  entry: 35 }
+              - {name: mHpm,          block: MASS,                  entry: 37 }
+              - {name: mAH,           block: MASS,                  entry: 36 }
+              - {name: mW,            block: MASS,                  entry: 24 }
+              - {name: mSd1,          block: MASS,                  entry: 1000001 }
+              - {name: mSd2,          block: MASS,                  entry: 1000003 }
+              - {name: mSd3,          block: MASS,                  entry: 1000005 }
+              - {name: mSd4,          block: MASS,                  entry: 2000001 }
+              - {name: mSd5,          block: MASS,                  entry: 2000003 }
+              - {name: mSd6,          block: MASS,                  entry: 2000005 }
+              - {name: mSu1,          block: MASS,                  entry: 1000002 }
+              - {name: mSu2,          block: MASS,                  entry: 1000004 }
+              - {name: mSu3,          block: MASS,                  entry: 1000006 }
+              - {name: mSu4,          block: MASS,                  entry: 2000002 }
+              - {name: mSu5,          block: MASS,                  entry: 2000004 }
+              - {name: mSu6,          block: MASS,                  entry: 2000006 }
+              - {name: mSu1,          block: MASS,                  entry: 1000011 }
+              - {name: mSu2,          block: MASS,                  entry: 1000013 }
+              - {name: mSu3,          block: MASS,                  entry: 1000015 }
+              - {name: mSu4,          block: MASS,                  entry: 2000011 }
+              - {name: mSu5,          block: MASS,                  entry: 2000013 }
+              - {name: mSu6,          block: MASS,                  entry: 2000015 }
+              - {name: mSv1,          block: MASS,                  entry: 1000012 }
+              - {name: mSv2,          block: MASS,                  entry: 1000014 }
+              - {name: mSv3,          block: MASS,                  entry: 1000016 }
+              - {name: mN1,           block: MASS,                  entry: 1000022 }
+              - {name: mN2,           block: MASS,                  entry: 1000023 }
+              - {name: mN3,           block: MASS,                  entry: 1000025 }
+              - {name: mN4,           block: MASS,                  entry: 1000035 }
+              - {name: mC1,           block: MASS,                  entry: 1000024 }
+              - {name: mC2,           block: MASS,                  entry: 1000037 }
+              - {name: mGluino,       block: MASS,                  entry: 1000021 }
+              - {name: U11,           block: UMIX,                  entry: [1, 1] }
+              - {name: U12,           block: UMIX,                  entry: [1, 2] }
+              - {name: U21,           block: UMIX,                  entry: [2, 1] }
+              - {name: U22,           block: UMIX,                  entry: [2, 2] }
+              - {name: V11,           block: VMIX,                  entry: [1, 1] }
+              - {name: V12,           block: VMIX,                  entry: [1, 2] }
+              - {name: V21,           block: VMIX,                  entry: [2, 1] }
+              - {name: V22,           block: VMIX,                  entry: [2, 2] }
+              - {name: ZA11,          block: PSEUDOSCALARMIX,       entry: [1, 1] }
+              - {name: ZA12,          block: PSEUDOSCALARMIX,       entry: [1, 2] }
+              - {name: ZA21,          block: PSEUDOSCALARMIX,       entry: [2, 1] }
+              - {name: ZA22,          block: PSEUDOSCALARMIX,       entry: [2, 2] }
+              - {name: ZD11,          block: DSQMIX,                entry: [1, 1] }
+              - {name: ZD12,          block: DSQMIX,                entry: [1, 2] }
+              - {name: ZD13,          block: DSQMIX,                entry: [1, 3] }
+              - {name: ZD14,          block: DSQMIX,                entry: [1, 4] }
+              - {name: ZD15,          block: DSQMIX,                entry: [1, 5] }
+              - {name: ZD16,          block: DSQMIX,                entry: [1, 6] }
+              - {name: ZD21,          block: DSQMIX,                entry: [2, 1] }
+              - {name: ZD22,          block: DSQMIX,                entry: [2, 2] }
+              - {name: ZD23,          block: DSQMIX,                entry: [2, 3] }
+              - {name: ZD24,          block: DSQMIX,                entry: [2, 4] }
+              - {name: ZD25,          block: DSQMIX,                entry: [2, 5] }
+              - {name: ZD26,          block: DSQMIX,                entry: [2, 6] }
+              - {name: ZD31,          block: DSQMIX,                entry: [3, 1] }
+              - {name: ZD32,          block: DSQMIX,                entry: [3, 2] }
+              - {name: ZD33,          block: DSQMIX,                entry: [3, 3] }
+              - {name: ZD34,          block: DSQMIX,                entry: [3, 4] }
+              - {name: ZD35,          block: DSQMIX,                entry: [3, 5] }
+              - {name: ZD36,          block: DSQMIX,                entry: [3, 6] }
+              - {name: ZD41,          block: DSQMIX,                entry: [4, 1] }
+              - {name: ZD42,          block: DSQMIX,                entry: [4, 2] }
+              - {name: ZD43,          block: DSQMIX,                entry: [4, 3] }
+              - {name: ZD44,          block: DSQMIX,                entry: [4, 4] }
+              - {name: ZD45,          block: DSQMIX,                entry: [4, 5] }
+              - {name: ZD46,          block: DSQMIX,                entry: [4, 6] }
+              - {name: ZD51,          block: DSQMIX,                entry: [5, 1] }
+              - {name: ZD52,          block: DSQMIX,                entry: [5, 2] }
+              - {name: ZD53,          block: DSQMIX,                entry: [5, 3] }
+              - {name: ZD54,          block: DSQMIX,                entry: [5, 4] }
+              - {name: ZD55,          block: DSQMIX,                entry: [5, 5] }
+              - {name: ZD56,          block: DSQMIX,                entry: [5, 6] }
+              - {name: ZD61,          block: DSQMIX,                entry: [6, 1] }
+              - {name: ZD62,          block: DSQMIX,                entry: [6, 2] }
+              - {name: ZD63,          block: DSQMIX,                entry: [6, 3] }
+              - {name: ZD64,          block: DSQMIX,                entry: [6, 4] }
+              - {name: ZD65,          block: DSQMIX,                entry: [6, 5] }
+              - {name: ZD66,          block: DSQMIX,                entry: [6, 6] }
+              - {name: ZU11,          block: USQMIX,                entry: [1, 1] }
+              - {name: ZU12,          block: USQMIX,                entry: [1, 2] }
+              - {name: ZU13,          block: USQMIX,                entry: [1, 3] }
+              - {name: ZU14,          block: USQMIX,                entry: [1, 4] }
+              - {name: ZU15,          block: USQMIX,                entry: [1, 5] }
+              - {name: ZU16,          block: USQMIX,                entry: [1, 6] }
+              - {name: ZU21,          block: USQMIX,                entry: [2, 1] }
+              - {name: ZU22,          block: USQMIX,                entry: [2, 2] }
+              - {name: ZU23,          block: USQMIX,                entry: [2, 3] }
+              - {name: ZU24,          block: USQMIX,                entry: [2, 4] }
+              - {name: ZU25,          block: USQMIX,                entry: [2, 5] }
+              - {name: ZU26,          block: USQMIX,                entry: [2, 6] }
+              - {name: ZU31,          block: USQMIX,                entry: [3, 1] }
+              - {name: ZU32,          block: USQMIX,                entry: [3, 2] }
+              - {name: ZU33,          block: USQMIX,                entry: [3, 3] }
+              - {name: ZU34,          block: USQMIX,                entry: [3, 4] }
+              - {name: ZU35,          block: USQMIX,                entry: [3, 5] }
+              - {name: ZU36,          block: USQMIX,                entry: [3, 6] }
+              - {name: ZU41,          block: USQMIX,                entry: [4, 1] }
+              - {name: ZU42,          block: USQMIX,                entry: [4, 2] }
+              - {name: ZU43,          block: USQMIX,                entry: [4, 3] }
+              - {name: ZU44,          block: USQMIX,                entry: [4, 4] }
+              - {name: ZU45,          block: USQMIX,                entry: [4, 5] }
+              - {name: ZU46,          block: USQMIX,                entry: [4, 6] }
+              - {name: ZU51,          block: USQMIX,                entry: [5, 1] }
+              - {name: ZU52,          block: USQMIX,                entry: [5, 2] }
+              - {name: ZU53,          block: USQMIX,                entry: [5, 3] }
+              - {name: ZU54,          block: USQMIX,                entry: [5, 4] }
+              - {name: ZU55,          block: USQMIX,                entry: [5, 5] }
+              - {name: ZU56,          block: USQMIX,                entry: [5, 6] }
+              - {name: ZU61,          block: USQMIX,                entry: [6, 1] }
+              - {name: ZU62,          block: USQMIX,                entry: [6, 2] }
+              - {name: ZU63,          block: USQMIX,                entry: [6, 3] }
+              - {name: ZU64,          block: USQMIX,                entry: [6, 4] }
+              - {name: ZU65,          block: USQMIX,                entry: [6, 5] }
+              - {name: ZU66,          block: USQMIX,                entry: [6, 6] }
+              - {name: ZE11,          block: SELMIX,                entry: [1, 1] }
+              - {name: ZE12,          block: SELMIX,                entry: [1, 2] }
+              - {name: ZE13,          block: SELMIX,                entry: [1, 3] }
+              - {name: ZE14,          block: SELMIX,                entry: [1, 4] }
+              - {name: ZE15,          block: SELMIX,                entry: [1, 5] }
+              - {name: ZE16,          block: SELMIX,                entry: [1, 6] }
+              - {name: ZE21,          block: SELMIX,                entry: [2, 1] }
+              - {name: ZE22,          block: SELMIX,                entry: [2, 2] }
+              - {name: ZE23,          block: SELMIX,                entry: [2, 3] }
+              - {name: ZE24,          block: SELMIX,                entry: [2, 4] }
+              - {name: ZE25,          block: SELMIX,                entry: [2, 5] }
+              - {name: ZE26,          block: SELMIX,                entry: [2, 6] }
+              - {name: ZE31,          block: SELMIX,                entry: [3, 1] }
+              - {name: ZE32,          block: SELMIX,                entry: [3, 2] }
+              - {name: ZE33,          block: SELMIX,                entry: [3, 3] }
+              - {name: ZE34,          block: SELMIX,                entry: [3, 4] }
+              - {name: ZE35,          block: SELMIX,                entry: [3, 5] }
+              - {name: ZE36,          block: SELMIX,                entry: [3, 6] }
+              - {name: ZE41,          block: SELMIX,                entry: [4, 1] }
+              - {name: ZE42,          block: SELMIX,                entry: [4, 2] }
+              - {name: ZE43,          block: SELMIX,                entry: [4, 3] }
+              - {name: ZE44,          block: SELMIX,                entry: [4, 4] }
+              - {name: ZE45,          block: SELMIX,                entry: [4, 5] }
+              - {name: ZE46,          block: SELMIX,                entry: [4, 6] }
+              - {name: ZE51,          block: SELMIX,                entry: [5, 1] }
+              - {name: ZE52,          block: SELMIX,                entry: [5, 2] }
+              - {name: ZE53,          block: SELMIX,                entry: [5, 3] }
+              - {name: ZE54,          block: SELMIX,                entry: [5, 4] }
+              - {name: ZE55,          block: SELMIX,                entry: [5, 5] }
+              - {name: ZE56,          block: SELMIX,                entry: [5, 6] }
+              - {name: ZE61,          block: SELMIX,                entry: [6, 1] }
+              - {name: ZE62,          block: SELMIX,                entry: [6, 2] }
+              - {name: ZE63,          block: SELMIX,                entry: [6, 3] }
+              - {name: ZE64,          block: SELMIX,                entry: [6, 4] }
+              - {name: ZE65,          block: SELMIX,                entry: [6, 5] }
+              - {name: ZE66,          block: SELMIX,                entry: [6, 6] }
+              - {name: ZH11,          block: SCALARMIX,             entry: [1, 1] }
+              - {name: ZH12,          block: SCALARMIX,             entry: [1, 2] }
+              - {name: ZH21,          block: SCALARMIX,             entry: [2, 1] }
+              - {name: ZH22,          block: SCALARMIX,             entry: [2, 2] }
+              - {name: ZN11,          block: NMIX,                  entry: [1, 1] }
+              - {name: ZN12,          block: NMIX,                  entry: [1, 2] }
+              - {name: ZN13,          block: NMIX,                  entry: [1, 3] }
+              - {name: ZN14,          block: NMIX,                  entry: [1, 4] }
+              - {name: ZN21,          block: NMIX,                  entry: [2, 1] }
+              - {name: ZN22,          block: NMIX,                  entry: [2, 2] }
+              - {name: ZN23,          block: NMIX,                  entry: [2, 3] }
+              - {name: ZN24,          block: NMIX,                  entry: [2, 4] }
+              - {name: ZN31,          block: NMIX,                  entry: [3, 1] }
+              - {name: ZN32,          block: NMIX,                  entry: [3, 2] }
+              - {name: ZN33,          block: NMIX,                  entry: [3, 3] }
+              - {name: ZN34,          block: NMIX,                  entry: [3, 4] }
+              - {name: ZN41,          block: NMIX,                  entry: [4, 1] }
+              - {name: ZN42,          block: NMIX,                  entry: [4, 2] }
+              - {name: ZN43,          block: NMIX,                  entry: [4, 3] }
+              - {name: ZN44,          block: NMIX,                  entry: [4, 4] }
+
+
 
 Utils:
   interpolations_1D:
