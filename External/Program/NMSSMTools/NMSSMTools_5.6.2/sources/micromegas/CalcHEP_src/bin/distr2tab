@@ -1,4 +1,0 @@
-prog=`echo $0 | sed s/distr2tab/show_distr/`
-
-
-$prog  -blind   "f $1 {{f $2 {{{\8d{$3{0" $4 
