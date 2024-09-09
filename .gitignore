@@ -7,7 +7,7 @@ src/__pycache__/
 src/IOs/__pycache__/
 src/Module/__pycache__/
 src/Test_Factory/
-src/Sampling/Source/Dynesty/py/dynesty/
+src/Sampling/Source/Dynesty/py/dynesty/__pycache__/
 
 # Ignore Python bytecode files
 *.pyc
