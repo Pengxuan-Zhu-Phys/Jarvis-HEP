@@ -26,6 +26,12 @@
             "help": "Skipping the library installation"
         },
         {
+            "long": "--test-calc",
+            "action": "store_true",
+            "dest": "testcalculator",
+            "help": "For the Calculator test"
+        },
+        {
             "long": "--skip-draw-flowchart",
             "action": "store_true",
             "dest": "skipFC",
@@ -36,12 +42,6 @@
             "action": "store_true",
             "dest": "cvtDB",
             "help": "Convert the sample.hdf5 file into csv format"
-        },
-        {
-            "long": "--check-modules",
-            "action": "store_true",
-            "dest": "check_modules",
-            "help": "Test the linking and installation of all dependent high-energy physics packages to ensure they are set up correctly."
         }
     ]
 }
