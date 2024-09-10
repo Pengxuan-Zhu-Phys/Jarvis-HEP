@@ -86,8 +86,9 @@ class Core(Base):
         if self.args.plot:
             self.scan_mode = False
             self.mode      = "PLOT"
-        if self.args.checkmodules: 
-            self.scan_mode = False
+        if self.args.OPC: 
+            self.scan_mode = True
+            self.args.debug = True
             self.mode      = "1PC"      # 1PC means one point check mode 
 
         
@@ -305,7 +306,7 @@ class Core(Base):
         #     self.convert()
 
     def run_sampling(self)->None:
-        if self.args.testcalculator:
+        if self.mode == "1PC":
             self.test_assembly_line()
         else:
             self.run_until_finished()
@@ -313,20 +314,14 @@ class Core(Base):
     def test_assembly_line(self):
         self.logger.warning("Start testing assembly line")
         try:
-            for ii in range(2):
+            for ii in range(10):
                 param = next(self.sampler)
-
-                # self.logger.warning(f"Start for testing sample -> {json.dumps(param)}")
-                # future = self.factory.submit_task_with_prior(param)
-                # print(future)
-                # print(self.factory.config['Scan'])
                 sample = Sample(param)
                 sample.set_config(deepcopy(self.info['sample']))
                 self.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
                 future = self.factory.submit_task(sample.params, sample.info)
                 output = future.result()
                 self.module_manager.database.add_data(output)
-                print(output)
         except Exception as e:
             # 异常处理
             self.logger.error(f"An error occurred: {e}")

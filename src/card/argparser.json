@@ -28,7 +28,7 @@
         {
             "long": "--check-modules",
             "action": "store_true",
-            "dest": "checkmodules",
+            "dest": "OPC",
             "help": "For the Calculator test"
         },
         {

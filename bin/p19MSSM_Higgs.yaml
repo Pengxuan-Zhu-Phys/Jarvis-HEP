@@ -170,7 +170,10 @@ Sampling:
 
       # maxcall:  4000  
   LogLikelihood: 
-    - {name: "LogL_Higgs",  expression: "(2 + z)**5"}
+    - {name: "LogL_HS",   expression: "-2.0 * HSCHI2" }
+    - {name: "LogL_HBh1", expression: "-2.0 * HBh1obs" }
+    - {name: "LogL_HBh2", expression: "-2.0 * HBh2obs" }
+    - {name: "LogL_HBAH", expression: "-2.0 * HBAHobs" }
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:
@@ -248,13 +251,17 @@ Calculators:
       path: &eggbox_path "&J/WorkShop/Program/FlexibleSUSY/@PackID"  # Define Anchor point 
       source: "&J/External/Program/FlexibleSUSY"
       installation:
-          - "cp -r ${source}/feature-HiggsTools-interface.zip &J/WorkShop/Program/FlexibleSUSY/"
+          - "cd &J/WorkShop/Program/"
+          - "cp -r ${source}/feature-HiggsTools-interface.zip ./"
           - "unzip ./feature-HiggsTools-interface.zip"
-          - "mv FlexibleSUSY-feature-HiggsTools-interface ${path}"
-          - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13 --enable_higgstools"
+          - "mv ./FlexibleSUSY-feature-HiggsTools-interface/* ${path}"
+          - "rm -rf ./FlexibleSUSY-feature-HiggsTools-interface"
+          - "cd ${path}"
+          - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13"
           - "./configure  --with-models=MSSMEFTHiggs  --with-math-cmd=/usr/local/bin/math-13  --with-eigen-incdir=/remote/nas00-0/users/pzhu/sysTools/eigen-3.3.9  --with-boost-libdir=/remote/nas00-0/users/pzhu/sysTools/boost/lib  --with-boost-incdir=/remote/nas00-0/users/pzhu/sysTools/boost/include  --with-collier-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier  --with-collier-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier/modules  --with-loop-libraries=collier  --with-higgstools-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/lib64  --with-higgstools-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/include  --enable-higgstools"
           - "make"
       initialization:
+          - "cd ${path}"
           - "cp -r ${source}/Models/LesHouches.in.MSSMEFTHiggs.template ./LesHouches.in.MSSMEFTHiggs"
           - "rm -f LesHouches.out.MSSMEFTHiggs"
       execution:
@@ -274,8 +281,8 @@ Calculators:
                   - { name: "MU", placeholder: ">>>MU<<<" }
                   - { name: "MA", placeholder: ">>>MA<<<" }
                   - { name: "TanBETA",  placeholder: ">>>TB<<<" }
-                  - { name: "MEL2",     placeholder: ">>>MER2<<<",    expression: "MEL ** 2" }
-                  - { name: "MTAUL2",   placeholder: ">>>MTAUR2<<<",  expression: "MTAUL ** 2"}
+                  - { name: "MEL2",     placeholder: ">>>MEL2<<<",    expression: "MEL ** 2" }
+                  - { name: "MTAUL2",   placeholder: ">>>MTAUL2<<<",  expression: "MTAUL ** 2"}
                   - { name: "MER2",     placeholder: ">>>MER2<<<",    expression: "MER ** 2" }
                   - { name: "MTAUR2",   placeholder: ">>>MTAUR2<<<",  expression: "MTAUR ** 2" }
                   - { name: "MQL2",     placeholder: ">>>MQL2<<<",    expression: "MQL ** 2" }
@@ -284,9 +291,12 @@ Calculators:
                   - { name: "MTL2",     placeholder: ">>>MTL2<<<",    expression: "MTL ** 2" }
                   - { name: "MTR2",     placeholder: ">>>MTR2<<<",    expression: "MTR ** 2" }
                   - { name: "MBR2",     placeholder: ">>>MBR2<<<",    expression: "MBR ** 2" }
-                  - { name: "AE", placeholder: ">>>AE<<<" }
-                  - { name: "AU", placeholder: ">>>AU<<<" }
-                  - { name: "AD", placeholder: ">>>AD<<<" }
+                  - { name: "AE",       placeholder: ">>>AE<<<" }
+                  - { name: "AU",       placeholder: ">>>AU<<<" }
+                  - { name: "AD",       placeholder: ">>>AD<<<" }
+                  - { name: "MTOP",     placeholder: ">>>MTOP<<<" }
+                  - { name: "ALPHAS",   placeholder: ">>>ALPHAS<<<" }
+                  - { name: "MBOTTOM",  placeholder: ">>>MBOTTOM<<<" }
             save: False
         output:
           - name: Spectr
@@ -311,12 +321,12 @@ Calculators:
               - {name: mSu4,          block: MASS,                  entry: 2000002 }
               - {name: mSu5,          block: MASS,                  entry: 2000004 }
               - {name: mSu6,          block: MASS,                  entry: 2000006 }
-              - {name: mSu1,          block: MASS,                  entry: 1000011 }
-              - {name: mSu2,          block: MASS,                  entry: 1000013 }
-              - {name: mSu3,          block: MASS,                  entry: 1000015 }
-              - {name: mSu4,          block: MASS,                  entry: 2000011 }
-              - {name: mSu5,          block: MASS,                  entry: 2000013 }
-              - {name: mSu6,          block: MASS,                  entry: 2000015 }
+              - {name: mSe1,          block: MASS,                  entry: 1000011 }
+              - {name: mSe2,          block: MASS,                  entry: 1000013 }
+              - {name: mSe3,          block: MASS,                  entry: 1000015 }
+              - {name: mSe4,          block: MASS,                  entry: 2000011 }
+              - {name: mSe5,          block: MASS,                  entry: 2000013 }
+              - {name: mSe6,          block: MASS,                  entry: 2000015 }
               - {name: mSv1,          block: MASS,                  entry: 1000012 }
               - {name: mSv2,          block: MASS,                  entry: 1000014 }
               - {name: mSv3,          block: MASS,                  entry: 1000016 }
@@ -467,8 +477,16 @@ Calculators:
               - {name: ZN42,          block: NMIX,                  entry: [4, 2] }
               - {name: ZN43,          block: NMIX,                  entry: [4, 3] }
               - {name: ZN44,          block: NMIX,                  entry: [4, 4] }
-
-
+              - {name: HBh1obs,       block: HIGGSBOUNDS,           entry: [25, 1] }
+              - {name: HBh1exp,       block: HIGGSBOUNDS,           entry: [25, 2] }
+              - {name: HBh2obs,       block: HIGGSBOUNDS,           entry: [35, 1] }
+              - {name: HBh2exp,       block: HIGGSBOUNDS,           entry: [35, 2] }
+              - {name: HBAHobs,       block: HIGGSBOUNDS,           entry: [36, 1] }
+              - {name: HBAHexp,       block: HIGGSBOUNDS,           entry: [36, 2] }
+              - {name: HSdof,         block: HIGGSSIGNALS,          entry: 1 }
+              - {name: HSCHI2,        block: HIGGSSIGNALS,          entry: 2 }
+              - {name: HSCHI2h,       block: HIGGSSIGNALS,          entry: 3 }
+              - {name: HSpvalue,      block: HIGGSSIGNALS,          entry: 4 }
 
 Utils:
   interpolations_1D:

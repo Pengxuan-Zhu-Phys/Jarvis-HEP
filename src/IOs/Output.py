@@ -288,6 +288,18 @@ class xSLHAOutputFile(OutputFile):
                         observables[var['name']] = value 
                     else:
                         self.logger.error(f"Unsupport decay entry {var['entry']}")
+                elif var['block'] == "HIGGSBOUNDS":
+                    if isinstance(var['entry'], list): 
+                        blkentry = list(map(str, var['entry']))
+                        blkentry = ",".join(blkentry)
+                        if blkentry in content.blocks["HIGGSBOUNDS"]: 
+                            value = content.blocks["HIGGSBOUNDS"][blkentry]
+                        else:
+                            value = 0.
+                            self.logger.warning(f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0.")
+                        observables[var['name']] = value
+                    else:
+                        self.logger.error(f"Unsupport entry {var['entry']} for block HIGGSBOUNDS")
                 elif content.blocks[var['block'].upper()]:
                     blk = var['block'].upper()
                     if isinstance(var['entry'], int):

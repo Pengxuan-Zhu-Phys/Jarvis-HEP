@@ -87,6 +87,15 @@ class GlobalHDF5Writer:
             # Assuming all JSON objects have the same structure (same keys)
             if all_data:
                 fieldnames = list(all_data[0].keys())
+                for data in all_data:
+                    if isinstance(data, dict):                        
+                        if data['LogL'] == - np.inf:
+                            fieldnames = data.keys()
+                            continue
+                        else:
+                            fieldnames = data.keys()
+                            break
+
                 with open(csv_path, 'w', newline='') as csv_file:
                     writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                     writer.writeheader()
