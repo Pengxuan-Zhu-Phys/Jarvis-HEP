@@ -1,6 +1,7 @@
 # Ignore the local Folder
 External/Library/
 External/Program/NMSSMTools
+External/Program/FlexibleSUSY/FlexibleSUSY 
 Results/
 TestScan/
 WorkShop/
