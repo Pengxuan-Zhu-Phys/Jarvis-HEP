@@ -7,11 +7,13 @@ import json
 from loguru import logger 
 import numpy as np 
 import sympy
+import os 
 
 class GlobalHDF5Writer:
-    def __init__(self, filepath, write_interval=15):
+    def __init__(self, dbinfo, write_interval=15):
         super().__init__()
-        self.filepath = filepath
+        self.initialize(dbinfo)
+        # self.filepath = dbinfo['path']
         self.write_interval = write_interval
         self.data_queue = Queue()
         self.shutdown_event = threading.Event()
@@ -19,6 +21,23 @@ class GlobalHDF5Writer:
         # It's safer to not rely solely on daemon threads for important cleanup.
         self.writer_thread.daemon = False
         self.logger = logger.bind(module="Jarvis-HEP.hdf5-Writter", to_console=True, Jarvis=True)
+        self.max_size = 1024 * 1024 * 100  # Max for 100 MB
+
+    def initialize(self, dbinfo):
+        pthroot, pthext = os.path.splitext(dbinfo['path'])
+        self.infos = {
+            "info":         dbinfo['info'],
+            "activeNO":     0,
+            "totalDB":      1, 
+            "converted":    [],
+            "paths":        [],
+            "pathroot":     pthroot,
+            "pathext":      pthext,
+            "active path":  "".join([pthroot, ".0", pthext])
+        }
+        with open(dbinfo['info'], 'w') as f1:
+            json.dump(self.infos, f1, indent=4)
+
 
     def start(self):
         """Start the writer thread."""
@@ -55,14 +74,30 @@ class GlobalHDF5Writer:
                 break
         
         if accumulated_data:
-            with h5py.File(self.filepath, 'a') as f:
+            if os.path.exists(self.infos['active path']):
+                current_file_size = os.path.getsize(self.infos['active path'])
+            else:
+                current_file_size = 0  # New file has size 0
+
+            if current_file_size >= self.max_size:
+                # Create a new file name based on timestamp or some unique identifier
+                self.infos['activeNO'] += 1
+                self.infos['paths'].append(self.infos['active path'])               
+                new_file_path = "".join([self.infos['pathroot'], ".{}".format(self.infos['activeNO']), self.infos['pathext']])
+                self.logger.warning(f"Creating new HDF5 file due to size limit: {new_file_path}")
+                self.hdf5_to_csv()
+
+                self.infos['active path'] = new_file_path
+
+
+            with h5py.File(self.infos['active path'], 'a') as f:
                 # Example: adjust dataset creation and data writing as needed.
                 for data in accumulated_data:
                     # Determine how to name and store each piece of data
                     # This is an example and needs to be adapted
                     dataset_name = f"data_{time.time()}"
                     f.create_dataset(dataset_name, data=data)
-            self.logger.info(f"Global writer saved {len(accumulated_data)} data points to -> {self.filepath}.")
+            self.logger.info(f"Global writer saved {len(accumulated_data)} data points to -> {self.infos['active path']}.")
         else:
             self.logger.info("No data to write at this interval.")
 
@@ -73,38 +108,42 @@ class GlobalHDF5Writer:
         self.logger.warning("Global HDF5 writer stopped.")
 
 
-    def hdf5_to_csv(self, csv_path):
+    def hdf5_to_csv(self):
         """Convert the HDF5 file data to a CSV file with structured columns based on JSON keys."""
-        with h5py.File(self.filepath, 'r') as hdf5_file:
-            all_data = []
-            # Iterate over datasets in the HDF5 file to collect data
-            for dataset_name in hdf5_file:
-                data = hdf5_file[dataset_name][()]
-                # Assuming 'data' is stored as a binary string of serialized JSON
-                json_data = json.loads(data.decode('utf-8'))
-                all_data.append(json_data)
+        csv_path = "".join([self.infos['pathroot'], ".{}".format(self.infos['activeNO']), ".csv"])
+        if csv_path not in self.infos["converted"]:
+            with h5py.File(self.infos['active path'], 'r') as hdf5_file:
+                all_data = []
+                # Iterate over datasets in the HDF5 file to collect data
+                for dataset_name in hdf5_file:
+                    data = hdf5_file[dataset_name][()]
+                    # Assuming 'data' is stored as a binary string of serialized JSON
+                    json_data = json.loads(data.decode('utf-8'))
+                    all_data.append(json_data)
 
-            # Assuming all JSON objects have the same structure (same keys)
-            if all_data:
-                fieldnames = list(all_data[0].keys())
-                for data in all_data:
-                    if isinstance(data, dict):                        
-                        if data['LogL'] == - np.inf:
-                            fieldnames = data.keys()
-                            continue
-                        else:
-                            fieldnames = data.keys()
-                            break
-
-                with open(csv_path, 'w', newline='') as csv_file:
-                    writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                    writer.writeheader()
+                # Assuming all JSON objects have the same structure (same keys)
+                if all_data:
+                    fieldnames = list(all_data[0].keys())
                     for data in all_data:
-                        if isinstance(data, dict):
-                            writer.writerow(data)
+                        if isinstance(data, dict):                        
+                            if data['LogL'] == - np.inf:
+                                fieldnames = data.keys()
+                                continue
+                            else:
+                                fieldnames = data.keys()
+                                break
 
-        self.logger.warning(f"Converted HDF5 data to CSV at -> {csv_path}.")
+                    with open(csv_path, 'w', newline='') as csv_file:
+                        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                        writer.writeheader()
+                        for data in all_data:
+                            if isinstance(data, dict):
+                                writer.writerow(data)
 
+            self.logger.warning(f"Converted HDF5 data to CSV at -> {csv_path}.")
+            self.infos['converted'].append(csv_path)
+            with open(self.infos['info'], "w") as f1:
+                json.dump(self.infos, f1, indent=4)
 
 """ Custom JSON encoder, converte the numpy number format into python float. """
 

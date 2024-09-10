@@ -114,7 +114,8 @@ class Core(Base):
         }
         self.info["db"] = {
             "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),
-            "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
+            "info":  os.path.join(task_result_dir, "DATABASE", "running.json")
+            # "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
@@ -283,7 +284,7 @@ class Core(Base):
 
     def init_database(self) -> None: 
         from hdf5writer import GlobalHDF5Writer
-        self.module_manager._database = GlobalHDF5Writer(self.info['db']['path'])
+        self.module_manager._database = GlobalHDF5Writer(self.info['db'])
         self.module_manager.database.start()
 
     def initialization(self) -> None:
@@ -332,9 +333,10 @@ class Core(Base):
 
             from time import time
             start = time()
-            self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
+            self.module_manager.database.hdf5_to_csv()
+            # self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
-            print(f"{tot} millisecond -> All samples have been processed.")
+            self.logger.info(f"{tot} millisecond -> All samples have been processed.")
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
@@ -344,11 +346,12 @@ class Core(Base):
             from time import time
             start = time()
             self.factory.module_manager.database.stop()
-            self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
+            self.factory.module_manager.database.hdf5_to_csv()
+            # self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             self.sampler.finalize()
-            self.sampler.combine_data(self.info['db']['out_csv'])
+            self.sampler.combine_data(self.info['db']['path'])
             
 
             self.factory.executor.shutdown()
@@ -362,22 +365,27 @@ class Core(Base):
             sys.exit(2)
 
     def convert(self) -> None: 
-        if os.path.exists(self.info['db']['path']) and not os.path.exists(self.info['db']['out_csv']):
-            self.logger.warning("Jarvis-HEP not find the -> samples.csv.\nStarting converting from hdf5.")
-            snapshot_path = self.info['db']['path'] + ".snap"
-            import shutil 
-            shutil.copy2(self.info['db']['path'], snapshot_path)
-            try: 
-                from utils import convert_hdf5_to_csv
-                convert_hdf5_to_csv(snapshot_path, self.info['db']['out_csv'])
-                self.logger.warning(f"Data has been successfully written to -> {self.info['db']['out_csv']}")
-            finally:
-                try:
-                    os.remove(snapshot_path)
-                    self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
-                except Exception as e:
-                    self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
-        # print(self.info['db'])
+        if os.path.exists(self.info['db']['info']):
+            with open(self.info['db']['info'], 'r') as f1:
+                dbinfo = json.load(f1)
+            out_csv = "".join([dbinfo['pathroot'], ".{}".format(dbinfo['activeNO']), ".csv"])
+
+            if out_csv not in dbinfo['converted'] or not os.path.exists(out_csv):
+                if os.path.exists(dbinfo['active path']):
+                    self.logger.warning("Jarvis-HEP not find the -> {}.\nStarting converting from hdf5.".format(out_csv))
+                    snapshot_path = self.info['db']['path'] + ".snap"
+                    import shutil 
+                    shutil.copy2(self.info['db']['path'], snapshot_path)
+                    try: 
+                        from utils import convert_hdf5_to_csv
+                        convert_hdf5_to_csv(snapshot_path, out_csv)
+                        self.logger.warning(f"Data has been successfully written to -> {out_csv}")
+                    finally:
+                        try:
+                            os.remove(snapshot_path)
+                            self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
+                        except Exception as e:
+                            self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
 
     def plot(self) -> None:
         self.plotter.logger.warning(f"Data visulization for {self.info['project_name']}")
