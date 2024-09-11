@@ -242,7 +242,7 @@ SupportingLibrary:
           - "make install"
 
 Calculators:
-  make_paraller: 16
+  make_paraller: 2
   path: "&J/WorkShop/Program"
   Modules:
     - name: FlexibleSUSY
@@ -251,11 +251,7 @@ Calculators:
       path: &eggbox_path "&J/WorkShop/Program/FlexibleSUSY/@PackID"  # Define Anchor point 
       source: "&J/External/Program/FlexibleSUSY"
       installation:
-          - "cd &J/WorkShop/Program/"
-          - "cp -r ${source}/feature-HiggsTools-interface.zip ./"
-          - "unzip ./feature-HiggsTools-interface.zip"
-          - "mv ./FlexibleSUSY-feature-HiggsTools-interface/* ${path}"
-          - "rm -rf ./FlexibleSUSY-feature-HiggsTools-interface"
+          - "cp -r ${source}/FlexibleSUSY/* ${path}"
           - "cd ${path}"
           - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13"
           - "./configure  --with-models=MSSMEFTHiggs  --with-math-cmd=/usr/local/bin/math-13  --with-eigen-incdir=/remote/nas00-0/users/pzhu/sysTools/eigen-3.3.9  --with-boost-libdir=/remote/nas00-0/users/pzhu/sysTools/boost/lib  --with-boost-incdir=/remote/nas00-0/users/pzhu/sysTools/boost/include  --with-collier-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier  --with-collier-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier/modules  --with-loop-libraries=collier  --with-higgstools-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/lib64  --with-higgstools-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/include  --enable-higgstools"

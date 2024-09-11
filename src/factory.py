@@ -80,7 +80,7 @@ class WorkerFactory:
             end_time = time.time()  
             elapsed_time = format_duration(end_time - self.last_time_mark)  
             self.task_time += end_time - self.last_time_mark  
-            self.logger.warning(f"Completed {self.task_count} tasks, time for last 100 tasks: {elapsed_time}, total time: {format_duration(self.task_time)}")
+            self.logger.warning(f"Submitted {self.task_count} tasks, time for last 100 tasks: {elapsed_time}, total time: {format_duration(self.task_time)}")
             self.last_time_mark = end_time  
 
 
