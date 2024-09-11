@@ -10,6 +10,7 @@ import json
 import os, sys 
 import threading 
 from loguru import logger
+import asyncio
 
 
 class ModulePool:
@@ -100,7 +101,7 @@ class ModulePool:
     @staticmethod
     def install_instance(instance):
         if not instance.is_installed:
-            instance.install()
+            asyncio.run(instance.install())
             instance.is_installed = True 
             instance.installation_event.set()
         return instance

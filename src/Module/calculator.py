@@ -163,7 +163,7 @@ class CalculatorModule(Module):
         self.handlers['sample'] = sample_handler
         self.logger.info("Sample created into the Disk")
 
-    def install(self):
+    async def install(self):
         self.create_basic_logger()
         self.logger.warning(f"Start install {self.name}-{self.PackID}")
 
@@ -171,9 +171,11 @@ class CalculatorModule(Module):
             if self.clone_shadow:
                 command = self.decode_shadow_commands(cmd)
                 self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                asyncio.run(self.run_command(command=command))
+                # asyncio.run(self.run_command(command=command))
+                await self.run_command(command=command)
             else: 
                 asyncio.run(self.run_command(command=cmd))
+                await self.run_command(command=cmd)
         
         logger.remove(self.handlers['install'])
         self.logger = None
@@ -186,12 +188,22 @@ class CalculatorModule(Module):
             stderr=asyncio.subprocess.PIPE, 
             cwd=command['cwd']
         )
-        stdout, stderr = await asyncio.gather(
-            self.log_stream_info(process.stdout),
-            self.log_stream_error(process.stderr)
-        )
+        # stdout, stderr = await asyncio.gather(
+        #     self.log_stream_info(process.stdout),
+        #     self.log_stream_error(process.stderr)
+        # )
 
-        await process.wait()
+        # await process.wait()
+        try:
+            stdout, stderr = await asyncio.gather(
+                self.log_stream_info(process.stdout),
+                self.log_stream_error(process.stderr)
+            )
+            await process.wait()
+        finally:
+            process.stdout.close()
+            process.stderr.close()
+
 
     def log_stream(self, stream, level, logger):
         # Using the child logger to handle the logging 
