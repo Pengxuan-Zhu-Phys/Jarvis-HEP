@@ -188,21 +188,21 @@ class CalculatorModule(Module):
             stderr=asyncio.subprocess.PIPE, 
             cwd=command['cwd']
         )
-        # stdout, stderr = await asyncio.gather(
-        #     self.log_stream_info(process.stdout),
-        #     self.log_stream_error(process.stderr)
-        # )
+        stdout, stderr = await asyncio.gather(
+            self.log_stream_info(process.stdout),
+            self.log_stream_error(process.stderr)
+        )
 
-        # await process.wait()
-        try:
-            stdout, stderr = await asyncio.gather(
-                self.log_stream_info(process.stdout),
-                self.log_stream_error(process.stderr)
-            )
-            await process.wait()
-        finally:
-            process.stdout.close()
-            process.stderr.close()
+        await process.wait()
+        # try:
+        #     stdout, stderr = await asyncio.gather(
+        #         self.log_stream_info(process.stdout),
+        #         self.log_stream_error(process.stderr)
+        #     )
+        #     await process.wait()
+        # finally:
+        #     process.stdout.close()
+        #     process.stderr.close()
 
 
     def log_stream(self, stream, level, logger):
