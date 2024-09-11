@@ -255,7 +255,7 @@ Calculators:
           - "cd ${path}"
           - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13"
           - "./configure  --with-models=MSSMEFTHiggs  --with-math-cmd=/usr/local/bin/math-13  --with-eigen-incdir=/remote/nas00-0/users/pzhu/sysTools/eigen-3.3.9  --with-boost-libdir=/remote/nas00-0/users/pzhu/sysTools/boost/lib  --with-boost-incdir=/remote/nas00-0/users/pzhu/sysTools/boost/include  --with-collier-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier  --with-collier-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier/modules  --with-loop-libraries=collier  --with-higgstools-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/lib64  --with-higgstools-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/include  --enable-higgstools"
-          - "make"
+          - "make -j48"
       initialization:
           - "cd ${path}"
           - "cp -r ${source}/Models/LesHouches.in.MSSMEFTHiggs.template ./LesHouches.in.MSSMEFTHiggs"
