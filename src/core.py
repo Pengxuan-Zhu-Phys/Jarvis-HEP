@@ -373,9 +373,9 @@ class Core(Base):
             if out_csv not in dbinfo['converted'] or not os.path.exists(out_csv):
                 if os.path.exists(dbinfo['active path']):
                     self.logger.warning("Jarvis-HEP not find the -> {}.\nStarting converting from hdf5.".format(out_csv))
-                    snapshot_path = self.info['db']['path'] + ".snap"
+                    snapshot_path = dbinfo['active path'] + ".snap"
                     import shutil 
-                    shutil.copy2(self.info['db']['path'], snapshot_path)
+                    shutil.copy2(dbinfo['active path'], snapshot_path)
                     try: 
                         from utils import convert_hdf5_to_csv
                         convert_hdf5_to_csv(snapshot_path, out_csv)
