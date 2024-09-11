@@ -242,7 +242,7 @@ SupportingLibrary:
           - "make install"
 
 Calculators:
-  make_paraller: 2
+  make_paraller: 20
   path: "&J/WorkShop/Program"
   Modules:
     - name: FlexibleSUSY
