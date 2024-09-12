@@ -26,6 +26,8 @@ import asyncio
 from loguru import logger
 logger.remove()
 from plot import BudingPLOT
+from monitor import Monitor
+
 
 class Core(Base):
     def __init__(self) -> None:
@@ -47,6 +49,8 @@ class Core(Base):
         self.scan_mode                  = True
         self.plotter                    = BudingPLOT()
         self.mode                       = None
+        self.monitor                    = Monitor()
+        self.monitor.start()
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -264,6 +268,7 @@ class Core(Base):
         self.factory.configure(module_manager=self.module_manager,
             max_workers=self.yaml.config['Calculators']['make_paraller']
             )
+        self.sampler.set_max_workers(self.yaml.config['Calculators']['make_paraller'])
         flogger = logger.bind(module="Jarvis-HEP.Factory", to_console=True, Jarvis=True)
         self.factory.set_logger(flogger)
         mlogger = logger.bind(module="Jarvis-HEP.Factory.Manager", to_console=True, Jarvis=True)

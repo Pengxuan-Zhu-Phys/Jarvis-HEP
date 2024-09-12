@@ -229,28 +229,30 @@ class CalculatorModule(Module):
         self.sample_info = sample_info
         self.update_sample_logger(sample_info)
 
-        self.initialize()
-        # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
-        
         result = {}
-        input_obs = asyncio.run(self.load_input(input_data=input_data))
+        try:
+            self.initialize()
+            # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
 
-        if isinstance(input_obs, dict):
-            result.update(input_obs)
-        
-        for command in self.execution['commands']:
-            if self.clone_shadow:
-                command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                asyncio.run(self.run_command(command=command))
+            input_obs = asyncio.run(self.load_input(input_data=input_data))
 
-        output_obs = asyncio.run(self.read_output())
-        if isinstance(output_obs, dict):
-            result.update(output_obs)
+            if isinstance(input_obs, dict):
+                result.update(input_obs)
 
-        logger.remove(self.handlers['sample'])
-        self.logger = None
-        return result
+            for command in self.execution['commands']:
+                if self.clone_shadow:
+                    command = self.decode_shadow_commands(command)
+                    self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                    asyncio.run(self.run_command(command=command))
+
+            output_obs = asyncio.run(self.read_output())
+            if isinstance(output_obs, dict):
+                result.update(output_obs)
+            return result
+
+        finally:
+            logger.remove(self.handlers['sample'])
+            self.logger = None
 
     async def read_output(self):
         from IOs.IOs import IOfile

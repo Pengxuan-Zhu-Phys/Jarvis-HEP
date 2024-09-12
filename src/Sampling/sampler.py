@@ -11,6 +11,10 @@ class SamplingVirtial(Base):
         self.info: Dict[str, Any]       = {}
         self.vars: Tuple[Variable]      = None
         self.method                     = None
+        self.max_workers                = 4
+
+    def set_max_workers(self, nn):
+        self.max_workers = nn 
 
     @abstractmethod
     def load_schema_file(self) -> None:
