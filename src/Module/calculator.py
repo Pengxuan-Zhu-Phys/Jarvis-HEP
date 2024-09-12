@@ -118,17 +118,6 @@ class CalculatorModule(Module):
     def analyze_config_multi(self):
         pass 
 
-    def add_handler(self, name, logpath, level, formatter):
-        file_handler = logging.FileHandler(logpath, mode="a")
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-
-        self.handlers[name] = file_handler
-
-    def remove_handler(self, name):
-        self.handlers[name].close()
-        del self.handlers[name]
-
     def custom_format(record):
         module = record["extra"].get("module", "No module")
         if "raw" in record["extra"]:
@@ -207,8 +196,6 @@ class CalculatorModule(Module):
 
         await process.wait()
 
-
-
     def log_stream(self, stream, level, logger):
         # Using the child logger to handle the logging 
         for line in iter(stream.readline, ''):
@@ -222,12 +209,19 @@ class CalculatorModule(Module):
         async for line in stream:
             self.logger.bind(raw=True).info(f"\t{line.decode()}")
 
-    def initialize(self):
+    async def initialize(self):
         for command in self.initialization:
             if self.clone_shadow: 
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-                asyncio.run(self.run_command(command=command))
+                await self.run_command(command=command)
+
+    async def execute_commands(self):
+        for command in self.execution['commands']:
+            if self.clone_shadow:
+                command = self.decode_shadow_commands(command)
+                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                await self.run_command(command=command)
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
@@ -235,7 +229,7 @@ class CalculatorModule(Module):
 
         result = {}
         try:
-            self.initialize()
+            asyncio.run(self.initialize())
             # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
 
             input_obs = asyncio.run(self.load_input(input_data=input_data))
@@ -243,11 +237,7 @@ class CalculatorModule(Module):
             if isinstance(input_obs, dict):
                 result.update(input_obs)
 
-            for command in self.execution['commands']:
-                if self.clone_shadow:
-                    command = self.decode_shadow_commands(command)
-                    self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                    asyncio.run(self.run_command(command=command))
+            asyncio.run(self.execute_commands())
 
             output_obs = asyncio.run(self.read_output())
             if isinstance(output_obs, dict):
