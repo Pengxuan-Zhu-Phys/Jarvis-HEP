@@ -169,8 +169,9 @@ class CalculatorModule(Module):
             self.logger.info("Closing calculator logging handler")
             sample_handler = self.handlers['sample']
             self.logger.remove(sample_handler)
-            print(self.handlers)
-            del self.handlers['sample']  # 从字典中移除处理器引用
+            print("Line 172 -> self.handlers: ", self.handlers)
+            del self.handlers['sample']  
+            self.logger.error("Closing calculator logging handler")
             self.logger = None
 
 
@@ -189,6 +190,7 @@ class CalculatorModule(Module):
                 await self.run_command(command=cmd)
         
         logger.remove(self.handlers['install'])
+        del self.handlers['install']
         self.logger = None
         self.is_installed = True
 
@@ -259,20 +261,18 @@ class CalculatorModule(Module):
             output_obs = asyncio.run(self.read_output())
             if isinstance(output_obs, dict):
                 result.update(output_obs)
-            return result
 
-        # finally:
-        #     logger.remove(self.handlers['sample'])
-        #     self.logger = None
 
         except Exception as e:
-            # 捕获并记录异常
+            # Capture and logging the error information 
             self.logger.error(f"Error during execution: {e}")
             raise
 
         finally:
-            # 确保日志处理器在任务完成后被正确移除和关闭
+            # Make sure the sample logger is closed
             self.close_sample_logger()
+
+        return result
 
 
 
