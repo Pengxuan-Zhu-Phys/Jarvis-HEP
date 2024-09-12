@@ -84,7 +84,7 @@ class ModulePool:
             instance = self.create_instance()
             self.executor.submit(self.install_instance, instance)
             instance.installation_event.wait()
-
+            
         instance.is_busy = True 
         # submit the task and tagging the instance into busy
         future = self.executor.submit(instance.execute, params, sample_info)

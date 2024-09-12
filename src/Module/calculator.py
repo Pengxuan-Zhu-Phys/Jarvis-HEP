@@ -163,6 +163,17 @@ class CalculatorModule(Module):
         self.handlers['sample'] = sample_handler
         self.logger.info("Sample created into the Disk")
 
+    def close_sample_logger(self):
+        """Ensure logging processor is properly shut down after task completion"""
+        if 'sample' in self.handlers and self.logger:
+            self.logger.info("Closing calculator logging handler")
+            sample_handler = self.handlers['sample']
+            self.logger.removeHandler(sample_handler)
+            sample_handler.close()
+            del self.handlers['sample']  # 从字典中移除处理器引用
+            self.logger = None
+
+
     async def install(self):
         self.create_basic_logger()
         self.logger.warning(f"Start install {self.name}-{self.PackID}")
@@ -250,9 +261,20 @@ class CalculatorModule(Module):
                 result.update(output_obs)
             return result
 
+        # finally:
+        #     logger.remove(self.handlers['sample'])
+        #     self.logger = None
+
+        except Exception as e:
+            # 捕获并记录异常
+            self.logger.error(f"Error during execution: {e}")
+            raise
+
         finally:
-            logger.remove(self.handlers['sample'])
-            self.logger = None
+            # 确保日志处理器在任务完成后被正确移除和关闭
+            self.close_sample_logger()
+
+
 
     async def read_output(self):
         from IOs.IOs import IOfile
