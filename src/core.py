@@ -247,6 +247,7 @@ class Core(Base):
         self.libraries.display_installation_summary()
         for module in self.libraries.modules.values():
             module.install()
+            
 
     def init_workflow(self) -> None: 
         self.workflow = Workflow()
