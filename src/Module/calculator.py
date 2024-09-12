@@ -169,9 +169,8 @@ class CalculatorModule(Module):
             self.logger.info("Closing calculator logging handler")
             sample_handler = self.handlers['sample']
             self.logger.remove(sample_handler)
-            print("Line 172 -> self.handlers: ", self.handlers)
             del self.handlers['sample']  
-            self.logger.error("Closing calculator logging handler")
+            print("Line 172 -> self.handlers: ", self.handlers)
             self.logger = None
 
 
@@ -207,15 +206,7 @@ class CalculatorModule(Module):
         )
 
         await process.wait()
-        # try:
-        #     stdout, stderr = await asyncio.gather(
-        #         self.log_stream_info(process.stdout),
-        #         self.log_stream_error(process.stderr)
-        #     )
-        #     await process.wait()
-        # finally:
-        #     process.stdout.close()
-        #     process.stderr.close()
+
 
 
     def log_stream(self, stream, level, logger):
