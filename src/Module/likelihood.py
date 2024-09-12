@@ -81,6 +81,7 @@ class LogLikelihood(Base):
             return self.values 
         except Exception as exc:
             self.logger.warning(exc)
+            logger.remove(self.childhandler)
             # return {"LogL": float(-sp.core.numbers.Infinity())}
             return {"LogL": - inf}
 
@@ -90,6 +91,7 @@ class LogLikelihood(Base):
             return "{message}"
         else:
             return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+
 
     def update_logger(self, sample_info):
         logger_name = f"Sample@{sample_info['uuid']} (Likelihood)"
