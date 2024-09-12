@@ -169,7 +169,7 @@ class CalculatorModule(Module):
             self.logger.info("Closing calculator logging handler")
             sample_handler = self.handlers['sample']
             self.logger.remove(sample_handler)
-            sample_handler.close()
+            print(self.handlers)
             del self.handlers['sample']  # 从字典中移除处理器引用
             self.logger = None
 
