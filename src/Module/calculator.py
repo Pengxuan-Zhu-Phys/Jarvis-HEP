@@ -220,7 +220,7 @@ class CalculatorModule(Module):
 
     async def log_stream_error(self, stream):
         async for line in stream:
-            self.logger.bind(raw=True).error(f"\t{line.decode()}")
+            self.logger.bind(raw=True).info(f"\t{line.decode()}")
 
     def initialize(self):
         for command in self.initialization:
