@@ -296,7 +296,7 @@ class xSLHAOutputFile(OutputFile):
                             value = content.blocks["HIGGSBOUNDS"][blkentry]
                         else:
                             value = 0.
-                            self.logger.warning(f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0.")
+                            self.logger.info(f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0.")
                         observables[var['name']] = value
                     else:
                         self.logger.error(f"Unsupport entry {var['entry']} for block HIGGSBOUNDS")
