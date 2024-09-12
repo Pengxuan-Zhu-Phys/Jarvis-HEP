@@ -114,11 +114,11 @@ class Monitor(Base):
             self.logger.info(f"Memory Usage: {memory_info.rss / 1024 / 1024:.2f} MB")
             self.logger.info(f"Open Files: {open_files}")
             self.logger.info(f"I/O Counters: {io_counters}")
-        else:
-            print(f"CPU Usage: {cpu_usage}%")
-            print(f"Memory Usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-            print(f"Open Files: {open_files}")
-            print(f"I/O Counters: {io_counters}")
+        # else:
+        #     print(f"CPU Usage: {cpu_usage}%")
+        #     print(f"Memory Usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+        #     print(f"Open Files: {open_files}")
+        #     print(f"I/O Counters: {io_counters}")
 
 
     # def log_resources(self):
