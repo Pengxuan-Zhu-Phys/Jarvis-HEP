@@ -15,7 +15,7 @@ def main():
     elif jc.args.plot:
         jc.plot()
     elif jc.args.monitor:
-        jc.monite()
+        jc.monitor()
 
 
 if __name__ == "__main__":
