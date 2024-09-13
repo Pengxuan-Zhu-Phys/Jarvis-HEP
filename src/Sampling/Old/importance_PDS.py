@@ -135,8 +135,8 @@ class Importance_Possion_Disk(Sampling_method):
                 else:
                     self.fcs[name]['expr'] = interp1d(
                         data['x'], data['y'], kind=method)
-        print(self.fcs)
-        print(self.exprs)
+        # print(self.fcs)
+        # print(self.exprs)
 
     def init_logger(self, cf):
         self.logger = logging.getLogger("Possion")

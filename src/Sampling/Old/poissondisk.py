@@ -271,7 +271,7 @@ class Possion_Disk(Sampling_method):
                 if os.path.exists(self.path['datadir']):
                     ad.append(self.path['datadir'])
                 gds = []
-                print(ad)
+                # print(ad)
                 for ff in ad:
                     ds = pd.read_csv(ff)
                     gds.append(ds)
@@ -460,7 +460,7 @@ class Possion_Disk(Sampling_method):
             # df.loc[df['Fee'] > 22000, 'Fee'] = 1
         else:
             sid = self.pick_sample_ID_by_status("Dead")
-            print(sid, len(self.samples))
+            # print(sid, len(self.samples))
             # print(self.cubes)
             # print(self.data)
             smp = self.samples[sid]

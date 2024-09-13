@@ -42,6 +42,12 @@
             "action": "store_true",
             "dest": "cvtDB",
             "help": "Convert the sample.hdf5 file into csv format"
+        },
+        {
+            "long": "--monitor",
+            "action": "store_true",
+            "dest": "monitor",
+            "help": "Starts a real-time resource monitoring session for the current Jarvis-HEP job. \n\tNote:\n\t- This monitor updates resource usage statistics in real-time every few seconds.\n\t- Press 'q' in the monitor window to stop monitoring and exit the session."
         }
     ]
 }

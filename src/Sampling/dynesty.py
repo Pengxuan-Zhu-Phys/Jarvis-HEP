@@ -53,7 +53,7 @@ class Dynesty(SamplingVirtial):
 
     def init_generator(self):
         self.load_variable()
-        print(self.vars[0]._parameters)
+        # print(self.vars[0]._parameters)
         self._nlive = self.config['Sampling']['Bounds']['nlive']
         self._rstate = np.random.default_rng(self.config['Sampling']['Bounds']['rseed'])
         self._runnested = self.config['Sampling']['Bounds']['run_nested']

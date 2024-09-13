@@ -53,11 +53,12 @@ class Core(Base):
         # self.monitor.start()
 
     def init_argparser(self) -> None:
-        self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
+        self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center", formatter_class=argparse.RawTextHelpFormatter)
         self.info['args'] = load_args_config(self.path['args_info'])
         
         for pos_arg in self.info['args'].get('positionals', []):
-            self.argparser.add_argument(pos_arg['name'], help=pos_arg['help'])
+            heltp = pos_arg['help'].replace("$n", "\n")
+            self.argparser.add_argument(pos_arg['name'], help=heltp)
         for opt in self.info['args'].get('options', []):
             kwargs = {
                 'help': opt['help'],

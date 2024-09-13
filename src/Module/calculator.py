@@ -159,7 +159,7 @@ class CalculatorModule(Module):
             sample_handler = self.handlers['sample']
             self.logger.remove(sample_handler)
             del self.handlers['sample']  
-            print("Line 172 -> self.handlers: ", self.handlers)
+            # print("Line 172 -> self.handlers: ", self.handlers)
             self.logger = None
 
 
@@ -340,6 +340,6 @@ class CalculatorModule(Module):
         path = self.decode_path(path)
         if "@PackID" in path:
             path = path.replace("@PackID", self.PackID)
-        print(path)
+        # print(path)
         return path
 

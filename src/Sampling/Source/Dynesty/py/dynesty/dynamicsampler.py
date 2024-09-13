@@ -1713,7 +1713,7 @@ class DynamicSampler:
                                       boundidx=results.boundidx,
                                       bounditer=results.bounditer,
                                       eff=self.eff)
-        print("dynamicsampler Line 1684 -> end batch sampler ?")
+        # print("dynamicsampler Line 1684 -> end batch sampler ?")
         if iterated_batch and results.loglstar < logl_max and np.isfinite(
                 logl_max) and maxiter_left > 0 and maxcall_left > 0:
             warnings.warn('Warning. The maximum likelihood not reached '

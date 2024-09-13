@@ -1,84 +1,63 @@
 #!/usr/bin/env python3 
 
-from base import Base
-
-import psutil
+import curses
 import time
-import threading
-import os
-class Monitor(Base):
-    def __init__(self, interval=0.5):
-        self.interval = interval  # Monitor interval 
-        self.keep_running = True
-        self.logger = None  
-        self.log_file = None
+import psutil
 
-    def start(self):
-        # Start a monitor thread 
-        monitor_thread = threading.Thread(target=self.monitor)
-        monitor_thread.daemon = True
-        monitor_thread.start()
+def monitor_resources(stdscr, monitor_file):
+    # 隐藏光标
+    curses.curs_set(0)
 
-    def monitor(self):
-        # Keep monitoring until keep runing is False 
-        while self.keep_running:
-            self.log_resources()
-            time.sleep(self.interval)
+    # 清屏
+    stdscr.clear()
 
-    def get_total_resources():
-        # Get main process and all subprocesses 
-        process = psutil.Process(os.getpid())
-        children = process.children(recursive=True)  
-        all_processes = [process] + children
-    
-        # Accumulate all source used 
-        total_cpu = 0.0
-        total_memory = 0
-        total_open_files = 0
-        total_io = 0
-    
-        for p in all_processes:
-            try:
-                total_cpu += p.cpu_percent(interval=None)
-                total_memory += p.memory_info().rss  # memory in byte 
-                total_open_files += p.num_fds()
-                total_io += p.io_counters()
-            except psutil.NoSuchProcess:
-                # Skip the finished subprocess
-                continue
-            
-        return (total_cpu, total_memory, total_open_files, total_io)
+    try:
+        # 读取PID
+        with open(monitor_file, 'r') as f:
+            pid = int(f.read().strip())
 
-    def log_resources(self):
-        usage = self.get_total_resources()
-        if self.log_file is not None:
-            pass 
+        # 获取进程
+        process = psutil.Process(pid)
 
-    
-        if open_files:
-            print(f"Currently open files (total {len(open_files)}):")
-            for file in open_files:
-                print(f"File: {file.path} - Mode: {file.mode}")
-        else:
-            print("No files are currently open.")
+        while True:
+            # 获取系统资源使用情况
+            cpu_usage = process.cpu_percent(interval=1)
+            memory_info = process.memory_info().rss / 1024 / 1024  # 以MB为单位
+            open_files = process.num_fds()
 
+            # 清空屏幕
+            stdscr.clear()
 
+            # 打印监控信息
+            stdscr.addstr(0, 0, f"Monitoring PID: {pid}")
+            stdscr.addstr(1, 0, f"CPU Usage: {cpu_usage:.2f}%")
+            stdscr.addstr(2, 0, f"Memory Usage: {memory_info:.2f} MB")
+            stdscr.addstr(3, 0, f"Open Files: {open_files}")
+            stdscr.addstr(4, 0, "-----------------------------")
+            stdscr.addstr(5, 0, "Press 'q' to quit.")
 
-        if self.logger:
-            self.logger.info(f"CPU Usage: {cpu_usage}%")
-            self.logger.info(f"Memory Usage: {memory_info.rss / 1024 / 1024:.2f} MB")
-            self.logger.info(f"Open Files: {open_files}")
-            self.logger.info(f"I/O Counters: {io_counters}")
+            # 刷新屏幕
+            stdscr.refresh()
 
-    def stop(self):
-        # Stop monitor
-        self.keep_running = False
+            # 检查是否按下了退出键
+            if stdscr.getch() == ord('q'):
+                break
 
-# 在 Jarvis-HEP 中集成监视器
-monitor = Monitor(interval=10)
-monitor.start()
+            time.sleep(1)  # 每秒刷新一次
 
-try:
-    pass
-finally:
-    monitor.stop() 
+    except FileNotFoundError:
+        stdscr.addstr(0, 0, "Monitor file not found.")
+        stdscr.refresh()
+        stdscr.getch()
+    except psutil.NoSuchProcess:
+        stdscr.addstr(0, 0, f"Process with PID {pid} not found.")
+        stdscr.refresh()
+        stdscr.getch()
+    except KeyboardInterrupt:
+        stdscr.addstr(0, 0, "Exiting monitor.")
+        stdscr.refresh()
+        stdscr.getch()
+
+if __name__ == "__main__":
+    monitor_file = '/path/to/your/monitor_file.txt'
+    curses.wrapper(monitor_resources, monitor_file)
