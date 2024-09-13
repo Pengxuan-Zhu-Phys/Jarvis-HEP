@@ -126,7 +126,7 @@ class Core(Base):
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
         with open(os.path.join(task_result_dir, "LOG", "monitor.log"), "w") as f1: 
-            f1.write(os.getpid())
+            f1.write(str(os.getpid()))
         
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
         if self.args.plot:
