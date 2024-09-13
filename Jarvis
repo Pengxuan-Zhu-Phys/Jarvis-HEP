@@ -14,6 +14,8 @@ def main():
         jc.convert()
     elif jc.args.plot:
         jc.plot()
+    elif jc.args.monitor:
+        jc.monite()
 
 
 if __name__ == "__main__":

@@ -95,7 +95,9 @@ class Core(Base):
             self.scan_mode = True
             self.args.debug = True
             self.mode      = "1PC"      # 1PC means one point check mode 
-
+        if self.args.monitor: 
+            self.scan_mode = False
+            self.mode       = "Monitor"
         
     def init_project(self) -> None: 
         import yaml 
@@ -126,7 +128,8 @@ class Core(Base):
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
-        with open(os.path.join(task_result_dir, "LOG", "monitor.log"), "w") as f1: 
+        self.info['monitor_log'] = os.path.join(task_result_dir, "LOG", "monitor.log")
+        with open(self.info['monitor_log'], "w") as f1: 
             f1.write(str(os.getpid()))
         
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
@@ -411,6 +414,10 @@ class Core(Base):
                 self.plotter.load_config(self.info['plot']['config'])
                 self.plotter.plot()
         
+    def monitor(self) -> None: 
+        from monitor import monitor_resources
+        import curses 
+        curses.wrapper(monitor_resources, self.info['monitor_log'])
 
     class __StateSaver:
         def __init__(self, 
