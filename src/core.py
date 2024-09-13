@@ -26,7 +26,7 @@ import asyncio
 from loguru import logger
 logger.remove()
 from plot import BudingPLOT
-from monitor import Monitor
+# from monitor import Monitor
 
 
 class Core(Base):

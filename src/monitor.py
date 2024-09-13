@@ -52,7 +52,8 @@ class Monitor(Base):
     def log_resources(self):
         usage = self.get_total_resources()
         if self.log_file is not None:
-            
+            pass 
+
     
         if open_files:
             print(f"Currently open files (total {len(open_files)}):")
