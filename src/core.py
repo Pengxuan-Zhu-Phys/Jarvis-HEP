@@ -49,8 +49,8 @@ class Core(Base):
         self.scan_mode                  = True
         self.plotter                    = BudingPLOT()
         self.mode                       = None
-        self.monitor                    = Monitor()
-        self.monitor.start()
+        # self.monitor                    = Monitor()
+        # self.monitor.start()
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center")
@@ -121,9 +121,13 @@ class Core(Base):
             "info":  os.path.join(task_result_dir, "DATABASE", "running.json")
             # "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
+
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
+        with open(os.path.join(task_result_dir, "LOG", "monitor.log"), "w") as f1: 
+            f1.write(os.getpid())
+        
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
         if self.args.plot:
             self.info['plot'] = {
@@ -343,6 +347,8 @@ class Core(Base):
             # self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
+            # self.monitor.stop()
+
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
@@ -361,6 +367,7 @@ class Core(Base):
             
 
             self.factory.executor.shutdown()
+            # self.monitor.stop()
 
     def check_init_args(self) -> None:
         try:
