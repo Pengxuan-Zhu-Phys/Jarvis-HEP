@@ -48,6 +48,12 @@
             "action": "store_true",
             "dest": "monitor",
             "help": "Starts a real-time resource monitoring session for the current Jarvis-HEP job. \n\tNote:\n\t- This monitor updates resource usage statistics in real-time every few seconds.\n\t- Press 'q' in the monitor window to stop monitoring and exit the session."
+        },
+        {
+            "long": "--install-dependencies",
+            "action":"store_true",
+            "dest": "bdREQ",
+            "help": "Automatically install all required Python packages needed in Jarvis-HEP"
         }
     ]
 }

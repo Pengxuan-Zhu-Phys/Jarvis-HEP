@@ -188,7 +188,7 @@ EnvironmentRequirements:
 
 SupportingLibrary:
   path: "&J/External/Library"
-  make_paraller: 16
+  make_paraller: 32
   Modules:
     - name: "Delphes"
       required_modules: []

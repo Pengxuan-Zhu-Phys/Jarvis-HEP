@@ -16,6 +16,10 @@ def main():
         jc.plot()
     elif jc.args.monitor:
         jc.monitor()
+    elif jc.args.bdREQ:
+        from build_requirements import install_requirements
+        install_requirements()
+
 
 
 if __name__ == "__main__":

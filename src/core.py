@@ -98,6 +98,9 @@ class Core(Base):
         if self.args.monitor: 
             self.scan_mode = False
             self.mode       = "Monitor"
+        if self.args.bdREQ:
+            self.scan_mode = False
+            self.mode       = "BUILD"
         
     def init_project(self) -> None: 
         import yaml 
