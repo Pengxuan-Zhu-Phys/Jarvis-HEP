@@ -1,6 +1,7 @@
 #!/usr/bin/env python3 
 
 import curses
+import asyncio
 import time
 import psutil
 import os 
@@ -97,7 +98,7 @@ class JarvisMonitor:
 
     def draw_summary(self, stdscr, start_y, start_x, cpu, mem, files, procs):
         """ 绘制汇总信息包括进度条和数字 """
-        self.draw_progress_bar(stdscr, start_y, start_x + 14, 60, cpu / psutil.cpu_count())
+        self.draw_progress_bar(stdscr, start_y, start_x + 13, 61, cpu / psutil.cpu_count())
         stdscr.addstr(start_y, 2, "{}  : {:.1f}%".format("CPU", cpu))
 
         # Determine whether to show memory in MB or GB
@@ -108,8 +109,8 @@ class JarvisMonitor:
             mem_display = mem / 1024 / 1024 / 1024
             mem_unit = "GB"
 
-        self.draw_progress_bar(stdscr, start_y + 1, start_x + 14, 60, mem * 100 / psutil.virtual_memory().total)
-        stdscr.addstr(start_y + 1, 2, "{}  : {:.1f} {}".format("MEM", mem_display, mem_unit))
+        self.draw_progress_bar(stdscr, start_y + 1, start_x + 13, 61, mem * 100 / psutil.virtual_memory().total)
+        stdscr.addstr(start_y + 1, 2, "{}  : {} {}".format("MEM", int(mem_display), mem_unit))
 
         stdscr.addstr(start_y + 2, start_x, f"Files: {files}")
         stdscr.addstr(start_y + 3, start_x, f"Procs: {procs}")
@@ -127,7 +128,7 @@ class JarvisMonitor:
                 line = f"{idx + 1:3}: {file_path.replace(os.path.expanduser('~'), '~')}"  # 格式化编号和路径
                 stdscr.addstr(start_y + 1 + i, start_x + 1, line[:width - 2])  # 防止字符串超出 box 宽度
 
-    def draw_subprocess_box(self, stdscr, start_y, start_x, height, width):
+    async def draw_subprocess_box(self, stdscr, start_y, start_x, height, width):
         """ 绘制子进程信息的盒子 """
         procs = []
         cpu_usage = 0.
@@ -139,7 +140,8 @@ class JarvisMonitor:
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 thread_count = 'N/A'
             try:
-                cpu_percent = child.cpu_percent()
+                cpu_percent = await loop.run_in_executor(None, child.cpu_percent, 0.01)
+                
                 cpu_usage += cpu_percent if cpu_percent is not None else 0
                 cpu_percent_str = f"{cpu_percent if cpu_percent is not None else 0}%"
                 if child.memory_info():
@@ -175,7 +177,7 @@ class JarvisMonitor:
 
         return f"{days:02d}/{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    def main(self, stdscr):
+    async def main(self, stdscr):
         self.init_screen(stdscr)
         self.init_colors()
 
@@ -206,7 +208,7 @@ class JarvisMonitor:
                     # 横向滚动
                     if self.horizontal_scroll:
                         self.scroll_offset += 30
-                        if self.scroll_offset > max(len(files[self.current_index + i]) for i in range(fbh) if self.current_index + i < len(files)) - (width - 10):
+                        if files and self.scroll_offset > max(len(files[self.current_index + i]) for i in range(fbh) if self.current_index + i < len(files)) - (width - 10):
                             self.scroll_offset = 0
                             self.horizontal_scroll = False
                     else:
@@ -219,7 +221,7 @@ class JarvisMonitor:
                     stdscr.addstr(15, 2, "> Subprocess List (Short)")
                     stdscr.attroff(curses.color_pair(2))
 
-                    cpu_usage, mem_usage = self.draw_subprocess_box(stdscr, 16, 2, 5, width - 4)
+                    cpu_usage, mem_usage = await self.draw_subprocess_box(stdscr, 16, 2, 5, width - 4)
                     self.draw_summary(stdscr, 2, 2, cpu_usage, mem_usage, files_count, procs_count)
 
                 elif self.current_view == "Files":
@@ -242,13 +244,13 @@ class JarvisMonitor:
                         if self.current_index >= len(files):
                             self.current_index = 0
                         self.horizontal_scroll = True
-                    # stdscr.refresh()
+                    stdscr.refresh()
 
                 elif self.current_view == "Subprocess":
                     formatted_runtime = self.format_runtime(int(time.time() - psutil.Process(self.pid).create_time()))
                     self.draw_box(stdscr, 0, 0, 23, width - 2, title, 1, 1)
                     stdscr.addstr(24, 2, footer)
-                    cpu_usage, mem = self.draw_subprocess_box(stdscr, 2, 2, 20, width - 4)
+                    cpu_usage, mem = await self.draw_subprocess_box(stdscr, 2, 2, 20, width - 4)
                     if mem < 1024 * 1024 * 1024:
                         mem_display = mem / 1024 / 1024
                         mem_unit = "MB"
@@ -270,11 +272,12 @@ class JarvisMonitor:
                 elif key == ord('p'):
                     self.current_view = "Subprocess"
                 elif key == -1:
-                    curses.napms(1000)
+                    curses.napms(250)
         finally:
             stdscr.nodelay(False)
 
 if __name__ == "__main__":
     setproctitle.setproctitle("Jarvis-HEP")
-    monitor = JarvisMonitor("Safari")
-    curses.wrapper(monitor.main)
+    monitor = JarvisMonitor("WeChat")
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(curses.wrapper(monitor.main))
