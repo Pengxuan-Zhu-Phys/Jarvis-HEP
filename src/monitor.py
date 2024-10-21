@@ -5,9 +5,9 @@ import asyncio
 import time
 import psutil
 import os 
-from datetime import datetime
-import random
-import setproctitle 
+# from datetime import datetime
+# import random
+# import setproctitle 
 
 class JarvisMonitor:
     def __init__(self, process_name):
@@ -251,10 +251,11 @@ class JarvisMonitor:
                             self.scroll_offset = 0
                             self.horizontal_scroll = False
                     else:
-                        self.current_index += 10
-                        if self.current_index >= len(files):
-                            self.current_index = 0
-                        self.horizontal_scroll = True
+                        if len(files) > 20:
+                            self.current_index += 10
+                            if self.current_index >= len(files):
+                                self.current_index = 0
+                            self.horizontal_scroll = True
                     stdscr.refresh()
 
                 elif self.current_view == "Subprocess":
@@ -268,7 +269,7 @@ class JarvisMonitor:
                     else:
                         mem_display = mem / 1024 / 1024 / 1024
                         mem_unit = "GB"
-                    ttt = "Processes {}: {} total; CPU usage: {:.1f}%; Memory usage: {:.1f} {}   {}".format(self.pid, len(psutil.Process(self.pid).children(recursive=True)), cpu_usage, mem_display, mem_unit, formatted_runtime)
+                    ttt = "Processes {}: {} total; CPU: {:.1f}%; Memory: {:.1f} {}   {}".format(self.pid, len(psutil.Process(self.pid).children(recursive=True)), cpu_usage, mem_display, mem_unit, formatted_runtime)
                     stdscr.attron(curses.color_pair(2))
                     stdscr.addstr(1, 2, ttt)
                     stdscr.attroff(curses.color_pair(2))

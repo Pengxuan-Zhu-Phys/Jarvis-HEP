@@ -133,9 +133,9 @@ class Core(Base):
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
-        self.info['monitor_log'] = os.path.join(task_result_dir, "LOG", "monitor.log")
-        with open(self.info['monitor_log'], "w") as f1: 
-            f1.write(str(os.getpid()))
+        # self.info['monitor_log'] = os.path.join(task_result_dir, "LOG", "monitor.log")
+        # with open(self.info['monitor_log'], "w") as f1: 
+        #     f1.write(str(os.getpid()))
         
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
         if self.args.plot:
