@@ -24,6 +24,7 @@ import pandas as pd
 import concurrent.futures
 import asyncio 
 from loguru import logger
+import setproctitle 
 logger.remove()
 from plot import BudingPLOT
 # from monitor import Monitor
@@ -107,6 +108,7 @@ class Core(Base):
         with open(os.path.abspath(self.args.file), 'r') as file:
             config = yaml.safe_load(file)
         self.info['scan_name'] = config['Scan']['name']
+        self.info['proctitle'] = "Jarvis-HEP@{}".format(self.info['scan_name'])
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
         task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
         task_result_dir = self.decode_path(task_result_dir)
@@ -312,6 +314,8 @@ class Core(Base):
         self.init_utils()
         
         if self.scan_mode:
+            setproctitle.setproctitle(self.info['proctitle'])
+            self.logger.warning("Setting process title -> {}".format(self.info['proctitle']))
             self.init_StateSaver()
             
             self.init_sampler()
@@ -418,9 +422,11 @@ class Core(Base):
                 self.plotter.plot()
         
     def monitor(self) -> None: 
-        from monitor import monitor_resources
-        import curses 
-        curses.wrapper(monitor_resources, self.info['monitor_log'])
+        from monitor import JarvisMonitor
+        import curses
+        self.logger.warning("Start monitoring -> {}".format(self.info['proctitle']))
+        self.monitor = JarvisMonitor(self.info['proctitle'])
+        asyncio.run(curses.wrapper(self.monitor.main))
 
     class __StateSaver:
         def __init__(self, 
