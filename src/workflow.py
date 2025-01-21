@@ -39,14 +39,15 @@ class Workflow(Base):
         self.add_module(parameter_module)
         self.parameter_module = parameter_module
         
-        for lib in modules['Library']:
-            module = LibraryModule(
-                name=lib['name'],
-                required_modules=lib.get("required_modules", []),
-                installed=lib.get("installed", False),
-                installation=lib.get("installation", {})
-            )
-            self.add_library_module(module)
+        if hasattr(modules, "Library"):
+            for lib in modules['Library']:
+                module = LibraryModule(
+                    name=lib['name'],
+                    required_modules=lib.get("required_modules", []),
+                    installed=lib.get("installed", False),
+                    installation=lib.get("installation", {})
+                )
+                self.add_library_module(module)
 
         for calc in modules['Calculator']:
             module = CalculatorModule(
@@ -420,7 +421,7 @@ class Workflow(Base):
                 if klayer != 1:
                     # print(mod)
                     module_at_pos(mod['bp'])
-                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
                     for kk, ipf in mod['ipf'].items():
                         # print(kk, ipf.keys())
                         input_file_at_pos(ipf['pos'] )
@@ -463,7 +464,7 @@ class Workflow(Base):
 
             def arraw_from_V2F(pA, pB):
                 tt = np.linspace(-0.5 * np.pi, 0.4 * np.pi, 100)
-                xx = np.linspace(pA[0] + 0.14, pB[0] - 0.5, 100)
+                xx = np.linspace(pA[0] + 0.14, pB[0] - 0.4, 100)
                 yy = pA[1] + (np.sin(np.sin(tt)) + 0.8414709848078965)/1.6555005931675704 * (pB[1]-pA[1])
                 points = np.array([xx, yy]).T.reshape(-1, 1, 2)
                 segments = np.concatenate([points[:-1], points[1:]], axis=1)
@@ -489,20 +490,20 @@ class Workflow(Base):
 
             def line_from_M2F(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)
-                xx = np.linspace(0.43 + pM[0], pF[0], 100 )
+                xx = np.linspace(0.3 + pM[0], 0.1 + pF[0], 100 )
                 yy = pM[1] - 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] + 0.2 - pM[1])
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=3)
 
             def line_from_F2V(pF, op):
                 tt = np.linspace(-0.5*np.pi, 0.5*np.pi, 100)
-                xx = np.linspace(pF[0] + 0.44, op['pos'][0] - op['wid'] -0.1 , 100)
+                xx = np.linspace(pF[0] + 0.3, op['pos'][0] - op['wid'] - 0.1 , 100)
                 yy = pF[1] + (np.sin(np.sin(tt)) / 0.8414709848078965  + 1)/2 * (op['pos'][1] - pF[1])  
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=0.8, alpha=0.7)
                 ax.plot([op['pos'][0] - op['wid'] -0.1], [op['pos'][1]], "o", markersize=4, c="#3b4dc0", alpha=0.7)
 
             def line_from_F2M(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)
-                xx = np.linspace(-0.43 + pM[0], pF[0], 100 )
+                xx = np.linspace(-0.3 + pM[0], -0.1 + pF[0] , 100 )
                 yy = pM[1] + 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] - 0.2 - pM[1])
                 ax.plot(xx, yy, "-", c="#d45040", lw=3)
 
@@ -530,7 +531,8 @@ class Workflow(Base):
             def module_at_pos(pos):
                 image_path = "src/icons/calculator.png"  
                 image = Image.open(image_path)
-                image = np.array(image)
+                # image = np.array(image)
+                image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
                 ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def lib_at_pos(pos):

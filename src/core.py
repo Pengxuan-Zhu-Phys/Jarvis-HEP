@@ -249,16 +249,17 @@ class Core(Base):
         self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_librarys(self) -> None:
-        self.libraries = Library()
-        self.libraries._skip_library = self.args.skiplibrary
-        # logger = self.logger.create_dynamic_logger("Library", logging.INFO)
-        slogger = logger.bind(module="Jarvis-HEP.Library", to_console=True, Jarvis=True)
-        self.libraries.set_logger(slogger)
-        self.libraries.set_config(self.yaml.config)
-
-        self.libraries.display_installation_summary()
-        for module in self.libraries.modules.values():
-            module.install()
+        if hasattr(self.yaml, "SupportLibrary"):
+            self.libraries = Library()
+            self.libraries._skip_library = self.args.skiplibrary
+            # logger = self.logger.create_dynamic_logger("Library", logging.INFO)
+            slogger = logger.bind(module="Jarvis-HEP.Library", to_console=True, Jarvis=True)
+            self.libraries.set_logger(slogger)
+            self.libraries.set_config(self.yaml.config)
+    
+            self.libraries.display_installation_summary()
+            for module in self.libraries.modules.values():
+                module.install()
             
 
     def init_workflow(self) -> None: 

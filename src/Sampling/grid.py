@@ -1,14 +1,11 @@
 #!/usr/bin/env python3 
-from calendar import day_name
-from lib2to3.pgen2.token import RPAR
-import logging
 import os, sys
 from re import S 
 from abc import ABCMeta, abstractmethod
 from mpmath.functions.functions import re
 import numpy as np
 import pandas as pd 
-from numpy.lib.function_base import meshgrid
+from numpy import meshgrid
 from pandas.core.series import Series
 from sympy import sympify
 from sympy.geometry import parabola
@@ -75,22 +72,20 @@ class Grid(SamplingVirtial):
         self._dimensions = len(self.vars)
 
     def initialize(self):
-        self.logger.warning("Initializing the Bridson Sampling")
+        self.logger.warning("Initializing the Grid Sampling")
         if self._dimensions < 2 or self._dimensions >= 5:
-            self.logger.error("Bridson Sampling Algorithm only support 2d to 4d parameter space.")
+            self.logger.error("Grid Sampling Algorithm only support 2d to 4d parameter space.")
             sys.exit(2)
         try:
             t0 = time.time()
-            dims = np.array([var.parameters["length"] for var in self.vars])
-            self._P = grid_sampling(
-                dims=dims, radius=self._radius, k=self._k, hypersphere_sample=hypersphere_surface_sample
-            )
+            dims = np.array([var.parameters["num"] for var in self.vars])
+            self._P = grid_sampling(dimensions=dims)
             self.info["NSamples"] = self._P.shape[0]
             self.info["t0"]       = time.time() - t0 
             self._index           = 0
-            self.logger.info("Bridson Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
+            self.logger.info("Grid Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
         except:
-            self.logger.error("Bridson Sampler meets error when trying to scan the parameter space.")
+            self.logger.error("Grid Sampler meets error when trying to scan the parameter space.")
             sys.exit(2)
 
     def run_nested(self):
@@ -126,27 +121,22 @@ class Grid(SamplingVirtial):
         self.factory = factory
         self.logger.warning("WorkerFactory is ready for Grid sampler")
 
-def grid_sampling(dimensions, num_steps):
+def grid_sampling(dimensions):
     """
     Generate grid samples based on dimensions and dimension-specific number of steps.
 
     Args:
-        dimensions (list of tuple): A list of tuples where each tuple specifies the (min, max) range for a dimension.
-        num_steps (list of int): A list specifying the number of steps (including start and end) for each dimension.
+        dimensions (list of tuple): A list of tuples where each tuple specifies the number of step for each dimension.
 
     Returns:
         numpy.ndarray: A 2D array where each row represents a grid sample.
     """
-    if len(dimensions) != len(num_steps):
-        raise ValueError("The length of 'dimensions' and 'num_steps' must be the same.")
 
     # Generate grid points for each dimension based on the number of steps
     grid_ranges = [
-        np.linspace(dim_min, dim_max, steps) 
-        for (dim_min, dim_max), steps in zip(dimensions, num_steps)
+        np.linspace(0., 1., steps) 
+        for steps in dimensions
     ]
-
     # Generate the Cartesian product of all grid points
     grid_samples = np.array(list(itertools.product(*grid_ranges)))
-
     return grid_samples

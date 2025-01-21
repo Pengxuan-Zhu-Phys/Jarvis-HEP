@@ -11,7 +11,6 @@ import json
 from jsonschema import validate
 from jsonschema.exceptions import ValidationError
 from Module.module import Module
-from pprint import pprint
 
 class ConfigLoader(Base):
     def __init__(self) -> None:
@@ -58,8 +57,6 @@ class ConfigLoader(Base):
         if "Python" in dependencies:
             self.check_PYTHON_env()
         
-        # from pprint import pprint
-        # pprint(self.summary)
     
     def get_sampling_method(self) -> str:
         try: 
@@ -226,7 +223,6 @@ class ConfigLoader(Base):
                     with open(self.decode_path(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']), 'r') as file:
                         default_env = yaml.safe_load(file)
                         self.config['EnvironmentRequirements'].update(default_env['EnvironmentRequirements'])
-                        from pprint import pprint
                 except FileExistsError:
                     self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvironmentRequirements']['default_yaml_path']))
         self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']))
@@ -235,9 +231,10 @@ class ConfigLoader(Base):
         modules = {
             "Parameter": self.config['Sampling']['Variables']
         }
-        if self.config["SupportingLibrary"]["Modules"]:
-            self.analysis_Library()
-            modules['Library'] = self.config["SupportingLibrary"]["Modules"]
+        if hasattr(self.config, "SupportingLibrary"):
+            if self.config["SupportingLibrary"]["Modules"]:
+                self.analysis_Library()
+                modules['Library'] = self.config["SupportingLibrary"]["Modules"]
         if self.config["Calculators"]["Modules"]:
             self.analysis_calculator()
             modules['Calculator'] = self.config["Calculators"]["Modules"]
@@ -413,7 +410,6 @@ class ConfigValidator(Base):
             self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
         try:
-            # pprint(self.schema['definitions']['execution']['properties']['input'])
             for kk, vv in self.schemablock.items():
                 self.schema['schemaBlock'][kk]['$ref'] = self.schemablock[kk]
             
