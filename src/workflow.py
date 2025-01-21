@@ -454,7 +454,7 @@ class Workflow(Base):
                             line_from_F2V(opf['pos'], opp)
                 else:
                     sampler_at_pos(mod['bp'])
-                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
 
                     for op in mod['opv']:
                         mod['opv'][op] = outvar_at_OP(mod['opv'][op])
@@ -547,23 +547,23 @@ class Workflow(Base):
                 image = np.array(image)
                 ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
-            # def draw_layer_sub(layer):
-            #     print(layer)
-            #     for ipf in layer['ipvars'].values():
-            #         pF = ipf['']
+            def logo_at_pos(pos):
+                image_path = "src/icons/JarvisHEP.png"
+                image = Image.open(image_path)
+                image = np.array(image.convert("RGBA"))
+                ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
+                ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")
+
 
             layerInfo, figH = resolve_layer()
-
+            if figH < 1.8: 
+                figH = 1.8
+            # figH += 
             fig = plt.figure(figsize=(figL, figH))
-            lx0 = 0.2 / figL 
-            lx1 = 0.8 / figL
-            ly0 = 1.0 - 1.0 / figH 
-            ly1 = 0.8 / figH
 
             ax  = fig.add_axes([0., 0., 1., 1.])
-            axlogo = fig.add_axes([lx0, ly0, lx1, ly1])
-            draw_logo_in_square(axlogo)
             ax.axis("off")
+            logo_at_pos([0.7, figH - 0.35])
             ax.set_xlim([0, figL])
             ax.set_ylim([0, figH])
             inv = ax.transData.inverted()
