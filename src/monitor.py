@@ -27,8 +27,8 @@ class JarvisMonitor:
         for proc in psutil.process_iter(['cmdline', 'pid', 'name']):
             if proc.info['cmdline']:
             # if proc.info['pid'] == self.pid:
-                if name in proc.info['cmdline']:
-                # if proc.info['name'] == name:
+                # if name in proc.info['cmdline']:
+                if proc.info['name'] == name:
                     # print(proc.info)
                     return proc.info['pid']
         return None

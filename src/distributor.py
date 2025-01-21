@@ -17,5 +17,8 @@ class Distributor(Base):
             case "Dynesty":
                 from Sampling.dynesty import Dynesty 
                 return Dynesty()
+            case "Grid":
+                from Sampling.grid import Grid
+                return Grid()
         
         
