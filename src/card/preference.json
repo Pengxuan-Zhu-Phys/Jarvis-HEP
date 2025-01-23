@@ -1,9 +1,10 @@
 {
     "Schema":  {
-        "PoissonSchema":  "&J/src/card/possion.json",
-        "GridSchema":          "&J/src/card/schema/Grid_Schema.json",
-        "BridsonSchema":       "&J/src/card/schema/Bridson_schema.json",
-        "DynestySchema":       "&J/src/card/schema/Dynesty_schema.json"
+        "PoissonSchema":    "&J/src/card/possion.json",
+        "GridSchema":       "&J/src/card/schema/Grid_Schema.json",
+        "BridsonSchema":    "&J/src/card/schema/Bridson_schema.json",
+        "DynestySchema":    "&J/src/card/schema/Dynesty_schema.json",
+        "RandomSchema":     "&J/src/card/schema/Random_schema.json"
     },
     "SchemaBlock":  {
         "input":    "&J/src/card/schema/inputs.json",

@@ -580,4 +580,5 @@ class Workflow(Base):
                     draw_layer_module(kk, info)
             
             plt.savefig(save_path, dpi=300)
+            plt.close()
             await asyncio.sleep(2)

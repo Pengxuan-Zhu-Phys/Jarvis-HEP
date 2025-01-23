@@ -4,48 +4,42 @@ from re import S
 from abc import ABCMeta, abstractmethod
 from mpmath.functions.functions import re
 import numpy as np
-import pandas as pd 
-from numpy import meshgrid
-from pandas.core.series import Series
-from sympy import sympify
-from sympy.geometry import parabola
 import time 
-from random import randint
-from Sampling.sampler import SamplingVirtial
+from Sampling.sampler import SamplingVirtial, BoolConversionError
 import json
-from scipy.special import gammainc
 from sample import Sample
 import concurrent.futures
 import itertools
+import sympy as sp 
+
+# from _pytest.mark import param
 
 
-class Grid(SamplingVirtial):
+class RandomS(SamplingVirtial):
     def __init__(self) -> None:
         super().__init__()
         self.load_schema_file()
-        self.method = "Grid"
+        self.method = "Random"
         self._P     = None
-        self._index = 0 
+        self._index = None
         self.tasks  = []
         self.info   = {}
 
     def load_schema_file(self):
-        self.schema = self.path['GridSchema']
+        self.schema = self.path['RandomSchema']
 
     def set_config(self, config_info) -> None:
         self.config = config_info
         self.init_generator()
 
     def __iter__(self):
-        if self._P is None:
+        if self._index is None:
             self.initialize()  # ensure the _P is generated before iteration 
         self._index = 0  # Ensure the index starting from 0
         return self
 
-    def __next__(self):
-        if self._P is None or not isinstance(self._P, np.ndarray):
-            raise StopIteration  # Stop iteration, if _P is not defined or _P is not np.array
-        if self._index < len(self._P):
+    def __next__(self):# Stop iteration, if _P is not defined or _P is not np.array
+        if self._index < self._maxp:
             result = self._P[self._index]
             result = self.map_point_into_distribution(result)
             self._index += 1
@@ -70,19 +64,21 @@ class Grid(SamplingVirtial):
     def init_generator(self):
         self.load_variable()
         self._dimensions = len(self.vars)
+        self._maxp  = int(self.config['Sampling']['Point number'])
+        self._selectionexp = self.config["Sampling"]["selection"]
 
     def initialize(self):
-        self.logger.warning("Initializing the Grid Sampling")
+        self.logger.warning("Initializing the Random Sampling")
         try:
-            t0 = time.time()
-            dims = np.array([var.parameters["num"] for var in self.vars])
-            self._P = grid_sampling(dimensions=dims)
-            self.info["NSamples"] = self._P.shape[0]
-            self.info["t0"]       = time.time() - t0 
-            self._index           = 0
-            self.logger.info("Grid Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
+            self.info["t0"]       = time.time() 
+            temp    = np.random.rand(self._dimensions)
+            param   = self.map_point_into_distribution(temp)
+            self.evaluate_selection(self._selectionexp, param)
+        except BoolConversionError:
+            self.logger.error("Wrong selection condition in input YAML -> \n\t{}".format(self._selectionexp))
+            sys.exit(2)
         except:
-            self.logger.error("Grid Sampler meets error when trying to scan the parameter space.")
+            self.logger.error("Random Sampler meets error when trying to scan the parameter space.")
             sys.exit(2)
 
     def run_nested(self):
@@ -113,27 +109,9 @@ class Grid(SamplingVirtial):
     def finalize(self):
         pass
 
-
     def set_factory(self, factory) -> None:
         self.factory = factory
-        self.logger.warning("WorkerFactory is ready for Grid sampler")
+        self.logger.warning("WorkerFactory is ready for Random sampler")
 
-def grid_sampling(dimensions):
-    """
-    Generate grid samples based on dimensions and dimension-specific number of steps.
-
-    Args:
-        dimensions (list of tuple): A list of tuples where each tuple specifies the number of step for each dimension.
-
-    Returns:
-        numpy.ndarray: A 2D array where each row represents a grid sample.
-    """
-
-    # Generate grid points for each dimension based on the number of steps
-    grid_ranges = [
-        np.linspace(0., 1., steps) 
-        for steps in dimensions
-    ]
-    # Generate the Cartesian product of all grid points
-    grid_samples = np.array(list(itertools.product(*grid_ranges)))
-    return grid_samples
+    def evaluate_selection(self, expression, variables):
+        return super().evaluate_selection(expression, variables)

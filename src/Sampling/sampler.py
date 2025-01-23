@@ -2,7 +2,11 @@
 from base import Base
 from abc import ABCMeta, abstractmethod
 from variables import Variable
+import sympy as sp 
 
+class BoolConversionError(Exception):
+    """Nothing but raise bool error"""
+    pass
 class SamplingVirtial(Base):
     __metaclass__ = ABCMeta
     def __init__(self) -> None:
@@ -53,3 +57,14 @@ class SamplingVirtial(Base):
     def combine_data(self, df_full) -> None:
         pass 
         
+    @abstractmethod
+    def evaluate_selection(self, expression, variables) -> bool: 
+        symbols = {var: sp.symbols(var) for var in variables}
+        expr    = sp.sympify(expression, locals=symbols)
+        result  = expr.subs(variables)
+        try:
+            result = bool(result)
+            return result 
+        except:
+            raise BoolConversionError("Result cannot be converted to a boolean value.")
+            return None

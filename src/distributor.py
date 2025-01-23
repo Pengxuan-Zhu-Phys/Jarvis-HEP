@@ -20,5 +20,8 @@ class Distributor(Base):
             case "Grid":
                 from Sampling.grid import Grid
                 return Grid()
+            case "Random":
+                from Sampling.randoms import RandomS
+                return RandomS()
         
         
