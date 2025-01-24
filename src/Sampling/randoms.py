@@ -24,6 +24,7 @@ class RandomS(SamplingVirtial):
         self._index = None
         self.tasks  = []
         self.info   = {}
+        self._selectionexp = None
 
     def load_schema_file(self):
         self.schema = self.path['RandomSchema']
@@ -40,10 +41,14 @@ class RandomS(SamplingVirtial):
 
     def __next__(self):# Stop iteration, if _P is not defined or _P is not np.array
         if self._index < self._maxp:
-            result = self._P[self._index]
-            result = self.map_point_into_distribution(result)
+            is_selection = True 
+            while is_selection: 
+                temp    = np.random.rand(self._dimensions)
+                param   = self.map_point_into_distribution(temp)
+                if self._selectionexp: 
+                    is_selection = self.evaluate_selection(self._selectionexp, param)
             self._index += 1
-            return result
+            return param
         else:
             # raise StopIteration
             return None
@@ -65,21 +70,24 @@ class RandomS(SamplingVirtial):
         self.load_variable()
         self._dimensions = len(self.vars)
         self._maxp  = int(self.config['Sampling']['Point number'])
-        self._selectionexp = self.config["Sampling"]["selection"]
+        if "selection" in self.config["Sampling"]:
+            self._selectionexp = self.config["Sampling"]["selection"]
 
     def initialize(self):
         self.logger.warning("Initializing the Random Sampling")
-        try:
-            self.info["t0"]       = time.time() 
-            temp    = np.random.rand(self._dimensions)
-            param   = self.map_point_into_distribution(temp)
-            self.evaluate_selection(self._selectionexp, param)
-        except BoolConversionError:
-            self.logger.error("Wrong selection condition in input YAML -> \n\t{}".format(self._selectionexp))
-            sys.exit(2)
-        except:
-            self.logger.error("Random Sampler meets error when trying to scan the parameter space.")
-            sys.exit(2)
+        self._index = 0 
+        if self._selectionexp:
+            try:
+                self.info["t0"]       = time.time() 
+                temp    = np.random.rand(self._dimensions)
+                param   = self.map_point_into_distribution(temp)
+                self.evaluate_selection(self._selectionexp, param)
+            except BoolConversionError:
+                self.logger.error("Wrong selection condition in input YAML -> \n\t{}".format(self._selectionexp))
+                sys.exit(2)
+            except:
+                self.logger.error("Random Sampler meets error when trying scan the parameter space.")
+                sys.exit(2)
 
     def run_nested(self):
         total_cores = os.cpu_count()

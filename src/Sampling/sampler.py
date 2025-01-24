@@ -3,6 +3,7 @@ from base import Base
 from abc import ABCMeta, abstractmethod
 from variables import Variable
 import sympy as sp 
+from inner_func import update_const, update_funcs
 
 class BoolConversionError(Exception):
     """Nothing but raise bool error"""
@@ -59,12 +60,27 @@ class SamplingVirtial(Base):
         
     @abstractmethod
     def evaluate_selection(self, expression, variables) -> bool: 
-        symbols = {var: sp.symbols(var) for var in variables}
-        expr    = sp.sympify(expression, locals=symbols)
-        result  = expr.subs(variables)
+        """
+        Evaluates a selection condition.
+
+        Args:
+            expression (str): A sympy-compatible condition string (e.g., "X > Y + log(E)").
+            variables (dict): A dictionary of variable values (e.g., {"X": 5.0, "Y": 3.0}).
+
+        Returns:
+            bool: True if the condition is satisfied, False otherwise.
+
+        Raises:
+            BoolConversionError: If the result cannot be converted to a boolean value.
+        """
+        custom_functions = update_funcs({})
+        custom_constants = update_const({})
         try:
+            symbols = {var: sp.symbols(var) for var in variables}
+            locals_context = {**custom_functions, **custom_constants, **symbols}
+            expr = sp.sympify(expression, locals=locals_context)
+            result = expr.subs(variables)
             result = bool(result)
             return result 
         except:
             raise BoolConversionError("Result cannot be converted to a boolean value.")
-            return None

@@ -82,7 +82,7 @@ class Grid(SamplingVirtial):
             self._index           = 0
             self.logger.info("Grid Sampler obtains {} samples in {:.2f} sec".format(self.info['NSamples'], self.info['t0']))
         except:
-            self.logger.error("Grid Sampler meets error when trying to scan the parameter space.")
+            self.logger.error("Grid Sampler meets error when trying scan the parameter space.")
             sys.exit(2)
 
     def run_nested(self):

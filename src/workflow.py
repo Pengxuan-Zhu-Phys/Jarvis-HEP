@@ -7,6 +7,7 @@ import numpy as np
 import contextlib
 import os, io 
 import asyncio
+from numpy.lib._type_check_impl import imag
 
 class Workflow(Base):
     def __init__(self):
@@ -180,7 +181,6 @@ class Workflow(Base):
     async def draw_flowchart(self, save_path="flowchart.png"):
         # with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             import matplotlib.pyplot as plt 
-            import shapely as sp 
             import logging
             logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
             logging.getLogger('PIL.PngImagePlugin').setLevel(logging.CRITICAL)
@@ -508,17 +508,16 @@ class Workflow(Base):
                 ax.plot(xx, yy, "-", c="#d45040", lw=3)
 
             def input_file_at_pos(pos):
-                image_path = "src/icons/inputfile.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
+                image_path = "src/icons/inputfile.png" 
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
 
             def output_file_at_pos(pos):
                 image_path = "src/icons/outputfile.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
-                # ax.plot([-100, 100], [pos[1], pos[1]], "-", c='grey', lw=0.4, alpha=0.2)
+                with Image.open(image_path) as image: 
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
 
             def outvar_at_OP(op):
                 text = ax.text(op["pos"][0], op["pos"][1], op['nam'], ha="right", va="center", fontfamily="monospace", variant="small-caps", fontsize="x-small", fontstyle="normal", fontweight="bold")
@@ -530,29 +529,28 @@ class Workflow(Base):
 
             def module_at_pos(pos):
                 image_path = "src/icons/calculator.png"  
-                image = Image.open(image_path)
-                # image = np.array(image)
-                image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def lib_at_pos(pos):
                 image_path = "src/icons/library.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def sampler_at_pos(pos):
                 image_path = "src/icons/sampler.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def logo_at_pos(pos):
                 image_path = "src/icons/JarvisHEP.png"
-                image = Image.open(image_path)
-                image = np.array(image.convert("RGBA"))
-                ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
-                ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")
+                with Image.open(image_path) as image:
+                    image = np.array(image.convert("RGBA"))
+                    ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
+                    ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")
 
 
             layerInfo, figH = resolve_layer()
@@ -580,5 +578,5 @@ class Workflow(Base):
                     draw_layer_module(kk, info)
             
             plt.savefig(save_path, dpi=300)
-            plt.close()
+            plt.close("all")
             await asyncio.sleep(2)

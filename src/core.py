@@ -268,7 +268,6 @@ class Core(Base):
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
         if not self.args.skipFC:
-            from threading import Thread
             self.logger.warning(f"Draw workflow chart into {self.info['flowchart_path']}")
             asyncio.run(
                 self.workflow.draw_flowchart(save_path=self.info['flowchart_path'])
