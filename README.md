@@ -10,5 +10,4 @@
   [arXiv:1708.06615](https://arxiv.org/abs/1708.06615)
 
 This repository contains the code of DNN-Based sampling of 2D Eggbox potential parameter space, which was developed as part of our contributions to AI_for_High_Energy_Physics. 
-For more details about the collaborative project, visit: https://github.com/karlschwarz
-/AI_for_HEP.
+For more details about the collaborative project, visit: https://github.com/karlschwarz/AI_for_HEP.
