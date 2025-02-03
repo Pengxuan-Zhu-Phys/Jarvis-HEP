@@ -4,6 +4,8 @@ from abc import ABCMeta, abstractmethod
 from variables import Variable
 import sympy as sp 
 from inner_func import update_const, update_funcs
+import numpy as np 
+import sys, os 
 
 class BoolConversionError(Exception):
     """Nothing but raise bool error"""
@@ -17,6 +19,7 @@ class SamplingVirtial(Base):
         self.vars: Tuple[Variable]      = None
         self.method                     = None
         self.max_workers                = 4
+        self._selectionexp              = None
 
     def set_max_workers(self, nn):
         self.max_workers = nn 
@@ -84,3 +87,17 @@ class SamplingVirtial(Base):
             return result 
         except:
             raise BoolConversionError("Result cannot be converted to a boolean value.")
+
+    @abstractmethod
+    def check_evaluation(self):
+        if self._selectionexp:
+            try:
+                temp    = np.random.rand(self._dimensions)
+                param   = self.map_point_into_distribution(temp)
+                self.evaluate_selection(self._selectionexp, param)
+            except BoolConversionError:
+                self.logger.error("Wrong selection condition in input YAML -> \n\t{}".format(self._selectionexp))
+                sys.exit(2)
+            except:
+                self.logger.error("Random Sampler meets error when trying scan the parameter space.")
+                sys.exit(2)

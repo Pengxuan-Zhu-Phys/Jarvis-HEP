@@ -23,5 +23,8 @@ class Distributor(Base):
             case "Random":
                 from Sampling.randoms import RandomS
                 return RandomS()
+            case "DNN":
+                from Sampling.dnn import DNN
+                return DNN()
         
         

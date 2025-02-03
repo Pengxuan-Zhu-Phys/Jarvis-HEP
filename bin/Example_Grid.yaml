@@ -12,6 +12,7 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
+          num: 5
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -20,6 +21,16 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
+          num: 5
+
+    - name: yy
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+          num: 5
 
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
@@ -30,9 +41,9 @@ EnvironmentRequirements:
     - name: linux 
       version: ">=3.10.0"
     - name: Darwin
-      version: ">=10.14"
+      version: ">=10.0"
   Check_default_dependences:
-    required: true
+    required: True 
     default_yaml_path:  "&J/src/card/environment_default.yaml"
 
 Calculators:

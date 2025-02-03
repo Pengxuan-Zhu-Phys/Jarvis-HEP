@@ -243,10 +243,10 @@ class Core(Base):
         slogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
         slogger.add(self.info['sampler_log'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
         self.sampler.info['logfile'] = self.info['sampler_log']
+        self.sampler.info['sample'] = deepcopy(self.info['sample'])
         self.sampler.set_logger(slogger)
         self.sampler.initialize()
         self.yaml.vars = self.sampler.vars 
-        self.sampler.info['sample'] = deepcopy(self.info['sample'])
 
     def init_librarys(self) -> None:
         if hasattr(self.yaml, "SupportLibrary"):
@@ -273,7 +273,6 @@ class Core(Base):
                 self.workflow.draw_flowchart(save_path=self.info['flowchart_path'])
             )
         self.workflow.get_workflow_dict()
-        self.logger.warning(self.workflow.workflow.keys())
 
     def init_WorkerFactory(self) -> None: 
         self.factory = WorkerFactory()

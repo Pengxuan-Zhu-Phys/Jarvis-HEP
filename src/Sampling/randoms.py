@@ -11,6 +11,7 @@ from sample import Sample
 import concurrent.futures
 import itertools
 import sympy as sp 
+from test.test_imaplib import RemoteIMAPTest
 
 # from _pytest.mark import param
 
@@ -25,6 +26,7 @@ class RandomS(SamplingVirtial):
         self.tasks  = []
         self.info   = {}
         self._selectionexp = None
+        self.future_to_sample = {}
 
     def load_schema_file(self):
         self.schema = self.path['RandomSchema']
@@ -102,6 +104,7 @@ class RandomS(SamplingVirtial):
                         sample.set_config(deepcopy(self.info['sample']))
                         future = self.factory.submit_task(sample.params, sample.info)
                         self.tasks.append(future)
+                        self.future_to_sample[future] = sample
                     else: 
                         break
                 except StopIteration:
@@ -109,6 +112,31 @@ class RandomS(SamplingVirtial):
             
             done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
             # Remove completed futures
+            # done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
+    
+            # Process completed futures
+            for future in done:
+                try:
+                    result = future.result()  # Retrieve result of completed sample
+
+                    # Retrieve the corresponding sample instance
+                    sample = self.future_to_sample.pop(future, None)
+
+                    if sample:
+                        self.logger.info(f"Sample completed with result: {result}, Sample Info: {sample.info['observables']['z']}")
+
+                        # If needed, store results in a list or database
+                        # self.completed_samples.append((sample.info, result))
+                        # time.sleep(10)
+
+                except Exception as e:
+                    self.logger.error(f"Error processing sample: {e}")
+
+            # Remove completed futures from task list
+            # self.tasks = [f for f in self.tasks if f not in done]
+            
+            
+            
             self.tasks = [f for f in self.tasks if f not in done]
             # Exit loop if no tasks are pending and no more samples
             if not self.tasks and not param:

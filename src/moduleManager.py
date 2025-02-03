@@ -78,6 +78,7 @@ class ModuleManager:
                         
         # After all modules have executed, calculate likelihood based on the final observables
         observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
+        sample_info['observables'] = observables
         self.database.add_data(observables)
         # print("Manager Line 82 ->", observables['LogL'])
         return observables['LogL']

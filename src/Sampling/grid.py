@@ -11,7 +11,8 @@ from sympy import sympify
 from sympy.geometry import parabola
 import time 
 from random import randint
-from Sampling.sampler import SamplingVirtial
+# from Sampling.sampler import SamplingVirtial
+from sampler import SamplingVirtial
 import json
 from scipy.special import gammainc
 from sample import Sample

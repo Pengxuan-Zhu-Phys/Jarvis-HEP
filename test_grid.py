@@ -1,35 +1,30 @@
-import numpy as np
-import itertools
+import sympy as sp
 
-def generate_grid_samples(dimensions, num_steps):
+def evaluate_expression(expr_str, variables):
     """
-    Generate grid samples based on dimensions and dimension-specific number of steps.
+    使用 sympy 对表达式进行求值。
 
-    Args:
-        dimensions (list of tuple): A list of tuples where each tuple specifies the (min, max) range for a dimension.
-        num_steps (list of int): A list specifying the number of steps (including start and end) for each dimension.
+    参数:
+        expr_str (str): 表达式字符串，例如 "(2.0 * X < Y)"。
+        variables (dict): 变量名和对应值的字典，例如 {"X": 5.0, "Y": 10}。
 
-    Returns:
-        numpy.ndarray: A 2D array where each row represents a grid sample.
+    返回:
+        bool: 表达式是否为真。
     """
-    if len(dimensions) != len(num_steps):
-        raise ValueError("The length of 'dimensions' and 'num_steps' must be the same.")
+    # 将变量转换为 sympy 符号
+    symbols = {var: sp.symbols(var) for var in variables}
+    
+    # 将字符串解析为 sympy 表达式
+    expr = sp.sympify(expr_str, locals=symbols)
+    
+    # 用给定变量的值进行求值
+    result = expr.subs(variables)
+    
+    # 返回布尔值结果
+    return bool(result)
 
-    # Generate grid points for each dimension based on the number of steps
-    grid_ranges = [
-        np.linspace(dim_min, dim_max, steps) 
-        for (dim_min, dim_max), steps in zip(dimensions, num_steps)
-    ]
-
-    # Generate the Cartesian product of all grid points
-    grid_samples = np.array(list(itertools.product(*grid_ranges)))
-
-    return grid_samples
-
-# Example usage
-dimensions = [(0, 1), (0, 1), (0, 1)]  # Three dimensions with range [0, 1]
-num_steps = [6, 4, 8]  # Number of steps for each dimension
-grid_samples = generate_grid_samples(dimensions, num_steps)
-
-print(f"Number of samples: {len(grid_samples)}")
-print(grid_samples)
+# 示例用法
+expression = "(2.0 * X < Y)"
+variables = {"X": 5.0, "Y": 10}
+result = evaluate_expression(expression, variables)
+print(result)  # 输出: True

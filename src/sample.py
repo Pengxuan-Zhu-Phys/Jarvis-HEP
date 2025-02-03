@@ -57,3 +57,7 @@ class Sample(Base):
     
     def manage_directories(self, base_path):
         return super().manage_directories(base_path)
+    
+    def evaluate_output(self, outputs):
+        # Evaluating a serious 
+        pass 

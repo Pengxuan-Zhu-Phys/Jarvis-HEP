@@ -79,10 +79,8 @@ class Dynesty(SamplingVirtial):
             sample.set_config(deepcopy(self.info['sample']))
             future = self.factory.submit_task(sample.params, sample.info)
             result = future.result()
-            # print("Dynesty Line 83 -> LogL ", result, type(result))
             return result 
-            # except:
-            #     return -np.inf 
+
         
         self.init_sampler_db()
 

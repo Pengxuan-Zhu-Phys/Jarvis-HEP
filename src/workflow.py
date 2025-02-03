@@ -579,4 +579,3 @@ class Workflow(Base):
             
             plt.savefig(save_path, dpi=300)
             plt.close("all")
-            await asyncio.sleep(2)
