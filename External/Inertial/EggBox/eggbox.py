@@ -12,7 +12,7 @@ with open("input.json", 'r') as f1:
 from random import random
 
 f = {
-    "z" :   sin(data["xx"]) * cos(data["yy"]),
+    "z" :   (sin(data["xx"]) * cos(data["yy"]) + 2) ** 5,
     "Time": random()
 }
 

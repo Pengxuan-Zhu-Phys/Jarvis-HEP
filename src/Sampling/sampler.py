@@ -20,6 +20,11 @@ class SamplingVirtial(Base):
         self.method                     = None
         self.max_workers                = 4
         self._selectionexp              = None
+        self._loglike                   = None 
+
+    @property
+    def loglike(self):
+        return self._loglike
 
     def set_max_workers(self, nn):
         self.max_workers = nn 
@@ -79,6 +84,7 @@ class SamplingVirtial(Base):
         custom_functions = update_funcs({})
         custom_constants = update_const({})
         try:
+            # print(variables)
             symbols = {var: sp.symbols(var) for var in variables}
             locals_context = {**custom_functions, **custom_constants, **symbols}
             expr = sp.sympify(expression, locals=locals_context)
@@ -101,3 +107,18 @@ class SamplingVirtial(Base):
             except:
                 self.logger.error("Random Sampler meets error when trying scan the parameter space.")
                 sys.exit(2)
+                
+    @abstractmethod
+    def set_likelihood(self, loglike):
+        self._loglike = loglike
+        self._loglike.logger = self.logger 
+    
+    @abstractmethod
+    def logo_at_pos(self, pos, ax):
+        from PIL import Image
+        image_path = "src/icons/JarvisHEP.png"
+        with Image.open(image_path) as image:
+            image = np.array(image.convert("RGBA"))
+            ax.axes("off")
+            ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
+            ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")

@@ -24,16 +24,16 @@ Sampling:
   Bounds: 
     Niters: 40
     Hidden_layers: [32, 64, 128, 16]
-    Batch_size: 128
-    Ninit:  100
+    Batch_size: 10
+    Ninit:  20
     Nepoch: 10
     Learning_rate:  0.0001
     Outputs:  
       - z
-
-
+      
   LogLikelihood: 
-    - {name: "LogL_Z",  expression: "(2 + z)**5"}
+    - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
+
   selection: "log(2.0 * x) < sin(y)"
 
 EnvironmentRequirements:

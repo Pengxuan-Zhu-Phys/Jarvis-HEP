@@ -7,7 +7,7 @@ import numpy as np
 import contextlib
 import os, io 
 import asyncio
-from numpy.lib._type_check_impl import imag
+# from numpy.lib._type_check_impl import imag
 
 class Workflow(Base):
     def __init__(self):
@@ -185,7 +185,6 @@ class Workflow(Base):
             logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
             logging.getLogger('PIL.PngImagePlugin').setLevel(logging.CRITICAL)
             from matplotlib.collections import LineCollection
-            from plot import draw_logo_in_square
             from plot import create_round_square
             from PIL import Image
 

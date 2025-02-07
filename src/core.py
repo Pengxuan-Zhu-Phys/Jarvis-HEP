@@ -298,6 +298,8 @@ class Core(Base):
     def init_likelihood(self) -> None: 
         self.module_manager.set_likelihood()
         self.module_manager.set_funcs(self._funcs)
+        from copy import deepcopy
+        self.sampler.set_likelihood(deepcopy(self.module_manager.loglikelihood))
 
     def init_database(self) -> None: 
         from hdf5writer import GlobalHDF5Writer

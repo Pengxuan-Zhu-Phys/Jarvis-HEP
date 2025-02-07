@@ -15,6 +15,7 @@ import math
 import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import os 
+from torch.utils.data import DataLoader, TensorDataset
 
 # Cell 3 
 #@njit
@@ -39,6 +40,39 @@ def likelihood(state, O_star=100, sigma_star=10):
     # Compute the Gaussian-like function
     exponent = -((potential - O_star) ** 2) / (2 * sigma_star ** 2)
     return math.exp(exponent)
+
+def loglikelihood(samples, O_star=100, sigma_star=10):
+    """
+    Compute the log-likelihood of samples under a Gaussian distribution.
+
+    Parameters:
+    - samples: numpy array of shape [num_samples, 2]
+        The input samples for which to compute the log-likelihood.
+    - O_star: float
+        The mean of the Gaussian distribution (same for both dimensions).
+    - sigma_star: float
+        The standard deviation of the Gaussian distribution.
+
+    Returns:
+    - log_likelihood: float
+        The log-likelihood of the samples.
+    """
+    # Mean and covariance
+    mean = np.array([O_star, O_star])
+    cov = np.eye(2) * sigma_star
+    
+    # Compute the Mahalanobis distance term
+    diff = samples - mean  # Shape: [num_samples, 2]
+    inv_cov = np.linalg.inv(cov)  # Shape: [2, 2]
+    term = np.dot(diff, np.dot(inv_cov, diff.T))  # Shape: [num_samples, num_samples]
+    
+    # Take the trace to sum the diagonal elements (contributions from each sample)
+    trace_term = np.trace(term)  # Scalar
+    
+    # Compute the log-likelihood
+    log_likelihood = -0.5 * trace_term / samples.shape[0]
+    
+    return log_likelihood
 
 # Cell 5
 #@njit
@@ -137,7 +171,63 @@ class FeedforwardNN(nn.Module):
         x = self.output_layer(x)  # Output layer (no activation)
         return x
     
-# Cell 8 
+# Cell 8
+# Function to optimize the DNN using precomputed outputs and resampled pairs
+def optimize_dnn_with_resampled_pairs(
+    dnn, resampled_indices, dataset, device, num_epochs=1, batch_size=32, learning_rate=0.001
+):
+    """
+    Optimize the DNN using precomputed outputs and resampled pairs.
+
+    Args:
+        dnn (nn.Module): The DNN model to optimize.
+        resampled_indices (numpy array): Indices of the resampled samples.
+        samples (numpy array): Original samples from the DNN.
+        dnn_outputs (numpy array): Precomputed outputs from the DNN.
+        eggbox_function (function): Function to compute the true labels.
+        num_epochs (int): Number of training epochs.
+        batch_size (int): Batch size for training.
+        learning_rate (float): Learning rate for the optimizer.
+    """
+    # Resample the data and DNN outputs
+    # U,        O 
+    samples, labels = dataset[0], dataset[1]
+    resampled_samples = samples[resampled_indices]
+    resampled_labels = labels[resampled_indices]
+    
+    # Convert to PyTorch tensors
+    resampled_samples_tensor = torch.tensor(resampled_samples, dtype=torch.float32).to(device)
+    resampled_labels_tensor = torch.tensor(resampled_labels, dtype=torch.float32).view(-1, 1).to(device)
+    
+    # Create a DataLoader
+    dataset = TensorDataset(resampled_samples_tensor, resampled_labels_tensor)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    # Define loss function and optimizer
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(dnn.parameters(), lr=learning_rate)
+    
+    # Training loop
+    loss_sum = 0.0
+    for epoch in range(num_epochs):
+        for batch_samples, batch_labels in dataloader:
+            # Forward pass
+            outputs = dnn(batch_samples)
+            
+            # Compute loss
+            loss = criterion(outputs, batch_labels)
+            
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            loss_sum += loss.cpu().detach().numpy()
+        
+    loss_avg = loss_sum / num_epochs
+    return resampled_samples, resampled_labels, loss_avg    
+    
+# Cell 9
 def rejection_sampling(
     samples, dnn_outputs, likelihood_function, num_resamples, egg_function=eggbox, O_star=100, sigma_star=10, kde_bandwidth=None
 ):
@@ -189,7 +279,7 @@ def rejection_sampling(
     
     return np.array(resampled_idx, dtype=np.int16), acceptance_prob_avg
 
-# Cell 9 
+# Cell 10 
 def dataset_create(samples, egg_function=eggbox):
     labels = []
     for sample in samples:
@@ -198,7 +288,7 @@ def dataset_create(samples, egg_function=eggbox):
     labels = np.array(labels).reshape(-1, 1)
     return samples, labels
 
-# Cell 10 
+# Cell 11 
 def add_noise(samples, std=1.0):
     """
     Add Gaussian noise to a 2D array of samples.
@@ -221,7 +311,7 @@ def add_noise(samples, std=1.0):
     
     return noisy_samples
 
-# Cell 11 
+# Cell 12 
 # Function to train the DNN iteratively with CUDA support
 def train_dnn_iteratively(
     dnn, device, egg_function=eggbox, likelihood_function=likelihood,
@@ -355,7 +445,7 @@ def train_dnn_iteratively(
     sample_collect = np.vstack(sample_collect)  # Shape will now be [num_samples, 2]
     return sample_collect, loss_list
 
-# Cell 12
+# Cell 13
 if __name__ == "__main__":
     # Define the DNN parameters
     input_size = 2  # Number of input features

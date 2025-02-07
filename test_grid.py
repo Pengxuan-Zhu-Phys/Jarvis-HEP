@@ -1,30 +1,75 @@
-import sympy as sp
+#!/usr/bin/env python3 
 
-def evaluate_expression(expr_str, variables):
+import numpy as np
+
+def compute_mahalanobis_distance(samples, O_star=100, sigma_star=10):
     """
-    使用 sympy 对表达式进行求值。
+    Compute Mahalanobis distance for each sample.
 
-    参数:
-        expr_str (str): 表达式字符串，例如 "(2.0 * X < Y)"。
-        variables (dict): 变量名和对应值的字典，例如 {"X": 5.0, "Y": 10}。
+    Args:
+        samples (numpy.ndarray): Array of shape (num_samples, 2).
+        O_star (float): Mean value for Gaussian distribution.
+        sigma_star (float): Standard deviation.
 
-    返回:
-        bool: 表达式是否为真。
+    Returns:
+        numpy.ndarray: Mahalanobis distance for each sample.
+        float: Average Mahalanobis distance.
     """
-    # 将变量转换为 sympy 符号
-    symbols = {var: sp.symbols(var) for var in variables}
-    
-    # 将字符串解析为 sympy 表达式
-    expr = sp.sympify(expr_str, locals=symbols)
-    
-    # 用给定变量的值进行求值
-    result = expr.subs(variables)
-    
-    # 返回布尔值结果
-    return bool(result)
+    mean = np.array([O_star, O_star])  # Mean vector
+    inv_cov = np.linalg.inv(np.eye(2) * sigma_star**2)  # Inverse covariance matrix
 
-# 示例用法
-expression = "(2.0 * X < Y)"
-variables = {"X": 5.0, "Y": 10}
-result = evaluate_expression(expression, variables)
-print(result)  # 输出: True
+    # Compute Mahalanobis distance for each sample
+    diff = samples - mean  # Difference from the mean
+    mahalanobis_distances = np.sqrt(np.sum(diff @ inv_cov * diff, axis=1))
+
+    # Compute average Mahalanobis distance
+    avg_mahalanobis = np.mean(mahalanobis_distances)
+
+    return mahalanobis_distances, avg_mahalanobis
+
+def compute_average_loglikelihood(log_likelihoods):
+    """
+    Compute the average log-likelihood.
+
+    Args:
+        log_likelihoods (numpy.ndarray): Array of log-likelihood values.
+
+    Returns:
+        float: Average log-likelihood.
+    """
+    return np.mean(log_likelihoods)
+
+
+def approximate_mahalanobis_from_likelihood(log_likelihoods, C=0):
+    """
+    Approximate Mahalanobis distance given log-likelihood values.
+
+    Args:
+        log_likelihoods (numpy array): Log-likelihood values for each sample.
+        C (float): Normalization constant, can be estimated from known distributions.
+
+    Returns:
+        numpy array: Estimated Mahalanobis distances.
+        float: Average estimated Mahalanobis distance.
+    """
+    # Compute approximate Mahalanobis distances
+    mahalanobis_distances = np.sqrt(2 * (C - log_likelihoods))
+
+    # Compute average Mahalanobis distance
+    avg_mahalanobis = np.mean(mahalanobis_distances)
+
+    return mahalanobis_distances, avg_mahalanobis
+
+# Example usage
+samples = np.random.randn(1000, 2) * 10 + 100  # Example samples around O_star
+log_likelihoods = - (samples - 100)**2 / 200  # Example log-likelihood values
+
+mahalanobis_distances, avg_mahalanobis = compute_mahalanobis_distance(samples)
+avg_loglikelihood = compute_average_loglikelihood(log_likelihoods)
+
+print("Average Mahalanobis Distance:", avg_mahalanobis)
+print("Average Log-Likelihood:", avg_loglikelihood)
+
+mahalanobis_distances, avg_mahalanobis = approximate_mahalanobis_from_likelihood(log_likelihoods, C=0)
+
+print("Estimated Average Mahalanobis Distance:", avg_mahalanobis)

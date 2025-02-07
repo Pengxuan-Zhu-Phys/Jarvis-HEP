@@ -2,16 +2,14 @@
 import os, sys
 from re import S 
 from abc import ABCMeta, abstractmethod
-from mpmath.functions.functions import re
+# from mpmath.functions.functions import re
 import numpy as np
 import time 
 from Sampling.sampler import SamplingVirtial, BoolConversionError
 import json
 from sample import Sample
 import concurrent.futures
-import itertools
 import sympy as sp 
-from test.test_imaplib import RemoteIMAPTest
 
 # from _pytest.mark import param
 
@@ -111,31 +109,6 @@ class RandomS(SamplingVirtial):
                     break
             
             done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
-            # Remove completed futures
-            # done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
-    
-            # Process completed futures
-            for future in done:
-                try:
-                    result = future.result()  # Retrieve result of completed sample
-
-                    # Retrieve the corresponding sample instance
-                    sample = self.future_to_sample.pop(future, None)
-
-                    if sample:
-                        self.logger.info(f"Sample completed with result: {result}, Sample Info: {sample.info['observables']['z']}")
-
-                        # If needed, store results in a list or database
-                        # self.completed_samples.append((sample.info, result))
-                        # time.sleep(10)
-
-                except Exception as e:
-                    self.logger.error(f"Error processing sample: {e}")
-
-            # Remove completed futures from task list
-            # self.tasks = [f for f in self.tasks if f not in done]
-            
-            
             
             self.tasks = [f for f in self.tasks if f not in done]
             # Exit loop if no tasks are pending and no more samples

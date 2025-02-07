@@ -30,6 +30,7 @@ Sampling:
       # maxcall:  4000  
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
+    - {name: "LogL_ZP",  expression: "cx + z"}
   selection: "(2.0 * X < Y)"
 
 EnvironmentRequirements:

@@ -20,7 +20,7 @@ class LogLikelihood(Base):
         # Convert a single expression into a list for uniform processing
         from inner_func import update_funcs, update_const
         self.named_expressions = []
-        
+        self.expressions = expressions
         for expr_dict in expressions:
             if isinstance(expr_dict, dict) and 'name' in expr_dict and 'expression' in expr_dict:
                 # Parse the 'expression' value to create a sympy expression, with updated functions available
@@ -39,6 +39,26 @@ class LogLikelihood(Base):
     def update_funcs(self, funcs):
         self.custom_functions.update(funcs)
         # self.logger.info(f"Jarvis-HEP likelihood now support the following inner functions -> \n{self.custom_functions.keys()}")
+
+    def calculate4dnn(self, row):
+        """
+        row is a Pandas Series object
+        """
+        try: 
+            self.values = {}
+            total_loglikelihood = 0. 
+            for expr_dict in self.named_expressions:
+                expr = expr_dict[1]
+                name = expr_dict[0]
+                var_names = [str(var) for var in expr.free_symbols]
+                symbol_values_strs = {var: row[var] for var in var_names if var in row}
+                num_expr = lambdify(var_names, expr, modules=[self.custom_functions, "numpy"])
+                likelihood = float(num_expr(**symbol_values_strs))
+                self.values[name] = likelihood
+                total_loglikelihood += likelihood
+            return total_loglikelihood
+        except Exception as exc:
+            return -inf
 
     def calculate(self, values, sample_info):
         """
@@ -103,3 +123,20 @@ class LogLikelihood(Base):
         
         self.childlogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
         self.childhandler = self.childlogger.add(sample_info['run_log'], format=LogLikelihood.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
+
+    def __deepcopy__(self, memo):
+        # Create a new instance
+        from copy import deepcopy
+        copied = LogLikelihood(deepcopy(self.expressions, memo))
+
+        # Copy deepcopy-safe attributes
+        copied.variables = deepcopy(self.variables, memo)
+        copied.constants = deepcopy(self.constants, memo)
+        copied.values = deepcopy(self.values, memo)
+
+        # Functions and loggers cannot be copied directly, so reinitialize them
+        copied.custom_functions = self.custom_functions  # Functions remain shared
+        copied.logger = None
+        copied.childlogger = None
+        copied.childhandler = None
+        return copied
