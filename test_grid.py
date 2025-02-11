@@ -2,74 +2,63 @@
 
 import numpy as np
 
-def compute_mahalanobis_distance(samples, O_star=100, sigma_star=10):
+# import numpy as np
+import matplotlib.pyplot as plt
+
+def generate_random_points():
+    """ 在单位圆上随机撒四个点，并计算它们的极角 """
+    angles = np.sort(np.random.uniform(0, 2 * np.pi, 4))  # 生成 4 个随机角度并排序
+    return angles
+
+def check_points_in_half_circle(angles):
     """
-    Compute Mahalanobis distance for each sample.
-
-    Args:
-        samples (numpy.ndarray): Array of shape (num_samples, 2).
-        O_star (float): Mean value for Gaussian distribution.
-        sigma_star (float): Standard deviation.
-
-    Returns:
-        numpy.ndarray: Mahalanobis distance for each sample.
-        float: Average Mahalanobis distance.
+    判断 4 个点是否在同一个半圆上：
+    如果 4 个点中最大的间隔 >= π，则其余 3 个点落入某个半圆
     """
-    mean = np.array([O_star, O_star])  # Mean vector
-    inv_cov = np.linalg.inv(np.eye(2) * sigma_star**2)  # Inverse covariance matrix
+    angle0 = angles.min()
+    angle_gaps0 = angles - angle0
+    angle_gaps1 = 2 * np.pi - angles - angle0  
+    # 计算角度间隔
+    max_gap = np.max(angle_gaps)  # 找到最大间隔
+    return max_gap <= np.pi  # 最大间隔 <= π，说明可以找到一个半圆包含 4 个点
 
-    # Compute Mahalanobis distance for each sample
-    diff = samples - mean  # Difference from the mean
-    mahalanobis_distances = np.sqrt(np.sum(diff @ inv_cov * diff, axis=1))
+def plot_points(angles, result):
+    """ 绘制单位圆并标注 4 个点 """
+    fig, ax = plt.subplots(figsize=(6,6))
+    ax.set_xlim(-1.2, 1.2)
+    ax.set_ylim(-1.2, 1.2)
+    ax.set_aspect('equal')
+    ax.set_xticks([])
+    ax.set_yticks([])
 
-    # Compute average Mahalanobis distance
-    avg_mahalanobis = np.mean(mahalanobis_distances)
+    # 画出单位圆
+    circle = plt.Circle((0, 0), 1, color='black', fill=False, linewidth=1.2)
+    ax.add_patch(circle)
 
-    return mahalanobis_distances, avg_mahalanobis
+    # 计算点的位置并绘制
+    x, y = np.cos(angles), np.sin(angles)
+    ax.scatter(x, y, color='red', s=80, label="Random Points")
 
-def compute_average_loglikelihood(log_likelihoods):
-    """
-    Compute the average log-likelihood.
+    # 标注点
+    for i, (xi, yi) in enumerate(zip(x, y)):
+        ax.text(xi, yi, f"P{i+1}", fontsize=12, ha='right', color='blue')
 
-    Args:
-        log_likelihoods (numpy.ndarray): Array of log-likelihood values.
+    # 标题
+    ax.set_title(f"All Points in a Half-Circle: {'Yes' if result else 'No'}")
 
-    Returns:
-        float: Average log-likelihood.
-    """
-    return np.mean(log_likelihoods)
+    plt.legend()
+    plt.show()
 
+# 运行程序
+n = 0
+for ii in range(1000):  
+    angles = generate_random_points()
+    result = check_points_in_half_circle(angles)
+    if result: 
+        n += 1
+# plot_points(angles, result)
 
-def approximate_mahalanobis_from_likelihood(log_likelihoods, C=0):
-    """
-    Approximate Mahalanobis distance given log-likelihood values.
-
-    Args:
-        log_likelihoods (numpy array): Log-likelihood values for each sample.
-        C (float): Normalization constant, can be estimated from known distributions.
-
-    Returns:
-        numpy array: Estimated Mahalanobis distances.
-        float: Average estimated Mahalanobis distance.
-    """
-    # Compute approximate Mahalanobis distances
-    mahalanobis_distances = np.sqrt(2 * (C - log_likelihoods))
-
-    # Compute average Mahalanobis distance
-    avg_mahalanobis = np.mean(mahalanobis_distances)
-
-    return mahalanobis_distances, avg_mahalanobis
-
-# Example usage
-samples = np.random.randn(1000, 2) * 10 + 100  # Example samples around O_star
-log_likelihoods = - (samples - 100)**2 / 200  # Example log-likelihood values
-
-mahalanobis_distances, avg_mahalanobis = compute_mahalanobis_distance(samples)
-avg_loglikelihood = compute_average_loglikelihood(log_likelihoods)
-
-print("Average Mahalanobis Distance:", avg_mahalanobis)
-print("Average Log-Likelihood:", avg_loglikelihood)
-
-mahalanobis_distances, avg_mahalanobis = approximate_mahalanobis_from_likelihood(log_likelihoods, C=0)
-
-print("Estimated Average Mahalanobis Distance:", avg_mahalanobis)
+# 输出判断结果
+print("Prob -> {}".format(n/1000.))
+print("Angles (radians):", angles)
+print("All points in a half-circle:", result)

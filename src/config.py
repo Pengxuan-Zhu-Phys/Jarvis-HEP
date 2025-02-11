@@ -43,7 +43,7 @@ class ConfigLoader(Base):
             sys.exit(2)
 
     def check_dependency_installed(self) -> None:
-        dependencies = self.config["EnvironmentRequirements"]
+        dependencies = self.config["EnvReqs"]
         # Update the environment requirement by default setting 
         if "Check_default_dependences" in dependencies:
             self.update_dependences()
@@ -73,7 +73,7 @@ class ConfigLoader(Base):
         validator.validate_yaml()
 
     def check_PYTHON_env(self) -> None: 
-        py_env = self.config['EnvironmentRequirements']['Python']
+        py_env = self.config['EnvReqs']['Python']
         def compare_versions(version1, version2):
             v1 = tuple(map(int, version1.split('.')))
             v2 = tuple(map(int, version2.split('.')))
@@ -127,7 +127,7 @@ class ConfigLoader(Base):
             v2 = tuple(map(int, version2.split('.')))
             return v1 >= v2
         
-        root_req = self.config['EnvironmentRequirements']['CERN_ROOT']
+        root_req = self.config['EnvReqs']['CERN_ROOT']
         if root_req['required']:
             try:
                 result = subprocess.run("root-config --version", shell=True, capture_output=True, text=True)
@@ -216,25 +216,25 @@ class ConfigLoader(Base):
             sys.exit(2)
 
     def update_dependences(self) -> None:
-        if "required" in self.config['EnvironmentRequirements']['Check_default_dependences'] and "default_yaml_path" in self.config['EnvironmentRequirements']['Check_default_dependences']: 
-            if self.config['EnvironmentRequirements']['Check_default_dependences']['required']:
+        if "required" in self.config['EnvReqs']['Check_default_dependences'] and "default_yaml_path" in self.config['EnvReqs']['Check_default_dependences']: 
+            if self.config['EnvReqs']['Check_default_dependences']['required']:
                 try:
-                    self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path'] = self.decode_path(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path'])
-                    with open(self.decode_path(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']), 'r') as file:
+                    self.config['EnvReqs']['Check_default_dependences']['default_yaml_path'] = self.decode_path(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path'])
+                    with open(self.decode_path(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path']), 'r') as file:
                         default_env = yaml.safe_load(file)
-                        self.config['EnvironmentRequirements'].update(default_env['EnvironmentRequirements'])
+                        self.config['EnvReqs'].update(default_env['EnvReqs'])
                 except FileExistsError:
-                    self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvironmentRequirements']['default_yaml_path']))
-        self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvironmentRequirements']['Check_default_dependences']['default_yaml_path']))
+                    self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvReqs']['default_yaml_path']))
+        self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path']))
 
     def get_modules(self):
         modules = {
             "Parameter": self.config['Sampling']['Variables']
         }
-        if hasattr(self.config, "SupportingLibrary"):
-            if self.config["SupportingLibrary"]["Modules"]:
+        if hasattr(self.config, "LibDeps"):
+            if self.config["LibDeps"]["Modules"]:
                 self.analysis_Library()
-                modules['Library'] = self.config["SupportingLibrary"]["Modules"]
+                modules['Library'] = self.config["LibDeps"]["Modules"]
         if self.config["Calculators"]["Modules"]:
             self.analysis_calculator()
             modules['Calculator'] = self.config["Calculators"]["Modules"]
@@ -262,7 +262,7 @@ class ConfigLoader(Base):
 
         def analysis_commands(lib):
             cmds = lib['installation']['commands']
-            cwd  = self.config['SupportingLibrary']['path']
+            cwd  = self.config['LibDeps']['path']
             commands = []
             for command in cmds:
                 cmd, cwd = self.decode_lib_command_via_config(command, cwd, lib['installation'])
@@ -270,8 +270,8 @@ class ConfigLoader(Base):
             lib['installation']['commands'] = commands
             return lib 
 
-        self.config["SupportingLibrary"]['path'] = self.decode_path(self.config["SupportingLibrary"]['path'])
-        libs_config = self.config["SupportingLibrary"]["Modules"]
+        self.config["LibDeps"]['path'] = self.decode_path(self.config["LibDeps"]['path'])
+        libs_config = self.config["LibDeps"]["Modules"]
         for lib in libs_config:
             lib.update(analysis_path(lib))
             lib.update(analysis_commands(lib))

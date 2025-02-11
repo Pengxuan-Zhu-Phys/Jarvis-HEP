@@ -24,9 +24,9 @@ class Library(Base):
     def set_config(self, config):
         self.config = config
         if self.config:
-            self.config['SupportingLibrary']["path"] = self.decode_path(self.config['SupportingLibrary']['path'])
-            self.path['library'] = self.config['SupportingLibrary']["path"]
-            for module in self.config['SupportingLibrary']['Modules']:
+            self.config['LibDeps']["path"] = self.decode_path(self.config['LibDeps']['path'])
+            self.path['library'] = self.config['LibDeps']["path"]
+            for module in self.config['LibDeps']['Modules']:
                 mod = LibraryModule(module['name'], module['required_modules'], installed=False, installation=module['installation'])
                 mod._skip_library = self._skip_library
                 mod.set_library_card(self.path['library'])

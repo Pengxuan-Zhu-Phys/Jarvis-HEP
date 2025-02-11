@@ -36,7 +36,7 @@ Sampling:
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
   selection: "(2.0 * X < Y)"
 
-EnvironmentRequirements:
+EnvReqs:
   OS: 
     - name: linux 
       version: ">=3.10.0"

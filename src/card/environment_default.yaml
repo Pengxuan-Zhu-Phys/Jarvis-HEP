@@ -1,4 +1,4 @@
-EnvironmentRequirements:
+EnvReqs:
   CERN_ROOT:
     required: true
     version: ">=6.20"

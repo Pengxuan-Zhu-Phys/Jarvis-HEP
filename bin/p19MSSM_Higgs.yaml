@@ -176,7 +176,7 @@ Sampling:
     - {name: "LogL_HBAH", expression: "-2.0 * HBAHobs" }
   selection: "(2.0 * X < Y)"
 
-EnvironmentRequirements:
+EnvReqs:
   OS: 
     - name: linux 
       version: ">=3.10.0"
@@ -186,7 +186,7 @@ EnvironmentRequirements:
     required: true
     default_yaml_path:  "&J/src/card/environment_default.yaml"
 
-SupportingLibrary:
+LibDeps:
   path: "&J/External/Library"
   make_paraller: 32
   Modules:
@@ -197,7 +197,7 @@ SupportingLibrary:
         path: "&J/External/Library/Delphes"
         source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "rm -rf Delphes*"
           - "cp ${source} ./"
           - "tar -xzf Delphes-3.5.0.tar.gz"
@@ -205,7 +205,7 @@ SupportingLibrary:
           - "cd ${path}"
           - "source @{ROOT path}/bin/thisroot.sh"
           - "./configure"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "make -j${LibDeps:make_paraller}"
 
     - name: "HepMC"
       required_modules: []
@@ -214,14 +214,14 @@ SupportingLibrary:
         path: "&J/External/Library/HepMC"
         source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "rm -rf HepMC*"
           - "cp ${source} ./"
           - "tar -xzf HepMC-2.06.09.tar.gz"
-          - "cd ${SupportingLibrary:path}/HepMC-2.06.09"
+          - "cd ${LibDeps:path}/HepMC-2.06.09"
           - "./bootstrap"
           - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "make -j${LibDeps:make_paraller}"
           - "make install"
 
     - name: "Pythia8"
@@ -232,13 +232,13 @@ SupportingLibrary:
         path: "&J/External/Library/Pythia8"
         source: "&J/External/Library/Source/pythia8230.tgz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "mkdir Pythia8"
-          - "cd ${SupportingLibrary:path}/Source"
+          - "cd ${LibDeps:path}/Source"
           - "tar -zxvf pythia8230.tgz"
-          - "cd ${SupportingLibrary:path}/Source/pythia8230"
-          - "./configure --with-hepmc2=${SupportingLibrary:path}/HepMC --prefix=${path}"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "cd ${LibDeps:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${LibDeps:path}/HepMC --prefix=${path}"
+          - "make -j${LibDeps:make_paraller}"
           - "make install"
 
 Calculators:

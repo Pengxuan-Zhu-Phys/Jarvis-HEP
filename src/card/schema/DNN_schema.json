@@ -305,7 +305,7 @@
             ],
             "additionalProperties": false
         },
-        "EnvironmentRequirements": {
+        "EnvReqs": {
             "type": "object",
             "properties": {
                 "OS": {
@@ -532,7 +532,7 @@
                 "Modules"
             ]
         },
-        "SupportingLibrary": {
+        "LibDeps": {
             "type": "object",
             "properties": {
                 "path": {
@@ -696,7 +696,7 @@
     "required": [
         "Scan",
         "Sampling",
-        "EnvironmentRequirements",
+        "EnvReqs",
         "Calculators"
     ],
     "additionalProperties": true
