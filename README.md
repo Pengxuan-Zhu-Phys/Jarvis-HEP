@@ -6,6 +6,7 @@ Jarvis-HEP is a high-energy physics (HEP) data analysis and simulation framework
 ## Features
 
 - Supports various sampling methods, enabling comprehensive parameter space exploration.
+- [AI-based data analysis methods for HEP](https://github.com/karlschwarz/AI_for_HEP) are under active development and will be integrated into the repository. Check out the [demo](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/simu/sample_dynamic_viz.gif) for the visualization of the sampling procedure.
 - Integrated with popular HEP computational modules and libraries for seamless analysis workflows.
 - Asynchronous and parallel computing support for optimized performance on large datasets.
 - Data management and storage solutions tailored for high-volume data processing, including input/output handling and database integration.
@@ -31,4 +32,11 @@ Jarvis-HEP is released under the MIT license. For more details, see the LICENSE 
 
 ## Acknowledgements
 Special thanks to all contributors who have helped make this project possible.
-    Pengxuan thank Yang Zhang, Liangliang Shang for helpful discussion. 
+    Pengxuan thank Yang Zhang, Liangliang Shang for helpful discussion.
+
+## References
+- **Exploring supersymmetry with machine learning**  
+  Jie Ren, Lei Wu, Jin Ming Yang, Jun Zhao.  
+  *Nuclear Physics B (NPB)*, 2019.  
+  [arXiv:1708.06615](https://arxiv.org/abs/1708.06615)
+
