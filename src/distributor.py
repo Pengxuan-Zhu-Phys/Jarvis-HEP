@@ -26,5 +26,8 @@ class Distributor(Base):
             case "DNN":
                 from Sampling.dnn import DNN
                 return DNN()
+            case "TPMCMC":
+                from Sampling.tpmcmc import TPMCMC 
+                return TPMCMC()
         
         

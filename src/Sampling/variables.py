@@ -1,6 +1,7 @@
 #!/usr/bin/env python3 
 
 import numpy as np
+import scipy.special
 from scipy.stats import binom, poisson, beta, expon, gamma
 import scipy
 
@@ -87,7 +88,7 @@ class Variable:
             location = self.parameters.get('location', 0)  # The default value is 0
             scale = self.parameters.get('scale', 1)  # The default value is 1
             # The scipy's logit function is used as the inverse function of the logistic CDF
-            return scipy.stats.logit.cdf(std_rand) * scale + location
+            return scipy.special.logit(std_rand) * scale + location
         # Notice: the following distribution not support the mapping function 
         elif self.distribution in ['Binomial', 'Poisson', 'Beta', 'Exponential', 'Gamma']:
             raise ValueError(f"Distribution type '{self.distribution}' does not support mapping from standard random numbers.")

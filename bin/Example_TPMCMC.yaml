@@ -1,17 +1,18 @@
 Scan: 
-  name: "EggBox_Random_01"
+  name: "EggBox_TPMCMC_01"
   save_dir: "&J/Results"
 
 Sampling:
-  Method: "Random" 
+  Method: "TPMCMC" 
   Variables:
     - name: x
       description: "Variable X following a Flat distribution for sampling."
       distribution:
-        type: Log
+        type: Flat
         parameters:
-          min: 0.1
-          max: 10.0
+          min: 0
+          max: 5.0
+          num: 5
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -20,12 +21,17 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
-  
-  Point number: 1000
+          num: 5
+
+  Bounds:
+    num_chains: 4
+    num_iters:  200
+    exchange_interval: 20
+    proposal_scales: [0.3, 0.1, 0.05, 0.01]
 
   LogLikelihood: 
-    - {name: "LogL_Z",  expression: "(2 + z)**5"}
-  selection: "log(2.0 * x) < sin(y)"
+    - {name: "LogL_Z",  expression: "Gauss(z, 100, 2.0)"}
+  selection: "(2.0 * x < y)"
 
 EnvReqs:
   OS: 
@@ -85,3 +91,4 @@ Utils:
       x_values: [1, 2, 3, 4, 5]
       y_values: [2, 1.8, 1.5, 1.2, 0.8]
       kind: "cubic"
+
