@@ -6,6 +6,7 @@
         "DynestySchema":    "&J/src/card/schema/Dynesty_schema.json",
         "RandomSchema":     "&J/src/card/schema/Random_schema.json",
         "DNNSchema":        "&J/src/card/schema/DNN_Schema.json",
+        "MCMCSchema":       "&J/src/card/schema/MCMC_Schema.json",
         "TPMCMCSchema":     "&J/src/card/schema/TPMCMC_Schema.json"
     },
     "SchemaBlock":  {

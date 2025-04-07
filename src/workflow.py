@@ -180,6 +180,8 @@ class Workflow(Base):
 
     async def draw_flowchart(self, save_path="flowchart.png"):
         # with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            import matplotlib 
+            matplotlib.use('Agg')
             import matplotlib.pyplot as plt 
             import logging
             logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
@@ -576,5 +578,5 @@ class Workflow(Base):
                 for mod, info in item.items():
                     draw_layer_module(kk, info)
             
-            plt.savefig(save_path, dpi=300)
-            plt.close("all")
+            fig.savefig(save_path, dpi=300)
+            plt.close(fig)
