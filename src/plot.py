@@ -178,7 +178,20 @@ class BudingPLOT(Base):
             print(self.yaml)
             with open(self.info['plot']['config'], 'w') as file:
                 yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
-            
+        elif scan_yaml.config["Sampling"]["Method"] == "Grid":
+            self.set_grid_config()    
+        
+    def set_grid_config(self):
+        self.yaml = {
+            "Plot_Config":  {
+                "save_dir": self.info["plot"]["save_path"], 
+                "save_format":  ["pdf", "png"], 
+                "samples":  self.info["db"]["out_csv"], 
+                "scan_yaml":    self.info["config_file"], 
+                "screen_show":  True
+            }
+        }
+
     def load_config(self, filepath) -> None:
         with open(filepath, 'r') as file:
             self.yaml = yaml.safe_load(file)

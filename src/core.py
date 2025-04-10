@@ -151,11 +151,9 @@ class Core(Base):
         current_time = datetime.now().strftime("%Y-%m-%d[%H:%M:%S]")
 
         def global_log_filter(record):
-            # 只有包含 'global_log' 标记的日志消息才被写入
             return record["extra"].get("Jarvis", False)
 
         def stream_filter(record):
-            # 检查日志记录是否包含 'to_console' 标记，并且该标记为 True
             return record["extra"].get("to_console", False)
 
         def custom_format(record):

@@ -1,5 +1,5 @@
 Scan: 
-  name: "EggBox_Grid_01"
+  name: "EggBox_Grid_02"
   save_dir: "&J/Results"
 
 Sampling:
@@ -8,11 +8,11 @@ Sampling:
     - name: x
       description: "Variable X following a Flat distribution for sampling."
       distribution:
-        type: Flat
+        type: Log
         parameters:
-          min: 0
+          min: 0.1
           max: 5.0
-          num: 5
+          num: 100
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -21,19 +21,10 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
-          num: 5
-
-    - name: yy
-      description: "Variable Y following a Logarithmic distribution for sampling."
-      distribution:
-        type: Flat
-        parameters:
-          min: 0
-          max: 5.0
-          num: 5
+          num: 100
 
   LogLikelihood: 
-    - {name: "LogL_Z",  expression: "(2 + z)**5"}
+    - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
   selection: "(2.0 * X < Y)"
 
 EnvReqs:
@@ -73,7 +64,6 @@ Calculators:
                 variables:
                   - { name: "xx", expression: "x * Pi" }
                   - { name: "yy", expression: "y * Pi" }
-                  - { name: "cx", expression: "(x + y) * Pi", entry: "test.config.x" }
             save: True
         output:
           - name: oupjson

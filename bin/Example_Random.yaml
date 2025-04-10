@@ -11,7 +11,7 @@ Sampling:
         type: Log
         parameters:
           min: 0.1
-          max: 10.0
+          max: 5.0
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
