@@ -1,0 +1,90 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "1col": {
+
+    }, 
+    "2col": {
+        "figure": {
+            "figsize":  [8, 7], 
+            "facecolor":    "white", 
+            "layout":   "constrained"
+        },
+        "ax":   {
+            "rect": [0.16, 0.16, 0.82, 0.82]
+        },
+        "spines": {"linewidth": 2},
+        "scatter":  [
+            {
+                "s":    10, 
+                "marker":   "o", 
+                "edgecolor":    "None",
+                "facecolor":    "blue",
+                "alpha":    1.0, 
+                "zorder":   10
+            },
+            {
+                "marker":   "o", 
+                "s":    10, 
+                "edgecolor":    "None",
+                "facecolor":    "red",
+                "alpha":    1.0, 
+                "zorder":   10
+            },
+            {
+                "marker":   "o", 
+                "s":    10, 
+                "edgecolor":    "None",
+                "facecolor":    "green",
+                "alpha":    1.0, 
+                "zorder":   10
+            },
+            {
+                "marker":   "o", 
+                "s":    10, 
+                "edgecolor":    "None",
+                "facecolor":    "yellow",
+                "alpha":    1.0, 
+                "zorder":   10
+            },
+            {
+                "marker":   "o", 
+                "s":    10, 
+                "edgecolor":    "None",
+                "facecolor":    "orange",
+                "alpha":    1.0, 
+                "zorder":   10
+            }
+        ], 
+        "ticks":    {
+            "labelsize":    20, 
+            "direction":    "in", 
+            "top":  true, 
+            "left": true, 
+            "right":    true, 
+            "bottom":   true, 
+            "which":    "both"
+        }, 
+        "ticks_major":  {
+            "which":    "major", 
+            "length":   11, 
+            "width":    2, 
+            "color":    "black"
+        },
+        "ticks_minor":  {
+            "which":    "minor", 
+            "length":   6, 
+            "width":    2, 
+            "color":    "black"
+        },
+        "xlabel":   {
+            "fontsize": 30, 
+            "loc":  "center", 
+            "fontfamily":   "STIXGeneral"
+        },
+        "ylabel":   {
+            "fontsize": 30, 
+            "loc":  "center", 
+            "fontfamily":   "STIXGeneral"
+        }
+    }
+}

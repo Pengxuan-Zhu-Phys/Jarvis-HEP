@@ -29,5 +29,8 @@ class Distributor(Base):
             case "TPMCMC":
                 from Sampling.tpmcmc import TPMCMC 
                 return TPMCMC()
+            case "MCMC":
+                from Sampling.mcmc import MCMC 
+                return MCMC()
         
         

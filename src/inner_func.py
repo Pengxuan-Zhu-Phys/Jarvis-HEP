@@ -97,6 +97,7 @@ def LogGauss(xx, mean, err):
     return prob
 
 def update_funcs(funcs):
+    funcs['sympy'] = sympy
     funcs['Gauss'] = Gauss
     funcs['LogGauss'] = LogGauss
     funcs['Normal'] = Normal

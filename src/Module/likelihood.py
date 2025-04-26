@@ -8,6 +8,7 @@ import logging
 from loguru import logger
 from pandas import Series
 from numpy import inf
+import numpy as np
 class LogLikelihood(Base):
     def __init__(self, expressions):
         """
@@ -40,25 +41,29 @@ class LogLikelihood(Base):
         self.custom_functions.update(funcs)
         # self.logger.info(f"Jarvis-HEP likelihood now support the following inner functions -> \n{self.custom_functions.keys()}")
 
-    def calculate4dnn(self, row):
+    def calculate4dnn(self, df):
         """
-        row is a Pandas Series object
+        Calculate total log-likelihood for each row in a DataFrame.
+
+        Args:
+            df (pandas.DataFrame): Input data; columns should include all variables used in the expressions.
+
+        Returns:
+            numpy.ndarray: Array of total log-likelihood values, one per DataFrame row.
         """
-        try: 
-            self.values = {}
-            total_loglikelihood = 0. 
-            for expr_dict in self.named_expressions:
-                expr = expr_dict[1]
-                name = expr_dict[0]
-                var_names = [str(var) for var in expr.free_symbols]
-                symbol_values_strs = {var: row[var] for var in var_names if var in row}
-                num_expr = lambdify(var_names, expr, modules=[self.custom_functions, "numpy"])
-                likelihood = float(num_expr(**symbol_values_strs))
-                self.values[name] = likelihood
-                total_loglikelihood += likelihood
-            return total_loglikelihood
-        except Exception as exc:
-            return -inf
+        results = []
+        for _, row in df.iterrows():
+            try:
+                total = 0.0
+                for name, expr in self.named_expressions:
+                    var_names = [str(var) for var in expr.free_symbols]
+                    symbol_values = {var: row[var] for var in var_names if var in row}
+                    num_expr = lambdify(var_names, expr, modules=[self.custom_functions, "numpy"])
+                    total += float(num_expr(**symbol_values))
+                results.append(total)
+            except Exception:
+                results.append(-np.inf)
+        return np.array(results)
 
     def calculate(self, values, sample_info):
         """

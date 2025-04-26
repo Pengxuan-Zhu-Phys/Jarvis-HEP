@@ -62,17 +62,17 @@ class Sample(Base):
     def evaluate_output(self, outputs):
         custom_functions = update_funcs({})
         cunsom_constants = update_const({})
-        result = []
+        result = {}
         for op in outputs: 
             if op in self.info['observables']:
-                result.append(self.info['observables'][op])
+                result[op] = self.info['observables'][op]
             else: 
                 try:
                     symbols = {var: sp.symbols(var) for var in self.info['observables']}
                     locals_context = {**custom_functions, **cunsom_constants, **symbols}
                     expr = sp.sympify(op, locals=locals_context)
                     res = expr.subs(self.info['observables'])
-                    result.append(res) 
+                    result[op] = res
                 except: 
                     raise ValueError
-        return np.array(result)
+        return result

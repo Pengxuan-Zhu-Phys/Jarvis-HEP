@@ -41,14 +41,20 @@ class RandomS(SamplingVirtial):
 
     def __next__(self):# Stop iteration, if _P is not defined or _P is not np.array
         if self._index < self._maxp:
-            is_selection = True 
-            while is_selection: 
-                temp    = np.random.rand(self._dimensions)
-                param   = self.map_point_into_distribution(temp)
-                if self._selectionexp: 
-                    is_selection = self.evaluate_selection(self._selectionexp, param)
-            self._index += 1
-            return param
+            if self._selectionexp:
+                is_selection = True 
+                while is_selection: 
+                    temp    = np.random.rand(self._dimensions)
+                    param   = self.map_point_into_distribution(temp)
+                    if self._selectionexp: 
+                        is_selection = self.evaluate_selection(self._selectionexp, param)
+                self._index += 1
+                return param
+            else: 
+                temp = np.random.random(self._dimensions)
+                param = self.map_point_into_distribution(temp)
+                self._index += 1 
+                return param 
         else:
             # raise StopIteration
             return None
@@ -88,6 +94,10 @@ class RandomS(SamplingVirtial):
             except:
                 self.logger.error("Random Sampler meets error when trying scan the parameter space.")
                 sys.exit(2)
+        # else: 
+        #     try: 
+        #         self.info['to']     = time.time() 
+                
 
     def run_nested(self):
         total_cores = os.cpu_count()
@@ -102,7 +112,7 @@ class RandomS(SamplingVirtial):
                         sample.set_config(deepcopy(self.info['sample']))
                         future = self.factory.submit_task(sample.params, sample.info)
                         self.tasks.append(future)
-                        self.future_to_sample[future] = sample
+                        # self.future_to_sample[future] = sample
                     else: 
                         break
                 except StopIteration:

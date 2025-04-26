@@ -11,8 +11,9 @@ import os
 
 class JarvisMonitor:
     def __init__(self, process_name):
-        self.process_name = process_name
-        self.pid = self.get_pid_by_name(process_name)
+        # self.process_name = process_name
+        # self.pid = self.get_pid_by_name(process_name)
+        self.pid = int(process_name)
         
         self.current_view = "Summary"
         self.runtime_in_seconds = 0

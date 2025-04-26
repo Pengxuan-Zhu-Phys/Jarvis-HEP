@@ -142,8 +142,7 @@
                                                     },
                                                     "required": [
                                                         "min",
-                                                        "max",
-                                                        "num"
+                                                        "max"
                                                     ],
                                                     "additionalProperties": false
                                                 }

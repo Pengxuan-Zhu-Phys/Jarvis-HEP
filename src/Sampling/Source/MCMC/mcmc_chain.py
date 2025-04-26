@@ -6,7 +6,7 @@ import numpy as np
 class MCMCChain:
     def __init__(self, initial_param, proposal_scale, n_iterations):
         self.param = initial_param             # Current parameter (state)
-        print("self.param -> ", self.param)
+        # print("self.param -> ", self.param)
         self.proposal_scale = proposal_scale   # Standard deviation for proposal steps
         self.n_iterations = n_iterations       # Total iterations for this chain
         self.iterations = 0                    # How many iterations have been performed

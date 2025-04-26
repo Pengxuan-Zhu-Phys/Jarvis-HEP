@@ -8,10 +8,10 @@ Sampling:
     - name: x
       description: "Variable X following a Flat distribution for sampling."
       distribution:
-        type: Log
+        type: Flat
         parameters:
-          min: 0.1
-          max: 10.0
+          min: 0
+          max: 5.0
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -22,19 +22,17 @@ Sampling:
           max: 5.0
   
   Bounds: 
-    Niters: 40
+    Niters: 100
     Hidden_layers: [32, 64, 128, 16]
     Batch_size: 10
-    Ninit:  20
-    Nepoch: 10
+    Ninit:  200
+    Nepoch: 1000
     Learning_rate:  0.0001
     Outputs:  
       - z
       
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
-
-  selection: "log(2.0 * x) < sin(y)"
 
 EnvReqs:
   OS: 

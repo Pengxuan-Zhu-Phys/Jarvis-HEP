@@ -71,6 +71,8 @@ class TPMCMC(SamplingVirtial):
                 param = self.map_point_into_distribution(proposal)
                 if self._selectionexp: 
                     is_seletion = self.evaluate_selection(self._selectionexp, param)
+                else: 
+                    is_seletion = True
                     # print("In next(): param -> ", is_seletion, param)
             # print("In next: return the samples")
             return param, cid 

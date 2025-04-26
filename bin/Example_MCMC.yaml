@@ -1,16 +1,16 @@
 Scan: 
-  name: "EggBox_Random_01"
+  name: "EggBox_MCMC_03"
   save_dir: "&J/Results"
 
 Sampling:
-  Method: "Random" 
+  Method: "MCMC" 
   Variables:
     - name: x
       description: "Variable X following a Flat distribution for sampling."
       distribution:
-        type: Log
+        type: Flat
         parameters:
-          min: 0.1
+          min: 0
           max: 5.0
 
     - name: y
@@ -20,8 +20,11 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
-  
-  Point number: 10000
+
+  Bounds:
+    num_chains: 10
+    num_iters:  2500
+    proposal_scale: 0.01
 
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
@@ -84,3 +87,4 @@ Utils:
       x_values: [1, 2, 3, 4, 5]
       y_values: [2, 1.8, 1.5, 1.2, 0.8]
       kind: "cubic"
+

@@ -142,8 +142,7 @@
                                                     },
                                                     "required": [
                                                         "min",
-                                                        "max",
-                                                        "num"
+                                                        "max"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -181,8 +180,7 @@
                                                     },
                                                     "required": [
                                                         "min",
-                                                        "max",
-                                                        "num"
+                                                        "max"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -214,8 +212,7 @@
                                                     },
                                                     "required": [
                                                         "location",
-                                                        "scale",
-                                                        "num"
+                                                        "scale"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -247,8 +244,7 @@
                                                     },
                                                     "required": [
                                                         "mean",
-                                                        "stddev",
-                                                        "num"
+                                                        "stddev"
                                                     ],
                                                     "additionalProperties": false
                                                 }
@@ -280,8 +276,7 @@
                                                     },
                                                     "required": [
                                                         "mean",
-                                                        "stddev",
-                                                        "num"
+                                                        "stddev"
                                                     ],
                                                     "additionalProperties": false
                                                 }

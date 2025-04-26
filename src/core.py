@@ -128,6 +128,9 @@ class Core(Base):
             "info":  os.path.join(task_result_dir, "DATABASE", "running.json")
             # "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
+        self.info['proc'] = {
+            "path": os.path.join(task_result_dir, "DATABASE", ".pid.txt")
+        }
 
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
@@ -314,6 +317,7 @@ class Core(Base):
         if self.scan_mode:
             setproctitle.setproctitle(self.info['proctitle'])
             self.logger.warning("Setting process title -> {}".format(self.info['proctitle']))
+            self.save_pid()
             self.init_StateSaver()
             
             self.init_sampler()
@@ -324,6 +328,12 @@ class Core(Base):
             self.init_database()
         # elif self.args.cvtDB:
         #     self.convert()
+
+    def save_pid(self):
+        pid = os.getpid()
+        with open(self.info['proc']['path'], "w") as f1:
+            f1.write("{}".format(pid))
+        
 
     def run_sampling(self)->None:
         if self.mode == "1PC":
@@ -423,8 +433,12 @@ class Core(Base):
         from monitor import JarvisMonitor
         import curses
         self.logger.warning("Start monitoring -> {}".format(self.info['proctitle']))
-        self.monitor = JarvisMonitor(self.info['proctitle'])
-        asyncio.run(curses.wrapper(self.monitor.main))
+        if os.path.exists(self.info['proc']['path']):
+            pid = None
+            with open(self.info['proc']['path'], 'r') as f1:
+                pid = f1.read().strip()
+            self.monitor = JarvisMonitor(pid)
+            asyncio.run(curses.wrapper(self.monitor.main))
 
     class __StateSaver:
         def __init__(self, 

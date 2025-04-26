@@ -1,9 +1,9 @@
 Scan: 
-  name: "EggBox_Random_01"
+  name: "EggBox_Bridson_02"
   save_dir: "&J/Results"
 
 Sampling:
-  Method: "Random" 
+  Method: "Bridson" 
   Variables:
     - name: x
       description: "Variable X following a Flat distribution for sampling."
@@ -12,6 +12,7 @@ Sampling:
         parameters:
           min: 0.1
           max: 5.0
+          length: 110
 
     - name: y
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -20,9 +21,10 @@ Sampling:
         parameters:
           min: 0
           max: 5.0
+          length: 110
   
-  Point number: 10000
-
+  Radius: 1
+  MaxAttempt:  30
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
 
