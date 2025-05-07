@@ -363,10 +363,11 @@ class VoronoiC(Figure):
             
         vor = Voronoi(points)
         regions, vertices = self.voronoi_finite_polygons_2d(vor)
-        for region in regions:
-            polygon = vertices[region]
-            polygon_closed = np.concatenate([polygon, polygon[:1]], axis=0)
-            ax.plot(polygon_closed[:, 0], polygon_closed[:, 1], transform=ax.transAxes, **self.para['wall'])
+        if self.use_wall:
+            for region in regions:
+                polygon = vertices[region]
+                polygon_closed = np.concatenate([polygon, polygon[:1]], axis=0)
+                ax.plot(polygon_closed[:, 0], polygon_closed[:, 1], transform=ax.transAxes, **self.para['wall'])
 
         for i, region in enumerate(regions):
             polygon = vertices[region]
@@ -474,6 +475,7 @@ class VoronoiC(Figure):
         self.cmap = cm.get_cmap(self.para['cell']['cmap'])
         self.corestyle = deepcopy(self.para['core'])
         self.use_core = vstyle.get("use_core", self.para['cell']['use_core'])
+        self.use_wall = vstyle.get("use_wall", self.para['cell']['use_wall'])
         if vstyle.get("cell", None):
             if vstyle.get("cmap", False) or vstyle.get("fill", False): 
                 self.cstyle.update(vstyle)

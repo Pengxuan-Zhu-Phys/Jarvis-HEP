@@ -83,7 +83,8 @@
                 "edgecolor":    "None",
                 "alpha":    0.95
             },
-            "use_core": true
+            "use_core": true,
+            "use_wall": true
         },
         "ticks":    {
             "labelsize":    18, 
