@@ -108,8 +108,11 @@ class CalculatorModule(Module):
         # pprint(self.inputs)
         for opf in self.output:
             # self.outputs[opf['name']] = None
-            for opv in opf['variables']:
-                self.outputs[opv['name']] = None
+            if opf['type'] == "File":
+                pass 
+            else:
+                for opv in opf['variables']:
+                    self.outputs[opv['name']] = None
 
     @property
     def funcs(self):
@@ -264,7 +267,7 @@ class CalculatorModule(Module):
                 ffile['name'],
                 path=ffile['path'],
                 file_type=ffile['type'],
-                variables=ffile['variables'],
+                variables=ffile.get("variables", []),
                 save=ffile['save'],
                 logger=self.logger,
                 PackID=self.PackID,

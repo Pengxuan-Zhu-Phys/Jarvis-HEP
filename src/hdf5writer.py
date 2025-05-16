@@ -126,7 +126,7 @@ class GlobalHDF5Writer:
                     fieldnames = list(all_data[0].keys())
                     for data in all_data:
                         if isinstance(data, dict):                        
-                            if data['LogL'] == - np.inf:
+                            if data.get('LogL', False) == - np.inf:
                                 fieldnames = data.keys()
                                 continue
                             else:

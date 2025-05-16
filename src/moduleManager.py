@@ -77,11 +77,17 @@ class ModuleManager:
                         self.logger.error(f'Module {module_name} generated an exception: {exc}')
                         
         # After all modules have executed, calculate likelihood based on the final observables
-        observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
-        sample_info['observables'] = observables
-        self.database.add_data(observables)
-        # print("Manager Line 82 ->", observables['LogL'])
-        return observables['LogL']
+        if self.config['Sampling'].get('LogLikelihood', False):
+            observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
+            sample_info['observables'] = observables
+            self.database.add_data(observables)
+            # print("Manager Line 82 ->", observables['LogL'])
+            return observables['LogL']
+        else: 
+            sample_info['observables'] = observables 
+            print(observables)
+            self.database.add_data(observables)
+            return 1.
 
     def execute_module(self, module_name, observables, sample_info):
         """Execute a single module's computation task, updating the observables dictionary.

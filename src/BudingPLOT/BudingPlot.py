@@ -312,7 +312,10 @@ class ScatterC(Figure):
             plt.show()
 
 
+import pandas as pd
+
 class VoronoiC(Figure):
+
     def __init__(self, config, name, sts):
         super().__init__(config=config, name=name, sts=sts)
         with open(os.path.join(pwd, "cards/voronoi_color.json"), "r") as f1: 
@@ -340,6 +343,8 @@ class VoronoiC(Figure):
     
     def draw(self):
         plt.close() 
+        from shapely.ops import unary_union
+        from shapely.geometry import Polygon, MultiPolygon
         fig = plt.figure(**self.para['figure'])
         ax  = fig.add_axes(**self.para["ax"])
         axc = fig.add_axes(**self.para["axc"])
@@ -355,24 +360,107 @@ class VoronoiC(Figure):
         cc['data'] = self.load_vars(cc['expr'])
         self.load_color_lim(cc)
 
+        # --- group-selection logic; grey out unselected cells ---
+        group = self.info.get("group", [])
+        self.legend = self.info.get("legend", False)
         from scipy.spatial import Voronoi
         xa = self.create_vars_data(xx)
         ya = self.create_vars_data(yy)
         points = np.column_stack((xa, ya))
         self.get_cmap(cc)
+        
+        if group:
+            # start with all False
+            vor = Voronoi(points)
+            regions, vertices = self.voronoi_finite_polygons_2d(vor)
+            if self.use_wall:
+                for region in regions:
+                    polygon = vertices[region]
+                    polygon_closed = np.concatenate([polygon, polygon[:1]], axis=0)
+                    ax.plot(polygon_closed[:, 0], polygon_closed[:, 1], transform=ax.transAxes, **self.para['wall'])
             
-        vor = Voronoi(points)
-        regions, vertices = self.voronoi_finite_polygons_2d(vor)
-        if self.use_wall:
-            for region in regions:
+            # mark rows matching any group condition
+            for item in group:
+                self.data['_inner_selected'] = False
+                mask = self.load_bool_df(self.data, item['condition'])
+                print("Loading subgroup -> ", item["name"], mask.shape)
+                self.data.loc[mask.index, '_inner_selected'] = True
+                point_labels = list(self.data.index)
+                lbstag = True
+                # collect styled polygons for this subgroup
+                styled_polygons = []
+                for ii, region in enumerate(regions):
+                    polygon = vertices[region]
+                    if self.data['_inner_selected'].iat[ii]:
+                        if item['use_cmap']: 
+                            facecolor = self.get_color(cc['data'].loc[point_labels[ii]])
+                            # print("drawing cell -> {} with {}".format(ii, facecolor), end="\r", flush=True)
+                            ax.fill(polygon[:, 0], polygon[:, 1],
+                                facecolor=facecolor,
+                                transform=ax.transAxes,
+                                **self.cstyle['fill'])
+                        if item.get("style", False):
+                            
+                            # accumulate this cell's polygon for later union
+                            styled_polygons.append(Polygon(polygon))
+                # merge all styled cells and fill once
+                if item.get("style", False) and styled_polygons:
+                    merged = unary_union(styled_polygons)
+                    # after you compute `merged = unary_union(polygons)`
+                    if isinstance(merged, Polygon):
+                        polys = [merged]
+                    elif isinstance(merged, MultiPolygon):
+                        polys = list(merged.geoms)
+                    else:
+                        # fallback to anything with .geoms, or just wrap it
+                        polys = list(getattr(merged, 'geoms', [merged]))
+                    # polys = [merged] if isinstance(merged, Polygon) else list(merged)
+                    cstyle = deepcopy(self.cstyle['fill'])
+                    cstyle.update(item['style'])
+                    for poly in polys:
+                        xs, ys = poly.exterior.xy
+                        if lbstag:
+                            ax.fill(xs, ys, transform=ax.transAxes,
+                                    **cstyle, label=r"{}".format(item['name']))
+                            lbstag = False
+                        else: 
+                            ax.fill(xs, ys, transform=ax.transAxes,
+                                    **cstyle)
+                            
+                            
+                            
+                            # # print(item.get("style", False))
+                            # cstyle = deepcopy(self.cstyle['fill'])
+                            # cstyle.update(item['style'])
+                            # # print("drawing cell -> {} with {}".format(ii, item.get("style", False)['facecolor']), end="\r", flush=True)
+                            # # time.sleep(0.001)
+                            # if lbstag:
+                            #     ax.fill(polygon[:, 0], polygon[:, 1],
+                            #             transform=ax.transAxes, hatch='\\',
+                            #             **cstyle, label=r"{}".format(item['name']))
+                            #     lbstag = False 
+                            # else: 
+                            #     ax.fill(polygon[:, 0], polygon[:, 1],
+                            #             transform=ax.transAxes,
+                            #             **cstyle)
+        else:
+            vor = Voronoi(points)
+            regions, vertices = self.voronoi_finite_polygons_2d(vor)
+            if self.use_wall:
+                for region in regions:
+                    polygon = vertices[region]
+                    polygon_closed = np.concatenate([polygon, polygon[:1]], axis=0)
+                    ax.plot(polygon_closed[:, 0], polygon_closed[:, 1], transform=ax.transAxes, **self.para['wall'])
+            for i, region in enumerate(regions):
                 polygon = vertices[region]
-                polygon_closed = np.concatenate([polygon, polygon[:1]], axis=0)
-                ax.plot(polygon_closed[:, 0], polygon_closed[:, 1], transform=ax.transAxes, **self.para['wall'])
-
-        for i, region in enumerate(regions):
-            polygon = vertices[region]
-            # fill_color = choose_fill_color(i)
-            ax.fill(polygon[:, 0], polygon[:, 1], facecolor=self.get_color(cc['data'][i]), transform=ax.transAxes, **self.cstyle['fill'])
+                # grey fill if not selected, otherwise use colormap
+                ax.fill(polygon[:, 0], polygon[:, 1],
+                        facecolor=self.get_color(cc['data'][i]),
+                        transform=ax.transAxes,
+                        **self.cstyle['fill'])
+        
+        if self.legend: 
+            ax.legend(**self.legend)
 
 
         # voronoi_plot_2d(vor, ax=ax, show_vertices=False, show_points=False, line_colors='black',

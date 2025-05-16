@@ -109,7 +109,7 @@
             "color":    "black"
         },
         "axc_ticks":    {
-            "labelsize":    18, 
+            "labelsize":    14, 
             "labelfontfamily":   "sans", 
             "direction":    "in", 
             "top":  false, 

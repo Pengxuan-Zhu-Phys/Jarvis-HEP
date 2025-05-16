@@ -233,7 +233,11 @@ class Workflow(Base):
                     h0 = 0.
                     for ii in range(nn):
                         opf = self.modules[module].output[ii]
-                        nv = len(opf['variables'])
+                        
+                        if not opf.get("variables", False):
+                            nv = 1
+                        else: 
+                            nv = len(opf['variables'])
                         if nv <= 2:
                             hl = 0.5 
                         else:
@@ -242,17 +246,18 @@ class Workflow(Base):
                         op = {
                             "nam": opf['name'],
                             "pos": np.array([1.1, -h0 - 0.5*hl -0.2 ]) + res["bp"],
-                            "inc": [var['name'] for var in opf['variables']],
+                            "inc": [var['name'] for var in opf.get('variables', [])],
                             'fil': os.path.basename(opf['path'])
                         }
                         h0 += hl 
                         h0 += 0.1
                         for jj in range(nv):
-                            res['opv'][opf['variables'][jj]['name']] = {
-                                "nam": opf['variables'][jj]['name'],
-                                "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
-                                "wid": 0.
-                            }
+                            if opf.get("variables", False):
+                                res['opv'][opf['variables'][jj]['name']] = {
+                                    "nam": opf['variables'][jj]['name'],
+                                    "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
+                                    "wid": 0.
+                                }
                         opfl[opf['name']] = (op)
                     h0 -= 0.1
                     res["opf"] = opfl 

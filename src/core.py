@@ -262,7 +262,6 @@ class Core(Base):
             for module in self.libraries.modules.values():
                 module.install()
             
-
     def init_workflow(self) -> None: 
         self.workflow = Workflow()
         modules = self.yaml.get_modules()
@@ -297,10 +296,11 @@ class Core(Base):
         self.factory.info['sample'] = deepcopy(self.info['sample'])
 
     def init_likelihood(self) -> None: 
-        self.module_manager.set_likelihood()
-        self.module_manager.set_funcs(self._funcs)
-        from copy import deepcopy
-        self.sampler.set_likelihood(deepcopy(self.module_manager.loglikelihood))
+        if self.yaml.config['Sampling'].get("LogLikelihood", False):
+            self.module_manager.set_likelihood()
+            self.module_manager.set_funcs(self._funcs)
+            from copy import deepcopy
+            self.sampler.set_likelihood(deepcopy(self.module_manager.loglikelihood))
 
     def init_database(self) -> None: 
         from hdf5writer import GlobalHDF5Writer
@@ -334,7 +334,6 @@ class Core(Base):
         with open(self.info['proc']['path'], "w") as f1:
             f1.write("{}".format(pid))
         
-
     def run_sampling(self)->None:
         if self.mode == "1PC":
             self.test_assembly_line()
@@ -367,7 +366,6 @@ class Core(Base):
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             # self.monitor.stop()
-
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
@@ -421,13 +419,13 @@ class Core(Base):
 
     def plot(self) -> None:
         self.plotter.logger.warning(f"Data visulization for {self.info['project_name']}")
-        if "Plot" not in self.yaml.config:
+        if "Plot_Config" not in self.yaml.config:
             if not os.path.exists(self.info['plot']['config']):
                 self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
                 self.plotter.plot()
             else:
                 self.plotter.load_config(self.info['plot']['config'])
-                self.plotter.plot()
+                self.plotter.plot() 
         
     def monitor(self) -> None: 
         from monitor import JarvisMonitor
