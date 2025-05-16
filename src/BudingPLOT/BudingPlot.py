@@ -248,9 +248,9 @@ class ScatterC(Figure):
                         style.update(item['style'])
                     if cc.get('scale', "linear").lower() == "log":
                         from matplotlib.colors import LogNorm 
-                        c1 = ax.scatter(xi, yi, c=ci, **style, norm=LogNorm(cc['lim'][0], cc['lim'][1]))
+                        c1 = ax.scatter(xi, yi, c=ci, **style, norm=LogNorm(cc['lim'][0], cc['lim'][1]), label=r"{}".format(item['name']))
                     else: 
-                        c1 = ax.scatter(xi, yi, c=ci, **style, vmin=cc['lim'][0], vmax=cc['lim'][1])
+                        c1 = ax.scatter(xi, yi, c=ci, **style, vmin=cc['lim'][0], vmax=cc['lim'][1], label=r"{}".format(item['name']))
                     # ax.scatter(xi, yi, **style)
                 else:
                     xi = self.load_vars(xx['expr'], dfs)
@@ -259,7 +259,7 @@ class ScatterC(Figure):
                     style.update(self.info.get("scatter_style", {}))
                     style.pop("cmap", None)
                     style.update(item.get("style", {}))
-                    ax.scatter(xi, yi, **style)
+                    ax.scatter(xi, yi, **style, label=r"{}".format(item['name']))
                     nn += 1
         else: 
             style = self.info.get("scatter_style", {})
@@ -307,12 +307,13 @@ class ScatterC(Figure):
         ax.set_ylabel(r"{}".format(yy["label"]), **self.para['ylabel'])
         axc.set_ylabel(r"{}".format(cc["label"]), **self.para["ylabel"])
         self.savefig(fig)
+        
+        if self.legend: 
+            ax.legend(**self.legend)
         # self.serialize(fig, ax)
         if self.yaml['Plot_Config']['screen_show']: 
             plt.show()
 
-
-import pandas as pd
 
 class VoronoiC(Figure):
 
