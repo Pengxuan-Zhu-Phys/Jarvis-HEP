@@ -214,6 +214,8 @@ class ScatterC(Figure):
     def draw(self): 
         plt.close() 
         print(self.data.shape)
+        self.legend = self.info.get("legend", False)
+
         fig = plt.figure(**self.para['figure'])
         ax  = fig.add_axes(**self.para["ax"])
         axc = fig.add_axes(**self.para["axc"])
