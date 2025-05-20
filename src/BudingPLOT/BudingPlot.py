@@ -131,6 +131,44 @@ class Figure(BudingPLOT):
 
     def compress_figure_to_PS(self, figpath):
         os.system('pdf2ps {}.pdf {}.ps'.format(figpath, figpath))
+
+    def draw_text_labels(self, ax):
+        """
+        Draw text labels based on 'text' entries in self.info.
+        Each text entry should be a dict with:
+          - 'text': the string to draw
+          - 'x', 'y': coordinates in data or axes space
+          - optional 'transform': 'axes' to use axes coordinates, otherwise data coords
+          - optional 'style': dict of text properties for ax.text()
+        """
+        for item in self.info.get("text", []):
+            txt = item.get("text", "")
+            x = item.get("x", 0)
+            y = item.get("y", 0)
+            style = item.get("style", {}).copy()
+            transform_type = item.get("transform")
+            if transform_type == "axes":
+                ax.text(x, y, txt, transform=ax.transAxes, **style)
+            else:
+                ax.text(x, y, txt, **style)
+
+    def draw_lines(self, ax):
+        """
+        Draw custom lines based on 'lines' entries in self.info.
+        Each entry should be a dict with:
+          - 'x': list of x coordinates
+          - 'y': list of y coordinates
+          - optional 'transform': 'axes' to use axes coords
+          - optional 'style': dict of line properties for ax.plot()
+        """
+        for item in self.info.get("lines", []):
+            xs = item.get("x", [])
+            ys = item.get("y", [])
+            style = item.get("style", {}).copy()
+            if item.get("transform") == "axes":
+                ax.plot(xs, ys, transform=ax.transAxes, **style)
+            else:
+                ax.plot(xs, ys, **style)
     
 class Scatter(Figure):
     def __init__(self, config, name, sts):
@@ -188,6 +226,10 @@ class Scatter(Figure):
         self.set_ticks_format(ax)
         ax.set_xlabel(r"{}".format(xx["label"]), **self.para['xlabel'])
         ax.set_ylabel(r"{}".format(yy["label"]), **self.para['ylabel'])
+        # Draw any configured lines
+        self.draw_lines(ax)
+        # Draw any configured text labels
+        self.draw_text_labels(ax)
         self.savefig(fig)
         self.serialize(fig, ax)
         if self.yaml['Plot_Config']['screen_show']: 
@@ -308,10 +350,15 @@ class ScatterC(Figure):
         ax.set_xlabel(r"{}".format(xx["label"]), **self.para['xlabel'])
         ax.set_ylabel(r"{}".format(yy["label"]), **self.para['ylabel'])
         axc.set_ylabel(r"{}".format(cc["label"]), **self.para["ylabel"])
-        self.savefig(fig)
-        
+        # Draw any configured lines
+        self.draw_lines(ax)
+        # Draw any configured text labels
+        self.draw_text_labels(ax)
         if self.legend: 
             ax.legend(**self.legend)
+        
+        self.savefig(fig)
+        
         # self.serialize(fig, ax)
         if self.yaml['Plot_Config']['screen_show']: 
             plt.show()
@@ -500,6 +547,10 @@ class VoronoiC(Figure):
         ax.set_ylabel(r"{}".format(yy["label"]), **self.para['ylabel'])
         axc.set_ylabel(r"{}".format(cc["label"]), **self.para["ylabel"])
  
+        # Draw any configured lines
+        self.draw_lines(ax)
+        # Draw any configured text labels
+        self.draw_text_labels(ax)
         self.savefig(fig)
         if self.yaml['Plot_Config']['screen_show']: 
             plt.show()

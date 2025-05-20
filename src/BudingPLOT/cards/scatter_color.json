@@ -67,7 +67,7 @@
             }
         ], 
         "ticks":    {
-            "labelsize":    18, 
+            "labelsize":    14, 
             "direction":    "in", 
             "labelfontfamily":   "sans", 
             "top":  true, 
@@ -89,7 +89,7 @@
             "color":    "black"
         },
         "axc_ticks":    {
-            "labelsize":    18, 
+            "labelsize":    14, 
             "labelfontfamily":   "sans", 
             "direction":    "in", 
             "top":  false, 
