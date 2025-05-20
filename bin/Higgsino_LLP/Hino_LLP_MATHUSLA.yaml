@@ -1,0 +1,72 @@
+Scan: 
+  name: "Hino_MATHUSLA02"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Grid" 
+  Variables:
+    - name: mHino
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 90
+          max: 390
+          num: 121
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.0"
+  Check_default_dependences:
+    required: True 
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+Calculators:
+  make_paraller: 10
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: HinoGen
+      required_modules: [] 
+      clone_shadow: True
+      path: &eggbox_path "&J/WorkShop/Program/HinoGen/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/HinoGen"
+      installation:
+          - "cp -r ${source}/* ${path}"
+          - "cd ${path}"
+          - "./make_generator.sh"
+      initialization:
+          - "cp -r ${source}/n2c1-temp.slha ${path}/n2c1.slha"
+          - "rm -f crossings.json"
+          - "rm -f output.hepmc3"
+          - "rm -f Mathusla.yoda"
+      execution:
+        path: *eggbox_path  # using the Anchor point
+        commands:
+          - "./run_generator.sh -i ./n2c1.slha -o output.hepmc3 -n 1000 -s 10007"
+          - "rivet -a MATHUSLA_N2 output.hepmc3 -o Mathusla.yoda"
+        input:
+          - name: inpjson
+            path: "&J/WorkShop/Program/HinoGen/@PackID/n2c1.slha"  
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "mHino", placeholder: ">>>>mHino<<<<" }
+            save: True
+        output:
+          - name: oupjson
+            path: "&J/WorkShop/Program/HinoGen/@PackID/crossings.json" 
+            type: "Json"
+            save: True
+            variables:
+              - { name: x_low }
+              - { name: x_high }
+        
+          - name: outputYoda
+            path: "&J/WorkShop/Program/HinoGen/@PackID/Mathusla.yoda" 
+            type: "File"
+            save: True
+
