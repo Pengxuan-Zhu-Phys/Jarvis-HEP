@@ -269,6 +269,7 @@ class ScatterC(Figure):
         cc = self.info["color"]
         xx['data'] = self.load_vars(xx['expr'])   
         yy['data'] = self.load_vars(yy['expr'])
+        print(cc)
         cc['data'] = self.load_vars(cc['expr'])
         self.load_color_lim(cc)
 

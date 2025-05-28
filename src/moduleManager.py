@@ -85,7 +85,7 @@ class ModuleManager:
             return observables['LogL']
         else: 
             sample_info['observables'] = observables 
-            print(observables)
+            # print(observables)
             self.database.add_data(observables)
             return 1.
 
