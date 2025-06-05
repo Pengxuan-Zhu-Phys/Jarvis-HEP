@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+
+from gm2_python_interface import *
+
+cppyy.include(os.path.join("gm2calc","gm2_1loop.hpp"))
+cppyy.include(os.path.join("gm2calc","gm2_2loop.hpp"))
+cppyy.include(os.path.join("gm2calc","gm2_uncertainty.hpp"))
+cppyy.include(os.path.join("gm2calc","gm2_error.hpp"))
+cppyy.include(os.path.join("gm2calc","THDM.hpp"))
+
+cppyy.load_library("libgm2calc")
+
+# Load data types
+from cppyy.gbl import std
+from cppyy.gbl import Eigen
+from cppyy.gbl import gm2calc
+from cppyy.gbl.gm2calc import SM
+from cppyy.gbl.gm2calc import THDM
+from cppyy.gbl.gm2calc import Error
+
+basis = gm2calc.thdm.Mass_basis()
+basis.yukawa_type = gm2calc.thdm.Yukawa_type.type_2
+basis.mh = 125.
+basis.mH = 400.
+basis.mA = 420.
+basis.mHp = 440.
+basis.sin_beta_minus_alpha = 0.999
+basis.lambda_6 = 0.
+basis.lambda_7 = 0.
+basis.tan_beta = 3.
+basis.m122 = 40000.
+basis.zeta_u = 0.
+basis.zeta_d = 0.
+basis.zeta_l = 0.
+basis.Delta_u = Eigen.Matrix3d().setZero()
+basis.Delta_d = Eigen.Matrix3d().setZero()
+basis.Delta_l = Eigen.Matrix3d().setZero()
+basis.Pi_u = Eigen.Matrix3d().setZero()
+basis.Pi_d = Eigen.Matrix3d().setZero()
+basis.Pi_l = Eigen.Matrix3d().setZero()
+
+sm = gm2calc.SM()
+sm.set_alpha_em_mz(1.0/128.94579)
+sm.set_mu(2,173.34)
+sm.set_mu(1,1.28)
+sm.set_md(2,4.18)
+sm.set_ml(2,1.77684)
+
+config = gm2calc.thdm.Config()
+config.force_output = False;
+config.running_couplings = True;
+
+try:
+    model = gm2calc.THDM(basis,sm,config)
+    amu = gm2calc.calculate_amu_1loop(model) + gm2calc.calculate_amu_2loop(model)
+    delta_amu = gm2calc.calculate_uncertainty_amu_2loop(model)
+    print("amu =",amu,"+-",delta_amu)
+except gm2calc.Error as e:
+    print(e.what())

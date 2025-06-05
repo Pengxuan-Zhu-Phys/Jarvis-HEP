@@ -1,0 +1,17 @@
+import os
+import cppyy
+
+gm2calcpath = "@PROJECT_SOURCE_DIR@"
+
+# Add gm2calc headers to path
+includepath = os.path.join(gm2calcpath,"include")
+cppyy.add_include_path(includepath)
+    
+# Add Eigen3/Core directory to path
+eigen3path = "@EIGEN3_INCLUDE_DIR@"
+cppyy.add_include_path(eigen3path)
+
+# Load library containing gm2calc definitions
+librarypath = "@CMAKE_LIBRARY_OUTPUT_DIRECTORY@"
+cppyy.add_library_path(librarypath)
+	

@@ -1,0 +1,6 @@
+# Target labels
+ Mathematica
+# Source files and their labels
+/Users/buding/Workshop/Jarvis/External/Program/GM2Calc/build/src/gm2calc.tm.c
+ Mathematica
+/Users/buding/Workshop/Jarvis/External/Program/GM2Calc/src/gm2calc.tm

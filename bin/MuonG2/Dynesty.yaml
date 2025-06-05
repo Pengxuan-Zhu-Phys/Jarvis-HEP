@@ -151,7 +151,42 @@ Calculators:
               - { name: V21,          block: VMIX,    entry: [2, 1] }
               - { name: V22,          block: VMIX,    entry: [2, 2] }
 
-
+    - name: GM2Calc
+      required_modules: [] 
+      clone_shadow: True
+      path: &gm2calc_path "&J/WorkShop/Program/GM2Calc/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/GM2Calc"
+      installation:
+          - "cp -r ${source}/* ${path}"
+          - "cd ${path}/build"
+          - "cmake .."
+          - "make" 
+      initialization:
+          - "rm -f crossings.json"
+          - "rm -f output.hepmc3"
+          - "rm -f Mathusla.yoda"
+      execution:
+        path: "&J/WorkShop/Program/GM2Calc/@PackID"  # using the Anchor point
+        commands:
+          - "./build/bin/gm2calc.x --slha-input-file=./input/spectr.slha"
+          - "rivet -a MATHUSLA_N2:GammaFile=ga.json ./output.hepmc3 -o Mathusla.yoda"
+        input:
+          - name: spectr
+            type: "SLHA"
+            path: "&J/WorkShop/Program/GM2Calc/@PackID/input/spectr.slha"
+            save: False
+            actions:
+              - type: "File"
+                source: spectr
+          - name: gammajs
+            type: "Json"
+            path: "&J/WorkShop/Program/HinoGen/@PackID/ga.json"
+            save: False
+            actions:
+              - type: "Dump"
+                variables: 
+                  - {name:  "gamma", expression: "WN2"}
+        output:
 Utils:
   interpolations_1D:
     - name: XenonSD2019

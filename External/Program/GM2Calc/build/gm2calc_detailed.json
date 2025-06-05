@@ -1,0 +1,15 @@
+{
+  "amu_1l": 3.5422816961937604e-11,
+  "amu_1l_non_tan_beta_resummed": 3.53765570604353e-11,
+  "amu_2l": -5.790047569526777e-12,
+  "amu_2l_a_cha": 7.366931958150486e-13,
+  "amu_2l_a_sfermion": 4.113517528812206e-18,
+  "amu_2l_ferm_sferm_approx": -4.112425747151084e-12,
+  "amu_2l_non_tan_beta_resummed": -5.7830868130924426e-12,
+  "amu_2l_photonic_chi0": 1.6084603878736344e-13,
+  "amu_2l_photonic_chipm": -2.5751651704956343e-12,
+  "amu_2l_tanb_approx": 3.949898832578019e-14,
+  "amu_2l_uncertainty": 2.302210091927998e-10,
+  "amu_best": 2.9632769392410826e-11,
+  "tan_beta_correction": 1.001116530030277
+}

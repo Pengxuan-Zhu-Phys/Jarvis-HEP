@@ -1,0 +1,18 @@
+function(add_gm2calc_example name ext libs)
+  add_executable(${name}.x ${name}.${ext})
+  target_link_libraries(${name}.x GM2Calc::GM2Calc ${libs})
+endfunction()
+
+if(NOT WIN32)
+  set(libm m)
+endif()
+
+if(ENABLE_EXAMPLES)
+  add_gm2calc_example(example-gm2calc   cpp "")
+  add_gm2calc_example(example-gm2scan   cpp "")
+  add_gm2calc_example(example-slha      cpp "")
+  add_gm2calc_example(example-gm2calc_c c   "${libm}")
+  add_gm2calc_example(example-slha_c    c   "${libm}")
+  add_gm2calc_example(example-thdm      cpp "")
+  add_gm2calc_example(example-thdm_c    c   "${libm}")
+endif()
