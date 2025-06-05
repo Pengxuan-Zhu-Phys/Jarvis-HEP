@@ -1,6 +1,6 @@
 Scan: 
-  name: "Higgsino_LLP_PeakM100"
-  # name: "Higgsino_LLP_PeakP100"
+  # name: "Higgsino_LLP_PeakM100"
+  name: "Higgsino_LLP_PeakP100"
   save_dir: "&J/Results"
 
 Sampling:
