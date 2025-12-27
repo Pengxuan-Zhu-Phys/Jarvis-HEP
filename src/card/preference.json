@@ -11,7 +11,8 @@
     },
     "SchemaBlock":  {
         "input":    "&J/src/card/schema/inputs.json",
-        "output":   "&J/src/card/schema/outputs.json"
+        "output":   "&J/src/card/schema/outputs.json",
+        "Nuisance": "&J/src/card/schema/Nuisance_schema.json"
     },
     "logo":    "&J/src/card/logo"
 }

@@ -27,7 +27,7 @@ class Bridson(SamplingVirtial):
         self.method = "Bridson"
         self._P     = None
         self._index = 0 
-        self.tasks  = []
+        self.tasks  = {}
         self.info   = {}
 
     def load_schema_file(self):
@@ -35,6 +35,7 @@ class Bridson(SamplingVirtial):
 
     def set_config(self, config_info) -> None:
         self.config = config_info
+        self.set_bucket_alloc()
         self.init_generator()
 
     def __iter__(self):
@@ -52,8 +53,7 @@ class Bridson(SamplingVirtial):
             self._index += 1
             return result
         else:
-            # raise StopIteration
-            return None
+            raise StopIteration
 
     def next_sample(self):
         return self.__next__()
@@ -69,13 +69,16 @@ class Bridson(SamplingVirtial):
         self.logger.warning("Sampling method initializaing ...")
 
     def init_generator(self):
+        super().init_generator()
         self.load_variable()
         self._radius = self.config['Sampling']['Radius']
         self._k = self.config['Sampling']['MaxAttempt']
         self._dimensions = len(self.vars)
-
+        self.load_nuisance_sampler()            
+            
     def initialize(self):
         self.logger.warning("Initializing the Bridson Sampling")
+
         if self._dimensions < 2 or self._dimensions >= 5:
             self.logger.error("Bridson Sampling Algorithm only support 2d to 4d parameter space.")
             sys.exit(2)
@@ -94,32 +97,115 @@ class Bridson(SamplingVirtial):
             sys.exit(2)
 
     def run_nested(self):
+        if not self._with_nuisance: 
+            self.run_wo_nuisance()
+        else:
+            self.run_w_nuisance()
+     
+    def run_w_nuisance(self):
         total_cores = os.cpu_count()
         from copy import deepcopy
-
-        while True:
-            while len(self.tasks) < total_cores: 
+        exhausted = False 
+        while True: 
+            while not exhausted and len(self.tasks) < total_cores: 
                 try: 
                     param = self.next_sample()
-                    if param is not None: 
-                        sample = Sample(param)
-                        sample.set_config(deepcopy(self.info['sample']))
-                        future = self.factory.submit_task(sample.params, sample.info)
-                        self.tasks.append(future)
-                    else: 
-                        break
-                except StopIteration:
-                    break
+                    nuis_param = self.nuisance_sampler
+                except StopIteration: 
+                    exhausted = True
+                    break 
+                
+                if param is None: 
+                    exhausted = True 
+                    break 
+                
+                sample = Sample(param)
+                sconfig = deepcopy(self.info['sample'])
+                sconfig['save_dir'] = self.bucket_alloc.next_bucket_dir()
+                sample.set_config(sconfig)
+                # for kk, vv in sample.info.items():
+                #     print("\n{}\t -> {}".format(kk, vv))
+                
+                sample.start()
+                future = self.factory.submit_task(sample.info)
+                self.tasks[future] = sample
+        
+            done, _ = concurrent.futures.wait(
+                list(self.tasks.keys()), 
+                timeout=0.01, 
+                return_when=concurrent.futures.FIRST_COMPLETED
+            )
             
-            done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
-            # Remove completed futures
-            self.tasks = [f for f in self.tasks if f not in done]
-            # Exit loop if no tasks are pending and no more samples
-            if not self.tasks and not param:
-                break  
+            for future in done: 
+                sample = self.tasks.pop(future) 
+
+                try:
+                    future.result()
+                except Exception as e: 
+                    self.logger.error(f"Sample error info -> {e}")
+                
+    
+                self.nuisance_sampler.renew_sample_info(sample.info)
+                if sample.info['status'] == "Accept": 
+                    sample.close()
+                else: 
+                    sample.record()
+                    sample.combine_nuisance_card()
+                    future = self.factory.submit_task(sample.info)
+                    self.tasks[future] = sample 
+
+            if exhausted and not self.tasks: 
+                break
+                
+     
+        
+    def run_wo_nuisance(self):
+        total_cores = os.cpu_count()
+        from copy import deepcopy
+        exhausted = False 
+        while True:
+            while not exhausted and len(self.tasks) < total_cores: 
+                try: 
+                    param = self.next_sample()
+                except StopIteration: 
+                    exhausted = True 
+                    break 
+                
+                if param is None: 
+                    exhausted = True 
+                    break 
+                sample = Sample(param)
+                sconfig = deepcopy(self.info['sample'])
+                sconfig['save_dir'] = self.bucket_alloc.next_bucket_dir()
+                sample.set_config(sconfig)
+                
+                future = self.factory.submit_task(sample.info)
+                self.tasks[future] = sample
+
+            # futures = [f for f, _ in self.tasks]
+            done, _ = concurrent.futures.wait(
+                list(self.tasks.keys()), 
+                timeout=0.01, 
+                return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            
+            for future in done: 
+                sample = self.tasks.pop(future) 
+                try: 
+                    future.result() 
+                except Exception as e: 
+                    self.logger.error(f"Sample failed: {e}")
+                finally: 
+                    sample.close()
+          
+            if exhausted and not self.tasks: 
+                break
+            
 
     def finalize(self):
         pass
+
+     
 
 
     def set_factory(self, factory) -> None:

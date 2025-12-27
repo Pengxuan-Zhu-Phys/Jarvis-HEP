@@ -1,0 +1,6 @@
+{
+    "type": "contour",
+    "levels": 12,
+    "linewidth": 0.8,
+    "alpha": 0.9
+}

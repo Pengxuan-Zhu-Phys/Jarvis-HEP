@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from Module.parameters import Parameters
-from Module.library import LibraryModule
 from Module.calculator import CalculatorModule
 from copy import deepcopy
-from concurrent.futures import as_completed
 import json
-import os, sys 
-import threading 
+import os
+import threading
+from typing import Dict, Any
+
 from loguru import logger
 import asyncio
 
@@ -26,6 +26,10 @@ class ModulePool:
         self._info_loaded = False 
         self._funcs = {}
 
+        # Single-process, multi-thread safety
+        self._inst_lock = threading.Lock()   # protects instances list + is_busy transitions
+        self._io_lock = threading.Lock()     # protects info-file writes
+
     def set_logger(self):
         self.logger = logger.bind(module=f"Jarvis-HEP.Workflow.{self.name}", to_console=True, Jarvis=True)
         self.load_installed_instances()
@@ -42,20 +46,31 @@ class ModulePool:
         instance.installation_event = threading.Event()
         instance._funcs = self.funcs
         self.instances.append(instance)
-        self.update_instances_info_file()
         return instance
 
     def reload_instance(self, pack_id, pack_info):
-        self.id_counter += 1
+        # Keep id_counter in sync with existing numeric PackIDs
+        try:
+            self.id_counter = max(self.id_counter, int(str(pack_id)))
+        except Exception:
+            pass
+
         config = deepcopy(self.config)
         self.logger.info(f"Re-loading the {pack_id} Instance for Module {self.name}")
         instance = CalculatorModule(self.name, config=config)
         instance.assign_ID(pack_id)
-        instance.is_installed = True
+
+        # Persisted state: only installation matters for reload.
+        instance.is_installed = bool((pack_info or {}).get("is_installed", True))
+
+        # Runtime-only state (never persisted)
         instance.is_busy = False
+        instance.installation_event = threading.Event()
+        if instance.is_installed:
+            instance.installation_event.set()
+
         instance._funcs = self.funcs
         self.instances.append(instance)
-        self.update_instances_info_file()
         return instance
 
     def set_funcs(self, funcs):
@@ -67,56 +82,55 @@ class ModulePool:
         return self._funcs
 
     def execute(self, params, sample_info):
-        """Submit parameters to a module instance for calculation and return the calculation results.
+        """Submit parameters to a module instance for calculation and return the calculation results."""
 
-        Args:
-            params (dict): The parameters required for the calculation.
+        with self._inst_lock:
+            instance = self.get_available_instance()
 
-        Returns:
-            dict: The updated observables dictionary.
-        """
+            if instance is None:
+                # If no available instance found, create a new one (installed asynchronously)
+                self.logger.warning(
+                    f"No availiable instance for Module {self.name} found, trying to install a new one"
+                )
+                instance = self.create_instance()
+                self.executor.submit(self.install_instance, instance)
 
-        instance = self.get_available_instance()
-        # self.logger.warning(f"Line 64 -> {instance}")
-        if instance is None:
-            # if no availiable instance found, create a new one!
-            self.logger.warning(f"No availiable instance for Module {self.name} found, trying to install a new one")
-            instance = self.create_instance()
-            self.executor.submit(self.install_instance, instance)
+        # Wait for installation to complete (install_instance always sets the event)
+        if not instance.is_installed:
             instance.installation_event.wait()
-            
-        instance.is_busy = True 
-        # submit the task and tagging the instance into busy
-        future = self.executor.submit(instance.execute, params, sample_info)
+            if not instance.is_installed:
+                raise RuntimeError(
+                    f"Installation failed for Module {self.name} instance {getattr(instance, 'PackID', 'UNKNOWN')}"
+                )
+            # Only now persist installation state (to avoid reloading half-installed instances)
+            self.update_instances_info_file()
 
-        # waiting for calculation finished
-        result = future.result()        
-        # Update instance status 
-        instance.is_busy = False
-        self.update_instances_info_file()
+        with self._inst_lock:
+            instance.is_busy = True
 
-        return result
-
+        try:
+            future = self.executor.submit(instance.execute, params, sample_info)
+            result = future.result()
+            return result
+        finally:
+            with self._inst_lock:
+                instance.is_busy = False
+            # Do NOT write info file here; busy is runtime-only.
 
     @staticmethod
     def install_instance(instance):
-        if not instance.is_installed:
-            asyncio.run(instance.install())
-            instance.is_installed = True 
-            instance.installation_event.set()
+        # Always release waiters, even if installation fails.
+        try:
+            if not instance.is_installed:
+                asyncio.run(instance.install())
+                instance.is_installed = True
+        except Exception:
+            instance.is_installed = False
+        finally:
+            # Ensure waiters are released
+            if hasattr(instance, "installation_event") and instance.installation_event is not None:
+                instance.installation_event.set()
         return instance
-
-    def submit_task(self, params):
-        instance = self.get_available_instance()
-        if instance is None:
-            self.logger.warning(f"No availiable instance for Module {self.name} found, trying to install a new one")
-            instance = self.create_instance()
-            self.install_instances()  # Ensure the instance are installed 
-        future = self.executor.submit(instance.execute, params)
-        instance.is_busy = True
-        # print("Line 77, modulePool -> Test after the task is summited ... ")
-        self.update_instances_info_file()
-        return future
 
     def get_available_instance(self):
         # print(self.instances)
@@ -125,16 +139,26 @@ class ModulePool:
                 return instance
         return None
 
+    def _atomic_write_json(self, path: str, data: Dict[str, Any]) -> None:
+        """Write JSON atomically to avoid partial/corrupted files."""
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+        os.replace(tmp_path, path)
+
     def update_instances_info_file(self):
+        """Persist only installed instances to support reload and avoid redundant installs."""
         installed_instances_info = {
-            instance.PackID: {
-                "is_installed": instance.is_installed,
-                "is_busy": instance.is_busy
-            } for instance in self.instances
+            instance.PackID: {"is_installed": bool(instance.is_installed)}
+            for instance in self.instances
+            if getattr(instance, "PackID", None) is not None
         }
         data_to_save = {"installed_instances": installed_instances_info}
-        with open(self.instances_info_file, 'w') as file:
-            json.dump(data_to_save, file, indent=4)
+
+        # Atomic write to avoid partial/corrupted JSON under concurrent threads
+        with self._io_lock:
+            self._atomic_write_json(self.instances_info_file, data_to_save)
 
     def load_installed_instances(self):
         if self._info_loaded:
@@ -149,7 +173,7 @@ class ModulePool:
             try:
                 with open(self.instances_info_file, 'r') as file:
                     installed_instances_info = json.load(file)
-                    installed_ids = installed_instances_info.get("installed_instances", [])
+                    installed_ids = installed_instances_info.get("installed_instances", {})
                     for pack_id, info in installed_ids.items():
                         self.reload_instance(pack_id=pack_id, pack_info=info)
                     self.logger.warning("Instance reloaded!")
@@ -165,5 +189,5 @@ class ModulePool:
             self.logger.warning(f"Init instance info file -> {os.path.dirname(self.instances_info_file)}")
             os.makedirs(os.path.dirname(self.instances_info_file))
         data_to_save = {"installed_instances": {}}
-        with open(self.instances_info_file, 'w') as file:
-            json.dump(data_to_save, file, indent=4)
+        with self._io_lock:
+            self._atomic_write_json(self.instances_info_file, data_to_save)

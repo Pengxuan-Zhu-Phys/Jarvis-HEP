@@ -1,0 +1,10 @@
+{
+    "rect": [
+        0.86,
+        0.12,
+        0.02,
+        0.76
+    ],
+    "projection": "cartesian",
+    "as_colorbar": true
+}

@@ -1,6 +1,6 @@
 Scan: 
-  # name: "Higgsino_LLP_PeakM100"
-  name: "Higgsino_LLP_PeakP100"
+  name: "Higgsino_LLP_PeakM100"
+  # name: "Higgsino_LLP_PeakP100"
   save_dir: "&J/Results"
 
 Sampling:
@@ -11,12 +11,12 @@ Sampling:
       distribution:
         type: Flat
         parameters:
-          # min: 600
-          # max: 850
-          # num: 2000
-          min: -589
-          max: -569
-          num: 767
+          # min: 730
+          # max: 750
+          # num: 2012
+          min: -550
+          max: -600
+          num: 500
     # - name: M2
     #   description: "Variable Y following a Logarithmic distribution for sampling."
     #   distribution:
@@ -63,7 +63,7 @@ Calculators:
           - "tar -zxvf susyhit.tar.gz"
           - "make" 
       initialization:
-          - "cp ${source}/suspect2_lha_llp_temp_peak.in ${path}/suspect2_lha.in"
+          - "cp ${source}/suspect2_lha_llp_temp.in ${path}/suspect2_lha.in"
       execution:
         path: *susyhit_path  # using the Anchor point
         commands:

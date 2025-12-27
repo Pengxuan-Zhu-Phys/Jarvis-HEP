@@ -130,7 +130,7 @@ class CustomDumper(yaml.Dumper):
         if len(self.indents) == 1:
             super().write_line_break()
 
-class BudingPLOT(Base):
+class JarvisPLOT(Base):
     def __init__(self):
         super().__init__()
         self.info = {}

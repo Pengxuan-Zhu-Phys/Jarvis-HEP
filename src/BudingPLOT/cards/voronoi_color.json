@@ -10,10 +10,10 @@
             "layout":   "constrained"
         },
         "ax":   {
-            "rect": [0.16, 0.16, 0.66, 0.82]
+            "rect": [0.16, 0.16, 0.64, 0.78]
         },
         "axc":  {
-            "rect": [0.83, 0.18, 0.02, 0.78]
+            "rect": [0.81, 0.18, 0.02, 0.74]
         }, 
         "spines": {"linewidth": 2},
         "scatterc": 
@@ -81,7 +81,7 @@
             "cmap": "Jrainbow2_r", 
             "fill": {
                 "edgecolor":    "None",
-                "alpha":    0.95
+                "alpha":    0.85
             },
             "use_core": true,
             "use_wall": true

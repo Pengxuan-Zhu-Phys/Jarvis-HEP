@@ -1,4 +1,6 @@
 #!/usr/bin/env python3 
+from __future__ import annotations
+
 from base import Base
 from abc import ABCMeta, abstractmethod
 from variables import Variable
@@ -21,6 +23,20 @@ class SamplingVirtial(Base):
         self.max_workers                = 4
         self._selectionexp              = None
         self._loglike                   = None 
+        self.nuisance_sampler           = None 
+        self._with_nuisance             = False 
+        self.bucket_alloc               = None 
+        
+    def load_nuisance_sampler(self): 
+        if self.config['Sampling']['Nuisance']: 
+            nui_config = self.config['Sampling']['Nuisance']
+            if nui_config['Method'] == "Profile1D": 
+                from Sampling.Source.Nuisance.profile1d import Profile1D
+                self.nuisance_sampler = Profile1D()
+                self.nuisance_sampler.set_logger(self.logger)
+                self.nuisance_sampler.set_config(nui_config)
+                self.info['sample']['nuisance'] = self.nuisance_sampler.get_info_card()
+                self._with_nuisance = True
 
     @property
     def loglike(self):
@@ -37,6 +53,25 @@ class SamplingVirtial(Base):
     def set_config(self, config_info) -> None:
         pass 
 
+    @abstractmethod
+    def set_bucket_alloc(self) -> None: 
+        limit = 200 
+        width = 6 
+        ba_config = self.config.get("Directory_Setting", None)
+        if ba_config is not None: 
+            limit = ba_config.get("limit", 200)
+            width = ba_config.get("width", 6)
+
+        from bucketallocator import BucketAllocator
+        self.bucket_alloc = BucketAllocator(
+            base_path=self.info['sample']['sample_dirs'],
+            limit=limit,
+            width=width,
+            start_bucket=1,
+        )
+        self.bucket_alloc.check_and_update()
+        
+        
     @abstractmethod
     def init_generator(self) -> None:
         pass 
@@ -66,48 +101,8 @@ class SamplingVirtial(Base):
     def combine_data(self, df_full) -> None:
         pass 
         
-    @abstractmethod
-    def evaluate_selection(self, expression, variables) -> bool: 
-        """
-        Evaluates a selection condition.
 
-        Args:
-            expression (str): A sympy-compatible condition string (e.g., "X > Y + log(E)").
-            variables (dict): A dictionary of variable values (e.g., {"X": 5.0, "Y": 3.0}).
-
-        Returns:
-            bool: True if the condition is satisfied, False otherwise.
-
-        Raises:
-            BoolConversionError: If the result cannot be converted to a boolean value.
-        """
-        custom_functions = update_funcs({})
-        custom_constants = update_const({})
-        try:
-            # print(variables)
-            symbols = {var: sp.symbols(var) for var in variables}
-            locals_context = {**custom_functions, **custom_constants, **symbols}
-            expr = sp.sympify(expression, locals=locals_context)
-            result = expr.subs(variables)
-            result = bool(result)
-            return result 
-        except:
-            raise BoolConversionError("Result cannot be converted to a boolean value.")
-
-    @abstractmethod
-    def check_evaluation(self):
-        if self._selectionexp:
-            try:
-                temp    = np.random.rand(self._dimensions)
-                param   = self.map_point_into_distribution(temp)
-                self.evaluate_selection(self._selectionexp, param)
-            except BoolConversionError:
-                self.logger.error("Wrong selection condition in input YAML -> \n\t{}".format(self._selectionexp))
-                sys.exit(2)
-            except:
-                self.logger.error("Random Sampler meets error when trying scan the parameter space.")
-                sys.exit(2)
-                
+    
     @abstractmethod
     def set_likelihood(self, loglike):
         self._loglike = loglike

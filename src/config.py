@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import yaml 
 import platform
@@ -410,6 +411,7 @@ class ConfigValidator(Base):
             self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
         try:
+            print(self.schema['schemaBlock'].keys())
             for kk, vv in self.schemablock.items():
                 self.schema['schemaBlock'][kk]['$ref'] = self.schemablock[kk]
             

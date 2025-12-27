@@ -32,5 +32,8 @@ class Distributor(Base):
             case "MCMC":
                 from Sampling.mcmc import MCMC 
                 return MCMC()
+            case _:
+                supported = ["Bridson", "Dynesty", "Grid", "Random", "DNN", "TPMCMC", "MCMC"]
+                raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

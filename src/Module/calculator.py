@@ -143,27 +143,21 @@ class CalculatorModule(Module):
         self.handlers['install'] = install_handler
 
     def update_sample_logger(self, sample_info):
-        logger_name = f"Sample@{sample_info['uuid']} ({self.name}-No.{self.PackID})"
-        def filte_func(record):
-            return record['extra']['module'] == logger_name
-        
-        if not os.path.exists(sample_info['save_dir']):
-            os.makedirs(sample_info['save_dir'])
-        
-        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
-        sample_handler = self.logger.add(sample_info['run_log'], format=CalculatorModule.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
-        self.handlers['sample'] = sample_handler
-        self.logger.info("Sample created into the Disk")
+        # self.close_sample_logger()
+        logger_name = f"{sample_info['logger_name']} ({self.name}-No.{self.PackID})"
+
+        self.logger = sample_info['logger'].bind(module=logger_name, to_console=True, Jarvis=True)
+        self.logger.info("Module load instance and logger is correctly set!")
 
     def close_sample_logger(self):
+        
         """Ensure logging processor is properly shut down after task completion"""
-        if 'sample' in self.handlers and self.logger:
-            self.logger.info("Closing calculator logging handler")
-            sample_handler = self.handlers['sample']
-            self.logger.remove(sample_handler)
-            del self.handlers['sample']  
-            # print("Line 172 -> self.handlers: ", self.handlers)
-            self.logger = None
+        # if 'sample' in self.handlers:
+            # self.logger.info("Closing calculator logging handler")
+            # sample_handler = self.handlers['sample']
+            # self.logger.remove(sample_handler)
+            # del self.handlers['sample']  
+        self.logger = None 
 
 
     async def install(self):

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3 
-
+from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from modulePool import ModulePool
-import pandas as pd
-import asyncio
-
+from copy import deepcopy
 class ModuleManager:
     _instance = None
     _lock = threading.Lock()
@@ -48,7 +46,7 @@ class ModuleManager:
     def max_worker(self):
         return self._max_worker
 
-    def execute_workflow(self, observables, sample_info):
+    def execute_workflow(self, sample_info):
         """Execute the pre-configured workflow, updating the observables dictionary.
 
         Args:
@@ -60,12 +58,13 @@ class ModuleManager:
         """
         # Execute according to the workflow's layer sequence
         self.logger.info(f"Start execute workflow for sample -> {sample_info['uuid']}")
-
+        observables = deepcopy(sample_info['observables'])
+        
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
             with ThreadPoolExecutor(max_workers=len(module_names)) as executor:
                 # Submit all modules in the current layer for parallel execution, and update observables
-                future_to_module = {executor.submit(self.execute_module, module_name, observables, sample_info): module_name for module_name in module_names}
+                future_to_module = {executor.submit(self.execute_module, module_name, observables.copy(), sample_info): module_name for module_name in module_names}
                 for future in as_completed(future_to_module):
                     try:
                         # Get the returned updated observables
@@ -76,9 +75,12 @@ class ModuleManager:
                         module_name = future_to_module[future]
                         self.logger.error(f'Module {module_name} generated an exception: {exc}')
                         
+            passed = self.nuisance_check(observables, sample_info)
+            if not passed: 
+                return 1. 
         # After all modules have executed, calculate likelihood based on the final observables
         if self.config['Sampling'].get('LogLikelihood', False):
-            observables = asyncio.run(self.calculate_likelihood(observables, sample_info))
+            observables = self.calculate_likelihood(observables, sample_info)
             sample_info['observables'] = observables
             self.database.add_data(observables)
             # print("Manager Line 82 ->", observables['LogL'])
@@ -88,6 +90,51 @@ class ModuleManager:
             # print(observables)
             self.database.add_data(observables)
             return 1.
+
+    def nuisance_check(self, observables: dict, sample_info: dict) -> bool:
+        """Check nuisance passconditions and decide whether to early-stop workflow.
+
+        Contract:
+        - Uses dict-input callable interface: entry['expr'](observables) -> bool
+        - Uses deps checker: entry['checker'](observables.keys()) -> (ok, missing)
+        - Only evaluates a condition when all deps are available.
+        - If any evaluated condition returns False, triggers early stop.
+
+        Returns:
+            (stop: bool, reason: str)
+        """
+        
+        pcdt = True
+        if not self._with_nuisance: 
+            return True
+        
+        if self.nuisance_loglikelihoods: 
+            for ll, loglike in self.nuisance_loglikelihoods.items(): 
+                if loglike['checker'](observables.keys())[0]:
+                    value = loglike['expr'](observables)
+                    observables[ll] = value 
+                    sample_info['nuisance']['active']['LogLikelihoods'][ll] = value 
+                    sample_info['logger'].info("Evaluating Nuisance Loglikelihood -> \n\tname \t-> {}\n\texpr \t-> {}\n\tOutput \t-> {}".format(ll, loglike['expression'], value))
+                
+        if self.nuisance_passconditions: 
+            for pc, passcond in self.nuisance_passconditions.items(): 
+                if passcond['checker'](observables.keys())[0]: 
+                    value = passcond['expr'](observables)
+                    observables[pc] = value 
+                    sample_info['nuisance']['active']['PassConditions'][pc] = value
+                    sample_info['logger'].info("Evaluating Nuisance PassConditions -> \n\tname \t-> {}\n\texpr \t-> {}\n\tOutput \t-> {}".format(pc, passcond['expression'], value))
+                    pcdt = pcdt and value 
+            sample_info['nuisance']['active']['pass'] = pcdt
+
+        if pcdt: 
+            observables['uuid'] = sample_info['uuid']
+            
+        observables['NAttempt'] = sample_info['nuisance']['NAttempt']
+        sample_info['observables'] = observables
+        
+        return pcdt
+
+
 
     def execute_module(self, module_name, observables, sample_info):
         """Execute a single module's computation task, updating the observables dictionary.
@@ -103,14 +150,12 @@ class ModuleManager:
         module_pool = self.module_pools.get(module_name)
         if not module_pool:
             self.logger.error(f"Module pool for '{module_name}' not found.")
-            return observables
+            return {}
 
-        # Assume the ModulePool's execute method accepts observables dictionary and uuid, and returns an updated observables dictionary
-        # self.logger.warning(f"Start execute module -> {module_name} for sample -> {sample_info['uuid']}")
         updated_observables = module_pool.execute(observables, sample_info)
         return updated_observables
 
-    async def calculate_likelihood(self, observables, sample_info):
+    def calculate_likelihood(self, observables, sample_info):
         """Calculate the likelihood based on the updated observables.
 
         Args:
@@ -120,12 +165,8 @@ class ModuleManager:
             float: The calculated likelihood value.
         """
         # Calculate likelihood based on observables, this is pseudocode for the calculation logic
-        # self.logger.warning(f"observables -> {set(observables.keys())},\n likelihood.variables -> {self.likelihood.variables}")
-        # self.logger.warning({str(var) for var in self.likelihood.variables}.issubset(set(observables.keys())))
-        from Module.likelihood import LogLikelihood
-        loglikelihood = LogLikelihood(self.config['Sampling']['LogLikelihood'])
-        loglikelihood.update_funcs(self.funcs)
-        logl = loglikelihood.calculate(observables, sample_info)
+
+        logl = self.loglikelihood.calculate(observables, sample_info)
         observables.update(logl)
         return observables
 

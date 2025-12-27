@@ -12,14 +12,14 @@ from copy import deepcopy
 from matplotlib.colors import LogNorm
 pwd = os.path.abspath(os.path.dirname(__file__))
 jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-from plot import BudingPLOT
+from plot import JarvisPLOT
 import update_colors
 from matplotlib.ticker import (MultipleLocator, FormatStrFormatter, FixedLocator, NullLocator, AutoMinorLocator)
 import time
 
 from inner_func import update_funcs
 
-class Figure(BudingPLOT):
+class Figure(JarvisPLOT):
     def __init__(self, config, name, sts):
         self.name = name 
         self.type = sts['type']
@@ -440,6 +440,7 @@ class VoronoiC(Figure):
                 lbstag = True
                 # collect styled polygons for this subgroup
                 styled_polygons = []
+                print(self.cstyle['fill'])
                 for ii, region in enumerate(regions):
                     polygon = vertices[region]
                     if self.data['_inner_selected'].iat[ii]:

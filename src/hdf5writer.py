@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import threading
 import time
 import h5py
@@ -12,6 +14,7 @@ import os
 class GlobalHDF5Writer:
     def __init__(self, dbinfo, write_interval=15):
         super().__init__()
+        self._info_lock = threading.Lock()
         self.initialize(dbinfo)
         # self.filepath = dbinfo['path']
         self.write_interval = write_interval
@@ -26,18 +29,29 @@ class GlobalHDF5Writer:
     def initialize(self, dbinfo):
         pthroot, pthext = os.path.splitext(dbinfo['path'])
         self.infos = {
-            "info":         dbinfo['info'],
-            "activeNO":     0,
-            "totalDB":      1, 
-            "converted":    [],
-            "paths":        [],
-            "pathroot":     pthroot,
-            "pathext":      pthext,
-            "active path":  "".join([pthroot, ".0", pthext])
+            "info":              dbinfo['info'],
+            "activeNO":          0,
+            "totalDB":           1,
+            "converted":         [],
+            "pending_converted": [],  # csv paths we failed to convert earlier
+            "errors":            [],  # recent conversion/write errors
+            "paths":             [],
+            "pathroot":          pthroot,
+            "pathext":           pthext,
+            "active path":       "".join([pthroot, ".0", pthext])
         }
-        with open(dbinfo['info'], 'w') as f1:
-            json.dump(self.infos, f1, indent=4)
+        self._save_infos()
 
+    def _atomic_write_json(self, path: str, data: dict) -> None:
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=4)
+            f.flush()
+        os.replace(tmp_path, path)
+
+    def _save_infos(self) -> None:
+        with self._info_lock:
+            self._atomic_write_json(self.infos["info"], self.infos)
 
     def start(self):
         """Start the writer thread."""
@@ -80,15 +94,23 @@ class GlobalHDF5Writer:
                 current_file_size = 0  # New file has size 0
 
             if current_file_size >= self.max_size:
-                # Create a new file name based on timestamp or some unique identifier
+                # Rotate: try to convert the current active file to CSV (best-effort)
+                try:
+                    self.hdf5_to_csv()
+                except Exception as e:
+                    # hdf5_to_csv is already best-effort, but be defensive here too.
+                    self.logger.warning(f"hdf5_to_csv failed during rotation: {e}")
+
+                self.infos['paths'].append(self.infos['active path'])
                 self.infos['activeNO'] += 1
-                self.infos['paths'].append(self.infos['active path'])               
-                new_file_path = "".join([self.infos['pathroot'], ".{}".format(self.infos['activeNO']), self.infos['pathext']])
-                self.logger.warning(f"Creating new HDF5 file due to size limit: {new_file_path}")
-                self.hdf5_to_csv()
+                self.infos['totalDB'] += 1
 
+                new_file_path = "".join([
+                    self.infos['pathroot'], ".{}".format(self.infos['activeNO']), self.infos['pathext']
+                ])
                 self.infos['active path'] = new_file_path
-
+                self.logger.warning(f"Creating new HDF5 file due to size limit: {new_file_path}")
+                self._save_infos()
 
             with h5py.File(self.infos['active path'], 'a') as f:
                 # Example: adjust dataset creation and data writing as needed.
@@ -107,43 +129,100 @@ class GlobalHDF5Writer:
         self.writer_thread.join()
         self.logger.warning("Global HDF5 writer stopped.")
 
+        # Optional best-effort conversion at shutdown (never raise)
+        try:
+            self.hdf5_to_csv()
+        except Exception as e:
+            self.logger.warning(f"Final hdf5_to_csv failed (ignored): {e}")
 
-    def hdf5_to_csv(self):
-        """Convert the HDF5 file data to a CSV file with structured columns based on JSON keys."""
+    def hdf5_to_csv(self) -> bool:
+        """Convert the active HDF5 file to CSV (best-effort).
+
+        Returns:
+            bool: True if conversion succeeded, False otherwise.
+        """
         csv_path = "".join([self.infos['pathroot'], ".{}".format(self.infos['activeNO']), ".csv"])
-        if csv_path not in self.infos["converted"]:
+
+        # Already converted
+        if csv_path in self.infos.get("converted", []):
+            return True
+
+        # Attempt conversion (do NOT raise)
+        try:
             with h5py.File(self.infos['active path'], 'r') as hdf5_file:
                 all_data = []
-                # Iterate over datasets in the HDF5 file to collect data
                 for dataset_name in hdf5_file:
                     data = hdf5_file[dataset_name][()]
-                    # Assuming 'data' is stored as a binary string of serialized JSON
-                    json_data = json.loads(data.decode('utf-8'))
+                    # Stored as serialized JSON string (bytes)
+                    if isinstance(data, (bytes, bytearray)):
+                        json_data = json.loads(data.decode('utf-8'))
+                    else:
+                        json_data = json.loads(str(data))
                     all_data.append(json_data)
 
-                # Assuming all JSON objects have the same structure (same keys)
-                if all_data:
-                    fieldnames = list(all_data[0].keys())
-                    for data in all_data:
-                        if isinstance(data, dict):                        
-                            if data.get('LogL', False) == - np.inf:
-                                fieldnames = data.keys()
-                                continue
-                            else:
-                                fieldnames = data.keys()
-                                break
+            if not all_data:
+                # Nothing to convert; treat as success but still mark as converted to avoid repeated work.
+                self.infos.setdefault("converted", []).append(csv_path)
+                self._save_infos()
+                return True
 
-                    with open(csv_path, 'w', newline='') as csv_file:
-                        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                        writer.writeheader()
-                        for data in all_data:
-                            if isinstance(data, dict):
-                                writer.writerow(data)
+            # Determine fieldnames robustly
+            fieldnames = list(all_data[0].keys()) if isinstance(all_data[0], dict) else []
+            for item in all_data:
+                if isinstance(item, dict):
+                    # Skip pathological -inf row if present, otherwise take the first normal row
+                    if item.get('LogL', None) == -np.inf:
+                        continue
+                    fieldnames = list(item.keys())
+                    break
+
+            if not fieldnames:
+                # Fallback: union of keys
+                keys = set()
+                for item in all_data:
+                    if isinstance(item, dict):
+                        keys.update(item.keys())
+                fieldnames = sorted(keys)
+
+            with open(csv_path, 'w', newline='') as csv_file:
+                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+                writer.writeheader()
+                for item in all_data:
+                    if isinstance(item, dict):
+                        writer.writerow(item)
 
             self.logger.warning(f"Converted HDF5 data to CSV at -> {csv_path}.")
-            self.infos['converted'].append(csv_path)
-            with open(self.infos['info'], "w") as f1:
-                json.dump(self.infos, f1, indent=4)
+            self.infos.setdefault("converted", []).append(csv_path)
+            # Remove from pending if it was pending
+            if csv_path in self.infos.get("pending_converted", []):
+                self.infos["pending_converted"].remove(csv_path)
+            self._save_infos()
+            return True
+
+        except (BlockingIOError, OSError) as e:
+            # Most common: file locking / temporarily unavailable
+            msg = f"CSV conversion skipped (file busy/locked): active={self.infos['active path']} err={e}"
+            self.logger.warning(msg)
+            self.infos.setdefault("pending_converted", [])
+            if csv_path not in self.infos["pending_converted"]:
+                self.infos["pending_converted"].append(csv_path)
+            self.infos.setdefault("errors", []).append(msg)
+            # Keep errors list bounded
+            self.infos["errors"] = self.infos["errors"][-50:]
+            self._save_infos()
+            return False
+
+        except Exception as e:
+            msg = f"CSV conversion failed (ignored): active={self.infos['active path']} err={e}"
+            self.logger.warning(msg)
+            self.infos.setdefault("pending_converted", [])
+            if csv_path not in self.infos["pending_converted"]:
+                self.infos["pending_converted"].append(csv_path)
+            self.infos.setdefault("errors", []).append(msg)
+            self.infos["errors"] = self.infos["errors"][-50:]
+            self._save_infos()
+            return False
+
 
 """ Custom JSON encoder, converte the numpy number format into python float. """
 

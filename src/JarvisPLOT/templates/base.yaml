@@ -1,0 +1,28 @@
+version: 0.3
+style: paper_1x1
+output: { dir: ./IMAGE, formats: [png], dpi: 150 }
+
+datasources:
+  - { name: df, type: csv, path: ../DATABASE/data.csv }
+
+variables:
+  - &v_x { dataset: df, expr: x, lim: auto, scale: linear, label: "x" }
+  - &v_y { dataset: df, expr: y, lim: auto, scale: linear, label: "y" }
+  - &v_L {
+      dataset: df,
+      expr: y,
+      lim: auto,
+      scale: linear,
+      label: "L",
+      cmap: viridis,
+      norm: log,
+    }
+
+figures:
+  - name: demo
+    axes:
+      - { name: main, title: "Demo Plot" }
+      - { name: cbar }
+    layers:
+      - { name: sc, type: scatter, axes: main, x: *v_x, y: *v_y, c: *v_L }
+      - { type: colorbar, axes: cbar, from_layer: sc, orientation: vertical }

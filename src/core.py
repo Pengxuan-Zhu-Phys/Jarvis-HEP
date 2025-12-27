@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 from copy import deepcopy
 import json
@@ -25,7 +26,11 @@ import asyncio
 from loguru import logger
 import setproctitle 
 logger.remove()
-from plot import BudingPLOT
+# Prefer a decoupled JarvisPLOT if available; fallback to BudingPLOT
+try:
+    from plot import JarvisPLOT as PlotterClass
+except Exception:
+    from plot import BudingPLOT as PlotterClass
 # from monitor import Monitor
 
 
@@ -47,7 +52,7 @@ class Core(Base):
         self.tasks                      = []
         self.async_loop                 = asyncio.get_event_loop()
         self.scan_mode                  = True
-        self.plotter                    = BudingPLOT()
+        self.plotter                    = PlotterClass()
         self.mode                       = None
         # self.monitor                    = Monitor()
         # self.monitor.start()
@@ -101,22 +106,49 @@ class Core(Base):
         if self.args.bdREQ:
             self.scan_mode = False
             self.mode       = "BUILD"
+        if self.args.jplot:
+            self.scan_mode = False
+            self.mode      = "JPLOT"
         
     def init_project(self) -> None: 
         import yaml 
         with open(os.path.abspath(self.args.file), 'r') as file:
             config = yaml.safe_load(file)
-        self.info['scan_name'] = config['Scan']['name']
-        self.info['proctitle'] = "Jarvis-HEP@{}".format(self.info['scan_name'])
         self.info["project_name"] = os.path.splitext(os.path.basename(self.args.file))[0]
-        task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
-        task_result_dir = self.decode_path(task_result_dir)
         self.info['config_file'] = os.path.abspath(self.args.file)
 
+        # If YAML has a Scan section, use it; otherwise build a lightweight project layout for plotting-only YAML
+        if 'Scan' in config and not self.args.plot:
+            # Standard scan project layout
+            self.info['scan_name'] = config['Scan']['name']
+            self.info['proctitle'] = "Jarvis-HEP@{}".format(self.info['scan_name'])
+            task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
+            task_result_dir = self.decode_path(task_result_dir)
+        elif 'Scan' in config and self.args.plot:
+            # Plotting with a full scan YAML: reuse scan directories
+            self.info['scan_name'] = config['Scan']['name']
+            self.info['proctitle'] = "Jarvis-HEP@{}".format(self.info['scan_name'])
+            task_result_dir = os.path.join(config['Scan']['save_dir'], self.info['scan_name'])
+            task_result_dir = self.decode_path(task_result_dir)
+        else:
+            # Plotting-only YAML (no 'Scan' section): create a minimal project under the YAML's directory
+            self.info['scan_name'] = self.info["project_name"]
+            self.info['proctitle'] = "Jarvis-HEP@{}".format(self.info['scan_name'])
+            yaml_dir = os.path.dirname(self.info['config_file'])
+            # Use a 'PLOT' folder next to the YAML to hold outputs
+            task_result_dir = os.path.join(yaml_dir, "PLOT", self.info['scan_name'])
+
+        # Common paths (exist regardless of mode)
         self.info['jarvis_log'] = os.path.join(task_result_dir, "LOG", f"{self.info['scan_name']}.log")
         self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
         self.info['flowchart_path'] = os.path.join(task_result_dir, "flowchart.png")
-        self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{config['Sampling']['Method']}.log")
+        # Sampling method may be absent for plotting-only YAML
+        sampling_method = None
+        try:
+            sampling_method = config['Sampling']['Method']
+        except Exception:
+            sampling_method = "Sampler"
+        self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{sampling_method}.log")
 
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
@@ -126,28 +158,33 @@ class Core(Base):
         self.info["db"] = {
             "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),
             "info":  os.path.join(task_result_dir, "DATABASE", "running.json")
-            # "out_csv":  os.path.join(task_result_dir, "DATABASE", "samples.csv")
         }
         self.info['proc'] = {
             "path": os.path.join(task_result_dir, "DATABASE", ".pid.txt")
         }
 
+        # Ensure directories exist (create minimal layout for plotting-only YAML)
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
-        # self.info['monitor_log'] = os.path.join(task_result_dir, "LOG", "monitor.log")
-        # with open(self.info['monitor_log'], "w") as f1: 
-        #     f1.write(str(os.getpid()))
-        
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
+
+        # Plot folder and config reference
         if self.args.plot:
-            self.info['plot'] = {
-                "save_path":    os.path.join(task_result_dir, "IMAGE"),
-                "config":       os.path.join(task_result_dir, "IMAGE", f"{self.info['scan_name']}.yaml")
-            }
-            os.makedirs(os.path.join(task_result_dir, "IMAGE"), exist_ok=True)
-        
-        # pprint(self.yaml.config)
+            plot_dir = os.path.join(task_result_dir, "IMAGE")
+            os.makedirs(plot_dir, exist_ok=True)
+            if 'Scan' in config:
+                # With full scan YAML, keep generated plotting config under IMAGE
+                self.info['plot'] = {
+                    "save_path": plot_dir,
+                    "config":    os.path.join(plot_dir, f"{self.info['scan_name']}.yaml")
+                }
+            else:
+                # Plotting-only YAML: treat the provided YAML as plotting config
+                self.info['plot'] = {
+                    "save_path": plot_dir,
+                    "config":    self.info['config_file']
+                }
 
     def init_logger(self) -> None:
         from datetime import datetime
@@ -211,6 +248,14 @@ class Core(Base):
         self.yaml.set_schema(self.sampler.schema)
         self.yaml.validate_config()
 
+    def init_configparser_light(self) -> None:
+        """Lightweight config load for plot/convert/monitor modes: load YAML only, skip scan-only setup."""
+        self.yaml.logger = logger.bind(module="Jarvis-HEP.ConfigParser", to_console=True, Jarvis=True)
+        from copy import deepcopy
+        self.yaml.path = deepcopy(self.path)
+        # Only load YAML; do not install dependencies, set sampler/schema, or validate scan config
+        self.yaml.load_config(os.path.abspath(self.args.file))
+
     def init_utils(self) -> None: 
         if "Utils" in self.yaml.config:
             if "interpolations_1D" in self.yaml.config['Utils']:
@@ -234,18 +279,18 @@ class Core(Base):
     def init_sampler(self) -> None:
         logger_name = f"Jarvis-HEP.{self.sampler.method}"
         def filte_func(record):
-            return record['extra']['module'] == logger_name
+            return logger_name in record['extra']['module']
         def custom_format(record):
             module = record["extra"].get("module", "No module")
             return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
     
-        self.sampler.set_config(self.yaml.config)
         # logger = self.logger.create_dynamic_logger(self.sampler.method)
         slogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
         slogger.add(self.info['sampler_log'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
         self.sampler.info['logfile'] = self.info['sampler_log']
         self.sampler.info['sample'] = deepcopy(self.info['sample'])
         self.sampler.set_logger(slogger)
+        self.sampler.set_config(self.yaml.config)
         self.sampler.initialize()
         self.yaml.vars = self.sampler.vars 
 
@@ -294,6 +339,10 @@ class Core(Base):
                 for module in layer['module']:
                     self.module_manager.add_module_pool(self.workflow.modules[module])
         self.factory.info['sample'] = deepcopy(self.info['sample'])
+        if self.sampler._with_nuisance: 
+            self.module_manager.nuisance_loglikelihoods = self.sampler.nuisance_sampler.loglikelihoods
+            self.module_manager.nuisance_passconditions = self.sampler.nuisance_sampler.passconditions
+            self.module_manager._with_nuisance = True
 
     def init_likelihood(self) -> None: 
         if self.yaml.config['Sampling'].get("LogLikelihood", False):
@@ -308,26 +357,69 @@ class Core(Base):
         self.module_manager.database.start()
 
     def initialization(self) -> None:
+        # Parse CLI and decide mode
         self.init_argparser()
-        self.init_project()
-        self.init_logger()
-        self.init_configparser()
-        self.init_utils()
+
+        # Common initializations for all modes that need project context/logging
+        def _init_common_project_and_logger():
+            self.init_project()
+            self.init_logger()
+
+
+        # Mode switch: PLOT / CDB (convert) / Monitor / BUILD / SCAN (default) / 1PC
+        if self.mode == "PLOT" or getattr(self.args, 'plot', False):
+            # Plot mode: lightweight setup; no scan-only preprocessing
+            _init_common_project_and_logger()
+            self.init_configparser_light()
+            self.init_utils()
+            # main() will call self.plot() afterwards
+            return
         
-        if self.scan_mode:
+        elif self.mode == "JPLOT" or getattr(self.args, 'jplot', False):
+            # JPlot mode: minimal initialization; JPlot reads its own YAML
+            _init_common_project_and_logger()
+            return
+
+        elif self.mode == "CDB" or getattr(self.args, 'cvtDB', False):
+            # Convert mode: set up paths/logging; optionally light-load config
+            _init_common_project_and_logger()
+            try:
+                self.init_configparser_light()
+            except Exception:
+                pass
+            # main() will call self.convert() afterwards
+            return
+
+        elif self.mode == "Monitor" or getattr(self.args, 'monitor', False):
+            # Monitor mode: minimal init for logger + project paths
+            _init_common_project_and_logger()
+            # main() will call self.monitor() afterwards
+            return
+
+        elif self.mode == "BUILD" or getattr(self.args, 'bdREQ', False):
+            # Build/install-dependencies mode: minimal init; no scanning
+            _init_common_project_and_logger()
+            # main() will call build routine afterwards
+            return
+
+        else:
+            # SCAN / 1PC modes (full pipeline)
+            _init_common_project_and_logger()
+            self.init_configparser()
+            self.init_utils()
+
             setproctitle.setproctitle(self.info['proctitle'])
             self.logger.warning("Setting process title -> {}".format(self.info['proctitle']))
             self.save_pid()
             self.init_StateSaver()
-            
+
             self.init_sampler()
             self.init_workflow()
             self.init_librarys()
             self.init_WorkerFactory()
             self.init_likelihood()
             self.init_database()
-        # elif self.args.cvtDB:
-        #     self.convert()
+            return
 
     def save_pid(self):
         pid = os.getpid()
@@ -422,10 +514,12 @@ class Core(Base):
         if "Plot_Config" not in self.yaml.config:
             if not os.path.exists(self.info['plot']['config']):
                 self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
-                self.plotter.plot()
-            else:
+                # self.plotter.plot()
+            else: 
                 self.plotter.load_config(self.info['plot']['config'])
-                self.plotter.plot() 
+        else:
+            self.plotter.load_config(self.info['plot']['config'])
+        self.plotter.plot() 
         
     def monitor(self) -> None: 
         from monitor import JarvisMonitor

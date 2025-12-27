@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import threading
@@ -57,11 +58,12 @@ class WorkerFactory:
         else:
             self.logger.warning(f"ModulePool for {module.name} already exists.")
 
-    def submit_task(self, params, sample_info):
+    # def submit_task(self, params, sample_info):
+    def submit_task(self, sample_info):
         # This method uses ModuleManager to execute a specific workflow
         # Asynchronous execution through ThreadPoolExecutor
         self.logger.info(f"Submit Task {sample_info['uuid']} into WorkerFactory ...")
-        future = self.executor.submit(self.module_manager.execute_workflow, params, sample_info)
+        future = self.executor.submit(self.module_manager.execute_workflow, sample_info)
         self.task_count += 1
         self.print_status()
         return future
@@ -112,18 +114,3 @@ class WorkerFactory:
         return future.result()
 
 
-
-    def compute_likelihood(self, sample):
-        # 直接操作sample对象，包括其logger
-        print("Testing the compute likelihood")
-        # sample.logger.warning(f"Compute the sample {sample.params}")
-        observables = sample.params
-        for layer in self.workflow.values():
-            for mod in layer:
-                output = self.module_pools[mod].submit_task(observables)
-                # 等待并处理每个模块的输出结果
-                observables.update(output.result())  # 假设output.result()返回了所需的更新字典
-        
-        # 更新sample的状态或结果
-        sample.likelihood = 0.5
-        return sample

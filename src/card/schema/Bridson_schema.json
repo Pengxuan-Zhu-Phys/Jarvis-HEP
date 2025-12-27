@@ -2,7 +2,8 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "schemaBlock": {
         "input":  {"$ref": "PATH-TO-INPUT-JSON-SCHEMA"},
-        "output": {"$ref": "PATH-TO-INPUT-JSON-SCHEMA"}    
+        "output": {"$ref": "PATH-TO-OUTPUT-JSON-SCHEMA"},
+        "Nuisance": {"$ref": "PATH-TO-Nuisance-JSON-SCHEMA"}
     },
     "definitions": {
         "initialization": {
@@ -281,6 +282,9 @@
                 },
                 "selection": {
                     "type": "string"
+                },
+                "Nuisance": {
+                    "$ref": "#/schemaBlock/Nuisance"
                 }
             },
             "required": [

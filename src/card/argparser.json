@@ -1,10 +1,10 @@
 {
     "positionals": [
         {
-          "name": "file",
-          "help": "path of the input file, in yaml format"
+            "name": "file",
+            "help": "path of the input file, in yaml format"
         }
-      ],
+    ],
     "options": [
         {
             "short": "-d",
@@ -51,9 +51,15 @@
         },
         {
             "long": "--install-dependencies",
-            "action":"store_true",
+            "action": "store_true",
             "dest": "bdREQ",
             "help": "Automatically install all required Python packages needed in Jarvis-HEP"
+        },
+        {
+            "long": "--jplot",
+            "action": "store_true",
+            "dest": "jplot",
+            "help": "Use the standalone JPlot engine to render figures from a JPlot YAML (bypasses Jarvis-HEP preprocessors)"
         }
     ]
 }

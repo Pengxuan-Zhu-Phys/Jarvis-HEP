@@ -12,7 +12,7 @@ Sampling:
         parameters:
           min: 500
           max: 20000
-          length: 300
+          length: 120
 
     - name: M2
       description: "Variable Y following a Logarithmic distribution for sampling."
@@ -21,7 +21,7 @@ Sampling:
         parameters:
           min: -20000
           max: -1000
-          length: 300
+          length: 120
 
   Radius: 1
   MaxAttempt:  30
