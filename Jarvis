@@ -1,8 +1,65 @@
 #!/usr/bin/env python3 
 
-import os, sys 
+import os, sys
+
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.join(pwd, "src"))
+
+# ------------------------------
+# Fast path for JarvisPLOT modes
+# ------------------------------
+
+def _has_flag(flag: str) -> bool:
+    return flag in sys.argv
+
+def _next_value(flag: str):
+    if flag in sys.argv:
+        i = sys.argv.index(flag)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+def _find_yaml_arg(argv):
+    # Prefer the argument right after --jplot if present
+    v = _next_value("--jplot")
+    if v and not v.startswith("-"):
+        return v
+    # Otherwise, pick the first non-flag arg ending with .yaml/.yml
+    for a in argv[1:]:
+        if a.startswith("-"):
+            continue
+        if a.endswith((".yaml", ".yml")):
+            return a
+    return None
+
+if _has_flag("--jplot") or _has_flag("--jplot-template"):
+    try:
+        from JarvisPLOT.cli import main as jplot_main
+    except Exception as e:
+        print("\n[JarvisPLOT] Failed to import JarvisPLOT CLI:\n ", e)
+        sys.exit(2)
+
+    if _has_flag("--jplot"):
+        yaml_path = _find_yaml_arg(sys.argv)
+        if not yaml_path:
+            print("[JarvisPLOT] Missing YAML path for --jplot")
+            sys.exit(2)
+        if not os.path.isabs(yaml_path):
+            yaml_path = os.path.abspath(os.path.join(os.getcwd(), yaml_path))
+        if not os.path.exists(yaml_path):
+            print(f"[JarvisPLOT] YAML not found: {yaml_path}")
+            sys.exit(2)
+        code = jplot_main(["--jplot", yaml_path])
+        sys.exit(code)
+    else:
+        style = _next_value("--style") or "paper_1x1"
+        out   = _next_value("--out")   or "jplot_template.yaml"
+        code = jplot_main(["--jplot-template", "--style", style, "--out", out])
+        sys.exit(code)
+
+# ------------------------------
+# Legacy Core workflow (scan/convert/plot/monitor)
+# ------------------------------
 from core import Core 
 
 def main():
@@ -19,8 +76,9 @@ def main():
     elif jc.args.bdREQ:
         from build_requirements import install_requirements
         install_requirements()
-
-
+    else:
+        import argparse as _ap
+        _ap.ArgumentParser(prog="Jarvis").print_help()
 
 if __name__ == "__main__":
     main()

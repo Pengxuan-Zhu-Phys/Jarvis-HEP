@@ -112,3 +112,11 @@ def convert_hdf5_to_csv(snapshot_path, csv_path):
                 for data in all_data:
                     if isinstance(data, dict):
                         writer.writerow(data)
+
+def format_duration(seconds):
+    """Formating into HH:MM:SS.msc format"""
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    millisec = seconds % 1
+    return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{str(millisec)[2:5]}"

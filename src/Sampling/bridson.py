@@ -19,7 +19,7 @@ import json
 from scipy.special import gammainc
 from sample import Sample
 import concurrent.futures
-
+from utils import format_duration
 class Bridson(SamplingVirtial):
     def __init__(self) -> None:
         super().__init__()
@@ -29,6 +29,7 @@ class Bridson(SamplingVirtial):
         self._index = 0 
         self.tasks  = {}
         self.info   = {}
+        self.barinfo = {}
 
     def load_schema_file(self):
         self.schema = self.path['BridsonSchema']
@@ -51,12 +52,41 @@ class Bridson(SamplingVirtial):
             result = self._P[self._index]
             result = self.map_point_into_distribution(result)
             self._index += 1
+            self.progress_bar()
             return result
         else:
             raise StopIteration
 
     def next_sample(self):
         return self.__next__()
+
+    def progress_bar(self): 
+        if self.barinfo == {}:
+            self.barinfo = {
+                "total":    len(self._P), 
+                "t0":       time.time(), 
+                "permille":  0
+            }
+            self.logger.warning(
+                "{}‰ of {}/{} samples submited in {}".format(
+                    self.barinfo['permille'], 
+                    self._index, 
+                    self.barinfo['total'], 
+                    format_duration(time.time() - self.barinfo['t0'])
+                    )
+                )
+        else: 
+            permille = int(self._index / self.barinfo["total"] * 1000)
+            if permille != self.barinfo["permille"]: 
+                self.barinfo.update({"permille": permille})
+                self.logger.warning(
+                    "{}‰ of {}/{} samples submited in {}".format(
+                        self.barinfo['permille'], 
+                        self._index, 
+                        self.barinfo['total'], 
+                        format_duration(time.time() - self.barinfo['t0']))
+                    )
+        
 
     def map_point_into_distribution(self, row) -> np.ndarray:
         result = {}
@@ -74,6 +104,7 @@ class Bridson(SamplingVirtial):
         self._radius = self.config['Sampling']['Radius']
         self._k = self.config['Sampling']['MaxAttempt']
         self._dimensions = len(self.vars)
+        self.total_core = self.config['Sampling'].get("MaxWorker", self.total_core)
         self.load_nuisance_sampler()            
             
     def initialize(self):
@@ -103,7 +134,7 @@ class Bridson(SamplingVirtial):
             self.run_w_nuisance()
      
     def run_w_nuisance(self):
-        total_cores = os.cpu_count()
+        total_cores = self.total_core
         from copy import deepcopy
         exhausted = False 
         while True: 
@@ -160,7 +191,7 @@ class Bridson(SamplingVirtial):
      
         
     def run_wo_nuisance(self):
-        total_cores = os.cpu_count()
+        total_cores = self.total_core
         from copy import deepcopy
         exhausted = False 
         while True:

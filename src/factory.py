@@ -69,15 +69,7 @@ class WorkerFactory:
         return future
 
     def print_status(self):
-        def format_duration(seconds):
-            """Formating into HH:MM:SS.msc format"""
-            hours = seconds // 3600
-            minutes = (seconds % 3600) // 60
-            seconds = seconds % 60
-            millisec = seconds % 1
-            return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{str(millisec)[2:5]}"
-
-
+        from utils import format_duration
         if self.task_count % 100 == 0:
             end_time = time.time()  
             elapsed_time = format_duration(end_time - self.last_time_mark)  

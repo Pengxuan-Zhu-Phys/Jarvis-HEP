@@ -277,6 +277,9 @@
                 "MaxAttempt": {
                     "type": "integer"
                 },
+                "MaxWorker": {
+                    "type": "integer"
+                },
                 "LogLikelihood": {
                     "$ref": "#/definitions/LogLikelihood"
                 },

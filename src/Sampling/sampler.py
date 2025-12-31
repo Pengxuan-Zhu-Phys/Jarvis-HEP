@@ -26,6 +26,7 @@ class SamplingVirtial(Base):
         self.nuisance_sampler           = None 
         self._with_nuisance             = False 
         self.bucket_alloc               = None 
+        self.total_core                 = os.cpu_count()
         
     def load_nuisance_sampler(self): 
         if self.config['Sampling']['Nuisance']: 
@@ -75,6 +76,7 @@ class SamplingVirtial(Base):
     @abstractmethod
     def init_generator(self) -> None:
         pass 
+         
 
     @abstractmethod
     def set_factory(self) -> None: 

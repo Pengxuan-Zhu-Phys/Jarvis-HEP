@@ -1,7 +1,10 @@
 # Ignore the local Folder
 External/Library/
-External/Program/NMSSMTools
-External/Program/FlexibleSUSY/FlexibleSUSY/
+External/Program/
+External/inputs/
+External/Info/
+External/XK_Du/
+demos/
 Results/
 TestScan/
 WorkShop/
@@ -25,3 +28,9 @@ py.py
 # *.pyc 
 src/.DS_Store
 .DS_Store
+
+# VSCode 
+.vscode/
+
+#WARP
+WARP.md 
