@@ -21,26 +21,29 @@ Sampling:
           min: 0
           max: 5.0
   Bounds:
-    nlive:  160
+    nlive:  1600
     rseed:  21
-    dlogz:  1.0
+    dlogz:  0.1
+    run_nested: 
+      print_progress: True
 
-
+      # maxcall:  4000  
   LogLikelihood: 
     - {name: "LogL_Z",  expression: "(2 + z)**5"}
+    - {name: "LogL_ZP",  expression: "cx + z"}
   selection: "(2.0 * X < Y)"
 
-EnvironmentRequirements:
+EnvReqs:
   OS: 
     - name: linux 
-      version: ">=5.10.0"
+      version: ">=3.10.0"
     - name: Darwin
       version: ">=10.14"
   Check_default_dependences:
     required: true
     default_yaml_path:  "&J/src/card/environment_default.yaml"
 
-SupportingLibrary:
+LibDeps:
   path: "&J/External/Library"
   make_paraller: 16
   Modules:
@@ -51,7 +54,7 @@ SupportingLibrary:
         path: "&J/External/Library/Delphes"
         source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "rm -rf Delphes*"
           - "cp ${source} ./"
           - "tar -xzf Delphes-3.5.0.tar.gz"
@@ -59,7 +62,7 @@ SupportingLibrary:
           - "cd ${path}"
           - "source @{ROOT path}/bin/thisroot.sh"
           - "./configure"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "make -j${LibDeps:make_paraller}"
 
     - name: "HepMC"
       required_modules: []
@@ -68,14 +71,14 @@ SupportingLibrary:
         path: "&J/External/Library/HepMC"
         source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "rm -rf HepMC*"
           - "cp ${source} ./"
           - "tar -xzf HepMC-2.06.09.tar.gz"
-          - "cd ${SupportingLibrary:path}/HepMC-2.06.09"
+          - "cd ${LibDeps:path}/HepMC-2.06.09"
           - "./bootstrap"
           - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "make -j${LibDeps:make_paraller}"
           - "make install"
 
     - name: "Pythia8"
@@ -86,13 +89,13 @@ SupportingLibrary:
         path: "&J/External/Library/Pythia8"
         source: "&J/External/Library/Source/pythia8230.tgz"
         commands:
-          - "cd ${SupportingLibrary:path}"
+          - "cd ${LibDeps:path}"
           - "mkdir Pythia8"
-          - "cd ${SupportingLibrary:path}/Source"
+          - "cd ${LibDeps:path}/Source"
           - "tar -zxvf pythia8230.tgz"
-          - "cd ${SupportingLibrary:path}/Source/pythia8230"
-          - "./configure --with-hepmc2=${SupportingLibrary:path}/HepMC --prefix=${path}"
-          - "make -j${SupportingLibrary:make_paraller}"
+          - "cd ${LibDeps:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${LibDeps:path}/HepMC --prefix=${path}"
+          - "make -j${LibDeps:make_paraller}"
           - "make install"
 
 Calculators:
@@ -103,7 +106,7 @@ Calculators:
       required_modules: [] 
       clone_shadow: True
       path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
-      source: "&J/External/Program/EggBox"
+      source: "&J/External/Inertial/EggBox"
       installation:
           - "cp -r ${source}/* ${path}"
       initialization:

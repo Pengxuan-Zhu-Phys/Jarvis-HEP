@@ -98,7 +98,10 @@ class IOfile(Base):
             from IOs.Output import xSLHAOutputFile
             logger.debug(f"Loading the file {name} as 'xSLHAOutputFile' type")
             return xSLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
-
+        elif file_type == "File":
+            from IOs.Output import FileOutput
+            logger.debug(f"Loading the file {name} as 'fileOutput' type")
+            return FileOutput(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
 
 class InputFile(IOfile):
     async def write(self, param_values):

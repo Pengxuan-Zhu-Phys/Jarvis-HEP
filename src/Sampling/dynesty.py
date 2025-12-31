@@ -20,7 +20,7 @@ class Dynesty(SamplingVirtial):
         self.load_schema_file()
         self.method = "Dynesty"
         self.sampler = None
-        self.max_workers = os.cpu_count() * 2
+        self.max_workers = os.cpu_count()
         # self.max_workers = 2
 
     def load_schema_file(self):
@@ -53,7 +53,7 @@ class Dynesty(SamplingVirtial):
 
     def init_generator(self):
         self.load_variable()
-        print(self.vars[0]._parameters)
+        # print(self.vars[0]._parameters)
         self._nlive = self.config['Sampling']['Bounds']['nlive']
         self._rstate = np.random.default_rng(self.config['Sampling']['Bounds']['rseed'])
         self._runnested = self.config['Sampling']['Bounds']['run_nested']
@@ -79,10 +79,8 @@ class Dynesty(SamplingVirtial):
             sample.set_config(deepcopy(self.info['sample']))
             future = self.factory.submit_task(sample.params, sample.info)
             result = future.result()
-            # print("Dynesty Line 83 -> LogL ", result, type(result))
             return result 
-            # except:
-            #     return -np.inf 
+
         
         self.init_sampler_db()
 

@@ -311,7 +311,7 @@ class Dynesty(Sampling_method):
                 **self.cf['default setting']['run nested'],
                 checkpoint_file=self.path['ckpf']
             )
-        print("Sampler after run nested", self.info)
+        # print("Sampler after run nested", self.info)
         self.rest = self.sampler.results
 
     def init_logger(self, cf):
@@ -338,7 +338,7 @@ class Dynesty(Sampling_method):
 
     def transfer_vars_from_array_to_dict(self, v):
         cdt = {}
-        print(v, self.pars['vname'])
+        # print(v, self.pars['vname'])
         # sys.exit()
         for ii in range(len(v)):
             cdt[self.pars['vname'][ii]] = v[ii]

@@ -108,8 +108,11 @@ class CalculatorModule(Module):
         # pprint(self.inputs)
         for opf in self.output:
             # self.outputs[opf['name']] = None
-            for opv in opf['variables']:
-                self.outputs[opv['name']] = None
+            if opf['type'] == "File":
+                pass 
+            else:
+                for opv in opf['variables']:
+                    self.outputs[opv['name']] = None
 
     @property
     def funcs(self):
@@ -117,17 +120,6 @@ class CalculatorModule(Module):
 
     def analyze_config_multi(self):
         pass 
-
-    def add_handler(self, name, logpath, level, formatter):
-        file_handler = logging.FileHandler(logpath, mode="a")
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-
-        self.handlers[name] = file_handler
-
-    def remove_handler(self, name):
-        self.handlers[name].close()
-        del self.handlers[name]
 
     def custom_format(record):
         module = record["extra"].get("module", "No module")
@@ -151,19 +143,24 @@ class CalculatorModule(Module):
         self.handlers['install'] = install_handler
 
     def update_sample_logger(self, sample_info):
-        logger_name = f"Sample@{sample_info['uuid']} ({self.name}-No.{self.PackID})"
-        def filte_func(record):
-            return record['extra']['module'] == logger_name
-        
-        if not os.path.exists(sample_info['save_dir']):
-            os.makedirs(sample_info['save_dir'])
-        
-        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
-        sample_handler = self.logger.add(sample_info['run_log'], format=CalculatorModule.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
-        self.handlers['sample'] = sample_handler
-        self.logger.info("Sample created into the Disk")
+        # self.close_sample_logger()
+        logger_name = f"{sample_info['logger_name']} ({self.name}-No.{self.PackID})"
 
-    def install(self):
+        self.logger = sample_info['logger'].bind(module=logger_name, to_console=True, Jarvis=True)
+        self.logger.info("Module load instance and logger is correctly set!")
+
+    def close_sample_logger(self):
+        
+        """Ensure logging processor is properly shut down after task completion"""
+        # if 'sample' in self.handlers:
+            # self.logger.info("Closing calculator logging handler")
+            # sample_handler = self.handlers['sample']
+            # self.logger.remove(sample_handler)
+            # del self.handlers['sample']  
+        self.logger = None 
+
+
+    async def install(self):
         self.create_basic_logger()
         self.logger.warning(f"Start install {self.name}-{self.PackID}")
 
@@ -171,11 +168,14 @@ class CalculatorModule(Module):
             if self.clone_shadow:
                 command = self.decode_shadow_commands(cmd)
                 self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                asyncio.run(self.run_command(command=command))
+                # asyncio.run(self.run_command(command=command))
+                await self.run_command(command=command)
             else: 
                 asyncio.run(self.run_command(command=cmd))
+                await self.run_command(command=cmd)
         
         logger.remove(self.handlers['install'])
+        del self.handlers['install']
         self.logger = None
         self.is_installed = True
 
@@ -204,41 +204,55 @@ class CalculatorModule(Module):
 
     async def log_stream_error(self, stream):
         async for line in stream:
-            self.logger.bind(raw=True).error(f"\t{line.decode()}")
+            self.logger.bind(raw=True).info(f"\t{line.decode()}")
 
-    def initialize(self):
+    async def initialize(self):
         for command in self.initialization:
             if self.clone_shadow: 
                 command = self.decode_shadow_commands(command)
                 self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-                asyncio.run(self.run_command(command=command))
+                await self.run_command(command=command)
+
+    async def execute_commands(self):
+        for command in self.execution['commands']:
+            if self.clone_shadow:
+                command = self.decode_shadow_commands(command)
+                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
+                await self.run_command(command=command)
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
         self.update_sample_logger(sample_info)
 
-        self.initialize()
-        # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
-        
         result = {}
-        input_obs = asyncio.run(self.load_input(input_data=input_data))
+        try:
+            asyncio.run(self.initialize())
+            # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
 
-        if isinstance(input_obs, dict):
-            result.update(input_obs)
-        
-        for command in self.execution['commands']:
-            if self.clone_shadow:
-                command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                asyncio.run(self.run_command(command=command))
+            input_obs = asyncio.run(self.load_input(input_data=input_data))
 
-        output_obs = asyncio.run(self.read_output())
-        if isinstance(output_obs, dict):
-            result.update(output_obs)
+            if isinstance(input_obs, dict):
+                result.update(input_obs)
 
-        logger.remove(self.handlers['sample'])
-        self.logger = None
+            asyncio.run(self.execute_commands())
+
+            output_obs = asyncio.run(self.read_output())
+            if isinstance(output_obs, dict):
+                result.update(output_obs)
+
+
+        except Exception as e:
+            # Capture and logging the error information 
+            self.logger.error(f"Error during execution: {e}")
+            raise
+
+        finally:
+            # Make sure the sample logger is closed
+            self.close_sample_logger()
+
         return result
+
+
 
     async def read_output(self):
         from IOs.IOs import IOfile
@@ -247,7 +261,7 @@ class CalculatorModule(Module):
                 ffile['name'],
                 path=ffile['path'],
                 file_type=ffile['type'],
-                variables=ffile['variables'],
+                variables=ffile.get("variables", []),
                 save=ffile['save'],
                 logger=self.logger,
                 PackID=self.PackID,
@@ -323,6 +337,6 @@ class CalculatorModule(Module):
         path = self.decode_path(path)
         if "@PackID" in path:
             path = path.replace("@PackID", self.PackID)
-        print(path)
+        # print(path)
         return path
 

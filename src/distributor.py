@@ -17,5 +17,23 @@ class Distributor(Base):
             case "Dynesty":
                 from Sampling.dynesty import Dynesty 
                 return Dynesty()
+            case "Grid":
+                from Sampling.grid import Grid
+                return Grid()
+            case "Random":
+                from Sampling.randoms import RandomS
+                return RandomS()
+            case "DNN":
+                from Sampling.dnn import DNN
+                return DNN()
+            case "TPMCMC":
+                from Sampling.tpmcmc import TPMCMC 
+                return TPMCMC()
+            case "MCMC":
+                from Sampling.mcmc import MCMC 
+                return MCMC()
+            case _:
+                supported = ["Bridson", "Dynesty", "Grid", "Random", "DNN", "TPMCMC", "MCMC"]
+                raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

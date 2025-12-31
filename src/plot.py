@@ -4,7 +4,6 @@ import os, io
 import sys
 import pandas as pd
 import time
-import configparser
 import math
 import sympy
 import json
@@ -131,7 +130,7 @@ class CustomDumper(yaml.Dumper):
         if len(self.indents) == 1:
             super().write_line_break()
 
-class BudingPLOT(Base):
+class JarvisPLOT(Base):
     def __init__(self):
         super().__init__()
         self.info = {}
@@ -142,6 +141,10 @@ class BudingPLOT(Base):
         self.info.update(info)
         if scan_yaml.config['Sampling']['Method'] == "Dynesty":
             self.info['db']["nested result"] = os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_result.csv")
+            if not self.info['db'].get("out_csv", False):
+                with open(self.info['db']['info'], 'r') as f1: 
+                    info = json.loads(f1.read())
+                    self.info['db']['out_csv'] = info['converted']
             self.yaml = {
                 "Plot_Config":  {
                     "save_dir": self.info['plot']['save_path'],
@@ -153,33 +156,120 @@ class BudingPLOT(Base):
                     "scan_yaml":    self.info['config_file'],
                     "screen_show":  True
                 },
-                "Figures":  [
-                    {
-                        "name": "dynesty_sampling_summary",
+                "Variables":    [],
+                "Figures":  {
+                    "dynesty_sampling_summary":   {
                         "type": "dynesty_run"
                     },
-                    {
-                        "name": "parameter_summary",
+                    "parameter_summary": {
                         "type": "dynesty_parameter",
                         "parameters":   []
                     }    
-                ],
-                "Variables":    []
+                }
             }
             for var in scan_yaml.config["Sampling"]["Variables"]:
                 print(var)
-                vardict = {
-                    "name":     var['name'],
-                    "label":    var['name'],
-                    "scale":    var['distribution']['type'],
-                    "lim":      [var['distribution']['parameters']['min'], var['distribution']['parameters']['max']]
-                }
+                vardict = self.load_scan_var(var)
                 self.yaml['Variables'].append(vardict)
-                self.yaml['Figures'][1]['parameters'].append(str(var['name']))
+                self.yaml['Figures']["parameter_summary"]['parameters'].append(str(var['name']))
             print(self.yaml)
             with open(self.info['plot']['config'], 'w') as file:
                 yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
+        elif scan_yaml.config["Sampling"]["Method"] == "Grid":
+            self.set_grid_config(scan_yaml)    
+        elif scan_yaml.config["Sampling"]["Method"] == "Random":
+            self.set_random_config(scan_yaml)
+        elif scan_yaml.config['Sampling']['Method'] == "Bridson": 
+            self.set_random_config(scan_yaml)
+        elif scan_yaml.config['Sampling']["Method"] == "MCMC":
+            self.set_random_config(scan_yaml)
+        elif scan_yaml.config['Sampling']["Method"] == "TPMCMC":
+            self.set_random_config(scan_yaml)        
+        elif scan_yaml.config['Sampling']["Method"] == "DNN":
+            self.set_random_config(scan_yaml)
+        
             
+    def set_random_config(self, scan_yaml):
+        self.yaml = {
+            "Plot_Config":  {
+                "save_dir": self.info["plot"]["save_path"], 
+                "save_format":  ["pdf", "png"], 
+                "samples":  self.load_sample_paths(self.info["db"]["info"]), 
+                "scan_yaml":    self.info["config_file"], 
+                "screen_show":  True
+            },
+            "Variables":    [],
+            "Figures":  {}
+        }
+        for var in scan_yaml.config["Sampling"]["Variables"]:
+            vardict = self.load_scan_var(var) 
+            self.yaml["Variables"].append(vardict) 
+        self.set_scatter_plots() 
+        self.set_scatterc_plots()
+        with open(self.info['plot']['config'], 'w') as file:
+            yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
+
+            
+    def set_grid_config(self, scan_yaml):
+        self.yaml = {
+            "Plot_Config":  {
+                "save_dir": self.info["plot"]["save_path"], 
+                "save_format":  ["pdf", "png"], 
+                "samples":  self.load_sample_paths(self.info["db"]["info"]), 
+                "scan_yaml":    self.info["config_file"], 
+                "screen_show":  True
+            },
+            "Variables":    [],
+            "Figures":  {}
+        }
+        for var in scan_yaml.config["Sampling"]["Variables"]:
+            vardict = self.load_scan_var(var) 
+            self.yaml["Variables"].append(vardict) 
+        self.set_scatter_plots()
+        self.set_scatterc_plots()
+        
+        with open(self.info['plot']['config'], 'w') as file:
+            yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
+
+    def load_sample_paths(self, infojs):
+        print(infojs)
+        with open(infojs) as f1:
+            db = json.loads(f1.read())
+            return db['converted']
+
+
+    def load_scan_var(self, var):
+        vardict = {
+                    "expr":     var['name'],
+                    "label":    var['name'],
+                    "scale":    var['distribution']['type'],
+                    "lim":      [var['distribution']['parameters']['min'], var['distribution']['parameters']['max']]
+        }
+        return vardict
+
+    def set_scatter_plots(self):
+        from itertools import combinations
+        for pp in list(combinations(self.yaml["Variables"], 2)): 
+            plot = {
+                "type": "scatter", 
+                "parameters": list(pp) 
+            }
+            self.yaml['Figures']["Scatter_{}{}".format(pp[0]['expr'], pp[1]['expr'])] = plot
+
+    def set_scatterc_plots(self):
+        from itertools import combinations 
+        for pp in list(combinations(self.yaml["Variables"], 2)): 
+            plot = {
+                "type": "scatterC", 
+                "parameters":   list(pp), 
+                "color":    {
+                    "expr": "LogL",
+                    "label":    r"$\ln{\mathcal{L}}$"
+                }
+            }
+            self.yaml["Figures"]["ScatterC_{}{}".format(pp[0]["expr"], pp[1]["expr"])] = plot 
+
+
     def load_config(self, filepath) -> None:
         with open(filepath, 'r') as file:
             self.yaml = yaml.safe_load(file)
@@ -187,13 +277,50 @@ class BudingPLOT(Base):
     def plot(self) -> None: 
         if "dynesty" in self.yaml['Plot_Config']:
             self.ddf = pd.read_csv(self.yaml['Plot_Config']['dynesty']['result'])
-        self.sdf = pd.read_csv(self.yaml['Plot_Config']['samples'] )
-        for image in self.yaml['Figures']:
+        self.sdf = self.load_csv_datas(self.yaml['Plot_Config']['samples'] )
+        for name, image in self.yaml['Figures'].items():
             if image['type'] == "dynesty_run":
-                self.plot_dynesty_results(image['name'])
+                self.plot_dynesty_results(image)
             if image['type'] == "dynesty_parameter":
                 self.plot_dynesty_parameter(image)
+            if image['type'] == "scatter":
+                from BudingPLOT.BudingPlot import Scatter 
+                drawer = Scatter(self.yaml, name, image)
+                drawer.data = self.sdf
+                drawer.draw() 
+            if image['type'] == "scatterC": 
+                from BudingPLOT.BudingPlot import ScatterC 
+                drawer = ScatterC(self.yaml, name, image)
+                drawer.data = self.sdf 
+                drawer.draw()
+            if image['type'] == "voronoiC":
+                from BudingPLOT.BudingPlot import VoronoiC
+                drawer = VoronoiC(self.yaml, name, image)
+                drawer.data = self.sdf 
+                drawer.draw()
+                
             
+    def load_csv_datas(self, dfs):
+        if isinstance(dfs, list):
+            dataframes = []
+            for path in dfs: 
+                try: 
+                    df = pd.read_csv(path)
+                    dataframes.append(df)
+                except Exception as e:
+                    print(f"Failed to read {path}: {e}")
+            if dataframes:
+                combined_df = pd.concat(dataframes, ignore_index=True)
+                return combined_df
+            else:
+                return None
+        elif isinstance(dfs, str): 
+            try: 
+                df = pd.read_csv(dfs)
+                return df 
+            except Exception as e: 
+                print(f"Failed to read {path}: {e}")
+            return None
                 
     def plot_dynesty_parameter(self, image) -> None:
         from matplotlib.ticker import AutoMinorLocator
@@ -278,7 +405,9 @@ class BudingPLOT(Base):
         plt.draw()
         
         image['fig'] = plt
-        image['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], image['name'])
+        image['name'] = "dynesty_parameter_01"
+        image['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], "dynesty_parameter_01")
+        print(image)
         self.savefig(image, plt)
         # plt.close()
         if self.yaml['Plot_Config']['screen_show']:
@@ -313,7 +442,7 @@ class BudingPLOT(Base):
         aaf = np.insert(scdf, 0, 0.)
         self.sdf['weight'] = np.diff(aaf)
 
-        self.sdf.to_csv(self.yaml['Plot_Config']['samples'], index=False)
+        # self.sdf.to_csv(self.yaml['Plot_Config']['samples'], index=False)
 
 
         fig = plt.figure(figsize=(width, height))
@@ -322,13 +451,13 @@ class BudingPLOT(Base):
         vardict = []
         for var in image['parameters']:
             for inp in self.yaml['Variables']:
-                if inp['name'] == var:
+                if inp['expr'] == var:
                     vardict.append(inp)
                 
         for ii in range(ndim):
             varii = vardict[ii]
             axLX = fig.add_axes([3 / width, (1 + 3*ii)/ height, 5.75 / width, 3 / height])
-            a1 = axLX.scatter( - self.sdf['log_PriorVolume'], self.sdf[varii["name"]], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
+            a1 = axLX.scatter( - self.sdf['log_PriorVolume'], self.sdf[varii["expr"]], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
             axLX.set_xlim(0, max( - self.sdf['log_PriorVolume']))
             axLX.set_ylim(varii['lim'])
             axLX.yaxis.set_minor_locator(AutoMinorLocator())
@@ -347,7 +476,7 @@ class BudingPLOT(Base):
                 varjj = vardict[jj]
                 if ii < jj:
                     ax2d = fig.add_axes([(8.8 + kk * 3) / width, ( 1 + ii * 3) / height, 3/width, 3/height])
-                    ax2d.scatter(self.sdf[varjj['name']], self.sdf[varii['name']], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
+                    ax2d.scatter(self.sdf[varjj['expr']], self.sdf[varii['expr']], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
                     ax2d.set_xlim(varjj['lim'])
                     ax2d.set_ylim(varii['lim'])
                     ax2d.yaxis.set_minor_locator(AutoMinorLocator())
@@ -362,7 +491,7 @@ class BudingPLOT(Base):
                         ax2d.set_xlabel(varjj['label'], fontsize=24)
                 elif ii == jj:
                     ax1d = fig.add_axes([1 / width, ( 1 + ii * 3) / height, 1.95/width, 3/height])
-                    wt_kde = gaussian_kde(np.array(self.sdf[varii['name']]), weights=np.array(self.sdf['weight']), bw_method="silverman")
+                    wt_kde = gaussian_kde(np.array(self.sdf[varii['expr']]), weights=np.array(self.sdf['weight']), bw_method="silverman")
                     yy = np.linspace(varii['lim'][0], varii['lim'][1], 500)
                     wtt = wt_kde(yy)
                     wtt = wtt / max(wtt)
@@ -398,7 +527,7 @@ class BudingPLOT(Base):
         axc.set_xlabel(r"$\log{\mathcal{L}}$", fontsize=24)
         plt.draw()
         
-        image['name'] = f"{image['name']}_sample"
+        image['name'] = "dynesty_parameters_02"
         image['fig'] = plt
         image['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], image['name'])
         self.savefig(image, plt)
@@ -447,31 +576,31 @@ class BudingPLOT(Base):
         # print()
 
         from matplotlib.ticker import AutoMinorLocator
-        ax1 = fig.add_axes([0.15, 0.8/11., 0.83, 2/11.])
+        ax1 = fig.add_axes([0.18, 0.8/11., 0.8, 2/11.])
         ax1.scatter( - self.ddf['log_PriorVolume'], data[0]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
         ax1.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax1.set_ylim(0., max(data[0]['y']) * 1.1)
+        ax1.set_ylim(0., max(data[0]['y']) * 1.2)
         ax1.set_ylabel(data[0]['label'], fontsize=18)
-        ax1.yaxis.set_label_coords(-0.08, 0.5)
+        ax1.yaxis.set_label_coords(-0.12, 0.5)
         ax1.yaxis.set_minor_locator(AutoMinorLocator())
         ax1.xaxis.set_minor_locator(AutoMinorLocator())
-        ax1.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
+        ax1.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
         ax1.tick_params(which='major', length=7)
         ax1.tick_params(which='minor', length=4)
         # ax1.set_xticklabels([])
         plt.draw()
 
 
-        ax2 = fig.add_axes([0.15, 2.8/11., 0.83, 2/11.])
+        ax2 = fig.add_axes([0.18, 2.8/11., 0.8, 2/11.])
         ax2.scatter( - self.ddf['log_PriorVolume'], data[1]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
         ax2.plot( - self.ddf['log_PriorVolume'], data[1]['y'], '-', linewidth=0.8, alpha=0.4, color="#3f51b5" )
         ax2.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax2.set_ylim(0., max(data[1]['y']) * 1.1)
+        ax2.set_ylim(0., max(data[1]['y']) * 1.2)
         ax2.set_ylabel(data[1]['label'], fontsize=18)
-        ax2.yaxis.set_label_coords(-0.08, 0.5)
+        ax2.yaxis.set_label_coords(-0.12, 0.5)
         ax2.yaxis.set_minor_locator(AutoMinorLocator())
         ax2.xaxis.set_minor_locator(AutoMinorLocator())
-        ax2.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
+        ax2.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
         ax2.tick_params(which='major', length=7)
         ax2.tick_params(which='minor', length=4)
         ax2.set_xticklabels([])
@@ -481,7 +610,7 @@ class BudingPLOT(Base):
 
         from scipy.stats import gaussian_kde
         from scipy.interpolate import interp1d
-        ax3 = fig.add_axes([0.15, 4.8/11., 0.83, 2/11.])
+        ax3 = fig.add_axes([0.18, 4.8/11., 0.8, 2/11.])
         dtt = dtt / max(dtt)
         ax3.scatter( - self.ddf['log_PriorVolume'], dtt, marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
         wt_kde = gaussian_kde(np.array(- self.ddf['log_PriorVolume']), weights=np.array(data[2]['y']), bw_method="silverman")
@@ -490,12 +619,12 @@ class BudingPLOT(Base):
         wt = wt / wt.max()
         ax3.plot(logvol, wt, '-', linewidth=1.8, color='#8bc34a', alpha=0.8)
         ax3.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax3.set_ylim(0., 1.1)
+        ax3.set_ylim(0., 1.2)
         ax3.set_ylabel(data[2]['label'], fontsize=18)
-        ax3.yaxis.set_label_coords(-0.08, 0.5)
+        ax3.yaxis.set_label_coords(-0.12, 0.5)
         ax3.yaxis.set_minor_locator(AutoMinorLocator())
         ax3.xaxis.set_minor_locator(AutoMinorLocator())
-        ax3.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
+        ax3.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
         ax3.tick_params(which='major', length=7)
         ax3.tick_params(which='minor', length=4)
         ax3.set_xticklabels([])
@@ -503,23 +632,27 @@ class BudingPLOT(Base):
 
         plt.draw()
 
-        ax4 = fig.add_axes([0.15, 6.8/11., 0.83, 2/11.])
+        ax4 = fig.add_axes([0.18, 6.8/11., 0.8, 2/11.])
         ax4.scatter( - self.ddf['log_PriorVolume'], data[3]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
         ax4.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax4.set_ylim(0., max(data[3]['y']) * 1.4)
+        ax4.set_ylim(0., max(data[3]['y']) * 1.2)
         ax4.set_ylabel(data[3]['label'], fontsize=18)
-        ax4.yaxis.set_label_coords(-0.08, 0.5)
+        ax4.yaxis.set_label_coords(-0.12, 0.5)
         ax4.yaxis.set_minor_locator(AutoMinorLocator())
         ax4.xaxis.set_minor_locator(AutoMinorLocator())
-        ax4.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
+        ax4.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
         ax4.tick_params(which='major', length=7)
         ax4.tick_params(which='minor', length=4)
         ax4.set_xticklabels([])
         plt.draw()
         offset_text = ax4.yaxis.get_offset_text().get_text()
+        print(max(data[3]['y']), offset_text)
         maxx = str(max(data[3]['y'])).split("e")[0][0:5]
         upp = offset_text.split("e")[-1]
-        txt = r"$\times 10^{" + upp + r"}$"
+        if "e" in offset_text:
+            txt = r"$\times 10^{" + upp + r"}$"
+        else:
+            txt = ""
         ax4.text(0.4, max(data[3]['y']) * 0.95, maxx+txt, ha='left', va='top')
         ax4.plot([0, max(-self.ddf['log_PriorVolume'])], [max(data[3]['y']), max(data[3]['y'])], '-', linewidth=0.8, color="grey", alpha=0.4)
 
@@ -527,15 +660,15 @@ class BudingPLOT(Base):
         logzerr[~np.isfinite(logzerr)] = 0.
         ax4.fill_between(- self.ddf['log_PriorVolume'], np.exp(self.ddf['log_Evidence'] - logzerr  ), np.exp(self.ddf['log_Evidence'] + logzerr), color='#8bc34a', alpha=0.2)
 
-        ax5 = fig.add_axes([0.15, 8.8/11., 0.83, 2/11.])
+        ax5 = fig.add_axes([0.18, 8.8/11., 0.8, 2/11.])
         ax5.scatter( - self.ddf['log_PriorVolume'], data[4]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
         ax5.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax5.set_ylim(0., max(data[4]['y']) * 1.1)
+        ax5.set_ylim(0., max(data[4]['y']) * 1.2)
         ax5.set_ylabel(data[4]['label'], fontsize=18)
-        ax5.yaxis.set_label_coords(-0.08, 0.5)
+        ax5.yaxis.set_label_coords(-0.12, 0.5)
         ax5.yaxis.set_minor_locator(AutoMinorLocator())
         ax5.xaxis.set_minor_locator(AutoMinorLocator())
-        ax5.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
+        ax5.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
         ax5.tick_params(which='major', length=7)
         ax5.tick_params(which='minor', length=4)
         ax5.set_xticklabels([])
@@ -554,6 +687,7 @@ class BudingPLOT(Base):
         
         img = {}
         img['fig'] = plt
+        name = "dynesty_results"
         img['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], name)
         img['name'] = name
         self.savefig(img, plt)
@@ -566,6 +700,7 @@ class BudingPLOT(Base):
         # plt.savefig(savepath, dpi=300)
 
     def savefig(self, fig, plt):
+        print(fig['name'])
         from matplotlib.backends.backend_pdf import PdfPages
         support_fmt_list = ['ps', 'eps', 'pdf', 'pgf', 'png', 'raw',
                             'rgba', 'svg', 'svgz', 'jpg', 'jpeg', 'tif', 'tiff']

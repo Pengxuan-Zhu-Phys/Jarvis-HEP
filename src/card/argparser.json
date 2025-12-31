@@ -1,10 +1,10 @@
 {
     "positionals": [
         {
-          "name": "file",
-          "help": "path of the input file, in yaml format"
+            "name": "file",
+            "help": "path of the input file, in yaml format"
         }
-      ],
+    ],
     "options": [
         {
             "short": "-d",
@@ -26,9 +26,9 @@
             "help": "Skipping the library installation"
         },
         {
-            "long": "--test-calc",
+            "long": "--check-modules",
             "action": "store_true",
-            "dest": "testcalculator",
+            "dest": "OPC",
             "help": "For the Calculator test"
         },
         {
@@ -42,6 +42,24 @@
             "action": "store_true",
             "dest": "cvtDB",
             "help": "Convert the sample.hdf5 file into csv format"
+        },
+        {
+            "long": "--monitor",
+            "action": "store_true",
+            "dest": "monitor",
+            "help": "Starts a real-time resource monitoring session for the current Jarvis-HEP job. \n\tNote:\n\t- This monitor updates resource usage statistics in real-time every few seconds.\n\t- Press 'q' in the monitor window to stop monitoring and exit the session."
+        },
+        {
+            "long": "--install-dependencies",
+            "action": "store_true",
+            "dest": "bdREQ",
+            "help": "Automatically install all required Python packages needed in Jarvis-HEP"
+        },
+        {
+            "long": "--jplot",
+            "action": "store_true",
+            "dest": "jplot",
+            "help": "Use the standalone JPlot engine to render figures from a JPlot YAML (bypasses Jarvis-HEP preprocessors)"
         }
     ]
 }

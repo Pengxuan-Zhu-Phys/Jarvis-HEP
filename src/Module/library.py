@@ -20,6 +20,7 @@ class LibraryModule(Module):
         self.installation = installation
         self.logger = None
         self._skip_library = False
+        self.loggerID = None
 
     def set_logger(self):
         """
@@ -59,7 +60,7 @@ class LibraryModule(Module):
             return record['extra']['module'] == f"Library.{self.name}"
 
         slogger = logger.bind(module=f"Library.{self.name}", to_console=True, Jarvis=True)
-        slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
+        self.loggerID = slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
         # slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None)
         self.logger = slogger
         self.logger.warning("Initializating Library -> {}".format(self.name))
@@ -114,6 +115,7 @@ class LibraryModule(Module):
                 self.logger.info(f"Configuration for {self.name} has been written to {self.path['config_file_path']}")
         else: 
             self.logger.warning(f"Skipping the installation of library -> {self.name}")
+        self.logger.remove(self.loggerID)
 
     def run_install_commands(self):
         for command in self.installation['commands']:

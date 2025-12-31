@@ -1,0 +1,200 @@
+Scan: 
+  name: "MSSM_muong2"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Dynesty" 
+  Variables:
+    - name: M1
+      description: "Bino Soft breaking mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: -3000
+          max: 3000
+
+    - name: M2
+      description: "Wino Soft breaking mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100
+          max: 3000
+
+    - name: Mu
+      description: "Wino Soft breaking mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100
+          max: 3000
+
+    - name: TanBeta
+      description: "Higgs VEV ratio"
+      distribution:
+        type: Flat
+        parameters:
+          min: 1
+          max: 60
+
+    - name: MeL
+      description: "Left-handed slepton soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100
+          max: 3000
+
+    - name: MeR
+      description: "Right-handed slepton Soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100
+          max: 3000
+
+  Bounds:
+    nlive:  160
+    rseed:  21
+    run_nested: 
+      maxcall:  4000 
+      print_progress: True
+
+  LogLikelihood: 
+    - {name: "LogL_Z",  expression: "(2 + z)**5"}
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=5.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+Calculators:
+  make_paraller: 16
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: SUSYHIT
+      required_modules: [] 
+      clone_shadow: True
+      path: &susyhit_path "&J/WorkShop/Program/susyhit/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/susyhit"
+      installation:
+          - "cp ${source}/susyhit.tar.gz ${path}"
+          - "cd ${path}"
+          - "tar -zxvf susyhit.tar.gz"
+          - "make" 
+      initialization:
+          - "rm -f susyhit_slha.out"
+          - "cp ${source}/suspect2_lha_muong2.in ${path}/suspect2_lha.in"
+      execution:
+        path: *susyhit_path  # using the Anchor point
+        commands:
+          - "./run suspect2_lha.in"
+        input:
+          - name: inp
+            path: "&J/WorkShop/Program/susyhit/@PackID/slhaspectrum.in"  
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "M1",       placeholder: ">>>>>M1<<<<<" }
+                  - { name: "M2",       placeholder: ">>>>>M2<<<<<" }
+                  - { name: "Mu",       placeholder: ">>>>>Mu<<<<<" }
+                  - { name: "TanBeta",  placeholder: ">>>>>TB<<<<<" }
+                  - { name: "MeL",      placeholder: ">>>>>MeL<<<<<" }
+                  - { name: "MeR",      placeholder: ">>>>>MeR<<<<<" }
+            save: False
+        output:
+          - name: spectr
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: True
+            variables:
+              - { name: mSeL,         block: MASS,    entry: 1000011 }
+              - { name: mSeR,         block: MASS,    entry: 2000011 }
+              - { name: mSmL,         block: MASS,    entry: 1000013 }
+              - { name: mSmR,         block: MASS,    entry: 2000013 }
+              - { name: mSev,         block: MASS,    entry: 1000012 }
+              - { name: mSmv,         block: MASS,    entry: 1000012 }
+              - { name: mN1,          block: MASS,    entry: 1000022 }
+              - { name: mN2,          block: MASS,    entry: 1000023 }
+              - { name: mN3,          block: MASS,    entry: 1000025 }
+              - { name: mN4,          block: MASS,    entry: 1000035 }
+              - { name: mC1,          block: MASS,    entry: 1000024 }
+              - { name: mC2,          block: MASS,    entry: 1000037 }
+              - { name: N11,          block: NMIX,    entry: [1, 1] }
+              - { name: N12,          block: NMIX,    entry: [1, 2] }
+              - { name: N13,          block: NMIX,    entry: [1, 3] }
+              - { name: N14,          block: NMIX,    entry: [1, 4] }
+              - { name: N21,          block: NMIX,    entry: [2, 1] }
+              - { name: N22,          block: NMIX,    entry: [2, 2] }
+              - { name: N23,          block: NMIX,    entry: [2, 3] }
+              - { name: N24,          block: NMIX,    entry: [2, 4] }
+              - { name: N31,          block: NMIX,    entry: [3, 1] }
+              - { name: N32,          block: NMIX,    entry: [3, 2] }
+              - { name: N33,          block: NMIX,    entry: [3, 3] }
+              - { name: N34,          block: NMIX,    entry: [3, 4] }
+              - { name: N41,          block: NMIX,    entry: [4, 1] }
+              - { name: N42,          block: NMIX,    entry: [4, 2] }
+              - { name: N43,          block: NMIX,    entry: [4, 3] }
+              - { name: N44,          block: NMIX,    entry: [4, 4] }
+              - { name: U11,          block: UMIX,    entry: [1, 1] }
+              - { name: U12,          block: UMIX,    entry: [1, 2] }
+              - { name: U21,          block: UMIX,    entry: [2, 1] }
+              - { name: U22,          block: UMIX,    entry: [2, 2] }
+              - { name: V11,          block: VMIX,    entry: [1, 1] }
+              - { name: V12,          block: VMIX,    entry: [1, 2] }
+              - { name: V21,          block: VMIX,    entry: [2, 1] }
+              - { name: V22,          block: VMIX,    entry: [2, 2] }
+
+    - name: GM2Calc
+      required_modules: [] 
+      clone_shadow: True
+      path: &gm2calc_path "&J/WorkShop/Program/GM2Calc/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/GM2Calc"
+      installation:
+          - "cp -r ${source}/* ${path}"
+          - "cd ${path}/build"
+          - "cmake .."
+          - "make" 
+      initialization:
+          - "rm -f crossings.json"
+          - "rm -f output.hepmc3"
+          - "rm -f Mathusla.yoda"
+      execution:
+        path: "&J/WorkShop/Program/GM2Calc/@PackID"  # using the Anchor point
+        commands:
+          - "./build/bin/gm2calc.x --slha-input-file=./input/spectr.slha"
+          - "rivet -a MATHUSLA_N2:GammaFile=ga.json ./output.hepmc3 -o Mathusla.yoda"
+        input:
+          - name: spectr
+            type: "SLHA"
+            path: "&J/WorkShop/Program/GM2Calc/@PackID/input/spectr.slha"
+            save: False
+            actions:
+              - type: "File"
+                source: spectr
+          - name: gammajs
+            type: "Json"
+            path: "&J/WorkShop/Program/HinoGen/@PackID/ga.json"
+            save: False
+            actions:
+              - type: "Dump"
+                variables: 
+                  - {name:  "gamma", expression: "WN2"}
+        output:
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"

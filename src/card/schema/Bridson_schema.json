@@ -2,7 +2,8 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "schemaBlock": {
         "input":  {"$ref": "PATH-TO-INPUT-JSON-SCHEMA"},
-        "output": {"$ref": "PATH-TO-INPUT-JSON-SCHEMA"}    
+        "output": {"$ref": "PATH-TO-OUTPUT-JSON-SCHEMA"},
+        "Nuisance": {"$ref": "PATH-TO-Nuisance-JSON-SCHEMA"}
     },
     "definitions": {
         "initialization": {
@@ -276,11 +277,17 @@
                 "MaxAttempt": {
                     "type": "integer"
                 },
+                "MaxWorker": {
+                    "type": "integer"
+                },
                 "LogLikelihood": {
                     "$ref": "#/definitions/LogLikelihood"
                 },
                 "selection": {
                     "type": "string"
+                },
+                "Nuisance": {
+                    "$ref": "#/schemaBlock/Nuisance"
                 }
             },
             "required": [
@@ -289,7 +296,7 @@
             ],
             "additionalProperties": false
         },
-        "EnvironmentRequirements": {
+        "EnvReqs": {
             "type": "object",
             "properties": {
                 "OS": {
@@ -517,7 +524,7 @@
                 "Modules"
             ]
         },
-        "SupportingLibrary": {
+        "LibDeps": {
             "type": "object",
             "properties": {
                 "path": {
@@ -681,7 +688,7 @@
     "required": [
         "Scan",
         "Sampling",
-        "EnvironmentRequirements",
+        "EnvReqs",
         "Calculators"
     ],
     "additionalProperties": true

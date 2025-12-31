@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import configparser
 from copy import deepcopy
 import json
 import os

@@ -1,8 +1,0 @@
-2 2 60 
-  This switch specifies number of processors used for 
-  calculations. Really CalcHEP uses N+1 processers, where
-  1 processor controls work of others. If N=0, then 
-  parallelization is switched off comletely. It this case 
-  you will not see running line which shows job progress.  
-    
- 

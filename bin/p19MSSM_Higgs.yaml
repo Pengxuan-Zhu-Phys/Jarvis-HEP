@@ -1,0 +1,497 @@
+Scan: 
+  name: "p19MSSM_Higgs"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Dynesty" 
+  Variables:
+    - name: M1
+      description: "Bino Soft breaking mass parameters"
+      distribution:
+        type: Flat
+        parameters:
+          min: -5000.
+          max: 5000.
+    - name: M2
+      description: "Wino Soft breaking mass parameters"
+      distribution:
+        type: Flat
+        parameters:
+          min: -5000.
+          max: 5000.
+    - name: M3
+      description: "Gluino Soft breaking mass parameters"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100.
+          max: 5000.
+    - name: MU
+      description: "Higgsino Soft breaking mass parameters"
+      distribution:
+        type: Flat
+        parameters:
+          min: -5000.
+          max: 5000.
+    - name: MA
+      description: "Pesudoscalar Higgs mass parameters"
+      distribution:
+        type: Flat
+        parameters:
+          min: 100.
+          max: 5000.
+    - name: TanBETA
+      description: "Scalar doublet vevs ratio"
+      distribution:
+        type: Flat
+        parameters:
+          min: 1.0
+          max: 60.0
+    - name: AD
+      description: "Trilinear soft coupling parameter for Down-type, Charm-type and Bottom-type quarks "
+      distribution:
+        type: Flat
+        parameters:
+          min: -10000.
+          max: 10000.
+    - name: AU
+      description: "Trilinear soft coupling parameter for Up-type, Strange-type and Top-type quarks "
+      distribution:
+        type: Flat
+        parameters:
+          min: -10000.
+          max: 10000.
+    - name: AE
+      description: "Trilinear soft coupling parameter for Eletron-type, Muon-type and Tau-type leptons "
+      distribution:
+        type: Flat
+        parameters:
+          min: -10000.
+          max: 10000.
+    - name: MEL
+      description: "1st/2nd generation Left-handed slepton soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MER
+      description: "1st/2nd generation Right-handed slepton soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MTAUL
+      description: "3rd generation slepton soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MTAUR
+      description: "3rd generation slepton soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MQL
+      description: "1st/2nd generation left-handed squark soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MTL
+      description: "3rd generation left-handed squark (stop/sbottom) soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MUR
+      description: "1st/2nd generation right-handed up-type squark soft mass "
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MTR
+      description: "3rd generation right-handed up-type squark (stop) soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MDR
+      description: "1st/2nd generation right-handed down-type squark soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+    - name: MBR
+      description: "3rd generation right-handed down-type squark (sbottom) soft mass"
+      distribution:
+        type: Flat
+        parameters:
+          min: 50.
+          max: 5000.
+
+    - name: MTOP
+      description: "Top quark pole mass"
+      distribution:
+        type: Normal
+        parameters:
+          mean: 173.1
+          stddev: 0.6
+    - name: ALPHAS
+      description: "alpha_s(MZ)"
+      distribution:
+        type: Normal
+        parameters:
+          mean: 0.1181
+          stddev: 0.0011
+    - name: MBOTTOM
+      description: "Bottom quark pole mass"
+      distribution:
+        type: Normal
+        parameters:
+          mean: 4.18
+          stddev: 0.03
+
+  Bounds:
+    nlive:  12800
+    rseed:  21
+    dlogz:  0.1
+    run_nested: 
+      print_progress: True
+
+      # maxcall:  4000  
+  LogLikelihood: 
+    - {name: "LogL_HS",   expression: "-2.0 * HSCHI2" }
+    - {name: "LogL_HBh1", expression: "-2.0 * HBh1obs" }
+    - {name: "LogL_HBh2", expression: "-2.0 * HBh2obs" }
+    - {name: "LogL_HBAH", expression: "-2.0 * HBAHobs" }
+  selection: "(2.0 * X < Y)"
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+LibDeps:
+  path: "&J/External/Library"
+  make_paraller: 32
+  Modules:
+    - name: "Delphes"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/Delphes"
+        source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
+        commands:
+          - "cd ${LibDeps:path}"
+          - "rm -rf Delphes*"
+          - "cp ${source} ./"
+          - "tar -xzf Delphes-3.5.0.tar.gz"
+          - "mv ./Delphes-3.5.0 ${path}"
+          - "cd ${path}"
+          - "source @{ROOT path}/bin/thisroot.sh"
+          - "./configure"
+          - "make -j${LibDeps:make_paraller}"
+
+    - name: "HepMC"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/HepMC"
+        source: "&J/External/Library/Source/HepMC-2.06.09.tar.gz"
+        commands:
+          - "cd ${LibDeps:path}"
+          - "rm -rf HepMC*"
+          - "cp ${source} ./"
+          - "tar -xzf HepMC-2.06.09.tar.gz"
+          - "cd ${LibDeps:path}/HepMC-2.06.09"
+          - "./bootstrap"
+          - "./configure --with-momentum=GEV --with-length=MM --prefix=${path}"
+          - "make -j${LibDeps:make_paraller}"
+          - "make install"
+
+    - name: "Pythia8"
+      required_modules: 
+        - "HepMC"
+      installed: False
+      installation:
+        path: "&J/External/Library/Pythia8"
+        source: "&J/External/Library/Source/pythia8230.tgz"
+        commands:
+          - "cd ${LibDeps:path}"
+          - "mkdir Pythia8"
+          - "cd ${LibDeps:path}/Source"
+          - "tar -zxvf pythia8230.tgz"
+          - "cd ${LibDeps:path}/Source/pythia8230"
+          - "./configure --with-hepmc2=${LibDeps:path}/HepMC --prefix=${path}"
+          - "make -j${LibDeps:make_paraller}"
+          - "make install"
+
+Calculators:
+  make_paraller: 2
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: FlexibleSUSY
+      required_modules: [] 
+      clone_shadow: True
+      path: &eggbox_path "&J/WorkShop/Program/FlexibleSUSY/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/FlexibleSUSY"
+      installation:
+          - "cp -r ${source}/FlexibleSUSY/* ${path}"
+          - "cd ${path}"
+          - "./createmodel --name=MSSMEFTHiggs --with-math-cmd=/usr/local/bin/math-13"
+          - "./configure  --with-models=MSSMEFTHiggs  --with-math-cmd=/usr/local/bin/math-13  --with-eigen-incdir=/remote/nas00-0/users/pzhu/sysTools/eigen-3.3.9  --with-boost-libdir=/remote/nas00-0/users/pzhu/sysTools/boost/lib  --with-boost-incdir=/remote/nas00-0/users/pzhu/sysTools/boost/include  --with-collier-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier  --with-collier-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/Collier/modules  --with-loop-libraries=collier  --with-higgstools-libdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/lib64  --with-higgstools-incdir=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/HiggsTools/include  --enable-higgstools"
+          - "make -j48"
+      initialization:
+          - "cd ${path}"
+          - "cp -r ${source}/Models/LesHouches.in.MSSMEFTHiggs.template ./LesHouches.in.MSSMEFTHiggs"
+          - "rm -f LesHouches.out.MSSMEFTHiggs"
+      execution:
+        path: *eggbox_path  # using the Anchor point
+        commands:
+          - "./models/MSSMEFTHiggs/run_MSSMEFTHiggs.x  --higgsbounds-dataset=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/DataSet/hbdataset  --higgssignals-dataset=/remote/nas00-0/users/pzhu/HEPTools/SpectrGEN/DataSet/hsdataset  --slha-input-file=./LesHouches.in.MSSMEFTHiggs  --slha-output-file=LesHouches.out.MSSMEFTHiggs"
+        input:
+          - name: LHAin
+            path: "&J/WorkShop/Program/FlexibleSUSY/@PackID/LesHouches.in.MSSMEFTHiggs"  
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "M1", placeholder: ">>>M1<<<" }
+                  - { name: "M2", placeholder: ">>>M2<<<" }
+                  - { name: "M3", placeholder: ">>>M3<<<" }
+                  - { name: "MU", placeholder: ">>>MU<<<" }
+                  - { name: "MA", placeholder: ">>>MA<<<" }
+                  - { name: "TanBETA",  placeholder: ">>>TB<<<" }
+                  - { name: "MEL2",     placeholder: ">>>MEL2<<<",    expression: "MEL ** 2" }
+                  - { name: "MTAUL2",   placeholder: ">>>MTAUL2<<<",  expression: "MTAUL ** 2"}
+                  - { name: "MER2",     placeholder: ">>>MER2<<<",    expression: "MER ** 2" }
+                  - { name: "MTAUR2",   placeholder: ">>>MTAUR2<<<",  expression: "MTAUR ** 2" }
+                  - { name: "MQL2",     placeholder: ">>>MQL2<<<",    expression: "MQL ** 2" }
+                  - { name: "MUR2",     placeholder: ">>>MUR2<<<",    expression: "MUR ** 2" }
+                  - { name: "MDR2",     placeholder: ">>>MDR2<<<",    expression: "MDR ** 2" }
+                  - { name: "MTL2",     placeholder: ">>>MTL2<<<",    expression: "MTL ** 2" }
+                  - { name: "MTR2",     placeholder: ">>>MTR2<<<",    expression: "MTR ** 2" }
+                  - { name: "MBR2",     placeholder: ">>>MBR2<<<",    expression: "MBR ** 2" }
+                  - { name: "AE",       placeholder: ">>>AE<<<" }
+                  - { name: "AU",       placeholder: ">>>AU<<<" }
+                  - { name: "AD",       placeholder: ">>>AD<<<" }
+                  - { name: "MTOP",     placeholder: ">>>MTOP<<<" }
+                  - { name: "ALPHAS",   placeholder: ">>>ALPHAS<<<" }
+                  - { name: "MBOTTOM",  placeholder: ">>>MBOTTOM<<<" }
+            save: False
+        output:
+          - name: Spectr
+            path: "&J/WorkShop/Program/FlexibleSUSY/@PackID/LesHouches.out.MSSMEFTHiggs" 
+            type: "xSLHA"
+            save: True
+            variables:
+              - {name: mh1,           block: MASS,                  entry: 25 }
+              - {name: mh2,           block: MASS,                  entry: 35 }
+              - {name: mHpm,          block: MASS,                  entry: 37 }
+              - {name: mAH,           block: MASS,                  entry: 36 }
+              - {name: mW,            block: MASS,                  entry: 24 }
+              - {name: mSd1,          block: MASS,                  entry: 1000001 }
+              - {name: mSd2,          block: MASS,                  entry: 1000003 }
+              - {name: mSd3,          block: MASS,                  entry: 1000005 }
+              - {name: mSd4,          block: MASS,                  entry: 2000001 }
+              - {name: mSd5,          block: MASS,                  entry: 2000003 }
+              - {name: mSd6,          block: MASS,                  entry: 2000005 }
+              - {name: mSu1,          block: MASS,                  entry: 1000002 }
+              - {name: mSu2,          block: MASS,                  entry: 1000004 }
+              - {name: mSu3,          block: MASS,                  entry: 1000006 }
+              - {name: mSu4,          block: MASS,                  entry: 2000002 }
+              - {name: mSu5,          block: MASS,                  entry: 2000004 }
+              - {name: mSu6,          block: MASS,                  entry: 2000006 }
+              - {name: mSe1,          block: MASS,                  entry: 1000011 }
+              - {name: mSe2,          block: MASS,                  entry: 1000013 }
+              - {name: mSe3,          block: MASS,                  entry: 1000015 }
+              - {name: mSe4,          block: MASS,                  entry: 2000011 }
+              - {name: mSe5,          block: MASS,                  entry: 2000013 }
+              - {name: mSe6,          block: MASS,                  entry: 2000015 }
+              - {name: mSv1,          block: MASS,                  entry: 1000012 }
+              - {name: mSv2,          block: MASS,                  entry: 1000014 }
+              - {name: mSv3,          block: MASS,                  entry: 1000016 }
+              - {name: mN1,           block: MASS,                  entry: 1000022 }
+              - {name: mN2,           block: MASS,                  entry: 1000023 }
+              - {name: mN3,           block: MASS,                  entry: 1000025 }
+              - {name: mN4,           block: MASS,                  entry: 1000035 }
+              - {name: mC1,           block: MASS,                  entry: 1000024 }
+              - {name: mC2,           block: MASS,                  entry: 1000037 }
+              - {name: mGluino,       block: MASS,                  entry: 1000021 }
+              - {name: U11,           block: UMIX,                  entry: [1, 1] }
+              - {name: U12,           block: UMIX,                  entry: [1, 2] }
+              - {name: U21,           block: UMIX,                  entry: [2, 1] }
+              - {name: U22,           block: UMIX,                  entry: [2, 2] }
+              - {name: V11,           block: VMIX,                  entry: [1, 1] }
+              - {name: V12,           block: VMIX,                  entry: [1, 2] }
+              - {name: V21,           block: VMIX,                  entry: [2, 1] }
+              - {name: V22,           block: VMIX,                  entry: [2, 2] }
+              - {name: ZA11,          block: PSEUDOSCALARMIX,       entry: [1, 1] }
+              - {name: ZA12,          block: PSEUDOSCALARMIX,       entry: [1, 2] }
+              - {name: ZA21,          block: PSEUDOSCALARMIX,       entry: [2, 1] }
+              - {name: ZA22,          block: PSEUDOSCALARMIX,       entry: [2, 2] }
+              - {name: ZD11,          block: DSQMIX,                entry: [1, 1] }
+              - {name: ZD12,          block: DSQMIX,                entry: [1, 2] }
+              - {name: ZD13,          block: DSQMIX,                entry: [1, 3] }
+              - {name: ZD14,          block: DSQMIX,                entry: [1, 4] }
+              - {name: ZD15,          block: DSQMIX,                entry: [1, 5] }
+              - {name: ZD16,          block: DSQMIX,                entry: [1, 6] }
+              - {name: ZD21,          block: DSQMIX,                entry: [2, 1] }
+              - {name: ZD22,          block: DSQMIX,                entry: [2, 2] }
+              - {name: ZD23,          block: DSQMIX,                entry: [2, 3] }
+              - {name: ZD24,          block: DSQMIX,                entry: [2, 4] }
+              - {name: ZD25,          block: DSQMIX,                entry: [2, 5] }
+              - {name: ZD26,          block: DSQMIX,                entry: [2, 6] }
+              - {name: ZD31,          block: DSQMIX,                entry: [3, 1] }
+              - {name: ZD32,          block: DSQMIX,                entry: [3, 2] }
+              - {name: ZD33,          block: DSQMIX,                entry: [3, 3] }
+              - {name: ZD34,          block: DSQMIX,                entry: [3, 4] }
+              - {name: ZD35,          block: DSQMIX,                entry: [3, 5] }
+              - {name: ZD36,          block: DSQMIX,                entry: [3, 6] }
+              - {name: ZD41,          block: DSQMIX,                entry: [4, 1] }
+              - {name: ZD42,          block: DSQMIX,                entry: [4, 2] }
+              - {name: ZD43,          block: DSQMIX,                entry: [4, 3] }
+              - {name: ZD44,          block: DSQMIX,                entry: [4, 4] }
+              - {name: ZD45,          block: DSQMIX,                entry: [4, 5] }
+              - {name: ZD46,          block: DSQMIX,                entry: [4, 6] }
+              - {name: ZD51,          block: DSQMIX,                entry: [5, 1] }
+              - {name: ZD52,          block: DSQMIX,                entry: [5, 2] }
+              - {name: ZD53,          block: DSQMIX,                entry: [5, 3] }
+              - {name: ZD54,          block: DSQMIX,                entry: [5, 4] }
+              - {name: ZD55,          block: DSQMIX,                entry: [5, 5] }
+              - {name: ZD56,          block: DSQMIX,                entry: [5, 6] }
+              - {name: ZD61,          block: DSQMIX,                entry: [6, 1] }
+              - {name: ZD62,          block: DSQMIX,                entry: [6, 2] }
+              - {name: ZD63,          block: DSQMIX,                entry: [6, 3] }
+              - {name: ZD64,          block: DSQMIX,                entry: [6, 4] }
+              - {name: ZD65,          block: DSQMIX,                entry: [6, 5] }
+              - {name: ZD66,          block: DSQMIX,                entry: [6, 6] }
+              - {name: ZU11,          block: USQMIX,                entry: [1, 1] }
+              - {name: ZU12,          block: USQMIX,                entry: [1, 2] }
+              - {name: ZU13,          block: USQMIX,                entry: [1, 3] }
+              - {name: ZU14,          block: USQMIX,                entry: [1, 4] }
+              - {name: ZU15,          block: USQMIX,                entry: [1, 5] }
+              - {name: ZU16,          block: USQMIX,                entry: [1, 6] }
+              - {name: ZU21,          block: USQMIX,                entry: [2, 1] }
+              - {name: ZU22,          block: USQMIX,                entry: [2, 2] }
+              - {name: ZU23,          block: USQMIX,                entry: [2, 3] }
+              - {name: ZU24,          block: USQMIX,                entry: [2, 4] }
+              - {name: ZU25,          block: USQMIX,                entry: [2, 5] }
+              - {name: ZU26,          block: USQMIX,                entry: [2, 6] }
+              - {name: ZU31,          block: USQMIX,                entry: [3, 1] }
+              - {name: ZU32,          block: USQMIX,                entry: [3, 2] }
+              - {name: ZU33,          block: USQMIX,                entry: [3, 3] }
+              - {name: ZU34,          block: USQMIX,                entry: [3, 4] }
+              - {name: ZU35,          block: USQMIX,                entry: [3, 5] }
+              - {name: ZU36,          block: USQMIX,                entry: [3, 6] }
+              - {name: ZU41,          block: USQMIX,                entry: [4, 1] }
+              - {name: ZU42,          block: USQMIX,                entry: [4, 2] }
+              - {name: ZU43,          block: USQMIX,                entry: [4, 3] }
+              - {name: ZU44,          block: USQMIX,                entry: [4, 4] }
+              - {name: ZU45,          block: USQMIX,                entry: [4, 5] }
+              - {name: ZU46,          block: USQMIX,                entry: [4, 6] }
+              - {name: ZU51,          block: USQMIX,                entry: [5, 1] }
+              - {name: ZU52,          block: USQMIX,                entry: [5, 2] }
+              - {name: ZU53,          block: USQMIX,                entry: [5, 3] }
+              - {name: ZU54,          block: USQMIX,                entry: [5, 4] }
+              - {name: ZU55,          block: USQMIX,                entry: [5, 5] }
+              - {name: ZU56,          block: USQMIX,                entry: [5, 6] }
+              - {name: ZU61,          block: USQMIX,                entry: [6, 1] }
+              - {name: ZU62,          block: USQMIX,                entry: [6, 2] }
+              - {name: ZU63,          block: USQMIX,                entry: [6, 3] }
+              - {name: ZU64,          block: USQMIX,                entry: [6, 4] }
+              - {name: ZU65,          block: USQMIX,                entry: [6, 5] }
+              - {name: ZU66,          block: USQMIX,                entry: [6, 6] }
+              - {name: ZE11,          block: SELMIX,                entry: [1, 1] }
+              - {name: ZE12,          block: SELMIX,                entry: [1, 2] }
+              - {name: ZE13,          block: SELMIX,                entry: [1, 3] }
+              - {name: ZE14,          block: SELMIX,                entry: [1, 4] }
+              - {name: ZE15,          block: SELMIX,                entry: [1, 5] }
+              - {name: ZE16,          block: SELMIX,                entry: [1, 6] }
+              - {name: ZE21,          block: SELMIX,                entry: [2, 1] }
+              - {name: ZE22,          block: SELMIX,                entry: [2, 2] }
+              - {name: ZE23,          block: SELMIX,                entry: [2, 3] }
+              - {name: ZE24,          block: SELMIX,                entry: [2, 4] }
+              - {name: ZE25,          block: SELMIX,                entry: [2, 5] }
+              - {name: ZE26,          block: SELMIX,                entry: [2, 6] }
+              - {name: ZE31,          block: SELMIX,                entry: [3, 1] }
+              - {name: ZE32,          block: SELMIX,                entry: [3, 2] }
+              - {name: ZE33,          block: SELMIX,                entry: [3, 3] }
+              - {name: ZE34,          block: SELMIX,                entry: [3, 4] }
+              - {name: ZE35,          block: SELMIX,                entry: [3, 5] }
+              - {name: ZE36,          block: SELMIX,                entry: [3, 6] }
+              - {name: ZE41,          block: SELMIX,                entry: [4, 1] }
+              - {name: ZE42,          block: SELMIX,                entry: [4, 2] }
+              - {name: ZE43,          block: SELMIX,                entry: [4, 3] }
+              - {name: ZE44,          block: SELMIX,                entry: [4, 4] }
+              - {name: ZE45,          block: SELMIX,                entry: [4, 5] }
+              - {name: ZE46,          block: SELMIX,                entry: [4, 6] }
+              - {name: ZE51,          block: SELMIX,                entry: [5, 1] }
+              - {name: ZE52,          block: SELMIX,                entry: [5, 2] }
+              - {name: ZE53,          block: SELMIX,                entry: [5, 3] }
+              - {name: ZE54,          block: SELMIX,                entry: [5, 4] }
+              - {name: ZE55,          block: SELMIX,                entry: [5, 5] }
+              - {name: ZE56,          block: SELMIX,                entry: [5, 6] }
+              - {name: ZE61,          block: SELMIX,                entry: [6, 1] }
+              - {name: ZE62,          block: SELMIX,                entry: [6, 2] }
+              - {name: ZE63,          block: SELMIX,                entry: [6, 3] }
+              - {name: ZE64,          block: SELMIX,                entry: [6, 4] }
+              - {name: ZE65,          block: SELMIX,                entry: [6, 5] }
+              - {name: ZE66,          block: SELMIX,                entry: [6, 6] }
+              - {name: ZH11,          block: SCALARMIX,             entry: [1, 1] }
+              - {name: ZH12,          block: SCALARMIX,             entry: [1, 2] }
+              - {name: ZH21,          block: SCALARMIX,             entry: [2, 1] }
+              - {name: ZH22,          block: SCALARMIX,             entry: [2, 2] }
+              - {name: ZN11,          block: NMIX,                  entry: [1, 1] }
+              - {name: ZN12,          block: NMIX,                  entry: [1, 2] }
+              - {name: ZN13,          block: NMIX,                  entry: [1, 3] }
+              - {name: ZN14,          block: NMIX,                  entry: [1, 4] }
+              - {name: ZN21,          block: NMIX,                  entry: [2, 1] }
+              - {name: ZN22,          block: NMIX,                  entry: [2, 2] }
+              - {name: ZN23,          block: NMIX,                  entry: [2, 3] }
+              - {name: ZN24,          block: NMIX,                  entry: [2, 4] }
+              - {name: ZN31,          block: NMIX,                  entry: [3, 1] }
+              - {name: ZN32,          block: NMIX,                  entry: [3, 2] }
+              - {name: ZN33,          block: NMIX,                  entry: [3, 3] }
+              - {name: ZN34,          block: NMIX,                  entry: [3, 4] }
+              - {name: ZN41,          block: NMIX,                  entry: [4, 1] }
+              - {name: ZN42,          block: NMIX,                  entry: [4, 2] }
+              - {name: ZN43,          block: NMIX,                  entry: [4, 3] }
+              - {name: ZN44,          block: NMIX,                  entry: [4, 4] }
+              - {name: HBh1obs,       block: HIGGSBOUNDS,           entry: [25, 1] }
+              - {name: HBh1exp,       block: HIGGSBOUNDS,           entry: [25, 2] }
+              - {name: HBh2obs,       block: HIGGSBOUNDS,           entry: [35, 1] }
+              - {name: HBh2exp,       block: HIGGSBOUNDS,           entry: [35, 2] }
+              - {name: HBAHobs,       block: HIGGSBOUNDS,           entry: [36, 1] }
+              - {name: HBAHexp,       block: HIGGSBOUNDS,           entry: [36, 2] }
+              - {name: HSdof,         block: HIGGSSIGNALS,          entry: 1 }
+              - {name: HSCHI2,        block: HIGGSSIGNALS,          entry: 2 }
+              - {name: HSCHI2h,       block: HIGGSSIGNALS,          entry: 3 }
+              - {name: HSpvalue,      block: HIGGSSIGNALS,          entry: 4 }
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"

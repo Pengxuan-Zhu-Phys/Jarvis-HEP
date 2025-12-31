@@ -711,7 +711,7 @@
             ],
             "additionalProperties": false
         },
-        "EnvironmentRequirements": {
+        "EnvReqs": {
             "type": "object",
             "properties": {
                 "OS": {
@@ -1027,7 +1027,7 @@
     "required": [
         "Scan",
         "Sampling",
-        "EnvironmentRequirements",
+        "EnvReqs",
         "Calculators"
     ],
     "additionalProperties": true

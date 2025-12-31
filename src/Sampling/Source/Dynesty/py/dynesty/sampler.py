@@ -208,7 +208,7 @@ class Sampler:
                 list(map(self.prior_transform, np.asarray(self.live_u))))
             self.live_v = live_vid[:, :-1].astype(float)
             self.live_uid = live_vid[:, -1]
-        print("sampler Line 205 ->", self.live_v[0])
+        # print("sampler Line 205 ->", self.live_v[0])
         self.live_logl = np.array(
             [_.val for _ in self.loglikelihood.map(np.asarray(self.live_v))])
 
@@ -744,7 +744,7 @@ class Sampler:
 
         else:
             # Remove live points (if added) from previous run.
-            print("sampler Line 783 ->")
+            # print("sampler Line 783 ->")
             if self.added_live and not resume:
                 self._remove_live_points()
 
@@ -803,7 +803,8 @@ class Sampler:
                         self.added_live = False
                     if current_n_effective > n_effective:
                         stop_iterations = True
-            if self.live_logl.ptp() == 0:
+            # if self.live_logl.ptp() == 0:
+            if np.ptp(self.live_logl) == 0:
                 warnings.warn(
                     'We have reached the plateau in the likelihood we are'
                     ' stopping sampling')

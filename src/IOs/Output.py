@@ -288,6 +288,18 @@ class xSLHAOutputFile(OutputFile):
                         observables[var['name']] = value 
                     else:
                         self.logger.error(f"Unsupport decay entry {var['entry']}")
+                elif var['block'] == "HIGGSBOUNDS":
+                    if isinstance(var['entry'], list): 
+                        blkentry = list(map(str, var['entry']))
+                        blkentry = ",".join(blkentry)
+                        if blkentry in content.blocks["HIGGSBOUNDS"]: 
+                            value = content.blocks["HIGGSBOUNDS"][blkentry]
+                        else:
+                            value = 0.
+                            self.logger.info(f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0.")
+                        observables[var['name']] = value
+                    else:
+                        self.logger.error(f"Unsupport entry {var['entry']} for block HIGGSBOUNDS")
                 elif content.blocks[var['block'].upper()]:
                     blk = var['block'].upper()
                     if isinstance(var['entry'], int):
@@ -331,3 +343,31 @@ class xSLHAOutputFile(OutputFile):
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
             return observables
 
+
+class FileOutput(OutputFile):
+    async def read(self):
+        self.path = self.decode_path(self.path)
+        self.logger.info(f"Start reading the output file -> {self.path}")
+
+        observables = {}
+        source = None
+        
+        try: 
+            try:
+                async with aiofiles.open(self.path, 'r') as f1:
+                    source = await f1.read()
+            except FileNotFoundError:
+                self.logger.error(f"File not found: {self.path}")
+            except json.JSONDecodeError:
+                self.logger.error(f"Error decoding JSON from file: {self.path}")
+                
+            if self.save:
+                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
+                async with aiofiles.open(target, "w") as dst_file:
+                    await dst_file.write(source)
+                observables[self.name] = target    
+            return observables 
+                            
+        except Exception as e: 
+            self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
+            return observables 

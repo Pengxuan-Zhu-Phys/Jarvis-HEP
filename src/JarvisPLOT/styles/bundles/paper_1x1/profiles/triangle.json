@@ -1,0 +1,13 @@
+{
+  "figure": { "size": [7, 7], "dpi": 160 },
+  "axes": [
+    {
+      "name": "ternary",
+      "preset": "axes/triangle.json",
+      "override": { "title": "" }
+    }
+  ],
+  "layers": {
+    "triangle_scatter": { "s": 10, "alpha": 0.9, "cmap": "viridis" }
+  }
+}

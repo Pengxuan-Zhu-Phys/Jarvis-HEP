@@ -15,7 +15,7 @@ Jarvis-HEP is a high-energy physics (HEP) data analysis and simulation framework
 Jarvis-HEP is a pure Python code, using pip install the following package:
 
 ```bash
-python3 -m pip install numpy scipy pyyaml dynesty h5py pandas matplotlib pyhf networkx xslha pyslha xmltodict shapely emoji prettytable aiofiles sqlalchemy loguru 
+python3 -m pip install numpy scipy pyyaml dynesty h5py pandas matplotlib pyhf networkx xslha pyslha xmltodict shapely emoji prettytable aiofiles sqlalchemy loguru dill sympy
 ```
 
 Clone Jarvis-HEP directly from GitHub:

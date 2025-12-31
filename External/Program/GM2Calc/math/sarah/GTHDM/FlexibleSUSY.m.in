@@ -1,0 +1,86 @@
+
+FSModelName = "@CLASSNAME@";
+FSEigenstates = SARAH`EWSB;
+FSDefaultSARAHModel = "GTHDM";
+
+OnlyLowEnergyFlexibleSUSY = True;
+
+(* input parameters *)
+
+MINPAR = {
+    {1, Lambda1IN},
+    {2, Lambda2IN},
+    {3, Lambda3IN},
+    {4, Lambda4IN},
+    {5, Lambda5IN},
+    {6, Lambda6IN},
+    {7, Lambda7IN},
+    {8, M122IN},
+    {10, TanBeta}
+};
+
+EXTPAR = {
+    {0, Qin}
+};
+
+EWSBOutputParameters = { M112, M222 };
+
+SUSYScale = Qin;
+
+SUSYScaleFirstGuess = Qin;
+
+SUSYScaleInput = {
+(*    {Lambda1, Lambda1IN},
+    {Lambda2, Lambda2IN},
+    {Lambda3, Lambda3IN},
+    {Lambda4, Lambda4IN},
+    {Lambda5, Lambda5IN},
+    {Lambda6, Lambda6IN},
+    {Lambda7, Lambda7IN},*)
+    {M122   , M122IN}
+};
+
+LowScale = LowEnergyConstant[MZ];
+
+LowScaleFirstGuess = LowEnergyConstant[MZ];
+
+LowScaleInput = {
+   {Lambda1, Lambda1IN},
+   {Lambda2, Lambda2IN},
+   {Lambda3, Lambda3IN},
+   {Lambda4, Lambda4IN},
+   {Lambda5, Lambda5IN},
+   {Lambda6, Lambda6IN},
+   {Lambda7, Lambda7IN},
+   {v1, 2 MZMSbar / Sqrt[GUTNormalization[g1]^2 g1^2 + g2^2] Cos[ArcTan[TanBeta]]},
+   {v2, 2 MZMSbar / Sqrt[GUTNormalization[g1]^2 g1^2 + g2^2] Sin[ArcTan[TanBeta]]},
+   {Gammau, Tp[Sqrt[2] upQuarksDRbar / v1 - v2 / v1 * Piu]},
+   {Gammad, Tp[Sqrt[2] downQuarksDRbar / v1 - v2 / v1 * Pid]},
+   {Gammae, Tp[Sqrt[2] downLeptonsDRbar / v1 - v2 / v1 * Pie]},
+   {Piu, LHInput[Piu]},
+   {Pid, LHInput[Pid]},
+   {Pie, LHInput[Pie]}
+};
+
+InitialGuessAtLowScale = {
+   {v1, LowEnergyConstant[vev] Cos[ArcTan[TanBeta]]},
+   {v2, LowEnergyConstant[vev] Sin[ArcTan[TanBeta]]},
+   {Gammau, Sqrt[2] upQuarksDRbar / v1 - v2 / v1 * Piu},
+   {Gammad, Sqrt[2] downQuarksDRbar / v1 - v2 / v1 * Pid},
+   {Gammae, Sqrt[2] downLeptonsDRbar / v1 - v2 / v1 * Pie}
+};
+
+DefaultPoleMassPrecision = MediumPrecision;
+HighPoleMassPrecision    = {hh, Ah, Hm};
+MediumPoleMassPrecision  = {};
+LowPoleMassPrecision     = {};
+
+ExtraSLHAOutputBlocks = {
+   {FlexibleSUSYLowEnergy, {
+         {21, FlexibleSUSYObservable`aMuon},
+         {23, FlexibleSUSYObservable`EDM[Fe[1]]},
+         {24, FlexibleSUSYObservable`EDM[Fe[2]]},
+         {25, FlexibleSUSYObservable`EDM[Fe[3]]}
+      }
+   }
+};

@@ -94,9 +94,29 @@ def convert_hdf5_to_csv(snapshot_path, csv_path):
         # Assuming all JSON objects have the same structure (same keys)
         if all_data:
             fieldnames = list(all_data[0].keys())
+            for data in all_data:
+                if isinstance(data, dict):   
+                    if "LogL" in data.keys():                     
+                        if data['LogL'] == - np.inf:
+                            fieldnames = data.keys()
+                            continue
+                        else:
+                            fieldnames = data.keys()
+                            break
+                    else: 
+                        fieldnames = data.keys()
+
             with open(csv_path, 'w', newline='') as csv_file:
                 writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
                 writer.writeheader()
                 for data in all_data:
                     if isinstance(data, dict):
                         writer.writerow(data)
+
+def format_duration(seconds):
+    """Formating into HH:MM:SS.msc format"""
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    millisec = seconds % 1
+    return f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}.{str(millisec)[2:5]}"

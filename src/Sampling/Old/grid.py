@@ -359,7 +359,7 @@ class Grid(Sampling_method):
                 
     def combine_data(self):
         rpth  = os.path.join(self.path['save dir'], ".Running")
-        print(rpth)
+        # print(rpth)
         gd    = []
         gdp   = []
         ad    = []

@@ -1,0 +1,703 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "schemaBlock": {
+        "input": {
+            "$ref": "PATH-TO-INPUT-JSON-SCHEMA"
+        },
+        "output": {
+            "$ref": "PATH-TO-INPUT-JSON-SCHEMA"
+        }
+    },
+    "definitions": {
+        "initialization": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "execution": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "input": {
+                    "$ref": "#/schemaBlock/input"
+                },
+                "output": {
+                    "$ref": "#/schemaBlock/output"
+                }
+            },
+            "required": [
+                "path",
+                "commands",
+                "input",
+                "output"
+            ]
+        },
+        "LogLikelihood": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "expression": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "name",
+                    "expression"
+                ],
+                "additionalProperties": false
+            }
+        }
+    },
+    "type": "object",
+    "properties": {
+        "Scan": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "save_dir": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "name",
+                "save_dir"
+            ],
+            "additionalProperties": false
+        },
+        "Sampling": {
+            "type": "object",
+            "properties": {
+                "Method": {
+                    "type": "string"
+                },
+                "Variables": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "distribution": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string"
+                                    },
+                                    "parameters": {
+                                        "type": "object"
+                                    }
+                                },
+                                "required": [
+                                    "type",
+                                    "parameters"
+                                ],
+                                "allOf": [
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "Flat"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "min": {
+                                                            "type": "number"
+                                                        },
+                                                        "max": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "min",
+                                                        "max"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "Log"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "min": {
+                                                            "type": "number"
+                                                        },
+                                                        "max": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "min",
+                                                        "max"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "Logit"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "location": {
+                                                            "type": "number"
+                                                        },
+                                                        "scale": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "location",
+                                                        "scale"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "Normal"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "mean": {
+                                                            "type": "number"
+                                                        },
+                                                        "stddev": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "mean",
+                                                        "stddev"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            }
+                                        }
+                                    },
+                                    {
+                                        "if": {
+                                            "properties": {
+                                                "type": {
+                                                    "const": "Log-Normal"
+                                                }
+                                            }
+                                        },
+                                        "then": {
+                                            "properties": {
+                                                "parameters": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "mean": {
+                                                            "type": "number"
+                                                        },
+                                                        "stddev": {
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "mean",
+                                                        "stddev"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "description",
+                            "distribution"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "Bounds": {
+                    "type": "object",
+                    "properties": {
+                        "Niters": {"type": "integer", "minimum": 1},
+                        "Hidden_layers": {
+                            "type": "array",
+                            "items": {"type": "integer", "minimum": 1},
+                            "minItems": 1
+                        },
+                        "Batch_size": {"type": "integer", "minimum": 1},
+                        "Ninit": {"type": "integer", "minimum": 1},
+                        "Nepoch": {"type": "integer", "minimum": 1},
+                        "Learning_rate": {"type": "number", "minimum": 0},
+                        "Outputs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1
+                        }
+                    },
+                    "required": [
+                        "Niters", "Hidden_layers", "Batch_size", "Ninit", 
+                        "Nepoch", "Learning_rate", "Outputs"
+                    ]
+                },
+                "LogLikelihood": {
+                    "$ref": "#/definitions/LogLikelihood"
+                },
+                "selection": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "Variables",
+                "LogLikelihood",
+                "Bounds"
+            ],
+            "additionalProperties": false
+        },
+        "EnvReqs": {
+            "type": "object",
+            "properties": {
+                "OS": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "version": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "version"
+                        ],
+                        "additionalProperties": false
+                    }
+                },
+                "Check_default_dependences": {
+                    "type": "object",
+                    "properties": {
+                        "required": {
+                            "type": "boolean"
+                        },
+                        "default_yaml_path": {
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "required",
+                        "default_yaml_path"
+                    ],
+                    "additionalProperties": false
+                },
+                "CERN_ROOT": {
+                    "type": "object",
+                    "properties": {
+                        "required": {
+                            "type": "boolean"
+                        },
+                        "version": {
+                            "type": "string"
+                        },
+                        "get_path_command": {
+                            "type": "string"
+                        },
+                        "Dependencies": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "required": {
+                                        "type": "boolean"
+                                    },
+                                    "check_command": {
+                                        "type": "string"
+                                    },
+                                    "expected_output": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "required",
+                                    "check_command",
+                                    "expected_output"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "required",
+                        "version",
+                        "get_path_command",
+                        "Dependencies"
+                    ],
+                    "additionalProperties": false
+                },
+                "Python": {
+                    "type": "object",
+                    "properties": {
+                        "version": {
+                            "type": "string"
+                        },
+                        "Dependencies": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "required": {
+                                        "type": "boolean"
+                                    },
+                                    "version": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "required",
+                                    "version"
+                                ]
+                            }
+                        }
+                    },
+                    "required": [
+                        "version",
+                        "Dependencies"
+                    ]
+                }
+            },
+            "required": [
+                "OS",
+                "Python"
+            ],
+            "additionalProperties": true
+        },
+        "Calculators": {
+            "type": "object",
+            "properties": {
+                "make_paraller": {
+                    "type": "integer"
+                },
+                "Modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "required_modules": {
+                                "oneOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            },
+                            "clone_shadow": {
+                                "type": "boolean"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "source": {
+                                "type": "string"
+                            },
+                            "installation": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "required_modules",
+                            "clone_shadow",
+                            "installation"
+                        ],
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "modes": {
+                                        "type": "object",
+                                        "patternProperties": {
+                                            "^[a-zA-Z0-9]+$": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "initialization": {
+                                                        "$ref": "#/definitions/initialization"
+                                                    },
+                                                    "execution": {
+                                                        "$ref": "#/definitions/execution"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "initialization",
+                                                    "execution"
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "required": [
+                                    "modes"
+                                ]
+                            },
+                            {
+                                "properties": {
+                                    "initialization": {
+                                        "$ref": "#/definitions/initialization"
+                                    },
+                                    "execution": {
+                                        "$ref": "#/definitions/execution"
+                                    }
+                                },
+                                "required": [
+                                    "initialization",
+                                    "execution"
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "make_paraller",
+                "Modules"
+            ]
+        },
+        "LibDeps": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string"
+                },
+                "make_paraller": {
+                    "type": "integer"
+                },
+                "Modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "required_modules": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "installed": {
+                                "type": "boolean"
+                            },
+                            "installation": {
+                                "type": "object",
+                                "properties": {
+                                    "path": {
+                                        "type": "string"
+                                    },
+                                    "source": {
+                                        "type": "string"
+                                    },
+                                    "commands": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "minItems": 1
+                                    }
+                                },
+                                "required": [
+                                    "path",
+                                    "source",
+                                    "commands"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "name",
+                            "required_modules",
+                            "installed",
+                            "installation"
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "path",
+                "make_paraller",
+                "Modules"
+            ]
+        },
+        "Utils": {
+            "type": "object",
+            "properties": {
+                "interpolations_1D": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "file": {
+                                        "type": "string"
+                                    },
+                                    "logX": {
+                                        "type": "boolean",
+                                        "default": false
+                                    },
+                                    "logY": {
+                                        "type": "boolean",
+                                        "default": false
+                                    },
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                            "linear",
+                                            "cubic",
+                                            "quadratic",
+                                            "nearest"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "file"
+                                ],
+                                "additionalProperties": false
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "x_values": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "y_values": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "logX": {
+                                        "type": "boolean",
+                                        "default": false
+                                    },
+                                    "logY": {
+                                        "type": "boolean",
+                                        "default": false
+                                    },
+                                    "kind": {
+                                        "type": "string",
+                                        "enum": [
+                                            "linear",
+                                            "cubic",
+                                            "quadratic",
+                                            "nearest"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "x_values",
+                                    "y_values"
+                                ],
+                                "additionalProperties": false
+                            }
+                        ]
+                    }
+                }
+            },
+            "required": [
+                "interpolations_1D"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "Scan",
+        "Sampling",
+        "EnvReqs",
+        "Calculators"
+    ],
+    "additionalProperties": true
+}

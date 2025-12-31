@@ -1,0 +1,91 @@
+Scan: 
+  name: "EggBox_TPMCMC_01"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "TPMCMC" 
+  Variables:
+    - name: x
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+
+    - name: y
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+
+  Bounds:
+    num_chains: 10
+    num_iters:  2500
+    exchange_interval: 20
+    proposal_scales: [0.3, 0.25, 0.2, 0.15, 0.1, 0.05, 0.03, 0.01, 0.05, 0.02]
+
+  LogLikelihood: 
+    - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.0"
+  Check_default_dependences:
+    required: True 
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+Calculators:
+  make_paraller: 16
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: EggBox
+      required_modules: [] 
+      clone_shadow: True
+      path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"  # Define Anchor point 
+      source: "&J/External/Inertial/EggBox"
+      installation:
+          - "cp -r ${source}/* ${path}"
+      initialization:
+          - "cp -r ${source}/input.json ${path}/input.json"
+          - "rm -f output.json"
+      execution:
+        path: *eggbox_path  # using the Anchor point
+        commands:
+          - "./eggbox.py"
+        input:
+          - name: inpjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/input.json"  
+            type: "Json"
+            actions:
+              - type: "Dump"
+                variables:
+                  - { name: "xx", expression: "x * Pi" }
+                  - { name: "yy", expression: "y * Pi" }
+                  - { name: "cx", expression: "(x + y) * Pi", entry: "test.config.x" }
+            save: True
+        output:
+          - name: oupjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/output.json" 
+            type: "Json"
+            save: True
+            variables:
+              - {name: z}
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"
+

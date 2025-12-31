@@ -3,7 +3,7 @@
   (1) link SuSpect-Sdecay-Hdecay and take the input parameters from SuSpect
   (2) link Sdecay-Hdecay, not SuSpect, take the input parameters from any SLHA
       input, called slhaspectrum.in or slhaspectrumFV.in in the FV case
-2
+1
 * Choice of the output, SLHA format (1) or simple (0):
 ------------------------------------------------------
 1

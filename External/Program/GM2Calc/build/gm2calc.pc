@@ -1,0 +1,11 @@
+prefix=/usr/local
+exec_prefix=${prefix}
+libdir=/usr/local/lib
+includedir=/usr/local/include
+
+Name: GM2Calc
+Description: Calculates MSSM contributions to the anomalous magnetic moment of the muon
+Version: 2.3.1
+Requires: eigen3 >= 3.1.0
+Libs: -L${libdir} -lgm2calc
+Cflags: -I${includedir}

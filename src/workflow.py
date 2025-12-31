@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import networkx as nx 
 from base import Base
@@ -7,6 +8,7 @@ import numpy as np
 import contextlib
 import os, io 
 import asyncio
+# from numpy.lib._type_check_impl import imag
 
 class Workflow(Base):
     def __init__(self):
@@ -39,14 +41,15 @@ class Workflow(Base):
         self.add_module(parameter_module)
         self.parameter_module = parameter_module
         
-        for lib in modules['Library']:
-            module = LibraryModule(
-                name=lib['name'],
-                required_modules=lib.get("required_modules", []),
-                installed=lib.get("installed", False),
-                installation=lib.get("installation", {})
-            )
-            self.add_library_module(module)
+        if hasattr(modules, "Library"):
+            for lib in modules['Library']:
+                module = LibraryModule(
+                    name=lib['name'],
+                    required_modules=lib.get("required_modules", []),
+                    installed=lib.get("installed", False),
+                    installation=lib.get("installation", {})
+                )
+                self.add_library_module(module)
 
         for calc in modules['Calculator']:
             module = CalculatorModule(
@@ -178,13 +181,13 @@ class Workflow(Base):
 
     async def draw_flowchart(self, save_path="flowchart.png"):
         # with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+            import matplotlib 
+            matplotlib.use('Agg')
             import matplotlib.pyplot as plt 
-            import shapely as sp 
             import logging
             logging.getLogger('matplotlib').setLevel(logging.CRITICAL)
             logging.getLogger('PIL.PngImagePlugin').setLevel(logging.CRITICAL)
             from matplotlib.collections import LineCollection
-            from plot import draw_logo_in_square
             from plot import create_round_square
             from PIL import Image
 
@@ -231,7 +234,11 @@ class Workflow(Base):
                     h0 = 0.
                     for ii in range(nn):
                         opf = self.modules[module].output[ii]
-                        nv = len(opf['variables'])
+                        
+                        if not opf.get("variables", False):
+                            nv = 1
+                        else: 
+                            nv = len(opf['variables'])
                         if nv <= 2:
                             hl = 0.5 
                         else:
@@ -240,17 +247,18 @@ class Workflow(Base):
                         op = {
                             "nam": opf['name'],
                             "pos": np.array([1.1, -h0 - 0.5*hl -0.2 ]) + res["bp"],
-                            "inc": [var['name'] for var in opf['variables']],
+                            "inc": [var['name'] for var in opf.get('variables', [])],
                             'fil': os.path.basename(opf['path'])
                         }
                         h0 += hl 
                         h0 += 0.1
                         for jj in range(nv):
-                            res['opv'][opf['variables'][jj]['name']] = {
-                                "nam": opf['variables'][jj]['name'],
-                                "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
-                                "wid": 0.
-                            }
+                            if opf.get("variables", False):
+                                res['opv'][opf['variables'][jj]['name']] = {
+                                    "nam": opf['variables'][jj]['name'],
+                                    "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
+                                    "wid": 0.
+                                }
                         opfl[opf['name']] = (op)
                     h0 -= 0.1
                     res["opf"] = opfl 
@@ -420,7 +428,7 @@ class Workflow(Base):
                 if klayer != 1:
                     # print(mod)
                     module_at_pos(mod['bp'])
-                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
                     for kk, ipf in mod['ipf'].items():
                         # print(kk, ipf.keys())
                         input_file_at_pos(ipf['pos'] )
@@ -453,7 +461,7 @@ class Workflow(Base):
                             line_from_F2V(opf['pos'], opp)
                 else:
                     sampler_at_pos(mod['bp'])
-                    ax.text(mod['bp'][0], mod['bp'][1] - 0.5, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
+                    ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
 
                     for op in mod['opv']:
                         mod['opv'][op] = outvar_at_OP(mod['opv'][op])
@@ -463,7 +471,7 @@ class Workflow(Base):
 
             def arraw_from_V2F(pA, pB):
                 tt = np.linspace(-0.5 * np.pi, 0.4 * np.pi, 100)
-                xx = np.linspace(pA[0] + 0.14, pB[0] - 0.5, 100)
+                xx = np.linspace(pA[0] + 0.14, pB[0] - 0.4, 100)
                 yy = pA[1] + (np.sin(np.sin(tt)) + 0.8414709848078965)/1.6555005931675704 * (pB[1]-pA[1])
                 points = np.array([xx, yy]).T.reshape(-1, 1, 2)
                 segments = np.concatenate([points[:-1], points[1:]], axis=1)
@@ -489,35 +497,34 @@ class Workflow(Base):
 
             def line_from_M2F(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)
-                xx = np.linspace(0.43 + pM[0], pF[0], 100 )
+                xx = np.linspace(0.3 + pM[0], 0.1 + pF[0], 100 )
                 yy = pM[1] - 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] + 0.2 - pM[1])
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=3)
 
             def line_from_F2V(pF, op):
                 tt = np.linspace(-0.5*np.pi, 0.5*np.pi, 100)
-                xx = np.linspace(pF[0] + 0.44, op['pos'][0] - op['wid'] -0.1 , 100)
+                xx = np.linspace(pF[0] + 0.3, op['pos'][0] - op['wid'] - 0.1 , 100)
                 yy = pF[1] + (np.sin(np.sin(tt)) / 0.8414709848078965  + 1)/2 * (op['pos'][1] - pF[1])  
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=0.8, alpha=0.7)
                 ax.plot([op['pos'][0] - op['wid'] -0.1], [op['pos'][1]], "o", markersize=4, c="#3b4dc0", alpha=0.7)
 
             def line_from_F2M(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)
-                xx = np.linspace(-0.43 + pM[0], pF[0], 100 )
+                xx = np.linspace(-0.3 + pM[0], -0.1 + pF[0] , 100 )
                 yy = pM[1] + 0.2 + (np.sin(np.sin(tt))) / 0.8414709848078965 * (pF[1] - 0.2 - pM[1])
                 ax.plot(xx, yy, "-", c="#d45040", lw=3)
 
             def input_file_at_pos(pos):
-                image_path = "src/icons/inputfile.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
+                image_path = "src/icons/inputfile.png" 
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
 
             def output_file_at_pos(pos):
                 image_path = "src/icons/outputfile.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
-                # ax.plot([-100, 100], [pos[1], pos[1]], "-", c='grey', lw=0.4, alpha=0.2)
+                with Image.open(image_path) as image: 
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
 
             def outvar_at_OP(op):
                 text = ax.text(op["pos"][0], op["pos"][1], op['nam'], ha="right", va="center", fontfamily="monospace", variant="small-caps", fontsize="x-small", fontstyle="normal", fontweight="bold")
@@ -529,39 +536,39 @@ class Workflow(Base):
 
             def module_at_pos(pos):
                 image_path = "src/icons/calculator.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def lib_at_pos(pos):
                 image_path = "src/icons/library.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def sampler_at_pos(pos):
                 image_path = "src/icons/sampler.png"  
-                image = Image.open(image_path)
-                image = np.array(image)
-                ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
+                with Image.open(image_path) as image:
+                    image = np.array(image)
+                    ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
-            # def draw_layer_sub(layer):
-            #     print(layer)
-            #     for ipf in layer['ipvars'].values():
-            #         pF = ipf['']
+            def logo_at_pos(pos):
+                image_path = "src/icons/JarvisHEP.png"
+                with Image.open(image_path) as image:
+                    image = np.array(image.convert("RGBA"))
+                    ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
+                    ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")
+
 
             layerInfo, figH = resolve_layer()
-
+            if figH < 1.8: 
+                figH = 1.8
+            # figH += 
             fig = plt.figure(figsize=(figL, figH))
-            lx0 = 0.2 / figL 
-            lx1 = 0.8 / figL
-            ly0 = 1.0 - 1.0 / figH 
-            ly1 = 0.8 / figH
 
             ax  = fig.add_axes([0., 0., 1., 1.])
-            axlogo = fig.add_axes([lx0, ly0, lx1, ly1])
-            draw_logo_in_square(axlogo)
             ax.axis("off")
+            logo_at_pos([0.7, figH - 0.35])
             ax.set_xlim([0, figL])
             ax.set_ylim([0, figH])
             inv = ax.transData.inverted()
@@ -577,5 +584,5 @@ class Workflow(Base):
                 for mod, info in item.items():
                     draw_layer_module(kk, info)
             
-            plt.savefig(save_path, dpi=300)
-            await asyncio.sleep(2)
+            fig.savefig(save_path, dpi=300)
+            plt.close(fig)

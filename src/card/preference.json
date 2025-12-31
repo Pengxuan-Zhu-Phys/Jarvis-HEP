@@ -1,13 +1,18 @@
 {
     "Schema":  {
-        "PoissonSchema":  "&J/src/card/possion.json",
-        "GridSchema":          "&J/src/card/grid.json",
-        "BridsonSchema":       "&J/src/card/schema/Bridson_schema.json",
-        "DynestySchema":       "&J/src/card/schema/Dynesty_schema.json"
+        "PoissonSchema":    "&J/src/card/possion.json",
+        "GridSchema":       "&J/src/card/schema/Grid_Schema.json",
+        "BridsonSchema":    "&J/src/card/schema/Bridson_schema.json",
+        "DynestySchema":    "&J/src/card/schema/Dynesty_schema.json",
+        "RandomSchema":     "&J/src/card/schema/Random_schema.json",
+        "DNNSchema":        "&J/src/card/schema/DNN_Schema.json",
+        "MCMCSchema":       "&J/src/card/schema/MCMC_Schema.json",
+        "TPMCMCSchema":     "&J/src/card/schema/TPMCMC_Schema.json"
     },
     "SchemaBlock":  {
         "input":    "&J/src/card/schema/inputs.json",
-        "output":   "&J/src/card/schema/outputs.json"
+        "output":   "&J/src/card/schema/outputs.json",
+        "Nuisance": "&J/src/card/schema/Nuisance_schema.json"
     },
     "logo":    "&J/src/card/logo"
 }

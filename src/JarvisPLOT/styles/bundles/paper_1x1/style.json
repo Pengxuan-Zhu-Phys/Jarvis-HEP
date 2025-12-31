@@ -1,0 +1,44 @@
+{
+  "name": "paper_1x1",
+  "version": "0.1",
+  "description": "Paper-style 1×1 figure with optional right colorbar",
+  "figure_defaults": {
+    "size": [
+      6,
+      4.5
+    ],
+    "dpi": 150
+  },
+  "figure_defaults_by_layer": {
+    "triangle_scatter": {
+      "size": [
+        7,
+        7
+      ],
+      "dpi": 160
+    }
+  },
+  "axes_order": [
+    "main",
+    "cbar"
+  ],
+  "axes_presets": {
+    "main": "axes/main.json",
+    "cbar": "axes/cbar_right.json"
+  },
+  "axes_presets_by_layer": {
+    "triangle_scatter": "axes/triangle.json"
+  },
+  "layer_presets": {
+    "scatter": "layers/scatter.json",
+    "contour": "layers/contour.json",
+    "triangle_scatter": "layers/triangle_scatter.json"
+  },
+  "theme": "theme.json",
+  "profiles": {
+    "triangle_scatter": "profiles/triangle.json"
+  },
+  "profile_by_layer": {
+    "triangle_scatter": "triangle_scatter"
+  }
+}

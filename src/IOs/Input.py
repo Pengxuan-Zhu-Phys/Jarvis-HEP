@@ -149,9 +149,13 @@ class SLHAInputFile(InputFile):
                 observables[self.name] = target
 
             self.logger.info(f"Finish writing the input file -> {self.path}")
+            self.logger = None 
+
             return observables
         except Exception as e:
             self.logger.error(f"Error writing SLHA input file '{self.name}': {e}")
+
+        self.logger = None 
 
 class JsonInputFile(InputFile):
     async def write(self, param_values):
@@ -216,6 +220,8 @@ class JsonInputFile(InputFile):
                 await json_file.write(json_str)
         except Exception as e:
             self.logger.error(f"Error writing Json input file '{self.name}': {e}")
+        
+        self.logger = None
         return observables
 
 
