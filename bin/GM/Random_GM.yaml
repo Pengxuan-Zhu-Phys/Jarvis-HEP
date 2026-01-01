@@ -1,0 +1,137 @@
+Scan: 
+  name: "EggBox_Random_01"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Random" 
+  Variables:
+    - name: Lambda2in
+      description: "Tx[0]: Quartic coupling lambda_2"
+      distribution:
+        type: Flat
+        parameters:
+          min: -1.0
+          max:  1.0
+
+    - name: Lambda3in
+      description: "Tx[1]: Quartic coupling lambda_3"
+      distribution:
+        type: Flat
+        parameters:
+          min: -1.0
+          max:  1.0
+
+    - name: Lambda4in
+      description: "Tx[2]: Quartic coupling lambda_4"
+      distribution:
+        type: Flat
+        parameters:
+          min: -1.0
+          max:  1.0
+
+    - name: Lambda5in
+      description: "Tx[3]: Quartic coupling lambda_5"
+      distribution:
+        type: Flat
+        parameters:
+          min: -1.0
+          max:  1.0
+
+    - name: MH1in
+      description: "Tx[4]: Light scalar Higgs mass input (GeV)"
+      distribution:
+        type: Flat
+        parameters:
+          min: 90.0
+          max: 101.0
+
+    - name: MH2in
+      description: "Tx[5]: Heavy scalar Higgs mass input (GeV)"
+      distribution:
+        type: Flat
+        parameters:
+          min: 120.0
+          max: 131.0
+
+    - name: Alphain
+      description: "Tx[6]: Scalar mixing angle alpha (degree)"
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 180.0
+
+    - name: SHin
+      description: "Tx[7]: sin(theta_H)"
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 0.4
+
+    # Tx[8] —— 派生量（不要随机采样）
+    - name: v_eta
+      description: "Triplet vev derived from sHinput"
+      expression: "sHinput * 246.0 / 2.0 / sqrt(2.0)"
+  
+  Point number: 10000
+
+  LogLikelihood: 
+    - {name: "LogL_Z",  expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.0"
+  Check_default_dependences:
+    required: True 
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+Calculators:
+  make_paraller: 16
+  Modules:
+    - name: SPhenoGM
+      clone_shadow: True
+      path: "&J/WorkShop/GM/SPhenoGM/@PackID"
+      source: "&J/External/XK.Du"   
+      installation:
+        - "cp -r ${source}/ ${path}"
+      initialization:
+        - "cp -f ${source}/LesHouches.in.GM_low-2 ./LesHouches.in.GM_low-2"
+
+      execution:
+        path: "&J/WorkShop/GM/SPhenoGM/@PackID"
+        commands:
+          - "true"   
+
+        input:
+          - name: inplha
+            path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low-2"
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                output_path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low"
+                replace:
+                  - { name: "Lambda2in ", placeholder: ">>>>>>Lambda2<<<<<<" }
+                  - { name: "Lambda3in ", placeholder: ">>>>>>Lambda3<<<<<<" }
+                  - { name: "Lambda4in ", placeholder: ">>>>>>Lambda4<<<<<<" }
+                  - { name: "Lambda5in ", placeholder: ">>>>>>Lambda5<<<<<<" }
+                  - { name: "MH1in ",     placeholder: ">>>>>>Lambda2<<<<<<" }
+                  - { name: "MH2in ",     placeholder: ">>>>>>Lambda2<<<<<<" }
+                  - { name: "Alphain ",   placeholder: ">>>>>>Lambda2<<<<<<" }
+                  - { name: "SHin ",      placeholder: ">>>>>>Lambda2<<<<<<" }
+                  - { name: "Veta ",      placeholder: ">>>>>>Lambda2<<<<<<", expression: "sHinput * 246.0 / 2.0 / sqrt(2.0)" }
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"
