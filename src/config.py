@@ -232,6 +232,10 @@ class ConfigLoader(Base):
         modules = {
             "Parameter": self.config['Sampling']['Variables']
         }
+        
+        if self.config['Sampling'].get("Nuisance", False): 
+            modules['Nuisance'] = self.config['Sampling']['Nuisance']['Variables']
+        
         if hasattr(self.config, "LibDeps"):
             if self.config["LibDeps"]["Modules"]:
                 self.analysis_Library()
@@ -411,7 +415,7 @@ class ConfigValidator(Base):
             self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
         try:
-            print(self.schema['schemaBlock'].keys())
+            # print(self.schema['schemaBlock'].keys())
             for kk, vv in self.schemablock.items():
                 self.schema['schemaBlock'][kk]['$ref'] = self.schemablock[kk]
             

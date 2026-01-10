@@ -154,9 +154,7 @@ class Bridson(SamplingVirtial):
                 sconfig = deepcopy(self.info['sample'])
                 sconfig['save_dir'] = self.bucket_alloc.next_bucket_dir()
                 sample.set_config(sconfig)
-                # for kk, vv in sample.info.items():
-                #     print("\n{}\t -> {}".format(kk, vv))
-                
+
                 sample.start()
                 future = self.factory.submit_task(sample.info)
                 self.tasks[future] = sample

@@ -36,7 +36,10 @@ class Workflow(Base):
         from Module.library import LibraryModule
         from Module.calculator import CalculatorModule
         
+        # print(modules.keys())
         parameter_module = Parameters("Parameters", modules['Parameter'])
+        if modules.get("Nuisance", False):
+            parameter_module.add_nuisance(modules['Nuisance'])
         parameter_module.analyze_ios()
         self.add_module(parameter_module)
         self.parameter_module = parameter_module
@@ -257,7 +260,8 @@ class Workflow(Base):
                                 res['opv'][opf['variables'][jj]['name']] = {
                                     "nam": opf['variables'][jj]['name'],
                                     "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
-                                    "wid": 0.
+                                    "wid": 0.,
+                                    "typ":  "Obser"
                                 }
                         opfl[opf['name']] = (op)
                     h0 -= 0.1
@@ -273,12 +277,14 @@ class Workflow(Base):
                     nv = (len(self.modules[module].outputs) - 1)/2
                     h0 = nv * 0.2
                     ii = 0
-                    for op in self.modules[module].outputs:
+                    for op, vv in self.modules[module].outputs.items():                  
                         res['opv'][op] = {
                             "nam": op, 
                             "pos": np.array([2.5, h0 - ii * 0.2]),
                             "wid": 0.
                         }
+                        if vv is not None: 
+                            res['opv'][op]["typ"] = vv
                         ii += 1
                 
                 
@@ -288,7 +294,7 @@ class Workflow(Base):
                     res['width'] += 0.65
                 if res['opv']:
                     res['width'] += 1.5 
-                
+                # print(res)
                 return res 
 
             def resolve_layer():
@@ -423,6 +429,7 @@ class Workflow(Base):
                 pprint(mod)
 
             def draw_layer_module(klayer, mod):
+                # print("Kleyaer", klayer)
                 oh = np.array([0., + 0.5 * mod['ohh']])
                 # ax.plot([(klayer-1)*layerW, (klayer-1)*layerW], [-100, 100], "-", c='grey', lw=0.6, alpha=0.2)
                 if klayer != 1:
@@ -463,6 +470,7 @@ class Workflow(Base):
                     sampler_at_pos(mod['bp'])
                     ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
 
+                    # print(mod['opv'])
                     for op in mod['opv']:
                         mod['opv'][op] = outvar_at_OP(mod['opv'][op])
                         line_from_F2V(mod['bp'], mod['opv'][op])
@@ -506,7 +514,12 @@ class Workflow(Base):
                 xx = np.linspace(pF[0] + 0.3, op['pos'][0] - op['wid'] - 0.1 , 100)
                 yy = pF[1] + (np.sin(np.sin(tt)) / 0.8414709848078965  + 1)/2 * (op['pos'][1] - pF[1])  
                 ax.plot(xx, yy, "-", c="#3b4dc0", lw=0.8, alpha=0.7)
-                ax.plot([op['pos'][0] - op['wid'] -0.1], [op['pos'][1]], "o", markersize=4, c="#3b4dc0", alpha=0.7)
+                s = "o"
+                if op['typ'] == "Param":
+                    s = "s"
+                elif op['typ'] == "Nuisa":
+                    s = ">"
+                ax.plot([op['pos'][0] - op['wid'] -0.1], [op['pos'][1]], s, markersize=4, c="#3b4dc0", alpha=1)
 
             def line_from_F2M(pF, pM):
                 tt = np.linspace(0., 0.5*np.pi, 100)

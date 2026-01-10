@@ -118,10 +118,14 @@ class OutputFile(IOfile):
 
 
 class Parameter:
-    def __init__(self, name, description, distribution):
+    def __init__(self, name, description, distribution, ptype=None):
         self.name = name
-        self.description = description
-        self.distribution = distribution
+        self.description    = description
+        self.distribution   = distribution
+        self.type           = "Param"
+        if ptype is not None: 
+            self.type           = ptype
+             
 
     def generate_value(self):
         # 根据self.distribution的类型和参数生成参数值
