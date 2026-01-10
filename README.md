@@ -1,42 +1,103 @@
 # Jarvis-HEP
-Just a Really Viable Interface to Suite for High Energy Physics. 
 
-Jarvis-HEP is a high-energy physics (HEP) data analysis and simulation framework developed in Python, designed to simplify the process of data handling and analysis for researchers and students in the field of particle physics.
+**Jarvis-HEP** (Just a Really Viable Interface to Suites for High Energy Physics) is a modular, Python-based framework for **high-energy physics phenomenology**, designed to streamline **parameter-space exploration, likelihood evaluation, and post-processing** in complex BSM and collider analyses.
 
-## Features
+The project focuses on **robust sampling strategies**, **nuisance-parameter handling**, and **scalable asynchronous workflows**, with an emphasis on *profile likelihood*–oriented studies commonly encountered in modern collider phenomenology.
 
-- Supports various sampling methods, enabling comprehensive parameter space exploration.
-- [AI-based data analysis methods for HEP](https://github.com/karlschwarz/AI_for_HEP) are under active development and will be integrated into the repository. Check out the [demo](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/simu/sample_dynamic_viz.gif) for the visualization of the sampling procedure.
-- Integrated with popular HEP computational modules and libraries for seamless analysis workflows.
-- Asynchronous and parallel computing support for optimized performance on large datasets.
-- Data management and storage solutions tailored for high-volume data processing, including input/output handling and database integration.
+---
+
+## Motivation
+
+Modern HEP analyses often suffer from:
+- Extremely sparse viable regions in high-dimensional parameter spaces
+- Expensive external likelihood evaluations (collider simulations, Higgs constraints, flavour physics, etc.)
+- Non-trivial treatment of nuisance parameters
+- Poor reproducibility and opaque analysis pipelines
+
+Jarvis-HEP is designed to address these issues by providing:
+- A **unified orchestration layer** for sampling, likelihoods, and external tools
+- Explicit separation between **parameters of interest** and **nuisance parameters**
+- Flexible, engineering-oriented solutions such as **profile likelihood–based inference**
+- Transparent data management and diagnostic logging
+
+---
+
+## Key Features
+
+### Sampling & Exploration
+- Multiple sampling strategies (random, grid-like, adaptive, nested-style, and custom algorithms)
+- Designed for **highly constrained and fine-tuned** parameter spaces
+- Iterator-style, point-level sampling (not generation-locked)
+
+### Likelihood & Nuisance Parameters
+- Native support for **profile likelihood construction**
+- Dedicated nuisance-parameter samplers decoupled from main exploration
+- Fast evaluation paths for nuisance optimization
+
+### Architecture
+- Pure Python implementation
+- Asynchronous execution of expensive external programs
+- Modular factory-based design (samplers, likelihoods, IO, monitors)
+- YAML-driven configuration for reproducibility
+
+### Data Handling & Diagnostics
+- HDF5-based structured output
+- Explicit resource and file-handle monitoring
+- Detailed logging via `loguru`
+- Designed to survive partial failures (no silent data loss)
+
+### Visualization
+- Dynamic sampling visualizations (under active development)
+- Designed to interface with the standalone plotting package **JarvisPLOT**
+
+Example visualization of an adaptive sampling procedure:  
+👉 https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/simu/sample_dynamic_viz.gif
+
+---
 
 ## Installation
-Jarvis-HEP is a pure Python code, using pip install the following package:
+
+Jarvis-HEP is a **pure Python** project.
+
+### Dependencies
+
+Install required packages via `pip`:
 
 ```bash
-python3 -m pip install numpy scipy pyyaml dynesty h5py pandas matplotlib pyhf networkx xslha pyslha xmltodict shapely emoji prettytable aiofiles sqlalchemy loguru dill sympy
+python3 -m pip install \
+  numpy scipy pandas pyyaml h5py matplotlib \
+  dynesty pyhf networkx shapely sympy \
+  xslha pyslha xmltodict \
+  sqlalchemy aiofiles dill emoji prettytable loguru
 ```
 
-Clone Jarvis-HEP directly from GitHub:
-
-```bash
-git clone https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP.git
-```
+---
 
 ## Contributing
-Contributions are welcome in all forms, including feature proposals, documentation improvements, bug reports, and bug fixes. Please refer to CONTRIBUTING.md for guidelines on how to get started.
+
+Contributions are welcome in all forms, including feature proposals, documentation improvements, bug reports, and bug fixes.  
+Please refer to `CONTRIBUTING.md` for guidelines on how to get started.
+
+---
 
 ## License
-Jarvis-HEP is released under the MIT license. For more details, see the LICENSE file.
+
+Jarvis-HEP is released under the **MIT License**.  
+See the `LICENSE` file for details.
+
+---
 
 ## Acknowledgements
-Special thanks to all contributors who have helped make this project possible.
-    Pengxuan thank Yang Zhang, Liangliang Shang for helpful discussion.
+
+The author thanks  
+**Yang Zhang** and **Liangliang Shang**  
+for helpful discussions during the development of this project.
+
+---
 
 ## References
-- **Exploring supersymmetry with machine learning**  
-  Jie Ren, Lei Wu, Jin Ming Yang, Jun Zhao.  
-  *Nuclear Physics B (NPB)*, 2019.  
-  [arXiv:1708.06615](https://arxiv.org/abs/1708.06615)
 
+- **Exploring supersymmetry with machine learning**  
+  Jie Ren, Lei Wu, Jin-Ming Yang, Jun Zhao  
+  *Nuclear Physics B*, 2019  
+  arXiv:1708.06615
