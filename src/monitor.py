@@ -17,8 +17,6 @@ class JarvisMonitor:
         
         self.current_view = "Summary"
         self.runtime_in_seconds = 0
-        self.scroll_offset = 0
-        self.horizontal_scroll = False
         self.current_index = 0
         self.start_time = time.time()
          
@@ -46,6 +44,9 @@ class JarvisMonitor:
                     pass
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
+        # De-duplicate while preserving order
+        seen = set()
+        open_files = [p for p in open_files if not (p in seen or seen.add(p))]
         return open_files
 
     def init_screen(self, stdscr):
@@ -106,9 +107,13 @@ class JarvisMonitor:
                 stdscr.addstr(start_y, start_x + 1 + x, '.')
         stdscr.attroff(curses.color_pair(3))
 
-    def draw_summary(self, stdscr, start_y, start_x, cpu, mem, files, procs):
-        """ Draw summary information including progress bars and numbers """
-        self.draw_progress_bar(stdscr, start_y, start_x + 13, 61, cpu / psutil.cpu_count())
+    def draw_summary(self, stdscr, start_y, start_x, width, cpu, mem, files, procs):
+        """Draw summary information including progress bars and numbers."""
+        # Reserve a fixed label area; the bar uses the remaining width.
+        bar_start_x = start_x + 13
+        bar_w = max(10, width - bar_start_x - 4)  # keep room for borders/margins
+
+        self.draw_progress_bar(stdscr, start_y, bar_start_x, bar_w, cpu / psutil.cpu_count())
         stdscr.addstr(start_y, 2, "{}  : {:.1f}%".format("CPU", cpu))
 
         # Determine whether to show memory in MB or GB
@@ -119,24 +124,32 @@ class JarvisMonitor:
             mem_display = mem / 1024 / 1024 / 1024
             mem_unit = "GB"
 
-        self.draw_progress_bar(stdscr, start_y + 1, start_x + 13, 61, mem * 100 / psutil.virtual_memory().total)
+        self.draw_progress_bar(stdscr, start_y + 1, bar_start_x, bar_w, mem * 100 / psutil.virtual_memory().total)
         stdscr.addstr(start_y + 1, 2, "{}  : {} {}".format("MEM", int(mem_display), mem_unit))
 
         stdscr.addstr(start_y + 2, start_x, f"Files: {files}")
         stdscr.addstr(start_y + 3, start_x, f"Procs: {procs}")
 
-    def draw_file_box(self, stdscr, start_y, start_x, height, width, content_list, scroll_offset=0):
-        """ Draw a box with dynamic content """
-        max_content = height  # Calculate the maximum number of files that can be displayed
+    def draw_file_box(self, stdscr, start_y, start_x, height, width, content_list):
+        """Draw a box with dynamic content.
+
+        Long paths are truncated to fit to available width by keeping the tail and prefixing with '...'.
+        """
+        max_content = height
+        # Fit path into the available line width: "NNN: " prefix + borders.
+        # Example prefix is like "  1: ", so reserve 8 chars plus 2 borders.
+        max_path_len = max(10, width - 2 - 8)
+
         for i in range(max_content):
             idx = self.current_index + i
             if idx < len(content_list):
-                file_path = content_list[idx]
-                # Scroll the display if the path length exceeds the width
-                if len(file_path) > (width - 10):
-                    file_path = file_path[scroll_offset:scroll_offset + (width - 10)]
-                line = f"{idx + 1:3}: {file_path.replace(os.path.expanduser('~'), '~')}"  # Format the number and path
-                stdscr.addstr(start_y + 1 + i, start_x + 1, line[:width - 2])  # Prevent the string from exceeding the box width
+                file_path = content_list[idx].replace(os.path.expanduser('~'), '~')
+
+                if len(file_path) > max_path_len:
+                    file_path = '...' + file_path[-(max_path_len - 3):]
+
+                line = f"{idx + 1:3}: {file_path}"
+                stdscr.addstr(start_y + 1 + i, start_x + 1, line[:width - 2])
 
     async def draw_subprocess_box(self, stdscr, start_y, start_x, height, width):
         """ Draw a box with subprocess information """
@@ -193,77 +206,143 @@ class JarvisMonitor:
         self.init_screen(stdscr)
         self.init_colors()
 
-        files = self.get_open_files()
         try:
             while True:
-                stdscr.clear()
+                max_y, max_x = stdscr.getmaxyx()
+                width = max_x
+                footer_y = max_y - 1
+                box_end_y = max_y - 2
+                box_end_x = max_x - 2
+
+                if max_y < 25 or max_x < 80:
+                    # Still draw a bordered monitor box so users don't think it exited.
+                    msg1 = f"Terminal too small (need >= 80x25). Current: {max_x}x{max_y}"
+                    msg2 = "Please resize the terminal window to continue."
+
+                    stdscr.clear()
+
+                    # Draw the largest possible box that fits the current terminal.
+                    box_y1 = max(2, max_y - 2)
+                    box_x1 = max(2, max_x - 2)
+                    title_small = " Jarvis-HEP Monitor System "
+
+                    try:
+                        self.draw_box(stdscr, 0, 0, box_y1, box_x1, title_small, 1, 1)
+                        footer = "[q] Quit  (resize window)"
+                        footer_y_small = min(max_y - 1, box_y1 + 1)
+                        if footer_y_small >= 0:
+                            stdscr.addstr(footer_y_small, 2, footer[: max(0, max_x - 4)])
+
+                        # Print messages inside the box, clipped to available width.
+                        inner_w = max(0, max_x - 4)
+                        y0 = max(1, min(max_y - 2, 2))
+                        stdscr.addstr(y0, 2, msg1[:inner_w])
+                        if y0 + 1 < max_y - 1:
+                            stdscr.addstr(y0 + 1, 2, msg2[:inner_w])
+                    except curses.error:
+                        # If even drawing the box fails (extremely tiny terminal), fall back to a safe write.
+                        try:
+                            stdscr.addstr(0, 0, msg1[: max(0, max_x - 1)])
+                        except curses.error:
+                            pass
+
+                    stdscr.refresh()
+                    curses.napms(500)
+                    continue
+
+                # Refresh open files every cycle (track leaks / unclosed files)
+                files = self.get_open_files()
+
                 title = " Jarvis-HEP Monitor System - {} ".format(self.current_view)
-                height, width = 24, 80
+                stdscr.clear()
 
                 if self.current_view == "Summary":
-                    self.draw_box(stdscr, 0, 0, 23, width - 2, title, 1, 1)
+                    self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
                     footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
-                    stdscr.addstr(24, 2, footer)
+                    stdscr.addstr(footer_y, 2, footer)
 
                     files_count = len(files)
                     procs_count = len(psutil.Process(self.pid).children(recursive=True))
 
+                    # Top summary block
+                    self.draw_summary(stdscr, 2, 2, width, 0.0, 0.0, files_count, procs_count)
+
+                    # Layout: split remaining rows evenly between Files block and Procs block.
+                    # Content area inside the box is y=1..box_end_y-1. We use y>=6 for lists.
+                    content_top = 6
+                    content_bottom = box_end_y - 1
+                    avail = max(0, content_bottom - content_top + 1)
+                    file_block = avail // 2
+                    proc_block = avail - file_block
+
+                    # Each block uses 2 header lines; the rest are list rows.
+                    file_list_h = max(1, file_block - 2)
+                    proc_list_h = max(1, proc_block - 2)
+
+                    file_title_y = content_top
+                    file_header_y = content_top + 1
+                    file_box_y = content_top + 1  # draw_file_box starts writing at +1
+
+                    proc_title_y = content_top + file_block
+                    proc_header_y = proc_title_y + 1
+
+                    # Files section
                     stdscr.attron(curses.color_pair(2))
-                    stdscr.addstr(7, 2, "> Opened File List (Short)")
+                    stdscr.addstr(file_title_y, 2, "> Opened File List")
                     stdscr.attroff(curses.color_pair(2))
                     stdscr.attron(curses.color_pair(3))
-                    stdscr.addstr(8, 2, "  No. Path")
+                    stdscr.addstr(file_header_y, 2, "  No. Path")
                     stdscr.attroff(curses.color_pair(3))
-                    fbh = 5
-                    self.draw_file_box(stdscr, 8, 2, fbh, 80, files, scroll_offset=self.scroll_offset)
+                    self.draw_file_box(stdscr, file_box_y, 2, file_list_h, width, files)
 
-                    # Horizontal scroll
-                    if self.horizontal_scroll:
-                        self.scroll_offset += 10
-                        if self.scroll_offset > max(len(files[self.current_index + i]) for i in range(fbh) if self.current_index + i < len(files)) - (width - 10):
-                            self.scroll_offset = 0
-                            self.horizontal_scroll = False
-                    else:
-                        self.current_index += fbh
-                        if self.current_index >= len(files):
-                            self.current_index = 0
-                        self.horizontal_scroll = True
+                    # Paginate file list by the visible height
+                    self.current_index += file_list_h
+                    if self.current_index >= len(files):
+                        self.current_index = 0
 
+                    # Procs section
                     stdscr.attron(curses.color_pair(2))
-                    stdscr.addstr(15, 2, "> Subprocess List (Short)")
+                    stdscr.addstr(proc_title_y, 2, "> Subprocess List")
                     stdscr.attroff(curses.color_pair(2))
 
-                    cpu_usage, mem_usage = await self.draw_subprocess_box(stdscr, 16, 2, 5, width - 4)
-                    self.draw_summary(stdscr, 2, 2, cpu_usage, mem_usage, files_count, procs_count)
+                    cpu_usage, mem_usage = await self.draw_subprocess_box(stdscr, proc_header_y, 2, proc_list_h, width - 4)
+
+                    # Re-draw the top summary block with real CPU/MEM
+                    self.draw_summary(stdscr, 2, 2, width, cpu_usage, mem_usage, files_count, procs_count)
 
                 elif self.current_view == "Files":
-                    self.draw_box(stdscr, 0, 0, 23, width - 2, title, 1, 1)
-                    stdscr.addstr(24, 2, footer)
+                    self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
+                    footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
+                    stdscr.addstr(footer_y, 2, footer)
+
                     ttt = "> Opened Files List: \t{} in total".format(len(files))
                     stdscr.attron(curses.color_pair(2))
                     stdscr.addstr(1, 2, ttt)
                     stdscr.attroff(curses.color_pair(2))
-                    self.draw_file_box(stdscr, 1, 2, 20, 80, files, scroll_offset=self.scroll_offset)
 
-                    # Horizontal scroll
-                    if self.horizontal_scroll:
-                        self.scroll_offset += 10
-                        if self.scroll_offset > max(len(files[self.current_index + i]) for i in range(20) if self.current_index + i < len(files)) - (width - 10):
-                            self.scroll_offset = 0
-                            self.horizontal_scroll = False
-                    else:
-                        if len(files) > 20:
-                            self.current_index += 10
-                            if self.current_index >= len(files):
-                                self.current_index = 0
-                            self.horizontal_scroll = True
+                    stdscr.attron(curses.color_pair(3))
+                    stdscr.addstr(2, 2, "  No. Path")
+                    stdscr.attroff(curses.color_pair(3))
+
+                    # Fill available rows inside the box (items start at y=3)
+                    file_list_h = max(1, (box_end_y - 1) - 3 + 1)
+                    self.draw_file_box(stdscr, 2, 2, file_list_h, width, files)
+
+                    if len(files) > file_list_h:
+                        step = max(5, file_list_h // 2)
+                        self.current_index += step
+                        if self.current_index >= len(files):
+                            self.current_index = 0
                     stdscr.refresh()
 
                 elif self.current_view == "Subprocess":
                     formatted_runtime = self.format_runtime(int(time.time() - psutil.Process(self.pid).create_time()))
-                    self.draw_box(stdscr, 0, 0, 23, width - 2, title, 1, 1)
-                    stdscr.addstr(24, 2, footer)
-                    cpu_usage, mem = await self.draw_subprocess_box(stdscr, 2, 2, 20, width - 4)
+                    self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
+                    footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
+                    stdscr.addstr(footer_y, 2, footer)
+
+                    sp_h = max(1, (box_end_y - 1) - 3 + 1)
+                    cpu_usage, mem = await self.draw_subprocess_box(stdscr, 2, 2, sp_h, width - 4)
                     if mem < 1024 * 1024 * 1024:
                         mem_display = mem / 1024 / 1024
                         mem_unit = "MB"
