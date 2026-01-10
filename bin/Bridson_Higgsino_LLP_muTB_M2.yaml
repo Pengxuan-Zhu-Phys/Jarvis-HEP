@@ -1,0 +1,119 @@
+Scan: 
+  name: "HinoLLP_MuTB@M2B2"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "Bridson" 
+  Variables:
+    - name: Mu
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 120
+          max: 150
+          length: 240
+
+    - name: Tb
+      description: "Variable Y following a Logarithmic distribution for sampling."
+      distribution:
+        type: Log
+        parameters:
+          min: 1
+          max: 4
+          length: 70.87
+
+  Nuisance: 
+    Method: Profile1D
+    Variables: 
+      - name: ratio 
+        description: "ratio of M2/M1"
+        distribution: {type: Flat, parameters: {min: -3, max: -2}}
+      
+    LogLikelihood:
+      - {name: "LogLNP_wN2",  expression: "Abs(log(WN2) + 40.3)"}
+      - {name: "LogLNP_mN1Penalty", expression: "100.0 * (1 + sign(mN1))/2"}    
+
+    TargetMode: "min"
+
+    PassCondition: 
+      - {name: "N1LSP", expression: "Abs(mN1) < Abs(mC1)"}
+      - {name: "mN1Plus", expression: "mN1 < 0"}
+      - {name: "LLN2",  expression: "LogLNP_wN2 < 0.01"}
+      
+    MaxAttempt: 100
+
+  Radius: 1
+  MaxAttempt:  30
+  MaxWorker: 12
+  LogLikelihood: 
+    - {name: "LogL_comp",   expression: "-100 * log(abs(mN2) - abs(mN1))"}
+
+EnvReqs:
+  OS: 
+    - name: linux 
+      version: ">=5.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path:  "&J/src/card/environment_default.yaml"
+
+Calculators:
+  make_paraller: 20
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: SUSYHIT
+      required_modules: [] 
+      clone_shadow: True
+      path: &susyhit_path "&J/WorkShop/Program/susyhit/@PackID"  # Define Anchor point 
+      source: "&J/External/Program/susyhit"
+      installation:
+          - "cp ${source}/susyhit.tar.gz ${path}"
+          - "cd ${path}"
+          - "tar -zxvf susyhit.tar.gz"
+          - "make" 
+      initialization:
+          - "cp ${source}/suspect2_lha_llp_temp02.in ${path}/suspect2_lha.in"
+          - "rm -f susyhit_slha.out"
+      execution:
+        path: *susyhit_path  # using the Anchor point
+        commands:
+          - "./run suspect2_lha.in"
+        input:
+          - name: input_file1
+            path: "&J/WorkShop/Program/susyhit/@PackID/suspect2_lha.in"  
+            type: "SLHA"
+            actions:
+              - type: "Replace"
+                variables:
+                  - { name: "Mu", placeholder: ">>>>>Mu<<<<<" }
+                  - { name: "Tb", placeholder: ">>>>>Tb<<<<<" }
+                  - { name: "M1", placeholder: ">>>>>M1<<<<<", expression: "1.500000E+03"   }
+                  - { name: "M2", placeholder: ">>>>>M2<<<<<", expression: "1.500000E+03 * ratio"   }
+            save: true
+        output:
+          - name: output_file1
+            path: "&J/WorkShop/Program/susyhit/@PackID/susyhit_slha.out" 
+            type: "SLHA"
+            save: true
+            variables:
+              - { name: mN1,          block: MASS,    entry: 1000022 }
+              - { name: mN2,          block: MASS,    entry: 1000023 }
+              - { name: mC1,          block: MASS,    entry: 1000024 }
+              - { name: WC1,          block: DECAY,   entry: 1000024 }
+              - { name: WN2,          block: DECAY,   entry: 1000023 }
+              - { name: BRN22N1a,     block: DECAY,   entry: [1000023, 1000022, 22]}
+              - { name: mh1,          block: MASS,    entry: 25 }
+
+Utils:
+  interpolations_1D:
+    - name: XenonSD2019
+      file: "&J/External/Info/Xenon1T2019SD_p.csv"
+      logY: True
+      logX: False 
+      kind: "cubic"
+    - name: inter1P
+      x_values: [1, 2, 3, 4, 5]
+      y_values: [2, 1.8, 1.5, 1.2, 0.8]
+      kind: "cubic"

@@ -99,7 +99,7 @@ Calculators:
       installation:
         - "cp -r ${source}/ ${path}"
       initialization:
-        - "cp -f ${source}/LesHouches.in.GM_low-2 ./LesHouches.in.GM_low-2"
+        - "cp -f ${source}/LesHouches.in.temp ./LesHouches.in.temp"
 
       execution:
         path: "&J/WorkShop/GM/SPhenoGM/@PackID"
@@ -107,22 +107,22 @@ Calculators:
           - "true"   
 
         input:
-          - name: inplha
-            path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low-2"
-            type: "SLHA"
-            actions:
-              - type: "Replace"
-                output_path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low"
-                replace:
-                  - { name: "Lambda2in ", placeholder: ">>>>>>Lambda2<<<<<<" }
-                  - { name: "Lambda3in ", placeholder: ">>>>>>Lambda3<<<<<<" }
-                  - { name: "Lambda4in ", placeholder: ">>>>>>Lambda4<<<<<<" }
-                  - { name: "Lambda5in ", placeholder: ">>>>>>Lambda5<<<<<<" }
-                  - { name: "MH1in ",     placeholder: ">>>>>>Lambda2<<<<<<" }
-                  - { name: "MH2in ",     placeholder: ">>>>>>Lambda2<<<<<<" }
-                  - { name: "Alphain ",   placeholder: ">>>>>>Lambda2<<<<<<" }
-                  - { name: "SHin ",      placeholder: ">>>>>>Lambda2<<<<<<" }
-                  - { name: "Veta ",      placeholder: ">>>>>>Lambda2<<<<<<", expression: "sHinput * 246.0 / 2.0 / sqrt(2.0)" }
+        - name: inplha
+          path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low-2"
+          type: "SLHA"
+          actions:
+          - type: "Replace"
+            output_path: "&J/WorkShop/GM/SPhenoGM/@PackID/LesHouches.in.GM_low"
+            replace:
+              - { name: "Lambda2in ", placeholder: ">>>>>Lambda2<<<<<" }
+              - { name: "Lambda3in ", placeholder: ">>>>>Lambda3<<<<<" }
+              - { name: "Lambda4in ", placeholder: ">>>>>Lambda4<<<<<" }
+              - { name: "Lambda5in ", placeholder: ">>>>>Lambda5<<<<<" }
+              - { name: "MH1in ",     placeholder: ">>>>>>MH1in<<<<<<" }
+              - { name: "MH2in ",     placeholder: ">>>>>>MH2in<<<<<<" }
+              - { name: "Alphain ",   placeholder: ">>>>>Alphain<<<<<" }
+              - { name: "SHin ",      placeholder: ">>>>>>>SHin<<<<<<" }
+              - { name: "Veta ",      placeholder: ">>>>>>>Veta<<<<<<", expression: "SHin * 246.0 / 2.0 / sqrt(2.0)" }
 
 Utils:
   interpolations_1D:
