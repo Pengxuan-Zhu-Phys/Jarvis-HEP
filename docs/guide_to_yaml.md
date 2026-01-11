@@ -1,4 +1,4 @@
-<nav>
+<file name=0 path=/Users/p.zhu/Workshop/Jarvis-HEP/docs/guide_to_yaml.md><nav>
   
 **[Previous](intro2yaml_format.md)** · **[Home](index.md)** · **[Next]()**
 
@@ -23,15 +23,34 @@ Users are not expected to interact with internal Python APIs.
 
 This document explains:
 
-- The **top-level YAML blocks** recognised by Jarvis-HEP
-- The **responsibility** of each block
-- The **conventions** governing how blocks interact
-- How user intent is expressed *declaratively* through YAML
+A Jarvis-HEP YAML file describes a complete computational workflow.
+Rather than focusing on syntax, this section explains **what each major part of the configuration is responsible for**.
 
-This document does **not** cover:
-- Physics models or domain-specific assumptions
-- Internal class or function implementations
-- Auto-generated API references
+The YAML file is organised into a small number of **top-level sections**, each corresponding to a dedicated document.
+These sections together define *what is executed*, *how it is executed*, and *how results are managed*.
+
+**[`Scan`](scan.md)**  
+Defines the identity of a scan, bookkeeping information, and where results are stored.
+This section records *what this run is* and *how it should be archived*.
+
+**[`Sampling`](sampling.md)**  
+Declares what is sampled and which strategy is used to explore the parameter space.
+This section controls *which points are proposed* without performing any calculations.
+
+**[`EnvReqs`](envreqs.md)**  
+Specifies environment assumptions, platform constraints, and dependency checks.
+This section documents *what the execution environment must satisfy* before a workflow is run.
+
+**[`Calculators`](calculators.md)**  
+Describes external programs, how they are executed, and how inputs and outputs are mapped.
+This section defines *how physics or numerical evaluations are performed* while treating programs as black boxes.
+
+**[`Utils`](utils.md)**  
+Defines auxiliary utilities and shared resources used across the workflow.
+This section provides *supporting functionality* that is reused by calculators and other components.
+
+Only sections that are explicitly defined are active.
+If a section is omitted, the corresponding functionality is not used.
 
 ---
 
@@ -39,6 +58,37 @@ This document does **not** cover:
 
 This section explains the **conceptual design** of Jarvis-HEP and the rationale behind its configuration model.
 It is intended to help users understand *why* the YAML structure is designed in this way, before learning *how* to use it.
+
+---
+
+## How a Jarvis-HEP Workflow Is Described
+
+A Jarvis-HEP YAML file describes a complete computational workflow.
+Rather than focusing on syntax, this section explains **what each major part of the configuration is responsible for**.
+
+The YAML file is organised into a small number of **top-level sections**, each with a clearly defined role.
+
+| Section | Role in the workflow |
+|--------|----------------------|
+| `Scan` | Identifies the scan, controls bookkeeping, and defines where results are stored |
+| `Sampling` | Declares what is sampled and which strategy is used to explore parameter space |
+| `EnvReqs` | Specifies environment assumptions and dependency checks |
+| `Calculators` | Describes external programs and how they are executed |
+| `Utils` | Defines auxiliary utilities shared across the workflow |
+
+Only sections that are explicitly defined are active.
+If a section is omitted, the corresponding functionality is not used.
+
+---
+
+### A Concrete Example
+
+For a complete, working example of how these sections are composed, see:
+
+- [Example_Grid.yaml](../bin/EggBox/Example_Grid.yaml)
+
+This example illustrates how a full workflow can be described using only YAML,
+without modifying external programs or writing auxiliary scripts.
 
 ---
 
@@ -144,132 +194,4 @@ Detailed tutorials for each module and YAML block are provided in dedicated docu
 Users are encouraged to read this section once to understand the design intent, then proceed to the practical tutorials.
 
 ---
-
-## Top-Level YAML Structure
-
-A Jarvis-HEP configuration file is composed of the following **top-level blocks**:
-
-| YAML Block | Purpose |
-|-----------|--------|
-| `Scan` | Scan identity, bookkeeping, and global run metadata |
-| `Sampling` | Definition of variables and sampling strategy |
-| `EnvReqs` | Environment and dependency requirements |
-| `Calculators` | External programs and execution workflow |
-| `Utils` | Auxiliary utilities (interpolations, helpers, etc.) |
-
-Blocks are **activated only when explicitly defined**.  
-Undefined blocks are ignored.
-
----
-
-## Block Overview
-
-### `Scan`
-
-Defines global metadata and output location for a scan.
-
-| Key | Type | Description |
-|----|------|-------------|
-| `name` | string | Human-readable scan identifier |
-| `save_dir` | string | Output directory (supports path macros) |
-
----
-
-### `Sampling`
-
-Defines **what is sampled** and **how sampling is performed**.
-
-#### `Sampling.Method`
-
-| Key | Type | Description |
-|----|------|-------------|
-| `Method` | string | Sampling method identifier (e.g. grid, random) |
-
-#### `Sampling.Variables`
-
-A list of variable definitions.
-
-Each variable entry follows the pattern:
-
-| Key | Type | Description |
-|----|------|-------------|
-| `name` | string | Variable identifier |
-| `description` | string | Optional human-readable description |
-| `distribution` | mapping | Sampling distribution definition |
-
-#### `distribution`
-
-| Key | Type | Description |
-|----|------|-------------|
-| `type` | string | Distribution type |
-| `parameters` | mapping | Distribution-specific parameters |
-
----
-
-### `EnvReqs`
-
-Defines runtime environment requirements.
-
-| Key | Type | Description |
-|----|------|-------------|
-| `OS` | list | Supported operating systems |
-| `Check_default_dependences` | mapping | Dependency checking behaviour |
-
----
-
-### `Calculators`
-
-Defines **external programs**, their setup, execution, and data exchange.
-
-| Key | Type | Description |
-|----|------|-------------|
-| `make_paraller` | integer | Parallel execution level |
-| `path` | string | Base working directory |
-| `Modules` | list | External module definitions |
-
-Each module defines:
-- Installation steps
-- Initialisation steps
-- Execution commands
-- Input/output data mapping
-
----
-
-### `Utils`
-
-Defines auxiliary utilities available to the workflow.
-
-Typical use cases include:
-- Interpolation tables
-- Lookup functions
-- Reusable helper definitions
-
----
-
-## General Conventions
-
-Jarvis-HEP follows a small number of **strict conventions**:
-
-| Convention | Meaning |
-|-----------|--------|
-| Declarative configuration | YAML declares *what*, not *how* |
-| Explicit activation | Only defined blocks are active |
-| Separation of concerns | Sampling, execution, and utilities are isolated |
-| No implicit defaults | Behaviour is not assumed without YAML |
-
-Violating these conventions may result in undefined behaviour.
-
----
-
-## How to Learn Jarvis-HEP
-
-Recommended learning order:
-
-1. Understand the top-level YAML blocks (this document)
-2. Study example YAML files
-3. Modify examples incrementally to match your use case
-4. Introduce additional blocks only when required
-
-Jarvis-HEP is designed so that **correct YAML structure leads to correct execution behaviour**.
-
----
+</file>
