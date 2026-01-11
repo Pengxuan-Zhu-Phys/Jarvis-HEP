@@ -28,48 +28,60 @@ Jarvis-HEP is built for this pattern.
 
 ### Eggbox Function as an Simplifed Package
 
-The Eggbox function is a simple two-dimensional test function.
-It takes two input parameters, `xx` and `yy`, and returns a single numerical value.
+We begin with the Eggbox function itself, treated purely as a mathematical function.
 
-In this example, the function is defined as
+The Eggbox function here is defined as a two-dimensional function of two real variables,
+denoted by `x` and `y`.
 
-``z(x, y) = (\sin x \cdot \cos y + 2)^5``.
+`z(x, y) = (sin(x) * cos(y) + 2)^5`
 
-The exact formula is not important for Jarvis-HEP.
-What matters is that:
-- One number is produced for each input point
-- The output changes smoothly with the inputs
-- The function has many local peaks and valleys
+For each input point `(x, y)`, the function returns a single scalar value `z`.
 
-These features make it useful as a test case for scanning and workflow logic.
+![Eggbox surface](includes/eggbox_vis.pdf)
 
-In Jarvis-HEP, this function is wrapped as a **minimal Python program**.
-The program behaves like a very small external physics or analysis code.
+As shown in the above figure, this function has several characteristic features:
+- It is smooth and continuous
+- It exhibits a highly structured, multi-peak landscape
+- Many local maxima and minima appear across the parameter space
 
-The program does the following:
-- Reads parameters from `input.json`
-- Computes the Eggbox value
-- Adds a dummy timing value to mimic runtime information
-- Writes all results to `output.json`
+These features make the Eggbox function a standard test case
+for sampling algorithms and scanning workflows.
 
-The file `input.json` contains the sampled parameters provided by Jarvis-HEP.
-The file `output.json` contains the results, for example:
-- `z`: the computed Eggbox value
-- `Time`: a random number used as a stand-in for execution time
-
-From Jarvis-HEP’s point of view, this Python script is just an external executable.
-Jarvis-HEP does not inspect the code or the mathematical expression.
-
-Jarvis-HEP only needs to know:
-- How to write `input.json`
-- How to run the program
-- How to read values from `output.json`
-
-All of this is declared in the YAML configuration.
-Jarvis-HEP then runs this program automatically for each sampled point.
+A three-dimensional surface plot of `z(xx, yy)` clearly illustrates this structure,
+with repeated ridges and valleys across the plane.
+(A representative 3D plot can be inserted here.)
 
 ---
 
+We now move from the mathematical description
+to the computational abstraction used in Jarvis-HEP.
+
+In Jarvis-HEP, an *input point* refers to one complete set of parameter values.
+For the Eggbox example, one input point is the pair `(xx, yy)`.
+
+The Eggbox calculation is not treated as a direct function call.
+Instead, it is packaged as a small external program,
+referred to as a **calculator**.
+
+The calculator follows a strict input–output contract:
+
+1. Jarvis-HEP writes the current input point to `input.json`
+2. Jarvis-HEP executes the calculator program
+3. The calculator reads `input.json` and computes the Eggbox value
+4. The calculator writes results to `output.json`
+5. Jarvis-HEP reads `output.json` and records the requested outputs
+
+In this example, the calculator writes:
+- `z`: the value of the Eggbox function
+- `Time`: a dummy field used to mimic runtime information
+
+From Jarvis-HEP’s perspective, the calculator is a complete black box.
+Jarvis-HEP does not inspect the internal code or the mathematical expression.
+
+This example demonstrates the core abstraction used by Jarvis-HEP:
+any function or model can be used,
+as long as it can be packaged as a program
+with well-defined inputs and outputs.
 ## How Jarvis-HEP Models the Problem
 
 Jarvis-HEP splits the task into parts:
