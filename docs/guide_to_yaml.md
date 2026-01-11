@@ -1,4 +1,4 @@
-<file name=0 path=/Users/p.zhu/Workshop/Jarvis-HEP/docs/guide_to_yaml.md><nav>
+<nav>
   
 **[Previous](intro2yaml_format.md)** · **[Home](index.md)** · **[Next]()**
 
@@ -194,4 +194,3 @@ Detailed tutorials for each module and YAML block are provided in dedicated docu
 Users are encouraged to read this section once to understand the design intent, then proceed to the practical tutorials.
 
 ---
-</file>
