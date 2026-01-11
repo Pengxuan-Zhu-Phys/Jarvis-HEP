@@ -80,14 +80,20 @@ If a section is omitted, the corresponding functionality is not used.
 
 ---
 
-### A Concrete Example
+### A Simplified Example: 2D-Eggbox 
 
-For a complete, working example of how these sections are composed, see:
+This section points to a dedicated tutorial that uses a **simplified 2D Eggbox model**
+to illustrate how Jarvis-HEP performs *declarative scanning*.
 
-- [Example_Grid.yaml](../bin/EggBox/Example_Grid.yaml)
+The purpose of this example is to help users understand:
+- How a scan is described entirely in YAML, without imperative scripts
+- How Jarvis-HEP internally constructs and executes a workflow from the configuration
+- Which parts of the process are handled by the framework, and which remain external
 
-This example illustrates how a full workflow can be described using only YAML,
-without modifying external programs or writing auxiliary scripts.
+The Eggbox model is used purely as a minimal, self-contained example.
+It serves to demonstrate **interfaces and execution logic**, not domain-specific physics.
+
+→ **Tutorial:** [Declarative Scanning with the 2D Eggbox Model](tutorial_eggbox.md)
 
 ---
 
