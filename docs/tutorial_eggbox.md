@@ -24,7 +24,42 @@ Most scan problems look like this:
 - Run an external program at each point
 - Save the results
 
-Jarvis-HEP is built for this pattern.
+Jarvis-HEP is built for this pattern. 
+
+### Eggbox Function as an Simplifed Package
+```markdown
+The Eggbox function is a simple two-dimensional test function.
+It takes two input parameters, `xx` and `yy`, and returns a single numerical value.
+
+In this example, the value is built from sine and cosine functions and raised to a power.
+The exact formula is not important.
+What matters is that one number is produced for each input point and the output varies smoothly with the inputs.
+
+In Jarvis-HEP, this function is wrapped as a **minimal Python program**.
+The program behaves like a tiny external simulation code.
+
+The program logic is simple:
+- Read parameters from `input.json`
+- Compute the Eggbox value
+- Add a dummy timing value to mimic runtime information
+- Write all results to `output.json`
+
+The file `input.json` contains the sampled parameters provided by Jarvis-HEP.
+The file `output.json` contains the results, for example:
+- `z`: the computed Eggbox value
+- `Time`: a random number used as a stand-in for execution time
+
+From Jarvis-HEP’s point of view, this Python script is just an external executable.
+Jarvis-HEP does not inspect the code or the mathematical expression.
+
+Jarvis-HEP only needs to know:
+- How to write `input.json`
+- How to run the program
+- How to read values from `output.json`
+
+All of this is declared in the YAML configuration.
+Jarvis-HEP then runs this program automatically for each sampled point.
+```
 
 ---
 
