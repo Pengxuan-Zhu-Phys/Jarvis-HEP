@@ -27,21 +27,31 @@ Most scan problems look like this:
 Jarvis-HEP is built for this pattern. 
 
 ### Eggbox Function as an Simplifed Package
+
 The Eggbox function is a simple two-dimensional test function.
 It takes two input parameters, `xx` and `yy`, and returns a single numerical value.
 
-In this example, the value is built from sine and cosine functions and raised to a power.
-The exact formula is not important.
-What matters is that one number is produced for each input point and the output varies smoothly with the inputs.
+In this example, the function is defined as
+\[
+z(x, y) = \left(\sin x \cdot \cos y + 2 \right)^5 .
+\]
+
+The exact formula is not important for Jarvis-HEP.
+What matters is that:
+- One number is produced for each input point
+- The output changes smoothly with the inputs
+- The function has many local peaks and valleys
+
+These features make it useful as a test case for scanning and workflow logic.
 
 In Jarvis-HEP, this function is wrapped as a **minimal Python program**.
-The program behaves like a tiny external simulation code.
+The program behaves like a very small external physics or analysis code.
 
-The program logic is simple:
-- Read parameters from `input.json`
-- Compute the Eggbox value
-- Add a dummy timing value to mimic runtime information
-- Write all results to `output.json`
+The program does the following:
+- Reads parameters from `input.json`
+- Computes the Eggbox value
+- Adds a dummy timing value to mimic runtime information
+- Writes all results to `output.json`
 
 The file `input.json` contains the sampled parameters provided by Jarvis-HEP.
 The file `output.json` contains the results, for example:
