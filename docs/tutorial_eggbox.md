@@ -17,7 +17,7 @@ If you can follow this example, you can adapt Jarvis-HEP to other problems.
 
 ## The Problem Pattern
 
-Most scan problems look like this:
+To investigate a Beyond Standard Model numeriacally, one needs to scan a parameter space. Most scan problems look like this:
 
 - Pick some parameters
 - Explore their values with a sampler
@@ -28,18 +28,18 @@ Jarvis-HEP is built for this pattern.
 
 ### Eggbox Function as an Simplifed Package
 
-We begin with the Eggbox function itself, treated purely as a mathematical function.
+We begin with the Eggbox function, a purely mathematical function.
 
 The Eggbox function here is defined as a two-dimensional function of two real variables,
 denoted by `x` and `y`.
 
 `z(x, y) = (sin(x) * cos(y) + 2)^5`
 
-For each input point `(x, y)`, the function returns a single scalar value `z`.
+For each input point `(x, y)`, the function returns a single scalar value `z`. `z` here in a real physical work could be any theoretical prediction or observable, such as the Higgs boson mass in MSSM. Without numerical scanning, it is usually difficult for us to know in detail what it means in phenomenology. 
 
 ![Eggbox surface](includes/eggbox_vis.png)
 
-As shown in the above figure, this function has several characteristic features:
+As shown in the above figure, a three-dimensional surface plot of `z(xx, yy)` clearly illustrates this structure. This function has several characteristic features:
 - It is smooth and continuous
 - It exhibits a highly structured, multi-peak landscape
 - Many local maxima and minima appear across the parameter space
@@ -47,11 +47,16 @@ As shown in the above figure, this function has several characteristic features:
 These features make the Eggbox function a standard test case
 for sampling algorithms and scanning workflows.
 
-A three-dimensional surface plot of `z(xx, yy)` clearly illustrates this structure,
-with repeated ridges and valleys across the plane.
-(A representative 3D plot can be inserted here.)
-
 ---
+
+If we have an experiment, his measurement of the z-value is
+
+`z = 100 +- 10`. 
+
+Then we should figure out the surviving parameter space in `(x, y)` plane. 
+
+To make the numerical study more easier, we develop a package to calculate the `z` for each `(x, y)`. See [eggbox](../External/Inertial/EggBox)
+
 
 We now move from the mathematical description
 to the computational abstraction used in Jarvis-HEP.
