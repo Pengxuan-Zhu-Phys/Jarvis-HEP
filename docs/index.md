@@ -14,19 +14,23 @@
 
 ## Tutorial Overview
 
-📘 **Start here:**  
-- **YAML Basics:** a short primer on YAML syntax, common pitfalls, and validation  
-  → [Introduction to YAML Format](intro2yaml_format.md)
-- The **Tutorial** explains how to construct a complete Jarvis-HEP YAML file step by step.
+📘 **Start here: the Eggbox tutorial**  
+The tutorial begins with a **concrete working example** based on the Eggbox function. Starting from this simple example, you are guided through how a numerical or physical problem is translated into a Jarvis-HEP scan.
+
+Using the Eggbox example as a reference, the tutorial then introduces the
+**YAML configuration** used by Jarvis-HEP, including:
+- The overall structure of a YAML configuration file
+- The role of different top-level YAML blocks
+- Basic YAML syntax and common patterns used in Jarvis-HEP
 
 The goal of the tutorial is:
 - To teach users how to *express their intent* in YAML
-- To understand how different YAML blocks activate different functionality
-- To enable users to design scans without reading internal source code
+- To explain how different YAML blocks activate different functionality
+- To help users understand the structure of a complete Jarvis-HEP configuration file
 
 The tutorial does **not**:
 - Teach physics models or domain-specific assumptions
-- Document internal Python classes or functions
+- Document internal Python classes or implementation details
 - Replace reference tables or example configurations
 
 → [Guide to YAML](guide_to_yaml.md)
