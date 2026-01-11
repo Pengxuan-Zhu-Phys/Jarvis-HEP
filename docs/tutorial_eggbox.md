@@ -37,7 +37,7 @@ denoted by `x` and `y`.
 
 For each input point `(x, y)`, the function returns a single scalar value `z`.
 
-![Eggbox surface](includes/eggbox_vis.pdf)
+![Eggbox surface](includes/eggbox_vis.png)
 
 As shown in the above figure, this function has several characteristic features:
 - It is smooth and continuous
