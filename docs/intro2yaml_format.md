@@ -1,4 +1,10 @@
-# Introduction to YAML Format
+<nav>
+  
+**[Previous](index.md)** · **[Home](index.md)** · **[Next](guide_to_yaml.md)**
+
+</nav>
+
+# Practical Introduction to YAML Format
 
 **Author:** Pengxuan Zhu
 
@@ -237,4 +243,8 @@ These resources provide deeper explanations and advanced usage examples.
 
 Once you are comfortable with YAML syntax, you can proceed to the Jarvis-HEP tutorial.
 
-→ **Next:** [Guide to YAML](guide_to_yaml.md)
+<nav>
+  
+**[Previous](index.md)** · **[Home](index.md)** · **[Next](guide_to_yaml.md)**
+
+</nav>
