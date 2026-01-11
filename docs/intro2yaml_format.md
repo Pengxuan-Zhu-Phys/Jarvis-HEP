@@ -2,8 +2,8 @@
 
 **Author:** Pengxuan Zhu
 
-This document provides a **short, practical introduction to YAML** for users who are not familiar with the format.
-It is intended to help you read and write YAML files correctly before using them to configure Jarvis-HEP.
+This document provides a **short, practical introduction to YAML** for users who are not familiar with the format. This document assumes no prior knowledge of YAML.
+It is intended to help you read and write YAML files correctly before using them to configure Jarvis-HEP. 
 
 YAML is a human-readable data-serialization format commonly used for configuration files.
 
