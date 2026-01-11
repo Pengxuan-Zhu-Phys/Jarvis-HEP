@@ -17,7 +17,7 @@ If you can follow this example, you can adapt Jarvis-HEP to other problems.
 
 ## The Problem Pattern
 
-To investigate a Beyond Standard Model numeriacally, one needs to scan a parameter space. Most scan problems look like this:
+To study a Beyond Standard Model numerically, one typically needs to scan its parameter space. Most scan problems look like this:
 
 - Pick some parameters
 - Explore their values with a sampler
@@ -35,7 +35,10 @@ denoted by `x` and `y`.
 
 `z(x, y) = (sin(x) * cos(y) + 2)^5`
 
-For each input point `(x, y)`, the function returns a single scalar value `z`. `z` here in a real physical work could be any theoretical prediction or observable, such as the Higgs boson mass in MSSM. Without numerical scanning, it is usually difficult for us to know in detail what it means in phenomenology. 
+For each input point `(x, y)`, the function returns a single scalar value `z`.  
+In a realistic physics study, `z` could represent any theoretical prediction or observable,  
+for example the Higgs boson mass in the MSSM.  
+Without a numerical scan, it is hard to see how such an observable behaves across the parameter space.
 
 ![Eggbox surface](includes/eggbox_vis.png)
 
@@ -49,19 +52,23 @@ for sampling algorithms and scanning workflows.
 
 ---
 
-If we have an experiment, his measurement of the z-value is
+Suppose an experiment measures this observable as
 
-`z = 100 +- 10`. 
+`z = 100 ± 10`.
 
-Then we should figure out the surviving parameter space in `(x, y)` plane. 
+Our task is then to identify which regions in the `(x, y)` parameter space
+are compatible with this measurement.
 
-To make the numerical study more easier, we develop a package to calculate the `z` for each `(x, y)`. See [eggbox](../External/Inertial/EggBox)
+To make this numerical study practical, we implement a small package
+that computes `z` for any given `(x, y)`.
+
+See [eggbox](../External/Inertial/EggBox)
 
 ---
 #### EggBox package
 
 We now move from the mathematical description
-to the computational abstraction used in Jarvis-HEP.
+to the computational abstraction used by Jarvis-HEP.
 
 In Jarvis-HEP, an *input point* refers to one complete set of parameter values.
 For the Eggbox example, one input point is the pair `(xx, yy)`.
