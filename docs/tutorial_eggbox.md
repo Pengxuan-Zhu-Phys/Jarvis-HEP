@@ -32,9 +32,8 @@ The Eggbox function is a simple two-dimensional test function.
 It takes two input parameters, `xx` and `yy`, and returns a single numerical value.
 
 In this example, the function is defined as
-\[
-z(x, y) = \left(\sin x \cdot \cos y + 2 \right)^5 .
-\]
+
+``z(x, y) = (\sin x \cdot \cos y + 2)^5``.
 
 The exact formula is not important for Jarvis-HEP.
 What matters is that:
@@ -236,3 +235,4 @@ If your task fits this list, it fits Jarvis-HEP.
 
 Read this tutorial once.
 Then copy an example and modify it.
+````
