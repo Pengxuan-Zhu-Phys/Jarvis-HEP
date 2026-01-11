@@ -1,155 +1,80 @@
-# Jarvis-HEP YAML Documentation
+# Jarvis-HEP Documentation
 
-This document describes **how to use Jarvis-HEP by writing YAML configuration files**.
+Jarvis-HEP is configured entirely through **YAML configuration files**.  
+This documentation explains how to use Jarvis-HEP by *declaring workflows, sampling strategies, and external program calls in YAML*.
 
-Jarvis-HEP is configured entirely through YAML.  
-Users are not expected to interact with internal Python APIs.
+> **The YAML file is the user interface of Jarvis-HEP.**
 
-> **If you understand the YAML structure and conventions, you understand how to use Jarvis-HEP.**
-
----
-
-## Scope of This Document
-
-This document explains:
-
-- The **top-level YAML blocks** recognised by Jarvis-HEP
-- The **responsibility** of each block
-- The **conventions** governing how blocks interact
-- How user intent is expressed *declaratively* through YAML
-
-This document does **not** cover:
-- Physics models or domain-specific assumptions
-- Internal class or function implementations
-- Auto-generated API references
+This documentation is intentionally **configuration-driven** rather than API-driven.
 
 ---
 
-## Top-Level YAML Structure
+## Tutorial Overview
 
-A Jarvis-HEP configuration file is composed of the following **top-level blocks**:
+The **Tutorial** explains how to construct a complete Jarvis-HEP YAML file step by step.
 
-| YAML Block | Purpose |
-|-----------|--------|
-| `Scan` | Scan identity, bookkeeping, and global run metadata |
-| `Sampling` | Definition of variables and sampling strategy |
-| `EnvReqs` | Environment and dependency requirements |
-| `Calculators` | External programs and execution workflow |
-| `Utils` | Auxiliary utilities (interpolations, helpers, etc.) |
+The goal of the tutorial is:
+- To teach users how to *express their intent* in YAML
+- To understand how different YAML blocks activate different functionality
+- To enable users to design scans without reading internal source code
 
-Blocks are **activated only when explicitly defined**.  
-Undefined blocks are ignored.
+The tutorial does **not**:
+- Teach physics models or domain-specific assumptions
+- Document internal Python classes or functions
+- Replace reference tables or example configurations
 
----
-
-## Block Overview
-
-### `Scan`
-
-Defines global metadata and output location for a scan.
-
-| Key | Type | Description |
-|----|------|-------------|
-| `name` | string | Human-readable scan identifier |
-| `save_dir` | string | Output directory (supports path macros) |
+📘 **Start here:**  
+→ [Guide to YAML](guide_to_yaml.md)
 
 ---
 
-### `Sampling`
+## Documentation Structure
 
-Defines **what is sampled** and **how sampling is performed**.
+The documentation is organised around **usage patterns**, not internal modules.
 
-#### `Sampling.Method`
+```
+docs/
+├── index.md              # This page: overview and navigation
+├── guide_to_yaml.md      # Step-by-step tutorial for writing YAML
+├── yaml_reference.md     # Reference tables for YAML blocks and keys
+├── examples.md           # Curated example configurations
+├── faq.md                # Common issues and debugging hints
+```
 
-| Key | Type | Description |
-|----|------|-------------|
-| `Method` | string | Sampling method identifier (e.g. grid, random) |
-
-#### `Sampling.Variables`
-
-A list of variable definitions.
-
-Each variable entry follows the pattern:
-
-| Key | Type | Description |
-|----|------|-------------|
-| `name` | string | Variable identifier |
-| `description` | string | Optional human-readable description |
-| `distribution` | mapping | Sampling distribution definition |
-
-#### `distribution`
-
-| Key | Type | Description |
-|----|------|-------------|
-| `type` | string | Distribution type |
-| `parameters` | mapping | Distribution-specific parameters |
+Each document has a distinct role.  
+Users are encouraged to **read the tutorial once**, then rely on references and examples.
 
 ---
 
-### `EnvReqs`
+## Examples and External Package Interfaces
 
-Defines runtime environment requirements.
+In addition to the tutorial, Jarvis-HEP provides **standardised example patterns** for interfacing with external programs.
 
-| Key | Type | Description |
-|----|------|-------------|
-| `OS` | list | Supported operating systems |
-| `Check_default_dependences` | mapping | Dependency checking behaviour |
+These examples summarise:
+- How external codes are declared in YAML
+- How inputs are generated and passed
+- How outputs are collected and mapped back into the workflow
+- How multiple external tools can be composed
 
----
+This approach is similar in spirit to *interface examples* used in projects such as BSMArt, but adapted to Jarvis-HEP’s declarative YAML model.
 
-### `Calculators`
+📂 **Examples index:**  
+→ [Examples](examples.md)
 
-Defines **external programs**, their setup, execution, and data exchange.
-
-| Key | Type | Description |
-|----|------|-------------|
-| `make_paraller` | integer | Parallel execution level |
-| `path` | string | Base working directory |
-| `Modules` | list | External module definitions |
-
-Each module defines:
-- Installation steps
-- Initialisation steps
-- Execution commands
-- Input/output data mapping
+📄 **Repository example YAML:**  
+→ [Example_Grid.yaml](../bin/EggBox/Example_Grid.yaml)
 
 ---
 
-### `Utils`
+## How to Use This Documentation
 
-Defines auxiliary utilities available to the workflow.
+Recommended reading order:
 
-Typical use cases include:
-- Interpolation tables
-- Lookup functions
-- Reusable helper definitions
+1. **Guide to YAML** — understand the full workflow once
+2. **Examples** — start from a working configuration
+3. **YAML Reference** — look up block/key meanings when needed
+4. **FAQ** — diagnose common mistakes and silent failures
 
----
-
-## General Conventions
-
-Jarvis-HEP follows a small number of **strict conventions**:
-
-| Convention | Meaning |
-|-----------|--------|
-| Declarative configuration | YAML declares *what*, not *how* |
-| Explicit activation | Only defined blocks are active |
-| Separation of concerns | Sampling, execution, and utilities are isolated |
-| No implicit defaults | Behaviour is not assumed without YAML |
-
-Violating these conventions may result in undefined behaviour.
-
----
-
-## How to Learn Jarvis-HEP
-
-Recommended learning order:
-
-1. Understand the top-level YAML blocks (this document)
-2. Study example YAML files
-3. Modify examples incrementally to match your use case
-4. Introduce additional blocks only when required
-
-Jarvis-HEP is designed so that **correct YAML structure leads to correct execution behaviour**.
+Jarvis-HEP is designed so that **a well-structured YAML file fully defines the behaviour of a scan**.
 
 ---
