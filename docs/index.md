@@ -7,6 +7,7 @@
 ---
 # Jarvis-HEP Documentation
 **Author:** Pengxuan Zhu
+
 **Date:** 11 Feb 2026
 
 Jarvis-HEP is configured entirely through **YAML configuration files**.  
