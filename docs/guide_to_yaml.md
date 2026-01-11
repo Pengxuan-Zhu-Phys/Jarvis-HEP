@@ -187,15 +187,3 @@ This is significantly more robust than maintaining collections of fragmented scr
 
 ---
 
-### Where to Find Concrete Tutorials
-
-This document focuses on **concepts and structure**.
-
-Detailed tutorials for each module and YAML block are provided in dedicated documents:
-- The overall workflow tutorial is covered in *Guide to YAML*
-- Concrete configuration examples are provided in *Examples*
-- Complete key-by-key definitions are available in *YAML Reference*
-
-Users are encouraged to read this section once to understand the design intent, then proceed to the practical tutorials.
-
----
