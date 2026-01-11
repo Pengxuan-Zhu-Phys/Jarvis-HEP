@@ -1,11 +1,13 @@
 <nav>
   
-**Home** · _Previous_ · **[Next](guide_to_yaml.md)**
+**[Home](index.md)** · **[Next](guide_to_yaml.md)**
 
 </nav>
 
 ---
 # Jarvis-HEP Documentation
+**Author:** Pengxuan Zhu
+**Date:** 11 Feb 2026
 
 Jarvis-HEP is configured entirely through **YAML configuration files**.  
 This documentation explains how to use Jarvis-HEP by *declaring workflows, sampling strategies, and external program calls in YAML*.
@@ -90,6 +92,6 @@ Jarvis-HEP is designed so that **a well-structured YAML file fully defines the b
 ---
 <nav>
   
-**Home** · _Previous_ · **[Next](guide_to_yaml.md)**
+**[Home](index.md)** · **[Next](guide_to_yaml.md)**
 
 </nav>
