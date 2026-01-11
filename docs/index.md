@@ -1,6 +1,6 @@
 <nav>
   
-**[Home](index.md)** · **[Next](guide_to_yaml.md)**
+**[Home](index.md)** · **[Next](intro2yaml_format.md)**
 
 </nav>
 
@@ -21,7 +21,10 @@ This documentation is intentionally **configuration-driven** rather than API-dri
 
 ## Tutorial Overview
 
-The **Tutorial** explains how to construct a complete Jarvis-HEP YAML file step by step.
+📘 **Start here:**  
+- **YAML Basics:** a short primer on YAML syntax, common pitfalls, and validation  
+  → [Introduction to YAML Format](intro2yaml_format.md)
+- The **Tutorial** explains how to construct a complete Jarvis-HEP YAML file step by step.
 
 The goal of the tutorial is:
 - To teach users how to *express their intent* in YAML
@@ -33,14 +36,15 @@ The tutorial does **not**:
 - Document internal Python classes or functions
 - Replace reference tables or example configurations
 
-📘 **Start here:**  
 → [Guide to YAML](guide_to_yaml.md)
 
 ---
 
 ## Documentation Overview
 
-The documentation is organised around **how users interact with Jarvis-HEP**, rather than internal implementation details.
+**[Introduction to YAML Format](intro2yaml_format.md)**  
+A concise introduction to YAML syntax and rules, including correct and incorrect examples.  
+This document is intended for users who are not yet familiar with YAML.
 
 **[Guide to YAML](guide_to_yaml.md)**  
 A step-by-step tutorial that walks through the construction of a complete YAML configuration file.  
@@ -83,16 +87,17 @@ These examples are intended to be generic and reusable, illustrating common inte
 
 Recommended reading order:
 
-1. **Guide to YAML** — understand the full workflow once
-2. **Examples** — start from a working configuration
-3. **YAML Reference** — look up block/key meanings when needed
-4. **FAQ** — diagnose common mistakes and silent failures
+1. **Introduction to YAML Format** — learn basic YAML syntax and rules
+2. **Guide to YAML** — understand the full Jarvis-HEP workflow once
+3. **Examples** — start from a working configuration
+4. **YAML Reference** — look up block/key meanings when needed
+5. **FAQ** — diagnose common mistakes and silent failures
 
 Jarvis-HEP is designed so that **a well-structured YAML file fully defines the behaviour of a scan**.
 
 ---
 <nav>
   
-**[Home](index.md)** · **[Next](guide_to_yaml.md)**
+**[Home](index.md)** · **[Next](intro2yaml_format.md)**
 
 </nav>
