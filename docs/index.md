@@ -28,35 +28,38 @@ The tutorial does **not**:
 
 ---
 
-## Documentation Structure
+## Documentation Overview
 
-The documentation is organised around **usage patterns**, not internal modules.
+The documentation is organised around **how users interact with Jarvis-HEP**, rather than internal implementation details.
 
-```
-docs/
-├── index.md              # This page: overview and navigation
-├── guide_to_yaml.md      # Step-by-step tutorial for writing YAML
-├── yaml_reference.md     # Reference tables for YAML blocks and keys
-├── examples.md           # Curated example configurations
-├── faq.md                # Common issues and debugging hints
-```
+**[Guide to YAML](guide_to_yaml.md)**  
+A step-by-step tutorial that walks through the construction of a complete YAML configuration file.  
+This document introduces the overall workflow and explains how different YAML blocks work together.
 
-Each document has a distinct role.  
-Users are encouraged to **read the tutorial once**, then rely on references and examples.
+**[YAML Reference](yaml_reference.md)**  
+A compact reference of supported YAML blocks and keys.  
+This document is intended as a lookup table when editing or extending existing configurations.
+
+**[Examples](examples.md)**  
+A collection of curated example YAML files illustrating common usage patterns.  
+These examples are designed to be copied and adapted to new use cases.
+
+**[FAQ](faq.md)**  
+A list of common pitfalls, silent failure modes, and debugging hints.  
+This document focuses on practical issues encountered when running scans.
 
 ---
 
 ## Examples and External Package Interfaces
 
-In addition to the tutorial, Jarvis-HEP provides **standardised example patterns** for interfacing with external programs.
+This section provides a collection of **standard interface patterns** for working with external programs.
 
-These examples summarise:
-- How external codes are declared in YAML
-- How inputs are generated and passed
-- How outputs are collected and mapped back into the workflow
-- How multiple external tools can be composed
+The focus is on:
+- Declaring external tools in YAML
+- Defining input and output mappings
+- Composing multiple tools within a single workflow
 
-This approach is similar in spirit to *interface examples* used in projects such as BSMArt, but adapted to Jarvis-HEP’s declarative YAML model.
+These examples are intended to be generic and reusable, illustrating common interaction patterns rather than project-specific integrations.
 
 📂 **Examples index:**  
 → [Examples](examples.md)
