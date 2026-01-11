@@ -8,6 +8,8 @@
 
 **Author:** Pengxuan Zhu
 
+**Date:** 11 Feb 2026
+
 This document provides a **short, practical introduction to YAML** for users who are not familiar with the format. This document assumes no prior knowledge of YAML.
 It is intended to help you read and write YAML files correctly before using them to configure Jarvis-HEP. 
 

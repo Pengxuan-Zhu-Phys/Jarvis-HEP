@@ -1,4 +1,14 @@
-# Jarvis-HEP YAML Documentation
+<nav>
+  
+**[Previous](intro2yaml_format.md)** · **[Home](index.md)** · **[Next]()**
+
+</nav>
+
+# Jarvis-HEP YAML Configurations
+
+**Author:** Pengxuan Zhu
+
+**Date:** 11 Feb 2026
 
 This document describes **how to use Jarvis-HEP by writing YAML configuration files**.
 
@@ -22,6 +32,116 @@ This document does **not** cover:
 - Physics models or domain-specific assumptions
 - Internal class or function implementations
 - Auto-generated API references
+
+---
+
+## Design Philosophy and Workflow
+
+This section explains the **conceptual design** of Jarvis-HEP and the rationale behind its configuration model.
+It is intended to help users understand *why* the YAML structure is designed in this way, before learning *how* to use it.
+
+---
+
+### Separation of Sampling and Calculation
+
+Jarvis-HEP enforces a strict separation between:
+
+- **Sampling**: deciding *which points* in parameter space to evaluate
+- **Calculation**: deciding *how a given point is evaluated*
+
+Sampling algorithms are responsible only for proposing points.
+They do not perform physics calculations, manage external programs, or interpret results.
+
+Conversely, physics calculations are treated as **black-box evaluations**:
+a set of inputs is provided, and a set of outputs is produced.
+
+This separation avoids tight coupling between numerical exploration strategies and domain-specific computation logic.
+
+---
+
+### Sampler and Factory
+
+In Jarvis-HEP, the **Sampler** and the **Factory** have clearly distinct roles:
+
+- The **Sampler** generates candidate points according to a defined strategy.
+- The **Factory** is responsible for constructing executable workflows from the YAML configuration.
+
+The Factory:
+- Instantiates calculators and utilities
+- Connects inputs and outputs
+- Manages execution order and data flow
+
+The Sampler never interacts directly with external programs.
+Instead, it delegates all execution-related responsibilities to the Factory.
+
+This design allows sampling strategies to be changed without modifying calculation logic, and vice versa.
+
+---
+
+### Calculators as Black Boxes
+
+Jarvis-HEP treats physics programs as **opaque calculators or libraries**.
+
+From the framework’s perspective, a calculator is defined by:
+- Its required inputs
+- Its produced outputs
+- The commands needed to execute it
+
+Internal implementation details are intentionally ignored.
+
+Users are encouraged **not** to repeatedly modify calculation scripts during a project.
+Instead, external programs should be treated as stable black boxes once validated.
+
+This approach:
+- Reduces debugging risk
+- Improves reproducibility
+- Prevents accidental divergence between runs
+
+---
+
+### YAML as the Single Source of Truth
+
+In Jarvis-HEP, the YAML configuration file is the **authoritative description** of a workflow.
+
+A complete analysis should be reproducible using only:
+- The YAML configuration file
+- The original external programs
+- The generated data
+
+No auxiliary scripts or ad-hoc glue code are required.
+
+This design ensures that:
+- Workflow logic is explicit
+- Configuration changes are version-controlled
+- Long-term projects remain maintainable
+
+---
+
+### Long-Term Reproducibility
+
+The primary goal of this design is **long-term reproducibility**.
+
+After completing a project, users should only need to archive:
+- Data outputs
+- The YAML configuration
+- The external program packages
+
+To reproduce results in the future, the same YAML file can be executed again using the original programs.
+
+This is significantly more robust than maintaining collections of fragmented scripts whose intent and dependencies may be unclear over time.
+
+---
+
+### Where to Find Concrete Tutorials
+
+This document focuses on **concepts and structure**.
+
+Detailed tutorials for each module and YAML block are provided in dedicated documents:
+- The overall workflow tutorial is covered in *Guide to YAML*
+- Concrete configuration examples are provided in *Examples*
+- Complete key-by-key definitions are available in *YAML Reference*
+
+Users are encouraged to read this section once to understand the design intent, then proceed to the practical tutorials.
 
 ---
 
