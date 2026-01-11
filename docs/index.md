@@ -10,13 +10,6 @@
 
 **Date:** 11 Feb 2026
 
-Jarvis-HEP is configured entirely through **YAML configuration files**.  
-This documentation explains how to use Jarvis-HEP by *declaring workflows, sampling strategies, and external program calls in YAML*.
-
-> **The YAML file is the user interface of Jarvis-HEP.**
-
-This documentation is intentionally **configuration-driven** rather than API-driven.
-
 ---
 
 ## Tutorial Overview
