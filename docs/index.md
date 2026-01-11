@@ -14,7 +14,10 @@
 
 ## Tutorial Overview
 
-📘 **Start here: the Eggbox tutorial**  
+📘 **Start here:**  
+
+**[Eggbox example](tutorial_eggbox.md)**  
+
 The tutorial begins with a **concrete working example** based on the Eggbox function. Starting from this simple example, you are guided through how a numerical or physical problem is translated into a Jarvis-HEP scan.
 
 Using the Eggbox example as a reference, the tutorial then introduces the
