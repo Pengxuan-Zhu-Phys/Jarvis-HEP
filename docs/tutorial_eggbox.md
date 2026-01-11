@@ -62,10 +62,9 @@ are compatible with this measurement.
 To make this numerical study practical, we implement a small package
 that computes `z` for any given `(x, y)`.
 
-See [eggbox](../External/Inertial/EggBox)
-
 ---
-#### EggBox package
+#### EggBox package （Code see [eggbox](../External/Inertial/EggBox)
+）
 
 We now move from the mathematical description
 to the computational abstraction used by Jarvis-HEP.
