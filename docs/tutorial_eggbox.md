@@ -27,7 +27,6 @@ Most scan problems look like this:
 Jarvis-HEP is built for this pattern. 
 
 ### Eggbox Function as an Simplifed Package
-```markdown
 The Eggbox function is a simple two-dimensional test function.
 It takes two input parameters, `xx` and `yy`, and returns a single numerical value.
 
@@ -59,7 +58,6 @@ Jarvis-HEP only needs to know:
 
 All of this is declared in the YAML configuration.
 Jarvis-HEP then runs this program automatically for each sampled point.
-```
 
 ---
 
