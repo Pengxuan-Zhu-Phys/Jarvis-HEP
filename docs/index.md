@@ -1,3 +1,10 @@
+<nav>
+  
+**Home** · _Previous_ · **[Next](guide_to_yaml.md)**
+
+</nav>
+
+---
 # Jarvis-HEP Documentation
 
 Jarvis-HEP is configured entirely through **YAML configuration files**.  
@@ -81,3 +88,8 @@ Recommended reading order:
 Jarvis-HEP is designed so that **a well-structured YAML file fully defines the behaviour of a scan**.
 
 ---
+<nav>
+  
+**Home** · _Previous_ · **[Next](guide_to_yaml.md)**
+
+</nav>
