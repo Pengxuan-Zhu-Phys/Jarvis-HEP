@@ -54,6 +54,41 @@ Example visualization of an adaptive sampling procedure:
 👉 https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/simu/sample_dynamic_viz.gif
 
 ---
+## Documentation Interface
+
+Detailed usage instructions, design philosophy, and advanced configuration options are documented in the `docs/` directory.
+
+This documentation is intended to explain **how Jarvis-HEP is meant to be used**, rather than serving as an auto-generated API reference.
+
+### Documentation Structure
+
+- `docs/index.md`  
+  Entry point and navigation for all documentation.
+
+- `docs/architecture.md`  
+  Overall architecture, module layout, and data flow.
+
+- `docs/configuration.md`  
+  Complete description of YAML configuration files and parameter conventions.
+
+- `docs/samplers.md`  
+  Available samplers, their intended use cases, and design constraints.
+
+- `docs/nuisance_parameters.md`  
+  Conceptual and practical treatment of nuisance parameters.
+
+- `docs/likelihood.md`  
+  Likelihood construction, profiling strategy, and evaluation flow.
+
+- `docs/io_and_data.md`  
+  Output formats, HDF5 structure, and data-handling conventions.
+
+- `docs/examples/`  
+  Minimal working examples and common usage patterns.
+
+Users are strongly encouraged to read the documentation before applying Jarvis-HEP to non-trivial analyses.
+
+---
 
 ## Installation
 
