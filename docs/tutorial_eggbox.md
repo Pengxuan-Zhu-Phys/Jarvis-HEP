@@ -57,6 +57,8 @@ Then we should figure out the surviving parameter space in `(x, y)` plane.
 
 To make the numerical study more easier, we develop a package to calculate the `z` for each `(x, y)`. See [eggbox](../External/Inertial/EggBox)
 
+---
+#### EggBox package
 
 We now move from the mathematical description
 to the computational abstraction used in Jarvis-HEP.
