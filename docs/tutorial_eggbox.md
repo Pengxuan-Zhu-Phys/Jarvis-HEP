@@ -35,10 +35,7 @@ denoted by `x` and `y`.
 
 `z(x, y) = (sin(x) * cos(y) + 2)^5`
 
-For each input point `(x, y)`, the function returns a single scalar value `z`.  
-In a realistic physics study, `z` could represent any theoretical prediction or observable,  
-for example the Higgs boson mass in the MSSM.  
-Without a numerical scan, it is hard to see how such an observable behaves across the parameter space.
+For each input point `(x, y)`, the function returns a single scalar value `z`. In a realistic physics study, `z` could represent any theoretical prediction or observable, for example the Higgs boson mass in the MSSM. Without a numerical scan, it is hard to see how such an observable behaves across the parameter space.
 
 ![Eggbox surface](includes/eggbox_vis.png)
 
