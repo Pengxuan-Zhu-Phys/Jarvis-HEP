@@ -23,12 +23,6 @@ Users are not expected to interact with internal Python APIs.
 
 This document explains:
 
-A Jarvis-HEP YAML file describes a complete computational workflow.
-Rather than focusing on syntax, this section explains **what each major part of the configuration is responsible for**.
-
-The YAML file is organised into a small number of **top-level sections**, each corresponding to a dedicated document.
-These sections together define *what is executed*, *how it is executed*, and *how results are managed*.
-
 **[`Scan`](scan.md)**  
 Defines the identity of a scan, bookkeeping information, and where results are stored.
 This section records *what this run is* and *how it should be archived*.
@@ -66,15 +60,28 @@ It is intended to help users understand *why* the YAML structure is designed in 
 A Jarvis-HEP YAML file describes a complete computational workflow.
 Rather than focusing on syntax, this section explains **what each major part of the configuration is responsible for**.
 
-The YAML file is organised into a small number of **top-level sections**, each with a clearly defined role.
+The YAML file is organised into a small number of **top-level sections**, each corresponding to a dedicated document.
+These sections together define *what is executed*, *how it is executed*, and *how results are managed*.
 
-| Section | Role in the workflow |
-|--------|----------------------|
-| `Scan` | Identifies the scan, controls bookkeeping, and defines where results are stored |
-| `Sampling` | Declares what is sampled and which strategy is used to explore parameter space |
-| `EnvReqs` | Specifies environment assumptions and dependency checks |
-| `Calculators` | Describes external programs and how they are executed |
-| `Utils` | Defines auxiliary utilities shared across the workflow |
+**[`Scan`](scan.md)**  
+Defines the identity of a scan, bookkeeping information, and where results are stored.
+This section records *what this run is* and *how it should be archived*.
+
+**[`Sampling`](sampling.md)**  
+Declares what is sampled and which strategy is used to explore the parameter space.
+This section controls *which points are proposed* without performing any calculations.
+
+**[`EnvReqs`](envreqs.md)**  
+Specifies environment assumptions, platform constraints, and dependency checks.
+This section documents *what the execution environment must satisfy* before a workflow is run.
+
+**[`Calculators`](calculators.md)**  
+Describes external programs, how they are executed, and how inputs and outputs are mapped.
+This section defines *how physics or numerical evaluations are performed* while treating programs as black boxes.
+
+**[`Utils`](utils.md)**  
+Defines auxiliary utilities and shared resources used across the workflow.
+This section provides *supporting functionality* that is reused by calculators and other components.
 
 Only sections that are explicitly defined are active.
 If a section is omitted, the corresponding functionality is not used.
