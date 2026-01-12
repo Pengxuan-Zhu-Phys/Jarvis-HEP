@@ -55,6 +55,7 @@ Example visualization of an adaptive sampling procedure:
 
 ---
 📘 **Full documentation and tutorials are hosted on a dedicated documentation site:**
+
 👉 https://pengxuan-zhu-phys.github.io/Jarvis-Docs/
 ---
 
