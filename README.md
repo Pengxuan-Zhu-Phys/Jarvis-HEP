@@ -118,7 +118,7 @@ Please refer to `CONTRIBUTING.md` for guidelines on how to get started.
 ## License
 
 Jarvis-HEP is released under the **MIT License**.  
-See the `LICENSE` file for details.
+See the [`LICENSE`](LICENSE) file for details.
 
 ---
 
