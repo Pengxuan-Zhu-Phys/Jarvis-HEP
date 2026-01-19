@@ -1,6 +1,8 @@
 # Jarvis-HEP
 
-**Jarvis-HEP** (Just a Really Viable Interface to Suites for High Energy Physics) is a modular, Python-based framework for **high-energy physics phenomenology**, designed to streamline **parameter-space exploration, likelihood evaluation, and post-processing** in complex BSM and collider analyses.
+Jarvis-HEP (Just a Really Viable Interface to Suites for High Energy Physics) is an open-source, modular Python framework for
+likelihood-based parameter scanning and global fits in
+high-energy physics phenomenology.
 
 The project focuses on **robust sampling strategies**, **nuisance-parameter handling**, and **scalable asynchronous workflows**, with an emphasis on *profile likelihood*–oriented studies commonly encountered in modern collider phenomenology.
 
