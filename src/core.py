@@ -519,7 +519,7 @@ class Core(Base):
                 self.plotter.load_config(self.info['plot']['config'])
         else:
             self.plotter.load_config(self.info['plot']['config'])
-        self.plotter.plot() 
+        # self.plotter.plot() 
         
     def monitor(self) -> None: 
         from monitor import JarvisMonitor

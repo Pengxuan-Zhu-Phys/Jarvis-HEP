@@ -138,57 +138,318 @@ class JarvisPLOT(Base):
         self.ddf = None
 
     def get_plot_config_from_Jarvis(self, info, scan_yaml):
+        """Emit a JarvisPLOT YAML (HinoLLP.yaml style) for a Jarvis-HEP run.
+
+        For now we implement the Dynesty branch first.
+        Other sampling methods keep the old behavior until we migrate them.
+        """
         self.info.update(info)
-        if scan_yaml.config['Sampling']['Method'] == "Dynesty":
-            self.info['db']["nested result"] = os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_result.csv")
+
+        method = None
+        try:
+            method = scan_yaml.config.get('Sampling', {}).get('Method', None)
+        except Exception:
+            method = None
+
+        # New mode (JarvisPLOT YAML, HinoLLP.yaml style)
+        if method == "Dynesty":
+            self.emit_jplot_dynesty(scan_yaml)
+            return
+
+        # Legacy behavior for other methods (for now)
+        if method == "Grid":
+            self.set_grid_config(scan_yaml)
+        elif method == "Random":
+            self.set_random_config(scan_yaml)
+        elif method == "Bridson":
+            self.set_random_config(scan_yaml)
+        elif method == "MCMC":
+            self.set_random_config(scan_yaml)
+        elif method == "TPMCMC":
+            self.set_random_config(scan_yaml)
+        elif method == "DNN":
+            self.set_random_config(scan_yaml)
+
+
+    def emit_jplot_dynesty(self, scan_yaml):
+        """Emit a JarvisPLOT YAML (HinoLLP.yaml style) for Dynesty."""
+
+        # Resolve output YAML path
+        out_yaml_path = self.info['plot']['config']
+        out_yaml_dir = os.path.abspath(os.path.dirname(out_yaml_path))
+        os.makedirs(out_yaml_dir, exist_ok=True)
+
+        # Default figure output directory (relative to YAML dir is preferred)
+        plots_dir = os.path.join(out_yaml_dir, ".")
+        os.makedirs(plots_dir, exist_ok=True)
+
+        def _rel(p: str) -> str:
+            try:
+                return os.path.relpath(os.path.abspath(p), start=out_yaml_dir)
+            except Exception:
+                return p
+
+        # 1) dynesty result CSV
+        dynesty_csv = os.path.join(
+            self.info['sample']['task_result_dir'], "DATABASE", "dynesty_result.csv"
+        )
+
+        # 2) converted samples (CSV list or a single CSV)
+        out_csv = None
+        try:
             if not self.info['db'].get("out_csv", False):
-                with open(self.info['db']['info'], 'r') as f1: 
-                    info = json.loads(f1.read())
-                    self.info['db']['out_csv'] = info['converted']
-            self.yaml = {
-                "Plot_Config":  {
-                    "save_dir": self.info['plot']['save_path'],
-                    "save_format":  ["pdf", "png"],
-                    "dynesty":  {
-                        "result":   self.info['db']['nested result']
-                    },
-                    "samples":  self.info['db']['out_csv'],
-                    "scan_yaml":    self.info['config_file'],
-                    "screen_show":  True
-                },
-                "Variables":    [],
-                "Figures":  {
-                    "dynesty_sampling_summary":   {
-                        "type": "dynesty_run"
-                    },
-                    "parameter_summary": {
-                        "type": "dynesty_parameter",
-                        "parameters":   []
-                    }    
+                with open(self.info['db']['info'], 'r') as f1:
+                    dbinfo = json.loads(f1.read())
+                    out_csv = dbinfo.get('converted', None)
+                    self.info['db']['out_csv'] = out_csv
+            else:
+                out_csv = self.info['db']['out_csv']
+        except Exception:
+            out_csv = None
+
+        if isinstance(out_csv, str):
+            out_csv_list = [out_csv]
+        elif isinstance(out_csv, list):
+            out_csv_list = out_csv
+        else:
+            out_csv_list = []
+
+        # Build DataSet list in the SAME style as HinoLLP.yaml
+        datasets = []
+        datasets.append({
+            "name": "dynesty",
+            "path": _rel(dynesty_csv),
+            "type": "csv",
+        })
+
+        if out_csv_list:
+            for p in out_csv_list:
+                if not p:
+                    continue
+                base = os.path.splitext(os.path.basename(str(p)))[0]
+                name = base.replace('-', '_').replace('.', '_')
+                # keep a stable prefix for samples
+                if not name.startswith('df'):
+                    name = f"df_{name}"
+                datasets.append({
+                    "name": name,
+                    "path": _rel(str(p)),
+                    "type": "csv",
+                })
+        else:
+            # Placeholder so the template is still readable
+            datasets.append({"name": "df", "path": "samples.csv", "type": "csv"})
+
+        # Build scatter templates for all 2D combinations of scan variables
+        scan_vars = []
+        try:
+            scan_vars = scan_yaml.config.get('Sampling', {}).get('Variables', [])
+        except Exception:
+            scan_vars = []
+
+        def _vname(idx: int, fallback: str) -> str:
+            try:
+                return str(scan_vars[idx].get('name', fallback))
+            except Exception:
+                return fallback
+
+        # Collect variable names and metadata (limits + scale)
+        var_names = []
+        var_meta = {}
+        try:
+            for v in scan_vars:
+                if not isinstance(v, dict):
+                    continue
+                if not v.get('name', None):
+                    continue
+                name = str(v['name'])
+                var_names.append(name)
+
+                # limits
+                vmin, vmax = None, None
+                try:
+                    params = (v.get('distribution', {}) or {}).get('parameters', {}) or {}
+                    vmin = params.get('min', None)
+                    vmax = params.get('max', None)
+                except Exception:
+                    vmin, vmax = None, None
+
+                # scale: infer from distribution type
+                scale = 'linear'
+                try:
+                    dtype = str((v.get('distribution', {}) or {}).get('type', '')).strip().lower()
+                    if 'log' in dtype:
+                        scale = 'log'
+                except Exception:
+                    scale = 'linear'
+
+                var_meta[name] = {
+                    'lim': [vmin, vmax],
+                    'scale': scale,
                 }
+        except Exception:
+            var_names = []
+            var_meta = {}
+
+        # Fallback so the YAML remains runnable even if variables are missing
+        if len(var_names) == 0:
+            var_names = ['x', 'y']
+        elif len(var_names) == 1:
+            var_names = [var_names[0], var_names[0]]
+
+        # Sources for samples layers: all datasets except the first one (dynesty)
+        sample_sources = [d["name"] for d in datasets[1:]]
+        if not sample_sources:
+            sample_sources = ["df"]
+
+        from itertools import combinations
+
+        figures = []
+
+        # 1) ScatterC for all variable pairs
+        for xx, yy in combinations(var_names, 2):
+            safe_x = str(xx).replace('-', '_').replace('.', '_').replace('/', '_')
+            safe_y = str(yy).replace('-', '_').replace('.', '_').replace('/', '_')
+            fig_name = f"scatter_{safe_x}__{safe_y}"
+
+            figures.append(
+                {
+                    "name": fig_name,
+                    "enable": True,
+                    "style": ["a4paper_2x1", "rectcmap"],
+                    "frame": {
+                        "ax": {
+                            "labels": {"x": str(xx), "y": str(yy)},
+                            "xlim": (var_meta.get(str(xx), {}) or {}).get('lim', [None, None]),
+                            "ylim": (var_meta.get(str(yy), {}) or {}).get('lim', [None, None]),
+                            "xscale": (var_meta.get(str(xx), {}) or {}).get('scale', 'linear'),
+                            "yscale": (var_meta.get(str(yy), {}) or {}).get('scale', 'linear'),
+                        },
+                        "axc": {
+                            "label": {"ylabel": "LogL"},
+                        },
+                    },
+                    "layers": [
+                        {
+                            "name": "scatter",
+                            "data": [{"source": s} for s in sample_sources],
+                            "axes": "ax",
+                            "method": "scatter",
+                            "coordinates": {
+                                "x": {"expr": str(xx)},
+                                "y": {"expr": str(yy)},
+                                "c": {"expr": "LogL"},
+                            },
+                            "style": {
+                                "marker": ".",
+                                "s": 2,
+                                "cmap": "jarvis_rainbow2_r",
+                                "norm": "linear",
+                                "zorder": 1,
+                            },
+                        }
+                    ],
+                }
+            )
+
+        # 2) Dynesty diagnostics (5 panels, shared x): replicate the old `plot_dynesty_results` structure
+        figures.append(
+            {
+                "name": "dynesty_logL_vs_logX",
+                "enable": True,
+                "style": ["a4paper_2x1", "rect_5x1"],
+                "frame": {
+                    # "sharex": True,
+                    "ax0": {
+                        "labels": {"x": "$-\\ln(X)$", "y": "$N_{\\mathrm{live}}$"},
+                    },
+                    "ax1": {
+                        "labels": {"x": "$-\\ln(X)$", "y": "Likelihood"},
+                    },
+                    "ax2": {
+                        "labels": {"x": "$-\\ln(X)$", "y": "Importance\nweight PDF"},
+                    },
+                    "ax3": {
+                        "labels": {"x": "$-\\ln(X)$", "y": "Evidence"},
+                    },
+                    "ax4": {
+                        "labels": {"x": "$-\\ln(X)$", "y": "Iters"},
+                    },
+                },
+                "layers": [
+                    {
+                        "name": "nlive",
+                        "data": [{"source": "dynesty"}],
+                        "axes": "ax0",
+                        "method": "scatter",
+                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_nlive"}},
+                        "style": {"alpha": 0.7, "zorder": 1},
+                    },
+                    {
+                        "name": "loglike",
+                        "data": [{"source": "dynesty"}],
+                        "axes": "ax1",
+                        "method": "scatter",
+                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Like) / np.exp(np.max(log_Like))"}},
+                        "style": {"alpha": 0.7, "zorder": 1},
+                    },
+                    {
+                        "name": "Importance\nweight PDF",
+                        "data": [{"source": "dynesty"}],
+                        "axes": "ax2",
+                        "method": "scatter",
+                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_weight) / np.exp(np.max(log_weight))"}},
+                        "style": {"alpha": 0.7, "zorder": 1},
+                    },
+                    {
+                        "name": "logevidence",
+                        "data": [{"source": "dynesty"}],
+                        "axes": "ax3",
+                        "method": "scatter",
+                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Evidence)"}},
+                        "style": {"alpha": 0.7, "zorder": 1},
+                    },
+                    {
+                        "name": "iters",
+                        "data": [{"source": "dynesty"}],
+                        "axes": "ax4",
+                        "method": "scatter",
+                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_it"}},
+                        "style": {"alpha": 0.7, "zorder": 1},
+                    },
+                ],
             }
-            for var in scan_yaml.config["Sampling"]["Variables"]:
-                print(var)
-                vardict = self.load_scan_var(var)
-                self.yaml['Variables'].append(vardict)
-                self.yaml['Figures']["parameter_summary"]['parameters'].append(str(var['name']))
-            print(self.yaml)
-            with open(self.info['plot']['config'], 'w') as file:
-                yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
-        elif scan_yaml.config["Sampling"]["Method"] == "Grid":
-            self.set_grid_config(scan_yaml)    
-        elif scan_yaml.config["Sampling"]["Method"] == "Random":
-            self.set_random_config(scan_yaml)
-        elif scan_yaml.config['Sampling']['Method'] == "Bridson": 
-            self.set_random_config(scan_yaml)
-        elif scan_yaml.config['Sampling']["Method"] == "MCMC":
-            self.set_random_config(scan_yaml)
-        elif scan_yaml.config['Sampling']["Method"] == "TPMCMC":
-            self.set_random_config(scan_yaml)        
-        elif scan_yaml.config['Sampling']["Method"] == "DNN":
-            self.set_random_config(scan_yaml)
-        
-            
+        )
+
+        jplot_yaml = {
+            "DataSet": datasets,
+            "Figures": figures,
+            "output": {
+                "dir": _rel(plots_dir),
+                "dpi": 200,
+                "formats": ["png"],
+            },
+            "project": {
+                "name": self.info.get('project_name', 'Jarvis-HEP')
+            },
+            "version": 0.3,
+            "Functions": [],
+        }
+
+        with open(out_yaml_path, 'w') as file:
+            yaml.dump(
+                jplot_yaml,
+                file,
+                Dumper=CustomDumper,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+
+        self.logger.warning(f"JarvisPLOT YAML generated (Dynesty): {out_yaml_path}")
+        self.logger.warning(
+            f"Render with: jarvisplot {out_yaml_path}  (or: jarvis --jplot {out_yaml_path})"
+        )
     def set_random_config(self, scan_yaml):
         self.yaml = {
             "Plot_Config":  {
@@ -275,6 +536,10 @@ class JarvisPLOT(Base):
             self.yaml = yaml.safe_load(file)
     
     def plot(self) -> None: 
+        # New mode: JarvisPLOT YAML (HinoLLP.yaml style). Rendering is done by JarvisPLOT.
+        if isinstance(self.yaml, dict) and 'DataSet' in self.yaml and isinstance(self.yaml.get('Figures', None), list):
+            self.logger.warning('Loaded a JarvisPLOT YAML template. This module only emits the YAML; use JarvisPLOT to render it.')
+            return
         if "dynesty" in self.yaml['Plot_Config']:
             self.ddf = pd.read_csv(self.yaml['Plot_Config']['dynesty']['result'])
         self.sdf = self.load_csv_datas(self.yaml['Plot_Config']['samples'] )
