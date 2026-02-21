@@ -77,6 +77,20 @@ python3 -m pip install \
   sqlalchemy aiofiles dill emoji prettytable loguru
 ```
 
+### Create a standalone project workspace
+
+Use `--mkproject` to create a fresh Jarvis project directory in your current working path:
+
+```bash
+./Jarvis --mkproject PROJECT_NAME
+```
+
+This creates:
+- `PROJECT_NAME/bin` for YAML cards
+- `PROJECT_NAME/Library` for source libraries
+- `PROJECT_NAME/Workshop` for workflow files
+- `PROJECT_NAME/Result` for outputs
+
 ---
 
 ## Contributing

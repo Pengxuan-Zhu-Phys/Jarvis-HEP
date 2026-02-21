@@ -1,209 +1,109 @@
 #!/usr/bin/env python3
 
-import os, io 
-import sys
-import pandas as pd
-import time
-import math
-import sympy
 import json
-import emoji
-import numpy as np 
-import matplotlib.pyplot as plt
-import shapely as sp 
-import contextlib
-from base import Base
-import yaml 
+import os
+from itertools import combinations
 
-pwd = os.path.abspath(os.path.dirname(__file__))
-jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.append(os.path.abspath(os.path.join(pwd, "BudingPLOT")))
+import numpy as np
+import shapely as sp
+import yaml
+
+from base import Base
+
+
+def create_round_square(ct, rd=1, nn=3.5, frame=None):
+    tt = np.linspace(0.0, 2.0 * np.pi, 314)
+    xx = np.cos(tt) ** (2 / nn)
+    yy = np.sin(tt) ** (2 / nn)
+    xx[np.isnan(xx)] = 0
+    yy[np.isnan(yy)] = 0
+    xi = -(-np.cos(tt)) ** (2 / nn)
+    yi = -(-np.sin(tt)) ** (2 / nn)
+    xi[np.isnan(xi)] = 0
+    yi[np.isnan(yi)] = 0
+    xx += xi
+    yy += yi
+    xx = rd * xx + ct[0]
+    yy = rd * yy + ct[1]
+    cdn = np.stack((xx, yy), axis=-1)
+    rs = sp.Polygon(cdn)
+    if frame is not None:
+        rs = rs.intersection(frame)
+    return rs
 
 
 def draw_logo_in_square(ax):
-    with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+    ax.axis("off")
+    ax.set_xlim(-1.02, 1.02)
+    ax.set_ylim(-1.02, 1.02)
 
-        ax.axis("off")
-        # ax.text(0.5, -0.06, "Jarvis-HEP", fontsize=12, ha="center", va='top', transform=ax.transAxes)
-        ax.set_xlim(-1.02, 1.02)
-        ax.set_ylim(-1.02, 1.02)
+    outframe = create_round_square((0.0, 0.0), rd=1.0, nn=4.0)
+    x_coords = [point[0] for point in outframe.exterior.coords]
+    y_coords = [point[1] for point in outframe.exterior.coords]
+    ax.fill(x_coords, y_coords, fc="#34495E", ec=None)
 
-        # print(xx)
-        rs = create_round_square((0., 0.))
-        x_coords = [point[0] for point in rs.exterior.coords]
-        y_coords = [point[1] for point in rs.exterior.coords]
-        ax.plot(x_coords, y_coords, '-', color='grey', lw=0.3)
-        ax.fill(x_coords, y_coords, fc='#34495E', ec=None)
+    inner = create_round_square((0.0, 0.0), rd=0.76, nn=4.0)
+    x_inner = [point[0] for point in inner.exterior.coords]
+    y_inner = [point[1] for point in inner.exterior.coords]
+    ax.fill(x_inner, y_inner, fc="#00fdff", ec=None, alpha=0.85)
 
-        grid1 = [
-        [False, False, False,   True, False, False, False, False],
-        [False, False,  True,   True, False, False, False, False],
-        [False,  True,  True,   True, False, False, False, False],
-        [False, False,  True,   True, False, False, False, False],
-        [False, False, False,   True, False, False, False, False],
-        [True,   True,  True,   True, False, False, False, False],
-        [False,  True,  True,   True, False, False, False, False],
-        [False, False, False,   True, False, False, False, False]
-    ]
-        round1 = [
-        [False, False, False, False, False, False, False, False],
-        [False, False, False, False, True,  False, False, False],
-        [False, False, False, False, True,  False, False, False],
-        [False, False, False, False, True,  False, False, False],
-        [False, False, False, False, True,  True,  False, False],
-        [False, False, False, False, True,  True,  True,  True ],
-        [False, False, False, False, True,  True,  False, False],
-        [False, False, False, False, True,  False, False, False]
-    ]
+    core = create_round_square((0.0, 0.0), rd=0.35, nn=4.0)
+    x_core = [point[0] for point in core.exterior.coords]
+    y_core = [point[1] for point in core.exterior.coords]
+    ax.fill(x_core, y_core, fc="#072346", ec=None)
 
-        for ii in range(8):
-            for jj in range(8):
-                if grid1[jj][ii]:
-                    grid = create_round_square(
-                        (
-                            0.125 + ii * 0.25 - 1.0, 
-                            1.0 - 0.125 - jj * 0.25,
-                        ), 
-                        rd=0.11, nn=6, frame=rs
-                    )
-                    x_coords = [point[0] for point in grid.exterior.coords]
-                    y_coords = [point[1] for point in grid.exterior.coords]    
-                    ax.fill(x_coords, y_coords, fc="#00fdff", ec=None)
-                elif round1[jj][ii]:
-                    grid = create_round_square(
-                        (
-                            0.125 + ii * 0.25 - 1.0, 
-                            1.0 - 0.125 - jj * 0.25,
-                        ), 
-                        rd=0.11, nn=2.1, frame=rs
-                    )
-                    x_coords = [point[0] for point in grid.exterior.coords]
-                    y_coords = [point[1] for point in grid.exterior.coords]    
-                    ax.fill(x_coords, y_coords, fc="#fffc79", ec=None)    
-                elif ii < 4:
-                    grid = create_round_square(
-                        (
-                            0.125 + ii * 0.25 - 1.0, 
-                            1.0 - 0.125 - jj * 0.25,
-                        ), 
-                        rd=0.11, nn=6, frame=rs
-                    )
-                    x_coords = [point[0] for point in grid.exterior.coords]
-                    y_coords = [point[1] for point in grid.exterior.coords]    
-                    ax.fill(x_coords, y_coords, fc="#072346", ec=None)   
-                else:
-                    grid = create_round_square(
-                        (
-                            0.125 + ii * 0.25 - 1.0, 
-                            1.0 - 0.125 - jj * 0.25,
-                        ), 
-                        rd=0.11, nn=4, frame=rs
-                    )
-                    x_coords = [point[0] for point in grid.exterior.coords]
-                    y_coords = [point[1] for point in grid.exterior.coords]    
-                    ax.fill(x_coords, y_coords, fc="#008f00", ec=None)  
 
-def create_round_square(ct, rd=1, nn = 3.5, frame=None):
-    with io.StringIO() as buf, contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-        tt = np.linspace(0., 2.0 * np.pi, 314)
-        xx = (np.cos(tt)) ** (2/nn)
-        yy = (np.sin(tt)) ** (2/nn)
-        xx[np.isnan(xx)] = 0
-        yy[np.isnan(yy)] = 0
-        xi = -(-np.cos(tt)) ** (2/nn)
-        yi = -(-np.sin(tt)) ** (2/nn)
-        xi[np.isnan(xi)] = 0
-        yi[np.isnan(yi)] = 0
-        xx += xi 
-        yy += yi
-        xx = rd * xx + ct[0] 
-        yy = rd * yy + ct[1]
-        cdn = np.stack((xx, yy), axis=-1)
-        rs = sp.Polygon(cdn)
-        if frame is not None:
-            rs = rs.intersection(frame)
-        return rs
-   
 class CustomDumper(yaml.Dumper):
     def write_line_break(self, data=None):
         super().write_line_break(data)
         if len(self.indents) == 1:
             super().write_line_break()
 
+
 class JarvisPLOT(Base):
     def __init__(self):
         super().__init__()
         self.info = {}
-        self.sdf = None
-        self.ddf = None
 
     def get_plot_config_from_Jarvis(self, info, scan_yaml):
-        """Emit a JarvisPLOT YAML (HinoLLP.yaml style) for a Jarvis-HEP run.
-
-        For now we implement the Dynesty branch first.
-        Other sampling methods keep the old behavior until we migrate them.
-        """
+        """Emit a JarvisPLOT YAML for a Jarvis-HEP run."""
         self.info.update(info)
+        self.emit_jplot(scan_yaml)
 
+    def emit_jplot(self, scan_yaml):
+        """Emit a JarvisPLOT YAML for current sampling setup."""
         method = None
         try:
-            method = scan_yaml.config.get('Sampling', {}).get('Method', None)
+            method = scan_yaml.config.get("Sampling", {}).get("Method", None)
         except Exception:
             method = None
+        include_dynesty = method == "Dynesty"
 
-        # New mode (JarvisPLOT YAML, HinoLLP.yaml style)
-        if method == "Dynesty":
-            self.emit_jplot_dynesty(scan_yaml)
-            return
-
-        # Legacy behavior for other methods (for now)
-        if method == "Grid":
-            self.set_grid_config(scan_yaml)
-        elif method == "Random":
-            self.set_random_config(scan_yaml)
-        elif method == "Bridson":
-            self.set_random_config(scan_yaml)
-        elif method == "MCMC":
-            self.set_random_config(scan_yaml)
-        elif method == "TPMCMC":
-            self.set_random_config(scan_yaml)
-        elif method == "DNN":
-            self.set_random_config(scan_yaml)
-
-
-    def emit_jplot_dynesty(self, scan_yaml):
-        """Emit a JarvisPLOT YAML (HinoLLP.yaml style) for Dynesty."""
-
-        # Resolve output YAML path
-        out_yaml_path = self.info['plot']['config']
+        out_yaml_path = self.info["plot"]["config"]
         out_yaml_dir = os.path.abspath(os.path.dirname(out_yaml_path))
         os.makedirs(out_yaml_dir, exist_ok=True)
 
-        # Default figure output directory (relative to YAML dir is preferred)
         plots_dir = os.path.join(out_yaml_dir, ".")
         os.makedirs(plots_dir, exist_ok=True)
 
-        def _rel(p: str) -> str:
+        def _rel(path_str):
             try:
-                return os.path.relpath(os.path.abspath(p), start=out_yaml_dir)
+                return os.path.relpath(os.path.abspath(path_str), start=out_yaml_dir)
             except Exception:
-                return p
+                return path_str
 
-        # 1) dynesty result CSV
-        dynesty_csv = os.path.join(
-            self.info['sample']['task_result_dir'], "DATABASE", "dynesty_result.csv"
-        )
+        dynesty_csv = os.path.join(self.info["sample"]["task_result_dir"], "DATABASE", "dynesty_result.csv")
+        has_dynesty_dataset = include_dynesty and os.path.exists(dynesty_csv)
 
-        # 2) converted samples (CSV list or a single CSV)
         out_csv = None
         try:
-            if not self.info['db'].get("out_csv", False):
-                with open(self.info['db']['info'], 'r') as f1:
+            if not self.info["db"].get("out_csv", False):
+                with open(self.info["db"]["info"], "r") as f1:
                     dbinfo = json.loads(f1.read())
-                    out_csv = dbinfo.get('converted', None)
-                    self.info['db']['out_csv'] = out_csv
+                    out_csv = dbinfo.get("converted", None)
+                    self.info["db"]["out_csv"] = out_csv
             else:
-                out_csv = self.info['db']['out_csv']
+                out_csv = self.info["db"]["out_csv"]
         except Exception:
             out_csv = None
 
@@ -214,102 +114,83 @@ class JarvisPLOT(Base):
         else:
             out_csv_list = []
 
-        # Build DataSet list in the SAME style as HinoLLP.yaml
         datasets = []
-        datasets.append({
-            "name": "dynesty",
-            "path": _rel(dynesty_csv),
-            "type": "csv",
-        })
+        if has_dynesty_dataset:
+            datasets.append({
+                "name": "dynesty",
+                "path": _rel(dynesty_csv),
+                "type": "csv",
+            })
 
         if out_csv_list:
-            for p in out_csv_list:
-                if not p:
+            for path_item in out_csv_list:
+                if not path_item:
                     continue
-                base = os.path.splitext(os.path.basename(str(p)))[0]
-                name = base.replace('-', '_').replace('.', '_')
-                # keep a stable prefix for samples
-                if not name.startswith('df'):
+                base = os.path.splitext(os.path.basename(str(path_item)))[0]
+                name = base.replace("-", "_").replace(".", "_")
+                if not name.startswith("df"):
                     name = f"df_{name}"
                 datasets.append({
                     "name": name,
-                    "path": _rel(str(p)),
+                    "path": _rel(str(path_item)),
                     "type": "csv",
                 })
         else:
-            # Placeholder so the template is still readable
             datasets.append({"name": "df", "path": "samples.csv", "type": "csv"})
 
-        # Build scatter templates for all 2D combinations of scan variables
         scan_vars = []
         try:
-            scan_vars = scan_yaml.config.get('Sampling', {}).get('Variables', [])
+            scan_vars = scan_yaml.config.get("Sampling", {}).get("Variables", [])
         except Exception:
             scan_vars = []
 
-        def _vname(idx: int, fallback: str) -> str:
-            try:
-                return str(scan_vars[idx].get('name', fallback))
-            except Exception:
-                return fallback
-
-        # Collect variable names and metadata (limits + scale)
         var_names = []
         var_meta = {}
         try:
-            for v in scan_vars:
-                if not isinstance(v, dict):
+            for var in scan_vars:
+                if not isinstance(var, dict) or not var.get("name", None):
                     continue
-                if not v.get('name', None):
-                    continue
-                name = str(v['name'])
+                name = str(var["name"])
                 var_names.append(name)
 
-                # limits
                 vmin, vmax = None, None
                 try:
-                    params = (v.get('distribution', {}) or {}).get('parameters', {}) or {}
-                    vmin = params.get('min', None)
-                    vmax = params.get('max', None)
+                    params = (var.get("distribution", {}) or {}).get("parameters", {}) or {}
+                    vmin = params.get("min", None)
+                    vmax = params.get("max", None)
                 except Exception:
                     vmin, vmax = None, None
 
-                # scale: infer from distribution type
-                scale = 'linear'
+                scale = "linear"
                 try:
-                    dtype = str((v.get('distribution', {}) or {}).get('type', '')).strip().lower()
-                    if 'log' in dtype:
-                        scale = 'log'
+                    dtype = str((var.get("distribution", {}) or {}).get("type", "")).strip().lower()
+                    if "log" in dtype:
+                        scale = "log"
                 except Exception:
-                    scale = 'linear'
+                    scale = "linear"
 
                 var_meta[name] = {
-                    'lim': [vmin, vmax],
-                    'scale': scale,
+                    "lim": [vmin, vmax],
+                    "scale": scale,
                 }
         except Exception:
             var_names = []
             var_meta = {}
 
-        # Fallback so the YAML remains runnable even if variables are missing
         if len(var_names) == 0:
-            var_names = ['x', 'y']
+            var_names = ["x", "y"]
         elif len(var_names) == 1:
             var_names = [var_names[0], var_names[0]]
 
-        # Sources for samples layers: all datasets except the first one (dynesty)
-        sample_sources = [d["name"] for d in datasets[1:]]
+        sample_sources = [ds["name"] for ds in datasets if ds["name"] != "dynesty"]
         if not sample_sources:
             sample_sources = ["df"]
 
-        from itertools import combinations
-
         figures = []
 
-        # 1) ScatterC for all variable pairs
         for xx, yy in combinations(var_names, 2):
-            safe_x = str(xx).replace('-', '_').replace('.', '_').replace('/', '_')
-            safe_y = str(yy).replace('-', '_').replace('.', '_').replace('/', '_')
+            safe_x = str(xx).replace("-", "_").replace(".", "_").replace("/", "_")
+            safe_y = str(yy).replace("-", "_").replace(".", "_").replace("/", "_")
             fig_name = f"scatter_{safe_x}__{safe_y}"
 
             figures.append(
@@ -320,10 +201,10 @@ class JarvisPLOT(Base):
                     "frame": {
                         "ax": {
                             "labels": {"x": str(xx), "y": str(yy)},
-                            "xlim": (var_meta.get(str(xx), {}) or {}).get('lim', [None, None]),
-                            "ylim": (var_meta.get(str(yy), {}) or {}).get('lim', [None, None]),
-                            "xscale": (var_meta.get(str(xx), {}) or {}).get('scale', 'linear'),
-                            "yscale": (var_meta.get(str(yy), {}) or {}).get('scale', 'linear'),
+                            "xlim": (var_meta.get(str(xx), {}) or {}).get("lim", [None, None]),
+                            "ylim": (var_meta.get(str(yy), {}) or {}).get("lim", [None, None]),
+                            "xscale": (var_meta.get(str(xx), {}) or {}).get("scale", "linear"),
+                            "yscale": (var_meta.get(str(yy), {}) or {}).get("scale", "linear"),
                         },
                         "axc": {
                             "label": {"ylabel": "LogL"},
@@ -332,7 +213,7 @@ class JarvisPLOT(Base):
                     "layers": [
                         {
                             "name": "scatter",
-                            "data": [{"source": s} for s in sample_sources],
+                            "data": [{"source": src} for src in sample_sources],
                             "axes": "ax",
                             "method": "scatter",
                             "coordinates": {
@@ -352,74 +233,8 @@ class JarvisPLOT(Base):
                 }
             )
 
-        # 2) Dynesty diagnostics (5 panels, shared x): replicate the old `plot_dynesty_results` structure
-        figures.append(
-            {
-                "name": "dynesty_logL_vs_logX",
-                "enable": True,
-                "style": ["a4paper_2x1", "rect_5x1"],
-                "frame": {
-                    # "sharex": True,
-                    "ax0": {
-                        "labels": {"x": "$-\\ln(X)$", "y": "$N_{\\mathrm{live}}$"},
-                    },
-                    "ax1": {
-                        "labels": {"x": "$-\\ln(X)$", "y": "Likelihood"},
-                    },
-                    "ax2": {
-                        "labels": {"x": "$-\\ln(X)$", "y": "Importance\nweight PDF"},
-                    },
-                    "ax3": {
-                        "labels": {"x": "$-\\ln(X)$", "y": "Evidence"},
-                    },
-                    "ax4": {
-                        "labels": {"x": "$-\\ln(X)$", "y": "Iters"},
-                    },
-                },
-                "layers": [
-                    {
-                        "name": "nlive",
-                        "data": [{"source": "dynesty"}],
-                        "axes": "ax0",
-                        "method": "scatter",
-                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_nlive"}},
-                        "style": {"alpha": 0.7, "zorder": 1},
-                    },
-                    {
-                        "name": "loglike",
-                        "data": [{"source": "dynesty"}],
-                        "axes": "ax1",
-                        "method": "scatter",
-                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Like) / np.exp(np.max(log_Like))"}},
-                        "style": {"alpha": 0.7, "zorder": 1},
-                    },
-                    {
-                        "name": "Importance\nweight PDF",
-                        "data": [{"source": "dynesty"}],
-                        "axes": "ax2",
-                        "method": "scatter",
-                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_weight) / np.exp(np.max(log_weight))"}},
-                        "style": {"alpha": 0.7, "zorder": 1},
-                    },
-                    {
-                        "name": "logevidence",
-                        "data": [{"source": "dynesty"}],
-                        "axes": "ax3",
-                        "method": "scatter",
-                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Evidence)"}},
-                        "style": {"alpha": 0.7, "zorder": 1},
-                    },
-                    {
-                        "name": "iters",
-                        "data": [{"source": "dynesty"}],
-                        "axes": "ax4",
-                        "method": "scatter",
-                        "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_it"}},
-                        "style": {"alpha": 0.7, "zorder": 1},
-                    },
-                ],
-            }
-        )
+        if has_dynesty_dataset:
+            figures.append(self._build_dynesty_diagnostics_figure())
 
         jplot_yaml = {
             "DataSet": datasets,
@@ -430,13 +245,13 @@ class JarvisPLOT(Base):
                 "formats": ["png"],
             },
             "project": {
-                "name": self.info.get('project_name', 'Jarvis-HEP')
+                "name": self.info.get("project_name", "Jarvis-HEP"),
             },
             "version": 0.3,
             "Functions": [],
         }
 
-        with open(out_yaml_path, 'w') as file:
+        with open(out_yaml_path, "w") as file:
             yaml.dump(
                 jplot_yaml,
                 file,
@@ -446,567 +261,67 @@ class JarvisPLOT(Base):
                 sort_keys=False,
             )
 
-        self.logger.warning(f"JarvisPLOT YAML generated (Dynesty): {out_yaml_path}")
-        self.logger.warning(
-            f"Render with: jarvisplot {out_yaml_path}  (or: jarvis --jplot {out_yaml_path})"
-        )
-    def set_random_config(self, scan_yaml):
-        self.yaml = {
-            "Plot_Config":  {
-                "save_dir": self.info["plot"]["save_path"], 
-                "save_format":  ["pdf", "png"], 
-                "samples":  self.load_sample_paths(self.info["db"]["info"]), 
-                "scan_yaml":    self.info["config_file"], 
-                "screen_show":  True
+        self.logger.warning(f"JarvisPLOT YAML generated: {out_yaml_path}")
+        self.logger.warning(f"Render with external Jarvis-PLOT CLI: jarvisplot {out_yaml_path}")
+
+    def _build_dynesty_diagnostics_figure(self):
+        return {
+            "name": "dynesty_logL_vs_logX",
+            "enable": True,
+            "style": ["a4paper_2x1", "rect_5x1"],
+            "frame": {
+                "ax0": {"labels": {"x": "$-\\ln(X)$", "y": "$N_{\\mathrm{live}}$"}},
+                "ax1": {"labels": {"x": "$-\\ln(X)$", "y": "Likelihood"}},
+                "ax2": {"labels": {"x": "$-\\ln(X)$", "y": "Importance\nweight PDF"}},
+                "ax3": {"labels": {"x": "$-\\ln(X)$", "y": "Evidence"}},
+                "ax4": {"labels": {"x": "$-\\ln(X)$", "y": "Iters"}},
             },
-            "Variables":    [],
-            "Figures":  {}
+            "layers": [
+                {
+                    "name": "nlive",
+                    "data": [{"source": "dynesty"}],
+                    "axes": "ax0",
+                    "method": "scatter",
+                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_nlive"}},
+                    "style": {"alpha": 0.7, "zorder": 1},
+                },
+                {
+                    "name": "loglike",
+                    "data": [{"source": "dynesty"}],
+                    "axes": "ax1",
+                    "method": "scatter",
+                    "coordinates": {
+                        "x": {"expr": "-log_PriorVolume"},
+                        "y": {"expr": "np.exp(log_Like) / np.exp(np.max(log_Like))"},
+                    },
+                    "style": {"alpha": 0.7, "zorder": 1},
+                },
+                {
+                    "name": "Importance\nweight PDF",
+                    "data": [{"source": "dynesty"}],
+                    "axes": "ax2",
+                    "method": "scatter",
+                    "coordinates": {
+                        "x": {"expr": "-log_PriorVolume"},
+                        "y": {"expr": "np.exp(log_weight) / np.exp(np.max(log_weight))"},
+                    },
+                    "style": {"alpha": 0.7, "zorder": 1},
+                },
+                {
+                    "name": "logevidence",
+                    "data": [{"source": "dynesty"}],
+                    "axes": "ax3",
+                    "method": "scatter",
+                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Evidence)"}},
+                    "style": {"alpha": 0.7, "zorder": 1},
+                },
+                {
+                    "name": "iters",
+                    "data": [{"source": "dynesty"}],
+                    "axes": "ax4",
+                    "method": "scatter",
+                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_it"}},
+                    "style": {"alpha": 0.7, "zorder": 1},
+                },
+            ],
         }
-        for var in scan_yaml.config["Sampling"]["Variables"]:
-            vardict = self.load_scan_var(var) 
-            self.yaml["Variables"].append(vardict) 
-        self.set_scatter_plots() 
-        self.set_scatterc_plots()
-        with open(self.info['plot']['config'], 'w') as file:
-            yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
-
-            
-    def set_grid_config(self, scan_yaml):
-        self.yaml = {
-            "Plot_Config":  {
-                "save_dir": self.info["plot"]["save_path"], 
-                "save_format":  ["pdf", "png"], 
-                "samples":  self.load_sample_paths(self.info["db"]["info"]), 
-                "scan_yaml":    self.info["config_file"], 
-                "screen_show":  True
-            },
-            "Variables":    [],
-            "Figures":  {}
-        }
-        for var in scan_yaml.config["Sampling"]["Variables"]:
-            vardict = self.load_scan_var(var) 
-            self.yaml["Variables"].append(vardict) 
-        self.set_scatter_plots()
-        self.set_scatterc_plots()
-        
-        with open(self.info['plot']['config'], 'w') as file:
-            yaml.dump(self.yaml, file, Dumper=CustomDumper, default_flow_style=False, allow_unicode=True)
-
-    def load_sample_paths(self, infojs):
-        print(infojs)
-        with open(infojs) as f1:
-            db = json.loads(f1.read())
-            return db['converted']
-
-
-    def load_scan_var(self, var):
-        vardict = {
-                    "expr":     var['name'],
-                    "label":    var['name'],
-                    "scale":    var['distribution']['type'],
-                    "lim":      [var['distribution']['parameters']['min'], var['distribution']['parameters']['max']]
-        }
-        return vardict
-
-    def set_scatter_plots(self):
-        from itertools import combinations
-        for pp in list(combinations(self.yaml["Variables"], 2)): 
-            plot = {
-                "type": "scatter", 
-                "parameters": list(pp) 
-            }
-            self.yaml['Figures']["Scatter_{}{}".format(pp[0]['expr'], pp[1]['expr'])] = plot
-
-    def set_scatterc_plots(self):
-        from itertools import combinations 
-        for pp in list(combinations(self.yaml["Variables"], 2)): 
-            plot = {
-                "type": "scatterC", 
-                "parameters":   list(pp), 
-                "color":    {
-                    "expr": "LogL",
-                    "label":    r"$\ln{\mathcal{L}}$"
-                }
-            }
-            self.yaml["Figures"]["ScatterC_{}{}".format(pp[0]["expr"], pp[1]["expr"])] = plot 
-
-
-    def load_config(self, filepath) -> None:
-        with open(filepath, 'r') as file:
-            self.yaml = yaml.safe_load(file)
-    
-    def plot(self) -> None: 
-        # New mode: JarvisPLOT YAML (HinoLLP.yaml style). Rendering is done by JarvisPLOT.
-        if isinstance(self.yaml, dict) and 'DataSet' in self.yaml and isinstance(self.yaml.get('Figures', None), list):
-            self.logger.warning('Loaded a JarvisPLOT YAML template. This module only emits the YAML; use JarvisPLOT to render it.')
-            return
-        if "dynesty" in self.yaml['Plot_Config']:
-            self.ddf = pd.read_csv(self.yaml['Plot_Config']['dynesty']['result'])
-        self.sdf = self.load_csv_datas(self.yaml['Plot_Config']['samples'] )
-        for name, image in self.yaml['Figures'].items():
-            if image['type'] == "dynesty_run":
-                self.plot_dynesty_results(image)
-            if image['type'] == "dynesty_parameter":
-                self.plot_dynesty_parameter(image)
-            if image['type'] == "scatter":
-                from BudingPLOT.BudingPlot import Scatter 
-                drawer = Scatter(self.yaml, name, image)
-                drawer.data = self.sdf
-                drawer.draw() 
-            if image['type'] == "scatterC": 
-                from BudingPLOT.BudingPlot import ScatterC 
-                drawer = ScatterC(self.yaml, name, image)
-                drawer.data = self.sdf 
-                drawer.draw()
-            if image['type'] == "voronoiC":
-                from BudingPLOT.BudingPlot import VoronoiC
-                drawer = VoronoiC(self.yaml, name, image)
-                drawer.data = self.sdf 
-                drawer.draw()
-                
-            
-    def load_csv_datas(self, dfs):
-        if isinstance(dfs, list):
-            dataframes = []
-            for path in dfs: 
-                try: 
-                    df = pd.read_csv(path)
-                    dataframes.append(df)
-                except Exception as e:
-                    print(f"Failed to read {path}: {e}")
-            if dataframes:
-                combined_df = pd.concat(dataframes, ignore_index=True)
-                return combined_df
-            else:
-                return None
-        elif isinstance(dfs, str): 
-            try: 
-                df = pd.read_csv(dfs)
-                return df 
-            except Exception as e: 
-                print(f"Failed to read {path}: {e}")
-            return None
-                
-    def plot_dynesty_parameter(self, image) -> None:
-        from matplotlib.ticker import AutoMinorLocator
-        from scipy.stats import gaussian_kde
-        
-        ndim = len(image['parameters'])    
-        width = 6 + 3 * ndim
-        height = 2 + 3 * ndim
-        fig = plt.figure(figsize=(width, height))
-        logo = fig.add_axes([1 - 1.2 / width, 1 - 1.2 / height, 1 / width, 1 / height])
-        draw_logo_in_square(logo) 
-
-        for ii in range(ndim):
-            axLX = fig.add_axes([3 / width, (1 + 3*ii)/ height, 5.75 / width, 3 / height])
-            a1 = axLX.scatter( - self.ddf['log_PriorVolume'], self.ddf[f"samples_u[{ii}]"], s=1, marker='.', c=self.ddf['log_Like'], cmap="plasma_r", alpha=0.7)
-            axLX.set_xlim(0, max( - self.ddf['log_PriorVolume']))
-            axLX.set_ylim(0, 1)
-            axLX.yaxis.set_minor_locator(AutoMinorLocator())
-            axLX.xaxis.set_minor_locator(AutoMinorLocator())
-            axLX.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-            axLX.tick_params(which='major', length=10)
-            axLX.tick_params(which='minor', length=4)
-            if ii != 0:
-                axLX.set_xticklabels([])
-            else:
-                axLX.set_xlabel(r"$-\ln(X)$", fontsize=24)
-            axLX.set_yticklabels([])
-
-            for jj in range(ndim):
-                kk = ndim - jj - 1 
-                if ii < jj:
-                    ax2d = fig.add_axes([(8.8 + kk * 3) / width, ( 1 + ii * 3) / height, 3/width, 3/height])
-                    ax2d.scatter(self.ddf[f"samples_u[{jj}]"], self.ddf[f"samples_u[{ii}]"], s=1, marker='.', c=self.ddf['log_Like'], cmap="plasma_r", alpha=0.7)
-                    ax2d.set_xlim(0, 1)
-                    ax2d.set_ylim(0, 1)
-                    ax2d.yaxis.set_minor_locator(AutoMinorLocator())
-                    ax2d.xaxis.set_minor_locator(AutoMinorLocator())
-                    ax2d.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-                    ax2d.tick_params(which='major', length=10)
-                    ax2d.tick_params(which='minor', length=4)
-                    ax2d.set_yticklabels([])
-                    if ii != 0:
-                        ax2d.set_xticklabels([])
-                    else:
-                        ax2d.set_xlabel(f"u{jj}", fontsize=24)
-                elif ii == jj:
-                    ax1d = fig.add_axes([1 / width, ( 1 + ii * 3) / height, 1.95/width, 3/height])
-                    wt_kde = gaussian_kde(np.array(self.ddf[f"samples_u[{ii}]"]), weights=np.exp(np.array(self.ddf['log_weight'])), bw_method="silverman")
-                    yy = np.linspace(0, 5, 500)
-                    wtt = wt_kde(yy)
-                    wtt = wtt / max(wtt)
-                    ax1d.plot(wtt, yy, '-', linewidth=1.5, color="#283593")
-                    ax1d.fill_betweenx(yy, wtt, 0., edgecolor=None, facecolor="#03A9F4", alpha=0.5)
-                    ax1d.yaxis.set_minor_locator(AutoMinorLocator())
-                    ax1d.xaxis.set_minor_locator(AutoMinorLocator())
-                    ax1d.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-                    ax1d.tick_params(which='major', length=10)
-                    ax1d.tick_params(which='minor', length=4)
-                    ax1d.set_ylim(0, 1)
-                    ax1d.set_xlim(1.2, 0)
-                    if ii != 0:
-                        ax1d.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-                        ax1d.set_xticklabels([])
-                    else:  
-                        ax1d.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-                    ax1d.grid(visible=True, which='major', axis="x")
-                    # ax1d.set_yticklabels([])
-                    ax1d.set_ylabel(f"u{ii}", fontsize=24)
-
-        ax1d.xaxis.set_label_position("top")
-        ax1d.set_xlabel(r"$\text{Post-PDF}$", fontsize=20)
-
-        axc = fig.add_axes([3 / width, (1.05 + 3*ndim )/ height, 5.75 / width, 0.2 / height])
-        plt.colorbar(a1, axc, orientation="horizontal")
-        axc.tick_params(labelsize=11,  direction="in", bottom=False, left=False, top=True, right=False, which='both')
-        axc.tick_params(which='major', length=7)
-        axc.xaxis.set_minor_locator(AutoMinorLocator())
-        axc.tick_params(which='minor', length=4)
-        axc.xaxis.set_label_position('top')
-        axc.xaxis.tick_top()
-        axc.set_xlabel(r"$\log{\mathcal{L}}$", fontsize=24)
-        plt.draw()
-        
-        image['fig'] = plt
-        image['name'] = "dynesty_parameter_01"
-        image['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], "dynesty_parameter_01")
-        print(image)
-        self.savefig(image, plt)
-        # plt.close()
-        if self.yaml['Plot_Config']['screen_show']:
-            plt.show(block=False)
-        #     plt.pause(1)
-            input("\n\tPress 'Enter' to continue ...")
-        plt.close()
-
-        # Plot same plot for all samples 
-        
-        self.sdf.replace([np.inf, -np.inf], np.nan, inplace=True)
-        self.sdf.dropna(subset=['LogL'], inplace=True)
-        
-        # Calculate Log(X) for samples
-        from scipy.interpolate import interp1d
-        lxll = interp1d(self.ddf['log_Like'], self.ddf['log_PriorVolume'], kind="linear", fill_value="extrapolate")
-
-        lxx = lxll(self.sdf['LogL'])
-        self.sdf['log_PriorVolume'] = lxx 
-        self.sdf = self.sdf.sort_values(by="log_PriorVolume", ascending=False)
-        self.ddf = self.ddf.sort_values(by="log_PriorVolume", ascending=False)
-        
-        # Calculate weight for samples 
-        wt = np.exp(np.array(self.ddf["log_weight"]))
-        self.ddf['CDF'] = np.cumsum(wt)
-
-        cdf = np.insert(np.array(self.ddf['CDF']), 0, 0.)
-        lnx = np.array(- self.ddf['log_PriorVolume'])
-        lnx = np.insert(lnx, 0, 0.)
-        cdf_func = interp1d(lnx, cdf, kind="linear")
-        scdf = cdf_func(- self.sdf['log_PriorVolume'])
-        aaf = np.insert(scdf, 0, 0.)
-        self.sdf['weight'] = np.diff(aaf)
-
-        # self.sdf.to_csv(self.yaml['Plot_Config']['samples'], index=False)
-
-
-        fig = plt.figure(figsize=(width, height))
-        logo = fig.add_axes([1 - 1.2 / width, 1 - 1.2 / height, 1 / width, 1 / height])
-        draw_logo_in_square(logo) 
-        vardict = []
-        for var in image['parameters']:
-            for inp in self.yaml['Variables']:
-                if inp['expr'] == var:
-                    vardict.append(inp)
-                
-        for ii in range(ndim):
-            varii = vardict[ii]
-            axLX = fig.add_axes([3 / width, (1 + 3*ii)/ height, 5.75 / width, 3 / height])
-            a1 = axLX.scatter( - self.sdf['log_PriorVolume'], self.sdf[varii["expr"]], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
-            axLX.set_xlim(0, max( - self.sdf['log_PriorVolume']))
-            axLX.set_ylim(varii['lim'])
-            axLX.yaxis.set_minor_locator(AutoMinorLocator())
-            axLX.xaxis.set_minor_locator(AutoMinorLocator())
-            axLX.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-            axLX.tick_params(which='major', length=10)
-            axLX.tick_params(which='minor', length=4)
-            if ii != 0:
-                axLX.set_xticklabels([])
-            else:
-                axLX.set_xlabel(r"$-\ln(X)$", fontsize=24)
-            axLX.set_yticklabels([])
-
-            for jj in range(ndim):
-                kk = ndim - jj - 1 
-                varjj = vardict[jj]
-                if ii < jj:
-                    ax2d = fig.add_axes([(8.8 + kk * 3) / width, ( 1 + ii * 3) / height, 3/width, 3/height])
-                    ax2d.scatter(self.sdf[varjj['expr']], self.sdf[varii['expr']], s=1, marker='.', c=self.sdf['LogL'], cmap="plasma_r", alpha=0.7)
-                    ax2d.set_xlim(varjj['lim'])
-                    ax2d.set_ylim(varii['lim'])
-                    ax2d.yaxis.set_minor_locator(AutoMinorLocator())
-                    ax2d.xaxis.set_minor_locator(AutoMinorLocator())
-                    ax2d.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-                    ax2d.tick_params(which='major', length=10)
-                    ax2d.tick_params(which='minor', length=4)
-                    ax2d.set_yticklabels([])
-                    if ii != 0:
-                        ax2d.set_xticklabels([])
-                    else:
-                        ax2d.set_xlabel(varjj['label'], fontsize=24)
-                elif ii == jj:
-                    ax1d = fig.add_axes([1 / width, ( 1 + ii * 3) / height, 1.95/width, 3/height])
-                    wt_kde = gaussian_kde(np.array(self.sdf[varii['expr']]), weights=np.array(self.sdf['weight']), bw_method="silverman")
-                    yy = np.linspace(varii['lim'][0], varii['lim'][1], 500)
-                    wtt = wt_kde(yy)
-                    wtt = wtt / max(wtt)
-                    ax1d.plot(wtt, yy, '-', linewidth=1.5, color="#283593")
-                    ax1d.fill_betweenx(yy, wtt, 0., edgecolor=None, facecolor="#03A9F4", alpha=0.5)
-                    ax1d.yaxis.set_minor_locator(AutoMinorLocator())
-                    ax1d.xaxis.set_minor_locator(AutoMinorLocator())
-                    ax1d.tick_params(labelsize=11,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-                    ax1d.tick_params(which='major', length=10)
-                    ax1d.tick_params(which='minor', length=4)
-                    ax1d.set_ylim(varii['lim'])
-                    ax1d.set_xlim(1.2, 0)
-                    if ii != 0:
-                        ax1d.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-                        ax1d.set_xticklabels([])
-                    else:  
-                        ax1d.set_xticks([0.2, 0.4, 0.6, 0.8, 1.0])
-                    ax1d.grid(visible=True, which='major', axis="x")
-                    # ax1d.set_yticklabels([])
-                    ax1d.set_ylabel(varii['label'], fontsize=24)
-
-        ax1d.xaxis.set_label_position("top")
-        ax1d.set_xlabel(r"$\text{Post-PDF}$", fontsize=20)
-
-        axc = fig.add_axes([3 / width, (1.05 + 3*ndim )/ height, 5.75 / width, 0.2 / height])
-        plt.colorbar(a1, axc, orientation="horizontal")
-        axc.tick_params(labelsize=11,  direction="in", bottom=False, left=False, top=True, right=False, which='both')
-        axc.tick_params(which='major', length=7)
-        axc.xaxis.set_minor_locator(AutoMinorLocator())
-        axc.tick_params(which='minor', length=4)
-        axc.xaxis.set_label_position('top')
-        axc.xaxis.tick_top()
-        axc.set_xlabel(r"$\log{\mathcal{L}}$", fontsize=24)
-        plt.draw()
-        
-        image['name'] = "dynesty_parameters_02"
-        image['fig'] = plt
-        image['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], image['name'])
-        self.savefig(image, plt)
-        # plt.close()
-        if self.yaml['Plot_Config']['screen_show']:
-            plt.show(block=False)
-            # plt.pause(1)
-            input("\n\tPress 'Enter' to continue ...")
-        plt.close()
-            
-    def plot_dynesty_results(self, name) -> None: 
-        import matplotlib.pyplot as plt
-        maxid = self.ddf.shape[0]
-        nlive = self.ddf.iloc[0]['samples_nlive']
-        
-        fig = plt.figure(figsize=(10, 11))
-        ax = fig.add_axes([0.01, 0.99-0.5/11., 0.05, 0.5/11.])
-        draw_logo_in_square(ax)
-        # from plot import draw_logo_in_square
-        data = [
-            {
-                "y": self.ddf['samples_nlive'],
-                "label":    "$\\text{Live points}$"
-            },
-            {   
-                "y": np.exp(self.ddf['log_Like'] - max(self.ddf['log_Like'])),
-                "label":    "Likelihood"
-            },
-            {
-                "y": np.exp(self.ddf['log_weight']),
-                "label":    "Importance\nweight PDF"
-            },
-            {
-                "y": np.exp(self.ddf['log_Evidence']),
-                "label":    "Evidence"
-            },
-            {
-                "y": self.ddf['samples_it'],
-                "label":    "Iters" 
-            }
-        ]
-        from copy import deepcopy
-        dtt = np.array(deepcopy(data[2]['y']))
-        # endid = np.where(dtt > dtt[-1])[-1][-1]
-        # lnx_end = self.ddf.iloc[endid]['log_PriorVolume']
-        # print()
-
-        from matplotlib.ticker import AutoMinorLocator
-        ax1 = fig.add_axes([0.18, 0.8/11., 0.8, 2/11.])
-        ax1.scatter( - self.ddf['log_PriorVolume'], data[0]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
-        ax1.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax1.set_ylim(0., max(data[0]['y']) * 1.2)
-        ax1.set_ylabel(data[0]['label'], fontsize=18)
-        ax1.yaxis.set_label_coords(-0.12, 0.5)
-        ax1.yaxis.set_minor_locator(AutoMinorLocator())
-        ax1.xaxis.set_minor_locator(AutoMinorLocator())
-        ax1.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-        ax1.tick_params(which='major', length=7)
-        ax1.tick_params(which='minor', length=4)
-        # ax1.set_xticklabels([])
-        plt.draw()
-
-
-        ax2 = fig.add_axes([0.18, 2.8/11., 0.8, 2/11.])
-        ax2.scatter( - self.ddf['log_PriorVolume'], data[1]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
-        ax2.plot( - self.ddf['log_PriorVolume'], data[1]['y'], '-', linewidth=0.8, alpha=0.4, color="#3f51b5" )
-        ax2.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax2.set_ylim(0., max(data[1]['y']) * 1.2)
-        ax2.set_ylabel(data[1]['label'], fontsize=18)
-        ax2.yaxis.set_label_coords(-0.12, 0.5)
-        ax2.yaxis.set_minor_locator(AutoMinorLocator())
-        ax2.xaxis.set_minor_locator(AutoMinorLocator())
-        ax2.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-        ax2.tick_params(which='major', length=7)
-        ax2.tick_params(which='minor', length=4)
-        ax2.set_xticklabels([])
-
-
-        plt.draw()
-
-        from scipy.stats import gaussian_kde
-        from scipy.interpolate import interp1d
-        ax3 = fig.add_axes([0.18, 4.8/11., 0.8, 2/11.])
-        dtt = dtt / max(dtt)
-        ax3.scatter( - self.ddf['log_PriorVolume'], dtt, marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
-        wt_kde = gaussian_kde(np.array(- self.ddf['log_PriorVolume']), weights=np.array(data[2]['y']), bw_method="silverman")
-        logvol = np.linspace(min(- self.ddf['log_PriorVolume']), max(- self.ddf['log_PriorVolume']), 1000)
-        wt = wt_kde(logvol)
-        wt = wt / wt.max()
-        ax3.plot(logvol, wt, '-', linewidth=1.8, color='#8bc34a', alpha=0.8)
-        ax3.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax3.set_ylim(0., 1.2)
-        ax3.set_ylabel(data[2]['label'], fontsize=18)
-        ax3.yaxis.set_label_coords(-0.12, 0.5)
-        ax3.yaxis.set_minor_locator(AutoMinorLocator())
-        ax3.xaxis.set_minor_locator(AutoMinorLocator())
-        ax3.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-        ax3.tick_params(which='major', length=7)
-        ax3.tick_params(which='minor', length=4)
-        ax3.set_xticklabels([])
-        ax3.text(0.02, 0.96, "Normalized to the maximum value", ha='left', va='top', transform=ax3.transAxes)
-
-        plt.draw()
-
-        ax4 = fig.add_axes([0.18, 6.8/11., 0.8, 2/11.])
-        ax4.scatter( - self.ddf['log_PriorVolume'], data[3]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
-        ax4.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax4.set_ylim(0., max(data[3]['y']) * 1.2)
-        ax4.set_ylabel(data[3]['label'], fontsize=18)
-        ax4.yaxis.set_label_coords(-0.12, 0.5)
-        ax4.yaxis.set_minor_locator(AutoMinorLocator())
-        ax4.xaxis.set_minor_locator(AutoMinorLocator())
-        ax4.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-        ax4.tick_params(which='major', length=7)
-        ax4.tick_params(which='minor', length=4)
-        ax4.set_xticklabels([])
-        plt.draw()
-        offset_text = ax4.yaxis.get_offset_text().get_text()
-        print(max(data[3]['y']), offset_text)
-        maxx = str(max(data[3]['y'])).split("e")[0][0:5]
-        upp = offset_text.split("e")[-1]
-        if "e" in offset_text:
-            txt = r"$\times 10^{" + upp + r"}$"
-        else:
-            txt = ""
-        ax4.text(0.4, max(data[3]['y']) * 0.95, maxx+txt, ha='left', va='top')
-        ax4.plot([0, max(-self.ddf['log_PriorVolume'])], [max(data[3]['y']), max(data[3]['y'])], '-', linewidth=0.8, color="grey", alpha=0.4)
-
-        logzerr = np.array(self.ddf['log_Evidence_err'])  
-        logzerr[~np.isfinite(logzerr)] = 0.
-        ax4.fill_between(- self.ddf['log_PriorVolume'], np.exp(self.ddf['log_Evidence'] - logzerr  ), np.exp(self.ddf['log_Evidence'] + logzerr), color='#8bc34a', alpha=0.2)
-
-        ax5 = fig.add_axes([0.18, 8.8/11., 0.8, 2/11.])
-        ax5.scatter( - self.ddf['log_PriorVolume'], data[4]['y'], marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
-        ax5.set_xlim(0., max(- self.ddf['log_PriorVolume']))
-        ax5.set_ylim(0., max(data[4]['y']) * 1.2)
-        ax5.set_ylabel(data[4]['label'], fontsize=18)
-        ax5.yaxis.set_label_coords(-0.12, 0.5)
-        ax5.yaxis.set_minor_locator(AutoMinorLocator())
-        ax5.xaxis.set_minor_locator(AutoMinorLocator())
-        ax5.tick_params(labelsize=18,  direction="in", bottom=True, left=True, top=True, right=True, which='both')
-        ax5.tick_params(which='major', length=7)
-        ax5.tick_params(which='minor', length=4)
-        ax5.set_xticklabels([])
-
-        # ax1.axvline( -lnx_end, color="#f44336", linestyle=":", linewidth=2.0, alpha=0.6)
-        # ax2.axvline( -lnx_end, color="#f44336", linestyle=":", linewidth=2.0, alpha=0.6)
-        # ax3.axvline( -lnx_end, color="#f44336", linestyle=":", linewidth=2.0, alpha=0.6)
-        # ax4.axvline( -lnx_end, color="#f44336", linestyle=":", linewidth=2.0, alpha=0.6)
-        # ax5.axvline( -lnx_end, color="#f44336", linestyle=":", linewidth=2.0, alpha=0.6)
-
-        plt.draw()
-
-        ax1.set_xlabel(r"$-\ln(X)$", fontsize=24)
-        
-        os.makedirs(self.yaml['Plot_Config']['save_dir'], exist_ok=True)
-        
-        img = {}
-        img['fig'] = plt
-        name = "dynesty_results"
-        img['file'] = os.path.join(self.yaml['Plot_Config']['save_dir'], name)
-        img['name'] = name
-        self.savefig(img, plt)
-        if self.yaml['Plot_Config']['screen_show']:
-            plt.show(block=False)
-        #     plt.pause(1)
-            input("\n\tPress 'Enter' to continue ...")
-        plt.close()
-        
-        # plt.savefig(savepath, dpi=300)
-
-    def savefig(self, fig, plt):
-        print(fig['name'])
-        from matplotlib.backends.backend_pdf import PdfPages
-        support_fmt_list = ['ps', 'eps', 'pdf', 'pgf', 'png', 'raw',
-                            'rgba', 'svg', 'svgz', 'jpg', 'jpeg', 'tif', 'tiff']
-        if "save_format" not in self.yaml["Plot_Config"]:
-            self.yaml["Plot_Config"]['save_format'] = ['pdf']
-
-        unsupport = []
-        support = []
-        file_list = []
-        for fmt in self.yaml["Plot_Config"]['save_format']:
-            if fmt.strip().lower() in support_fmt_list:
-                support.append(fmt.strip().lower())
-                file_list.append("'{}.{}'".format(
-                    fig['name'], fmt.strip().lower()))
-            else:
-                unsupport.append("'*.{}'".format(fmt.strip().lower()))
-        if len(support) == 0:
-            support = ['pdf']
-            file_list = ["'{}.{}'".format(fig['name'], 'pdf')]
-            print("\tTimer: {:.2f} Second;  Message from '{}' -> No support picture format found in configure file! Default format '*.pdf' used in this plot".format(
-                time.time()-fig['start'], fig['section']))
-        for fmt in support:
-            if (fmt == 'ps'):
-                pp = plt
-                pp.savefig("{}.pdf".format(fig['file']), format='pdf')
-                self.compress_figure_to_PS(fig['file'])
-            elif fmt == "pdf" and ('ps' not in self.yaml["Plot_Config"]['save_format']):
-                pp = plt
-                pp.savefig("{}.{}".format(fig['file'], fmt))
-            else:
-                pp = plt
-                pp.savefig("{}.{}".format(fig['file'], fmt), dpi=300)
-
-        if ('pdf' not in support) and ('ps' in support):
-            os.remove("{}.pdf".format(fig['file']))
-
-        self.logger.warning("Figure {} saved in the path\n\t\t-> {} \n\t\t>> {}.".format(
-            fig['name'], os.path.dirname(fig['file']), ", >> ".join(file_list)))
-        if unsupport:
-            self.logger.warning(emoji.emojize('\t:ghost::ghost::ghost: Figure format unsupport -> {}. '.format(
-                ", ".join(unsupport)), use_aliases=True))
-
-    def compress_figure_to_PS(self, figpath):
-        os.system('pdf2ps {}.pdf {}.ps'.format(figpath, figpath))

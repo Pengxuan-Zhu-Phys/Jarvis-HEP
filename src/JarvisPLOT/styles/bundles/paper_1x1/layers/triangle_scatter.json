@@ -1,6 +1,0 @@
-{
-    "type": "triangle_scatter",
-    "s": 10,
-    "alpha": 0.9,
-    "cmap": "viridis"
-}

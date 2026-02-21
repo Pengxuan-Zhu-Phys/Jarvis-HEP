@@ -8,7 +8,7 @@ from abc import ABCMeta, abstractmethod
 from mpmath.functions.functions import re
 import numpy as np
 import pandas as pd 
-from numpy.lib.function_base import meshgrid
+from numpy import meshgrid
 from pandas.core.series import Series
 from sympy import sympify
 from sympy.geometry import parabola
@@ -327,6 +327,5 @@ def Bridson_sampling(dims=np.array([1.0,1.0]), radius=0.05, k=30, hypersphere_sa
             if in_limits(q) and not in_neighborhood(q):
                 add_point(q)
     return P[~np.isnan(P).any(axis=ndim)]
-
 
 

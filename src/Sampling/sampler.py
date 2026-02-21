@@ -29,8 +29,8 @@ class SamplingVirtial(Base):
         self.total_core                 = os.cpu_count()
         
     def load_nuisance_sampler(self): 
-        if self.config['Sampling']['Nuisance']: 
-            nui_config = self.config['Sampling']['Nuisance']
+        nui_config = (self.config.get('Sampling', {}) or {}).get('Nuisance', None)
+        if nui_config: 
             if nui_config['Method'] == "Profile1D": 
                 from Sampling.Source.Nuisance.profile1d import Profile1D
                 self.nuisance_sampler = Profile1D()

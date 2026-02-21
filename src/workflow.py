@@ -193,6 +193,7 @@ class Workflow(Base):
             from matplotlib.collections import LineCollection
             from plot import create_round_square
             from PIL import Image
+            icon_dir = os.path.join(os.path.dirname(__file__), "icons")
 
             layerW = 6.0 
             figL = layerW * len(self.calc_layer) - 3
@@ -528,13 +529,13 @@ class Workflow(Base):
                 ax.plot(xx, yy, "-", c="#d45040", lw=3)
 
             def input_file_at_pos(pos):
-                image_path = "src/icons/inputfile.png" 
+                image_path = os.path.join(icon_dir, "inputfile.png")
                 with Image.open(image_path) as image:
                     image = np.array(image)
                     ax.imshow(image, extent=[pos[0]-0.5, pos[0], pos[1]-0.25, pos[1]+0.25], zorder=100)
 
             def output_file_at_pos(pos):
-                image_path = "src/icons/outputfile.png"  
+                image_path = os.path.join(icon_dir, "outputfile.png")
                 with Image.open(image_path) as image: 
                     image = np.array(image)
                     ax.imshow(image, extent=[pos[0], pos[0]+0.5, pos[1]-0.25, pos[1]+0.25], zorder=100)
@@ -548,25 +549,25 @@ class Workflow(Base):
                 # ax.plot([op["pos"][0] - op['wid'], op["pos"][0]], [op["pos"][1], op["pos"][1]], "-")
 
             def module_at_pos(pos):
-                image_path = "src/icons/calculator.png"  
+                image_path = os.path.join(icon_dir, "calculator.png")
                 with Image.open(image_path) as image:
                     image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
                     ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def lib_at_pos(pos):
-                image_path = "src/icons/library.png"  
+                image_path = os.path.join(icon_dir, "library.png")
                 with Image.open(image_path) as image:
                     image = np.array(image)
                     ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def sampler_at_pos(pos):
-                image_path = "src/icons/sampler.png"  
+                image_path = os.path.join(icon_dir, "sampler.png")
                 with Image.open(image_path) as image:
                     image = np.array(image)
                     ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)
 
             def logo_at_pos(pos):
-                image_path = "src/icons/JarvisHEP.png"
+                image_path = os.path.join(icon_dir, "JarvisHEP.png")
                 with Image.open(image_path) as image:
                     image = np.array(image.convert("RGBA"))
                     ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)

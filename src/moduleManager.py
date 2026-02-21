@@ -13,6 +13,9 @@ class ModuleManager:
             if cls._instance is None:
                 cls._instance = super(ModuleManager, cls).__new__(cls)
                 cls._instance.module_pools = {}
+                cls._instance._with_nuisance = False
+                cls._instance.nuisance_loglikelihoods = {}
+                cls._instance.nuisance_passconditions = {}
         return cls._instance
 
     # ModuleManager的其他方法

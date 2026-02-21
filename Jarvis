@@ -4,58 +4,46 @@ import os, sys
 
 pwd = os.path.abspath(os.path.dirname(__file__))
 sys.path.append(os.path.join(pwd, "src"))
+from project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 
-# ------------------------------
-# Fast path for JarvisPLOT modes
-# ------------------------------
+def _mkproject_fast_path(argv):
+    if "--mkproject" not in argv:
+        return False
 
-def _has_flag(flag: str) -> bool:
-    return flag in sys.argv
-
-def _next_value(flag: str):
-    if flag in sys.argv:
-        i = sys.argv.index(flag)
-        if i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
-    return None
-
-def _find_yaml_arg(argv):
-    # Prefer the argument right after --jplot if present
-    v = _next_value("--jplot")
-    if v and not v.startswith("-"):
-        return v
-    # Otherwise, pick the first non-flag arg ending with .yaml/.yml
-    for a in argv[1:]:
-        if a.startswith("-"):
-            continue
-        if a.endswith((".yaml", ".yml")):
-            return a
-    return None
-
-if _has_flag("--jplot") or _has_flag("--jplot-template"):
-    try:
-        from JarvisPLOT.cli import main as jplot_main
-    except Exception as e:
-        print("\n[JarvisPLOT] Failed to import JarvisPLOT CLI:\n ", e)
+    conflicts = [
+        flag for flag in (
+            "--plot",
+            "--convert",
+            "--monitor",
+            "--install-dependencies",
+            "--check-modules",
+        )
+        if flag in argv
+    ]
+    if conflicts:
+        print(f"[Jarvis-HEP] --mkproject cannot be combined with: {' '.join(conflicts)}")
         sys.exit(2)
 
-    if _has_flag("--jplot"):
-        yaml_path = _find_yaml_arg(sys.argv)
-        if not yaml_path:
-            print("[JarvisPLOT] Missing YAML path for --jplot")
-            sys.exit(2)
-        if not os.path.isabs(yaml_path):
-            yaml_path = os.path.abspath(os.path.join(os.getcwd(), yaml_path))
-        if not os.path.exists(yaml_path):
-            print(f"[JarvisPLOT] YAML not found: {yaml_path}")
-            sys.exit(2)
-        code = jplot_main(["--jplot", yaml_path])
-        sys.exit(code)
-    else:
-        style = _next_value("--style") or "paper_1x1"
-        out   = _next_value("--out")   or "jplot_template.yaml"
-        code = jplot_main(["--jplot-template", "--style", style, "--out", out])
-        sys.exit(code)
+    i = argv.index("--mkproject")
+    if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
+        print("[Jarvis-HEP] Missing project name for --mkproject")
+        sys.exit(2)
+
+    project_name = argv[i + 1]
+    try:
+        project_root = create_project_scaffold(project_name, cwd=os.getcwd())
+    except ValueError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        sys.exit(2)
+    except FileExistsError as exc:
+        print(f"[Jarvis-HEP] Project directory already exists: {exc}")
+        sys.exit(1)
+
+    print(f"[Jarvis-HEP] Project scaffold created at: {project_root}")
+    print(f"[Jarvis-HEP] Created folders: {', '.join(PROJECT_SUBDIRS)}")
+    sys.exit(0)
+
+_mkproject_fast_path(sys.argv)
 
 # ------------------------------
 # Legacy Core workflow (scan/convert/plot/monitor)
@@ -65,7 +53,9 @@ from core import Core
 def main():
     jc = Core()
     jc.initialization()
-    if jc.scan_mode:
+    if getattr(jc.args, "mkproject", None):
+        jc.mkproject()
+    elif jc.scan_mode:
         jc.run_sampling()
     elif jc.args.cvtDB:
         jc.convert()

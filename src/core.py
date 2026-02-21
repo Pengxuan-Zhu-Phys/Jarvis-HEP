@@ -23,14 +23,11 @@ from pprint import pprint
 import pandas as pd 
 import concurrent.futures
 import asyncio 
+from project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 from loguru import logger
 import setproctitle 
 logger.remove()
-# Prefer a decoupled JarvisPLOT if available; fallback to BudingPLOT
-try:
-    from plot import JarvisPLOT as PlotterClass
-except Exception:
-    from plot import BudingPLOT as PlotterClass
+from plot import JarvisPLOT as PlotterClass
 # from monitor import Monitor
 
 
@@ -63,7 +60,11 @@ class Core(Base):
         
         for pos_arg in self.info['args'].get('positionals', []):
             heltp = pos_arg['help'].replace("$n", "\n")
-            self.argparser.add_argument(pos_arg['name'], help=heltp)
+            kwargs = {'help': heltp}
+            # Keep `file` optional at argparse level; enforce requirements after parsing by mode.
+            if pos_arg['name'] == "file":
+                kwargs['nargs'] = '?'
+            self.argparser.add_argument(pos_arg['name'], **kwargs)
         for opt in self.info['args'].get('options', []):
             kwargs = {
                 'help': opt['help'],
@@ -90,6 +91,10 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
+        if self.args.mkproject:
+            self.scan_mode = False
+            self.mode      = "MKPROJECT"
+            return
         if self.args.cvtDB:
             self.scan_mode = False
             self.mode      = "CDB"      # CDB means Convert DataBase from hdf5 into csv
@@ -106,9 +111,6 @@ class Core(Base):
         if self.args.bdREQ:
             self.scan_mode = False
             self.mode       = "BUILD"
-        if self.args.jplot:
-            self.scan_mode = False
-            self.mode      = "JPLOT"
         
     def init_project(self) -> None: 
         import yaml 
@@ -366,8 +368,12 @@ class Core(Base):
             self.init_logger()
 
 
-        # Mode switch: PLOT / CDB (convert) / Monitor / BUILD / SCAN (default) / 1PC
-        if self.mode == "PLOT" or getattr(self.args, 'plot', False):
+        # Mode switch: MKPROJECT / PLOT / CDB / Monitor / BUILD / SCAN (default) / 1PC
+        if self.mode == "MKPROJECT" or getattr(self.args, 'mkproject', None):
+            # Project scaffold mode: no YAML/project logger required
+            return
+
+        elif self.mode == "PLOT" or getattr(self.args, 'plot', False):
             # Plot mode: lightweight setup; no scan-only preprocessing
             _init_common_project_and_logger()
             self.init_configparser_light()
@@ -375,11 +381,6 @@ class Core(Base):
             # main() will call self.plot() afterwards
             return
         
-        elif self.mode == "JPLOT" or getattr(self.args, 'jplot', False):
-            # JPlot mode: minimal initialization; JPlot reads its own YAML
-            _init_common_project_and_logger()
-            return
-
         elif self.mode == "CDB" or getattr(self.args, 'cvtDB', False):
             # Convert mode: set up paths/logging; optionally light-load config
             _init_common_project_and_logger()
@@ -486,6 +487,35 @@ class Core(Base):
             self.argparser.print_help()
             sys.exit(2)
 
+        if self.args.mkproject:
+            if self.args.file:
+                self.argparser.error("positional argument `file` cannot be used with --mkproject")
+            if any([
+                getattr(self.args, "plot", False),
+                getattr(self.args, "cvtDB", False),
+                getattr(self.args, "monitor", False),
+                getattr(self.args, "bdREQ", False),
+                getattr(self.args, "OPC", False),
+            ]):
+                self.argparser.error("--mkproject cannot be combined with workflow mode options")
+            return
+
+        if not self.args.file:
+            self.argparser.error("the following arguments are required: file")
+
+    def mkproject(self) -> None:
+        try:
+            project_root = create_project_scaffold(str(self.args.mkproject), cwd=os.getcwd())
+        except ValueError as exc:
+            print(f"[Jarvis-HEP] {exc}")
+            sys.exit(2)
+        except FileExistsError as exc:
+            print(f"[Jarvis-HEP] Project directory already exists: {exc}")
+            sys.exit(1)
+
+        print(f"[Jarvis-HEP] Project scaffold created at: {project_root}")
+        print(f"[Jarvis-HEP] Created folders: {', '.join(PROJECT_SUBDIRS)}")
+
     def convert(self) -> None: 
         if os.path.exists(self.info['db']['info']):
             with open(self.info['db']['info'], 'r') as f1:
@@ -510,16 +540,8 @@ class Core(Base):
                             self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
 
     def plot(self) -> None:
-        self.plotter.logger.warning(f"Data visulization for {self.info['project_name']}")
-        if "Plot_Config" not in self.yaml.config:
-            if not os.path.exists(self.info['plot']['config']):
-                self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
-                # self.plotter.plot()
-            else: 
-                self.plotter.load_config(self.info['plot']['config'])
-        else:
-            self.plotter.load_config(self.info['plot']['config'])
-        # self.plotter.plot() 
+        self.plotter.logger.warning(f"Generate JarvisPLOT YAML for {self.info['project_name']}")
+        self.plotter.get_plot_config_from_Jarvis(self.info, self.yaml)
         
     def monitor(self) -> None: 
         from monitor import JarvisMonitor

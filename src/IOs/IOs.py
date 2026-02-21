@@ -8,7 +8,6 @@ from plistlib import FMT_XML
 import sys
 from re import L
 import json
-from matplotlib.pyplot import axis
 import numpy
 import xslha
 import pyslha

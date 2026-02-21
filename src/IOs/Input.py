@@ -8,7 +8,6 @@ from plistlib import FMT_XML
 import sys
 from re import L
 import json
-from matplotlib.pyplot import axis
 import numpy
 import xslha
 import pyslha
@@ -158,6 +157,18 @@ class SLHAInputFile(InputFile):
         self.logger = None 
 
 class JsonInputFile(InputFile):
+    @staticmethod
+    def _to_json_compatible(value):
+        if isinstance(value, numpy.generic):
+            return value.item()
+        if isinstance(value, numpy.ndarray):
+            return value.tolist()
+        if isinstance(value, dict):
+            return {k: JsonInputFile._to_json_compatible(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [JsonInputFile._to_json_compatible(v) for v in value]
+        return value
+
     async def write(self, param_values):
         """
         Asynchronously updates and writes data to a specified JSON file based on actions and variable expressions defined in self.variables.
@@ -215,7 +226,8 @@ class JsonInputFile(InputFile):
                         self.update_json_by_entry(data_to_write, var['entry'], value)
 
         try:
-            json_str = json.dumps(data_to_write, indent=4)
+            json_ready = self._to_json_compatible(data_to_write)
+            json_str = json.dumps(json_ready, indent=4)
             async with aiofiles.open(self.path, 'w') as json_file:
                 await json_file.write(json_str)
         except Exception as e:
@@ -234,4 +246,3 @@ class JsonInputFile(InputFile):
             current = current[part]
 
         current[parts[-1]] = new_value
-

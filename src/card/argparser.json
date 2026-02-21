@@ -56,10 +56,10 @@
             "help": "Automatically install all required Python packages needed in Jarvis-HEP"
         },
         {
-            "long": "--jplot",
-            "action": "store_true",
-            "dest": "jplot",
-            "help": "Use the standalone JPlot engine to render figures from a JPlot YAML (bypasses Jarvis-HEP preprocessors)"
+            "long": "--mkproject",
+            "dest": "mkproject",
+            "type": "str",
+            "help": "Create a standalone Jarvis project folder in the current directory"
         }
     ]
 }
