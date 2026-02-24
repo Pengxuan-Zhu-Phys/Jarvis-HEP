@@ -47,7 +47,11 @@ class CalculatorModule(Module):
 
     def analyze_config(self):
         # get the variables for inputs and outputs, prepare for the workflow chart 
-        from inner_func import update_funcs, update_const
+        from inner_func import build_expression_context, update_const, update_funcs
+        parse_locals, _ = build_expression_context(
+            funcs=update_funcs({}),
+            consts=update_const({}),
+        )
         for ipf in self.input:
             if ipf['type'] == "SLHA":
                 ipf['variables'] = {}
@@ -55,7 +59,7 @@ class CalculatorModule(Module):
                     if act['type'] == "Replace":
                         for var in act['variables']:
                             if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                expr = sp.sympify(var['expression'], locals=parse_locals)
                                 varis = set(expr.free_symbols)
                                 for vv in varis:
                                     self.inputs[str(vv)] = None
@@ -68,7 +72,7 @@ class CalculatorModule(Module):
                     elif act['type'] == "SLHA":
                         for var in act['variables']:
                             if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                expr = sp.sympify(var['expression'], locals=parse_locals)
                                 varis = set(expr.free_symbols)
                                 for vv in varis:
                                     self.inputs[str(vv)] = None
@@ -89,7 +93,7 @@ class CalculatorModule(Module):
                     if act['type'] == "Dump":
                         for var in act['variables']:
                             if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=update_funcs(update_const({})))
+                                expr = sp.sympify(var['expression'], locals=parse_locals)
                                 varis = set(expr.free_symbols)
                                 for vv in varis:
                                     self.inputs[str(vv)] = None
@@ -126,7 +130,7 @@ class CalculatorModule(Module):
         if "raw" in record["extra"]:
             return "{message}"
         else:
-            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
     
     def create_basic_logger(self):
         logger_name = f"{self.name}-{self.PackID}"
@@ -138,7 +142,12 @@ class CalculatorModule(Module):
             os.makedirs(self.basepath)
 
         install_file_log = os.path.join(self.basepath, f"Installation_{self.name}-{self.PackID}.log")
-        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        self.logger = logger.bind(
+            module=logger_name,
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         install_handler = self.logger.add(install_file_log, format=CalculatorModule.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
         self.handlers['install'] = install_handler
 
@@ -146,7 +155,12 @@ class CalculatorModule(Module):
         # self.close_sample_logger()
         logger_name = f"{sample_info['logger_name']} ({self.name}-No.{self.PackID})"
 
-        self.logger = sample_info['logger'].bind(module=logger_name, to_console=True, Jarvis=True)
+        self.logger = sample_info['logger'].bind(
+            module=logger_name,
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         self.logger.info("Module load instance and logger is correctly set!")
 
     def close_sample_logger(self):
@@ -339,4 +353,3 @@ class CalculatorModule(Module):
             path = path.replace("@PackID", self.PackID)
         # print(path)
         return path
-

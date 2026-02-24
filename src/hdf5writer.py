@@ -23,7 +23,12 @@ class GlobalHDF5Writer:
         self.writer_thread = threading.Thread(target=self._write_periodically)
         # It's safer to not rely solely on daemon threads for important cleanup.
         self.writer_thread.daemon = False
-        self.logger = logger.bind(module="Jarvis-HEP.hdf5-Writter", to_console=True, Jarvis=True)
+        self.logger = logger.bind(
+            module="Jarvis-HEP.hdf5-Writter",
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         self.max_size = 1024 * 1024 * 100  # Max for 100 MB
 
     def initialize(self, dbinfo):

@@ -1,736 +1,449 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
+"""Pure-Python Diver differential-evolution engine.
 
-# This version of Diver is rewrite by Pengxuan Zhu, just transform the original Fortran code into Python
-# Diver Github webpage: https://github.com/diveropt/Diver/tree/master 
-# Any papers that use results or insights obtained with Diver should cite this paper:
-# 1. Martinez, McKay, Farmer, Scott, Roebber, Putze & Conrad 2017, 
-#       European Physical Journal C 77 (2017) 761, arXiv:1705.07959. 
-# One can also find detailed performance comparisons of Diver with other samplers and optimisers in both the above paper and in:
-# 2. DarkMachines High Dimensional Sampling Group, 
-#       JHEP 05 (2021) 108, arXiv:2101.04525. 
-#      In particular, this latter paper demonstrates that Diver significantly outperforms Scipy's implementation of differential evolution.
+This module provides a modern NumPy implementation inspired by the original
+Fortran Diver code path (jDE/lambdajDE/current variants, boundary handling,
+duplicate control, and smoothed fractional-improvement convergence).
+
+The optimizer works in a unit hypercube and minimizes an objective value.
+In Jarvis-HEP integration we use objective = -LogL.
+"""
+
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import asdict, dataclass
+from typing import Callable, Optional
 
 import numpy as np
-import time
-import uuid
 
-class DiverVirtual:
-    def __init__(self, D, NP, lowerbounds, upperbounds, max_gen=1000):
-        """
-        Initializes the DiverVirtual class with the given parameters.
 
-        Parameters:
-            D : int
-                Dimensionality of the problem.
-            NP : int
-                Population size.
-            lowerbounds : list or ndarray
-                Lower bounds for each dimension.
-            upperbounds : list or ndarray
-                Upper bounds for each dimension.
-            max_gen : int, optional
-                Maximum number of generations (default is 1000).
-        """
-        # Problem parameters
-        self.D = D  # Dimensionality
-        self.NP = NP  # Population size
-        self.lowerbounds = np.array(lowerbounds)
-        self.upperbounds = np.array(upperbounds)
-        self.max_gen = max_gen  # Maximum generations
+Array = np.ndarray
 
-        # DE parameters
-        self.bconstrain = 1  # Boundary constraint method
-        self.removeDuplicates = True
 
-        # Initialize populations
-        self.X = None  # Current population
-        self.Xnew = None  # New population
+@dataclass(slots=True)
+class DEConfig:
+    """Configuration of the DE optimizer."""
 
-        # Function call counters and flags
-        self.fcall = 0
-        self.accept = 0
-        self.quit_flag = False
-        self._debug = False
+    dim: int
+    pop_size: int
+    mode: str = "current"  # current | jDE | lambdajDE
+    max_gen: int = 500
+    max_civ: int = 1
+    F: float = 0.7
+    Cr: float = 0.9
+    lambda_: float = 0.0
+    current: bool = False
+    expon: bool = False
+    bndry: int = 1  # 0/1: none/brick-wall, 2: random reinit, 3: reflection
+    convthresh: float = 1e-3
+    convsteps: int = 10
+    remove_duplicates: bool = False
+    discard_unfit_points: bool = False
+    max_acceptable_value: float = np.inf
+    seed: Optional[int] = None
 
-        # Initialize the populations
-        self._init_population()
 
-    def _init_population(self):
-        """
-        Initializes the populations with random vectors and evaluates them.
-        """
-        # Initialize the old and new populations as dictionaries
-        self.X = self._create_population()
-        self.Xnew = self._create_population()
+@dataclass(slots=True)
+class DEResult:
+    """Optimization result."""
 
-        # Randomly initialize the vectors within the specified bounds
-        self.X['vectors'] = np.random.uniform(
-            self.lowerbounds, self.upperbounds, (self.NP, self.D)
-        )
-        # Evaluate the initial population using the objective function
-        self.X['values'] = np.apply_along_axis(
-            self.objective_function, 1, self.X['vectors']
-        )
-        self.fcall += self.NP
+    best_vector: Array
+    best_cost: float
+    best_loglike: float
+    best_civilization: int
+    best_generation: int
+    evaluations: int
+    acceptance_rate: float
+    population: Array
+    costs: Array
 
-        # Assign UUIDs to each individual
-        self.X['uuids'] = np.array([uuid.uuid4() for _ in range(self.NP)])
 
-    def _create_population(self):
-        """
-        Creates a population data structure.
+class DifferentialEvolution:
+    """Differential evolution optimizer in a unit hypercube.
 
-        Returns:
-            population : dict
-                A dictionary representing the population.
-        """
-        population = {
-            'vectors': np.zeros((self.NP, self.D)),
-            'values': np.full(self.NP, np.inf),
-            'uuids': np.array([uuid.uuid4() for _ in range(self.NP)])
+    - Objective is minimized.
+    - Population vectors are always represented in [0, 1]^D.
+    """
+
+    # jDE/lambdajDE control parameters (Brest et al. style)
+    TAU_F = 0.1
+    F_L = 0.1
+    F_U = 0.9  # Effective range [0.1, 1.0)
+    TAU_CR = 0.1
+    TAU_LAMBDA = 0.1
+
+    def __init__(self, config: DEConfig) -> None:
+        cfg = DEConfig(**asdict(config))
+        cfg.mode = self._normalize_mode(cfg.mode)
+        cfg.pop_size = max(int(cfg.pop_size), 5)
+        cfg.dim = max(int(cfg.dim), 1)
+        cfg.max_gen = max(int(cfg.max_gen), 1)
+        cfg.max_civ = max(int(cfg.max_civ), 1)
+        cfg.convsteps = max(int(cfg.convsteps), 1)
+        cfg.Cr = float(np.clip(cfg.Cr, 0.0, 1.0))
+        cfg.lambda_ = float(np.clip(cfg.lambda_, 0.0, 1.0))
+        cfg.F = float(cfg.F)
+
+        self.cfg = cfg
+        self.rng = np.random.default_rng(cfg.seed)
+
+        # Self-adaptive memories (active only in jDE/lambdajDE)
+        self._fjde: Optional[Array] = None
+        self._crjde: Optional[Array] = None
+        self._lambdajde: Optional[Array] = None
+
+        # Convergence state (SFIM-style)
+        self._mean_cost: float = np.inf
+        self._improvements: deque[float] = deque([1.0] * self.cfg.convsteps, maxlen=self.cfg.convsteps)
+
+    @staticmethod
+    def _normalize_mode(mode: str) -> str:
+        m = (mode or "current").strip().lower()
+        aliases = {
+            "jde": "jDE",
+            "j_de": "jDE",
+            "jde+": "jDE",
+            "lambdajde": "lambdajDE",
+            "lambda_jde": "lambdajDE",
+            "current": "current",
         }
-        # print(population)
-        # time.sleep(3)
-        return population
+        return aliases.get(m, "current")
 
-    def mutate(self, n):
-        """
-        Performs mutation to generate a donor vector.
+    @staticmethod
+    def _to_cost(loglike: Array) -> Array:
+        cost = np.full(loglike.shape, np.inf, dtype=float)
+        finite = np.isfinite(loglike)
+        cost[finite] = -loglike[finite]
+        return cost
 
-        Parameters:
-            n : int
-                Index of the target vector in the population.
+    def _reset_convergence(self) -> None:
+        self._mean_cost = np.inf
+        self._improvements = deque([1.0] * self.cfg.convsteps, maxlen=self.cfg.convsteps)
 
-        Returns:
-            V : ndarray
-                The donor vector.
-        """
-        # DE/rand/1 mutation strategy
-        indices = np.delete(np.arange(self.NP), n)
-        a, b, c = np.random.choice(indices, 3, replace=False)
-        F = 0.5  # Scaling factor (can be customized)
-        V = self.X['vectors'][a] + F * (self.X['vectors'][b] - self.X['vectors'][c])
-        return V
-
-    def crossover(self, V, n):
-        """
-        Performs crossover to generate a trial vector.
-
-        Parameters:
-            V : ndarray
-                The donor vector.
-            n : int
-                Index of the target vector in the population.
-
-        Returns:
-            U : ndarray
-                The trial vector.
-        """
-        U = np.copy(self.X['vectors'][n])
-        CR = 0.9  # Crossover probability (can be customized)
-        rand_vals = np.random.rand(self.D)
-        jrand = np.random.randint(self.D)
-        crossover_indices = rand_vals < CR
-        crossover_indices[jrand] = True  # Ensure at least one parameter is from V
-        U[crossover_indices] = V[crossover_indices]
-        return U
-
-    def selection(self, Us, trial_values):
-        """
-        Performs selection between the target and trial vectors.
-
-        Parameters:
-            Us : ndarray
-                The array of trial vectors.
-            trial_values : ndarray
-                The array of trial values.
-
-        Returns:
-            None
-        """
-        improved = trial_values <= self.X['values']
-        if self._debug:
-            print("Line 162 -> ", improved.shape)
-            print("Line 163 -> ", self.Xnew['uuids'][improved][0], self.X['uuids'][improved][0])
-            print("Line 164 -> ", self.Xnew['values'][improved][0], self.X['values'][improved][0])
-            print("Line 165 -> ", self.Xnew['vectors'][improved][0], self.X['vectors'][improved][0])
-
-            print("Line 167 -> ", self.Xnew['uuids'][~improved][0], self.X['uuids'][~improved][0])
-            print("Line 168 -> ", self.Xnew['values'][~improved][0], self.X['values'][~improved][0])
-            print("Line 169 -> ", self.Xnew['vectors'][~improved][0], self.X['vectors'][~improved][0])
-            time.sleep(10)
-
-        self.Xnew['vectors'][improved] = Us[improved]
-        self.Xnew['values'][improved] = trial_values[improved]
-        self.Xnew['uuids'][improved] = self.X['uuids'][improved]
-        # For non-improved individuals
-        
-        not_improved = ~improved
-        self.Xnew['vectors'][not_improved] = self.X['vectors'][not_improved]
-        self.Xnew['values'][not_improved] = self.X['values'][not_improved]
-        self.Xnew['uuids'][not_improved] = self.X['uuids'][not_improved]
-        self.accept += np.sum(improved)
-
-    def _apply_boundary_constraints(self, Us):
-        """
-        Applies boundary constraints to an array of trial vectors Us.
-
-        Parameters:
-            Us : ndarray
-                The array of trial vectors.
-
-        Returns:
-            Us : ndarray
-                The array of trial vectors after applying boundary constraints.
-        """
-        if self.bconstrain == 1:
-            # 'Brick wall' constraint: clip the values
-            Us = np.clip(Us, self.lowerbounds, self.upperbounds)
-        elif self.bconstrain == 2:
-            # Random re-initialization
-            mask = (Us < self.lowerbounds) | (Us > self.upperbounds)
-            Us[mask] = np.random.uniform(self.lowerbounds, self.upperbounds, size=Us.shape)[mask]
-        elif self.bconstrain == 3:
-            # Reflection
-            Us = np.where(Us < self.lowerbounds, self.lowerbounds + (self.lowerbounds - Us), Us)
-            Us = np.where(Us > self.upperbounds, self.upperbounds - (Us - self.upperbounds), Us)
-            Us = np.clip(Us, self.lowerbounds, self.upperbounds)
+    def _update_convergence(self, costs: Array) -> bool:
+        finite = costs[np.isfinite(costs)]
+        if finite.size == 0:
+            fracdiff = 1.0
+            cur = np.inf
         else:
-            # No boundary constraints enforced
-            pass
-        return Us
-
-    def replace_generation(self):
-        """
-        Replaces the old generation with the new one after the population loop.
-
-        Returns:
-            None
-        """
-        # Remove duplicate vectors if desired
-        if self.removeDuplicates:
-            self._remove_duplicate_vectors()
-
-        # Replace old population members with those calculated in Xnew
-        self.X['vectors'] = self.Xnew['vectors'].copy()
-        self.X['values'] = self.Xnew['values'].copy()
-        self.X['uuids'] = self.Xnew['uuids'].copy()
-
-    def _remove_duplicate_vectors(self):
-        """
-        Removes duplicate vectors from the population to maintain diversity.
-
-        Returns:
-            None
-        """
-        # Identify unique vectors
-        unique_vectors, unique_indices = np.unique(self.Xnew['vectors'], axis=0, return_index=True)
-        if len(unique_indices) < self.NP:
-            # Duplicates exist
-            # Identify indices of duplicates
-            all_indices = np.arange(self.NP)
-            duplicate_indices = np.setdiff1d(all_indices, unique_indices)
-            # Replace duplicates with new random vectors
-            for idx in duplicate_indices:
-                self._replace_vector(idx)
-
-    def _replace_vector(self, idx):
-        """
-        Replaces a duplicate vector with a new random vector.
-
-        Parameters:
-            idx : int
-                Index of the vector to replace.
-
-        Returns:
-            None
-        """
-        # Generate a new random vector within bounds
-        new_vector = np.random.uniform(self.lowerbounds, self.upperbounds)
-        # Assign the new vector
-        self.Xnew['vectors'][idx] = new_vector
-        # Evaluate the new vector
-        self.Xnew['values'][idx] = self.objective_function(new_vector)
-        self.fcall += 1
-        # Assign a new UUID
-        self.Xnew['uuids'][idx] = uuid.uuid4()
-
-    def run(self):
-        """
-        Runs the differential evolution algorithm.
-
-        Returns:
-            None
-        """
-        for gen in range(self.max_gen):
-            self.accept = 0
-            # Mutation and Crossover
-            Vs = np.zeros((self.NP, self.D))
-            Us = np.zeros((self.NP, self.D))
-            for n in range(self.NP):
-                V = self.mutate(n)
-                U = self.crossover(V, n)
-                Vs[n] = V
-                Us[n] = U
-            # Apply boundary constraints
-            Us = self._apply_boundary_constraints(Us)
-            # Evaluate all trial vectors
-            trial_values = np.apply_along_axis(self.objective_function, 1, Us)
-            self.fcall += self.NP
-            # Selection
-            self.selection(Us, trial_values)
-            # Replace generation
-            self.replace_generation()
-            if self.quit_flag:
-                break
-            # Optional: Implement convergence criteria or logging
-
-    def objective_function(self, x):
-        """
-        Evaluates the objective function at a given point x.
-
-        Parameters:
-            x : ndarray
-                The point at which to evaluate the objective function.
-
-        Returns:
-            value : float
-                The objective function value.
-        """
-        # Placeholder objective function (to be overridden in subclasses)
-        raise NotImplementedError("Objective function must be defined in the subclass.")
-
-
-class DiverjDE(DiverVirtual):
-    def __init__(self, D, NP, lowerbounds, upperbounds, max_gen=1000):
-        super().__init__(D, NP, lowerbounds, upperbounds, max_gen)
-        # Set jDE parameters
-        self.jDE = True
-        self.FL = 0.1  # Lower bound for F
-        self.FU = 0.9  # Upper bound for F
-        self.tau1 = 0.1  # Parameter for adapting F
-        self.tau2 = 0.1  # Parameter for adapting Cr
-
-        # Initialize DE parameters for jDE
-        self.X['FjDE'] = self._init_FjDE(self.NP)
-        self.X['CrjDE'] = self._init_CrjDE(self.NP)
-
-    def _init_FjDE(self, size):
-        return self.FL + np.random.rand(size) * (self.FU - self.FL)
-
-    def _init_CrjDE(self, size):
-        return np.random.rand(size)
-
-    def mutate(self, n):
-        # Implement mutation strategy using self-adaptive F
-        indices = [idx for idx in range(self.NP) if idx != n]
-        a, b, c = np.random.choice(indices, 3, replace=False)
-        F = self.X['FjDE'][n]
-        V = self.X['vectors'][a] + F * (self.X['vectors'][b] - self.X['vectors'][c])
-        return V
-
-    def crossover(self, V, n):
-        # Implement crossover using self-adaptive Cr
-        U = np.zeros(self.D)
-        Cr = self.X['CrjDE'][n]
-        jrand = np.random.randint(self.D)
-        for j in range(self.D):
-            if np.random.rand() < Cr or j == jrand:
-                U[j] = V[j]
+            cur = float(np.mean(finite))
+            if not np.isfinite(self._mean_cost) or self._mean_cost == 0.0:
+                fracdiff = 1.0
             else:
-                U[j] = self.X['vectors'][n][j]
-        return U
+                fracdiff = 1.0 - cur / self._mean_cost
 
-    def selector(self, U, m, n):
-        super().selector(U, m, n)
-        # Update F and Cr for next generation
-        if np.random.rand() < self.tau1:
-            self.X['FjDE'][n] = self.FL + np.random.rand() * (self.FU - self.FL)
-        if np.random.rand() < self.tau2:
-            self.X['CrjDE'][n] = np.random.rand()
+        self._mean_cost = cur
+        self._improvements.append(float(fracdiff))
+        sfim = float(np.mean(self._improvements))
+        return sfim < self.cfg.convthresh
 
-
-class DiverLambdajDE(DiverjDE):
-    def __init__(self, D, NP, lowerbounds, upperbounds, max_gen=1000):
-        super().__init__(D, NP, lowerbounds, upperbounds, max_gen)
-        # Set lambdajDE parameters
-        self.lambdajDE = True
-        self.tau3 = 0.1  # Parameter for adapting lambda
-
-        # Initialize lambda for each individual
-        self.X['lambdajDE'] = self._init_lambdajDE(self.NP)
-        self.Xnew['lambdajDE'] = np.zeros(self.NP)
-
-    def _init_lambdajDE(self, size):
-        return np.random.rand(size)
-
-    def mutate(self, n):
-        # Implement mutation strategy using self-adaptive F and lambda
-        indices = [idx for idx in range(self.NP) if idx != n]
-        a, b, c = np.random.choice(indices, 3, replace=False)
-        F = self.X['FjDE'][n]
-        lambda_param = self.X['lambdajDE'][n]
-        V = self.X['vectors'][a] + F * (self.X['vectors'][b] - self.X['vectors'][c]) * lambda_param
-        return V
-
-    def selector(self, U, m, n):
-        """
-        Performs selection between the target and trial vectors and updates F, Cr, and lambda.
-        """
-        # Apply boundary constraints
-        U = self._apply_boundary_constraints(U)
-
-        # Evaluate the trial vector using the objective function
-        trial_value = self.objective_function(U)
-        self.fcall += 1
-
-        # Selection process
-        if trial_value <= self.X['values'][n]:
-            # Accept the trial vector
-            self.Xnew['vectors'][m] = U
-            self.Xnew['vectors_and_derived'][m] = U
-            self.Xnew['values'][m] = trial_value
-            self.accept += 1
-            # Keep the current F, Cr, and lambda
-            self.Xnew['FjDE'][m] = self.X['FjDE'][n]
-            self.Xnew['CrjDE'][m] = self.X['CrjDE'][n]
-            self.Xnew['lambdajDE'][m] = self.X['lambdajDE'][n]
+    def _init_adaptive_memory(self) -> None:
+        if self.cfg.mode in ("jDE", "lambdajDE"):
+            self._fjde = self.F_L + self.rng.random(self.cfg.pop_size) * self.F_U
+            self._crjde = self.rng.random(self.cfg.pop_size)
+            if self.cfg.mode == "lambdajDE":
+                self._lambdajde = self.rng.random(self.cfg.pop_size)
+            else:
+                self._lambdajde = None
         else:
-            # Keep the target vector
-            self.Xnew['vectors'][m] = self.X['vectors'][n]
-            self.Xnew['vectors_and_derived'][m] = self.X['vectors_and_derived'][n]
-            self.Xnew['values'][m] = self.X['values'][n]
-            self.Xnew['FjDE'][m] = self.X['FjDE'][n]
-            self.Xnew['CrjDE'][m] = self.X['CrjDE'][n]
-            self.Xnew['lambdajDE'][m] = self.X['lambdajDE'][n]
+            self._fjde = None
+            self._crjde = None
+            self._lambdajde = None
 
-        # Update F, Cr, and lambda for the next generation
-        if np.random.rand() < self.tau1:
-            self.Xnew['FjDE'][m] = self.FL + np.random.rand() * (self.FU - self.FL)
-        if np.random.rand() < self.tau2:
-            self.Xnew['CrjDE'][m] = np.random.rand()
-        if np.random.rand() < self.tau3:
-            self.Xnew['lambdajDE'][m] = np.random.rand()
+    def _sample_distinct(self, k: int, forbidden: set[int]) -> Array:
+        pool = np.array([idx for idx in range(self.cfg.pop_size) if idx not in forbidden], dtype=int)
+        if pool.size < k:
+            raise ValueError(
+                f"Population too small ({self.cfg.pop_size}) for mutation with excluded={sorted(forbidden)}"
+            )
+        return self.rng.choice(pool, size=k, replace=False)
 
-    def replace_generation(self):
+    def _trial_parameters(self, idx: int) -> tuple[float, float, float]:
+        if self.cfg.mode == "current":
+            return self.cfg.F, self.cfg.Cr, self.cfg.lambda_
+
+        assert self._fjde is not None and self._crjde is not None
+
+        if self.rng.random() < self.TAU_F:
+            trial_f = self.F_L + self.rng.random() * self.F_U
+        else:
+            trial_f = float(self._fjde[idx])
+
+        if self.rng.random() < self.TAU_CR:
+            trial_cr = float(self.rng.random())
+        else:
+            trial_cr = float(self._crjde[idx])
+
+        if self.cfg.mode == "lambdajDE":
+            assert self._lambdajde is not None
+            if self.rng.random() < self.TAU_LAMBDA:
+                trial_lambda = float(self.rng.random())
+            else:
+                trial_lambda = float(self._lambdajde[idx])
+        else:
+            trial_lambda = float(self.cfg.lambda_)
+
+        return trial_f, trial_cr, trial_lambda
+
+    def _mutate(self, population: Array, costs: Array, idx: int, trial_f: float, trial_lambda: float) -> Array:
+        best_idx = int(np.argmin(costs)) if trial_lambda > 0.0 or self.cfg.mode == "lambdajDE" else idx
+
+        if self.cfg.mode in ("jDE", "lambdajDE"):
+            r1, r2, r3 = self._sample_distinct(3, {idx, best_idx})
+            donor = (
+                trial_lambda * population[best_idx]
+                + (1.0 - trial_lambda) * population[r1]
+                + trial_f * (population[r2] - population[r3])
+            )
+            return donor
+
+        # Generic/current mode (including fixed-lambda variants)
+        if self.cfg.current or np.isclose(trial_lambda, 1.0):
+            ri = idx
+        else:
+            ri = int(self._sample_distinct(1, {idx, best_idx})[0])
+
+        rj, rk = self._sample_distinct(2, {idx, best_idx, ri})
+        donor = (
+            trial_lambda * population[best_idx]
+            + (1.0 - trial_lambda) * population[ri]
+            + trial_f * (population[rj] - population[rk])
+        )
+        return donor
+
+    def _crossover(self, target: Array, donor: Array, trial_cr: float) -> Array:
+        trial = target.copy()
+
+        if self.cfg.expon and self.cfg.mode == "current":
+            start = int(self.rng.integers(0, self.cfg.dim))
+            length = 1
+            while length < self.cfg.dim and self.rng.random() <= trial_cr:
+                length += 1
+            idx = (start + np.arange(length)) % self.cfg.dim
+            trial[idx] = donor[idx]
+            return trial
+
+        mask = self.rng.random(self.cfg.dim) <= trial_cr
+        mask[int(self.rng.integers(0, self.cfg.dim))] = True
+        trial[mask] = donor[mask]
+        return trial
+
+    def _apply_boundary(self, trial: Array, target: Array) -> tuple[Array, bool]:
+        if np.all((trial >= 0.0) & (trial <= 1.0)):
+            return trial, True
+
+        if self.cfg.bndry == 1:
+            # Brick wall: revert to target and mark invalid (trial gets +inf cost).
+            return target.copy(), False
+
+        if self.cfg.bndry == 2:
+            # Random reinitialization.
+            return self.rng.random(self.cfg.dim), True
+
+        if self.cfg.bndry == 3:
+            # Reflection back into hypercube.
+            reflected = trial.copy()
+            for _ in range(4):
+                reflected = np.where(reflected > 1.0, 2.0 - reflected, reflected)
+                reflected = np.where(reflected < 0.0, -reflected, reflected)
+                if np.all((reflected >= 0.0) & (reflected <= 1.0)):
+                    break
+            return np.clip(reflected, 0.0, 1.0), True
+
+        # Not enforced.
+        return trial, True
+
+    def _replace_duplicates(
+        self,
+        population: Array,
+        costs: Array,
+        evaluate_loglike: Callable[[Array], Array],
+    ) -> tuple[int, int]:
+        rounded = np.round(population, decimals=12)
+        _, first_indices = np.unique(rounded, axis=0, return_index=True)
+        first_set = set(int(i) for i in first_indices)
+        duplicates = [idx for idx in range(self.cfg.pop_size) if idx not in first_set]
+
+        if not duplicates:
+            return 0, 0
+
+        evals = 0
+        for idx in duplicates:
+            new_vec = self.rng.random(self.cfg.dim)
+            logl = np.asarray(evaluate_loglike(new_vec[None, :]), dtype=float)
+            if logl.size != 1:
+                raise ValueError("evaluate_loglike must return one value per input vector")
+            population[idx] = new_vec
+            costs[idx] = self._to_cost(logl)[0]
+            evals += 1
+
+            if self.cfg.mode in ("jDE", "lambdajDE") and self._fjde is not None and self._crjde is not None:
+                self._fjde[idx] = self.F_L + self.rng.random() * self.F_U
+                self._crjde[idx] = self.rng.random()
+                if self.cfg.mode == "lambdajDE" and self._lambdajde is not None:
+                    self._lambdajde[idx] = self.rng.random()
+
+        return evals, len(duplicates)
+
+    def run(
+        self,
+        evaluate_loglike: Callable[[Array], Array],
+        *,
+        logger=None,
+    ) -> DEResult:
+        """Run differential evolution.
+
+        Parameters
+        ----------
+        evaluate_loglike:
+            Callable that receives vectors with shape ``(N, D)`` in unit-cube
+            space and returns an array-like of log-likelihood values with shape
+            ``(N,)``.
+        logger:
+            Optional logger with ``info`` method.
         """
-        Replaces the old generation with the new one after the population loop.
-        """
-        # Remove duplicate vectors if desired
-        if self.removeDuplicates:
-            self._remove_duplicate_vectors()
 
-        # Replace old population members with those calculated in Xnew
-        self.X['vectors'] = self.Xnew['vectors'].copy()
-        self.X['vectors_and_derived'] = self.Xnew['vectors_and_derived'].copy()
-        self.X['values'] = self.Xnew['values'].copy()
-        self.X['FjDE'] = self.Xnew['FjDE'].copy()
-        self.X['CrjDE'] = self.Xnew['CrjDE'].copy()
-        self.X['lambdajDE'] = self.Xnew['lambdajDE'].copy()
+        total_evals = 0
+        total_accept = 0
+        total_trials = 0
 
+        best_vector = np.zeros(self.cfg.dim, dtype=float)
+        best_cost = np.inf
+        best_civ = 1
+        best_gen = 0
 
-import matplotlib.pyplot as plt
+        final_population = np.zeros((self.cfg.pop_size, self.cfg.dim), dtype=float)
+        final_costs = np.full(self.cfg.pop_size, np.inf, dtype=float)
 
-# DiverVirtual class as defined previously (make sure it's included in your code)
+        for civ in range(1, self.cfg.max_civ + 1):
+            self._init_adaptive_memory()
+            self._reset_convergence()
 
-# Subclass with objective function and data collection
-class MyDiverAlgorithm(DiverVirtual):
-    def __init__(self, D, NP, lowerbounds, upperbounds, max_gen=1000):
-        super().__init__(D, NP, lowerbounds, upperbounds, max_gen)
-        # Initialize data collection lists
-        self.best_values = []
-        self.mean_values = []
-        self.generations = []
-        self.population_history = []  # To store population data at each generation
-        self.values_history = []      # To store objective values at each generation
+            population = self.rng.random((self.cfg.pop_size, self.cfg.dim))
+            logl0 = np.asarray(evaluate_loglike(population), dtype=float)
+            if logl0.shape != (self.cfg.pop_size,):
+                raise ValueError(
+                    f"evaluate_loglike returned shape {logl0.shape}; expected {(self.cfg.pop_size,)}"
+                )
+            costs = self._to_cost(logl0)
+            total_evals += self.cfg.pop_size
 
-    def objective_function(self, x):
-        # Ensure that the dimensionality is at least 2
-        if len(x) < 2:
-            raise ValueError("The objective function requires at least two dimensions.")
+            civ_best_idx = int(np.argmin(costs))
+            if costs[civ_best_idx] < best_cost:
+                best_cost = float(costs[civ_best_idx])
+                best_vector = population[civ_best_idx].copy()
+                best_civ = civ
+                best_gen = 0
 
-        term1 = - np.cos(x[0] * 3 * np.pi) * np.cos(x[1] * 3 * np.pi)
-        term2 = 1 + 0.05 * x[0]**2 + 0.05 * x[1]**2
-        return term1 + term2
+            if logger is not None:
+                finite = costs[np.isfinite(costs)]
+                mean_logl = -float(np.mean(finite)) if finite.size else float("-inf")
+                logger.info(
+                    f"[Diver] civ={civ}/{self.cfg.max_civ} gen=0/{self.cfg.max_gen} "
+                    f"best_logl={-costs[civ_best_idx]:.6e} mean_logl={mean_logl:.6e}"
+                )
 
-    def run(self):
-        """
-        Runs the differential evolution algorithm and collects data for visualization.
-        """
-        for gen in range(self.max_gen):
-            
-            self.accept = 0
-            # Mutation and Crossover
-            Vs = np.zeros((self.NP, self.D))
-            Us = np.zeros((self.NP, self.D))
-            for n in range(self.NP):
-                V = self.mutate(n)
-                U = self.crossover(V, n)
-                Vs[n] = V
-                Us[n] = U
-            # Apply boundary constraints
-            Us = self._apply_boundary_constraints(Us)
-            # Evaluate all trial vectors
-            trial_values = np.apply_along_axis(self.objective_function, 1, Us)
-            self.fcall += self.NP
-            # Selection
-            self.selection(Us, trial_values)
-            # Replace generation
-            self.replace_generation()
-            if self.quit_flag:
-                break
-            # Data collection
-            best_value = np.min(self.X['values'])
-            mean_value = np.mean(self.X['values'])
-            self.best_values.append(best_value)
-            self.mean_values.append(mean_value)
-            self.generations.append(gen)
-            # Store population data for animation
-            self.population_history.append(self.X['vectors'].copy())
-            self.values_history.append(self.X['values'].copy())
-            # Optional: Print progress
-            # if gen % 10 == 0 or gen == self.max_gen - 1:
-            print(f"Generation {gen}: Best Value = {best_value:.6f}")
+            for gen in range(1, self.cfg.max_gen + 1):
+                trial_population = np.empty_like(population)
+                trial_f = np.full(self.cfg.pop_size, self.cfg.F, dtype=float)
+                trial_cr = np.full(self.cfg.pop_size, self.cfg.Cr, dtype=float)
+                trial_lambda = np.full(self.cfg.pop_size, self.cfg.lambda_, dtype=float)
+                valid_mask = np.ones(self.cfg.pop_size, dtype=bool)
 
+                for i in range(self.cfg.pop_size):
+                    f_i, cr_i, lambda_i = self._trial_parameters(i)
+                    donor = self._mutate(population, costs, i, f_i, lambda_i)
+                    trial = self._crossover(population[i], donor, cr_i)
+                    bounded, valid = self._apply_boundary(trial, population[i])
 
-def visualize_optimization(algo):
-    """
-    Visualizes the optimization process.
+                    trial_population[i] = bounded
+                    trial_f[i] = f_i
+                    trial_cr[i] = cr_i
+                    trial_lambda[i] = lambda_i
+                    valid_mask[i] = valid
 
-    Parameters:
-        algo : MyDiverAlgorithm
-            The instance of the algorithm after running optimization.
-    """
-    plt.figure(figsize=(10, 6))
-    plt.plot(algo.generations, algo.best_values, label='Best Objective Value')
-    plt.plot(algo.generations, algo.mean_values, label='Mean Objective Value')
-    plt.xlabel('Generation')
-    plt.ylabel('Objective Value')
-    plt.title('Optimization Progress')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+                trial_logl = np.full(self.cfg.pop_size, -np.inf, dtype=float)
+                if np.any(valid_mask):
+                    eval_block = trial_population[valid_mask]
+                    block_logl = np.asarray(evaluate_loglike(eval_block), dtype=float)
+                    if block_logl.shape != (eval_block.shape[0],):
+                        raise ValueError(
+                            f"evaluate_loglike returned shape {block_logl.shape}; expected {(eval_block.shape[0],)}"
+                        )
+                    trial_logl[valid_mask] = block_logl
+                    total_evals += int(eval_block.shape[0])
 
-def visualize_population(algo):
-    """
-    Visualizes the movement of the population in parameter space for 2D problems,
-    with color coding based on the objective function values.
+                trial_costs = self._to_cost(trial_logl)
 
-    Parameters:
-        algo : MyDiverAlgorithm
-            The instance of the algorithm after running optimization.
-    """
-    if algo.D != 2:
-        print("Population visualization is only available for 2D problems.")
-        return
+                acceptable = trial_costs <= self.cfg.max_acceptable_value
+                if self.cfg.discard_unfit_points:
+                    selectable = acceptable
+                else:
+                    selectable = np.ones_like(acceptable, dtype=bool)
 
-    plt.figure(figsize=(8, 8))
-    # Plot final population with color coding
-    scatter = plt.scatter(
-        algo.X['vectors'][:, 0],
-        algo.X['vectors'][:, 1],
-        c=algo.X['values'],
-        cmap='viridis',
-        label='Final Population',
-        vmax=1.2,
-        vmin=0
-    )
-    plt.colorbar(scatter, label='Objective Function Value')
-    # Plot the best solution
-    best_index = np.argmin(algo.X['values'])
-    best_vector = algo.X['vectors'][best_index]
-    plt.scatter(
-        best_vector[0],
-        best_vector[1],
-        c='red',
-        marker='*',
-        s=200,
-        edgecolors='black',
-        label='Best Solution'
-    )
-    plt.xlabel('x1')
-    plt.ylabel('x2')
-    plt.title('Population in Parameter Space (Color-coded by Objective Value)')
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+                improved = selectable & (trial_costs <= costs)
+                accepted = int(np.count_nonzero(improved))
 
+                next_population = np.where(improved[:, None], trial_population, population)
+                next_costs = np.where(improved, trial_costs, costs)
 
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
+                if self.cfg.mode in ("jDE", "lambdajDE") and self._fjde is not None and self._crjde is not None:
+                    self._fjde = np.where(improved, trial_f, self._fjde)
+                    self._crjde = np.where(improved, trial_cr, self._crjde)
+                    if self.cfg.mode == "lambdajDE" and self._lambdajde is not None:
+                        self._lambdajde = np.where(improved, trial_lambda, self._lambdajde)
 
-def animate_population(algo):
-    """
-    Creates an animation of the population over generations, retaining historical points.
+                if self.cfg.remove_duplicates:
+                    extra_evals, n_dups = self._replace_duplicates(next_population, next_costs, evaluate_loglike)
+                    total_evals += extra_evals
+                    if logger is not None and n_dups > 0:
+                        logger.info(f"[Diver] civ={civ} gen={gen}: replaced {n_dups} duplicate vectors")
 
-    Parameters:
-        algo : MyDiverAlgorithm
-            The instance of the algorithm after running optimization.
-    """
-    if algo.D != 2:
-        print("Animation is only available for 2D problems.")
-        return
+                population = next_population
+                costs = next_costs
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+                total_accept += accepted
+                total_trials += self.cfg.pop_size
 
-    # Set up the plot limits
-    x_min, x_max = algo.lowerbounds[0], algo.upperbounds[0]
-    y_min, y_max = algo.lowerbounds[1], algo.upperbounds[1]
-    ax.set_xlim(x_min, x_max)
-    ax.set_ylim(y_min, y_max)
+                civ_best_idx = int(np.argmin(costs))
+                civ_best_cost = float(costs[civ_best_idx])
+                if civ_best_cost < best_cost:
+                    best_cost = civ_best_cost
+                    best_vector = population[civ_best_idx].copy()
+                    best_civ = civ
+                    best_gen = gen
 
-    # Labels and title
-    ax.set_xlabel('x1')
-    ax.set_ylabel('x2')
-    ax.set_title('Population Evolution Over Generations')
+                if logger is not None:
+                    finite = costs[np.isfinite(costs)]
+                    mean_logl = -float(np.mean(finite)) if finite.size else float("-inf")
+                    acc_rate = accepted / float(self.cfg.pop_size)
+                    logger.info(
+                        f"[Diver] civ={civ}/{self.cfg.max_civ} gen={gen}/{self.cfg.max_gen} "
+                        f"best_logl={-civ_best_cost:.6e} mean_logl={mean_logl:.6e} acc={acc_rate:.3f}"
+                    )
 
-    # Initialize scatter plot
-    scatter = ax.scatter([], [], c=[], cmap='viridis', s=4, vmin=min(algo.best_values), vmax=max(algo.mean_values))
-    colorbar = plt.colorbar(scatter, ax=ax, label='Objective Function Value')
+                if self._update_convergence(costs):
+                    if logger is not None:
+                        logger.info(
+                            f"[Diver] civ={civ} converged at gen={gen} (convthresh={self.cfg.convthresh})"
+                        )
+                    break
 
-    # Best solution marker
-    best_marker, = ax.plot([], [], 'r*', markersize=15, markeredgecolor='black', label='Best Solution')
+            final_population = population
+            final_costs = costs
 
-    # Generation text
-    generation_text = ax.text(0.02, 0.95, '', transform=ax.transAxes)
+        acceptance_rate = (total_accept / total_trials) if total_trials > 0 else 0.0
+        best_loglike = -best_cost if np.isfinite(best_cost) else float("-inf")
 
-    # To store historical points
-    historical_population = np.empty((0, 2))  # To store population points
-    historical_values = np.empty(0)           # To store values of those points
-
-    def init():
-        scatter.set_offsets(np.empty((0, 2)))  # Ensure correct shape
-        scatter.set_array(np.array([]))
-        best_marker.set_data([], [])
-        generation_text.set_text('')
-        return scatter, best_marker, generation_text
-
-    def update(frame):
-        nonlocal historical_population, historical_values
-
-        # Get population and values at the current generation
-        population = algo.population_history[frame]
-        values = algo.values_history[frame]
-
-        # Append current generation points to historical data
-        historical_population = np.vstack([historical_population, population])
-        historical_values = np.concatenate([historical_values, values])
-
-        # Update scatter plot with all points up to the current frame
-        scatter.set_offsets(historical_population)
-        scatter.set_array(historical_values)
-
-        # Update best solution
-        best_index = np.argmin(values)  # Finding the best in the current frame
-        best_vector = population[best_index]
-        best_marker.set_data([best_vector[0]], [best_vector[1]])  # Corrected line
-
-        # Update generation text
-        generation_text.set_text(f'Generation: {frame}')
-
-        return scatter, best_marker, generation_text
-
-    ani = FuncAnimation(
-        fig, update, frames=len(algo.population_history),
-        init_func=init, blit=False, interval=200, repeat=False
-    )
-
-    plt.legend()
-    plt.show()
-
-
-def animate_population_with_contour(algo):
-    """
-    Creates an animation of the population over generations,
-    with the objective function contour as background.
-    """
-    if algo.D != 2:
-        print("Animation is only available for 2D problems.")
-        return
-
-    fig, ax = plt.subplots(figsize=(8, 8))
-
-    # Generate a grid of points
-    x_min, x_max = algo.lowerbounds[0], algo.upperbounds[0]
-    y_min, y_max = algo.lowerbounds[1], algo.upperbounds[1]
-    xx, yy = np.meshgrid(np.linspace(x_min, x_max, 200), np.linspace(y_min, y_max, 200))
-
-    # Compute objective function values on the grid
-    zz = np.array([
-        algo.objective_function(np.array([x, y]))
-        for x, y in zip(np.ravel(xx), np.ravel(yy))
-    ])
-    zz = zz.reshape(xx.shape)
-
-    # Plot the contour map
-    contour = ax.contourf(xx, yy, zz, levels=50, cmap='viridis')
-    colorbar = plt.colorbar(contour, ax=ax, label='Objective Function Value')
-
-    # Labels and title
-    ax.set_xlabel('x1')
-    ax.set_ylabel('x2')
-    ax.set_title('Population Evolution Over Generations')
-
-    # Initialize scatter plot
-    scatter = ax.scatter([], [], c='white', edgecolors='black', label='Population')
-
-    # Best solution marker
-    best_marker, = ax.plot([], [], 'r*', markersize=15, markeredgecolor='black', label='Best Solution')
-
-    # Generation text
-    generation_text = ax.text(0.02, 0.95, '', transform=ax.transAxes, color='white')
-
-    def init():
-        scatter.set_offsets(np.empty((0, 2)))  # Updated line
-        best_marker.set_data([], [])
-        generation_text.set_text('')
-        return scatter, best_marker, generation_text
-
-    def update(frame):
-        # Get population at the current generation
-        population = algo.population_history[frame]
-        # Update scatter plot
-        scatter.set_offsets(population)
-        # Update best solution
-        values = algo.values_history[frame]
-        best_index = np.argmin(values)
-        best_vector = population[best_index]
-        best_marker.set_data(best_vector[0], best_vector[1])
-        # Update generation text
-        generation_text.set_text(f'Generation: {frame}')
-        return scatter, best_marker, generation_text
-
-    ani = FuncAnimation(
-        fig, update, frames=len(algo.population_history),
-        init_func=init, blit=False, interval=200, repeat=False  # Updated line
-    )
-
-    plt.legend()
-    plt.show()
-
-
-
-# Define problem parameters
-D = 2  # Dimensionality (use 2D for animation)
-NP = 50  # Population size
-lowerbounds = [-2] * D
-upperbounds = [2] * D
-max_gen = 50  # Number of generations
-
-# Create an instance of the algorithm
-my_algo = MyDiverAlgorithm(D, NP, lowerbounds, upperbounds, max_gen)
-my_algo._debug = True 
-
-# Run the algorithm
-my_algo.run()
-
-# Visualize optimization progress
-# visualize_optimization(my_algo)
-
-# Animate population evolution
-animate_population(my_algo)
-# Or with contour
-# animate_population_with_contour(my_algo)
+        return DEResult(
+            best_vector=best_vector,
+            best_cost=float(best_cost),
+            best_loglike=float(best_loglike),
+            best_civilization=int(best_civ),
+            best_generation=int(best_gen),
+            evaluations=int(total_evals),
+            acceptance_rate=float(acceptance_rate),
+            population=final_population,
+            costs=final_costs,
+        )

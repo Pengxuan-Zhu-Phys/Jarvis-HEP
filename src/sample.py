@@ -91,7 +91,12 @@ class Sample(Base):
         if not os.path.exists(self.info['save_dir']):
             os.makedirs(self.info['save_dir'])
         
-        self.logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        self.logger = logger.bind(
+            module=logger_name,
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         sample_handler = self.logger.add(self.info['run_log'], format=self.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
         self.handlers['sample'] = sample_handler
         self.logger.info("Sample created into the Disk")
@@ -102,7 +107,7 @@ class Sample(Base):
         if "raw" in record["extra"]:
             return "{message}"
         else:
-            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
 
     
     def manage_directories(self, base_path):

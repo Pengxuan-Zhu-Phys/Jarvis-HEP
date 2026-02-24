@@ -53,13 +53,18 @@ class LibraryModule(Module):
             if "raw" in record["extra"]:
                 return "{message}"
             else:
-                return f"\n <cyan>{module}</cyan> \n\t- <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+                return f"\n <cyan>{module}</cyan> \n\t- <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
 
         def filte_func(record):
             # print(record['extra'].keys(), record['extra']['module'], f"Library.{self.name}", record['extra']['module'] == f"Library.{self.name}")
             return record['extra']['module'] == f"Library.{self.name}"
 
-        slogger = logger.bind(module=f"Library.{self.name}", to_console=True, Jarvis=True)
+        slogger = logger.bind(
+            module=f"Library.{self.name}",
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         self.loggerID = slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
         # slogger.add(self.path['log_file_path'], format=custom_format, level="DEBUG", rotation=None, retention=None)
         self.logger = slogger
@@ -148,4 +153,3 @@ class LibraryModule(Module):
     async def log_stream_error(self, stream):
         async for line in stream:
             self.logger.bind(raw=True).error(f"\t{line.decode()}")
-

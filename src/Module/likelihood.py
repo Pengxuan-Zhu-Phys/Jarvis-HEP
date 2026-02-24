@@ -18,22 +18,34 @@ class LogLikelihood(Base):
                                        This can either be a single expression string or a list containing multiple expression strings.
         """
         # Convert a single expression into a list for uniform processing
-        from inner_func import update_funcs, update_const
+        from inner_func import (
+            build_expression_context,
+            update_const,
+            update_funcs as load_inner_funcs,
+        )
+        self.custom_functions = load_inner_funcs({})
+        self.constants = update_const({})
+        self.parse_locals, self.numeric_modules = build_expression_context(
+            funcs=self.custom_functions,
+            consts=self.constants,
+        )
+
         self.named_expressions = []
         self.expressions = expressions
         for expr_dict in expressions:
             if isinstance(expr_dict, dict) and 'name' in expr_dict and 'expression' in expr_dict:
                 # Parse the 'expression' value to create a sympy expression, with updated functions available
-                sympy_expr = sp.sympify(expr_dict['expression'], locals=update_funcs({}))
+                sympy_expr = sp.sympify(expr_dict['expression'], locals=self.parse_locals)
                 # Append the name and sympy expression as a tuple
                 self.named_expressions.append((expr_dict['name'], sympy_expr))
 
         self.variables = set().union(*[expr.free_symbols for _, expr in self.named_expressions])
-        self.logger = logger.bind(module="Jarvis-HEP.LogLikelihood", to_console=True, Jarvis=True)
-        self.custom_functions = {}
-        self.custom_functions = update_funcs(self.custom_functions)
-        self.constants = {}
-        self.constants = update_const(self.constants)
+        self.logger = logger.bind(
+            module="Jarvis-HEP.LogLikelihood",
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         self.values = {}
 
         # Cache compiled numerical callables for each expression.
@@ -42,7 +54,16 @@ class LogLikelihood(Base):
         self._compile_expressions()
 
     def update_funcs(self, funcs):
-        self.custom_functions.update(funcs)
+        from inner_func import (
+            build_expression_context,
+            update_funcs as load_inner_funcs,
+        )
+        self.custom_functions.update(funcs or {})
+        self.custom_functions = load_inner_funcs(self.custom_functions)
+        self.parse_locals, self.numeric_modules = build_expression_context(
+            funcs=self.custom_functions,
+            consts=self.constants,
+        )
         # Rebuild compiled expressions so newly-added functions are available.
         self._compile_expressions()
         # self.logger.info(f"Jarvis-HEP likelihood now support the following inner functions -> \n{self.custom_functions.keys()}")
@@ -56,7 +77,7 @@ class LogLikelihood(Base):
         for name, expr in self.named_expressions:
             var_names = [str(var) for var in expr.free_symbols]
             var_name_set = set(var_names)
-            num_expr = lambdify(var_names, expr, modules=[self.custom_functions, "numpy"])
+            num_expr = lambdify(var_names, expr, modules=[self.numeric_modules, "numpy"])
             compiled.append((name, expr, var_names, var_name_set, num_expr))
         self._compiled_expressions = compiled
 
@@ -148,7 +169,7 @@ class LogLikelihood(Base):
                 for name, expr in self.named_expressions:
                     var_names = [str(var) for var in expr.free_symbols]
                     symbol_values = {var: row[var] for var in var_names if var in row}
-                    num_expr = lambdify(var_names, expr, modules=[self.custom_functions, "numpy"])
+                    num_expr = lambdify(var_names, expr, modules=[self.numeric_modules, "numpy"])
                     total += float(num_expr(**symbol_values))
                 results.append(total)
             except Exception:
@@ -199,12 +220,17 @@ class LogLikelihood(Base):
         if "raw" in record["extra"]:
             return "{message}"
         else:
-            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+            return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
 
 
     def update_logger(self, sample_info):
         logger_name = f"{sample_info['logger_name']} (Likelihood)"
-        sample_logger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        sample_logger = logger.bind(
+            module=logger_name,
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         return sample_logger
 
     def __deepcopy__(self, memo):
@@ -218,7 +244,13 @@ class LogLikelihood(Base):
         copied.values = deepcopy(self.values, memo)
 
         # Functions and loggers cannot be copied directly, so reinitialize them
+        from inner_func import build_expression_context
         copied.custom_functions = self.custom_functions  # Functions remain shared
+        copied.parse_locals, copied.numeric_modules = build_expression_context(
+            funcs=copied.custom_functions,
+            consts=copied.constants,
+        )
+        copied._compile_expressions()
         copied.logger = None
         copied.childlogger = None
         copied.childhandler = None

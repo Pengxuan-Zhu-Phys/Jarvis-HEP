@@ -35,6 +35,7 @@ class Workflow(Base):
         from Module.parameters import Parameters
         from Module.library import LibraryModule
         from Module.calculator import CalculatorModule
+        from Module.operas import OperasModule
         
         # print(modules.keys())
         parameter_module = Parameters("Parameters", modules['Parameter'])
@@ -44,7 +45,7 @@ class Workflow(Base):
         self.add_module(parameter_module)
         self.parameter_module = parameter_module
         
-        if hasattr(modules, "Library"):
+        if "Library" in modules:
             for lib in modules['Library']:
                 module = LibraryModule(
                     name=lib['name'],
@@ -54,11 +55,12 @@ class Workflow(Base):
                 )
                 self.add_library_module(module)
 
-        for calc in modules['Calculator']:
-            module = CalculatorModule(
-                name=calc['name'],
-                config=calc
-            )
+        for calc in modules.get('Calculator', []) or []:
+            module = CalculatorModule(name=calc['name'], config=calc)
+            self.add_module(module)
+
+        for oper in modules.get("Operas", []) or []:
+            module = OperasModule(name=oper["name"], config=oper)
             self.add_module(module)
 
     def get_workflow_dict(self):
@@ -210,23 +212,50 @@ class Workflow(Base):
                     hh = 0.7 * nn - 0.2
                     for ii in range(nn):
                         ipf = self.modules[module].input[ii]
-                        ipfl[ipf['name']] ={
-                            "nam": ipf['name'],
+                        if isinstance(ipf, dict):
+                            ipf_name = ipf.get("name", f"input_{ii}")
+                            ipf_path = ipf.get("path", f"{module}_input")
+                            ipf_vars = ipf.get("variables", None)
+                        else:
+                            ipf_name = str(ipf)
+                            ipf_path = f"{module}_input"
+                            ipf_vars = None
+
+                        ipfl[ipf_name] ={
+                            "nam": ipf_name,
                             "pos": np.array([-1.1, ((nn - 1)/2 - ii) * 0.7 + 0.2]) + res["bp"],
                             "inc": [],
-                            "fil": os.path.basename(ipf['path'])
+                            "fil": os.path.basename(ipf_path)
                         }
-                        for var in ipf['variables'].values():
-                            if "inc" in var.keys():
-                                for kk in var['inc']:
-                                    if kk not in ipfl[ipf['name']]['inc']:
-                                        ipfl[ipf['name']]['inc'].append(
+                        if isinstance(ipf_vars, dict):
+                            for var in ipf_vars.values():
+                                if "inc" in var.keys():
+                                    for kk in var['inc']:
+                                        if kk not in ipfl[ipf_name]['inc']:
+                                            ipfl[ipf_name]['inc'].append(
+                                                {
+                                                    "name": str(kk)
+                                                }
+                                            )
+                                else:
+                                    ipfl[ipf_name]['inc'].append(var)
+                        else:
+                            deps = []
+                            if isinstance(ipf, dict):
+                                if ipf.get("_inc"):
+                                    deps = [str(v) for v in ipf.get("_inc", [])]
+                                elif ipf.get("entry"):
+                                    deps = [str(ipf["entry"])]
+                                elif ipf.get("name"):
+                                    deps = [str(ipf["name"])]
+                            else:
+                                deps = [str(ipf)]
+                            for dep in deps:
+                                ipfl[ipf_name]['inc'].append(
                                             {
-                                                "name": str(kk)
+                                                "name": dep
                                             }
                                         )
-                            else:
-                                ipfl[ipf['name']]['inc'].append(var)
                     res["ipf"] = ipfl
                     if hh > 0.:
                         res['ihh'] = hh 
@@ -238,33 +267,43 @@ class Workflow(Base):
                     h0 = 0.
                     for ii in range(nn):
                         opf = self.modules[module].output[ii]
-                        
-                        if not opf.get("variables", False):
-                            nv = 1
-                        else: 
-                            nv = len(opf['variables'])
+                        if isinstance(opf, dict):
+                            opf_name = opf.get("name", f"output_{ii}")
+                            opf_path = opf.get("path", f"{module}_output")
+                            opf_vars = opf.get("variables", None)
+                        else:
+                            opf_name = str(opf)
+                            opf_path = f"{module}_output"
+                            opf_vars = None
+
+                        if isinstance(opf_vars, list) and opf_vars:
+                            inc_vars = [var['name'] for var in opf_vars if isinstance(var, dict) and 'name' in var]
+                            if not inc_vars:
+                                inc_vars = [opf_name]
+                        else:
+                            inc_vars = [opf_name]
+                        nv = len(inc_vars)
                         if nv <= 2:
                             hl = 0.5 
                         else:
                             hl = 0.2 * nv
                         # print(opf['name'],)
                         op = {
-                            "nam": opf['name'],
+                            "nam": opf_name,
                             "pos": np.array([1.1, -h0 - 0.5*hl -0.2 ]) + res["bp"],
-                            "inc": [var['name'] for var in opf.get('variables', [])],
-                            'fil': os.path.basename(opf['path'])
+                            "inc": inc_vars,
+                            'fil': os.path.basename(opf_path)
                         }
                         h0 += hl 
                         h0 += 0.1
-                        for jj in range(nv):
-                            if opf.get("variables", False):
-                                res['opv'][opf['variables'][jj]['name']] = {
-                                    "nam": opf['variables'][jj]['name'],
-                                    "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
-                                    "wid": 0.,
-                                    "typ":  "Obser"
-                                }
-                        opfl[opf['name']] = (op)
+                        for jj, var_name in enumerate(inc_vars):
+                            res['opv'][var_name] = {
+                                "nam": var_name,
+                                "pos": np.array([2.6, op["pos"][1] + ((nv-1)/2 - jj) * 0.2 ]) + res["bp"],
+                                "wid": 0.,
+                                "typ":  "Obser"
+                            }
+                        opfl[opf_name] = (op)
                     h0 -= 0.1
                     res["opf"] = opfl 
                     if h0 > 0.:

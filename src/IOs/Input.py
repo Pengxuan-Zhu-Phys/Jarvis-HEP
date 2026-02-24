@@ -19,7 +19,21 @@ import aiofiles
 from sympy.utilities.lambdify import lambdify
 import sympy as sp 
 from IOs.IOs import InputFile
-from inner_func import update_const
+from inner_func import build_expression_context, update_const
+
+
+def _evaluate_expression(expression, param_values, parse_locals, numeric_modules):
+    expr = sp.sympify(expression, locals=parse_locals)
+    symbol_names = [str(par) for par in expr.free_symbols]
+    symbol_name_set = set(symbol_names)
+    num_expr = lambdify(symbol_names, expr, modules=[numeric_modules, "numpy"])
+    symbol_values_strs = {
+        str(key): value
+        for key, value in param_values.items()
+        if str(key) in symbol_name_set
+    }
+    value = num_expr(**symbol_values_strs)
+    return expr, symbol_values_strs, value
 
 class SLHAInputFile(InputFile):
     async def write(self, param_values):
@@ -56,6 +70,10 @@ class SLHAInputFile(InputFile):
         # Create the directory for the file if it doesn't exist
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         observables = {}
+        parse_locals, numeric_modules = build_expression_context(
+            funcs=dict(self.funcs or {}),
+            consts=update_const({}),
+        )
 
         # self.logger.debug(f"Writing the input file -> \n\t{self.path}")
         try:
@@ -70,12 +88,12 @@ class SLHAInputFile(InputFile):
                         if not "expression" in var:
                             value = param_values.get(var['name'], "MISSING_VALUE")
                         else: 
-                            # self.logger.warning(f"{var} -> {param_values} <- {self.funcs}")
-                            expr = sp.sympify(var['expression'], locals=update_const(self.funcs))
-                            para = set(expr.free_symbols)
-                            num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
-                            symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
-                            value = num_expr(**symbol_values_strs)
+                            expr, symbol_values_strs, value = _evaluate_expression(
+                                var['expression'],
+                                param_values,
+                                parse_locals,
+                                numeric_modules,
+                            )
                             observables[var['name']] = value
                             self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [ {', '.join(['{}: {}, '.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
                             # value = f"{float(value):.1E}"
@@ -94,12 +112,12 @@ class SLHAInputFile(InputFile):
                                 if not "expression" in var:
                                     value = param_values.get(var['name'], "MISSING_VALUE")
                                 else:
-                                    # self.logger.warning(f"{var} -> {param_values} <- {self.funcs}")
-                                    expr = sp.sympify(var['expression'], locals=update_const(self.funcs))
-                                    para = set(expr.free_symbols)
-                                    num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
-                                    symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
-                                    value = num_expr(**symbol_values_strs)
+                                    expr, symbol_values_strs, value = _evaluate_expression(
+                                        var['expression'],
+                                        param_values,
+                                        parse_locals,
+                                        numeric_modules,
+                                    )
                                     observables[var['name']] = value
                                     self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
                                     # value = f"{float(value):.1E}"
@@ -110,11 +128,12 @@ class SLHAInputFile(InputFile):
                                 if not "expression" in var:
                                     value = param_values.get(var['name'], "MISSING_VALUE")
                                 else:
-                                    expr = sp.sympify(var['expression'], locals=update_const(self.funcs))
-                                    para = set(expr.free_symbols)
-                                    num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
-                                    symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
-                                    value = num_expr(**symbol_values_strs)
+                                    expr, symbol_values_strs, value = _evaluate_expression(
+                                        var['expression'],
+                                        param_values,
+                                        parse_locals,
+                                        numeric_modules,
+                                    )
                                     observables[var['name']] = value
                                     self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
 
@@ -193,6 +212,10 @@ class JsonInputFile(InputFile):
         self.path = self.decode_path(self.path)
         self.logger.info(f"Start writing the input file -> {self.path}")
         observables = {}
+        parse_locals, numeric_modules = build_expression_context(
+            funcs=dict(self.funcs or {}),
+            consts=update_const({}),
+        )
 
         try:
             async with aiofiles.open(self.path, 'r') as f1:
@@ -211,12 +234,12 @@ class JsonInputFile(InputFile):
                     if not "expression" in var:
                         value = param_values.get(var['name'], "MISSING_VALUE")
                     else: 
-                        # self.logger.warning(f"{var} -> {param_values} <- {self.funcs}")
-                        expr = sp.sympify(var['expression'], locals=update_const(self.funcs))
-                        para = set(expr.free_symbols)
-                        num_expr = lambdify([str(par) for par in expr.free_symbols], expr, modules=[self.funcs, "numpy"])
-                        symbol_values_strs = {str(key): value for key, value in param_values.items() if key in {str(par) for par in para}}
-                        value = num_expr(**symbol_values_strs)
+                        expr, symbol_values_strs, value = _evaluate_expression(
+                            var['expression'],
+                            param_values,
+                            parse_locals,
+                            numeric_modules,
+                        )
                         observables[var['name']] = value
                         self.logger.info(f"Evaluating: expression \n\t-> {expr} \n    with input \t -> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n    Output \t\t-> {value}")
 

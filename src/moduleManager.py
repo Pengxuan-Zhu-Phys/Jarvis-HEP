@@ -32,6 +32,8 @@ class ModuleManager:
     def set_likelihood(self):
         from Module.likelihood import LogLikelihood
         self.loglikelihood = LogLikelihood(self.config['Sampling']['LogLikelihood'])
+        if hasattr(self, "_funcs"):
+            self.loglikelihood.update_funcs(self._funcs)
 
     def set_funcs(self, funcs):
         from inner_func import update_funcs
@@ -175,8 +177,22 @@ class ModuleManager:
 
     def add_module_pool(self, module):
         if module.name not in self.module_pools:
-            self.logger.warning(f"Manager adding ModulePool {module.name}. ")
-            self.module_pools[module.name] = ModulePool(module, max_workers=self.max_worker)
-            self.module_pools[module.name].set_funcs(self.funcs)
-            self.module_pools[module.name].set_logger()
-            # self.module_pools[module.name].load_installed_instances()
+            if getattr(module, "type", "") == "Calculator":
+                self.logger.warning(f"Manager adding ModulePool {module.name}. ")
+                self.module_pools[module.name] = ModulePool(module, max_workers=self.max_worker)
+                self.module_pools[module.name].set_funcs(self.funcs)
+                self.module_pools[module.name].set_logger()
+            elif getattr(module, "type", "") == "Operas":
+                self.logger.warning(f"Manager adding Operas executor {module.name}. ")
+                module.set_funcs(self.funcs)
+                module.set_logger(
+                    self.logger.bind(
+                        module=f"Jarvis-HEP.Workflow.{module.name}",
+                        to_console=True,
+                        Jarvis=True,
+                        _log_domain="jarvis_hep",
+                    )
+                )
+                self.module_pools[module.name] = module
+            else:
+                self.logger.error(f"Unsupported module type '{getattr(module, 'type', None)}' for module '{module.name}'")

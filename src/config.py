@@ -38,10 +38,27 @@ class ConfigLoader(Base):
             self.logger.info(f"Start configuring the input file -> {filepath}")
             with open(filepath, 'r') as file:
                 self.config = yaml.safe_load(file)
+                self._normalize_optional_sections()
                 self.filepath = filepath
         except Exception as e: 
             self.logger.error(f"Error: loading config file -> {e}")
             sys.exit(2)
+
+    def _normalize_optional_sections(self):
+        """Normalize optional top-level sections before schema validation.
+
+        Current schemas require a Calculators section. We inject an empty default
+        so Operas-only tasks remain schema-compatible.
+        """
+        if not isinstance(self.config, dict):
+            return
+        if "Calculators" not in self.config:
+            self.config["Calculators"] = {
+                "make_paraller": 4,
+                "Modules": [],
+            }
+        if "Operas" not in self.config:
+            self.config["Operas"] = {}
 
     def check_dependency_installed(self) -> None:
         dependencies = self.config["EnvReqs"]
@@ -236,13 +253,23 @@ class ConfigLoader(Base):
         if self.config['Sampling'].get("Nuisance", False): 
             modules['Nuisance'] = self.config['Sampling']['Nuisance']['Variables']
         
-        if hasattr(self.config, "LibDeps"):
+        if "LibDeps" in self.config:
             if self.config["LibDeps"]["Modules"]:
                 self.analysis_Library()
                 modules['Library'] = self.config["LibDeps"]["Modules"]
-        if self.config["Calculators"]["Modules"]:
+
+        calculators = (self.config.get("Calculators", {}) or {}).get("Modules", []) or []
+        operas = (self.config.get("Operas", {}) or {}).get("Modules", []) or []
+        if calculators:
             self.analysis_calculator()
             modules['Calculator'] = self.config["Calculators"]["Modules"]
+        if operas:
+            self.analysis_operas()
+            modules["Operas"] = self.config["Operas"]["Modules"]
+
+        if not calculators and not operas:
+            self.logger.error("Invalid config: at least one of Calculators.Modules or Operas.Modules must be non-empty.")
+            sys.exit(2)
         return modules
         
     def decode_lib_command_via_config(self, command, pwd, pack):
@@ -346,8 +373,14 @@ class ConfigLoader(Base):
 
             return calc
 
-        self.config['Calculators']['path'] = self.decode_path(self.config['Calculators']['path'])
-        calc_config = self.config["Calculators"]['Modules']
+        calc_root = self.config.get("Calculators", {}) or {}
+        calc_root.setdefault("make_paraller", 4)
+        if "path" in calc_root:
+            calc_root['path'] = self.decode_path(calc_root['path'])
+        else:
+            calc_root["path"] = self.decode_path("&J/WorkShop/Program")
+        self.config["Calculators"] = calc_root
+        calc_config = calc_root.get('Modules', []) or []
         for calc in calc_config:
             calc.update(analysis_path(calc))
             calc.update(analysis_install_commands(calc))
@@ -358,6 +391,148 @@ class ConfigLoader(Base):
                 calc['modes'] = False
                 calc.update(analysis_initialization_commands_single(calc))
                 calc.update(analysis_execution_single(calc))
+
+    def analysis_operas(self):
+        """Normalize Operas section into a workflow-ready structure."""
+        def normalize_call_mode(value, *, context: str) -> str:
+            if value is None:
+                return "call"
+            if not isinstance(value, str):
+                self.logger.error(
+                    f"Invalid Operas call_mode in {context}: expected string 'call' or 'acall', got {value!r}"
+                )
+                sys.exit(2)
+            mode = value.strip().lower()
+            if mode not in {"call", "acall"}:
+                self.logger.error(
+                    f"Invalid Operas call_mode in {context}: '{value}'. Expected 'call' or 'acall'."
+                )
+                sys.exit(2)
+            return mode
+
+        operas_root = self.config.get("Operas", {}) or {}
+        operas_root.setdefault("make_paraller", 4)
+        modules = operas_root.get("Modules", []) or []
+        for module in modules:
+            if not isinstance(module, dict):
+                self.logger.error(f"Invalid Operas module entry: {module}")
+                sys.exit(2)
+            if not isinstance(module.get("name"), str) or not module.get("name"):
+                self.logger.error(f"Invalid Operas module name: {module}")
+                sys.exit(2)
+            if not isinstance(module.get("operator"), str) or not module.get("operator"):
+                self.logger.error(f"Invalid Operas operator for module '{module.get('name', '<unknown>')}': {module}")
+                sys.exit(2)
+            module["call_mode"] = normalize_call_mode(
+                module.get("call_mode", "call"),
+                context=f"Operas.Modules[{module.get('name', '<unknown>')}]",
+            )
+            if "required_modules" not in module:
+                module["required_modules"] = []
+            if isinstance(module["required_modules"], str):
+                module["required_modules"] = [module["required_modules"]]
+            module.setdefault("input", [])
+            module.setdefault("kwargs", {})
+            if not isinstance(module["input"], list):
+                self.logger.error(
+                    f"Invalid Operas module input for '{module.get('name', '<unknown>')}': expected list."
+                )
+                sys.exit(2)
+            if not isinstance(module["kwargs"], dict):
+                self.logger.error(
+                    f"Invalid Operas module kwargs for '{module.get('name', '<unknown>')}': expected object."
+                )
+                sys.exit(2)
+            normalized_input = []
+            for item in module["input"]:
+                if isinstance(item, str):
+                    normalized_input.append({"name": item})
+                elif isinstance(item, dict):
+                    if not isinstance(item.get("name"), str) or not item.get("name"):
+                        self.logger.error(
+                            f"Invalid Operas input mapping in module '{module.get('name', '<unknown>')}': {item}"
+                        )
+                        sys.exit(2)
+                    if "expression" in item and not isinstance(item["expression"], str):
+                        self.logger.error(
+                            f"Invalid Operas input expression in module '{module.get('name', '<unknown>')}': {item}"
+                        )
+                        sys.exit(2)
+                    normalized_input.append(item)
+                else:
+                    self.logger.error(
+                        f"Invalid Operas input item in module '{module.get('name', '<unknown>')}': {item}"
+                    )
+                    sys.exit(2)
+            module["input"] = normalized_input
+
+            normalized_output = []
+            for item in module.get("output", []) or []:
+                if isinstance(item, str):
+                    normalized_output.append({"name": item, "entry": item})
+                elif isinstance(item, dict):
+                    name = item.get("name")
+                    if not name:
+                        self.logger.error(f"Invalid Operas output mapping in module '{module.get('name', '<unknown>')}': {item}")
+                        sys.exit(2)
+                    normalized_output.append(
+                        {
+                            "name": name,
+                            "entry": item.get("entry", name),
+                        }
+                    )
+                else:
+                    self.logger.error(f"Invalid Operas output item in module '{module.get('name', '<unknown>')}': {item}")
+                    sys.exit(2)
+            if not normalized_output:
+                self.logger.error(
+                    f"Invalid Operas module '{module.get('name', '<unknown>')}': output mapping cannot be empty."
+                )
+                sys.exit(2)
+            module["output"] = normalized_output
+        operas_root["Modules"] = modules
+        self.config["Operas"] = operas_root
+
+    def get_worker_parallel(self) -> int:
+        """Return unified worker parallelism from Calculators/Operas sections."""
+        candidates = []
+        c_para = (self.config.get("Calculators", {}) or {}).get("make_paraller")
+        o_para = (self.config.get("Operas", {}) or {}).get("make_paraller")
+        for val in (c_para, o_para):
+            if isinstance(val, int) and val > 0:
+                candidates.append(val)
+        return max(candidates) if candidates else 4
+
+    def get_operas_function_whitelist(self) -> list[dict]:
+        funcs = (self.config.get("Operas", {}) or {}).get("Functions", []) or []
+        if not isinstance(funcs, list):
+            self.logger.error("Invalid config: Operas.Functions must be a list.")
+            sys.exit(2)
+        normalized = []
+        for item in funcs:
+            if not isinstance(item, dict):
+                self.logger.error(f"Invalid Operas.Functions item: {item}")
+                sys.exit(2)
+            name = item.get("name")
+            if not isinstance(name, str) or not name:
+                self.logger.error(f"Invalid Operas function name: {item}")
+                sys.exit(2)
+            alias = item.get("alias", name.split(":")[-1])
+            if not isinstance(alias, str) or not alias:
+                self.logger.error(f"Invalid Operas alias: {item}")
+                sys.exit(2)
+            inputs = item.get("inputs", [])
+            if not isinstance(inputs, list) or any(not isinstance(x, str) for x in inputs):
+                self.logger.error(f"Invalid Operas function inputs: {item}")
+                sys.exit(2)
+            normalized.append(
+                {
+                    "name": name,
+                    "alias": alias,
+                    "inputs": inputs,
+                }
+            )
+        return normalized
 
     def decode_path(self, path) -> None:
         return super().decode_path(path)

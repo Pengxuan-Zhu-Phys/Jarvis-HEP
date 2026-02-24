@@ -30,6 +30,8 @@ logger.remove()
 from plot import JarvisPLOT as PlotterClass
 # from monitor import Monitor
 
+JARVIS_HEP_LOG_DOMAIN = "jarvis_hep"
+
 
 class Core(Base):
     def __init__(self) -> None:
@@ -191,23 +193,30 @@ class Core(Base):
     def init_logger(self) -> None:
         from datetime import datetime
         current_time = datetime.now().strftime("%Y-%m-%d[%H:%M:%S]")
+        logger.configure(extra={"_log_domain": JARVIS_HEP_LOG_DOMAIN})
 
         def global_log_filter(record):
-            return record["extra"].get("Jarvis", False)
+            extra = record.get("extra", {})
+            return extra.get("Jarvis", False) and (
+                extra.get("_log_domain", "") == JARVIS_HEP_LOG_DOMAIN
+            )
 
         def stream_filter(record):
-            return record["extra"].get("to_console", False)
+            extra = record.get("extra", {})
+            return extra.get("to_console", False) and (
+                extra.get("_log_domain", "") == JARVIS_HEP_LOG_DOMAIN
+            )
 
         def custom_format(record):
             module = record["extra"].get("module", "No module")
             if "raw" in record["extra"]:
                 return "{message}\n"
             elif module == "Jarvis-HEP.hdf5-Writter":
-                return f"\nϠ <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+                return f"\nϠ <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
             elif "Sample@" in module:
-                return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+                return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
             else:
-                return f"\n <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level> "
+                return f"\n <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
 
         jarvislog = f"{self.info['jarvis_log']}@{current_time}"
 
@@ -229,7 +238,12 @@ class Core(Base):
                 level="DEBUG" if self.args.debug else "WARNING",
         )
 
-        self.logger = logger.bind(module="Jarvis-HEP", to_console=True, Jarvis=True)
+        self.logger = logger.bind(
+            module="Jarvis-HEP",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         with open(self.path['logo'], 'r') as f:
             self.logger.warning(f"\n{f.read()}")        
         self.logger.warning("Jarvis-HEP logging system initialized successful!")
@@ -237,11 +251,21 @@ class Core(Base):
             self.logger.info(f"Jarvis-HEP write into main log file -> {jarvislog}")
             self.logger.info("Jarvis-HEP in debug mode currently!")
         if self.args.plot:
-            plogger = logger.bind(module="Jarvis-PLOT", to_console=True, Jarvis=False)
+            plogger = logger.bind(
+                module="Jarvis-PLOT",
+                to_console=True,
+                Jarvis=False,
+                _log_domain=JARVIS_HEP_LOG_DOMAIN,
+            )
             self.plotter.logger = plogger
 
     def init_configparser(self) -> None: 
-        self.yaml.logger = logger.bind(module="Jarvis-HEP.ConfigParser", to_console=True, Jarvis=True)
+        self.yaml.logger = logger.bind(
+            module="Jarvis-HEP.ConfigParser",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         from copy import deepcopy
         self.yaml.path = deepcopy(self.path)
         self.yaml.load_config(os.path.abspath(self.args.file))
@@ -252,7 +276,12 @@ class Core(Base):
 
     def init_configparser_light(self) -> None:
         """Lightweight config load for plot/convert/monitor modes: load YAML only, skip scan-only setup."""
-        self.yaml.logger = logger.bind(module="Jarvis-HEP.ConfigParser", to_console=True, Jarvis=True)
+        self.yaml.logger = logger.bind(
+            module="Jarvis-HEP.ConfigParser",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         from copy import deepcopy
         self.yaml.path = deepcopy(self.path)
         # Only load YAML; do not install dependencies, set sampler/schema, or validate scan config
@@ -271,10 +300,74 @@ class Core(Base):
                         self.logger.info(f"Succefully resolve the interpolate function -> {item['name']}")
                     else: 
                         self.logger.info(f"Illegal setting for interpolate function -> {item['name']}")
+        self.init_operas_functions()
+
+    def _build_operas_func_wrapper(self, registry, operator_name, input_names):
+        input_names = input_names if isinstance(input_names, list) else []
+
+        def _wrapped(*args, **kwargs):
+            call_kwargs = dict(kwargs)
+            if "observables" not in call_kwargs:
+                if len(args) == 1 and isinstance(args[0], dict):
+                    call_kwargs["observables"] = args[0]
+                elif args:
+                    if input_names and len(input_names) == len(args):
+                        call_kwargs["observables"] = {k: v for k, v in zip(input_names, args)}
+                    else:
+                        raise ValueError(
+                            f"Operas function '{operator_name}' received positional args but no valid input mapping."
+                        )
+            return registry.call(operator_name, logger=self.logger, **call_kwargs)
+
+        return _wrapped
+
+    def init_operas_functions(self) -> None:
+        operas_cfg = (self.yaml.config.get("Operas", {}) or {})
+        if not operas_cfg:
+            return
+
+        has_operas = bool(operas_cfg.get("Modules")) or bool(operas_cfg.get("Functions"))
+        if not has_operas:
+            return
+
+        try:
+            from jarvis_operas import get_global_registry
+            from importlib.metadata import PackageNotFoundError, version as dist_version
+        except Exception as exc:
+            self.logger.error(f"Jarvis-Operas is required by Operas config but unavailable: {exc}")
+            sys.exit(2)
+
+        try:
+            operas_version = dist_version("Jarvis-Operas")
+        except PackageNotFoundError:
+            operas_version = "unknown(local-source)"
+        self.logger.warning(f"Loading Jarvis-Operas version -> {operas_version}")
+
+        registry = get_global_registry()
+        for item in self.yaml.get_operas_function_whitelist():
+            alias = item["alias"]
+            if not alias.isidentifier():
+                self.logger.error(f"Illegal Operas alias '{alias}'. Alias must be a valid identifier.")
+                sys.exit(2)
+            try:
+                registry.resolve_name(item["name"])
+            except Exception as exc:
+                self.logger.error(f"Operas function '{item['name']}' is not registered: {exc}")
+                sys.exit(2)
+            if alias in self._funcs:
+                self.logger.warning(f"Operas alias '{alias}' overrides existing function with the same name.")
+            wrapper = self._build_operas_func_wrapper(registry, item["name"], item.get("inputs", []))
+            self._funcs[alias] = wrapper
+            self.logger.info(f"Register Operas function '{item['name']}' as alias '{alias}'")
 
     def init_StateSaver(self) -> None:
         # logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
-        slogger = logger.bind(module="Jarvis-HEP.StateSaver", to_console=True, Jarvis=True)
+        slogger = logger.bind(
+            module="Jarvis-HEP.StateSaver",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         slogger.warning("Enabling breakpoint resume function ... ")
         self.__state_saver = self.__StateSaver(self, filename=self.info['pickle_file'] , logger=slogger, save_interval_seconds=60)
 
@@ -284,10 +377,15 @@ class Core(Base):
             return logger_name in record['extra']['module']
         def custom_format(record):
             module = record["extra"].get("module", "No module")
-            return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{record['message']}</level>"
+            return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
     
         # logger = self.logger.create_dynamic_logger(self.sampler.method)
-        slogger = logger.bind(module=logger_name, to_console=True, Jarvis=True)
+        slogger = logger.bind(
+            module=logger_name,
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         slogger.add(self.info['sampler_log'], format=custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func )
         self.sampler.info['logfile'] = self.info['sampler_log']
         self.sampler.info['sample'] = deepcopy(self.info['sample'])
@@ -301,7 +399,12 @@ class Core(Base):
             self.libraries = Library()
             self.libraries._skip_library = self.args.skiplibrary
             # logger = self.logger.create_dynamic_logger("Library", logging.INFO)
-            slogger = logger.bind(module="Jarvis-HEP.Library", to_console=True, Jarvis=True)
+            slogger = logger.bind(
+                module="Jarvis-HEP.Library",
+                to_console=True,
+                Jarvis=True,
+                _log_domain=JARVIS_HEP_LOG_DOMAIN,
+            )
             self.libraries.set_logger(slogger)
             self.libraries.set_config(self.yaml.config)
     
@@ -324,15 +427,26 @@ class Core(Base):
     def init_WorkerFactory(self) -> None: 
         self.factory = WorkerFactory()
         self.module_manager = ModuleManager()
+        max_workers = self.yaml.get_worker_parallel()
         self.factory.configure(module_manager=self.module_manager,
-            max_workers=self.yaml.config['Calculators']['make_paraller']
+            max_workers=max_workers
             )
-        self.sampler.set_max_workers(self.yaml.config['Calculators']['make_paraller'])
-        flogger = logger.bind(module="Jarvis-HEP.Factory", to_console=True, Jarvis=True)
+        self.sampler.set_max_workers(max_workers)
+        flogger = logger.bind(
+            module="Jarvis-HEP.Factory",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         self.factory.set_logger(flogger)
-        mlogger = logger.bind(module="Jarvis-HEP.Factory.Manager", to_console=True, Jarvis=True)
+        mlogger = logger.bind(
+            module="Jarvis-HEP.Factory.Manager",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
         self.module_manager.set_logger(mlogger)
-        self.module_manager.set_max_worker(self.yaml.config['Calculators']['make_paraller'])
+        self.module_manager.set_max_worker(max_workers)
         self.module_manager.set_config(self.yaml.config)
         self.module_manager.set_funcs(self._funcs)
         self.module_manager.workflow = deepcopy(self.workflow.workflow)
@@ -408,7 +522,7 @@ class Core(Base):
             _init_common_project_and_logger()
             self.init_configparser()
             self.init_utils()
-
+            
             setproctitle.setproctitle(self.info['proctitle'])
             self.logger.warning("Setting process title -> {}".format(self.info['proctitle']))
             self.save_pid()

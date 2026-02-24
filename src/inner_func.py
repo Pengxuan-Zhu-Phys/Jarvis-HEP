@@ -96,15 +96,77 @@ def LogGauss(xx, mean, err):
     prob = -0.5*((xx - mean)/err)**2
     return prob
 
+
+def _extract_operas_full_name_map(func_locals, numeric_funcs):
+    full_name_map = {}
+    for namespace, ns_obj in (func_locals or {}).items():
+        if not isinstance(namespace, str):
+            continue
+        attrs = getattr(ns_obj, "__dict__", None)
+        if not isinstance(attrs, dict):
+            continue
+        for short_name, symbol_fn in attrs.items():
+            if not isinstance(short_name, str):
+                continue
+            symbolic_name = str(symbol_fn)
+            fn = numeric_funcs.get(symbolic_name)
+            if callable(fn):
+                full_name_map[f"{namespace}.{short_name}"] = fn
+    return full_name_map
+
+
 def update_funcs(funcs):
+    if funcs is None:
+        funcs = {}
     funcs['sympy'] = sympy
     funcs['Gauss'] = Gauss
     funcs['LogGauss'] = LogGauss
     funcs['Normal'] = Normal
     funcs['Heaviside'] = sympy.Heaviside
     funcs.update(_Inner_FCs)
+    try:
+        from jarvis_operas import func_locals, numeric_funcs
+
+        funcs.update(numeric_funcs)
+        funcs.update(func_locals)
+        funcs.update(_extract_operas_full_name_map(func_locals, numeric_funcs))
+    except Exception:
+        pass
     return funcs
 
-def update_const(vars):
-    vars.update(_Constant)
-    return vars
+
+def update_const(values):
+    if values is None:
+        values = {}
+    values.update(_Constant)
+    return values
+
+
+def build_expression_context(funcs=None, consts=None):
+    """Build parsing and numeric contexts for sympy usage.
+
+    Returns:
+        tuple(parse_locals, numeric_modules)
+        - parse_locals: used in sympify(locals=...)
+        - numeric_modules: used in lambdify(modules=[..., "numpy"])
+    """
+
+    parse_locals = {}
+    numeric_modules = {}
+
+    if funcs:
+        parse_locals.update(funcs)
+        numeric_modules.update(funcs)
+    if consts:
+        parse_locals.update(consts)
+
+    try:
+        from jarvis_operas import func_locals, numeric_funcs
+
+        parse_locals.update(func_locals)
+        numeric_modules.update(numeric_funcs)
+        numeric_modules.update(_extract_operas_full_name_map(func_locals, numeric_funcs))
+    except Exception:
+        pass
+
+    return parse_locals, numeric_modules

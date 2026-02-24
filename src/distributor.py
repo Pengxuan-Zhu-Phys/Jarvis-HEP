@@ -32,8 +32,11 @@ class Distributor(Base):
             case "MCMC":
                 from Sampling.mcmc import MCMC 
                 return MCMC()
+            case "Diver":
+                from Sampling.diver import Diver
+                return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "Grid", "Random", "DNN", "TPMCMC", "MCMC"]
+                supported = ["Bridson", "Dynesty", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

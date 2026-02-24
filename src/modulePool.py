@@ -31,7 +31,12 @@ class ModulePool:
         self._io_lock = threading.Lock()     # protects info-file writes
 
     def set_logger(self):
-        self.logger = logger.bind(module=f"Jarvis-HEP.Workflow.{self.name}", to_console=True, Jarvis=True)
+        self.logger = logger.bind(
+            module=f"Jarvis-HEP.Workflow.{self.name}",
+            to_console=True,
+            Jarvis=True,
+            _log_domain="jarvis_hep",
+        )
         self.load_installed_instances()
 
     def create_instance(self):
