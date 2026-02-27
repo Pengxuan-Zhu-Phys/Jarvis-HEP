@@ -202,11 +202,28 @@ class Workflow(Base):
             figH = 4
 
             def resolve_module(module, lid):
+                module_type = getattr(self.modules[module], "type", "Calculator")
                 if lid == 1:
-                    res = {"name": module, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9, 'ohh': 0., "ihh": 0., "bp": np.array([0.85, 0.]), "width": 0.9}
+                    res = {"name": module, "type": module_type, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9, 'ohh': 0., "ihh": 0., "bp": np.array([0.85, 0.]), "width": 0.9}
                 else:     
-                    res = {"name": module, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9,'ohh': 0., "ihh": 0.0, "bp": np.array([0., 0.]), "width": 0.9}
-                if self.modules[module].input:
+                    res = {"name": module, "type": module_type, "ipf": {}, "opf": {}, "ipv": {}, "opv": {}, 'mhh':0.9,'ohh': 0., "ihh": 0.0, "bp": np.array([0., 0.]), "width": 0.9}
+                if module_type == "Operas" and self.modules[module].inputs:
+                    ipfl = {}
+                    deps = list(self.modules[module].inputs.keys())
+                    nn = len(deps)
+                    hh = 0.3 * nn - 0.2
+                    for ii, dep in enumerate(deps):
+                        ipfl[dep] = {
+                            "nam": dep,
+                            "pos": np.array([-0.35, ((nn - 1)/2 - ii) * 0.3]) + res["bp"],
+                            "inc": [{"name": dep}],
+                            "direct": True,
+                        }
+                    res["ipf"] = ipfl
+                    if hh > 0.:
+                        res["ihh"] = hh
+
+                elif self.modules[module].input:
                     ipfl = {}
                     nn = len(self.modules[module].input)
                     hh = 0.7 * nn - 0.2
@@ -260,7 +277,7 @@ class Workflow(Base):
                     if hh > 0.:
                         res['ihh'] = hh 
 
-                if self.modules[module].output:
+                if self.modules[module].output and module_type != "Operas":
                     opfl = {}
                     nn = len(self.modules[module].output)
                     hh = 0.7 * nn - 0.2 
@@ -321,7 +338,8 @@ class Workflow(Base):
                         res['opv'][op] = {
                             "nam": op, 
                             "pos": np.array([2.5, h0 - ii * 0.2]),
-                            "wid": 0.
+                            "wid": 0.,
+                            "typ": "Obser",
                         }
                         if vv is not None: 
                             res['opv'][op]["typ"] = vv
@@ -474,20 +492,24 @@ class Workflow(Base):
                 # ax.plot([(klayer-1)*layerW, (klayer-1)*layerW], [-100, 100], "-", c='grey', lw=0.6, alpha=0.2)
                 if klayer != 1:
                     # print(mod)
-                    module_at_pos(mod['bp'])
+                    module_at_pos(mod['bp'], mod.get("type", "Calculator"))
                     ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
                     for kk, ipf in mod['ipf'].items():
-                        # print(kk, ipf.keys())
-                        input_file_at_pos(ipf['pos'] )
-                        ax.text(
-                            ipf['pos'][0] - 0.25, ipf['pos'][1] - 0.27, ipf['fil'], 
-                            ha="center", va='top', 
-                            fontfamily="sans-serif", fontsize="x-small", fontstyle="normal", fontweight="light"
-                        )
-                        line_from_F2M(ipf['pos'] , mod['bp'])
-                        for link in ipf['link'].values():
-                            # print(kk, link)
-                            arraw_from_V2F(link['pos'], ipf['pos'])
+                        if ipf.get("direct", False):
+                            for link in ipf['link'].values():
+                                line_from_V2M(link['pos'], mod['bp'])
+                        else:
+                            # print(kk, ipf.keys())
+                            input_file_at_pos(ipf['pos'] )
+                            ax.text(
+                                ipf['pos'][0] - 0.25, ipf['pos'][1] - 0.27, ipf['fil'], 
+                                ha="center", va='top', 
+                                fontfamily="sans-serif", fontsize="x-small", fontstyle="normal", fontweight="light"
+                            )
+                            line_from_F2M(ipf['pos'] , mod['bp'])
+                            for link in ipf['link'].values():
+                                # print(kk, link)
+                                arraw_from_V2F(link['pos'], ipf['pos'])
                     for op in mod['opv']:
                         mod['opv'][op]['pos'] = mod['opv'][op]['pos'] 
                         mod['opv'][op] = outvar_at_OP(mod['opv'][op])
@@ -506,6 +528,9 @@ class Workflow(Base):
                         for op in opf['inc']:
                             opp = mod['opv'][op]
                             line_from_F2V(opf['pos'], opp)
+                    if not mod['opf']:
+                        for op in mod['opv'].values():
+                            line_from_F2V(mod['bp'], op)
                 else:
                     sampler_at_pos(mod['bp'])
                     ax.text(mod['bp'][0], mod['bp'][1] - 0.4, mod['name'], ha="center", va='top', fontfamily="sans-serif", fontsize="medium", fontstyle="normal", fontweight="bold")
@@ -587,8 +612,11 @@ class Workflow(Base):
                 return op 
                 # ax.plot([op["pos"][0] - op['wid'], op["pos"][0]], [op["pos"][1], op["pos"][1]], "-")
 
-            def module_at_pos(pos):
-                image_path = os.path.join(icon_dir, "calculator.png")
+            def module_at_pos(pos, module_type="Calculator"):
+                icon_name = "calculator.png"
+                if module_type == "Operas":
+                    icon_name = "opera.png"
+                image_path = os.path.join(icon_dir, icon_name)
                 with Image.open(image_path) as image:
                     image = np.array(image.convert("RGBA"))  # Explicitly preserve transparency
                     ax.imshow(image, extent=[pos[0]-0.45, pos[0]+0.45, pos[1]-0.45, pos[1]+0.45], zorder=100)

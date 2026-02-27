@@ -317,6 +317,10 @@ class Core(Base):
                         raise ValueError(
                             f"Operas function '{operator_name}' received positional args but no valid input mapping."
                         )
+            observables_payload = call_kwargs.get("observables")
+            if isinstance(observables_payload, dict):
+                for key, value in observables_payload.items():
+                    call_kwargs.setdefault(str(key), value)
             return registry.call(operator_name, logger=self.logger, **call_kwargs)
 
         return _wrapped
@@ -331,7 +335,7 @@ class Core(Base):
             return
 
         try:
-            from jarvis_operas import get_global_registry
+            from jarvis_operas import get_global_operas_registry
             from importlib.metadata import PackageNotFoundError, version as dist_version
         except Exception as exc:
             self.logger.error(f"Jarvis-Operas is required by Operas config but unavailable: {exc}")
@@ -343,7 +347,7 @@ class Core(Base):
             operas_version = "unknown(local-source)"
         self.logger.warning(f"Loading Jarvis-Operas version -> {operas_version}")
 
-        registry = get_global_registry()
+        registry = get_global_operas_registry()
         for item in self.yaml.get_operas_function_whitelist():
             alias = item["alias"]
             if not alias.isidentifier():

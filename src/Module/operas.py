@@ -68,9 +68,9 @@ class OperasModule(Module):
 
     def _get_registry(self):
         if self._registry is None:
-            from jarvis_operas import get_global_registry
+            from jarvis_operas import get_global_operas_registry
 
-            self._registry = get_global_registry()
+            self._registry = get_global_operas_registry()
         return self._registry
 
     @staticmethod
@@ -150,7 +150,12 @@ class OperasModule(Module):
 
     def _resolve_operator_signature(self, registry):
         resolved_operator = registry.resolve_name(self.operator)
-        fn = registry.get(resolved_operator)
+        declaration = registry.get(resolved_operator)
+        fn = declaration
+        if not callable(fn):
+            candidate = getattr(declaration, "numpy_impl", None)
+            if callable(candidate):
+                fn = candidate
 
         try:
             sig = inspect.signature(fn)
@@ -186,6 +191,9 @@ class OperasModule(Module):
         input_observables = self._build_input_observables(observables, slogger=slogger)
         call_kwargs = dict(self.kwargs)
         call_kwargs["observables"] = input_observables
+        if isinstance(input_observables, Mapping):
+            for key, value in input_observables.items():
+                call_kwargs.setdefault(str(key), value)
 
         resolved_operator, accepted_kwargs, accepts_var_kwargs = self._resolve_operator_signature(
             registry

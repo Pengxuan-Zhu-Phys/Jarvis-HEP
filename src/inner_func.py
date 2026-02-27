@@ -97,22 +97,13 @@ def LogGauss(xx, mean, err):
     return prob
 
 
-def _extract_operas_full_name_map(func_locals, numeric_funcs):
-    full_name_map = {}
-    for namespace, ns_obj in (func_locals or {}).items():
-        if not isinstance(namespace, str):
-            continue
-        attrs = getattr(ns_obj, "__dict__", None)
-        if not isinstance(attrs, dict):
-            continue
-        for short_name, symbol_fn in attrs.items():
-            if not isinstance(short_name, str):
-                continue
-            symbolic_name = str(symbol_fn)
-            fn = numeric_funcs.get(symbolic_name)
-            if callable(fn):
-                full_name_map[f"{namespace}.{short_name}"] = fn
-    return full_name_map
+def _extract_operas_full_name_map():
+    try:
+        from jarvis_operas import build_register_dicts
+
+        return build_register_dicts()
+    except Exception:
+        return {}
 
 
 def update_funcs(funcs):
@@ -125,11 +116,16 @@ def update_funcs(funcs):
     funcs['Heaviside'] = sympy.Heaviside
     funcs.update(_Inner_FCs)
     try:
-        from jarvis_operas import func_locals, numeric_funcs
+        from jarvis_operas import build_sympy_dicts
 
+        operas_register_dict = _extract_operas_full_name_map()
+        func_locals, numeric_funcs = build_sympy_dicts(
+            operas_register_dict,
+            include_all=True,
+        )
         funcs.update(numeric_funcs)
         funcs.update(func_locals)
-        funcs.update(_extract_operas_full_name_map(func_locals, numeric_funcs))
+        funcs.update(operas_register_dict)
     except Exception:
         pass
     return funcs
@@ -161,11 +157,16 @@ def build_expression_context(funcs=None, consts=None):
         parse_locals.update(consts)
 
     try:
-        from jarvis_operas import func_locals, numeric_funcs
+        from jarvis_operas import build_sympy_dicts
 
+        operas_register_dict = _extract_operas_full_name_map()
+        func_locals, numeric_funcs = build_sympy_dicts(
+            operas_register_dict,
+            include_all=True,
+        )
         parse_locals.update(func_locals)
         numeric_modules.update(numeric_funcs)
-        numeric_modules.update(_extract_operas_full_name_map(func_locals, numeric_funcs))
+        numeric_modules.update(operas_register_dict)
     except Exception:
         pass
 

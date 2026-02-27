@@ -42,7 +42,7 @@ Operas:
   make_paraller: 16
   Modules:
     - name: EggBox
-      operator: "helper:eggbox2d"
+      operator: "helper.eggbox2d"
       call_mode: call
       required_modules: []
       input:
