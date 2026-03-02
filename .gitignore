@@ -18,6 +18,9 @@ src/Sampling/__pycache__/
 # Ignore Python bytecode files
 *.pyc
 __pycache__/
+build/
+dist/
+*.egg-info/
 
 # Ignore Python bytecode files
 *.pyc
