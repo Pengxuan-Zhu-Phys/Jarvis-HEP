@@ -36,7 +36,7 @@ EnvReqs:
       version: ">=10.0"
   Check_default_dependences:
     required: True 
-    default_yaml_path:  "&J/src/card/environment_default.yaml"
+    default_yaml_path:  "&SRC/card/environment_default.yaml"
 
 Calculators:
   make_paraller: 16

@@ -44,6 +44,7 @@ Jarvis-HEP is designed to address these issues by providing:
 
 ### Data Handling & Diagnostics
 - HDF5-based structured output
+- Schema-driven CSV flattening for structured observables (`samples.schema.json`)
 - Explicit resource and file-handle monitoring
 - Detailed logging via `loguru`
 - Designed to survive partial failures (no silent data loss)
@@ -63,26 +64,40 @@ Example visualization of an adaptive sampling procedure:
 
 ## Installation
 
-Jarvis-HEP is a **pure Python** project. No need to compile, but need to install all python Dependencies.
+Jarvis-HEP is a pure Python project.
 
-### Dependencies
-
-Install required packages via `pip`:
+### Install from PyPI
 
 ```bash
-python3 -m pip install \
-  numpy scipy pandas pyyaml h5py matplotlib \
-  dynesty pyhf networkx shapely sympy \
-  xslha pyslha xmltodict \
-  sqlalchemy aiofiles dill emoji prettytable loguru
+python3 -m pip install Jarvis-HEP
+```
+
+After installation, run directly:
+
+```bash
+Jarvis --help
+```
+
+### Install from source (developer mode)
+
+```bash
+python3 -m pip install -e .
+```
+
+### Release helper (maintainer)
+
+```bash
+./jhrel 1.0.1 --dry
+./jhrel 1.0.1 --testpypi
+./jhrel 1.0.1 --reinstall
 ```
 
 ### Create a standalone project workspace
 
-Use `--mkproject` to create a fresh Jarvis project directory in your current working path:
+Use `--mkproject` to create a fresh Jarvis project directory:
 
 ```bash
-./Jarvis --mkproject PROJECT_NAME
+Jarvis --mkproject PROJECT_NAME
 ```
 
 This creates:
@@ -90,6 +105,51 @@ This creates:
 - `PROJECT_NAME/Library` for source libraries
 - `PROJECT_NAME/Workshop` for workflow files
 - `PROJECT_NAME/Result` for outputs
+
+## Running
+
+Jarvis-HEP can now be launched without changing into the source root:
+
+```bash
+Jarvis /path/to/project/bin/task.yaml
+```
+
+Or via module mode:
+
+```bash
+python -m jarvishep /path/to/project/bin/task.yaml
+```
+
+### Path Markers
+
+- `&J/...` resolves to the runtime task root (auto-inferred from the YAML location, typically the parent of `bin/`)
+- `&SRC/...` resolves to the Jarvis-HEP source tree (internal cards/schema/logo)
+
+### Observable Schema And CSV Flattening
+
+Jarvis-HEP stores scan data in HDF5 and exports CSV through a user-editable schema file:
+
+- raw records: `.../DATABASE/samples.N.hdf5`
+- schema rules: `.../DATABASE/samples.schema.json`
+- CSV export: `.../DATABASE/samples.N.csv`
+
+`samples.schema.json` records each column's type metadata and flatten rules.  
+You can edit flatten rules and regenerate CSV without rerunning sampling:
+
+```bash
+Jarvis /path/to/task.yaml --convert
+```
+
+Supported column flatten modes:
+
+- `scalar`: scalar-first export (structured values fall back to JSON cell text)
+- `json`: write structured value as one JSON string cell
+- `split`: expand structured value to multiple CSV columns (supports `name_map` rename mapping)
+- `drop`: omit column from CSV export
+
+Detailed schema fields and examples:
+
+- [docs/OBSERVABLE_SCHEMA.md](docs/OBSERVABLE_SCHEMA.md)
 
 ---
 

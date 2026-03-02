@@ -8,6 +8,12 @@ demos/
 Results/
 TestScan/
 WorkShop/
+trash/
+
+# Legacy runtime paths (pre-PyPI layout)
+Jarvis
+src/
+
 src/__pycache__/
 src/IOs/__pycache__/
 src/Module/__pycache__/

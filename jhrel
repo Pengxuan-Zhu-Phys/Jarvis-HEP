@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+
+_jhrel_SRC="$0"
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  _jhrel_SRC="${BASH_SOURCE[0]}"
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  _jhrel_SRC="$(eval 'echo ${(%):-%x}')"
+fi
+
+_jhrel_DIR="$(cd "$(dirname "$_jhrel_SRC")" && pwd)"
+
+_jhrel_usage() {
+  cat <<'EOF'
+Usage:
+  jhrel <version> [--dry] [--testpypi] [-e|--editable] [--reinstall]
+
+Examples:
+  ./jhrel 1.0.1 --dry
+  ./jhrel 1.0.1 --testpypi
+  ./jhrel 1.0.1 -e
+  ./jhrel 1.0.1 --reinstall
+EOF
+}
+
+_jhrel_clean_artifacts() {
+  python3 - <<'PY'
+from __future__ import annotations
+import glob
+import os
+import shutil
+
+for path in ("dist", "build"):
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+for matched in glob.glob("*.egg-info"):
+    if os.path.isdir(matched):
+        shutil.rmtree(matched, ignore_errors=True)
+PY
+}
+
+_jhrel_bump_version() {
+  local version="$1"
+  python3 - <<'PY' "$version"
+from pathlib import Path
+import re
+import sys
+
+version = sys.argv[1]
+path = Path("pyproject.toml")
+text = path.read_text(encoding="utf-8")
+updated, n = re.subn(
+    r'(?m)^version\s*=\s*"[^"]+"$',
+    f'version = "{version}"',
+    text,
+    count=1,
+)
+if n != 1:
+    raise SystemExit("[jhrel] Failed to locate version field in pyproject.toml")
+path.write_text(updated, encoding="utf-8")
+print(f"[jhrel] pyproject.toml updated to {version}")
+PY
+}
+
+_jhrel_verify_install() {
+  python3 - <<'PY'
+import importlib.metadata as m
+from shutil import which
+
+print("[jhrel] installed version:", m.version("Jarvis-HEP"))
+print("[jhrel] Jarvis command:", which("Jarvis"))
+PY
+
+  # Refresh shell command hash tables after pip install (zsh/bash).
+  hash -r 2>/dev/null || true
+  rehash 2>/dev/null || true
+
+  local cli_cmd
+  cli_cmd="$(command -v Jarvis 2>/dev/null || true)"
+  if [[ -z "$cli_cmd" ]]; then
+    cli_cmd="$(python3 - <<'PY'
+from shutil import which
+print(which("Jarvis") or "")
+PY
+)"
+  fi
+
+  if [[ -z "$cli_cmd" ]]; then
+    echo "[jhrel] WARNING: Jarvis CLI not found in PATH after reinstall; skip CLI --help check." >&2
+    return 0
+  fi
+
+  "$cli_cmd" --help >/dev/null
+  echo "[jhrel] CLI --help check passed: $cli_cmd"
+}
+
+jhrel() {
+  (
+    set -euo pipefail
+
+    if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+      _jhrel_usage
+      exit 0
+    fi
+
+    if [[ $# -lt 1 ]]; then
+      _jhrel_usage
+      exit 2
+    fi
+
+    local version="$1"; shift || true
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "[jhrel] Invalid version: $version (expected X.Y.Z)" >&2
+      exit 2
+    fi
+
+    local dry=0
+    local use_testpypi=0
+    local editable=0
+    local reinstall=0
+
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --dry) dry=1 ;;
+        --testpypi) use_testpypi=1 ;;
+        -e|--editable) editable=1 ;;
+        --reinstall) reinstall=1 ;;
+        *) echo "[jhrel] Unknown option: $1" >&2; exit 2 ;;
+      esac
+      shift
+    done
+
+    cd "$_jhrel_DIR"
+    if [[ ! -f "pyproject.toml" ]]; then
+      echo "[jhrel] pyproject.toml not found in $_jhrel_DIR" >&2
+      exit 2
+    fi
+
+    local repo="pypi"
+    if [[ "$use_testpypi" -eq 1 ]]; then
+      repo="testpypi"
+    fi
+
+    echo "[jhrel] Release target version: $version"
+    echo "[jhrel] Repository: $repo"
+    echo "[jhrel] Working directory: $(pwd)"
+    echo "[jhrel] Python: $(python3 -V 2>/dev/null || true)"
+
+    echo "[jhrel] Step 1/5: bump version"
+    _jhrel_bump_version "$version"
+
+    echo "[jhrel] Step 2/5: clean build artifacts"
+    _jhrel_clean_artifacts
+
+    echo "[jhrel] Step 3/5: build package"
+    python3 -m pip install --disable-pip-version-check -q -U build twine
+    python3 -m build
+    python3 -m twine check dist/*
+
+    echo "[jhrel] Step 4/5: upload"
+    if [[ "$dry" -eq 1 ]]; then
+      echo "[jhrel] DRY RUN: skip upload."
+    else
+      python3 -m twine upload -r "$repo" dist/*
+    fi
+
+    echo "[jhrel] Step 5/5: optional local reinstall/verify"
+    if [[ "$editable" -eq 1 ]]; then
+      python3 -m pip uninstall -y Jarvis-HEP >/dev/null 2>&1 || true
+      python3 -m pip install --no-deps -e .
+      _jhrel_verify_install
+    elif [[ "$reinstall" -eq 1 ]]; then
+      if [[ "$dry" -eq 1 ]]; then
+        echo "[jhrel] --reinstall ignored in --dry mode."
+      elif [[ "$repo" == "testpypi" ]]; then
+        python3 -m pip install --no-cache-dir --force-reinstall --no-deps \
+          -i https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple \
+          "Jarvis-HEP==${version}"
+        _jhrel_verify_install
+      else
+        python3 -m pip install --no-cache-dir --force-reinstall --no-deps "Jarvis-HEP==${version}"
+        _jhrel_verify_install
+      fi
+    fi
+
+    echo "[jhrel] Done."
+  )
+}
+
+_jhrel_sourced=0
+if [[ -n "${BASH_VERSION:-}" ]]; then
+  [[ "${BASH_SOURCE[0]}" != "$0" ]] && _jhrel_sourced=1
+elif [[ -n "${ZSH_VERSION:-}" ]]; then
+  case "${ZSH_EVAL_CONTEXT:-}" in
+    *:file) _jhrel_sourced=1 ;;
+  esac
+fi
+
+if [[ "$_jhrel_sourced" -eq 0 ]]; then
+  echo "This file defines the 'jhrel' bash function. Please source it first:" >&2
+  echo "  source \"$0\"" >&2
+  exit 1
+fi

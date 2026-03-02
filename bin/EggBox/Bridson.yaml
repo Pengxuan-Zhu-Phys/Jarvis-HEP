@@ -39,7 +39,7 @@ EnvReqs:
       version: ">=10.14"
   Check_default_dependences:
     required: true
-    default_yaml_path:  "&J/src/card/environment_default.yaml"
+    default_yaml_path:  "&SRC/card/environment_default.yaml"
 
 LibDeps:
   path: "&J/External/Library"
