@@ -12,17 +12,17 @@ from jarvishep.base import Base
 
 
 def create_round_square(ct, rd=1, nn=3.5, frame=None):
+    if nn <= 0:
+        raise ValueError("nn must be > 0")
+
+    def _signed_power(values, power):
+        # Stable for fractional power on negative inputs: sign(x) * |x|**p
+        return np.sign(values) * np.power(np.abs(values), power)
+
     tt = np.linspace(0.0, 2.0 * np.pi, 314)
-    xx = np.cos(tt) ** (2 / nn)
-    yy = np.sin(tt) ** (2 / nn)
-    xx[np.isnan(xx)] = 0
-    yy[np.isnan(yy)] = 0
-    xi = -(-np.cos(tt)) ** (2 / nn)
-    yi = -(-np.sin(tt)) ** (2 / nn)
-    xi[np.isnan(xi)] = 0
-    yi[np.isnan(yi)] = 0
-    xx += xi
-    yy += yi
+    power = 2.0 / float(nn)
+    xx = _signed_power(np.cos(tt), power)
+    yy = _signed_power(np.sin(tt), power)
     xx = rd * xx + ct[0]
     yy = rd * yy + ct[1]
     cdn = np.stack((xx, yy), axis=-1)

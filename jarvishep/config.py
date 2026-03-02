@@ -6,7 +6,7 @@ import platform
 import os, sys 
 import re 
 import subprocess
-import pkg_resources
+from importlib import metadata as importlib_metadata
 from jarvishep.base import Base
 import json
 from jsonschema import validate
@@ -92,31 +92,46 @@ class ConfigLoader(Base):
 
     def check_PYTHON_env(self) -> None: 
         py_env = self.config['EnvReqs']['Python']
+
+        def to_version_tuple(version_text):
+            numbers = tuple(int(x) for x in re.findall(r"\d+", str(version_text)))
+            return numbers if numbers else (0,)
+
         def compare_versions(version1, version2):
-            v1 = tuple(map(int, version1.split('.')))
-            v2 = tuple(map(int, version2.split('.')))
+            v1 = to_version_tuple(version1)
+            v2 = to_version_tuple(version2)
+            width = max(len(v1), len(v2))
+            v1 += (0,) * (width - len(v1))
+            v2 += (0,) * (width - len(v2))
             return v1 >= v2
-        
+
+        missing_required = []
+        incompatible_required = []
+
         def check_package_requirement(name, required, min_version):
             try:
-                dist = pkg_resources.get_distribution(name)
-                if pkg_resources.parse_version(dist.version) >= pkg_resources.parse_version(min_version):
-                    self.logger.info(f"{name} is found, version: {dist.version} meets the requirement")
-                    self.summary[name] = dist.version
-                else:
-                    self.logger.info(f"{name} version: {dist.version} is installed but does not meet the requirement")
-                    subprocess.run(f"python -m pip install --upgrade {name} --user", shell=True)
-                    dist = pkg_resources.get_distribution(name)
-                    self.logger.warning(f"Jarvis-HEP is trying to upgrade {name}, please check the current version")
-                    self.summary[name] = dist.version
-            except pkg_resources.DistributionNotFound:
+                installed_version = importlib_metadata.version(name)
+            except importlib_metadata.PackageNotFoundError:
                 if required:
-                    self.logger.warning(f"{name} is required but not installed, Jarvis-HEP is trying to install it via pip")
-                    subprocess.run(f"python3 -m pip install {name}", shell=True)
-                    self.summary[name] = dist.version
+                    missing_required.append((name, min_version))
+                    self.summary[name] = None
                 else:
                     self.logger.warning(f"{name} is optional and not installed")
                     self.summary[name] = None
+                return
+
+            if compare_versions(installed_version, min_version):
+                self.logger.info(f"{name} is found, version: {installed_version} meets the requirement")
+                self.summary[name] = installed_version
+                return
+
+            self.summary[name] = installed_version
+            if required:
+                incompatible_required.append((name, installed_version, min_version))
+            else:
+                self.logger.warning(
+                    f"{name} version: {installed_version} does not meet optional requirement >= {min_version}"
+                )
        
         vf = sys.version_info
         py_version = f"{vf.major}.{vf.minor}.{vf.micro}"
@@ -132,11 +147,36 @@ class ConfigLoader(Base):
         
         if "Dependencies" in py_env:
             for lib in py_env["Dependencies"]:
-                try:
-                    min_version = re.match(r">=(\d+(?:\.\d+)?)", lib['version']).group(1)
-                    check_package_requirement(lib['name'], lib['required'], min_version)
-                except:
-                    self.logger.warning(f"Python library {lib['name']} checking un-successful!")
+                name = lib.get("name")
+                required = bool(lib.get("required", False))
+                version_spec = str(lib.get("version", "")).strip()
+                if not name:
+                    self.logger.warning("Encountered Python dependency entry without name; skipping.")
+                    continue
+                version_match = re.match(r">=\s*(\d+(?:\.\d+)*)", version_spec)
+                if not version_match:
+                    self.logger.warning(f"Python library {name} has unsupported version spec {version_spec!r}; skipping.")
+                    continue
+                min_version = version_match.group(1)
+                check_package_requirement(name, required, min_version)
+
+        if missing_required or incompatible_required:
+            if missing_required:
+                for name, min_version in missing_required:
+                    self.logger.error(f"Missing required package: {name}>={min_version}")
+            if incompatible_required:
+                for name, installed_version, min_version in incompatible_required:
+                    self.logger.error(
+                        f"Incompatible package version: {name}=={installed_version} (requires >= {min_version})"
+                    )
+            install_targets = [f"{name}>={min_version}" for name, min_version in missing_required]
+            install_targets.extend(
+                [f"{name}>={min_version}" for name, _, min_version in incompatible_required]
+            )
+            if install_targets:
+                install_cmd = "python3 -m pip install -U " + " ".join(f"'{item}'" for item in install_targets)
+                self.logger.error(f"Install/upgrade required dependencies via: {install_cmd}")
+            sys.exit(2)
 
     def check_ROOT(self) -> None:
         def compare_versions(version1, version2):

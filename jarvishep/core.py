@@ -56,6 +56,32 @@ class Core(Base):
         # self.monitor                    = Monitor()
         # self.monitor.start()
 
+    @staticmethod
+    def _get_runtime_version() -> str:
+        """Best-effort runtime package version for banner display."""
+        try:
+            from importlib.metadata import PackageNotFoundError, version
+
+            try:
+                return version("Jarvis-HEP")
+            except PackageNotFoundError:
+                return version("jarvis-hep")
+        except Exception:
+            pass
+        return "unknown"
+
+    def _render_logo_banner(self) -> str:
+        with open(self.path["logo"], "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+        runtime_version = self._get_runtime_version()
+        for idx, line in enumerate(lines):
+            if "Version:" in line:
+                prefix = line.split("Version:", 1)[0]
+                lines[idx] = f"{prefix}Version:  {runtime_version}"
+                break
+        return "\n".join(lines)
+
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center", formatter_class=argparse.RawTextHelpFormatter)
         self.info['args'] = load_args_config(self.path['args_info'])
@@ -110,9 +136,6 @@ class Core(Base):
         if self.args.monitor: 
             self.scan_mode = False
             self.mode       = "Monitor"
-        if self.args.bdREQ:
-            self.scan_mode = False
-            self.mode       = "BUILD"
         
     def init_project(self) -> None: 
         import yaml 
@@ -244,8 +267,7 @@ class Core(Base):
             Jarvis=True,
             _log_domain=JARVIS_HEP_LOG_DOMAIN,
         )
-        with open(self.path['logo'], 'r') as f:
-            self.logger.warning(f"\n{f.read()}")        
+        self.logger.warning(f"\n{self._render_logo_banner()}")        
         self.logger.warning("Jarvis-HEP logging system initialized successful!")
         if self.args.debug:
             self.logger.info(f"Jarvis-HEP write into main log file -> {jarvislog}")
@@ -490,7 +512,7 @@ class Core(Base):
             self.init_logger()
 
 
-        # Mode switch: MKPROJECT / PLOT / CDB / Monitor / BUILD / SCAN (default) / 1PC
+        # Mode switch: MKPROJECT / PLOT / CDB / Monitor / SCAN (default) / 1PC
         if self.mode == "MKPROJECT" or getattr(self.args, 'mkproject', None):
             # Project scaffold mode: no YAML/project logger required
             return
@@ -517,12 +539,6 @@ class Core(Base):
             # Monitor mode: minimal init for logger + project paths
             _init_common_project_and_logger()
             # main() will call self.monitor() afterwards
-            return
-
-        elif self.mode == "BUILD" or getattr(self.args, 'bdREQ', False):
-            # Build/install-dependencies mode: minimal init; no scanning
-            _init_common_project_and_logger()
-            # main() will call build routine afterwards
             return
 
         else:
@@ -616,7 +632,6 @@ class Core(Base):
                 getattr(self.args, "plot", False),
                 getattr(self.args, "cvtDB", False),
                 getattr(self.args, "monitor", False),
-                getattr(self.args, "bdREQ", False),
                 getattr(self.args, "OPC", False),
             ]):
                 self.argparser.error("--mkproject cannot be combined with workflow mode options")

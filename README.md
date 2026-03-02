@@ -72,6 +72,9 @@ Jarvis-HEP is a pure Python project.
 python3 -m pip install Jarvis-HEP
 ```
 
+Dependency installation is handled by `pip` from package metadata at install time.
+Jarvis runtime no longer provides a dependency-installer CLI mode.
+
 After installation, run directly:
 
 ```bash

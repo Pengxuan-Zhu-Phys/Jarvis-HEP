@@ -16,7 +16,6 @@ def _mkproject_fast_path(argv) -> int | None:
             "--plot",
             "--convert",
             "--monitor",
-            "--install-dependencies",
             "--check-modules",
         )
         if flag in argv
@@ -28,6 +27,22 @@ def _mkproject_fast_path(argv) -> int | None:
     i = argv.index("--mkproject")
     if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
         print("[Jarvis-HEP] Missing project name for --mkproject")
+        return 2
+
+    # Fast-path mode is intentionally strict: only `--mkproject <name>` is accepted.
+    extra_tokens = argv[1:i] + argv[i + 2 :]
+    if extra_tokens:
+        unsupported_opts = [tok for tok in extra_tokens if tok.startswith("-")]
+        if unsupported_opts:
+            print(
+                "[Jarvis-HEP] --mkproject does not accept option(s): "
+                + " ".join(unsupported_opts)
+            )
+        else:
+            print(
+                "[Jarvis-HEP] --mkproject does not accept extra arguments: "
+                + " ".join(extra_tokens)
+            )
         return 2
 
     project_name = argv[i + 1]
@@ -66,9 +81,6 @@ def main(argv=None) -> int:
         jc.plot()
     elif jc.args.monitor:
         jc.monitor()
-    elif jc.args.bdREQ:
-        from jarvishep.build_requirements import install_requirements
-        install_requirements()
     else:
         import argparse as _ap
         _ap.ArgumentParser(prog="Jarvis").print_help()
