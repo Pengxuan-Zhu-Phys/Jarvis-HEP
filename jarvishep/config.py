@@ -630,9 +630,13 @@ class ConfigValidator(Base):
             self.logger.error("Error: Config or schema not set.")
             sys.exit(2)
         try:
-            # print(self.schema['schemaBlock'].keys())
+            schema_block = self.schema.get('schemaBlock', {})
+            if not isinstance(schema_block, dict):
+                schema_block = {}
+            # Only patch refs that are declared by the active sampler schema.
             for kk, vv in self.schemablock.items():
-                self.schema['schemaBlock'][kk]['$ref'] = self.schemablock[kk]
+                if kk in schema_block and isinstance(schema_block.get(kk), dict):
+                    schema_block[kk]['$ref'] = vv
             
             validate(instance=self.config, schema=self.schema)
             self.logger.warning("Validation successful. The input YAML file meets the schema requirement.")

@@ -219,7 +219,8 @@ class Diver(SamplingVirtial):
                 if np.isfinite(result):
                     values[idx] = result
             except Exception as exc:
-                self.logger.error(f"Diver sample evaluation failed: {exc}")
+                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                raise RuntimeError(f"Diver sample evaluation failed at index {idx}") from exc
             finally:
                 sample.close()
 

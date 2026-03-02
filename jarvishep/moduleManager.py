@@ -1,9 +1,10 @@
 #!/usr/bin/env python3 
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from jarvishep.modulePool import ModulePool
 from copy import deepcopy
+
+
 class ModuleManager:
     _instance = None
     _lock = threading.Lock()
@@ -51,6 +52,13 @@ class ModuleManager:
     def max_worker(self):
         return self._max_worker
 
+    def _module_failure_policy(self) -> str:
+        sampling_cfg = (self.config or {}).get("Sampling", {}) if isinstance(self.config, dict) else {}
+        raw_policy = str(sampling_cfg.get("ModuleFailurePolicy", "fail-fast")).strip().lower()
+        if raw_policy in {"continue", "continue-on-error"}:
+            return "continue"
+        return "fail-fast"
+
     def execute_workflow(self, sample_info):
         """Execute the pre-configured workflow, updating the observables dictionary.
 
@@ -62,24 +70,24 @@ class ModuleManager:
             float: The calculated likelihood value.
         """
         # Execute according to the workflow's layer sequence
-        self.logger.info(f"Start execute workflow for sample -> {sample_info['uuid']}")
+        policy = self._module_failure_policy()
+        self.logger.info(
+            f"Start execute workflow for sample -> {sample_info['uuid']} (module failure policy: {policy})"
+        )
         observables = deepcopy(sample_info['observables'])
         
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
-            with ThreadPoolExecutor(max_workers=len(module_names)) as executor:
-                # Submit all modules in the current layer for parallel execution, and update observables
-                future_to_module = {executor.submit(self.execute_module, module_name, observables.copy(), sample_info): module_name for module_name in module_names}
-                for future in as_completed(future_to_module):
-                    try:
-                        # Get the returned updated observables
-                        updated_observables = future.result()
-                        # Merge the update results here, paying attention to concurrent update conflicts
-                        observables.update(updated_observables)
-                    except Exception as exc:
-                        module_name = future_to_module[future]
-                        self.logger.error(f'Module {module_name} generated an exception: {exc}')
-                        
+            for module_name in module_names:
+                try:
+                    updated_observables = self.execute_module(module_name, observables.copy(), sample_info)
+                    observables.update(updated_observables)
+                except Exception as exc:
+                    self.logger.error(f"Module {module_name} generated an exception: {exc}")
+                    if policy == "continue":
+                        continue
+                    raise
+
             passed = self.nuisance_check(observables, sample_info)
             if not passed: 
                 return 1. 
@@ -154,8 +162,7 @@ class ModuleManager:
         """
         module_pool = self.module_pools.get(module_name)
         if not module_pool:
-            self.logger.error(f"Module pool for '{module_name}' not found.")
-            return {}
+            raise RuntimeError(f"Module pool for '{module_name}' not found.")
 
         updated_observables = module_pool.execute(observables, sample_info)
         return updated_observables

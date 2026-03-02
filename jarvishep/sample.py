@@ -56,8 +56,13 @@ class Sample(Base):
             self._with_nuisance = True
 
     def create_info(self):
-        save_dir = (self.info['save_dir'])
-        # print(f"{self.uuid} -> save_dir is \n{save_dir}")
+        save_dir = self.info.get('save_dir')
+        if not save_dir:
+            save_dir = self.info.get('sample_dirs')
+        if not save_dir:
+            task_root = self.info.get('task_result_dir', os.getcwd())
+            save_dir = os.path.join(task_root, "SAMPLE")
+
         self.info.update({
             "uuid": self.uuid,
             "params": self.params,
@@ -139,6 +144,8 @@ class Sample(Base):
             self.logger.info("{}\nSample start {}-th nuisance attempt".format(">"*60, self.info['nuisance']['NAttempt']))
 
     def close(self):
+        if getattr(self, "logger", None) is not None:
+            self.logger.info(f"[Sample] sample close: uuid={self.uuid}")
         self.close_logger() 
         
     def close_logger(self):

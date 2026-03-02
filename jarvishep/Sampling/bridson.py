@@ -61,31 +61,31 @@ class Bridson(SamplingVirtial):
         return self.__next__()
 
     def progress_bar(self): 
+        def _emit_progress(permille):
+            msg = "{}‰ of {}/{} samples submited in {}".format(
+                permille,
+                self._index,
+                self.barinfo['total'],
+                format_duration(time.time() - self.barinfo['t0']),
+            )
+            # Use WARNING on exact integer percentages (1%, 2%, ...), INFO otherwise.
+            if permille % 10 == 0:
+                self.logger.warning(msg)
+            else:
+                self.logger.info(msg)
+
         if self.barinfo == {}:
             self.barinfo = {
                 "total":    len(self._P), 
                 "t0":       time.time(), 
                 "permille":  0
             }
-            self.logger.warning(
-                "{}‰ of {}/{} samples submited in {}".format(
-                    self.barinfo['permille'], 
-                    self._index, 
-                    self.barinfo['total'], 
-                    format_duration(time.time() - self.barinfo['t0'])
-                    )
-                )
+            _emit_progress(self.barinfo['permille'])
         else: 
             permille = int(self._index / self.barinfo["total"] * 1000)
             if permille != self.barinfo["permille"]: 
                 self.barinfo.update({"permille": permille})
-                self.logger.warning(
-                    "{}‰ of {}/{} samples submited in {}".format(
-                        self.barinfo['permille'], 
-                        self._index, 
-                        self.barinfo['total'], 
-                        format_duration(time.time() - self.barinfo['t0']))
-                    )
+                _emit_progress(self.barinfo['permille'])
         
 
     def map_point_into_distribution(self, row) -> np.ndarray:
@@ -141,7 +141,6 @@ class Bridson(SamplingVirtial):
             while not exhausted and len(self.tasks) < total_cores: 
                 try: 
                     param = self.next_sample()
-                    nuis_param = self.nuisance_sampler
                 except StopIteration: 
                     exhausted = True
                     break 
@@ -159,29 +158,34 @@ class Bridson(SamplingVirtial):
                 future = self.factory.submit_task(sample.info)
                 self.tasks[future] = sample
         
+            if not self.tasks:
+                if exhausted:
+                    break
+                continue
+
             done, _ = concurrent.futures.wait(
                 list(self.tasks.keys()), 
-                timeout=0.01, 
                 return_when=concurrent.futures.FIRST_COMPLETED
             )
             
             for future in done: 
                 sample = self.tasks.pop(future) 
-
+                resubmitted = False
                 try:
                     future.result()
-                except Exception as e: 
-                    self.logger.error(f"Sample error info -> {e}")
-                
-    
-                self.nuisance_sampler.renew_sample_info(sample.info)
-                if sample.info['status'] == "Accept": 
-                    sample.close()
-                else: 
-                    sample.record()
-                    sample.combine_nuisance_card()
-                    future = self.factory.submit_task(sample.info)
-                    self.tasks[future] = sample 
+                    self.nuisance_sampler.renew_sample_info(sample.info)
+                    if sample.info['status'] != "Accept":
+                        sample.record()
+                        sample.combine_nuisance_card()
+                        future = self.factory.submit_task(sample.info)
+                        self.tasks[future] = sample
+                        resubmitted = True
+                except Exception as exc: 
+                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                    raise
+                finally:
+                    if not resubmitted:
+                        sample.close()
 
             if exhausted and not self.tasks: 
                 break
@@ -211,10 +215,13 @@ class Bridson(SamplingVirtial):
                 future = self.factory.submit_task(sample.info)
                 self.tasks[future] = sample
 
-            # futures = [f for f, _ in self.tasks]
+            if not self.tasks:
+                if exhausted:
+                    break
+                continue
+
             done, _ = concurrent.futures.wait(
                 list(self.tasks.keys()), 
-                timeout=0.01, 
                 return_when=concurrent.futures.FIRST_COMPLETED
             )
             
@@ -222,8 +229,9 @@ class Bridson(SamplingVirtial):
                 sample = self.tasks.pop(future) 
                 try: 
                     future.result() 
-                except Exception as e: 
-                    self.logger.error(f"Sample failed: {e}")
+                except Exception as exc: 
+                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                    raise
                 finally: 
                     sample.close()
           
@@ -327,5 +335,3 @@ def Bridson_sampling(dims=np.array([1.0,1.0]), radius=0.05, k=30, hypersphere_sa
             if in_limits(q) and not in_neighborhood(q):
                 add_point(q)
     return P[~np.isnan(P).any(axis=ndim)]
-
-

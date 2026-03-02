@@ -69,17 +69,20 @@ class Dynesty(SamplingVirtial):
 
     def run_nested(self):
         def log_likelihood(params):
-            # try:
-            param = params[0:-1].astype(np.float16)
+            param = params[0:-1].astype(np.float64, copy=False)
             uuid = params[-1]
-            # print("Dynesty Line 75 -> Start to execute", param)
             pars = self.map_point_into_distribution(param)
             sample = Sample(pars)
             sample.update_uuid(uuid)
             sample.set_config(deepcopy(self.info['sample']))
-            future = self.factory.submit_task(sample.params, sample.info)
-            result = future.result()
-            return result 
+            future = self.factory.submit_task(sample.info)
+            try:
+                return future.result()
+            except Exception as exc:
+                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                raise
+            finally:
+                sample.close()
 
         
         self.init_sampler_db()
@@ -123,7 +126,7 @@ class Dynesty(SamplingVirtial):
         for ii in range(self.sampler.results['samples'].shape[1]):
             data[f'samples_v[{ii}]'] = self.sampler.results['samples'][:, ii]
         for ii in range(self.sampler.results['samples_u'].shape[1]):
-            data[f'samples_u[{ii}]'] = self.sampler.results['samples'][:, ii]
+            data[f'samples_u[{ii}]'] = self.sampler.results['samples_u'][:, ii]
 
         self.df = pd.DataFrame(data)
         self.df.to_csv(self.info['db']['nested result'], index=False)
@@ -138,7 +141,7 @@ class Dynesty(SamplingVirtial):
         savepath = os.path.join(self.info['sample']['task_result_dir'], "dynesty_summary.png")
         import matplotlib.pyplot as plt
         maxid = self.df.shape
-        print(maxid[0])
+        self.logger.info(f"Dynesty plot: total rows={maxid[0]}")
         nlive = self.df.iloc[0]['samples_nlive']
         fig = plt.figure(figsize=(10, 11))
         ax = fig.add_axes([0.01, 0.99-0.5/11., 0.05, 0.5/11.])
@@ -206,7 +209,7 @@ class Dynesty(SamplingVirtial):
         from copy import deepcopy
         dtt = np.array(deepcopy(data[2]['y']))
         endid = np.where(dtt > dtt[-1])[-1][-1]
-        print(endid)
+        self.logger.info(f"Dynesty plot: highlighted index={endid}")
 
         dtt = dtt / max(dtt)
         ax3.scatter( - self.df['log_PriorVolume'], dtt, marker='.', s=0.5, alpha=0.4, color="#3f51b5" )

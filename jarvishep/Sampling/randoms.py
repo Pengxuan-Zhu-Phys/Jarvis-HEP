@@ -21,7 +21,7 @@ class RandomS(SamplingVirtial):
         self.method = "Random"
         self._P     = None
         self._index = None
-        self.tasks  = []
+        self.tasks  = set()
         self.info   = {}
         self._selectionexp = None
         self.future_to_sample = {}
@@ -42,8 +42,8 @@ class RandomS(SamplingVirtial):
     def __next__(self):# Stop iteration, if _P is not defined or _P is not np.array
         if self._index < self._maxp:
             if self._selectionexp:
-                is_selection = True 
-                while is_selection: 
+                is_selection = False
+                while not is_selection:
                     temp    = np.random.rand(self._dimensions)
                     param   = self.map_point_into_distribution(temp)
                     if self._selectionexp: 
@@ -56,8 +56,7 @@ class RandomS(SamplingVirtial):
                 self._index += 1 
                 return param 
         else:
-            # raise StopIteration
-            return None
+            raise StopIteration
 
     def next_sample(self):
         return self.__next__()
@@ -100,30 +99,46 @@ class RandomS(SamplingVirtial):
                 
 
     def run_nested(self):
-        total_cores = os.cpu_count()
+        total_cores = os.cpu_count() or 1
         from copy import deepcopy
+        self.tasks = set()
+        self.future_to_sample = {}
+        exhausted = False
 
-        while True:
-            while len(self.tasks) < total_cores: 
+        while (not exhausted) or self.tasks:
+            while not exhausted and len(self.tasks) < total_cores:
                 try: 
                     param = self.next_sample()
-                    if param is not None: 
-                        sample = Sample(param)
-                        sample.set_config(deepcopy(self.info['sample']))
-                        future = self.factory.submit_task(sample.params, sample.info)
-                        self.tasks.append(future)
-                        # self.future_to_sample[future] = sample
-                    else: 
-                        break
                 except StopIteration:
+                    exhausted = True
                     break
-            
-            done, _ = concurrent.futures.wait(self.tasks, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED)
-            
-            self.tasks = [f for f in self.tasks if f not in done]
-            # Exit loop if no tasks are pending and no more samples
-            if not self.tasks and not param:
-                break  
+
+                sample = Sample(param)
+                sample.set_config(deepcopy(self.info['sample']))
+                future = self.factory.submit_task(sample.info)
+                self.tasks.add(future)
+                self.future_to_sample[future] = sample
+
+            if not self.tasks:
+                continue
+
+            done, _ = concurrent.futures.wait(
+                self.tasks,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+
+            self.tasks.difference_update(done)
+            for future in done:
+                sample = self.future_to_sample.pop(future, None)
+                try:
+                    future.result()
+                except Exception as exc:
+                    suuid = sample.uuid if sample else "UNKNOWN"
+                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}")
+                    raise
+                finally:
+                    if sample is not None:
+                        sample.close()
 
     def finalize(self):
         pass
@@ -131,6 +146,3 @@ class RandomS(SamplingVirtial):
     def set_factory(self, factory) -> None:
         self.factory = factory
         self.logger.warning("WorkerFactory is ready for Random sampler")
-
-    def evaluate_selection(self, expression, variables):
-        return super().evaluate_selection(expression, variables)

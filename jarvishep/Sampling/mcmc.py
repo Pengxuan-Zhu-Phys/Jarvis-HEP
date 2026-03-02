@@ -5,7 +5,7 @@ from abc import ABCMeta, abstractmethod
 # from mpmath.functions.functions import re
 import numpy as np
 import time 
-from jarvishep.Sampling.sampler import SamplingVirtial, BoolConversionError
+from jarvishep.Sampling.sampler import SamplingVirtial
 import json
 from jarvishep.sample import Sample
 import concurrent.futures
@@ -19,7 +19,7 @@ class MCMC(SamplingVirtial):
         self.method = "MCMC"
         self._P     = None
         self._index = None
-        self.tasks  = []
+        self.tasks  = set()
         self.info   = {}
         self._selectionexp = None
         self.future_to_sample = {}
@@ -50,9 +50,7 @@ class MCMC(SamplingVirtial):
                 else: 
                     is_selection = True
             return param, cid 
-        else:
-            # raise StopIteration
-            return None, None
+        raise StopIteration
 
     def next_sample(self):
         return self.__next__()
@@ -97,38 +95,56 @@ class MCMC(SamplingVirtial):
 
     def run_nested(self):
         from copy import deepcopy
-        while True:
-            while len(self.tasks) < self._nchains: 
+        self.tasks = set()
+        self.future_to_sample = {}
+        exhausted = False
+        while (not exhausted) or self.tasks:
+            while not exhausted and len(self.tasks) < self._nchains:
                 try: 
                     param, cid = self.next_sample()
-                    if param is not None: 
-                        sample = Sample(param)
-                        sample.set_config(deepcopy(self.info['sample']))
-                        sample.info['chain_id'] = cid 
-                        future = self.factory.submit_task(sample.params, sample.info)
-                        self.tasks.append(future)
-                        self.future_to_sample[future] = sample
-                    else: 
-                        break
                 except StopIteration:
+                    if not self.tasks:
+                        exhausted = True
                     break
-            
-            done, _ = concurrent.futures.wait(self.tasks, timeout=0.01, return_when=concurrent.futures.FIRST_COMPLETED)
-            
-            self.tasks = [f for f in self.tasks if f not in done]
+
+                sample = Sample(param)
+                sample.set_config(deepcopy(self.info['sample']))
+                sample.info['chain_id'] = cid
+                future = self.factory.submit_task(sample.info)
+                self.tasks.add(future)
+                self.future_to_sample[future] = sample
+
+            if all(lgh >= self._niters for lgh in self._chain_iters):
+                exhausted = True
+
+            if not self.tasks:
+                continue
+
+            done, _ = concurrent.futures.wait(
+                self.tasks,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+
+            self.tasks.difference_update(done)
             for future in done:
+                sample = self.future_to_sample.pop(future, None)
                 try: 
-                    result = future.result() 
-                    sample = self.future_to_sample.pop(future, None)
+                    future.result()
                     if sample: 
                         cid = sample.info['chain_id']
-                        self.chain_next.append(cid)
                         self._chains[cid].update(sample.info['observables']['LogL'])
                         self._chain_iters[cid] += 1
-                except Exception as e: 
-                    self.logger.error(f"Error processing sample: {e}")
+                        if self._chain_iters[cid] < self._niters:
+                            self.chain_next.append(cid)
+                except Exception as exc:
+                    suuid = sample.uuid if sample else "UNKNOWN"
+                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}")
+                    raise
+                finally:
+                    if sample is not None:
+                        sample.close()
             if all(lgh >= self._niters for lgh in self._chain_iters):
-                break 
+                exhausted = True
 
     def finalize(self):
         pass
@@ -136,6 +152,3 @@ class MCMC(SamplingVirtial):
     def set_factory(self, factory) -> None:
         self.factory = factory
         self.logger.warning("WorkerFactory is ready for MCMC sampler")
-
-    def evaluate_selection(self, expression, variables):
-        return super().evaluate_selection(expression, variables)

@@ -158,6 +158,7 @@ class Core(Base):
         except Exception:
             sampling_method = "Sampler"
         self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{sampling_method}.log")
+        self.info['factory_log'] = os.path.join(task_result_dir, "LOG", "Factory.log")
 
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
@@ -440,11 +441,39 @@ class Core(Base):
             max_workers=max_workers
             )
         self.sampler.set_max_workers(max_workers)
+        factory_logger_name = "Jarvis-HEP.Factory"
+
+        def _factory_filter(record):
+            module = record["extra"].get("module", "")
+            return module.startswith(factory_logger_name)
+
+        def _factory_format(record):
+            module = record["extra"].get("module", "No module")
+            return (
+                f"\n·•· <magenta>{module}</magenta> \n\t-> "
+                f"<green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - "
+                "[<level>{level}</level>] >>> \n<level>{message}</level>"
+            )
+
         flogger = logger.bind(
-            module="Jarvis-HEP.Factory",
+            module=factory_logger_name,
             to_console=True,
             Jarvis=True,
             _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
+        factory_log_path = self.info.get("factory_log")
+        if not factory_log_path:
+            sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+            task_result_dir = sample_cfg.get("task_result_dir", "/tmp")
+            factory_log_path = os.path.join(task_result_dir, "Factory.log")
+            self.info["factory_log"] = factory_log_path
+        flogger.add(
+            factory_log_path,
+            format=_factory_format,
+            level="DEBUG",
+            rotation="10 MB",
+            retention=None,
+            filter=_factory_filter,
         )
         self.factory.set_logger(flogger)
         mlogger = logger.bind(
@@ -565,15 +594,18 @@ class Core(Base):
                 sample = Sample(param)
                 sample.set_config(deepcopy(self.info['sample']))
                 self.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
-                future = self.factory.submit_task(sample.params, sample.info)
-                output = future.result()
-                self.module_manager.database.add_data(output)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                    output = future.result()
+                    self.module_manager.database.add_data(output)
+                finally:
+                    sample.close()
         except Exception as e:
             # 异常处理
             self.logger.error(f"An error occurred: {e}")
 
         finally:
-            self.factory.executor.shutdown()
+            self.factory.shutdown()
             self.module_manager.database.stop()
 
             from time import time
@@ -600,7 +632,7 @@ class Core(Base):
             self.sampler.combine_data(self.info['db']['path'])
             
 
-            self.factory.executor.shutdown()
+            self.factory.shutdown()
             # self.monitor.stop()
 
     def check_init_args(self) -> None:

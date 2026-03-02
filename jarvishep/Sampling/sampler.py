@@ -8,6 +8,7 @@ import sympy as sp
 from jarvishep.inner_func import update_const, update_funcs
 import numpy as np 
 import sys, os 
+from typing import Any, Dict, Tuple
 
 class BoolConversionError(Exception):
     """Nothing but raise bool error"""
@@ -119,3 +120,42 @@ class SamplingVirtial(Base):
             ax.axes("off")
             ax.imshow(image, extent=[pos[0]-0.25, pos[0]+0.25, pos[1]-0.25, pos[1]+0.25], zorder=100)
             ax.text(pos[0]+0.27, pos[1]+0.15, "Jarvis-HEP", ha="left", va='top', color="#0F66C3", fontfamily="sans-serif", fontsize="small", fontstyle="normal", fontweight="bold")
+
+    def evaluate_selection(self, expression, variables):
+        """Evaluate selection expression and return a strict bool."""
+        if expression is None:
+            return True
+        if not isinstance(variables, dict):
+            raise BoolConversionError("Selection variables must be a dict.")
+
+        custom_functions = update_funcs({})
+        custom_constants = update_const({})
+        symbols = {name: sp.symbols(name) for name in variables.keys()}
+        locals_context = {**custom_functions, **custom_constants, **symbols}
+
+        try:
+            expr = sp.sympify(expression, locals=locals_context)
+            evaluated = expr.subs(variables)
+            return bool(evaluated)
+        except Exception as exc:
+            raise BoolConversionError(
+                f"Cannot evaluate selection expression '{expression}' as boolean."
+            ) from exc
+
+    def check_evaluation(self):
+        """Smoke-check selection evaluation on a deterministic probe point."""
+        if not getattr(self, "_selectionexp", None):
+            return True
+
+        probe_values = {}
+        for var in self.vars or []:
+            name = getattr(var, "name", getattr(var, "_name", None))
+            if not name:
+                continue
+            try:
+                probe_values[name] = var.map_standard_random_to_distribution(0.5)
+            except Exception:
+                probe_values[name] = 0.5
+
+        self.evaluate_selection(self._selectionexp, probe_values)
+        return True
