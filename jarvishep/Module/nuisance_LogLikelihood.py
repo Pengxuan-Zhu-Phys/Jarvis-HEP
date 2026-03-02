@@ -2,6 +2,7 @@ import math
 from typing import Any, Dict, Iterable, Mapping, Set, Tuple
 
 import sympy as sp
+import numpy as np
 
 from jarvishep.inner_func import update_funcs, update_const
 
@@ -55,8 +56,16 @@ class NuisanceExpressionRegistry:
         return (len(missing) == 0), missing
 
     def eval(self, values: Mapping[str, Any]) -> Any:
-        args = [values[k] for k in self.deps]
-        return self.fn(*args)
+        args = []
+        for dep in self.deps:
+            if dep not in values:
+                raise KeyError(
+                    f"Nuisance LogLikelihood '{self.name}' missing required input '{dep}'."
+                )
+            args.append(self._ensure_scalar(values[dep], dep, "input"))
+
+        result = self.fn(*args)
+        return self._ensure_scalar(result, self.expression, "output")
 
     # ---------- internal ----------
     def _compile(self) -> None:
@@ -70,3 +79,12 @@ class NuisanceExpressionRegistry:
         symbols = [sym_locals[k] for k in self._deps]
 
         self._fn = sp.lambdify(symbols, expr, modules=[self._locals, math])
+
+    def _ensure_scalar(self, value: Any, field: str, kind: str) -> Any:
+        arr = np.asarray(value)
+        if arr.ndim != 0:
+            raise ValueError(
+                f"Nuisance LogLikelihood '{self.name}' expects scalar {kind} for '{field}', "
+                f"got {type(value).__name__} with shape {arr.shape}."
+            )
+        return arr.item()

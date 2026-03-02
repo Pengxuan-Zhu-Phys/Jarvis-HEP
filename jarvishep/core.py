@@ -28,6 +28,7 @@ from loguru import logger
 import setproctitle 
 logger.remove()
 from jarvishep.plot import JarvisPLOT as PlotterClass
+from jarvishep.versioning import render_logo_with_version
 # from monitor import Monitor
 
 JARVIS_HEP_LOG_DOMAIN = "jarvis_hep"
@@ -56,31 +57,8 @@ class Core(Base):
         # self.monitor                    = Monitor()
         # self.monitor.start()
 
-    @staticmethod
-    def _get_runtime_version() -> str:
-        """Best-effort runtime package version for banner display."""
-        try:
-            from importlib.metadata import PackageNotFoundError, version
-
-            try:
-                return version("Jarvis-HEP")
-            except PackageNotFoundError:
-                return version("jarvis-hep")
-        except Exception:
-            pass
-        return "unknown"
-
     def _render_logo_banner(self) -> str:
-        with open(self.path["logo"], "r", encoding="utf-8") as f:
-            lines = f.read().splitlines()
-
-        runtime_version = self._get_runtime_version()
-        for idx, line in enumerate(lines):
-            if "Version:" in line:
-                prefix = line.split("Version:", 1)[0]
-                lines[idx] = f"{prefix}Version:  {runtime_version}"
-                break
-        return "\n".join(lines)
+        return render_logo_with_version(self.path["logo"])
 
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center", formatter_class=argparse.RawTextHelpFormatter)
@@ -119,6 +97,10 @@ class Core(Base):
                     opt['long'], **kwargs
                 )
         self.check_init_args()
+        if getattr(self.args, "version", False):
+            self.scan_mode = False
+            self.mode = "VERSION"
+            return
         if self.args.mkproject:
             self.scan_mode = False
             self.mode      = "MKPROJECT"
@@ -517,6 +499,10 @@ class Core(Base):
             # Project scaffold mode: no YAML/project logger required
             return
 
+        elif self.mode == "VERSION" or getattr(self.args, "version", False):
+            # Version mode: no project/config/runtime initialization required
+            return
+
         elif self.mode == "PLOT" or getattr(self.args, 'plot', False):
             # Plot mode: lightweight setup; no scan-only preprocessing
             _init_common_project_and_logger()
@@ -635,6 +621,9 @@ class Core(Base):
                 getattr(self.args, "OPC", False),
             ]):
                 self.argparser.error("--mkproject cannot be combined with workflow mode options")
+            return
+
+        if getattr(self.args, "version", False):
             return
 
         if not self.args.file:

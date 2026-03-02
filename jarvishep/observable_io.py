@@ -10,6 +10,8 @@ import numpy as np
 import sympy
 
 VALID_FLATTEN_MODES = {"json", "split", "drop", "scalar"}
+SCHEMA_VERSION_CURRENT = 1
+SCHEMA_VERSION_MIN_COMPATIBLE = 1
 
 
 def _is_sympy_boolean(value: Any) -> bool:
@@ -143,23 +145,23 @@ def infer_column_descriptor(value: Any) -> dict[str, Any]:
 
 
 def _default_mode_for_kind(kind: str) -> str:
-    if kind in {"ndarray", "list", "dict", "mixed"}:
-        return "json"
+    if kind in {"array", "ndarray", "list", "dict", "mixed"}:
+        return "split"
     return "scalar"
 
 
 def create_default_schema(pathroot: str) -> dict[str, Any]:
     now = utc_now_iso()
     return {
-        "version": 1,
+        "version": SCHEMA_VERSION_CURRENT,
         "pathroot": pathroot,
         "created_at": now,
         "updated_at": now,
         "flatten_defaults": {
-            "array": "json",
-            "list": "json",
-            "dict": "json",
-            "mixed": "json",
+            "array": "split",
+            "list": "split",
+            "dict": "split",
+            "mixed": "split",
         },
         "columns": {},
     }
@@ -216,14 +218,22 @@ def save_schema(path: str, schema: dict[str, Any]) -> None:
 
 
 def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, Any], bool, list[str]]:
-    """Normalize user-edited schema and collect warnings."""
+    """Normalize user-edited schema and collect warnings.
+
+    Version policy:
+    - Missing/invalid/legacy versions are migrated to ``SCHEMA_VERSION_CURRENT``.
+    - Future versions are preserved (not downgraded) and normalized best-effort
+      for known fields to keep backward-compatible behavior.
+    """
     normalized = dict(schema)
     changed = False
     warnings: list[str] = []
 
-    normalized.setdefault("version", 1)
-    if "version" not in schema:
-        changed = True
+    version, version_changed, version_warning = _normalize_schema_version(normalized.get("version"))
+    normalized["version"] = version
+    changed = changed or version_changed
+    if version_warning:
+        warnings.append(version_warning)
 
     if normalized.get("pathroot") != pathroot:
         normalized["pathroot"] = pathroot
@@ -242,12 +252,13 @@ def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, An
         warnings.append("schema.flatten_defaults is invalid; replaced with defaults.")
 
     for kind in ("array", "list", "dict", "mixed"):
-        mode = str(defaults.get(kind, "json")).strip().lower()
+        mode = str(defaults.get(kind, _default_mode_for_kind(kind))).strip().lower()
         if mode not in VALID_FLATTEN_MODES:
-            defaults[kind] = "json"
+            fallback = _default_mode_for_kind(kind)
+            defaults[kind] = fallback
             changed = True
             warnings.append(
-                f"schema.flatten_defaults.{kind} has invalid mode '{mode}'; fallback to 'json'."
+                f"schema.flatten_defaults.{kind} has invalid mode '{mode}'; fallback to '{fallback}'."
             )
         else:
             if defaults.get(kind) != mode:
@@ -315,6 +326,54 @@ def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, An
                 changed = True
 
     return normalized, changed, warnings
+
+
+def _normalize_schema_version(raw_version: Any) -> tuple[int, bool, str | None]:
+    if raw_version is None:
+        return (
+            SCHEMA_VERSION_CURRENT,
+            True,
+            (
+                f"schema.version missing; migrated to {SCHEMA_VERSION_CURRENT} "
+                f"(legacy compatibility mode)."
+            ),
+        )
+
+    parsed: int | None = None
+    try:
+        parsed = int(raw_version)
+    except Exception:
+        return (
+            SCHEMA_VERSION_CURRENT,
+            True,
+            (
+                f"schema.version '{raw_version}' invalid; migrated to "
+                f"{SCHEMA_VERSION_CURRENT}."
+            ),
+        )
+
+    changed = parsed != raw_version
+    if parsed < SCHEMA_VERSION_MIN_COMPATIBLE:
+        return (
+            SCHEMA_VERSION_CURRENT,
+            True,
+            (
+                f"schema.version {parsed} is below minimum compatible "
+                f"{SCHEMA_VERSION_MIN_COMPATIBLE}; migrated to {SCHEMA_VERSION_CURRENT}."
+            ),
+        )
+
+    if parsed > SCHEMA_VERSION_CURRENT:
+        return (
+            parsed,
+            changed,
+            (
+                f"schema.version {parsed} is newer than supported {SCHEMA_VERSION_CURRENT}; "
+                "applying best-effort compatibility normalization for known fields."
+            ),
+        )
+
+    return parsed, changed, None
 
 
 def _merge_descriptor(existing: dict[str, Any], current: dict[str, Any]) -> tuple[dict[str, Any], bool]:

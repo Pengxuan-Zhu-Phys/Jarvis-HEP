@@ -79,6 +79,7 @@ After installation, run directly:
 
 ```bash
 Jarvis --help
+Jarvis --version
 ```
 
 ### Install from source (developer mode)
@@ -94,6 +95,11 @@ python3 -m pip install -e .
 ./jhrel 1.0.1 --testpypi
 ./jhrel 1.0.1 --reinstall
 ```
+
+Maintainer release workflow:
+- [docs/RELEASE_PLAYBOOK.md](docs/RELEASE_PLAYBOOK.md)
+- Version/banner metadata source (inside package, includes resources and citation references):
+  - `jarvishep/card/document_links.json`
 
 ### Create a standalone project workspace
 

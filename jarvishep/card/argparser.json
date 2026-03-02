@@ -14,6 +14,13 @@
             "action": "store_true"
         },
         {
+            "short": "-v",
+            "long": "--version",
+            "dest": "version",
+            "help": "Print Jarvis-HEP logo, author information and runtime package version",
+            "action": "store_true"
+        },
+        {
             "long": "--plot",
             "action": "store_true",
             "dest": "plot",

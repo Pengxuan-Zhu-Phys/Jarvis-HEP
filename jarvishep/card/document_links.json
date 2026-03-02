@@ -1,0 +1,92 @@
+{
+  "documents": {
+    "homepage": "https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP",
+    "online_docs": "https://pengxuan-zhu-phys.github.io/Jarvis-Docs/",
+    "user_manual": "TODO",
+    "tutorials": "TODO",
+    "api_reference": "TODO"
+  },
+  "paper": {
+    "title": "TODO",
+    "url": "TODO"
+  },
+  "references": {
+    "jarvis_hep": [
+      {
+        "caption": "Jarvis-HEP core framework paper",
+        "title": "Jarvis-HEP: Just a Robust and Versatile Interface Suite for HEP",
+        "author": "Erdong Guo, Paul Jackson, Jin-Min Yang, Martin J. White, Pengxuan Zhu",
+        "arxiv": "TODO",
+        "doi": "TODO"
+      },
+      {
+        "caption": "Jarvis-PLOT: Plotting Tool module",
+        "title": "TODO",
+        "author": "TODO",
+        "arxiv": "TODO",
+        "doi": "TODO"
+      }
+    ],
+    "builtin_scanners": [
+      {
+        "caption": "Dynamic: dynamic nested sampling",
+        "title": "dynesty: A Dynamic Nested Sampling Package for Estimating Bayesian Posteriors and Evidences",
+        "author": "Joshua S. Speagle",
+        "arxiv": "1904.02180",
+        "doi": "10.1093/mnras/staa278"
+      },
+      {
+        "caption": "Bridson: Poisson-disk sampling",
+        "title": "Fast Poisson Disk Sampling in Arbitrary Dimensions",
+        "author": "Robert Bridson",
+        "arxiv": "N/A",
+        "doi": "10.1145/1278780.1278807",
+        "url": "https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf"
+      },
+      {
+        "caption": "Diver:",
+        "title": "Comparison of statistical sampling methods with ScannerBit, the GAMBIT scanning module",
+        "author": "GAMBIT Scanner Workgroup",
+        "arxiv": "1705.07959",
+        "doi": "TODO"
+      },
+      {
+        "caption": "MCMC: Foundational Metropolis Monte Carlo algorithm",
+        "title": "Equation of State Calculations by Fast Computing Machines",
+        "author": "Nicholas Metropolis et al.",
+        "arxiv": "N/A",
+        "doi": "10.1063/1.1699114"
+      },
+      {
+        "caption": "MCMC: Generalized acceptance rule for MCMC (Metropolis-Hastings)",
+        "title": "Monte Carlo Sampling Methods Using Markov Chains and Their Applications",
+        "author": "W. K. Hastings",
+        "arxiv": "N/A",
+        "doi": "10.1093/biomet/57.1.97"
+      }
+    ],
+    "builtin_tools": [
+      {
+        "caption": "Core ndarray computing library used across Jarvis",
+        "title": "Array Programming with NumPy",
+        "author": "Charles R. Harris et al.",
+        "arxiv": "2006.10256",
+        "doi": "10.1038/s41586-020-2649-2"
+      },
+      {
+        "caption": "HDF5 read/write backend for structured sample storage",
+        "title": "h5py: the Pythonic interface to the HDF5 binary data format",
+        "author": "The h5py Developers",
+        "arxiv": "N/A",
+        "doi": "N/A"
+      },
+      {
+        "caption": "Tabular data conversion and CSV export engine",
+        "title": "pandas: powerful Python data analysis toolkit",
+        "author": "The pandas Development Team",
+        "arxiv": "N/A",
+        "doi": "10.5281/zenodo.3509134"
+      }
+    ]
+  }
+}
