@@ -49,6 +49,7 @@ src/.DS_Store
 WARP.md 
 
 # PyPI/release workflow local ignores
+jhrel
 pyproject.toml
 .pypirc
 .pytest_cache/
