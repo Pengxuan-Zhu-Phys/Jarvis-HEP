@@ -47,3 +47,15 @@ src/.DS_Store
 
 #WARP
 WARP.md 
+
+# PyPI/release workflow local ignores
+pyproject.toml
+.pypirc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pip-wheel-metadata/
+
+# Docs and tests (local-only workflow)
+docs/
+tests/
