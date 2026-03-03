@@ -146,11 +146,18 @@ def grid_sampling(dimensions):
         numpy.ndarray: A 2D array where each row represents a grid sample.
     """
 
-    # Generate grid points for each dimension based on the number of steps
-    grid_ranges = [
-        np.linspace(0., 1., steps) 
-        for steps in dimensions
-    ]
+    # Generate grid points for each dimension based on the number of steps.
+    # Clamp endpoints to open interval (eps, 1-eps) to avoid non-finite
+    # values in ppf/logit style transforms at exact 0/1.
+    eps = np.finfo(np.float64).eps
+    grid_ranges = []
+    for steps in dimensions:
+        nsteps = int(steps)
+        if nsteps <= 1:
+            grid_ranges.append(np.array([0.5], dtype=np.float64))
+            continue
+        vals = np.linspace(0.0, 1.0, nsteps, dtype=np.float64)
+        grid_ranges.append(np.clip(vals, eps, 1.0 - eps))
     # Generate the Cartesian product of all grid points
     grid_samples = np.array(list(itertools.product(*grid_ranges)))
     return grid_samples

@@ -17,6 +17,9 @@ class ModulePool:
     def __init__(self, module, max_workers=2):
         self.name = module.name 
         self.config = module.config 
+        # Keep a lightweight executor for background installation tasks only.
+        # Runtime module execution stays on the caller thread (Factory worker)
+        # to avoid nested executor scheduling in the hot path.
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.module_name = module.name 
         self.type = module.type 
@@ -99,24 +102,25 @@ class ModulePool:
                 )
                 instance = self.create_instance()
                 self.executor.submit(self.install_instance, instance)
+            # Reserve the instance immediately to avoid double-rent races.
+            instance.is_busy = True
 
         # Wait for installation to complete (install_instance always sets the event)
         if not instance.is_installed:
             instance.installation_event.wait()
             if not instance.is_installed:
+                with self._inst_lock:
+                    instance.is_busy = False
                 raise RuntimeError(
                     f"Installation failed for Module {self.name} instance {getattr(instance, 'PackID', 'UNKNOWN')}"
                 )
             # Only now persist installation state (to avoid reloading half-installed instances)
             self.update_instances_info_file()
 
-        with self._inst_lock:
-            instance.is_busy = True
-
         try:
-            future = self.executor.submit(instance.execute, params, sample_info)
-            result = future.result()
-            return result
+            # Execute directly on current worker thread to avoid nested
+            # ThreadPoolExecutor submit/result overhead.
+            return instance.execute(params, sample_info)
         finally:
             with self._inst_lock:
                 instance.is_busy = False
