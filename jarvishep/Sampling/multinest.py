@@ -5,7 +5,6 @@ import threading
 import inspect
 import json
 from datetime import datetime, timezone
-from copy import deepcopy
 from uuid import uuid4
 
 import numpy as np
@@ -157,7 +156,11 @@ class MultiNest(SamplingVirtial):
             self._multinest_pool = MultiNestFactoryPool(multinest_workers)
 
         self.logger.warning(
-            "MultiNest execution profile -> multinest_workers={} | factory_submit_limit={} | factory_workers={} | nlive={}".format(
+            "MultiNest execution profile ->\n"
+            "\tmultinest_workers    -> {}\n"
+            "\tfactory_submit_limit -> {}\n"
+            "\tfactory_workers      -> {}\n"
+            "\tnlive                -> {}".format(
                 multinest_workers,
                 max_pending_factory,
                 factory_workers,
@@ -183,7 +186,7 @@ class MultiNest(SamplingVirtial):
     def run_nested(self):
         self._ensure_bucket_allocator()
         self._resolve_execution_profile()
-        base_sample_cfg = deepcopy(self.info["sample"])
+        base_sample_cfg = self.info["sample"]
 
         def log_likelihood(params):
             param = params[0:-1].astype(np.float64, copy=False)
@@ -191,8 +194,10 @@ class MultiNest(SamplingVirtial):
             pars = self.map_point_into_distribution(param)
             sample = Sample(pars)
             sample.update_uuid(uid)
-            sample_cfg = deepcopy(base_sample_cfg)
-            sample_cfg["save_dir"] = self.bucket_alloc.next_bucket_dir()
+            sample_cfg = self.build_sample_config(
+                base_sample_cfg,
+                save_dir=self.bucket_alloc.next_bucket_dir(),
+            )
             sample.set_config(sample_cfg)
             try:
                 return self._submit_with_backpressure(sample)
@@ -219,11 +224,14 @@ class MultiNest(SamplingVirtial):
                 sig = inspect.signature(NestedSampler)
                 if "log_file_path" in sig.parameters:
                     sampler_kwargs["log_file_path"] = self.info["logfile"]
+                if "inner_logger" in sig.parameters:
+                    sampler_kwargs["inner_logger"] = self.logger
             except (TypeError, ValueError):
                 # Fallback for objects without introspectable signature.
                 pass
 
             self.sampler = NestedSampler(**sampler_kwargs)
+            self.sampler.logger = self.logger
             self.sampler.run_nested(**self._runnested)
         finally:
             self._shutdown_multinest_pool()

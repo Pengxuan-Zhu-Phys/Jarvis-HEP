@@ -2,7 +2,6 @@
 
 import os
 import threading
-from copy import deepcopy
 from uuid import uuid4
 
 import numpy as np
@@ -169,7 +168,7 @@ class Dynesty(SamplingVirtial):
     def run_nested(self):
         self._ensure_bucket_allocator()
         self._resolve_execution_profile()
-        base_sample_cfg = deepcopy(self.info['sample'])
+        base_sample_cfg = self.info['sample']
 
         def log_likelihood(params):
             param = params[0:-1].astype(np.float64, copy=False)
@@ -177,8 +176,10 @@ class Dynesty(SamplingVirtial):
             pars = self.map_point_into_distribution(param)
             sample = Sample(pars)
             sample.update_uuid(uuid)
-            sample_cfg = deepcopy(base_sample_cfg)
-            sample_cfg['save_dir'] = self.bucket_alloc.next_bucket_dir()
+            sample_cfg = self.build_sample_config(
+                base_sample_cfg,
+                save_dir=self.bucket_alloc.next_bucket_dir(),
+            )
             sample.set_config(sample_cfg)
             try:
                 return self._submit_with_backpressure(sample)

@@ -127,9 +127,15 @@ class Sampler:
         else:
             self.queue_size = 1
         self.queue = []  # proposed live point queue
+        self._queue_pending = {}
         self.nqueue = 0  # current size of the queue
         self.unused = 0  # total number of proposals unused
         self.used = 0  # total number of proposals used
+        self._async_queue_mode = bool(
+            self.pool is not None and
+            hasattr(self.pool, 'submit') and
+            hasattr(self.pool, 'wait_first_completed')
+        )
 
         # sampling
         self.it = 1  # current iteration
@@ -217,6 +223,7 @@ class Sampler:
 
         # parallelism
         self.queue = []
+        self._queue_pending = {}
         self.nqueue = 0
         self.unused = 0
         self.used = 0
@@ -302,6 +309,17 @@ class Sampler:
 
         return self.cite
 
+    @staticmethod
+    def _emit_progress(print_func, logger_obj, *args, **kwargs):
+        if logger_obj is None:
+            return print_func(*args, **kwargs)
+        try:
+            return print_func(*args, logger=logger_obj, **kwargs)
+        except TypeError:
+            # Keep compatibility with custom callbacks that do not accept
+            # the optional `logger` keyword.
+            return print_func(*args, **kwargs)
+
     def update_bound_if_needed(self, loglstar, ncall=None, force=False):
         """
         Here we update the bound depending on the situation
@@ -362,28 +380,28 @@ class Sampler:
                     'excessively around the very peak of the posterior')
         else:
             args = ()
+        remaining = self.queue_size - self.nqueue
+        if remaining <= 0:
+            return
+
         if not self.unit_cube_sampling:
             # Add/zip arguments to submit to the queue.
             point_queue = []
             axes_queue = []
             # Propose points using the provided sampling/bounding options.
             evolve_point = self.evolve_point
-            while self.nqueue < self.queue_size:
+            while len(point_queue) < remaining:
                 point, axes = self.propose_point(*args)
                 point_queue.append(point)
                 axes_queue.append(axes)
-                self.nqueue += 1
         else:
             # Propose/evaluate points directly from the unit cube.
-            point_queue = self.rstate.random(size=(self.queue_size -
-                                                   self.nqueue, self.npdim))
+            point_queue = self.rstate.random(size=(remaining, self.npdim))
             axes_queue = np.identity(
-                self.ncdim)[None, :, :] + np.zeros(self.queue_size -
-                                                   self.nqueue)[:, None, None]
+                self.ncdim)[None, :, :] + np.zeros(remaining)[:, None, None]
             evolve_point = sample_unif
-            self.nqueue = self.queue_size
-        if self.queue_size > 1:
-            seeds = get_seed_sequence(self.rstate, self.queue_size)
+        if remaining > 1:
+            seeds = get_seed_sequence(self.rstate, remaining)
         else:
             seeds = [self.rstate]
 
@@ -395,7 +413,7 @@ class Sampler:
             # function.
             mapper = map
         args = []
-        for i in range(self.queue_size):
+        for i in range(remaining):
             args.append(
                 SamplerArgument(u=point_queue[i],
                                 loglstar=loglstar,
@@ -405,7 +423,15 @@ class Sampler:
                                 loglikelihood=self.loglikelihood,
                                 rseed=seeds[i],
                                 kwargs=self.kwargs))
-        self.queue = list(mapper(evolve_point, args))
+        if self._async_queue_mode and self.use_pool_evolve:
+            for entry in args:
+                future = self.pool.submit(evolve_point, entry)
+                self._queue_pending[future] = None
+            self.nqueue += len(args)
+            return
+
+        self.queue.extend(list(mapper(evolve_point, args)))
+        self.nqueue += len(args)
 
     def _get_point_value(self, loglstar):
         """Grab the first live point proposal in the queue."""
@@ -413,6 +439,18 @@ class Sampler:
         # If the queue is empty, refill it.
         if self.nqueue <= 0:
             self._fill_queue(loglstar)
+
+        if self._async_queue_mode:
+            while not self.queue:
+                if not self._queue_pending:
+                    self._fill_queue(loglstar)
+                    if not self._queue_pending and not self.queue:
+                        raise RuntimeError(
+                            "Async proposal queue is empty and no pending tasks exist.")
+                done, _ = self.pool.wait_first_completed(self._queue_pending.keys())
+                for future in done:
+                    self._queue_pending.pop(future, None)
+                    self.queue.append(future.result())
 
         # Grab the earliest entry.
         u, v, logl, nc, blob = self.queue.pop(0)
@@ -852,8 +890,6 @@ class Sampler:
             uidstar = self.live_uid[worst].copy() # new uuid
             # if len(uidstar) == 1:
             #     print("sampler Line 842 ->", uidstar)
-            from time import sleep
-            sleep(0.001)
             loglstar_new = self.live_logl[worst]  # new likelihood
             if self.blob:
                 old_blob = self.live_blobs[worst].copy()
@@ -1043,6 +1079,7 @@ class Sampler:
 
         # Run the main nested sampling loop.
         pbar, print_func = get_print_func(print_func, print_progress)
+        inner_logger = getattr(self, "logger", None)
         if checkpoint_file is not None:
             timer = DelayTimer(checkpoint_every)
         try:
@@ -1062,11 +1099,13 @@ class Sampler:
                 # Print progress.
                 if print_progress:
                     i = self.it - 1
-                    print_func(results,
-                               i,
-                               ncall,
-                               dlogz=dlogz,
-                               logl_max=logl_max)
+                    self._emit_progress(print_func,
+                                        inner_logger,
+                                        results,
+                                        i,
+                                        ncall,
+                                        dlogz=dlogz,
+                                        logl_max=logl_max)
 
                 if checkpoint_file is not None and timer.is_time():
                     self.save(checkpoint_file)
@@ -1079,12 +1118,14 @@ class Sampler:
 
                     # Print progress.
                     if print_progress:
-                        print_func(results,
-                                   it,
-                                   ncall,
-                                   add_live_it=i + 1,
-                                   dlogz=dlogz,
-                                   logl_max=logl_max)
+                        self._emit_progress(print_func,
+                                            inner_logger,
+                                            results,
+                                            it,
+                                            ncall,
+                                            add_live_it=i + 1,
+                                            dlogz=dlogz,
+                                            logl_max=logl_max)
 
             # Here we recompute the integrals using the full run
             new_logwt, new_logz, new_logzvar, new_h = compute_integrals(
@@ -1125,6 +1166,7 @@ class Sampler:
 
         # Add remaining live points to samples.
         pbar, print_func = get_print_func(print_func, print_progress)
+        inner_logger = getattr(self, "logger", None)
         try:
             ncall = self.ncall
             it = self.it - 1
@@ -1132,11 +1174,13 @@ class Sampler:
 
                 # Print progress.
                 if print_progress:
-                    print_func(results,
-                               it,
-                               ncall,
-                               add_live_it=i + 1,
-                               dlogz=0.01)
+                    self._emit_progress(print_func,
+                                        inner_logger,
+                                        results,
+                                        it,
+                                        ncall,
+                                        add_live_it=i + 1,
+                                        dlogz=0.01)
         finally:
             if pbar is not None:
                 pbar.close()

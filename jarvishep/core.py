@@ -197,8 +197,6 @@ class Core(Base):
                 }
 
     def init_logger(self) -> None:
-        from datetime import datetime
-        current_time = datetime.now().strftime("%Y-%m-%d[%H:%M:%S]")
         logger.configure(extra={"_log_domain": JARVIS_HEP_LOG_DOMAIN})
 
         def global_log_filter(record):
@@ -224,7 +222,7 @@ class Core(Base):
             else:
                 return f"\n <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
 
-        jarvislog = f"{self.info['jarvis_log']}@{current_time}"
+        jarvislog = self.info["jarvis_log"]
 
         logger.add(jarvislog, 
                    rotation="5 MB", 
@@ -610,8 +608,6 @@ class Core(Base):
 
             from time import time
             start = time()
-            self.module_manager.database.hdf5_to_csv()
-            # self.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             # self.monitor.stop()
@@ -624,8 +620,6 @@ class Core(Base):
             from time import time
             start = time()
             self.factory.module_manager.database.stop()
-            self.factory.module_manager.database.hdf5_to_csv()
-            # self.factory.module_manager.database.hdf5_to_csv(self.info['db']['out_csv'])
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             self.sampler.finalize()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import sys
-from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -196,14 +195,15 @@ class Diver(SamplingVirtial):
         future_to_idx: dict[concurrent.futures.Future, int] = {}
         future_to_sample: dict[concurrent.futures.Future, Sample] = {}
 
-        base_sample_cfg = deepcopy(self.info["sample"])
+        base_sample_cfg = self.info["sample"]
 
         for idx, row in enumerate(unit_population):
             params = self.map_point_into_distribution(row)
             sample = Sample(params)
-
-            sample_cfg = deepcopy(base_sample_cfg)
-            sample_cfg["save_dir"] = self.bucket_alloc.next_bucket_dir()
+            sample_cfg = self.build_sample_config(
+                base_sample_cfg,
+                save_dir=self.bucket_alloc.next_bucket_dir(),
+            )
             sample.set_config(sample_cfg)
 
             future = self.factory.submit_task(sample.info)

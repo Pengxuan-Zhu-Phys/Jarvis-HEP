@@ -595,19 +595,19 @@ class DNN(SamplingVirtial):
         
     def create_dataset(self, num):
         total_cores = os.cpu_count() or 1
-        from copy import deepcopy
         self._index = 0
         self.tasks = set()
         self.future_to_sample = {}
         data = []
         exhausted = False
+        base_sample_cfg = self.info['sample']
 
         while (not exhausted) or self.tasks:
             while not exhausted and len(self.tasks) < total_cores and self._index < num:
                 try: 
                     param = self.next_sample()
                     sample = Sample(param)
-                    sample.set_config(deepcopy(self.info['sample']))
+                    sample.set_config(self.build_sample_config(base_sample_cfg))
                     future = self.factory.submit_task(sample.info)
                     self.tasks.add(future)
                     self.future_to_sample[future] = sample

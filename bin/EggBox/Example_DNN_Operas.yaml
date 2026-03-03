@@ -45,7 +45,7 @@ EnvReqs:
     default_yaml_path:  "&SRC/card/environment_default.yaml"
 
 Operas:
-  make_paraller: 16
+  make_paraller: 100
   Modules:
     - name: EggBox
       operator: "helper.eggbox2d"

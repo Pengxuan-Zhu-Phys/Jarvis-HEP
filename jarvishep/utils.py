@@ -3,7 +3,6 @@ import pandas as pd
 from scipy.interpolate import interp1d
 import numpy as np 
 from jarvishep.observable_io import (
-    collect_csv_fieldnames,
     flatten_records_for_csv,
     load_schema,
     resolve_schema_path,
@@ -91,6 +90,38 @@ def convert_hdf5_to_csv(snapshot_path, csv_path, schema_path=None):
     import h5py, csv, json, os, warnings
     from jarvishep.observable_io import save_schema
 
+    def _decode_one_record(raw, dataset_name):
+        if isinstance(raw, (bytes, bytearray, np.bytes_)):
+            text = bytes(raw).decode("utf-8")
+        elif isinstance(raw, str):
+            text = raw
+        else:
+            text = str(raw)
+        try:
+            return json.loads(text)
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to decode JSON record in dataset '{dataset_name}': {exc}"
+            ) from exc
+
+    def _iter_dataset_records(raw, dataset_name):
+        if isinstance(raw, np.ndarray):
+            if raw.ndim == 0:
+                yield _decode_one_record(raw.item(), dataset_name)
+                return
+            for item in raw.reshape(-1):
+                yield _decode_one_record(item, dataset_name)
+            return
+        yield _decode_one_record(raw, dataset_name)
+
+    def _iter_records():
+        with h5py.File(snapshot_path, 'r') as hdf5_file:
+            for dataset_name in hdf5_file:
+                data = hdf5_file[dataset_name][()]
+                for record in _iter_dataset_records(data, dataset_name):
+                    if isinstance(record, dict):
+                        yield record
+
     if schema_path is None:
         schema_path = resolve_schema_path(snapshot_path)
     if str(schema_path).endswith(".schema.json"):
@@ -105,30 +136,43 @@ def convert_hdf5_to_csv(snapshot_path, csv_path, schema_path=None):
         # Persist normalized schema so users can inspect the corrected result.
         save_schema(schema_path, schema)
 
-    with h5py.File(snapshot_path, 'r') as hdf5_file:
-        all_data = []
-        # Iterate over datasets in the HDF5 file to collect data
-        for dataset_name in hdf5_file:
-            data = hdf5_file[dataset_name][()]
-            if isinstance(data, (bytes, bytearray)):
-                json_data = json.loads(data.decode('utf-8'))
-            else:
-                json_data = json.loads(str(data))
-            all_data.append(json_data)
-        rows, schema_changed = flatten_records_for_csv(
-            records=all_data,
+    schema_changed = False
+    fieldnames = []
+    seen = set()
+    row_count = 0
+    for record in _iter_records():
+        rows, row_changed = flatten_records_for_csv(
+            records=[record],
             schema=schema,
             populate_name_map=True,
         )
-        if schema_changed:
-            save_schema(schema_path, schema)
-        if rows:
-            fieldnames = collect_csv_fieldnames(rows)
-            with open(csv_path, 'w', newline='') as csv_file:
-                writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-                writer.writeheader()
-                for row in rows:
-                    writer.writerow(row)
+        if not rows:
+            continue
+        row = rows[0]
+        row_count += 1
+        schema_changed = schema_changed or row_changed
+        for key in row.keys():
+            if key not in seen:
+                seen.add(key)
+                fieldnames.append(key)
+
+    if schema_changed:
+        save_schema(schema_path, schema)
+
+    if row_count == 0 or not fieldnames:
+        return
+
+    with open(csv_path, 'w', newline='', encoding='utf-8') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for record in _iter_records():
+            rows, _ = flatten_records_for_csv(
+                records=[record],
+                schema=schema,
+                populate_name_map=False,
+            )
+            if rows:
+                writer.writerow(rows[0])
 
 def format_duration(seconds):
     """Formating into HH:MM:SS.msc format"""

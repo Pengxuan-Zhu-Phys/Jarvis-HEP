@@ -135,8 +135,8 @@ class Bridson(SamplingVirtial):
      
     def run_w_nuisance(self):
         total_cores = self.total_core
-        from copy import deepcopy
         exhausted = False 
+        base_sample_cfg = self.info['sample']
         while True: 
             while not exhausted and len(self.tasks) < total_cores: 
                 try: 
@@ -150,8 +150,10 @@ class Bridson(SamplingVirtial):
                     break 
                 
                 sample = Sample(param)
-                sconfig = deepcopy(self.info['sample'])
-                sconfig['save_dir'] = self.bucket_alloc.next_bucket_dir()
+                sconfig = self.build_sample_config(
+                    base_sample_cfg,
+                    save_dir=self.bucket_alloc.next_bucket_dir(),
+                )
                 sample.set_config(sconfig)
 
                 sample.start()
@@ -194,8 +196,8 @@ class Bridson(SamplingVirtial):
         
     def run_wo_nuisance(self):
         total_cores = self.total_core
-        from copy import deepcopy
         exhausted = False 
+        base_sample_cfg = self.info['sample']
         while True:
             while not exhausted and len(self.tasks) < total_cores: 
                 try: 
@@ -208,8 +210,10 @@ class Bridson(SamplingVirtial):
                     exhausted = True 
                     break 
                 sample = Sample(param)
-                sconfig = deepcopy(self.info['sample'])
-                sconfig['save_dir'] = self.bucket_alloc.next_bucket_dir()
+                sconfig = self.build_sample_config(
+                    base_sample_cfg,
+                    save_dir=self.bucket_alloc.next_bucket_dir(),
+                )
                 sample.set_config(sconfig)
                 
                 future = self.factory.submit_task(sample.info)

@@ -176,23 +176,42 @@ class JarvisFactoryAsyncPool:
     def size(self):
         return self.njobs
 
+    def submit(self, func, item):
+        if self._executor is None:
+            raise RuntimeError("JarvisFactoryAsyncPool has been shut down")
+        return self._executor.submit(func, item)
+
+    def wait_first_completed(self, futures):
+        if self._executor is None:
+            raise RuntimeError("JarvisFactoryAsyncPool has been shut down")
+        return wait(set(futures), return_when=FIRST_COMPLETED)
+
     def map(self, func, iterable):
-        items = list(iterable)
-        if not items:
-            return []
+        if self._executor is None:
+            raise RuntimeError("JarvisFactoryAsyncPool has been shut down")
 
-        results = [None] * len(items)
+        iterator = iter(iterable)
+        results = []
         pending = {}
-        idx = 0
-        total = len(items)
+        next_idx = 0
+        exhausted = False
 
-        while idx < total or pending:
-            while idx < total and len(pending) < self.njobs:
-                future = self._executor.submit(func, items[idx])
-                pending[future] = idx
-                idx += 1
+        while pending or not exhausted:
+            while not exhausted and len(pending) < self.njobs:
+                try:
+                    item = next(iterator)
+                except StopIteration:
+                    exhausted = True
+                    break
+                future = self.submit(func, item)
+                pending[future] = next_idx
+                results.append(None)
+                next_idx += 1
 
-            done, _ = wait(set(pending.keys()), return_when=FIRST_COMPLETED)
+            if not pending:
+                break
+
+            done, _ = self.wait_first_completed(pending.keys())
             for future in done:
                 i = pending.pop(future)
                 results[i] = future.result()

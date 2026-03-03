@@ -9,6 +9,7 @@ from jarvishep.inner_func import update_const, update_funcs
 import numpy as np 
 import sys, os 
 from typing import Any, Dict, Tuple
+from copy import deepcopy
 
 class BoolConversionError(Exception):
     """Nothing but raise bool error"""
@@ -159,3 +160,18 @@ class SamplingVirtial(Base):
 
         self.evaluate_selection(self._selectionexp, probe_values)
         return True
+
+    def build_sample_config(self, base_sample_cfg: Dict[str, Any], save_dir: str | None = None) -> Dict[str, Any]:
+        """Build per-sample config with minimal safe copying.
+
+        Only deep-copy fields that are mutated downstream (e.g. ``nuisance``),
+        while keeping read-only large fields shared to avoid hot-path deepcopy cost.
+        """
+        cfg = dict(base_sample_cfg or {})
+        if save_dir is not None:
+            cfg["save_dir"] = save_dir
+
+        nuisance = cfg.get("nuisance")
+        if isinstance(nuisance, dict):
+            cfg["nuisance"] = deepcopy(nuisance)
+        return cfg

@@ -17,7 +17,6 @@ import json
 from scipy.special import gammainc
 from jarvishep.sample import Sample
 import concurrent.futures
-from copy import deepcopy
 
 class TPMCMC(SamplingVirtial):
     def __init__(self) -> None:
@@ -153,6 +152,7 @@ class TPMCMC(SamplingVirtial):
         self.tasks = set()
         self.future_to_sample = {}
         exhausted = False
+        base_sample_cfg = self.info['sample']
         while (not exhausted) or self.tasks:
             self._refresh_chain_queue_if_needed()
             while not exhausted and len(self.tasks) < self._total_cores:
@@ -164,7 +164,7 @@ class TPMCMC(SamplingVirtial):
                     break
 
                 sample = Sample(param)
-                sample.set_config(deepcopy(self.info['sample']))
+                sample.set_config(self.build_sample_config(base_sample_cfg))
                 sample.info["chain_id"] = cid
                 future = self.factory.submit_task(sample.info)
                 self.tasks.add(future)

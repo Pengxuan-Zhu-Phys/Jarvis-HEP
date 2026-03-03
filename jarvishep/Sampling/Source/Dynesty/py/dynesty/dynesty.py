@@ -545,7 +545,8 @@ class NestedSampler(SuperSampler):
                 ncdim=None,
                 blob=False,
                 save_history=False,
-                history_filename=None):
+                history_filename=None,
+                inner_logger=None):
 
         # Prior dimensions.
         if npdim is None:
@@ -703,6 +704,7 @@ class NestedSampler(SuperSampler):
                          blob=blob,
                          logvol_init=logvol_init)
         sampler.ncalls = init_ncalls
+        sampler.logger = inner_logger
         return sampler
 
 

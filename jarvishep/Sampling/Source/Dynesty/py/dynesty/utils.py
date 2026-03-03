@@ -346,7 +346,7 @@ class DelayTimer:
 
 
 PrintFnArgs = namedtuple('PrintFnArgs',
-                         ['niter', 'short_str', 'mid_str', 'long_str'])
+                         ['niter', 'short_str', 'mid_str', 'long_str', 'metrics'])
 
 
 def print_fn(results,
@@ -501,10 +501,85 @@ def get_print_fn_args(results,
     # if logger is not None:
     #     print(long_str)
 
+    metrics = {
+        "add_live_it": add_live_it,
+        "batch": nbatch,
+        "bound": int(bounditer),
+        "nc": int(nc),
+        "ncall": int(ncall),
+        "eff": float(eff),
+        "logl_min": float(logl_min),
+        "loglstar": float(loglstar),
+        "logl_max": float(logl_max),
+        "logz": float(logz),
+        "logzerr": float(logzerr),
+        "delta_logz": float(delta_logz),
+        "dlogz": None if dlogz is None else float(dlogz),
+        "stop_val": None if stop_val is None else float(stop_val),
+    }
+
     return PrintFnArgs(niter=niter,
                        short_str=short_str,
                        mid_str=mid_str,
-                       long_str=long_str)
+                       long_str=long_str,
+                       metrics=metrics)
+
+
+def _resolve_progress_title(logger):
+    title = "Dynesty"
+    if logger is None:
+        return title
+    module = None
+    try:
+        # loguru bound logger stores `extra` in the last item of `_options`.
+        options = getattr(logger, "_options", None)
+        if isinstance(options, tuple) and len(options) >= 9:
+            extra = options[8]
+            if isinstance(extra, dict):
+                module = str(extra.get("module", ""))
+    except Exception:
+        module = None
+    if module:
+        if "MultiNest" in module:
+            return "MultiNest"
+        if "Dynesty" in module:
+            return "Dynesty"
+    return title
+
+
+def _format_progress_block(fn_args, rate=None, logger=None):
+    metrics = fn_args.metrics
+    rows = [("iter", fn_args.niter)]
+    if rate is not None and np.isfinite(rate):
+        rows.append(("rate(it/s)", "{:.2f}".format(rate)))
+    if metrics.get("add_live_it") is not None:
+        rows.append(("add_live", "+{:d}".format(int(metrics["add_live_it"]))))
+    if metrics.get("batch") is not None:
+        rows.append(("batch", int(metrics["batch"])))
+    rows.append(("bound", metrics["bound"]))
+    rows.append(("nc", metrics["nc"]))
+    rows.append(("ncall", metrics["ncall"]))
+    rows.append(("eff(%)", "{:6.3f}".format(metrics["eff"])))
+    rows.append(
+        (
+            "loglstar",
+            "{:6.3f} < {:6.3f} < {:6.3f}".format(
+                metrics["logl_min"],
+                metrics["loglstar"],
+                metrics["logl_max"],
+            ),
+        )
+    )
+    rows.append(("logz", "{:6.3f} +/- {:6.3f}".format(metrics["logz"], metrics["logzerr"])))
+    if metrics.get("dlogz") is not None:
+        rows.append(("dlogz", "{:6.3f} > {:6.3f}".format(metrics["delta_logz"], metrics["dlogz"])))
+    else:
+        rows.append(("stop", "{:6.3f}".format(metrics["stop_val"])))
+
+    title = _resolve_progress_title(logger)
+    return "{} Progress ->\n".format(title) + "\n".join(
+        "\t{:<10} -> {}".format(name, value) for name, value in rows
+    )
 
 
 def print_fn_tqdm(pbar,
@@ -532,19 +607,19 @@ def print_fn_tqdm(pbar,
                                 logl_max=logl_max,
                                 logger=logger
                                 )
-    # output = io.StringIO()
-    pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
+    pbar.set_postfix_str(" ; ".join(fn_args.long_str), refresh=False)
     pbar.update(fn_args.niter - pbar.n)
-    # print(fn_args.niter, pbar.n, " | ".join(fn_args.long_str))
+    rate = None
+    try:
+        rate = pbar.format_dict.get("rate", None)
+    except Exception:
+        rate = None
+    log_block = _format_progress_block(fn_args, rate=rate, logger=logger)
     if logger is not None:
         if fn_args.niter % 100 == 0:
-            logger.warning(pbar)
+            logger.warning(log_block)
         else:
-            logger.info(pbar)
-    # print(pbar)
-
-    # if logger is not None:
-        # logger.info(f"{fn_args.niter - pbar.n} {' | '.join(fn_args.long_str)}")
+            logger.info(log_block)
 
 
 def print_fn_fallback(results,
@@ -576,11 +651,16 @@ def print_fn_fallback(results,
     long_str = ["iter: {:d}".format(niter)] + long_str
 
     # Printing.
-    long_str = ' | '.join(long_str)
-    mid_str = ' | '.join(mid_str)
-    short_str = '|'.join(short_str)
-    # if logger is not None:
-        # logger.info(short_str)
+    long_str = ' ; '.join(long_str)
+    mid_str = ' ; '.join(mid_str)
+    short_str = ';'.join(short_str)
+    if logger is not None:
+        log_block = _format_progress_block(fn_args, logger=logger)
+        if niter % 100 == 0:
+            logger.warning(log_block)
+        else:
+            logger.info(log_block)
+        return
 
     if sys.stderr.isatty() and hasattr(shutil, 'get_terminal_size'):
         columns = shutil.get_terminal_size(fallback=(80, 25))[0]
