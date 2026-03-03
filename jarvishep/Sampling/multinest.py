@@ -1,0 +1,492 @@
+#!/usr/bin/env python3
+
+import os
+import threading
+import inspect
+import json
+from datetime import datetime, timezone
+from copy import deepcopy
+from uuid import uuid4
+
+import numpy as np
+import pandas as pd
+from prettytable import PrettyTable
+
+from jarvishep.Sampling.Source.Dynesty.py.dynesty.pool import JarvisFactoryAsyncPool
+from jarvishep.Sampling.sampler import SamplingVirtial
+from jarvishep.sample import Sample
+
+
+def prior_transform(u):
+    uid = str(uuid4())
+    ret = np.append(u, [uid])
+    return ret
+
+
+MultiNestFactoryPool = JarvisFactoryAsyncPool
+
+
+class MultiNest(SamplingVirtial):
+    """Static nested sampling wrapper (dynesty NestedSampler)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.load_schema_file()
+        self.method = "MultiNest"
+        self.sampler = None
+        self.max_workers = os.cpu_count() or 1
+        self._multinest_pool = None
+        self._multinest_workers = 1
+        self._factory_submit_limit = 1
+        self._submit_gate = threading.BoundedSemaphore(value=1)
+        self._execution_profile = {}
+        self.df = None
+        self.lnX_from_LogLike = None
+
+    def load_schema_file(self):
+        self.schema = self.path.get("MultiNestSchema", self.path.get("DynestySchema"))
+
+    def set_config(self, config_info) -> None:
+        self.config = config_info
+        self.set_bucket_alloc()
+        self.init_generator()
+
+    def set_factory(self, factory) -> None:
+        self.factory = factory
+        self.logger.warning("WorkerFactory is ready for MultiNest sampler")
+
+    def set_execution_profile(self, multinest_workers=None, max_pending_factory=None):
+        profile = {}
+        if multinest_workers is not None:
+            profile["multinest_workers"] = int(multinest_workers)
+        if max_pending_factory is not None:
+            profile["max_pending_factory"] = int(max_pending_factory)
+        self._execution_profile = profile
+
+    def __next__(self):
+        u = np.random.random(self._dimensions)
+        return self.map_point_into_distribution(u)
+
+    def map_point_into_distribution(self, row) -> np.ndarray:
+        result = {}
+        for ii in range(len(row)):
+            result[self.vars[ii].name] = self.vars[ii].map_standard_random_to_distribution(row[ii])
+        return result
+
+    def set_logger(self, logger) -> None:
+        super().set_logger(logger)
+        self.logger.warning("Sampling method initializaing ...")
+
+    def init_generator(self):
+        self.load_variable()
+        bounds = self.config["Sampling"]["Bounds"]
+        self._nlive = int(bounds["nlive"])
+        self._rstate = np.random.default_rng(bounds["rseed"])
+        self._runnested = bounds["run_nested"]
+        self._dimensions = len(self.vars)
+
+    def initialize(self):
+        self.logger.warning("Initializing the MultiNest Sampling")
+
+    def init_sampler_db(self):
+        self.info["db"] = {
+            "nested result": os.path.join(
+                self.info["sample"]["task_result_dir"],
+                "DATABASE",
+                "multinest_result.csv",
+            ),
+            "summary": os.path.join(
+                self.info["sample"]["task_result_dir"],
+                "DATABASE",
+                "multinest_summary.json",
+            ),
+        }
+
+    def _shutdown_multinest_pool(self):
+        if self._multinest_pool is not None:
+            self._multinest_pool.shutdown(wait_for_tasks=True, cancel_futures=True)
+            self._multinest_pool = None
+
+    def _ensure_bucket_allocator(self):
+        if getattr(self, "bucket_alloc", None) is not None:
+            return
+
+        sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+        base_path = sample_cfg.get("sample_dirs")
+        if not base_path:
+            task_root = sample_cfg.get("task_result_dir", os.getcwd())
+            base_path = os.path.join(task_root, "SAMPLE")
+            sample_cfg["sample_dirs"] = base_path
+
+        limit = 200
+        width = 6
+        cfg = getattr(self, "config", None)
+        if isinstance(cfg, dict):
+            directory_cfg = cfg.get("Directory_Setting", None)
+            if isinstance(directory_cfg, dict):
+                limit = int(directory_cfg.get("limit", limit))
+                width = int(directory_cfg.get("width", width))
+
+        from jarvishep.Sampling.bucketallocator import BucketAllocator
+
+        self.bucket_alloc = BucketAllocator(
+            base_path=base_path,
+            limit=limit,
+            width=width,
+            start_bucket=1,
+        )
+        self.bucket_alloc.check_and_update()
+
+    def _resolve_execution_profile(self):
+        factory_workers = int(getattr(self.factory, "_max_workers", self.max_workers) or self.max_workers or 1)
+        nlive = int(getattr(self, "_nlive", 1) or 1)
+        base_workers = int(self.max_workers or 1)
+
+        requested_workers = int(self._execution_profile.get("multinest_workers", base_workers))
+        multinest_workers = max(1, min(requested_workers, base_workers, factory_workers, nlive))
+
+        requested_pending = int(self._execution_profile.get("max_pending_factory", multinest_workers))
+        max_pending_factory = max(1, min(requested_pending, factory_workers))
+
+        self._multinest_workers = multinest_workers
+        self._factory_submit_limit = max_pending_factory
+        self._submit_gate = threading.BoundedSemaphore(value=max_pending_factory)
+
+        if self._multinest_pool is None or self._multinest_pool.size != multinest_workers:
+            self._shutdown_multinest_pool()
+            self._multinest_pool = MultiNestFactoryPool(multinest_workers)
+
+        self.logger.warning(
+            "MultiNest execution profile -> multinest_workers={} | factory_submit_limit={} | factory_workers={} | nlive={}".format(
+                multinest_workers,
+                max_pending_factory,
+                factory_workers,
+                nlive,
+            )
+        )
+
+    def _submit_with_backpressure(self, sample):
+        if not self._submit_gate.acquire(blocking=False):
+            self.logger.info(
+                "MultiNest factory submit window full -> wait -> limit={} | uuid={}".format(
+                    self._factory_submit_limit,
+                    sample.uuid,
+                )
+            )
+            self._submit_gate.acquire()
+        try:
+            future = self.factory.submit_task(sample.info)
+            return future.result()
+        finally:
+            self._submit_gate.release()
+
+    def run_nested(self):
+        self._ensure_bucket_allocator()
+        self._resolve_execution_profile()
+        base_sample_cfg = deepcopy(self.info["sample"])
+
+        def log_likelihood(params):
+            param = params[0:-1].astype(np.float64, copy=False)
+            uid = params[-1]
+            pars = self.map_point_into_distribution(param)
+            sample = Sample(pars)
+            sample.update_uuid(uid)
+            sample_cfg = deepcopy(base_sample_cfg)
+            sample_cfg["save_dir"] = self.bucket_alloc.next_bucket_dir()
+            sample.set_config(sample_cfg)
+            try:
+                return self._submit_with_backpressure(sample)
+            except Exception as exc:
+                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                raise
+            finally:
+                sample.close()
+
+        self.init_sampler_db()
+        from jarvishep.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+
+        try:
+            sampler_kwargs = {
+                "loglikelihood": log_likelihood,
+                "prior_transform": prior_transform,
+                "ndim": self._dimensions,
+                "nlive": self._nlive,
+                "pool": self._multinest_pool,
+                "rstate": self._rstate,
+                "queue_size": self._multinest_workers,
+            }
+            try:
+                sig = inspect.signature(NestedSampler)
+                if "log_file_path" in sig.parameters:
+                    sampler_kwargs["log_file_path"] = self.info["logfile"]
+            except (TypeError, ValueError):
+                # Fallback for objects without introspectable signature.
+                pass
+
+            self.sampler = NestedSampler(**sampler_kwargs)
+            self.sampler.run_nested(**self._runnested)
+        finally:
+            self._shutdown_multinest_pool()
+
+    def _result_field(self, name, default=None):
+        results = self.sampler.results
+        try:
+            return results[name]
+        except Exception:
+            return default
+
+    def _build_multinest_table(self):
+        samples = np.asarray(self._result_field("samples", np.empty((0, self._dimensions))))
+        n = int(samples.shape[0]) if samples.ndim == 2 else 0
+
+        uu = self._result_field("samples_u", None)
+        if uu is None:
+            uu = np.zeros_like(samples)
+        uu = np.asarray(uu)
+
+        uid = self._result_field("samples_uid", None)
+        if uid is None or len(uid) != n:
+            uid = np.array([f"multinest-{i:08d}" for i in range(n)], dtype=object)
+
+        logwt = np.asarray(self._result_field("logwt", np.zeros(n)))
+        logl = np.asarray(self._result_field("logl", np.zeros(n)))
+        logvol = np.asarray(self._result_field("logvol", np.zeros(n)))
+        logz = np.asarray(self._result_field("logz", np.zeros(n)))
+        logzerr = np.asarray(self._result_field("logzerr", np.zeros(n)))
+        ncall = np.asarray(self._result_field("ncall", np.zeros(n)))
+        samples_n = np.asarray(self._result_field("samples_n", np.full(n, self._nlive)))
+        samples_it = np.asarray(self._result_field("samples_it", np.arange(n)))
+        samples_id = np.asarray(self._result_field("samples_id", np.arange(n)))
+        information = self._result_field("information", 0.0)
+        if np.isscalar(information):
+            information = np.full(n, float(information))
+        else:
+            information = np.asarray(information)
+
+        data = {
+            "uuid": uid,
+            "log_weight": logwt,
+            "log_Like": logl,
+            "log_PriorVolume": logvol,
+            "log_Evidence": logz,
+            "log_Evidence_err": logzerr,
+            "samples_nlive": samples_n,
+            "ncall": ncall,
+            "samples_it": samples_it,
+            "samples_id": samples_id,
+            "information": information,
+        }
+        for ii in range(samples.shape[1] if samples.ndim == 2 else 0):
+            data[f"samples_v[{ii}]"] = samples[:, ii]
+        for ii in range(uu.shape[1] if uu.ndim == 2 else 0):
+            data[f"samples_u[{ii}]"] = uu[:, ii]
+        return data
+
+    def save_multinest_results_to_csv(self):
+        data = self._build_multinest_table()
+        self.df = pd.DataFrame(data)
+        out_csv = self.info["db"]["nested result"]
+        out_dir = os.path.dirname(out_csv)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        self.df.to_csv(out_csv, index=False)
+        self.logger.warning(f"Results saved to {self.info['db']['nested result']}")
+
+        self._build_logl_to_logx_interpolator()
+
+    @staticmethod
+    def _as_scalar_number(value, default=np.nan):
+        if value is None:
+            return default
+        if isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                return default
+            return MultiNest._as_scalar_number(value[-1], default=default)
+        if isinstance(value, np.ndarray):
+            if value.size == 0:
+                return default
+            return MultiNest._as_scalar_number(value.reshape(-1)[-1], default=default)
+        try:
+            return float(value)
+        except Exception:
+            return default
+
+    @staticmethod
+    def _as_int(value, default=0):
+        fv = MultiNest._as_scalar_number(value, default=np.nan)
+        if not np.isfinite(fv):
+            return int(default)
+        return int(fv)
+
+    def _build_multinest_summary_payload(self):
+        results = getattr(self.sampler, "results", None)
+        nlive = self._as_int(self._result_field("nlive", None), default=getattr(self, "_nlive", 0))
+        niter = self._as_int(self._result_field("niter", None), default=0)
+        if niter <= 0:
+            niter = int(self.df.shape[0]) if isinstance(self.df, pd.DataFrame) else 0
+
+        ncall_field = self._result_field("ncall", None)
+        if isinstance(ncall_field, np.ndarray):
+            ncall = int(np.nansum(ncall_field)) if ncall_field.size else 0
+        elif isinstance(ncall_field, (list, tuple)):
+            ncall = int(np.nansum(np.asarray(ncall_field, dtype=float))) if len(ncall_field) else 0
+        else:
+            ncall = self._as_int(ncall_field, default=0)
+
+        eff = self._as_scalar_number(self._result_field("eff", None), default=np.nan)
+        if not np.isfinite(eff) and ncall > 0:
+            eff = 100.0 * float(niter) / float(max(ncall, 1))
+
+        logz = self._as_scalar_number(self._result_field("logz", None), default=np.nan)
+        logzerr = self._as_scalar_number(self._result_field("logzerr", None), default=np.nan)
+
+        payload = {
+            "method": "MultiNest",
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "nlive": int(nlive),
+            "niter": int(niter),
+            "ncall": int(ncall),
+            "eff_percent": float(eff) if np.isfinite(eff) else None,
+            "logz": float(logz) if np.isfinite(logz) else None,
+            "logzerr": float(logzerr) if np.isfinite(logzerr) else None,
+            "result_rows": int(self.df.shape[0]) if isinstance(self.df, pd.DataFrame) else 0,
+            "results_available": bool(results is not None),
+        }
+        return payload
+
+    def _write_multinest_summary_json(self, payload):
+        out_json = self.info.get("db", {}).get("summary")
+        if not out_json:
+            task_dir = self.info.get("sample", {}).get("task_result_dir", os.getcwd())
+            out_json = os.path.join(task_dir, "DATABASE", "multinest_summary.json")
+            self.info.setdefault("db", {})["summary"] = out_json
+        out_dir = os.path.dirname(out_json)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+        with open(out_json, "w", encoding="utf-8") as f1:
+            json.dump(payload, f1, indent=2)
+        self.logger.warning(f"MultiNest summary json saved -> {out_json}")
+
+    def _log_multinest_summary(self, payload):
+        eff_text = "nan" if payload.get("eff_percent") is None else "{:.8f}".format(payload["eff_percent"])
+        logz_text = "nan" if payload.get("logz") is None else "{:.8f}".format(payload["logz"])
+        err_text = "nan" if payload.get("logzerr") is None else "{:.8f}".format(payload["logzerr"])
+
+        table = PrettyTable()
+        table.field_names = ["Metric", "Value"]
+        table.align = "l"
+        table.add_row(["nlive", payload.get("nlive", 0)])
+        table.add_row(["niter", payload.get("niter", 0)])
+        table.add_row(["ncall", payload.get("ncall", 0)])
+        table.add_row(["eff(%)", eff_text])
+        table.add_row(["logz", logz_text])
+        table.add_row(["logzerr", err_text])
+
+        table_str = "\n".join(f"\t{line}" for line in table.get_string().splitlines())
+        self.logger.warning("MultiNest Summary ->\n{}".format(table_str))
+
+    def _build_logl_to_logx_interpolator(self):
+        self.lnX_from_LogLike = None
+        if self.df is None or self.df.shape[0] < 2:
+            return
+
+        x = np.asarray(self.df.get("log_Like", []), dtype=float)
+        y = np.asarray(self.df.get("log_PriorVolume", []), dtype=float)
+        finite = np.isfinite(x) & np.isfinite(y)
+        x = x[finite]
+        y = y[finite]
+        if x.size < 2:
+            self.logger.warning("MultiNest interpolation skipped -> insufficient finite points")
+            return
+
+        # Ensure monotonic x and collapse duplicate logL values to avoid
+        # divide-by-zero in scipy.interpolate on repeated knots.
+        order = np.argsort(x)
+        x = x[order]
+        y = y[order]
+        uniq_x, inv = np.unique(x, return_inverse=True)
+        if uniq_x.size < 2:
+            self.logger.warning("MultiNest interpolation skipped -> insufficient unique log_Like points")
+            return
+
+        agg_y = np.zeros(uniq_x.size, dtype=float)
+        cnt = np.zeros(uniq_x.size, dtype=int)
+        np.add.at(agg_y, inv, y)
+        np.add.at(cnt, inv, 1)
+        agg_y /= np.maximum(cnt, 1)
+
+        from scipy.interpolate import interp1d
+
+        self.lnX_from_LogLike = interp1d(
+            uniq_x,
+            agg_y,
+            kind="linear",
+            fill_value="extrapolate",
+            bounds_error=False,
+            assume_sorted=True,
+        )
+
+    def finalize(self):
+        if self.sampler is None or not hasattr(self.sampler, "results"):
+            self.logger.warning("MultiNest finalize skipped -> no sampler results available")
+            return
+        self.save_multinest_results_to_csv()
+        summary = self._build_multinest_summary_payload()
+        self._log_multinest_summary(summary)
+        self._write_multinest_summary_json(summary)
+
+    def _resolve_full_dataframe_path(self, fulldf):
+        candidates = []
+        if isinstance(fulldf, str) and fulldf:
+            candidates.append(fulldf)
+            root, ext = os.path.splitext(fulldf)
+            if ext.lower() == ".hdf5":
+                candidates.append(f"{root}.0.csv")
+                candidates.append(f"{root}.csv")
+
+        task_dir = self.info.get("sample", {}).get("task_result_dir")
+        if isinstance(task_dir, str) and task_dir:
+            db_dir = os.path.join(task_dir, "DATABASE")
+            db_info = os.path.join(db_dir, "running.json")
+            if os.path.exists(db_info):
+                try:
+                    with open(db_info, "r", encoding="utf-8") as f1:
+                        meta = json.load(f1)
+                    converted = meta.get("converted", [])
+                    if isinstance(converted, str):
+                        converted = [converted]
+                    if isinstance(converted, list):
+                        # Prefer latest converted csv first.
+                        candidates.extend(list(reversed([p for p in converted if isinstance(p, str) and p])))
+                    pathroot = meta.get("pathroot")
+                    active_no = meta.get("activeNO")
+                    if isinstance(pathroot, str) and isinstance(active_no, int):
+                        candidates.append(f"{pathroot}.{active_no}.csv")
+                except Exception:
+                    pass
+
+        seen = set()
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if os.path.exists(path):
+                return path
+        return None
+
+    def combine_data(self, fulldf):
+        if self.df is None:
+            return
+        full_df_path = self._resolve_full_dataframe_path(fulldf)
+        if not full_df_path:
+            self.logger.warning(
+                "MultiNest combine_data skipped -> no full sample table found (input={})".format(fulldf)
+            )
+            return
+        df_full = pd.read_csv(full_df_path)
+        merged_df = pd.merge(df_full, self.df, on="uuid", how="inner")
+        merged_path = os.path.join(self.info["sample"]["task_result_dir"], "DATABASE", "multinest_full.csv")
+        os.makedirs(os.path.dirname(merged_path), exist_ok=True)
+        merged_df.to_csv(merged_path, index=False)
+        if self.lnX_from_LogLike is not None and "LogL" in df_full.columns:
+            df_full["log_PriorVolume"] = self.lnX_from_LogLike(df_full["LogL"])

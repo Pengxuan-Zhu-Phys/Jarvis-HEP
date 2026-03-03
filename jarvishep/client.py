@@ -69,7 +69,7 @@ def _render_references_block(payload: dict, paper: dict) -> str:
 
     section_specs = [
         ("Jarvis-HEP", references.get("jarvis_hep")),
-        ("Samplers", references.get("builtin_scanners")),
+        ("Built-in Scanners", references.get("builtin_scanners")),
     ]
     rendered_sections = []
     for section_name, entries in section_specs:

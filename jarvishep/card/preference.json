@@ -4,6 +4,7 @@
         "BridsonSchema":    "&SRC/card/schema/Bridson_schema.json",
         "DiverSchema":      "&SRC/card/schema/Diver_schema.json",
         "DynestySchema":    "&SRC/card/schema/Dynesty_schema.json",
+        "MultiNestSchema":  "&SRC/card/schema/MultiNest_schema.json",
         "RandomSchema":     "&SRC/card/schema/Random_schema.json",
         "DNNSchema":        "&SRC/card/schema/DNN_schema.json",
         "MCMCSchema":       "&SRC/card/schema/MCMC_schema.json",

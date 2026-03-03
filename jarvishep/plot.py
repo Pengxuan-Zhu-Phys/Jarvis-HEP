@@ -77,7 +77,7 @@ class JarvisPLOT(Base):
             method = scan_yaml.config.get("Sampling", {}).get("Method", None)
         except Exception:
             method = None
-        include_dynesty = method == "Dynesty"
+        include_dynesty = method in {"Dynesty", "MultiNest"}
 
         out_yaml_path = self.info["plot"]["config"]
         out_yaml_dir = os.path.abspath(os.path.dirname(out_yaml_path))
@@ -92,7 +92,10 @@ class JarvisPLOT(Base):
             except Exception:
                 return path_str
 
-        dynesty_csv = os.path.join(self.info["sample"]["task_result_dir"], "DATABASE", "dynesty_result.csv")
+        if method == "MultiNest":
+            dynesty_csv = os.path.join(self.info["sample"]["task_result_dir"], "DATABASE", "multinest_result.csv")
+        else:
+            dynesty_csv = os.path.join(self.info["sample"]["task_result_dir"], "DATABASE", "dynesty_result.csv")
         has_dynesty_dataset = include_dynesty and os.path.exists(dynesty_csv)
 
         out_csv = None

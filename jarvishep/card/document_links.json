@@ -13,7 +13,7 @@
   "references": {
     "jarvis_hep": [
       {
-        "caption": "Jarvis-HEP core framework paper",
+        "caption": "Core Jarvis-HEP framework paper",
         "title": "Jarvis-HEP: Just a Robust and Versatile Interface Suite for HEP",
         "author": "Erdong Guo, Paul Jackson, Jin-Min Yang, Martin J. White, Pengxuan Zhu",
         "arxiv": "TODO",
@@ -28,6 +28,20 @@
       }
     ],
     "builtin_scanners": [
+      {
+        "caption": "MultiNest: multimodal nested sampling",
+        "title": "MULTINEST: an efficient and robust Bayesian inference tool for cosmology and particle physics",
+        "author": "F. Feroz, M. P. Hobson, M. Bridges",
+        "arxiv": "0809.3437",
+        "doi": "10.1111/j.1365-2966.2009.14548.x"
+      },
+      {
+        "caption": "Nested sampling: foundational evidence algorithm",
+        "title": "Nested Sampling for General Bayesian Computation",
+        "author": "John Skilling",
+        "arxiv": "N/A",
+        "doi": "10.1214/06-BA127"
+      },
       {
         "caption": "Dynamic: dynamic nested sampling",
         "title": "dynesty: A Dynamic Nested Sampling Package for Estimating Bayesian Posteriors and Evidences",

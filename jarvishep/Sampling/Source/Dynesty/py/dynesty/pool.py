@@ -7,8 +7,9 @@ with standard pool
 """
 
 import multiprocessing as mp
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-__all__ = ['Pool']
+__all__ = ['Pool', 'JarvisFactoryAsyncPool']
 
 
 class FunctionCache:
@@ -162,3 +163,49 @@ class Pool:
 
     def join(self):
         self.pool.join()
+
+
+class JarvisFactoryAsyncPool:
+    """Thread-backed map pool for Jarvis-HEP dynesty integration."""
+
+    def __init__(self, njobs):
+        self.njobs = max(1, int(njobs))
+        self._executor = ThreadPoolExecutor(max_workers=self.njobs)
+
+    @property
+    def size(self):
+        return self.njobs
+
+    def map(self, func, iterable):
+        items = list(iterable)
+        if not items:
+            return []
+
+        results = [None] * len(items)
+        pending = {}
+        idx = 0
+        total = len(items)
+
+        while idx < total or pending:
+            while idx < total and len(pending) < self.njobs:
+                future = self._executor.submit(func, items[idx])
+                pending[future] = idx
+                idx += 1
+
+            done, _ = wait(set(pending.keys()), return_when=FIRST_COMPLETED)
+            for future in done:
+                i = pending.pop(future)
+                results[i] = future.result()
+
+        return results
+
+    def shutdown(self, wait_for_tasks=True, cancel_futures=True):
+        if self._executor is not None:
+            self._executor.shutdown(wait=wait_for_tasks, cancel_futures=cancel_futures)
+            self._executor = None
+
+    def close(self):
+        self.shutdown(wait_for_tasks=True, cancel_futures=False)
+
+    def join(self):
+        return None

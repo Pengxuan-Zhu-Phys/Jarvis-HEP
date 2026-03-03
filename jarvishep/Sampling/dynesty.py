@@ -1,38 +1,59 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 
-from lib2to3.pgen2.token import RPAR
-import os, sys
+import os
+import threading
+from copy import deepcopy
+from uuid import uuid4
+
 import numpy as np
+import pandas as pd
+
+from jarvishep.Sampling.Source.Dynesty.py.dynesty.pool import JarvisFactoryAsyncPool
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
-from copy import deepcopy
-from concurrent.futures import ThreadPoolExecutor
-from uuid import uuid4
-import pandas as pd 
 
 def prior_transform(u):
     uuid = str(uuid4())
     ret = np.append(u, [uuid])
     return ret
+
+
+DynestyFactoryPool = JarvisFactoryAsyncPool
+
+
 class Dynesty(SamplingVirtial):
     def __init__(self) -> None:
         super().__init__()
         self.load_schema_file()
         self.method = "Dynesty"
         self.sampler = None
-        self.max_workers = os.cpu_count()
-        # self.max_workers = 2
+        self.max_workers = os.cpu_count() or 1
+        self._dynesty_pool = None
+        self._dynesty_workers = 1
+        self._factory_submit_limit = 1
+        self._submit_gate = threading.BoundedSemaphore(value=1)
+        self._execution_profile = {}
 
     def load_schema_file(self):
         self.schema = self.path['DynestySchema']
 
     def set_config(self, config_info) -> None:
         self.config = config_info
+        self.set_bucket_alloc()
         self.init_generator()
 
     def set_factory(self, factory) -> None:
         self.factory = factory
         self.logger.warning("WorkerFactory is ready for Dynesty sampler")
+
+    def set_execution_profile(self, dynesty_workers=None, max_pending_factory=None):
+        """Optional runtime override for dynesty/factory coordination."""
+        profile = {}
+        if dynesty_workers is not None:
+            profile["dynesty_workers"] = int(dynesty_workers)
+        if max_pending_factory is not None:
+            profile["max_pending_factory"] = int(max_pending_factory)
+        self._execution_profile = profile
 
     def __next__(self):
         # for dynesty sampling method, next() method is only for testing the assembing line, not the real sampling method
@@ -67,17 +88,100 @@ class Dynesty(SamplingVirtial):
             "nested result":    os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_result.csv")
         }
 
+    def _shutdown_dynesty_pool(self):
+        if self._dynesty_pool is not None:
+            self._dynesty_pool.shutdown(wait_for_tasks=True, cancel_futures=True)
+            self._dynesty_pool = None
+
+    def _ensure_bucket_allocator(self):
+        if getattr(self, "bucket_alloc", None) is not None:
+            return
+
+        sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+        base_path = sample_cfg.get("sample_dirs")
+        if not base_path:
+            task_root = sample_cfg.get("task_result_dir", os.getcwd())
+            base_path = os.path.join(task_root, "SAMPLE")
+            sample_cfg["sample_dirs"] = base_path
+
+        limit = 200
+        width = 6
+        cfg = getattr(self, "config", None)
+        if isinstance(cfg, dict):
+            directory_cfg = cfg.get("Directory_Setting", None)
+            if isinstance(directory_cfg, dict):
+                limit = int(directory_cfg.get("limit", limit))
+                width = int(directory_cfg.get("width", width))
+
+        from jarvishep.Sampling.bucketallocator import BucketAllocator
+
+        self.bucket_alloc = BucketAllocator(
+            base_path=base_path,
+            limit=limit,
+            width=width,
+            start_bucket=1,
+        )
+        self.bucket_alloc.check_and_update()
+
+    def _resolve_execution_profile(self):
+        factory_workers = int(getattr(self.factory, "_max_workers", self.max_workers) or self.max_workers or 1)
+        nlive = int(getattr(self, "_nlive", 1) or 1)
+        base_workers = int(self.max_workers or 1)
+
+        requested_dynesty_workers = int(self._execution_profile.get("dynesty_workers", base_workers))
+        dynesty_workers = max(1, min(requested_dynesty_workers, base_workers, factory_workers, nlive))
+
+        requested_pending = int(self._execution_profile.get("max_pending_factory", dynesty_workers))
+        max_pending_factory = max(1, min(requested_pending, factory_workers))
+
+        self._dynesty_workers = dynesty_workers
+        self._factory_submit_limit = max_pending_factory
+        self._submit_gate = threading.BoundedSemaphore(value=max_pending_factory)
+
+        if self._dynesty_pool is None or self._dynesty_pool.size != dynesty_workers:
+            self._shutdown_dynesty_pool()
+            self._dynesty_pool = DynestyFactoryPool(dynesty_workers)
+
+        self.logger.warning(
+            "Dynesty execution profile -> dynesty_workers={} | factory_submit_limit={} | factory_workers={} | nlive={}".format(
+                dynesty_workers,
+                max_pending_factory,
+                factory_workers,
+                nlive,
+            )
+        )
+
+    def _submit_with_backpressure(self, sample):
+        if not self._submit_gate.acquire(blocking=False):
+            self.logger.info(
+                "Dynesty factory submit window full -> wait -> limit={} | uuid={}".format(
+                    self._factory_submit_limit,
+                    sample.uuid,
+                )
+            )
+            self._submit_gate.acquire()
+        try:
+            future = self.factory.submit_task(sample.info)
+            return future.result()
+        finally:
+            self._submit_gate.release()
+
     def run_nested(self):
+        self._ensure_bucket_allocator()
+        self._resolve_execution_profile()
+        base_sample_cfg = deepcopy(self.info['sample'])
+
         def log_likelihood(params):
             param = params[0:-1].astype(np.float64, copy=False)
             uuid = params[-1]
             pars = self.map_point_into_distribution(param)
             sample = Sample(pars)
             sample.update_uuid(uuid)
-            sample.set_config(deepcopy(self.info['sample']))
-            future = self.factory.submit_task(sample.info)
+            sample_cfg = deepcopy(base_sample_cfg)
+            sample_cfg['save_dir'] = self.bucket_alloc.next_bucket_dir()
+            sample.set_config(sample_cfg)
             try:
-                return future.result()
+                return self._submit_with_backpressure(sample)
             except Exception as exc:
                 self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
                 raise
@@ -87,22 +191,21 @@ class Dynesty(SamplingVirtial):
         
         self.init_sampler_db()
 
-        # from dynesty import DynamicNestedSampler
         from jarvishep.Sampling.Source.Dynesty.py.dynesty import DynamicNestedSampler
-        # with ThreadPoolExecutor(max_workers=2) as executor:
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+        try:
             self.sampler = DynamicNestedSampler(
                 loglikelihood=log_likelihood, 
                 prior_transform=prior_transform,
                 ndim=self._dimensions,
                 nlive=self._nlive,
-                pool=executor, 
+                pool=self._dynesty_pool,
                 rstate=self._rstate,
-                queue_size=3*self.max_workers,
+                queue_size=self._dynesty_workers,
                 log_file_path=self.info['logfile']
             )
             self.sampler.run_nested(**self._runnested)
-                # dlogz_init = self._dlogz,
+        finally:
+            self._shutdown_dynesty_pool()
 
     def finalize(self):
         self.save_dynesty_results_to_csv()

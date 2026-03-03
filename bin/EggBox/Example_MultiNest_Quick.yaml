@@ -1,0 +1,98 @@
+Scan:
+  name: "EggBox_MultiNest_Quick"
+  save_dir: "&J/Results"
+
+Sampling:
+  Method: "MultiNest"
+  Variables:
+    - name: x
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+
+    - name: y
+      description: "Variable Y following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+  Bounds:
+    nlive: 48
+    rseed: 21
+    run_nested:
+      maxcall: 120
+      print_progress: False
+
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "(2 + z)**5"}
+
+EnvReqs:
+  OS:
+    - name: linux
+      version: ">=5.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path: "&SRC/card/environment_default.yaml"
+
+LibDeps:
+  path: "&J/External/Library"
+  make_paraller: 4
+  Modules:
+    - name: "Delphes"
+      required_modules: []
+      installed: False
+      installation:
+        path: "&J/External/Library/Delphes"
+        source: "&J/External/Library/Source/Delphes-3.5.0.tar.gz"
+        commands:
+          - "cd ${LibDeps:path}"
+          - "rm -rf Delphes*"
+          - "cp ${source} ./"
+          - "tar -xzf Delphes-3.5.0.tar.gz"
+          - "mv ./Delphes-3.5.0 ${path}"
+          - "cd ${path}"
+          - "source @{ROOT path}/bin/thisroot.sh"
+          - "./configure"
+          - "make -j${LibDeps:make_paraller}"
+
+Calculators:
+  make_paraller: 4
+  path: "&J/WorkShop/Program"
+  Modules:
+    - name: EggBox
+      required_modules: []
+      clone_shadow: True
+      path: &eggbox_path "&J/WorkShop/Program/EggBox/@PackID"
+      source: "&J/External/Inertial/EggBox"
+      installation:
+        - "cp -r ${source}/* ${path}"
+      initialization:
+        - "cp -r ${source}/input.json ${path}/input.json"
+        - "rm -f output.json"
+      execution:
+        path: *eggbox_path
+        commands:
+          - "./eggbox.py"
+        input:
+          - name: inpjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/input.json"
+            type: "Json"
+            actions:
+              - type: "Dump"
+                variables:
+                  - {name: "xx", expression: "x * Pi"}
+                  - {name: "yy", expression: "y * Pi"}
+            save: True
+        output:
+          - name: oupjson
+            path: "&J/WorkShop/Program/EggBox/@PackID/output.json"
+            type: "Json"
+            save: True
+            variables:
+              - {name: z}

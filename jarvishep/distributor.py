@@ -14,6 +14,9 @@ class Distributor(Base):
             case "Dynesty":
                 from jarvishep.Sampling.dynesty import Dynesty 
                 return Dynesty()
+            case "MultiNest":
+                from jarvishep.Sampling.multinest import MultiNest
+                return MultiNest()
             case "Grid":
                 from jarvishep.Sampling.grid import Grid
                 return Grid()
@@ -33,7 +36,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "Diver"]
+                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         
