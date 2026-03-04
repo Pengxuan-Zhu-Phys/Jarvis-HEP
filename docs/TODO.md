@@ -34,6 +34,7 @@ Previous release tracks:
 - [ACTIVE] Prioritize all sampler P0 items before performance-only optimizations.
 - [ACTIVE] Keep release discipline: behavior fix + tests + docs in the same cycle.
 - [STATUS] v1.6.5 sampler hardening P0/P1 items are complete (as of 2026-03-03); details and closure notes are tracked in `docs/releases/v1.6.5_SAMPLER_HARDENING_TASKLIST.md`.
+- [ACTIVE] SAMPLE archive-pressure mitigation tracked in `docs/MAINTENANCE_CONTEXT.md` section 12 (background process, non-blocking, YAML `Directory_Setting.archive_samples` default on); detailed draft also in `docs/releases/v1.6.5_SAMPLE_ARCHIVE_BLUEPRINT.md`.
 
 ## A2. Planned Focus (Next Cycle: v1.7.0 Concurrency Simplification)
 

@@ -160,10 +160,16 @@ class Core(Base):
         self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{sampling_method}.log")
         self.info['factory_log'] = os.path.join(task_result_dir, "LOG", "Factory.log")
 
+        directory_cfg = config.get("Directory_Setting", {})
+        if not isinstance(directory_cfg, dict):
+            directory_cfg = {}
+        archive_samples = bool(directory_cfg.get("archive_samples", True))
+
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
             "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
-            "jarvis_log":  self.info['jarvis_log']
+            "jarvis_log":  self.info['jarvis_log'],
+            "archive_samples": archive_samples,
         }
         self.info["db"] = {
             "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),

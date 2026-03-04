@@ -214,6 +214,7 @@ Sampling and likelihood:
 - Remaining follow-up:
   - deeper DNN torch-chain regression coverage beyond smoke tests.
   - broader concurrency simplification in v1.7.0 blueprint track.
+  - SAMPLE directory archive/compression pipeline (non-blocking background process + YAML switch) tracked in `docs/releases/v1.6.5_SAMPLE_ARCHIVE_BLUEPRINT.md`.
 - Residual P1 breakdown:
   - closure record for previously unresolved v1.6.5 P1 items is tracked in `docs/releases/v1.6.5_REMAINING_P1_BREAKDOWN.md`.
 - Tracking source:
@@ -233,3 +234,28 @@ Sampling and likelihood:
   - `python -m unittest discover -s tests -p 'test_*.py'`
   - `python -m build`
   - `Jarvis --help`
+
+## 12. SAMPLE Archive Compression Plan
+
+Objective:
+
+- Reduce file/inode pressure caused by huge `SAMPLE` bucket directories while keeping sampling throughput stable.
+
+Execution model:
+
+- Archive must run in a background independent process (not in Factory/sampler hot path).
+- Main process behavior is enqueue-only and non-blocking.
+- Archive target remains bucket-level (`SAMPLE/000001 -> SAMPLE_ARCHIVE/000001.tar.gz`), active bucket excluded.
+
+YAML control key (top-level `Directory_Setting`):
+
+- `archive_samples` (bool, default `true`)
+  - `true`: enable archive dispatch.
+  - `false`: disable archive dispatch.
+
+Implementation notes:
+
+- `ConfigLoader` now normalizes `Directory_Setting.archive_samples` default to `true`.
+- `Core` runtime sample context now carries `sample.archive_samples` for downstream archive scheduler use.
+- Archive format default: `tar.gz` for cross-machine compatibility.
+- Safety path: temp archive write -> verify -> atomic rename -> optional prune.

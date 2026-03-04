@@ -155,18 +155,38 @@ class MultiNest(SamplingVirtial):
             self._shutdown_multinest_pool()
             self._multinest_pool = MultiNestFactoryPool(multinest_workers)
 
-        self.logger.warning(
-            "MultiNest execution profile ->\n"
-            "\tmultinest_workers    -> {}\n"
-            "\tfactory_submit_limit -> {}\n"
-            "\tfactory_workers      -> {}\n"
-            "\tnlive                -> {}".format(
-                multinest_workers,
-                max_pending_factory,
-                factory_workers,
-                nlive,
-            )
+        self._log_execution_profile(
+            multinest_workers=multinest_workers,
+            max_pending_factory=max_pending_factory,
+            factory_workers=factory_workers,
+            nlive=nlive,
         )
+
+    @staticmethod
+    def _format_worker_summary(rows):
+        metric_header = "Metric"
+        value_header = "Value"
+        metric_width = max([len(metric_header)] + [len(str(k)) for k, _ in rows])
+        value_width = max([len(value_header)] + [len(str(v)) for _, v in rows])
+
+        lines = [
+            f"{metric_header:<{metric_width}}\t{value_header:<{value_width}}",
+            f"{'-' * metric_width}\t{'-' * value_width}",
+        ]
+        for metric, value in rows:
+            lines.append(f"{str(metric):<{metric_width}}\t{str(value):<{value_width}}")
+        return "\n\t" + "\n\t".join(lines)
+
+    def _log_execution_profile(self, multinest_workers, max_pending_factory, factory_workers, nlive):
+        table = self._format_worker_summary(
+            [
+                ("multinest_workers", multinest_workers),
+                ("factory_submit_limit", max_pending_factory),
+                ("factory_workers", factory_workers),
+                ("nlive", nlive),
+            ]
+        )
+        self.logger.warning(f"MultiNest Worker Summary ->{table}")
 
     def _submit_with_backpressure(self, sample):
         if not self._submit_gate.acquire(blocking=False):

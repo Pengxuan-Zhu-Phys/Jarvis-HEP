@@ -49,6 +49,10 @@ class ConfigLoader(Base):
 
         Current schemas require a Calculators section. We inject an empty default
         so Operas-only tasks remain schema-compatible.
+
+        Directory settings defaults:
+        - archive_samples: bool, default True
+          Controls whether SAMPLE bucket archive compression is enabled.
         """
         if not isinstance(self.config, dict):
             return
@@ -59,6 +63,13 @@ class ConfigLoader(Base):
             }
         if "Operas" not in self.config:
             self.config["Operas"] = {}
+
+        directory_cfg = self.config.get("Directory_Setting")
+        if not isinstance(directory_cfg, dict):
+            directory_cfg = {}
+        if "archive_samples" not in directory_cfg:
+            directory_cfg["archive_samples"] = True
+        self.config["Directory_Setting"] = directory_cfg
 
     def check_dependency_installed(self) -> None:
         dependencies = self.config["EnvReqs"]

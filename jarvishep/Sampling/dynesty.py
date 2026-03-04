@@ -141,14 +141,39 @@ class Dynesty(SamplingVirtial):
             self._shutdown_dynesty_pool()
             self._dynesty_pool = DynestyFactoryPool(dynesty_workers)
 
-        self.logger.warning(
-            "Dynesty execution profile -> dynesty_workers={} | factory_submit_limit={} | factory_workers={} | nlive={}".format(
-                dynesty_workers,
-                max_pending_factory,
-                factory_workers,
-                nlive,
-            )
+        self._log_execution_profile(
+            dynesty_workers=dynesty_workers,
+            max_pending_factory=max_pending_factory,
+            factory_workers=factory_workers,
+            nlive=nlive,
         )
+
+    @staticmethod
+    def _format_worker_summary(rows):
+        metric_header = "Metric"
+        value_header = "Value"
+        metric_width = max([len(metric_header)] + [len(str(k)) for k, _ in rows])
+        value_width = max([len(value_header)] + [len(str(v)) for _, v in rows])
+
+        lines = [
+            f"{metric_header:<{metric_width}}\t{value_header:<{value_width}}",
+            f"{'-' * metric_width}\t{'-' * value_width}",
+        ]
+        for metric, value in rows:
+            lines.append(f"{str(metric):<{metric_width}}\t{str(value):<{value_width}}")
+
+        return "\n\t" + "\n\t".join(lines)
+
+    def _log_execution_profile(self, dynesty_workers, max_pending_factory, factory_workers, nlive):
+        table = self._format_worker_summary(
+            [
+                ("dynesty_workers", dynesty_workers),
+                ("factory_submit_limit", max_pending_factory),
+                ("factory_workers", factory_workers),
+                ("nlive", nlive),
+            ]
+        )
+        self.logger.warning(f"Dynesty Worker Summary ->{table}")
 
     def _submit_with_backpressure(self, sample):
         if not self._submit_gate.acquire(blocking=False):
@@ -212,6 +237,57 @@ class Dynesty(SamplingVirtial):
         self.save_dynesty_results_to_csv()
         # self.plot_dynesty_results()
 
+    def _build_logl_to_logvol_interpolator(self):
+        from scipy.interpolate import interp1d
+
+        results = self.sampler.results
+        try:
+            x_raw = results["logl"]
+        except Exception:
+            x_raw = getattr(results, "logl", [])
+        try:
+            y_raw = results["logvol"]
+        except Exception:
+            y_raw = getattr(results, "logvol", [])
+
+        x = np.asarray(x_raw, dtype=float)
+        y = np.asarray(y_raw, dtype=float)
+        finite = np.isfinite(x) & np.isfinite(y)
+        x = x[finite]
+        y = y[finite]
+        if x.size < 2:
+            self.logger.warning("Dynesty logl/logvol interpolation disabled -> insufficient finite points")
+            return None
+
+        order = np.argsort(x, kind="mergesort")
+        x_sorted = x[order]
+        y_sorted = y[order]
+
+        unique_x = []
+        unique_y = []
+        for xv, yv in zip(x_sorted, y_sorted):
+            if unique_x and xv == unique_x[-1]:
+                unique_y[-1] = yv
+            else:
+                unique_x.append(xv)
+                unique_y.append(yv)
+
+        x_unique = np.asarray(unique_x, dtype=float)
+        y_unique = np.asarray(unique_y, dtype=float)
+        if x_unique.size < 2:
+            self.logger.warning("Dynesty logl/logvol interpolation disabled -> no unique logl points")
+            return None
+
+        kind = "cubic" if x_unique.size >= 4 else "linear"
+        return interp1d(
+            x_unique,
+            y_unique,
+            kind=kind,
+            bounds_error=False,
+            fill_value="extrapolate",
+            assume_sorted=True,
+        )
+
     def save_dynesty_results_to_csv(self):
         data = {
             "uuid":             self.sampler.results['samples_uid'],
@@ -235,9 +311,10 @@ class Dynesty(SamplingVirtial):
         self.df = pd.DataFrame(data)
         self.df.to_csv(self.info['db']['nested result'], index=False)
         self.logger.warning(f"Results saved to {self.info['db']['nested result']}")
-        self.logger.warning(f"Dynesty summary{self.sampler.results.summary()}")
-        from scipy.interpolate import interp1d
-        self.lnX_from_LogLike = interp1d(self.sampler.results['logl'], self.sampler.results['logvol'], kind='cubic')
+        summary_text = self.sampler.results.summary()
+        if summary_text:
+            self.logger.warning(f"Dynesty summary -> {summary_text}")
+        self.lnX_from_LogLike = self._build_logl_to_logvol_interpolator()
 
 
 
@@ -389,4 +466,7 @@ class Dynesty(SamplingVirtial):
         df_full = pd.read_csv(fulldf)
         merged_df = pd.merge(df_full, self.df, on="uuid", how='inner')
         merged_df.to_csv(os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_full.csv"))
-        df_full['log_PriorVolume'] = self.lnX_from_LogLike(df_full['LogL'])
+        if self.lnX_from_LogLike is not None:
+            df_full['log_PriorVolume'] = self.lnX_from_LogLike(df_full['LogL'])
+        else:
+            df_full['log_PriorVolume'] = np.nan

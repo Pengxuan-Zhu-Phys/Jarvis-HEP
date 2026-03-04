@@ -59,6 +59,7 @@ Purpose: keep implementation memory compact between maintenance turns.
   1. add deeper DNN torch-chain regression test path (beyond lightweight smoke)
   2. keep tracking CLI banner assertion drift separately from sampler hardening
   3. v1.6.5 P1 closure record (nested executor de-nesting + Grid endpoint guard) is tracked in `docs/releases/v1.6.5_REMAINING_P1_BREAKDOWN.md`
+  4. SAMPLE archive-pressure mitigation blueprint is tracked in `docs/releases/v1.6.5_SAMPLE_ARCHIVE_BLUEPRINT.md` (non-blocking background process + `Directory_Setting.archive_samples`)
 
 - Hot files likely touched first:
   - `jarvishep/factory.py`
