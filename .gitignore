@@ -13,6 +13,7 @@ trash/
 # Legacy runtime paths (pre-PyPI layout)
 Jarvis
 src/
+docs/
 
 src/__pycache__/
 src/IOs/__pycache__/
