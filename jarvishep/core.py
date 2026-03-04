@@ -160,9 +160,16 @@ class Core(Base):
         self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{sampling_method}.log")
         self.info['factory_log'] = os.path.join(task_result_dir, "LOG", "Factory.log")
 
-        directory_cfg = config.get("Directory_Setting", {})
-        if not isinstance(directory_cfg, dict):
-            directory_cfg = {}
+        directory_cfg = {}
+        scan_cfg = config.get("Scan", {})
+        if isinstance(scan_cfg, dict):
+            scan_dir_cfg = scan_cfg.get("sample_directory", {})
+            if isinstance(scan_dir_cfg, dict):
+                directory_cfg.update(scan_dir_cfg)
+        if not directory_cfg:
+            legacy_cfg = config.get("Directory_Setting", {})
+            if isinstance(legacy_cfg, dict):
+                directory_cfg.update(legacy_cfg)
         archive_samples = bool(directory_cfg.get("archive_samples", True))
 
         self.info['sample'] = {
@@ -630,9 +637,11 @@ class Core(Base):
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             self.sampler.finalize()
             self.sampler.combine_data(self.info['db']['path'])
-            
-
             self.factory.shutdown()
+            try:
+                self.sampler.finalize_sample_archive()
+            except Exception as exc:
+                self.logger.error(f"Sample archive finalize failed -> {exc}")
             # self.monitor.stop()
 
     def check_init_args(self) -> None:

@@ -1,6 +1,10 @@
 Scan: 
   name: "EggBox_Dynesty_Operas_02"
   save_dir: "&J/Results"
+  sample_directory:
+    limit: 200
+    width: 6
+    archive_samples: true
 
 Sampling:
   Method: "Dynesty" 

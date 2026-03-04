@@ -51,8 +51,11 @@ class ConfigLoader(Base):
         so Operas-only tasks remain schema-compatible.
 
         Directory settings defaults:
-        - archive_samples: bool, default True
-          Controls whether SAMPLE bucket archive compression is enabled.
+        - New preferred location: Scan.sample_directory
+        - Legacy compatible location: Directory_Setting
+        - Keys:
+          - archive_samples: bool, default True
+          - archive_prune: bool, default False
         """
         if not isinstance(self.config, dict):
             return
@@ -64,12 +67,32 @@ class ConfigLoader(Base):
         if "Operas" not in self.config:
             self.config["Operas"] = {}
 
-        directory_cfg = self.config.get("Directory_Setting")
-        if not isinstance(directory_cfg, dict):
-            directory_cfg = {}
-        if "archive_samples" not in directory_cfg:
-            directory_cfg["archive_samples"] = True
-        self.config["Directory_Setting"] = directory_cfg
+        defaults = {
+            "limit": 200,
+            "width": 6,
+            "archive_samples": True,
+            "archive_prune": False,
+        }
+
+        legacy_cfg = self.config.get("Directory_Setting")
+        if not isinstance(legacy_cfg, dict):
+            legacy_cfg = {}
+
+        scan_cfg = self.config.get("Scan")
+        if not isinstance(scan_cfg, dict):
+            scan_cfg = {}
+        scan_dir_cfg = scan_cfg.get("sample_directory")
+        if not isinstance(scan_dir_cfg, dict):
+            scan_dir_cfg = {}
+
+        merged = dict(defaults)
+        merged.update(legacy_cfg)
+        merged.update(scan_dir_cfg)
+
+        scan_cfg["sample_directory"] = merged
+        self.config["Scan"] = scan_cfg
+        # Keep legacy key populated for backward compatibility with older paths.
+        self.config["Directory_Setting"] = dict(merged)
 
     def check_dependency_installed(self) -> None:
         dependencies = self.config["EnvReqs"]

@@ -63,6 +63,28 @@
                 },
                 "save_dir": {
                     "type": "string"
+                },
+                "sample_directory": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "width": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "archive_samples": {
+                            "type": "boolean",
+                            "default": true
+                        },
+                        "archive_prune": {
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "required": [

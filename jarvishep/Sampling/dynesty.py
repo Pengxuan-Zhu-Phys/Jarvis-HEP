@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import threading
 from uuid import uuid4
@@ -107,7 +108,12 @@ class Dynesty(SamplingVirtial):
         width = 6
         cfg = getattr(self, "config", None)
         if isinstance(cfg, dict):
-            directory_cfg = cfg.get("Directory_Setting", None)
+            scan_cfg = cfg.get("Scan", {})
+            directory_cfg = None
+            if isinstance(scan_cfg, dict):
+                directory_cfg = scan_cfg.get("sample_directory", None)
+            if not isinstance(directory_cfg, dict):
+                directory_cfg = cfg.get("Directory_Setting", None)
             if isinstance(directory_cfg, dict):
                 limit = int(directory_cfg.get("limit", limit))
                 width = int(directory_cfg.get("width", width))
@@ -119,8 +125,11 @@ class Dynesty(SamplingVirtial):
             limit=limit,
             width=width,
             start_bucket=1,
+            on_bucket_sealed=self._on_bucket_sealed if self._archive_enabled() else None,
         )
         self.bucket_alloc.check_and_update()
+        if self._archive_enabled():
+            self._ensure_archive_manager()
 
     def _resolve_execution_profile(self):
         factory_workers = int(getattr(self.factory, "_max_workers", self.max_workers) or self.max_workers or 1)
@@ -462,11 +471,60 @@ class Dynesty(SamplingVirtial):
         plt.savefig(savepath, dpi=300)
 
 
+    def _resolve_full_dataframe_path(self, fulldf):
+        candidates = []
+        if isinstance(fulldf, str) and fulldf:
+            candidates.append(fulldf)
+            root, ext = os.path.splitext(fulldf)
+            if ext.lower() == ".hdf5":
+                candidates.append(f"{root}.0.csv")
+                candidates.append(f"{root}.csv")
+
+        task_dir = self.info.get("sample", {}).get("task_result_dir")
+        if isinstance(task_dir, str) and task_dir:
+            db_dir = os.path.join(task_dir, "DATABASE")
+            db_info = os.path.join(db_dir, "running.json")
+            if os.path.exists(db_info):
+                try:
+                    with open(db_info, "r", encoding="utf-8") as f1:
+                        meta = json.load(f1)
+                    converted = meta.get("converted", [])
+                    if isinstance(converted, str):
+                        converted = [converted]
+                    if isinstance(converted, list):
+                        # Prefer latest converted csv first.
+                        candidates.extend(list(reversed([p for p in converted if isinstance(p, str) and p])))
+                    pathroot = meta.get("pathroot")
+                    active_no = meta.get("activeNO")
+                    if isinstance(pathroot, str) and isinstance(active_no, int):
+                        candidates.append(f"{pathroot}.{active_no}.csv")
+                except Exception:
+                    pass
+
+        seen = set()
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if os.path.exists(path):
+                return path
+        return None
+
     def combine_data(self, fulldf):
-        df_full = pd.read_csv(fulldf)
+        if self.df is None:
+            return
+        full_df_path = self._resolve_full_dataframe_path(fulldf)
+        if not full_df_path:
+            self.logger.warning(
+                "Dynesty combine_data skipped -> no full sample table found (input={})".format(fulldf)
+            )
+            return
+        df_full = pd.read_csv(full_df_path)
         merged_df = pd.merge(df_full, self.df, on="uuid", how='inner')
-        merged_df.to_csv(os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_full.csv"))
-        if self.lnX_from_LogLike is not None:
+        merged_path = os.path.join(self.info['sample']['task_result_dir'], "DATABASE", "dynesty_full.csv")
+        os.makedirs(os.path.dirname(merged_path), exist_ok=True)
+        merged_df.to_csv(merged_path, index=False)
+        if self.lnX_from_LogLike is not None and "LogL" in df_full.columns:
             df_full['log_PriorVolume'] = self.lnX_from_LogLike(df_full['LogL'])
         else:
             df_full['log_PriorVolume'] = np.nan

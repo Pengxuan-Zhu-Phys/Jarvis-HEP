@@ -1,22 +1,33 @@
 #!/usr/bin/env python3
 import os
 import threading
+from typing import Callable
 
 class BucketAllocator:
-    def __init__(self, base_path: str, limit: int = 200, width: int = 6, start_bucket: int = 1):
+    def __init__(
+        self,
+        base_path: str,
+        limit: int = 200,
+        width: int = 6,
+        start_bucket: int = 1,
+        on_bucket_sealed: Callable[[str], None] | None = None,
+    ):
         self.base_path = base_path
         self.limit = int(limit)
         self.width = int(width)
         self.bucket = int(start_bucket)
         self.count = 0
         self._lock = threading.Lock()
+        self._on_bucket_sealed = on_bucket_sealed
 
         os.makedirs(self.base_path, exist_ok=True)
 
     def next_bucket_dir(self) -> str:
         """Return bucket dir like <base_path>/000001, thread-safe."""
+        sealed_bucket_id = None
         with self._lock:
             if self.count >= self.limit:
+                sealed_bucket_id = self.bucket
                 self.bucket += 1
                 self.count = 0
             self.count += 1
@@ -24,7 +35,21 @@ class BucketAllocator:
 
         bucket_dir = os.path.join(self.base_path, f"{bucket_id:0{self.width}d}")
         os.makedirs(bucket_dir, exist_ok=True)
+
+        if sealed_bucket_id is not None and self._on_bucket_sealed is not None:
+            sealed_dir = os.path.join(self.base_path, f"{sealed_bucket_id:0{self.width}d}")
+            try:
+                self._on_bucket_sealed(sealed_dir)
+            except Exception:
+                # Do not affect sampling hot path when archive callback fails.
+                pass
+
         return bucket_dir
+
+    def current_bucket_dir(self) -> str:
+        with self._lock:
+            bucket_id = self.bucket
+        return os.path.join(self.base_path, f"{bucket_id:0{self.width}d}")
 
     def get_state(self) -> dict:
         with self._lock:

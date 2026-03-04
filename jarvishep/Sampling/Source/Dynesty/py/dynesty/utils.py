@@ -873,8 +873,7 @@ Return the list of items in the results object as list of key,value pairs
                                                       self['eff'],
                                                       self['logz'][-1],
                                                       self['logzerr'][-1]))
-
-        print('Summary\n=======\n' + res)
+        return res
 
 
 Results.__doc__ += '\n\n' + str('\n'.join(

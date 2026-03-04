@@ -28,6 +28,7 @@ class SamplingVirtial(Base):
         self.nuisance_sampler           = None 
         self._with_nuisance             = False 
         self.bucket_alloc               = None 
+        self.sample_archive_manager     = None
         self.total_core                 = os.cpu_count()
         
     def load_nuisance_sampler(self): 
@@ -60,8 +61,13 @@ class SamplingVirtial(Base):
     def set_bucket_alloc(self) -> None: 
         limit = 200 
         width = 6 
-        ba_config = self.config.get("Directory_Setting", None)
-        if ba_config is not None: 
+        ba_config = None
+        scan_cfg = self.config.get("Scan", {}) if isinstance(self.config, dict) else {}
+        if isinstance(scan_cfg, dict):
+            ba_config = scan_cfg.get("sample_directory", None)
+        if not isinstance(ba_config, dict):
+            ba_config = self.config.get("Directory_Setting", None)
+        if isinstance(ba_config, dict):
             limit = ba_config.get("limit", 200)
             width = ba_config.get("width", 6)
 
@@ -71,8 +77,11 @@ class SamplingVirtial(Base):
             limit=limit,
             width=width,
             start_bucket=1,
+            on_bucket_sealed=self._on_bucket_sealed if self._archive_enabled() else None,
         )
         self.bucket_alloc.check_and_update()
+        if self._archive_enabled():
+            self._ensure_archive_manager()
         
         
     @abstractmethod
@@ -175,3 +184,50 @@ class SamplingVirtial(Base):
         if isinstance(nuisance, dict):
             cfg["nuisance"] = deepcopy(nuisance)
         return cfg
+
+    def _archive_enabled(self) -> bool:
+        sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+        if "archive_samples" not in sample_cfg:
+            # Keep backward compatibility for legacy/manual test setups that
+            # do not carry the normalized runtime flag from Core.
+            return False
+        return bool(sample_cfg.get("archive_samples"))
+
+    def _ensure_archive_manager(self):
+        if not self._archive_enabled():
+            return None
+        if self.sample_archive_manager is None:
+            from jarvishep.Sampling.sample_archive import SampleArchiveManager
+
+            self.sample_archive_manager = SampleArchiveManager(
+                sample_root=self.info["sample"]["sample_dirs"],
+                logger=self.logger,
+                enabled=True,
+            )
+            self.sample_archive_manager.start()
+        return self.sample_archive_manager
+
+    def _on_bucket_sealed(self, bucket_dir: str):
+        manager = self._ensure_archive_manager()
+        if manager is None:
+            return
+        manager.enqueue_bucket_dir(bucket_dir, blocking=True, timeout=30.0)
+
+    def finalize_sample_archive(self):
+        if not self._archive_enabled():
+            return
+        manager = self._ensure_archive_manager()
+        if manager is None:
+            return
+        if self.bucket_alloc is not None:
+            try:
+                manager.enqueue_bucket_dir(
+                    self.bucket_alloc.current_bucket_dir(),
+                    blocking=True,
+                    timeout=30.0,
+                )
+            except Exception:
+                pass
+        manager.enqueue_all_existing_buckets()
+        manager.shutdown(wait=True, timeout=300.0)
+        self.sample_archive_manager = None

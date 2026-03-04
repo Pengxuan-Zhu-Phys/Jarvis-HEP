@@ -644,6 +644,7 @@ def _configure_batch_sampler(main_sampler,
         ncdim=main_sampler.ncdim,
         kwargs=main_sampler.kwargs,
         blob=main_sampler.blob)
+    batch_sampler.logger = getattr(main_sampler, "logger", None)
     batch_sampler.save_bounds = save_bounds
     batch_sampler.logl_first_update = main_sampler.sampler.logl_first_update
 

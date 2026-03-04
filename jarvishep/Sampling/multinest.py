@@ -121,7 +121,12 @@ class MultiNest(SamplingVirtial):
         width = 6
         cfg = getattr(self, "config", None)
         if isinstance(cfg, dict):
-            directory_cfg = cfg.get("Directory_Setting", None)
+            scan_cfg = cfg.get("Scan", {})
+            directory_cfg = None
+            if isinstance(scan_cfg, dict):
+                directory_cfg = scan_cfg.get("sample_directory", None)
+            if not isinstance(directory_cfg, dict):
+                directory_cfg = cfg.get("Directory_Setting", None)
             if isinstance(directory_cfg, dict):
                 limit = int(directory_cfg.get("limit", limit))
                 width = int(directory_cfg.get("width", width))
@@ -133,8 +138,11 @@ class MultiNest(SamplingVirtial):
             limit=limit,
             width=width,
             start_bucket=1,
+            on_bucket_sealed=self._on_bucket_sealed if self._archive_enabled() else None,
         )
         self.bucket_alloc.check_and_update()
+        if self._archive_enabled():
+            self._ensure_archive_manager()
 
     def _resolve_execution_profile(self):
         factory_workers = int(getattr(self.factory, "_max_workers", self.max_workers) or self.max_workers or 1)

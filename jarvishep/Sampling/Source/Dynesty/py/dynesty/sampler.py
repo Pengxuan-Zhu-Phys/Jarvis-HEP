@@ -320,6 +320,33 @@ class Sampler:
             # the optional `logger` keyword.
             return print_func(*args, **kwargs)
 
+    @staticmethod
+    def _emit_warning(logger_obj, message, category=UserWarning):
+        if logger_obj is not None:
+            try:
+                if category is not UserWarning:
+                    logger_obj.warning(f"{category.__name__}: {message}")
+                else:
+                    logger_obj.warning(message)
+                return
+            except Exception:
+                pass
+        try:
+            from loguru import logger as _loguru_logger
+            fallback_logger = _loguru_logger.bind(module="Dynesty.Inner", to_console=True, Jarvis=False)
+            if category is not UserWarning:
+                fallback_logger.warning(f"{category.__name__}: {message}")
+            else:
+                fallback_logger.warning(message)
+            return
+        except Exception:
+            pass
+        try:
+            sys.stderr.write(f"[Dynesty][{category.__name__}] {message}\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
+
     def update_bound_if_needed(self, loglstar, ncall=None, force=False):
         """
         Here we update the bound depending on the situation
@@ -808,10 +835,13 @@ class Sampler:
             if it > maxiter or ncall > maxcall:
                 stop_iterations = True
                 if dlogz is not None and delta_logz > 10 * dlogz:
-                    warnings.warn('The sampling was stopped short due to'
-                                  ' maxiter/maxcall limit the delta(log(z))'
-                                  ' criterion is not achieved; posterior may'
-                                  ' be poorly sampled')
+                    self._emit_warning(
+                        getattr(self, "logger", None),
+                        'The sampling was stopped short due to'
+                        ' maxiter/maxcall limit the delta(log(z))'
+                        ' criterion is not achieved; posterior may'
+                        ' be poorly sampled'
+                    )
 
             # Stopping criterion 3: estimated (fractional) remaining evidence
             # lies below some threshold set by `dlogz`.
@@ -843,9 +873,11 @@ class Sampler:
                         stop_iterations = True
             # if self.live_logl.ptp() == 0:
             if np.ptp(self.live_logl) == 0:
-                warnings.warn(
+                self._emit_warning(
+                    getattr(self, "logger", None),
                     'We have reached the plateau in the likelihood we are'
-                    ' stopping sampling')
+                    ' stopping sampling'
+                )
                 stop_iterations = True
 
             if stop_iterations:
@@ -1059,10 +1091,12 @@ class Sampler:
         if n_effective is not None:
             with warnings.catch_warnings():
                 warnings.filterwarnings("once")
-                warnings.warn(
+                self._emit_warning(
+                    getattr(self, "logger", None),
                     "The n_effective option to Sampler.run_nested is "
                     "deprecated and will be removed in future releases",
-                    DeprecationWarning)
+                    DeprecationWarning
+                )
 
         # Define our stopping criteria.
         if dlogz is None:
@@ -1071,8 +1105,11 @@ class Sampler:
             else:
                 dlogz = 0.01
         if resume and self.added_live:
-            warnings.warn('You are resuming a finished static run. '
-                          'This will not do anything')
+            self._emit_warning(
+                getattr(self, "logger", None),
+                'You are resuming a finished static run. '
+                'This will not do anything'
+            )
             # TODO I should create a separate STATE Enum
             # here like to rely on that rather than added_live
             return
