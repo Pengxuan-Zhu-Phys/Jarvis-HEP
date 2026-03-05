@@ -162,18 +162,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
 
 ## Phase 2.3: Slice / ESS
 
-- [ ] Task P2.3-SLICE-01
+- [x] Task P2.3-SLICE-01
   - Objective: add SliceMCMC (univariate and random-direction modes).
   - Files to add/modify:
     - `jarvishep/Sampling/Source/MCMC/engine_slice.py`
     - `jarvishep/Sampling/slicemcmc.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/slicemcmc_schema.json`
+    - `jarvishep/card/schema/SliceMCMC_schema.json`
   - YAML schema keys to add:
     - `slice.mode`, `slice.width`, `slice.max_steps_out`, `slice.max_shrink`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_SliceMCMC_Toy.yaml`
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_SliceMCMC_Operas.yaml`
   - Minimal test case name: `test_slice_banana_toy`
   - DoD checklist: bracket-step metrics available; bounded in-flight preserved.
+  - Tracking doc: `docs/mcmc/samplers/SliceMCMC_TASKLIST.md`
 
 - [ ] Task P2.3-ESS-02
   - Objective: add ESS with prior-structure validation.
