@@ -47,6 +47,9 @@ class Distributor(Base):
             case "DREAMLite" | "DREAM-lite":
                 from jarvishep.Sampling.dream_lite import DREAMLite
                 return DREAMLite()
+            case "EnsembleMCMC":
+                from jarvishep.Sampling.ensemblemcmc import EnsembleMCMC
+                return EnsembleMCMC()
             case "ToyMCMC":
                 from jarvishep.Sampling.mcmc_standard import MCMC
                 return MCMC(method_name="ToyMCMC")
@@ -54,7 +57,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAMLite", "ToyMCMC", "Diver"]
+                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAMLite", "EnsembleMCMC", "ToyMCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

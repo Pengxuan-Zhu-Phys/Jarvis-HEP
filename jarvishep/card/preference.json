@@ -10,6 +10,7 @@
         "MCMCSchema":       "&SRC/card/schema/MCMC_schema.json",
         "DEMCMCSchema":     "&SRC/card/schema/DEMCMC_schema.json",
         "DREAMLiteSchema":  "&SRC/card/schema/DREAMLite_schema.json",
+        "EnsembleSchema":   "&SRC/card/schema/Ensemble_schema.json",
         "TPMCMCSchema":     "&SRC/card/schema/TPMCMC_schema.json"
     },
     "SchemaBlock":  {

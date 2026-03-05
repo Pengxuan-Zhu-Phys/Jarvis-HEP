@@ -22,6 +22,7 @@ from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.demcmc import DEMCMC  # noqa: E402
 from jarvishep.Sampling.dream_lite import DREAMLite  # noqa: E402
 from jarvishep.Sampling.dram import DRAM  # noqa: E402
+from jarvishep.Sampling.ensemblemcmc import EnsembleMCMC  # noqa: E402
 from jarvishep.Sampling.mcmc_standard import MCMC  # noqa: E402
 from jarvishep.Sampling.robustam import RobustAM  # noqa: E402
 from jarvishep.Sampling.tpmcmc import TPMCMC  # noqa: E402
@@ -274,6 +275,10 @@ class MCMCStateMachineTests(unittest.TestCase):
         sampler = Distributor.set_method("DREAMLite")
         self.assertEqual(sampler.method, "DREAMLite")
 
+    def test_distributor_supports_ensemblemcmc(self):
+        sampler = Distributor.set_method("EnsembleMCMC")
+        self.assertEqual(sampler.method, "EnsembleMCMC")
+
     def test_ammcmc_state_machine_smoke(self):
         cfg = {
             "Sampling": {
@@ -404,6 +409,47 @@ class MCMCStateMachineTests(unittest.TestCase):
             self.assertEqual(sampler.state.value, "TERMINATE")
             self.assertEqual(sampler.factory.calls, 12)
             self.assertEqual(_FakeSample.close_calls, 12)
+
+    def test_ensemblemcmc_state_machine_smoke(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 4,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                    "stretch_a": 2.0,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            sampler = EnsembleMCMC()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_factory(_ImmediateFactory())
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                sampler.initialize()
+                sampler.run_nested()
+
+            self.assertEqual(sampler.state.value, "TERMINATE")
+            self.assertEqual(sampler.factory.calls, 16)
+            self.assertEqual(_FakeSample.close_calls, 16)
 
     def test_robustam_state_machine_smoke(self):
         cfg = {
