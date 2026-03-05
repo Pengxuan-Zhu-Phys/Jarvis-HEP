@@ -112,18 +112,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
 
 ## Phase 2.2: DEMCMC / DREAM-lite / Ensemble / PT-Ensemble
 
-- [ ] Task P2.2-DE-01
+- [x] Task P2.2-DE-01
   - Objective: add DEMCMC population engine.
   - Files to add/modify:
     - `jarvishep/Sampling/Source/MCMC/engine_demcmc.py`
     - `jarvishep/Sampling/demcmc.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/demcmc_schema.json`
+    - `jarvishep/card/schema/DEMCMC_schema.json`
   - YAML schema keys to add:
     - `de_gamma`, `de_noise`, `de_crossover`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_DEMCMC_Toy.yaml`
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_DEMCMC_Operas.yaml`
   - Minimal test case name: `test_demcmc_mixture_toy`
   - DoD checklist: population diversity metrics available; no queue exhaustion.
+  - Tracking doc: `docs/mcmc/samplers/DEMCMC_TASKLIST.md`
 
 - [ ] Task P2.2-DREAM-02
   - Objective: add DREAM-lite enhanced DE variant.

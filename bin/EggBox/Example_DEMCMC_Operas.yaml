@@ -1,0 +1,57 @@
+Scan:
+  name: "EggBox_DEMCMC_Operas_Quick"
+  save_dir: "&J/Results"
+  sample_directory:
+    limit: 200
+    width: 6
+    archive_samples: true
+
+Sampling:
+  Method: "DEMCMC"
+  Variables:
+    - name: x
+      description: "Variable X following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+    - name: y
+      description: "Variable Y following a Flat distribution for sampling."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 5.0
+  Bounds:
+    num_chains: 8
+    num_iters: 300
+    proposal_scale: 0.08
+    de_gamma: 0.0
+    de_noise: 1.0e-3
+    de_crossover: 0.9
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  OS:
+    - name: linux
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependences:
+    required: true
+    default_yaml_path: "&SRC/card/environment_default.yaml"
+
+Operas:
+  make_paraller: 8
+  Modules:
+    - name: EggBox
+      operator: "helper.eggbox2d"
+      call_mode: call
+      required_modules: []
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}
