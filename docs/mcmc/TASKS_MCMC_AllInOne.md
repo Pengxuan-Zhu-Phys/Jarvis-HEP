@@ -81,18 +81,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - DoD checklist: runs on Gaussian toy; acceptance and covariance sanity metrics available; no deadlock.
   - Tracking doc: `docs/mcmc/samplers/AMMCMC_TASKLIST.md`
 
-- [ ] Task P2.1-RAM-02
+- [x] Task P2.1-RAM-02
   - Objective: add RobustAM engine (AM + global/heavy-tail jumps).
   - Files to add/modify:
-    - `jarvishep/Sampling/Source/MCMC/engine_robustam.py`
+    - `jarvishep/Sampling/Source/MCMC/robustam_chain.py`
     - `jarvishep/Sampling/robustam.py`
     - `jarvishep/distributor.py`
     - `jarvishep/card/schema/robustam_schema.json`
   - YAML schema keys to add:
     - AM keys + `global_jump_prob`, `heavy_tail_df`, `global_scale`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_RobustAM_Toy.yaml`
-  - Minimal test case name: `test_robustam_mixture_toy`
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_RobustAM_Operas.yaml`
+  - Minimal test case name: `test_robustam_sampler_smoke_closes_samples`
   - DoD checklist: improved mode-jump behavior on mixture toy; bounded in-flight preserved.
+  - Tracking doc: `docs/mcmc/samplers/RobustAM_TASKLIST.md`
 
 - [ ] Task P2.1-DRAM-03
   - Objective: add DRAM engine with delayed rejection stages.
