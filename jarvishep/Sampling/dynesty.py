@@ -242,7 +242,43 @@ class Dynesty(SamplingVirtial):
         finally:
             self._shutdown_dynesty_pool()
 
+    def _results_ready_for_finalize(self):
+        if self.sampler is None:
+            self.logger.warning("Dynesty finalize skipped -> sampler is None")
+            return False
+        if not hasattr(self.sampler, "results"):
+            self.logger.warning("Dynesty finalize skipped -> sampler has no results")
+            return False
+
+        required_keys = (
+            "samples_uid",
+            "logwt",
+            "logl",
+            "logvol",
+            "logz",
+            "logzerr",
+            "samples_n",
+            "ncall",
+            "samples_it",
+            "samples_id",
+            "information",
+            "samples",
+            "samples_u",
+        )
+        missing = []
+        for key in required_keys:
+            try:
+                _ = self.sampler.results[key]
+            except Exception:
+                missing.append(key)
+        if missing:
+            self.logger.warning(f"Dynesty finalize skipped -> incomplete results -> missing keys={missing}")
+            return False
+        return True
+
     def finalize(self):
+        if not self._results_ready_for_finalize():
+            return
         self.save_dynesty_results_to_csv()
         # self.plot_dynesty_results()
 

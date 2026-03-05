@@ -291,13 +291,22 @@ class GlobalHDF5Writer:
         self.shutdown_event.set()
 
         if self.writer_thread.is_alive():
+            stop_enqueued = False
             while True:
                 try:
                     self.data_queue.put(self._stop_token, timeout=self.enqueue_timeout)
+                    stop_enqueued = True
                     break
                 except Full:
-                    # Keep draining to make room for stop token.
-                    self._write_data_to_hdf5()
+                    # Keep single-writer semantics: do not flush from main thread
+                    # while writer thread is active.
+                    if not self.writer_thread.is_alive():
+                        break
+                    continue
+            if not stop_enqueued and not self.writer_thread.is_alive():
+                # Writer exited before stop token could be queued. Drain
+                # synchronously as a fallback (single-writer remains true).
+                self._write_data_to_hdf5()
             self.writer_thread.join()
         else:
             # If writer was never started, still flush synchronously.

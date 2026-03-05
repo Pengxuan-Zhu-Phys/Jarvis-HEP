@@ -627,21 +627,35 @@ class Core(Base):
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
+        run_exc = None
         try:
             self.sampler.run_nested()
+        except Exception as exc:
+            run_exc = exc
+            raise
         finally:
             from time import time
+            cleanup_errors = []
+
+            def _cleanup_step(step_name, fn):
+                try:
+                    fn()
+                except Exception as exc:
+                    cleanup_errors.append((step_name, exc))
+                    self.logger.error(f"Cleanup step failed -> {step_name} -> {exc}")
+
             start = time()
-            self.factory.module_manager.database.stop()
+            _cleanup_step("database.stop", self.factory.module_manager.database.stop)
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
-            self.sampler.finalize()
-            self.sampler.combine_data(self.info['db']['path'])
-            self.factory.shutdown()
-            try:
-                self.sampler.finalize_sample_archive()
-            except Exception as exc:
-                self.logger.error(f"Sample archive finalize failed -> {exc}")
+            _cleanup_step("sampler.finalize", self.sampler.finalize)
+            _cleanup_step("sampler.combine_data", lambda: self.sampler.combine_data(self.info['db']['path']))
+            _cleanup_step("factory.shutdown", self.factory.shutdown)
+            _cleanup_step("sampler.finalize_sample_archive", self.sampler.finalize_sample_archive)
+
+            if run_exc is None and cleanup_errors:
+                first_step, first_exc = cleanup_errors[0]
+                raise RuntimeError(f"Cleanup failed after sampling -> {first_step}") from first_exc
             # self.monitor.stop()
 
     def check_init_args(self) -> None:

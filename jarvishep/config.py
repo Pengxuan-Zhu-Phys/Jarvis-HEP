@@ -40,6 +40,10 @@ class ConfigLoader(Base):
                 self.config = yaml.safe_load(file)
                 self._normalize_optional_sections()
                 self.filepath = filepath
+                env_reqs = self.config.get("EnvReqs", {}) if isinstance(self.config, dict) else {}
+                check_default = env_reqs.get("Check_default_dependences", {}) if isinstance(env_reqs, dict) else {}
+                if isinstance(check_default, dict) and bool(check_default.get("required", False)):
+                    self.update_dependences()
         except Exception as e: 
             self.logger.error(f"Error: loading config file -> {e}")
             sys.exit(2)
@@ -677,6 +681,12 @@ class ConfigValidator(Base):
             self.passcheck = True
         except ValidationError as e:
             self.logger.error(f"Validation error: {e.message},\n the problematic module data: {e.instance}")
+            self.passcheck = False
+            sys.exit(2)
+        except Exception as e:
+            self.logger.error(f"Validation failed unexpectedly: {e}")
+            self.passcheck = False
+            sys.exit(2)
 
 
 class ConfigTemplateGenerator():
