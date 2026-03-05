@@ -59,6 +59,15 @@ class Distributor(Base):
             case "ESS":
                 from jarvishep.Sampling.ess import ESS
                 return ESS()
+            case "MALA":
+                from jarvishep.Sampling.mala import MALA
+                return MALA()
+            case "HMC":
+                from jarvishep.Sampling.hmc import HMC
+                return HMC()
+            case "NUTS":
+                from jarvishep.Sampling.nuts import NUTS
+                return NUTS()
             case "ToyMCMC":
                 from jarvishep.Sampling.mcmc_standard import MCMC
                 return MCMC(method_name="ToyMCMC")
@@ -66,7 +75,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "ToyMCMC", "Diver"]
+                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

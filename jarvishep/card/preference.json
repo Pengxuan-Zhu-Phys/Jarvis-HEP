@@ -14,6 +14,9 @@
         "PTEnsembleSchema": "&SRC/card/schema/PTEnsemble_schema.json",
         "SliceSchema":      "&SRC/card/schema/SliceMCMC_schema.json",
         "ESSSchema":        "&SRC/card/schema/ESS_schema.json",
+        "MALASchema":       "&SRC/card/schema/MALA_schema.json",
+        "HMCSchema":        "&SRC/card/schema/HMC_schema.json",
+        "NUTSSchema":       "&SRC/card/schema/NUTS_schema.json",
         "TPMCMCSchema":     "&SRC/card/schema/TPMCMC_schema.json"
     },
     "SchemaBlock":  {

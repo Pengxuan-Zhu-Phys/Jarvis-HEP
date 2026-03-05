@@ -205,21 +205,25 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - Minimal test case name: `test_gradient_provider_contract`
   - DoD checklist: interface only, no forced gradient dependency, clear fallback behavior.
 
-- [ ] Task P2.4-MALAHMC-02
+- [x] Task P2.4-MALAHMC-02
   - Objective: add placeholder sampler entries for MALA/HMC/NUTS on top of gradient interface.
   - Files to add/modify:
     - `jarvishep/Sampling/mala.py`
     - `jarvishep/Sampling/hmc.py`
     - `jarvishep/Sampling/nuts.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/mala_schema.json`
-    - `jarvishep/card/schema/hmc_schema.json`
-    - `jarvishep/card/schema/nuts_schema.json`
+    - `jarvishep/card/schema/MALA_schema.json`
+    - `jarvishep/card/schema/HMC_schema.json`
+    - `jarvishep/card/schema/NUTS_schema.json`
   - YAML schema keys to add:
     - `mala.step_size`, `hmc.step_size`, `hmc.leapfrog_steps`, `nuts.max_depth`
-  - Minimal runnable example YAML (later):
-    - `bin/EggBox/Example_MALA_Toy.yaml`
-    - `bin/EggBox/Example_HMC_Toy.yaml`
-    - `bin/EggBox/Example_NUTS_Toy.yaml`
+  - Minimal runnable example YAML (created):
+    - `bin/EggBox/Example_MALA_Operas.yaml`
+    - `bin/EggBox/Example_HMC_Operas.yaml`
+    - `bin/EggBox/Example_NUTS_Operas.yaml`
   - Minimal test case name: `test_mala_hmc_nuts_placeholder_configs`
   - DoD checklist: config/schema and interfaces compile/run in placeholder mode; no deadlock; lifecycle invariants preserved.
+  - Tracking docs:
+    - `docs/mcmc/samplers/MALA_TASKLIST.md`
+    - `docs/mcmc/samplers/HMC_TASKLIST.md`
+    - `docs/mcmc/samplers/NUTS_TASKLIST.md`
