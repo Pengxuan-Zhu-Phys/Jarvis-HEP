@@ -126,18 +126,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - DoD checklist: population diversity metrics available; no queue exhaustion.
   - Tracking doc: `docs/mcmc/samplers/DEMCMC_TASKLIST.md`
 
-- [ ] Task P2.2-DREAM-02
+- [x] Task P2.2-DREAM-02
   - Objective: add DREAM-lite enhanced DE variant.
   - Files to add/modify:
     - `jarvishep/Sampling/Source/MCMC/engine_dream_lite.py`
     - `jarvishep/Sampling/dream_lite.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/dream_lite_schema.json`
+    - `jarvishep/card/schema/DREAMLite_schema.json`
   - YAML schema keys to add:
     - DEMCMC keys + `dream_snooker_prob`, `dream_archive_size`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_DREAMLite_Toy.yaml`
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_DREAMLite_Operas.yaml`
   - Minimal test case name: `test_dream_lite_periodic_ridge_toy`
   - DoD checklist: move-type metrics logged; async stability verified.
+  - Tracking doc: `docs/mcmc/samplers/DREAMLite_TASKLIST.md`
 
 - [ ] Task P2.2-ENS-03
   - Objective: add EnsembleMCMC and optional PT-Ensemble.
