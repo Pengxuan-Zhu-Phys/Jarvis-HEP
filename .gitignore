@@ -51,13 +51,11 @@ WARP.md
 
 # PyPI/release workflow local ignores
 jhrel
-pyproject.toml
 .pypirc
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 pip-wheel-metadata/
 
-# Docs and tests (local-only workflow)
+# Docs (local-only workflow)
 docs/
-tests/
