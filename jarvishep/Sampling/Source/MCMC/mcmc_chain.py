@@ -34,21 +34,28 @@ class MCMCChain:
                 return proposed_param
 
 
-    def update(self, new_loglikelihood):
-        # Update the chain state with the new parameter and its log likelihood.
-        if self.iterations > 0:
-            from numpy import exp 
-            likelihood2 = exp(new_loglikelihood)
-            likelihood1 = exp(self.last_loglikelihood)
-            accecptance = likelihood2 / likelihood1
-            if np.random.rand() < accecptance:
-                self.param = self.proposed_param
-                self.last_loglikelihood = new_loglikelihood
-        else: 
+    def update(self, new_loglikelihood, beta=1.0):
+        """Update chain state and return whether proposal is accepted."""
+        accepted = False
+        new_loglikelihood = float(new_loglikelihood)
+        beta = float(beta)
+
+        # First point is always accepted as chain bootstrap.
+        if self.iterations == 0 or self.last_loglikelihood is None:
+            accepted = True
+        else:
+            delta = (new_loglikelihood - float(self.last_loglikelihood)) * beta
+            if delta >= 0.0:
+                accepted = True
+            else:
+                accepted = bool(np.random.rand() < np.exp(delta))
+
+        if accepted:
             self.param = self.proposed_param
             self.last_loglikelihood = new_loglikelihood
-        self.iterations += 1
-        
-        
-        
 
+        self.iterations += 1
+        return accepted
+        
+        
+        
