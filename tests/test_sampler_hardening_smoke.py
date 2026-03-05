@@ -27,6 +27,7 @@ from jarvishep.Sampling.diver import Diver  # noqa: E402
 from jarvishep.Sampling.dynesty import Dynesty  # noqa: E402
 from jarvishep.Sampling.grid import Grid  # noqa: E402
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
+from jarvishep.Sampling.dram import DRAM  # noqa: E402
 from jarvishep.Sampling.mcmc_standard import MCMC  # noqa: E402
 from jarvishep.Sampling.multinest import MultiNest  # noqa: E402
 from jarvishep.Sampling.randoms import RandomS  # noqa: E402
@@ -659,6 +660,45 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
                         "global_jump_prob": 0.2,
                         "heavy_tail_df": 4.0,
                         "global_scale": 2.0,
+                    },
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "description": "x",
+                            "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                        }
+                    ],
+                },
+                "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+            }
+        )
+
+        t0 = time.perf_counter()
+        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+            sampler.initialize()
+            sampler.run_nested()
+        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertEqual(sampler.factory.calls, 4)
+        self.assertEqual(_FakeSample.close_calls, 4)
+
+    def test_dram_sampler_smoke_closes_samples(self):
+        sampler = DRAM()
+        sampler.logger = _NoopLogger()
+        sampler.info = self._sample_cfg()
+        sampler.info["sample"]["sample_dirs"] = self.tempdir.name
+        sampler.info["sample"]["archive_samples"] = False
+        sampler.factory = _ImmediateFactory()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Bounds": {
+                        "num_chains": 2,
+                        "num_iters": 2,
+                        "proposal_scale": 0.1,
+                        "adapt_enabled": True,
+                        "adapt_start_iter": 1,
+                        "adapt_window": 1,
+                        "dr_scale_factors": [1.0, 0.5],
                     },
                     "Variables": [
                         {

@@ -17,6 +17,7 @@ from jarvishep.Sampling.Source.MCMC.chain_history import ChainEvent, ChainHistor
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime  # noqa: E402
 from jarvishep.Sampling.Source.MCMC.controller import MCMCControlGuard, MCMCControlPatch  # noqa: E402
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
+from jarvishep.Sampling.dram import DRAM  # noqa: E402
 from jarvishep.Sampling.mcmc_standard import MCMC  # noqa: E402
 from jarvishep.Sampling.robustam import RobustAM  # noqa: E402
 from jarvishep.Sampling.tpmcmc import TPMCMC  # noqa: E402
@@ -257,6 +258,10 @@ class MCMCStateMachineTests(unittest.TestCase):
         sampler = Distributor.set_method("RobustAM")
         self.assertEqual(sampler.method, "RobustAM")
 
+    def test_distributor_supports_dram(self):
+        sampler = Distributor.set_method("DRAM")
+        self.assertEqual(sampler.method, "DRAM")
+
     def test_ammcmc_state_machine_smoke(self):
         cfg = {
             "Sampling": {
@@ -327,6 +332,50 @@ class MCMCStateMachineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             sampler = RobustAM()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_factory(_ImmediateFactory())
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                sampler.initialize()
+                sampler.run_nested()
+
+            self.assertEqual(sampler.state.value, "TERMINATE")
+            self.assertEqual(sampler.factory.calls, 8)
+            self.assertEqual(_FakeSample.close_calls, 8)
+
+    def test_dram_state_machine_smoke(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                    "adapt_enabled": True,
+                    "adapt_start_iter": 2,
+                    "adapt_window": 1,
+                    "dr_scale_factors": [1.0, 0.5],
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            sampler = DRAM()
             sampler.set_logger(_NoopLogger())
             sampler.info["sample"] = {
                 "task_result_dir": td,

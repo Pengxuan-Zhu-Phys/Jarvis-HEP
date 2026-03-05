@@ -95,18 +95,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - DoD checklist: improved mode-jump behavior on mixture toy; bounded in-flight preserved.
   - Tracking doc: `docs/mcmc/samplers/RobustAM_TASKLIST.md`
 
-- [ ] Task P2.1-DRAM-03
+- [x] Task P2.1-DRAM-03
   - Objective: add DRAM engine with delayed rejection stages.
   - Files to add/modify:
-    - `jarvishep/Sampling/Source/MCMC/engine_dram.py`
+    - `jarvishep/Sampling/Source/MCMC/dram_chain.py`
     - `jarvishep/Sampling/dram.py`
     - `jarvishep/distributor.py`
     - `jarvishep/card/schema/dram_schema.json`
   - YAML schema keys to add:
     - AM keys + `dr_steps`, `dr_scale_factors`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_DRAM_Toy.yaml`
-  - Minimal test case name: `test_dram_banana_toy`
-  - DoD checklist: stage metrics present; no lifecycle regression; async fail-path safe.
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_DRAM_Operas.yaml`
+  - Minimal test case name: `test_dram_sampler_smoke_closes_samples`
+  - DoD checklist: DRAM-lite stage behavior present; no lifecycle regression; async fail-path safe.
+  - Tracking doc: `docs/mcmc/samplers/DRAM_TASKLIST.md`
 
 ## Phase 2.2: DEMCMC / DREAM-lite / Ensemble / PT-Ensemble
 
