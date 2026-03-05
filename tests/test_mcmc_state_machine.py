@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import numpy as np
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -16,6 +17,7 @@ if PROJECT_ROOT not in sys.path:
 from jarvishep.Sampling.Source.MCMC.chain_history import ChainEvent, ChainHistory  # noqa: E402
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime  # noqa: E402
 from jarvishep.Sampling.Source.MCMC.controller import MCMCControlGuard, MCMCControlPatch  # noqa: E402
+from jarvishep.Sampling.Source.MCMC.dram_chain import DRAMChain  # noqa: E402
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.dram import DRAM  # noqa: E402
 from jarvishep.Sampling.mcmc_standard import MCMC  # noqa: E402
@@ -387,13 +389,44 @@ class MCMCStateMachineTests(unittest.TestCase):
             sampler.set_factory(_ImmediateFactory())
 
             _FakeSample.reset()
-            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+            with patch(
+                "jarvishep.Sampling.Source.MCMC.state_machine_base.Sample",
+                _FakeSample,
+            ), patch(
+                "jarvishep.Sampling.Source.MCMC.state_machine_multistage_base.Sample",
+                _FakeSample,
+            ):
                 sampler.initialize()
                 sampler.run_nested()
 
             self.assertEqual(sampler.state.value, "TERMINATE")
-            self.assertEqual(sampler.factory.calls, 8)
-            self.assertEqual(_FakeSample.close_calls, 8)
+            self.assertGreaterEqual(sampler.factory.calls, 8)
+            self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
+
+    def test_dram_chain_uses_second_stage_after_first_rejection(self):
+        chain = DRAMChain(
+            initial_param=np.array([0.5], dtype=float),
+            proposal_scale=0.2,
+            n_iterations=4,
+            adapt_enabled=False,
+            dr_steps=2,
+            dr_scale_factors=[1.0, 0.4],
+        )
+
+        chain.propose_stage(0)
+        first = chain.consume_stage_result(0, 0.0, beta=1.0)
+        self.assertTrue(first["iteration_done"])
+        self.assertTrue(first["accepted"])
+
+        chain.propose_stage(0)
+        second = chain.consume_stage_result(0, -1e6, beta=1.0)
+        self.assertFalse(second["iteration_done"])
+        self.assertEqual(second["next_stage"], 1)
+
+        chain.propose_stage(1)
+        third = chain.consume_stage_result(1, -10.0, beta=1.0)
+        self.assertTrue(third["iteration_done"])
+        self.assertEqual(third["stage_attempts"], 2)
 
     def test_inflight_is_bounded_by_max_workers(self):
         mcfg = {

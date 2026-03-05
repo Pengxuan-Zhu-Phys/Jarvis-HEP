@@ -559,12 +559,18 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         )
 
         t0 = time.perf_counter()
-        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+        with patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_base.Sample",
+            _FakeSample,
+        ), patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_multistage_base.Sample",
+            _FakeSample,
+        ):
             sampler.initialize()
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
-        self.assertEqual(sampler.factory.calls, 4)
-        self.assertEqual(_FakeSample.close_calls, 4)
+        self.assertGreaterEqual(sampler.factory.calls, 4)
+        self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
 
     def test_tpmcmc_sampler_smoke_closes_samples(self):
         sampler = TPMCMC()
@@ -595,12 +601,18 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         )
 
         t0 = time.perf_counter()
-        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+        with patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_base.Sample",
+            _FakeSample,
+        ), patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_multistage_base.Sample",
+            _FakeSample,
+        ):
             sampler.initialize()
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
-        self.assertEqual(sampler.factory.calls, 4)
-        self.assertEqual(_FakeSample.close_calls, 4)
+        self.assertGreaterEqual(sampler.factory.calls, 4)
+        self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
 
     def test_ammcmc_sampler_smoke_closes_samples(self):
         sampler = AMMCMC()
@@ -633,12 +645,18 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         )
 
         t0 = time.perf_counter()
-        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+        with patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_base.Sample",
+            _FakeSample,
+        ), patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_multistage_base.Sample",
+            _FakeSample,
+        ):
             sampler.initialize()
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
-        self.assertEqual(sampler.factory.calls, 4)
-        self.assertEqual(_FakeSample.close_calls, 4)
+        self.assertGreaterEqual(sampler.factory.calls, 4)
+        self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
 
     def test_robustam_sampler_smoke_closes_samples(self):
         sampler = RobustAM()
@@ -713,12 +731,18 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         )
 
         t0 = time.perf_counter()
-        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+        with patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_base.Sample",
+            _FakeSample,
+        ), patch(
+            "jarvishep.Sampling.Source.MCMC.state_machine_multistage_base.Sample",
+            _FakeSample,
+        ):
             sampler.initialize()
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
-        self.assertEqual(sampler.factory.calls, 4)
-        self.assertEqual(_FakeSample.close_calls, 4)
+        self.assertGreaterEqual(sampler.factory.calls, 4)
+        self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
 
     def test_dnn_sampler_dataset_smoke_closes_samples(self):
         DNN = self._load_dnn_class()

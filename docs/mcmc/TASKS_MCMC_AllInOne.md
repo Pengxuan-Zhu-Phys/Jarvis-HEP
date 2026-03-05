@@ -98,6 +98,7 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
 - [x] Task P2.1-DRAM-03
   - Objective: add DRAM engine with delayed rejection stages.
   - Files to add/modify:
+    - `jarvishep/Sampling/Source/MCMC/state_machine_multistage_base.py`
     - `jarvishep/Sampling/Source/MCMC/dram_chain.py`
     - `jarvishep/Sampling/dram.py`
     - `jarvishep/distributor.py`
@@ -106,7 +107,7 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
     - AM keys + `dr_steps`, `dr_scale_factors`
   - Minimal runnable example YAML (created): `bin/EggBox/Example_DRAM_Operas.yaml`
   - Minimal test case name: `test_dram_sampler_smoke_closes_samples`
-  - DoD checklist: DRAM-lite stage behavior present; no lifecycle regression; async fail-path safe.
+  - DoD checklist: full stage-2 delayed-rejection acceptance correction implemented; no lifecycle regression; async fail-path safe.
   - Tracking doc: `docs/mcmc/samplers/DRAM_TASKLIST.md`
 
 ## Phase 2.2: DEMCMC / DREAM-lite / Ensemble / PT-Ensemble
