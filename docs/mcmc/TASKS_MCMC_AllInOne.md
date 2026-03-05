@@ -176,18 +176,19 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - DoD checklist: bracket-step metrics available; bounded in-flight preserved.
   - Tracking doc: `docs/mcmc/samplers/SliceMCMC_TASKLIST.md`
 
-- [ ] Task P2.3-ESS-02
+- [x] Task P2.3-ESS-02
   - Objective: add ESS with prior-structure validation.
   - Files to add/modify:
     - `jarvishep/Sampling/Source/MCMC/engine_ess.py`
     - `jarvishep/Sampling/ess.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/ess_schema.json`
+    - `jarvishep/card/schema/ESS_schema.json`
   - YAML schema keys to add:
     - `ess.enabled`, `ess.prior_cov`, `ess.angle_bracket_init`
-  - Minimal runnable example YAML (later): `bin/EggBox/Example_ESS_Toy.yaml`
+  - Minimal runnable example YAML (created): `bin/EggBox/Example_ESS_Operas.yaml`
   - Minimal test case name: `test_ess_gaussian_prior_toy`
   - DoD checklist: prior checks fail clearly when unsupported; no lifecycle regressions.
+  - Tracking doc: `docs/mcmc/samplers/ESS_TASKLIST.md`
 
 ## Phase 2.4: Gradient-provider Hooks + MALA/HMC/NUTS Placeholder
 

@@ -13,6 +13,7 @@
         "EnsembleSchema":   "&SRC/card/schema/Ensemble_schema.json",
         "PTEnsembleSchema": "&SRC/card/schema/PTEnsemble_schema.json",
         "SliceSchema":      "&SRC/card/schema/SliceMCMC_schema.json",
+        "ESSSchema":        "&SRC/card/schema/ESS_schema.json",
         "TPMCMCSchema":     "&SRC/card/schema/TPMCMC_schema.json"
     },
     "SchemaBlock":  {

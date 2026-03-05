@@ -30,6 +30,7 @@ from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.demcmc import DEMCMC  # noqa: E402
 from jarvishep.Sampling.dream_lite import DREAMLite  # noqa: E402
 from jarvishep.Sampling.dram import DRAM  # noqa: E402
+from jarvishep.Sampling.ess import ESS  # noqa: E402
 from jarvishep.Sampling.ensemblemcmc import EnsembleMCMC  # noqa: E402
 from jarvishep.Sampling.mcmc_standard import MCMC  # noqa: E402
 from jarvishep.Sampling.multinest import MultiNest  # noqa: E402
@@ -833,6 +834,42 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
                         "slice_width": 0.2,
                         "slice_max_steps_out": 16,
                         "slice_max_shrink": 32,
+                    },
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "description": "x",
+                            "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                        }
+                    ],
+                },
+                "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+            }
+        )
+
+        t0 = time.perf_counter()
+        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+            sampler.initialize()
+            sampler.run_nested()
+        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertEqual(sampler.factory.calls, 6)
+        self.assertEqual(_FakeSample.close_calls, 6)
+
+    def test_ess_sampler_smoke_closes_samples(self):
+        sampler = ESS()
+        sampler.logger = _NoopLogger()
+        sampler.info = self._sample_cfg()
+        sampler.info["sample"]["sample_dirs"] = self.tempdir.name
+        sampler.info["sample"]["archive_samples"] = False
+        sampler.factory = _ImmediateFactory()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Bounds": {
+                        "num_chains": 3,
+                        "num_iters": 2,
+                        "proposal_scale": 0.1,
+                        "ess_prior_cov": 1.0,
                     },
                     "Variables": [
                         {
