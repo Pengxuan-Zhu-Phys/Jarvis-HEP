@@ -127,18 +127,25 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - Tracking doc: `docs/mcmc/samplers/DEMCMC_TASKLIST.md`
 
 - [x] Task P2.2-DREAM-02
-  - Objective: add DREAM-lite enhanced DE variant.
+  - Objective: upgrade DREAM-lite to DREAM while preserving DREAMLite compatibility profile.
   - Files to add/modify:
+    - `jarvishep/Sampling/Source/MCMC/engine_dream.py`
+    - `jarvishep/Sampling/dream.py`
     - `jarvishep/Sampling/Source/MCMC/engine_dream_lite.py`
     - `jarvishep/Sampling/dream_lite.py`
     - `jarvishep/distributor.py`
+    - `jarvishep/card/schema/DREAM_schema.json`
     - `jarvishep/card/schema/DREAMLite_schema.json`
   - YAML schema keys to add:
-    - DEMCMC keys + `dream_snooker_prob`, `dream_archive_size`
-  - Minimal runnable example YAML (created): `bin/EggBox/Example_DREAMLite_Operas.yaml`
+    - DEMCMC keys + `dream_snooker_prob`, `dream_archive_size`, `dream_crossover_values`, `dream_crossover_adapt_interval`, `dream_scale_jitter`
+  - Minimal runnable example YAML (created):
+    - `bin/EggBox/Example_DREAM_Operas.yaml`
+    - `bin/EggBox/Example_DREAMLite_Operas.yaml`
   - Minimal test case name: `test_dream_lite_periodic_ridge_toy`
-  - DoD checklist: move-type metrics logged; async stability verified.
-  - Tracking doc: `docs/mcmc/samplers/DREAMLite_TASKLIST.md`
+  - DoD checklist: move-type metrics + adaptive crossover behavior validated; async stability verified.
+  - Tracking docs:
+    - `docs/mcmc/samplers/DREAM_TASKLIST.md`
+    - `docs/mcmc/samplers/DREAMLite_TASKLIST.md`
 
 - [x] Task P2.2-ENS-03
   - Objective: add EnsembleMCMC and optional PT-Ensemble.

@@ -5,7 +5,8 @@ Status: Completed
 
 ## Scope
 
-Add independent `DREAMLite` sampler class on shared state-machine runtime.
+`DREAMLite` is now maintained as a backward-compatible lite profile on top of `DREAM` runtime.
+It keeps legacy YAML behavior while using the upgraded DREAM engine path.
 
 ## Task Checklist
 

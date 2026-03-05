@@ -20,6 +20,7 @@ from jarvishep.Sampling.Source.MCMC.controller import MCMCControlGuard, MCMCCont
 from jarvishep.Sampling.Source.MCMC.dram_chain import DRAMChain  # noqa: E402
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.demcmc import DEMCMC  # noqa: E402
+from jarvishep.Sampling.dream import DREAM  # noqa: E402
 from jarvishep.Sampling.dream_lite import DREAMLite  # noqa: E402
 from jarvishep.Sampling.dram import DRAM  # noqa: E402
 from jarvishep.Sampling.ess import ESS  # noqa: E402
@@ -281,6 +282,10 @@ class MCMCStateMachineTests(unittest.TestCase):
         sampler = Distributor.set_method("DREAMLite")
         self.assertEqual(sampler.method, "DREAMLite")
 
+    def test_distributor_supports_dream(self):
+        sampler = Distributor.set_method("DREAM")
+        self.assertEqual(sampler.method, "DREAM")
+
     def test_distributor_supports_ensemblemcmc(self):
         sampler = Distributor.set_method("EnsembleMCMC")
         self.assertEqual(sampler.method, "EnsembleMCMC")
@@ -421,6 +426,54 @@ class MCMCStateMachineTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             sampler = DREAMLite()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_factory(_ImmediateFactory())
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                sampler.initialize()
+                sampler.run_nested()
+
+            self.assertEqual(sampler.state.value, "TERMINATE")
+            self.assertEqual(sampler.factory.calls, 12)
+            self.assertEqual(_FakeSample.close_calls, 12)
+
+    def test_dream_state_machine_smoke(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 3,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                    "de_gamma": 0.0,
+                    "de_noise": 1.0e-3,
+                    "de_crossover": 0.9,
+                    "dream_snooker_prob": 0.2,
+                    "dream_archive_size": 128,
+                    "dream_crossover_values": [0.2, 0.5, 0.9],
+                    "dream_crossover_adapt_interval": 16,
+                    "dream_scale_jitter": 0.1,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            sampler = DREAM()
             sampler.set_logger(_NoopLogger())
             sampler.info["sample"] = {
                 "task_result_dir": td,

@@ -28,6 +28,7 @@ from jarvishep.Sampling.dynesty import Dynesty  # noqa: E402
 from jarvishep.Sampling.grid import Grid  # noqa: E402
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.demcmc import DEMCMC  # noqa: E402
+from jarvishep.Sampling.dream import DREAM  # noqa: E402
 from jarvishep.Sampling.dream_lite import DREAMLite  # noqa: E402
 from jarvishep.Sampling.dram import DRAM  # noqa: E402
 from jarvishep.Sampling.ess import ESS  # noqa: E402
@@ -724,6 +725,49 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
                         "de_crossover": 0.9,
                         "dream_snooker_prob": 0.2,
                         "dream_archive_size": 64,
+                    },
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "description": "x",
+                            "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                        }
+                    ],
+                },
+                "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+            }
+        )
+
+        t0 = time.perf_counter()
+        with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+            sampler.initialize()
+            sampler.run_nested()
+        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertEqual(sampler.factory.calls, 6)
+        self.assertEqual(_FakeSample.close_calls, 6)
+
+    def test_dream_sampler_smoke_closes_samples(self):
+        sampler = DREAM()
+        sampler.logger = _NoopLogger()
+        sampler.info = self._sample_cfg()
+        sampler.info["sample"]["sample_dirs"] = self.tempdir.name
+        sampler.info["sample"]["archive_samples"] = False
+        sampler.factory = _ImmediateFactory()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Bounds": {
+                        "num_chains": 3,
+                        "num_iters": 2,
+                        "proposal_scale": 0.1,
+                        "de_gamma": 0.0,
+                        "de_noise": 1.0e-3,
+                        "de_crossover": 0.9,
+                        "dream_snooker_prob": 0.2,
+                        "dream_archive_size": 128,
+                        "dream_crossover_values": [0.2, 0.5, 0.9],
+                        "dream_crossover_adapt_interval": 16,
+                        "dream_scale_jitter": 0.1,
                     },
                     "Variables": [
                         {
