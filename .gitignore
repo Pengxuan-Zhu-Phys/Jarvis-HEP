@@ -14,6 +14,7 @@ trash/
 Jarvis
 src/
 docs/
+githut-ci/
 
 src/__pycache__/
 src/IOs/__pycache__/
