@@ -140,22 +140,25 @@ Canonical design baseline: `docs/MCMC_STATE_MACHINE_DESIGN.md`
   - DoD checklist: move-type metrics logged; async stability verified.
   - Tracking doc: `docs/mcmc/samplers/DREAMLite_TASKLIST.md`
 
-- [ ] Task P2.2-ENS-03
+- [x] Task P2.2-ENS-03
   - Objective: add EnsembleMCMC and optional PT-Ensemble.
   - Files to add/modify:
     - `jarvishep/Sampling/Source/MCMC/engine_ensemble.py`
     - `jarvishep/Sampling/ensemblemcmc.py`
     - `jarvishep/Sampling/pt_ensemble.py`
     - `jarvishep/distributor.py`
-    - `jarvishep/card/schema/ensemble_schema.json`
-    - `jarvishep/card/schema/pt_ensemble_schema.json`
+    - `jarvishep/card/schema/Ensemble_schema.json`
+    - `jarvishep/card/schema/PTEnsemble_schema.json`
   - YAML schema keys to add:
     - `stretch_a`, `move_mix`, and optional tempering keys
-  - Minimal runnable example YAML (later):
-    - `bin/EggBox/Example_EnsembleMCMC_Toy.yaml`
-    - `bin/EggBox/Example_PTEnsemble_Toy.yaml`
+  - Minimal runnable example YAML (created):
+    - `bin/EggBox/Example_EnsembleMCMC_Operas.yaml`
+    - `bin/EggBox/Example_PTEnsemble_Operas.yaml`
   - Minimal test case name: `test_ensemble_affine_toy`
   - DoD checklist: walker metrics + optional swap metrics validated; no deadlock.
+  - Tracking docs:
+    - `docs/mcmc/samplers/EnsembleMCMC_TASKLIST.md`
+    - `docs/mcmc/samplers/PTEnsemble_TASKLIST.md`
 
 ## Phase 2.3: Slice / ESS
 
