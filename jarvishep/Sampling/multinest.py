@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from prettytable import PrettyTable
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.Source.Dynesty.py.dynesty.pool import JarvisFactoryAsyncPool
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
@@ -199,9 +200,12 @@ class MultiNest(SamplingVirtial):
     def _submit_with_backpressure(self, sample):
         if not self._submit_gate.acquire(blocking=False):
             self.logger.info(
-                "MultiNest factory submit window full -> wait -> limit={} | uuid={}".format(
-                    self._factory_submit_limit,
-                    sample.uuid,
+                format_two_column_log(
+                    "MultiNest factory submit window full; waiting",
+                    [
+                        ("factory_submit_limit", self._factory_submit_limit),
+                        ("uuid", sample.uuid),
+                    ],
                 )
             )
             self._submit_gate.acquire()
@@ -224,15 +228,21 @@ class MultiNest(SamplingVirtial):
             sample.update_uuid(uid)
             sample_cfg = self.build_sample_config(
                 base_sample_cfg,
-                save_dir=self.bucket_alloc.next_bucket_dir(),
+                save_dir=self._next_bucket_dir_for_sample(),
             )
             sample.set_config(sample_cfg)
             try:
                 return self._submit_with_backpressure(sample)
             except Exception as exc:
-                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                self.logger.error(
+                    format_two_column_log(
+                        "[WorkerFactory] future exception consumed",
+                        [("uuid", sample.uuid), ("error", exc)],
+                    )
+                )
                 raise
             finally:
+                self._on_sample_completed(sample.info)
                 sample.close()
 
         self.init_sampler_db()
@@ -516,7 +526,13 @@ class MultiNest(SamplingVirtial):
         full_df_path = self._resolve_full_dataframe_path(fulldf)
         if not full_df_path:
             self.logger.warning(
-                "MultiNest combine_data skipped -> no full sample table found (input={})".format(fulldf)
+                format_two_column_log(
+                    "MultiNest combine_data skipped",
+                    [
+                        ("reason", "no full sample table found"),
+                        ("input", fulldf),
+                    ],
+                )
             )
             return
         df_full = pd.read_csv(full_df_path)

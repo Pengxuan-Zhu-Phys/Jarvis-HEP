@@ -47,6 +47,8 @@ src/.DS_Store
 # VSCode 
 .vscode/
 
+.cache/
+
 #WARP
 WARP.md 
 

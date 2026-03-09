@@ -8,6 +8,7 @@ from uuid import uuid4
 import numpy as np
 import pandas as pd
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.Source.Dynesty.py.dynesty.pool import JarvisFactoryAsyncPool
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
@@ -187,9 +188,12 @@ class Dynesty(SamplingVirtial):
     def _submit_with_backpressure(self, sample):
         if not self._submit_gate.acquire(blocking=False):
             self.logger.info(
-                "Dynesty factory submit window full -> wait -> limit={} | uuid={}".format(
-                    self._factory_submit_limit,
-                    sample.uuid,
+                format_two_column_log(
+                    "Dynesty factory submit window full; waiting",
+                    [
+                        ("factory_submit_limit", self._factory_submit_limit),
+                        ("uuid", sample.uuid),
+                    ],
                 )
             )
             self._submit_gate.acquire()
@@ -212,15 +216,21 @@ class Dynesty(SamplingVirtial):
             sample.update_uuid(uuid)
             sample_cfg = self.build_sample_config(
                 base_sample_cfg,
-                save_dir=self.bucket_alloc.next_bucket_dir(),
+                save_dir=self._next_bucket_dir_for_sample(),
             )
             sample.set_config(sample_cfg)
             try:
                 return self._submit_with_backpressure(sample)
             except Exception as exc:
-                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                self.logger.error(
+                    format_two_column_log(
+                        "[WorkerFactory] future exception consumed",
+                        [("uuid", sample.uuid), ("error", exc)],
+                    )
+                )
                 raise
             finally:
+                self._on_sample_completed(sample.info)
                 sample.close()
 
         
@@ -272,7 +282,12 @@ class Dynesty(SamplingVirtial):
             except Exception:
                 missing.append(key)
         if missing:
-            self.logger.warning(f"Dynesty finalize skipped -> incomplete results -> missing keys={missing}")
+            self.logger.warning(
+                format_two_column_log(
+                    "Dynesty finalize skipped",
+                    [("reason", "incomplete results"), ("missing_keys", missing)],
+                )
+            )
             return False
         return True
 
@@ -367,7 +382,12 @@ class Dynesty(SamplingVirtial):
         savepath = os.path.join(self.info['sample']['task_result_dir'], "dynesty_summary.png")
         import matplotlib.pyplot as plt
         maxid = self.df.shape
-        self.logger.info(f"Dynesty plot: total rows={maxid[0]}")
+        self.logger.info(
+            format_two_column_log(
+                "Dynesty plot",
+                [("total_rows", maxid[0])],
+            )
+        )
         nlive = self.df.iloc[0]['samples_nlive']
         fig = plt.figure(figsize=(10, 11))
         ax = fig.add_axes([0.01, 0.99-0.5/11., 0.05, 0.5/11.])
@@ -435,7 +455,12 @@ class Dynesty(SamplingVirtial):
         from copy import deepcopy
         dtt = np.array(deepcopy(data[2]['y']))
         endid = np.where(dtt > dtt[-1])[-1][-1]
-        self.logger.info(f"Dynesty plot: highlighted index={endid}")
+        self.logger.info(
+            format_two_column_log(
+                "Dynesty plot",
+                [("highlighted_index", endid)],
+            )
+        )
 
         dtt = dtt / max(dtt)
         ax3.scatter( - self.df['log_PriorVolume'], dtt, marker='.', s=0.5, alpha=0.4, color="#3f51b5" )
@@ -552,7 +577,13 @@ class Dynesty(SamplingVirtial):
         full_df_path = self._resolve_full_dataframe_path(fulldf)
         if not full_df_path:
             self.logger.warning(
-                "Dynesty combine_data skipped -> no full sample table found (input={})".format(fulldf)
+                format_two_column_log(
+                    "Dynesty combine_data skipped",
+                    [
+                        ("reason", "no full sample table found"),
+                        ("input", fulldf),
+                    ],
+                )
             )
             return
         df_full = pd.read_csv(full_df_path)

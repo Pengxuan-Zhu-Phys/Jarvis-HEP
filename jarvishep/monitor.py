@@ -18,6 +18,12 @@ class JarvisMonitor:
         self.current_view = "Summary"
         self.runtime_in_seconds = 0
         self.current_index = 0
+        self.summary_index = 0
+        self.files_page_size = 1
+        self.files_total = 0
+        self.proc_index = 0
+        self.proc_page_size = 1
+        self.proc_total = 0
         self.start_time = time.time()
          
 
@@ -130,18 +136,20 @@ class JarvisMonitor:
         stdscr.addstr(start_y + 2, start_x, f"Files: {files}")
         stdscr.addstr(start_y + 3, start_x, f"Procs: {procs}")
 
-    def draw_file_box(self, stdscr, start_y, start_x, height, width, content_list):
+    def draw_file_box(self, stdscr, start_y, start_x, height, width, content_list, start_index=None):
         """Draw a box with dynamic content.
 
         Long paths are truncated to fit to available width by keeping the tail and prefixing with '...'.
         """
         max_content = height
+        if start_index is None:
+            start_index = self.current_index
         # Fit path into the available line width: "NNN: " prefix + borders.
         # Example prefix is like "  1: ", so reserve 8 chars plus 2 borders.
         max_path_len = max(10, width - 2 - 8)
 
         for i in range(max_content):
-            idx = self.current_index + i
+            idx = start_index + i
             if idx < len(content_list):
                 file_path = content_list[idx].replace(os.path.expanduser('~'), '~')
 
@@ -151,7 +159,7 @@ class JarvisMonitor:
                 line = f"{idx + 1:3}: {file_path}"
                 stdscr.addstr(start_y + 1 + i, start_x + 1, line[:width - 2])
 
-    async def draw_subprocess_box(self, stdscr, start_y, start_x, height, width):
+    async def draw_subprocess_box(self, stdscr, start_y, start_x, height, width, start_index=0):
         """ Draw a box with subprocess information """
         procs = []
         cpu_usage = 0.
@@ -184,11 +192,16 @@ class JarvisMonitor:
         stdscr.addstr(start_y, start_x + 1, f"{'PID':<8} {'CPU':<7} {'MEM':<10} {'THREADS':<8} {'COMMAND':<20}")
         stdscr.attroff(curses.color_pair(3))
 
-        for i, proc in enumerate(procs[:max_procs]):
+        if start_index < 0:
+            start_index = 0
+        if start_index >= len(procs) and len(procs) > 0:
+            start_index = max(0, len(procs) - max_procs)
+
+        for i, proc in enumerate(procs[start_index:start_index + max_procs]):
             line = f"{proc[0]:<8} {proc[1]:<7} {proc[2]:<10} {proc[4]:<8} {proc[3]:<20}"
             stdscr.addstr(start_y + 1 + i, start_x + 1, line[:width - 2])
 
-        return cpu_usage, mem_total
+        return cpu_usage, mem_total, len(procs)
 
     def format_runtime(self, seconds):
         days = seconds // (24 * 3600)
@@ -259,7 +272,7 @@ class JarvisMonitor:
                 if self.current_view == "Summary":
                     self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
                     footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
-                    stdscr.addstr(footer_y, 2, footer)
+                    stdscr.addstr(footer_y, 2, footer[: max(0, max_x - 4)])
 
                     files_count = len(files)
                     procs_count = len(psutil.Process(self.pid).children(recursive=True))
@@ -293,27 +306,43 @@ class JarvisMonitor:
                     stdscr.attron(curses.color_pair(3))
                     stdscr.addstr(file_header_y, 2, "  No. Path")
                     stdscr.attroff(curses.color_pair(3))
-                    self.draw_file_box(stdscr, file_box_y, 2, file_list_h, width, files)
+                    self.draw_file_box(
+                        stdscr,
+                        file_box_y,
+                        2,
+                        file_list_h,
+                        width,
+                        files,
+                        start_index=self.summary_index,
+                    )
 
                     # Paginate file list by the visible height
-                    self.current_index += file_list_h
-                    if self.current_index >= len(files):
-                        self.current_index = 0
+                    if len(files) > 0:
+                        self.summary_index += file_list_h
+                        if self.summary_index >= len(files):
+                            self.summary_index = 0
 
                     # Procs section
                     stdscr.attron(curses.color_pair(2))
                     stdscr.addstr(proc_title_y, 2, "> Subprocess List")
                     stdscr.attroff(curses.color_pair(2))
 
-                    cpu_usage, mem_usage = await self.draw_subprocess_box(stdscr, proc_header_y, 2, proc_list_h, width - 4)
+                    cpu_usage, mem_usage, _ = await self.draw_subprocess_box(
+                        stdscr,
+                        proc_header_y,
+                        2,
+                        proc_list_h,
+                        width - 4,
+                        start_index=0,
+                    )
 
                     # Re-draw the top summary block with real CPU/MEM
                     self.draw_summary(stdscr, 2, 2, width, cpu_usage, mem_usage, files_count, procs_count)
 
                 elif self.current_view == "Files":
                     self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
-                    footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
-                    stdscr.addstr(footer_y, 2, footer)
+                    footer = "[s] Summary  [f] Files  [p] Proc  [↑/↓] Move  [←/→] Page  [q] Quit"
+                    stdscr.addstr(footer_y, 2, footer[: max(0, max_x - 4)])
 
                     ttt = "> Opened Files List: \t{} in total".format(len(files))
                     stdscr.attron(curses.color_pair(2))
@@ -326,23 +355,47 @@ class JarvisMonitor:
 
                     # Fill available rows inside the box (items start at y=3)
                     file_list_h = max(1, (box_end_y - 1) - 3 + 1)
-                    self.draw_file_box(stdscr, 2, 2, file_list_h, width, files)
+                    self.files_page_size = file_list_h
+                    self.files_total = len(files)
+                    max_start = max(0, self.files_total - self.files_page_size)
+                    if self.current_index < 0:
+                        self.current_index = 0
+                    if self.current_index > max_start:
+                        self.current_index = max_start
+                    self.draw_file_box(
+                        stdscr,
+                        2,
+                        2,
+                        file_list_h,
+                        width,
+                        files,
+                        start_index=self.current_index,
+                    )
 
-                    if len(files) > file_list_h:
-                        step = max(5, file_list_h // 2)
-                        self.current_index += step
-                        if self.current_index >= len(files):
-                            self.current_index = 0
                     stdscr.refresh()
 
                 elif self.current_view == "Subprocess":
                     formatted_runtime = self.format_runtime(int(time.time() - psutil.Process(self.pid).create_time()))
                     self.draw_box(stdscr, 0, 0, box_end_y, box_end_x, title, 1, 1)
-                    footer = "[s] Summary  [f] Files  [p] Proc  [q] Quit"
-                    stdscr.addstr(footer_y, 2, footer)
+                    footer = "[s] Summary  [f] Files  [p] Proc  [↑/↓] Move  [←/→] Page  [q] Quit"
+                    stdscr.addstr(footer_y, 2, footer[: max(0, max_x - 4)])
 
                     sp_h = max(1, (box_end_y - 1) - 3 + 1)
-                    cpu_usage, mem = await self.draw_subprocess_box(stdscr, 2, 2, sp_h, width - 4)
+                    self.proc_page_size = sp_h
+                    max_start = max(0, self.proc_total - self.proc_page_size)
+                    if self.proc_index < 0:
+                        self.proc_index = 0
+                    if self.proc_index > max_start:
+                        self.proc_index = max_start
+                    cpu_usage, mem, proc_total = await self.draw_subprocess_box(
+                        stdscr,
+                        2,
+                        2,
+                        sp_h,
+                        width - 4,
+                        start_index=self.proc_index,
+                    )
+                    self.proc_total = proc_total
                     if mem < 1024 * 1024 * 1024:
                         mem_display = mem / 1024 / 1024
                         mem_unit = "MB"
@@ -360,9 +413,29 @@ class JarvisMonitor:
                 elif key == ord('s'):
                     self.current_view = "Summary"
                 elif key == ord('f'):
+                    if self.current_view != "Files":
+                        self.current_index = 0
                     self.current_view = "Files"
                 elif key == ord('p'):
+                    if self.current_view != "Subprocess":
+                        self.proc_index = 0
                     self.current_view = "Subprocess"
+                elif self.current_view == "Files" and key == curses.KEY_DOWN:
+                    self.current_index += 1
+                elif self.current_view == "Files" and key == curses.KEY_UP:
+                    self.current_index -= 1
+                elif self.current_view == "Files" and key == curses.KEY_RIGHT:
+                    self.current_index += max(1, self.files_page_size)
+                elif self.current_view == "Files" and key == curses.KEY_LEFT:
+                    self.current_index -= max(1, self.files_page_size)
+                elif self.current_view == "Subprocess" and key == curses.KEY_DOWN:
+                    self.proc_index += 1
+                elif self.current_view == "Subprocess" and key == curses.KEY_UP:
+                    self.proc_index -= 1
+                elif self.current_view == "Subprocess" and key == curses.KEY_RIGHT:
+                    self.proc_index += max(1, self.proc_page_size)
+                elif self.current_view == "Subprocess" and key == curses.KEY_LEFT:
+                    self.proc_index -= max(1, self.proc_page_size)
                 elif key == -1:
                     curses.napms(1000)
         finally:

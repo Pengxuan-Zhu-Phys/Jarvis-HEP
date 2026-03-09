@@ -4,7 +4,15 @@ from __future__ import annotations
 import numpy as np
 import time
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep.Sampling.Source.MCMC.config_contract import (
+    bounds_get,
+    bounds_get_int,
+    normalize_proposal_scales,
+    parse_common_chain_counts,
+    parse_proposal_scale_value,
+)
 from jarvishep.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep.Sampling.Source.MCMC.state_machine_base import MCMCStateMachineBase
 from jarvishep.sample import Sample  # Backward-compatible patch point for tests/tools.
@@ -58,13 +66,44 @@ class TPMCMC(MCMCStateMachineBase):
         self.load_variable()
         self._dimensions = len(self.vars)
         smp = self.config["Sampling"]["Bounds"]
-        self._nchains = int(smp["num_chains"])
-        self._niters = int(smp["num_iters"])
-        self._exchange_interval = int(smp["exchange_interval"])
-        self._proposal_scales = smp["proposal_scales"]
+        self._nchains, self._niters = parse_common_chain_counts(smp)
+        self._exchange_interval = bounds_get_int(
+            smp,
+            "exchange_interval",
+            aliases=("exchange.interval",),
+            default=1,
+            minimum=1,
+        )
+        proposal_value = parse_proposal_scale_value(smp, default=0.1)
+        self._proposal_scales = normalize_proposal_scales(
+            proposal_value,
+            nchains=self._nchains,
+            sampler_method=self.method,
+        )
+        self._exchange_rule = str(
+            bounds_get(
+                smp,
+                "exchange_rule",
+                aliases=("exchange.rule",),
+                default=self._exchange_rule,
+            )
+        )
+        self._swap_pairing_mode = str(
+            bounds_get(
+                smp,
+                "swap_pairing_mode",
+                aliases=("swap.pairing_mode",),
+                default=self._swap_pairing_mode,
+            )
+        )
         self._selectionexp = self.config["Sampling"].get("selection")
 
-        ladder = smp.get("temperature_ladder")
+        ladder = bounds_get(
+            smp,
+            "temperature_ladder",
+            aliases=("temperature.ladder",),
+            default=None,
+        )
         if ladder is None:
             # Backward compatible default: chain-0 is cold chain.
             ladder = [1.0 + float(ii) for ii in range(self._nchains)]
@@ -78,15 +117,11 @@ class TPMCMC(MCMCStateMachineBase):
         self.logger.info("TPMCMC Sampler initialized in {:.2f} sec".format(self.info["t0"]))
 
     def _normalize_proposal_scales(self):
-        scales = self._proposal_scales
-        if isinstance(scales, (int, float)):
-            return [float(scales) for _ in range(self._nchains)]
-        vals = [float(x) for x in scales]
-        if len(vals) != self._nchains:
-            raise ValueError(
-                f"proposal_scales size mismatch for TPMCMC: expect {self._nchains}, got {len(vals)}"
-            )
-        return vals
+        return normalize_proposal_scales(
+            self._proposal_scales,
+            nchains=self._nchains,
+            sampler_method=self.method,
+        )
 
     def _create_chain_registry(self) -> ChainRegistry:
         proposal_scales = self._normalize_proposal_scales()
@@ -123,19 +158,14 @@ class TPMCMC(MCMCStateMachineBase):
         return self._bounded_inflight(self._nchains)
 
     def _next_save_dir(self) -> str | None:
-        if getattr(self, "bucket_alloc", None) is None:
-            return None
-        return self.bucket_alloc.next_bucket_dir()
+        return self._next_bucket_dir_for_sample()
 
     def _apply_proposal_scales(self, proposal_scales):
-        if isinstance(proposal_scales, (int, float)):
-            values = [float(proposal_scales) for _ in range(self._nchains)]
-        else:
-            values = [float(x) for x in proposal_scales]
-        if len(values) != self._nchains:
-            raise ValueError(
-                f"proposal_scales size mismatch for TPMCMC: expect {self._nchains}, got {len(values)}"
-            )
+        values = normalize_proposal_scales(
+            proposal_scales,
+            nchains=self._nchains,
+            sampler_method=self.method,
+        )
         for ii, chain in enumerate(self._must_registry().all()):
             chain.engine.proposal_scale = values[ii]
         self._proposal_scales = values
@@ -214,7 +244,10 @@ class TPMCMC(MCMCStateMachineBase):
                 self._enqueue_chain(chain.chain_id)
 
         self.logger.warning(
-            "TPMCMC exchange summary -> attempted={} | accepted={}".format(attempted, accepted)
+            format_two_column_log(
+                "TPMCMC exchange summary",
+                [("attempted", attempted), ("accepted", accepted)],
+            )
         )
         return {"attempted": attempted, "accepted": accepted}
 

@@ -4,6 +4,11 @@ from __future__ import annotations
 import numpy as np
 
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep.Sampling.Source.MCMC.config_contract import (
+    bounds_get_float,
+    bounds_get_int,
+    normalize_proposal_scales,
+)
 from jarvishep.Sampling.Source.MCMC.engine_slice import SliceChain
 from jarvishep.Sampling.mcmc_standard import MCMC
 
@@ -24,26 +29,54 @@ class SliceMCMC(MCMC):
     def init_generator(self):
         super().init_generator()
         smp = self.config["Sampling"]["Bounds"]
-        slice_cfg = smp.get("slice", {})
-        if not isinstance(slice_cfg, dict):
-            slice_cfg = {}
-        self._slice_mode = str(smp.get("slice_mode", slice_cfg.get("mode", "random_direction")))
-        self._slice_width = float(smp.get("slice_width", slice_cfg.get("width", 0.2)))
-        self._slice_max_steps_out = int(
-            smp.get("slice_max_steps_out", slice_cfg.get("max_steps_out", 16))
+        self._slice_mode = str(
+            smp.get(
+                "slice_mode",
+                smp.get("slice", {}).get("mode", "random_direction")
+                if isinstance(smp.get("slice", {}), dict)
+                else "random_direction",
+            )
         )
-        self._slice_max_shrink = int(smp.get("slice_max_shrink", slice_cfg.get("max_shrink", 32)))
+        self._slice_width = bounds_get_float(
+            smp,
+            "slice_width",
+            aliases=("slice.width",),
+            default=(
+                smp.get("slice", {}).get("width", 0.2)
+                if isinstance(smp.get("slice", {}), dict)
+                else 0.2
+            ),
+            minimum=1e-6,
+        )
+        self._slice_max_steps_out = bounds_get_int(
+            smp,
+            "slice_max_steps_out",
+            aliases=("slice.max_steps_out",),
+            default=(
+                smp.get("slice", {}).get("max_steps_out", 16)
+                if isinstance(smp.get("slice", {}), dict)
+                else 16
+            ),
+            minimum=1,
+        )
+        self._slice_max_shrink = bounds_get_int(
+            smp,
+            "slice_max_shrink",
+            aliases=("slice.max_shrink",),
+            default=(
+                smp.get("slice", {}).get("max_shrink", 32)
+                if isinstance(smp.get("slice", {}), dict)
+                else 32
+            ),
+            minimum=1,
+        )
 
     def _normalize_proposal_scales(self):
-        scales = self._proposal_scales
-        if isinstance(scales, (int, float)):
-            return [float(scales) for _ in range(self._nchains)]
-        values = [float(x) for x in scales]
-        if len(values) != self._nchains:
-            raise ValueError(
-                f"proposal_scale size mismatch for SliceMCMC: expect {self._nchains}, got {len(values)}"
-            )
-        return values
+        return normalize_proposal_scales(
+            self._proposal_scales,
+            nchains=self._nchains,
+            sampler_method=self.method,
+        )
 
     def _create_chain_registry(self) -> ChainRegistry:
         proposal_scales = self._normalize_proposal_scales()

@@ -14,6 +14,8 @@ class HMCChain:
         n_iterations,
         step_size=0.05,
         leapfrog_steps=8,
+        gradient_provider=None,
+        gradient_clip_norm=None,
     ):
         self.param = np.asarray(initial_param, dtype=float)
         self.proposal_scale = float(proposal_scale)
@@ -21,6 +23,9 @@ class HMCChain:
         self.iterations = 0
         self.last_loglikelihood = None
         self.proposed_param = None
+        self.gradient_provider = gradient_provider
+        self.gradient_clip_norm = gradient_clip_norm
+        self.gradient_contract_level = "placeholder"
 
         self._dim = int(self.param.shape[0])
         self._step_size = max(1.0e-4, float(step_size))

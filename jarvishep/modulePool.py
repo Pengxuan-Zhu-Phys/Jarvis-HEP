@@ -28,6 +28,7 @@ class ModulePool:
         self.instances_info_file = self.get_instances_info_file_path()
         self._info_loaded = False 
         self._funcs = {}
+        self._subprocess_scheduler = None
 
         # Single-process, multi-thread safety
         self._inst_lock = threading.Lock()   # protects instances list + is_busy transitions
@@ -53,6 +54,8 @@ class ModulePool:
         instance.is_busy = False
         instance.installation_event = threading.Event()
         instance._funcs = self.funcs
+        if hasattr(instance, "set_subprocess_scheduler"):
+            instance.set_subprocess_scheduler(self._subprocess_scheduler)
         self.instances.append(instance)
         return instance
 
@@ -78,12 +81,22 @@ class ModulePool:
             instance.installation_event.set()
 
         instance._funcs = self.funcs
+        if hasattr(instance, "set_subprocess_scheduler"):
+            instance.set_subprocess_scheduler(self._subprocess_scheduler)
         self.instances.append(instance)
         return instance
 
     def set_funcs(self, funcs):
         self._funcs = funcs
+        for instance in self.instances:
+            instance._funcs = funcs
         # self.logger.warning(f"ModulePool {self.name} funcs -> {self.funcs}")
+
+    def set_subprocess_scheduler(self, scheduler):
+        self._subprocess_scheduler = scheduler
+        for instance in self.instances:
+            if hasattr(instance, "set_subprocess_scheduler"):
+                instance.set_subprocess_scheduler(scheduler)
 
     @property
     def funcs(self):
@@ -118,6 +131,8 @@ class ModulePool:
             self.update_instances_info_file()
 
         try:
+            if hasattr(instance, "set_subprocess_scheduler"):
+                instance.set_subprocess_scheduler(self._subprocess_scheduler)
             # Execute directly on current worker thread to avoid nested
             # ThreadPoolExecutor submit/result overhead.
             return instance.execute(params, sample_info)

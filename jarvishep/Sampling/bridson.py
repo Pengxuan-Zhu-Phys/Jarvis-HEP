@@ -1,6 +1,5 @@
 #!/usr/bin/env python3 
 from calendar import day_name
-from lib2to3.pgen2.token import RPAR
 import logging
 import os, sys
 from re import S 
@@ -14,6 +13,7 @@ from sympy import sympify
 from sympy.geometry import parabola
 import time 
 from random import randint
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 import json
 from scipy.special import gammainc
@@ -152,12 +152,17 @@ class Bridson(SamplingVirtial):
                 sample = Sample(param)
                 sconfig = self.build_sample_config(
                     base_sample_cfg,
-                    save_dir=self.bucket_alloc.next_bucket_dir(),
+                    save_dir=self._next_bucket_dir_for_sample(),
                 )
                 sample.set_config(sconfig)
 
                 sample.start()
-                future = self.factory.submit_task(sample.info)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                except Exception:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
+                    raise
                 self.tasks[future] = sample
         
             if not self.tasks:
@@ -183,10 +188,16 @@ class Bridson(SamplingVirtial):
                         self.tasks[future] = sample
                         resubmitted = True
                 except Exception as exc: 
-                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                    self.logger.error(
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", sample.uuid), ("error", exc)],
+                        )
+                    )
                     raise
                 finally:
                     if not resubmitted:
+                        self._on_sample_completed(sample.info)
                         sample.close()
 
             if exhausted and not self.tasks: 
@@ -212,11 +223,16 @@ class Bridson(SamplingVirtial):
                 sample = Sample(param)
                 sconfig = self.build_sample_config(
                     base_sample_cfg,
-                    save_dir=self.bucket_alloc.next_bucket_dir(),
+                    save_dir=self._next_bucket_dir_for_sample(),
                 )
                 sample.set_config(sconfig)
                 
-                future = self.factory.submit_task(sample.info)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                except Exception:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
+                    raise
                 self.tasks[future] = sample
 
             if not self.tasks:
@@ -234,9 +250,15 @@ class Bridson(SamplingVirtial):
                 try: 
                     future.result() 
                 except Exception as exc: 
-                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                    self.logger.error(
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", sample.uuid), ("error", exc)],
+                        )
+                    )
                     raise
                 finally: 
+                    self._on_sample_completed(sample.info)
                     sample.close()
           
             if exhausted and not self.tasks: 

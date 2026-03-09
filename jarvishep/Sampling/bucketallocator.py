@@ -19,37 +19,112 @@ class BucketAllocator:
         self.count = 0
         self._lock = threading.Lock()
         self._on_bucket_sealed = on_bucket_sealed
+        # Deferred archive callback state:
+        # - bucket is "sealed" when allocator starts using next bucket id
+        # - callback is emitted only when sealed bucket has no in-flight samples
+        self._sealed_buckets = set()
+        self._sealed_dispatched = set()
+        self._inflight_by_bucket = {}
 
         os.makedirs(self.base_path, exist_ok=True)
+
+    def _bucket_dir(self, bucket_id: int) -> str:
+        return os.path.join(self.base_path, f"{int(bucket_id):0{self.width}d}")
+
+    def _parse_bucket_id(self, bucket_dir: str | int | None) -> int | None:
+        if bucket_dir is None:
+            return None
+        if isinstance(bucket_dir, int):
+            return int(bucket_dir)
+        name = os.path.basename(str(bucket_dir).rstrip(os.sep))
+        if not name.isdigit():
+            return None
+        try:
+            return int(name)
+        except Exception:
+            return None
+
+    def _should_dispatch_locked(self, bucket_id: int) -> bool:
+        if self._on_bucket_sealed is None:
+            return False
+        if int(bucket_id) not in self._sealed_buckets:
+            return False
+        if int(bucket_id) in self._sealed_dispatched:
+            return False
+        return int(self._inflight_by_bucket.get(int(bucket_id), 0)) == 0
+
+    def _dispatch_if_ready(self, bucket_id: int) -> bool:
+        if self._on_bucket_sealed is None:
+            return False
+        sealed_dir = self._bucket_dir(bucket_id)
+        try:
+            self._on_bucket_sealed(sealed_dir)
+        except Exception:
+            return False
+        with self._lock:
+            self._sealed_dispatched.add(int(bucket_id))
+        return True
 
     def next_bucket_dir(self) -> str:
         """Return bucket dir like <base_path>/000001, thread-safe."""
         sealed_bucket_id = None
+        should_dispatch = False
         with self._lock:
             if self.count >= self.limit:
                 sealed_bucket_id = self.bucket
+                self._sealed_buckets.add(int(sealed_bucket_id))
+                should_dispatch = self._should_dispatch_locked(int(sealed_bucket_id))
                 self.bucket += 1
                 self.count = 0
             self.count += 1
             bucket_id = self.bucket
+            self._inflight_by_bucket[bucket_id] = int(self._inflight_by_bucket.get(bucket_id, 0)) + 1
 
-        bucket_dir = os.path.join(self.base_path, f"{bucket_id:0{self.width}d}")
+        bucket_dir = self._bucket_dir(bucket_id)
         os.makedirs(bucket_dir, exist_ok=True)
 
-        if sealed_bucket_id is not None and self._on_bucket_sealed is not None:
-            sealed_dir = os.path.join(self.base_path, f"{sealed_bucket_id:0{self.width}d}")
-            try:
-                self._on_bucket_sealed(sealed_dir)
-            except Exception:
-                # Do not affect sampling hot path when archive callback fails.
-                pass
+        if sealed_bucket_id is not None and should_dispatch:
+            self._dispatch_if_ready(int(sealed_bucket_id))
 
         return bucket_dir
+
+    def mark_sample_started(self, bucket_dir: str | int) -> None:
+        """Idempotent helper for explicit sample lifecycle integrations."""
+        bucket_id = self._parse_bucket_id(bucket_dir)
+        if bucket_id is None:
+            return
+        with self._lock:
+            self._inflight_by_bucket[bucket_id] = int(self._inflight_by_bucket.get(bucket_id, 0)) + 1
+
+    def mark_sample_finished(self, bucket_dir: str | int) -> None:
+        bucket_id = self._parse_bucket_id(bucket_dir)
+        if bucket_id is None:
+            return
+        should_dispatch = False
+        with self._lock:
+            cur = int(self._inflight_by_bucket.get(bucket_id, 0))
+            if cur <= 1:
+                self._inflight_by_bucket.pop(bucket_id, None)
+            else:
+                self._inflight_by_bucket[bucket_id] = cur - 1
+            should_dispatch = self._should_dispatch_locked(bucket_id)
+        if should_dispatch:
+            self._dispatch_if_ready(bucket_id)
+
+    def seal_current_bucket(self) -> None:
+        """Seal current bucket and dispatch callback once in-flight reaches zero."""
+        should_dispatch = False
+        with self._lock:
+            bucket_id = int(self.bucket)
+            self._sealed_buckets.add(bucket_id)
+            should_dispatch = self._should_dispatch_locked(bucket_id)
+        if should_dispatch:
+            self._dispatch_if_ready(bucket_id)
 
     def current_bucket_dir(self) -> str:
         with self._lock:
             bucket_id = self.bucket
-        return os.path.join(self.base_path, f"{bucket_id:0{self.width}d}")
+        return self._bucket_dir(bucket_id)
 
     def get_state(self) -> dict:
         with self._lock:

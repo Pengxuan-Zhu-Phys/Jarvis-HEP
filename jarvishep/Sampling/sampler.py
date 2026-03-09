@@ -213,6 +213,26 @@ class SamplingVirtial(Base):
             return
         manager.enqueue_bucket_dir(bucket_dir, blocking=True, timeout=30.0)
 
+    def _next_bucket_dir_for_sample(self) -> str | None:
+        if getattr(self, "bucket_alloc", None) is None:
+            return None
+        return self.bucket_alloc.next_bucket_dir()
+
+    def _on_sample_completed(self, sample_info: Dict[str, Any] | None) -> None:
+        if getattr(self, "bucket_alloc", None) is None:
+            return
+        if not isinstance(sample_info, dict):
+            return
+        save_dir = sample_info.get("save_dir")
+        if not save_dir:
+            return
+        bucket_dir = os.path.dirname(str(save_dir).rstrip(os.sep))
+        try:
+            self.bucket_alloc.mark_sample_finished(bucket_dir)
+        except Exception:
+            # Never break sampling cleanup on archive-accounting errors.
+            pass
+
     def finalize_sample_archive(self):
         if not self._archive_enabled():
             return
@@ -221,10 +241,16 @@ class SamplingVirtial(Base):
             return
         if self.bucket_alloc is not None:
             try:
+                self.bucket_alloc.seal_current_bucket()
+            except Exception:
+                pass
+        if self.bucket_alloc is not None:
+            try:
                 manager.enqueue_bucket_dir(
                     self.bucket_alloc.current_bucket_dir(),
                     blocking=True,
                     timeout=30.0,
+                    force=True,
                 )
             except Exception:
                 pass

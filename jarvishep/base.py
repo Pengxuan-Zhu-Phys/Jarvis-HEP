@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 _TASK_ROOT_ENV_VARS = ("JARVIS_HEP_TASK_ROOT", "JHEP_TASK_ROOT")
+_PROJECT_MARKERS = (".jarvis-project.json", "jarvis.project.yaml")
 
 
 class Base():
@@ -40,6 +41,11 @@ class Base():
 
     def _infer_task_root_from_config_dir(self, config_dir: str) -> str:
         path = Path(config_dir).expanduser().resolve()
+        # Preferred project-root detection: explicit marker file in current or ancestor dirs.
+        for candidate in [path, *path.parents]:
+            for marker in _PROJECT_MARKERS:
+                if (candidate / marker).exists():
+                    return str(candidate)
         # Keep the historical `project/bin/*.yaml` style by mapping any ancestor
         # named `bin` to its parent as task root.
         if path.name.lower() == "bin":
@@ -66,6 +72,9 @@ class Base():
 
         self.path["task_root"] = task_root
         self.path["jpath"] = task_root
+        # Keep subprocess/module-level helpers consistent even if they don't share this Base instance.
+        os.environ["JARVIS_HEP_TASK_ROOT"] = task_root
+        os.environ["JHEP_TASK_ROOT"] = task_root
         if config_file:
             self.path["config_file"] = config_file
         if config_dir:

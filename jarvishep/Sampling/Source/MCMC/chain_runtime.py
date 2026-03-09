@@ -5,12 +5,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List
 
 from .chain_history import ChainHistory
+from .engine_contract import MCMCEngineProtocol
 
 
 @dataclass
 class ChainRuntime:
     chain_id: int
-    engine: Any
+    engine: MCMCEngineProtocol | Any
     temperature: float = 1.0
     is_cold: bool = False
     iter: int = 0
@@ -83,4 +84,3 @@ class ChainRegistry:
 
     def __len__(self) -> int:
         return len(self._chains)
-

@@ -6,7 +6,6 @@ import logging
 import os, sys
 from jarvishep.base import Base
 from pprint import pprint
-jpath = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 import yaml 
 from jarvishep.Module.library import LibraryModule
 

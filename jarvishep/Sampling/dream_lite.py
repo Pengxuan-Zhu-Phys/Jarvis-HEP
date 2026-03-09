@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from jarvishep.Sampling.Source.MCMC.config_contract import (
+    bounds_get_float,
+    bounds_get_int,
+    bounds_get_list,
+)
 from jarvishep.Sampling.dream import DREAM
 
 
@@ -22,14 +27,41 @@ class DREAMLite(DREAM):
     def init_generator(self):
         super().init_generator()
         smp = self.config["Sampling"]["Bounds"]
-        self._dream_snooker_prob = float(smp.get("dream_snooker_prob", self._dream_snooker_prob))
-        self._dream_archive_size = int(smp.get("dream_archive_size", self._dream_archive_size))
+        self._dream_snooker_prob = bounds_get_float(
+            smp,
+            "dream_snooker_prob",
+            aliases=("dream.snooker_prob",),
+            default=self._dream_snooker_prob,
+            minimum=0.0,
+        )
+        self._dream_archive_size = bounds_get_int(
+            smp,
+            "dream_archive_size",
+            aliases=("dream.archive_size",),
+            default=self._dream_archive_size,
+            minimum=1,
+        )
 
-        values = smp.get("dream_crossover_values", self._dream_crossover_values)
+        values = bounds_get_list(
+            smp,
+            "dream_crossover_values",
+            aliases=("dream.crossover_values",),
+            default=self._dream_crossover_values,
+        )
         if isinstance(values, (int, float)):
             values = [float(values)]
         self._dream_crossover_values = [float(x) for x in values] if values else [0.9]
-        self._dream_crossover_adapt_interval = int(
-            smp.get("dream_crossover_adapt_interval", self._dream_crossover_adapt_interval)
+        self._dream_crossover_adapt_interval = bounds_get_int(
+            smp,
+            "dream_crossover_adapt_interval",
+            aliases=("dream.crossover_adapt_interval",),
+            default=self._dream_crossover_adapt_interval,
+            minimum=1,
         )
-        self._dream_scale_jitter = float(smp.get("dream_scale_jitter", self._dream_scale_jitter))
+        self._dream_scale_jitter = bounds_get_float(
+            smp,
+            "dream_scale_jitter",
+            aliases=("dream.scale_jitter",),
+            default=self._dream_scale_jitter,
+            minimum=0.0,
+        )

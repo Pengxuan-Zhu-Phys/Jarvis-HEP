@@ -5,6 +5,7 @@ from abc import ABCMeta, abstractmethod
 # from mpmath.functions.functions import re
 import numpy as np
 import time 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial, BoolConversionError
 import json
 from jarvishep.sample import Sample
@@ -134,7 +135,12 @@ class RandomS(SamplingVirtial):
                     future.result()
                 except Exception as exc:
                     suuid = sample.uuid if sample else "UNKNOWN"
-                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}")
+                    self.logger.error(
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", suuid), ("error", exc)],
+                        )
+                    )
                     raise
                 finally:
                     if sample is not None:

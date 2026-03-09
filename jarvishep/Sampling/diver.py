@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.Sampling.Source.Diver.de import DEConfig, DifferentialEvolution
 from jarvishep.sample import Sample
@@ -202,11 +203,15 @@ class Diver(SamplingVirtial):
             sample = Sample(params)
             sample_cfg = self.build_sample_config(
                 base_sample_cfg,
-                save_dir=self.bucket_alloc.next_bucket_dir(),
+                save_dir=self._next_bucket_dir_for_sample(),
             )
             sample.set_config(sample_cfg)
-
-            future = self.factory.submit_task(sample.info)
+            try:
+                future = self.factory.submit_task(sample.info)
+            except Exception:
+                self._on_sample_completed(sample.info)
+                sample.close()
+                raise
             future_to_idx[future] = idx
             future_to_sample[future] = sample
 
@@ -219,9 +224,15 @@ class Diver(SamplingVirtial):
                 if np.isfinite(result):
                     values[idx] = result
             except Exception as exc:
-                self.logger.error(f"[WorkerFactory] future exception consumed: uuid={sample.uuid} error={exc}")
+                self.logger.error(
+                    format_two_column_log(
+                        "[WorkerFactory] future exception consumed",
+                        [("uuid", sample.uuid), ("error", exc)],
+                    )
+                )
                 raise RuntimeError(f"Diver sample evaluation failed at index {idx}") from exc
             finally:
+                self._on_sample_completed(sample.info)
                 sample.close()
 
         return values

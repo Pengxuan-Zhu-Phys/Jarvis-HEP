@@ -6,10 +6,13 @@ import contextlib
 import io
 import json
 import os
+import glob
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -42,6 +45,12 @@ class CliEntrypointTests(unittest.TestCase):
             }
             if "default" in opt:
                 kwargs["default"] = opt["default"]
+            if "nargs" in opt:
+                kwargs["nargs"] = opt["nargs"]
+            if "const" in opt:
+                kwargs["const"] = opt["const"]
+            if "choices" in opt:
+                kwargs["choices"] = opt["choices"]
             if "type" in opt:
                 if opt["type"] == "int":
                     kwargs["type"] = int
@@ -77,6 +86,8 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn("--convert", help_text)
         self.assertIn("--monitor", help_text)
         self.assertIn("--mkproject", help_text)
+        self.assertIn("--packproject", help_text)
+        self.assertIn("--profile", help_text)
 
     def test_removed_flag_is_rejected_by_argparser(self):
         parser = self._build_argparser()
@@ -102,7 +113,7 @@ class CliEntrypointTests(unittest.TestCase):
 
     def test_main_mkproject_success(self):
         from jarvishep.client import main
-        from jarvishep.project_scaffold import PROJECT_SUBDIRS
+        from jarvishep.project_scaffold import PROJECT_DESCRIPTOR_NAME, PROJECT_SUBDIRS
 
         with tempfile.TemporaryDirectory() as tmpdir:
             old_cwd = os.getcwd()
@@ -117,12 +128,62 @@ class CliEntrypointTests(unittest.TestCase):
             self.assertTrue(os.path.isdir(project_root))
             for subdir in PROJECT_SUBDIRS:
                 self.assertTrue(os.path.isdir(os.path.join(project_root, subdir)))
+            self.assertTrue(os.path.isfile(os.path.join(project_root, ".jarvis-project.json")))
+            self.assertTrue(os.path.isfile(os.path.join(project_root, PROJECT_DESCRIPTOR_NAME)))
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(project_root, "bin", "quickstart_mcmc_operas.yaml")
+                )
+            )
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(project_root, "bin", "quickstart_csv_operas.yaml")
+                )
+            )
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(project_root, "deps", "environment_default.yaml")
+                )
+            )
 
     def test_main_mkproject_conflict_flag(self):
         from jarvishep.client import main
 
         rc = main(["Jarvis", "--mkproject", "DemoProject", "--plot"])
         self.assertEqual(rc, 2)
+
+    def test_main_plot_emits_plot_yaml_under_project_images_root(self):
+        from jarvishep.client import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                with mock.patch.dict(
+                    os.environ,
+                    {"JARVIS_HEP_TASK_ROOT": "", "JHEP_TASK_ROOT": ""},
+                    clear=False,
+                ):
+                    rc_mk = main(["Jarvis", "--mkproject", "DemoProject"])
+                    self.assertEqual(rc_mk, 0)
+
+                    project_root = os.path.join(tmpdir, "DemoProject")
+                    os.chdir(project_root)
+                    rc_plot = main(["Jarvis", "bin/quickstart_mcmc_operas.yaml", "--plot"])
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(rc_plot, 0)
+            project_root = os.path.join(tmpdir, "DemoProject")
+            scan_name = "quickstart_mcmc_operas"
+            self.assertTrue(
+                os.path.isfile(os.path.join(project_root, "images", f"{scan_name}.yaml"))
+            )
+            self.assertFalse(
+                os.path.exists(
+                    os.path.join(project_root, "outputs", scan_name, "IMAGE", f"{scan_name}.yaml")
+                )
+            )
 
     def test_main_mkproject_rejects_removed_flag(self):
         from jarvishep.client import main
@@ -157,6 +218,56 @@ class CliEntrypointTests(unittest.TestCase):
                 os.chdir(old_cwd)
 
             self.assertEqual(rc, 1)
+
+    def test_main_packproject_default_current_dir_success(self):
+        from jarvishep.client import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            os.makedirs(os.path.join(project_root, "bin"), exist_ok=True)
+            os.makedirs(os.path.join(project_root, "data"), exist_ok=True)
+            with open(os.path.join(project_root, ".jarvis-project.json"), "w", encoding="utf-8") as f1:
+                f1.write("{}\n")
+            with open(os.path.join(project_root, "jarvis.project.yaml"), "w", encoding="utf-8") as f1:
+                f1.write("project: {}\n")
+            with open(os.path.join(project_root, "README.md"), "w", encoding="utf-8") as f1:
+                f1.write("# Demo\n")
+            with open(os.path.join(project_root, "bin", "task.yaml"), "w", encoding="utf-8") as f1:
+                f1.write("Scan: {name: demo, save_dir: '&J/outputs'}\n")
+
+            old_cwd = os.getcwd()
+            out = io.StringIO()
+            try:
+                os.chdir(project_root)
+                with contextlib.redirect_stdout(out):
+                    rc = main(["Jarvis", "--packproject"])
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(rc, 0, msg=out.getvalue())
+            archives = glob.glob(os.path.join(tmpdir, "DemoProject_repro_*.tar.gz"))
+            self.assertEqual(len(archives), 1, msg=out.getvalue())
+            with tarfile.open(archives[0], "r:gz") as tf:
+                names = set(tf.getnames())
+            self.assertIn("DemoProject/.jarvis-project.json", names)
+            self.assertIn("DemoProject/.jarvis-pack/manifest.json", names)
+
+    def test_main_packproject_non_project_path_fails(self):
+        from jarvishep.client import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cwd = os.getcwd()
+            out = io.StringIO()
+            try:
+                os.chdir(tmpdir)
+                with contextlib.redirect_stdout(out):
+                    with self.assertRaises(SystemExit) as cm:
+                        main(["Jarvis", "--packproject"])
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("Jarvis project not found", out.getvalue())
 
     def test_python_module_mkproject_success(self):
         with tempfile.TemporaryDirectory() as tmpdir:

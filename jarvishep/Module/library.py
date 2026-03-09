@@ -143,7 +143,11 @@ class LibraryModule(Module):
         )
 
         # Wait for the process to finish
-        await process.wait()
+        rc = await process.wait()
+        if int(rc) != 0:
+            raise RuntimeError(
+                f"Library command failed rc={rc} cwd={command.get('cwd')} cmd={command.get('cmd')}"
+            )
 
 
     async def log_stream_info(self, stream):

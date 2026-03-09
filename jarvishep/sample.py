@@ -7,6 +7,7 @@ import sympy as sp
 from copy import deepcopy 
 from time import sleep
 from jarvishep.base import Base
+from jarvishep.log_kv import format_two_column_log
 from loguru import logger
 from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
@@ -145,7 +146,12 @@ class Sample(Base):
 
     def close(self):
         if getattr(self, "logger", None) is not None:
-            self.logger.info(f"[Sample] sample close: uuid={self.uuid}")
+            self.logger.info(
+                format_two_column_log(
+                    "[Sample] sample close",
+                    [("uuid", self.uuid)],
+                )
+            )
         self.close_logger() 
         
     def close_logger(self):

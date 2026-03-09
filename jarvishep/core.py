@@ -24,6 +24,7 @@ import pandas as pd
 import concurrent.futures
 import asyncio 
 from jarvishep.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
+from jarvishep.log_kv import format_two_column_log
 from loguru import logger
 import setproctitle 
 logger.remove()
@@ -54,6 +55,7 @@ class Core(Base):
         self.scan_mode                  = True
         self.plotter                    = PlotterClass()
         self.mode                       = None
+        self.subprocess_scheduler       = None
         # self.monitor                    = Monitor()
         # self.monitor.start()
 
@@ -79,6 +81,12 @@ class Core(Base):
             }
             if 'default' in opt:
                 kwargs['default'] = opt['default']
+            if 'nargs' in opt:
+                kwargs['nargs'] = opt['nargs']
+            if 'const' in opt:
+                kwargs['const'] = opt['const']
+            if 'choices' in opt:
+                kwargs['choices'] = opt['choices']
             if "type" in opt:
                 if opt['type'] == 'int':
                     kwargs['type'] = int
@@ -104,6 +112,10 @@ class Core(Base):
         if self.args.mkproject:
             self.scan_mode = False
             self.mode      = "MKPROJECT"
+            return
+        if getattr(self.args, "packproject", None) is not None:
+            self.scan_mode = False
+            self.mode = "PACKPROJECT"
             return
         if self.args.cvtDB:
             self.scan_mode = False
@@ -194,10 +206,11 @@ class Core(Base):
 
         # Plot folder and config reference
         if self.args.plot:
-            plot_dir = os.path.join(task_result_dir, "IMAGE")
+            # Keep plot configs/assets at project scope instead of run-output scope.
+            plot_dir = self.decode_path("&J/images")
             os.makedirs(plot_dir, exist_ok=True)
             if 'Scan' in config:
-                # With full scan YAML, keep generated plotting config under IMAGE
+                # With full scan YAML, emit plotting config under project images root.
                 self.info['plot'] = {
                     "save_path": plot_dir,
                     "config":    os.path.join(plot_dir, f"{self.info['scan_name']}.yaml")
@@ -452,6 +465,63 @@ class Core(Base):
             max_workers=max_workers
             )
         self.sampler.set_max_workers(max_workers)
+
+        if hasattr(self.yaml, "get_subprocess_runtime_options"):
+            runtime_opts = self.yaml.get_subprocess_runtime_options(worker_parallel=max_workers)
+        else:
+            fallback_concurrency = max(1, int(max_workers))
+            runtime_opts = {
+                "max_concurrency": fallback_concurrency,
+                "max_pending": max(128, fallback_concurrency * 16),
+                "per_task_timeout_sec": None,
+                "progress_interval_sec": 5.0,
+                "log_policy": "logger",
+                "diagnostics_enabled": False,
+                "diagnostics_interval_sec": 10.0,
+                "terminate_grace_sec": 5.0,
+            }
+        args = getattr(self, "args", None)
+        if getattr(args, "max_concurrency", None) is not None:
+            runtime_opts["max_concurrency"] = int(args.max_concurrency)
+        if getattr(args, "per_task_timeout_sec", None) is not None:
+            runtime_opts["per_task_timeout_sec"] = float(args.per_task_timeout_sec)
+        if getattr(args, "progress_interval_sec", None) is not None:
+            runtime_opts["progress_interval_sec"] = float(args.progress_interval_sec)
+        if getattr(args, "log_policy", None):
+            runtime_opts["log_policy"] = str(args.log_policy).strip().lower()
+
+        from jarvishep.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
+
+        task_result_dir = self.info.get("sample", {}).get("task_result_dir", "/tmp")
+        runtime_dir = os.path.join(task_result_dir, "RUNTIME")
+        status_path = os.path.join(runtime_dir, "status.jsonl")
+
+        splogger = logger.bind(
+            module="Jarvis-HEP.Subprocess",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
+        self.subprocess_scheduler = AsyncSubprocessScheduler(
+            config=SubprocessRuntimeConfig(**runtime_opts),
+            logger=splogger,
+            status_path=status_path,
+        )
+        self.factory.set_subprocess_scheduler(self.subprocess_scheduler)
+        self.module_manager.set_subprocess_scheduler(self.subprocess_scheduler)
+        splogger.warning(
+            format_two_column_log(
+                "Subprocess scheduler configured",
+                [
+                    ("max_concurrency", runtime_opts.get("max_concurrency")),
+                    ("max_pending", runtime_opts.get("max_pending")),
+                    ("timeout", runtime_opts.get("per_task_timeout_sec")),
+                    ("log_policy", runtime_opts.get("log_policy")),
+                    ("diagnostics", runtime_opts.get("diagnostics_enabled")),
+                ],
+            )
+        )
+
         factory_logger_name = "Jarvis-HEP.Factory"
 
         def _factory_filter(record):
@@ -537,6 +607,9 @@ class Core(Base):
         # Mode switch: MKPROJECT / PLOT / CDB / Monitor / SCAN (default) / 1PC
         if self.mode == "MKPROJECT" or getattr(self.args, 'mkproject', None):
             # Project scaffold mode: no YAML/project logger required
+            return
+        if self.mode == "PACKPROJECT" or getattr(self.args, "packproject", None) is not None:
+            # Project packaging mode: no YAML/project logger required
             return
 
         elif self.mode == "VERSION" or getattr(self.args, "version", False):
@@ -669,6 +742,8 @@ class Core(Base):
         if self.args.mkproject:
             if self.args.file:
                 self.argparser.error("positional argument `file` cannot be used with --mkproject")
+            if getattr(self.args, "packproject", None) is not None:
+                self.argparser.error("--mkproject cannot be combined with --packproject")
             if any([
                 getattr(self.args, "plot", False),
                 getattr(self.args, "cvtDB", False),
@@ -676,6 +751,18 @@ class Core(Base):
                 getattr(self.args, "OPC", False),
             ]):
                 self.argparser.error("--mkproject cannot be combined with workflow mode options")
+            return
+
+        if getattr(self.args, "packproject", None) is not None:
+            if self.args.file:
+                self.argparser.error("positional argument `file` cannot be used with --packproject")
+            if any([
+                getattr(self.args, "plot", False),
+                getattr(self.args, "cvtDB", False),
+                getattr(self.args, "monitor", False),
+                getattr(self.args, "OPC", False),
+            ]):
+                self.argparser.error("--packproject cannot be combined with workflow mode options")
             return
 
         if getattr(self.args, "version", False):
@@ -696,6 +783,49 @@ class Core(Base):
 
         print(f"[Jarvis-HEP] Project scaffold created at: {project_root}")
         print(f"[Jarvis-HEP] Created folders: {', '.join(PROJECT_SUBDIRS)}")
+
+    def packproject(self) -> None:
+        from jarvishep.project_packager import (
+            ProjectPackError,
+            create_project_package,
+        )
+
+        def _human_bytes(value: int) -> str:
+            units = ["B", "KB", "MB", "GB", "TB"]
+            amount = float(max(0, int(value)))
+            idx = 0
+            while amount >= 1024.0 and idx < len(units) - 1:
+                amount /= 1024.0
+                idx += 1
+            if idx == 0:
+                return f"{int(amount)} {units[idx]}"
+            return f"{amount:.2f} {units[idx]}"
+
+        try:
+            report = create_project_package(
+                project_root=str(self.args.packproject),
+                profile=str(getattr(self.args, "packprofile", "repro")),
+            )
+        except ProjectPackError as exc:
+            print(f"[Jarvis-HEP] {exc}")
+            sys.exit(2)
+        except Exception as exc:
+            print(f"[Jarvis-HEP] Failed to package project: {exc}")
+            sys.exit(1)
+
+        print(
+            format_two_column_log(
+                "Jarvis-HEP project package created",
+                [
+                    ("Project root", report.project_root),
+                    ("Archive", report.archive_path),
+                    ("Profile", report.profile),
+                    ("Packed files", report.included_files),
+                    ("Skipped files", report.excluded_files),
+                    ("Payload size", _human_bytes(report.total_bytes)),
+                ],
+            )
+        )
 
     def convert(self) -> None: 
         if os.path.exists(self.info['db']['info']):

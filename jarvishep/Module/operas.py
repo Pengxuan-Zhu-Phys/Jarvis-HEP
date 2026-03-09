@@ -5,6 +5,7 @@ import asyncio
 import inspect
 from collections.abc import Mapping
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Module.module import Module
 
 
@@ -212,7 +213,14 @@ class OperasModule(Module):
 
         if slogger is not None:
             slogger.info(
-                f"Operas input dispatch -> module={self.name}, operator={resolved_operator}, call_mode={self.call_mode}"
+                format_two_column_log(
+                    "Operas input dispatch",
+                    [
+                        ("module", self.name),
+                        ("operator", resolved_operator),
+                        ("call_mode", self.call_mode),
+                    ],
+                )
             )
             slogger.info(f"Operas input observables -> {input_observables}")
             extra_kwargs = {

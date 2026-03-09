@@ -18,6 +18,10 @@ from jarvishep.Sampling.Source.MCMC.chain_history import ChainEvent, ChainHistor
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime  # noqa: E402
 from jarvishep.Sampling.Source.MCMC.controller import MCMCControlGuard, MCMCControlPatch  # noqa: E402
 from jarvishep.Sampling.Source.MCMC.dram_chain import DRAMChain  # noqa: E402
+from jarvishep.Sampling.Source.MCMC.engine_contract import (  # noqa: E402
+    MCMCEngineContractError,
+    validate_engine_contract,
+)
 from jarvishep.Sampling.ammcmc import AMMCMC  # noqa: E402
 from jarvishep.Sampling.demcmc import DEMCMC  # noqa: E402
 from jarvishep.Sampling.dream import DREAM  # noqa: E402
@@ -117,6 +121,17 @@ class _BootstrapController:
 
     def on_post_exchange(self, _snapshot, _exchange_metrics):
         return None
+
+
+class _DummyGradientProvider:
+    def gradient(self, point, *, context=None):
+        _ = context
+        arr = np.asarray(point, dtype=float)
+        return np.zeros_like(arr)
+
+
+class _BadGradientProvider:
+    pass
 
 
 class MCMCStateMachineTests(unittest.TestCase):
@@ -257,6 +272,11 @@ class MCMCStateMachineTests(unittest.TestCase):
             self.assertTrue(sampler.is_cold_chain(0))
             self.assertGreaterEqual(_FakeSample.close_calls, 1)
             self.assertTrue(any(frame.event == "post_exchange" for frame in sampler.metrics_all()))
+            self.assertTrue(
+                {frame.event for frame in sampler.metrics_all()}.issubset(
+                    {"run_start", "post_step", "post_exchange", "run_end"}
+                )
+            )
 
     def test_distributor_supports_toymcmc(self):
         sampler = Distributor.set_method("ToyMCMC")
@@ -973,6 +993,276 @@ class MCMCStateMachineTests(unittest.TestCase):
             ts.set_max_workers(2)
             ts.initialize()
             self.assertEqual(ts._max_inflight(), 2)
+
+    def test_gradient_placeholder_contract_and_bounded_inflight(self):
+        cases = [
+            (
+                "MALA",
+                MALA,
+                {
+                    "mala_step_size": 0.1,
+                },
+            ),
+            (
+                "HMC",
+                HMC,
+                {
+                    "hmc_step_size": 0.05,
+                    "hmc_leapfrog_steps": 6,
+                },
+            ),
+            (
+                "NUTS",
+                NUTS,
+                {
+                    "nuts_step_size": 0.05,
+                    "nuts_max_depth": 5,
+                },
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as td:
+            for method_name, sampler_cls, extra_bounds in cases:
+                sampler = sampler_cls()
+                sampler.set_logger(_NoopLogger())
+                sample_dirs = os.path.join(td, f"SAMPLE-{method_name}")
+                sampler.info["sample"] = {
+                    "task_result_dir": td,
+                    "sample_dirs": sample_dirs,
+                    "archive_samples": False,
+                }
+                os.makedirs(sample_dirs, exist_ok=True)
+
+                cfg = {
+                    "Sampling": {
+                        "Bounds": {
+                            "num_chains": 7,
+                            "num_iters": 1,
+                            "proposal_scale": 0.1,
+                            **extra_bounds,
+                        },
+                        "Variables": [
+                            {
+                                "name": "x",
+                                "description": "x",
+                                "distribution": {
+                                    "type": "Flat",
+                                    "parameters": {"min": 0.0, "max": 1.0},
+                                },
+                            }
+                        ],
+                    },
+                    "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+                }
+
+                sampler.set_config(cfg)
+                sampler.set_max_workers(2)
+                sampler.initialize()
+
+                self.assertEqual(sampler.method, method_name)
+                self.assertEqual(sampler._max_inflight(), 2)
+                self.assertIn("placeholder", (sampler_cls.__doc__ or "").lower())
+
+    def test_engine_contract_rejects_invalid_engine(self):
+        with self.assertRaises(MCMCEngineContractError):
+            validate_engine_contract(
+                object(),
+                sampler_method="MCMC",
+                chain_id=0,
+            )
+
+    def test_proposal_scale_alias_normalization(self):
+        mcfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 3,
+                    "num_iters": 1,
+                    "proposal_scales": [0.2, 0.3, 0.4],
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+        tcfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 4,
+                    "num_iters": 1,
+                    "exchange_interval": 1,
+                    "proposal_scale": 0.2,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            ms = MCMC()
+            ms.set_logger(_NoopLogger())
+            ms.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(ms.info["sample"]["sample_dirs"], exist_ok=True)
+            ms.set_config(mcfg)
+            ms.initialize()
+            self.assertEqual(ms._normalize_proposal_scales(), [0.2, 0.3, 0.4])
+
+            ts = TPMCMC()
+            ts.set_logger(_NoopLogger())
+            ts.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE2"),
+                "archive_samples": False,
+            }
+            os.makedirs(ts.info["sample"]["sample_dirs"], exist_ok=True)
+            ts.set_config(tcfg)
+            ts.initialize()
+            self.assertEqual(ts._proposal_scales, [0.2, 0.2, 0.2, 0.2])
+
+    def test_nested_alias_keys_for_adapt_and_gradient_provider(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 1,
+                    "proposal_scale": 0.1,
+                    "adapt": {
+                        "enabled": False,
+                        "start_iter": 7,
+                        "window": 3,
+                        "eps": 1.0e-5,
+                        "scale": 2.1,
+                    },
+                    "gradient": {"provider": _DummyGradientProvider(), "clip_norm": 5.0},
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            am = AMMCMC()
+            am.set_logger(_NoopLogger())
+            am.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE-AM"),
+                "archive_samples": False,
+            }
+            os.makedirs(am.info["sample"]["sample_dirs"], exist_ok=True)
+            am.set_config(cfg)
+            self.assertFalse(am._adapt_enabled)
+            self.assertEqual(am._adapt_start_iter, 7)
+            self.assertEqual(am._adapt_window, 3)
+
+            mala = MALA()
+            mala.set_logger(_NoopLogger())
+            mala.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE-MALA"),
+                "archive_samples": False,
+            }
+            os.makedirs(mala.info["sample"]["sample_dirs"], exist_ok=True)
+            mala.set_config(cfg)
+            mala.initialize()
+            self.assertEqual(mala.gradient_contract_level, "placeholder-reference")
+            self.assertEqual(mala.gradient_contract_target, "v1.7.0")
+            self.assertIsNotNone(mala._gradient_provider)
+            self.assertEqual(mala._gradient_clip_norm, 5.0)
+
+    def test_chain_summary_contract_fields(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 2,
+                    "proposal_scale": 0.1,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            sampler = MCMC()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_factory(_ImmediateFactory())
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                sampler.initialize()
+                sampler.run_nested()
+
+            summary = sampler.chain_summary()
+            self.assertIsNotNone(summary)
+            self.assertEqual(
+                set(summary.keys()),
+                {"method", "chains", "accepted", "rejected", "acc_rate", "best_logl"},
+            )
+
+    def test_invalid_gradient_provider_is_rejected(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 1,
+                    "proposal_scale": 0.1,
+                    "gradient_provider": _BadGradientProvider(),
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            sampler = MALA()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            with self.assertRaises(TypeError):
+                sampler.set_config(cfg)
 
 
 if __name__ == "__main__":

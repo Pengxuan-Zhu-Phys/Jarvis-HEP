@@ -506,7 +506,7 @@ class Workflow(Base):
                                 ha="center", va='top', 
                                 fontfamily="sans-serif", fontsize="x-small", fontstyle="normal", fontweight="light"
                             )
-                            arraw_from_V2F(ipf['pos'] , mod['bp'])
+                            line_from_F2M(ipf['pos'] , mod['bp'])
                             for link in ipf['link'].values():
                                 # print(kk, link)
                                 arraw_from_V2F(link['pos'], ipf['pos'])
@@ -667,3 +667,24 @@ class Workflow(Base):
             
             fig.savefig(save_path, dpi=300)
             plt.close(fig)
+            self._release_matplotlib_font_handles()
+
+    @staticmethod
+    def _release_matplotlib_font_handles() -> None:
+        """Best-effort release of matplotlib font file handles.
+
+        Matplotlib may keep a persistent handle on selected TTF files
+        (for example DejaVuSans-Bold.ttf) via its internal font cache.
+        This method clears that cache when available.
+        """
+        try:
+            from matplotlib import font_manager as _fm
+        except Exception:
+            return
+        try:
+            get_font = getattr(_fm, "_get_font", None)
+            if hasattr(get_font, "cache_clear"):
+                get_font.cache_clear()
+        except Exception:
+            # Best-effort cleanup; never fail workflow rendering on cache release.
+            pass

@@ -17,6 +17,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from jarvishep.log_kv import format_two_column_log
+
 
 Array = np.ndarray
 
@@ -398,7 +400,12 @@ class DifferentialEvolution:
                     extra_evals, n_dups = self._replace_duplicates(next_population, next_costs, evaluate_loglike)
                     total_evals += extra_evals
                     if logger is not None and n_dups > 0:
-                        logger.info(f"[Diver] civ={civ} gen={gen}: replaced {n_dups} duplicate vectors")
+                        logger.info(
+                            format_two_column_log(
+                                "[Diver] duplicate vectors replaced",
+                                [("civ", civ), ("gen", gen), ("replaced", n_dups)],
+                            )
+                        )
 
                 population = next_population
                 costs = next_costs

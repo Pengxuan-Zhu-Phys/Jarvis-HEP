@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 from loguru import logger
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.observable_io import (
     flatten_records_for_csv,
     load_schema,
@@ -161,9 +162,12 @@ class GlobalHDF5Writer:
                 now = time.monotonic()
                 if now - self._backpressure_log_ts >= 5.0:
                     self.logger.warning(
-                        "Global writer queue full -> backpressure active -> depth={}/{}".format(
-                            self.data_queue.qsize(),
-                            self.data_queue.maxsize,
+                        format_two_column_log(
+                            "Global writer queue full; backpressure active",
+                            [
+                                ("queue_depth", self.data_queue.qsize()),
+                                ("queue_capacity", self.data_queue.maxsize),
+                            ],
                         )
                     )
                     self._backpressure_log_ts = now
@@ -312,27 +316,28 @@ class GlobalHDF5Writer:
             # If writer was never started, still flush synchronously.
             self._write_data_to_hdf5()
 
-        self.logger.warning("Global HDF5 writer stopped ->")
+        self.logger.warning("Global HDF5 writer stopped")
         with self._metric_lock:
             self.logger.warning(
-                "Global writer summary ->\n"
-                "\tenqueued        -> {}\n"
-                "\tflushed         -> {}\n"
-                "\tflush_count     -> {}\n"
-                "\tmax_queue_depth -> {}".format(
-                    self.enqueued_count,
-                    self.flushed_count,
-                    self.flush_count,
-                    self.max_queue_depth,
+                format_two_column_log(
+                    "Global writer summary",
+                    [
+                        ("enqueued", self.enqueued_count),
+                        ("flushed", self.flushed_count),
+                        ("flush_count", self.flush_count),
+                        ("max_queue_depth", self.max_queue_depth),
+                    ],
                 )
             )
             pending_gap = self.enqueued_count - self.flushed_count
         if pending_gap != 0:
-            msg = (
-                "Global writer data mismatch ->\n"
-                "\tenqueued -> {}\n"
-                "\tflushed  -> {}"
-            ).format(self.enqueued_count, self.flushed_count)
+            msg = format_two_column_log(
+                "Global writer data mismatch",
+                [
+                    ("enqueued", self.enqueued_count),
+                    ("flushed", self.flushed_count),
+                ],
+            )
             self.logger.error(msg)
             if self._writer_error is None:
                 raise RuntimeError(msg)

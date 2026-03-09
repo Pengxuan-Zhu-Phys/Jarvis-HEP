@@ -17,6 +17,7 @@ class ModuleManager:
                 cls._instance._with_nuisance = False
                 cls._instance.nuisance_loglikelihoods = {}
                 cls._instance.nuisance_passconditions = {}
+                cls._instance.subprocess_scheduler = None
         return cls._instance
 
     # ModuleManager的其他方法
@@ -29,6 +30,12 @@ class ModuleManager:
     
     def set_max_worker(self, nmax):
         self._max_worker = nmax
+
+    def set_subprocess_scheduler(self, scheduler):
+        self.subprocess_scheduler = scheduler
+        for pool in self.module_pools.values():
+            if hasattr(pool, "set_subprocess_scheduler"):
+                pool.set_subprocess_scheduler(scheduler)
 
     def set_likelihood(self):
         from jarvishep.Module.likelihood import LogLikelihood
@@ -188,6 +195,7 @@ class ModuleManager:
                 self.logger.warning(f"Manager adding ModulePool {module.name}. ")
                 self.module_pools[module.name] = ModulePool(module, max_workers=self.max_worker)
                 self.module_pools[module.name].set_funcs(self.funcs)
+                self.module_pools[module.name].set_subprocess_scheduler(self.subprocess_scheduler)
                 self.module_pools[module.name].set_logger()
             elif getattr(module, "type", "") == "Operas":
                 self.logger.warning(f"Manager adding Operas executor {module.name}. ")

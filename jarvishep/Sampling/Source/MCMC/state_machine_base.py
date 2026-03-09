@@ -7,6 +7,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, Dict, Sequence
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
 
@@ -17,6 +18,7 @@ from .controller import (
     MCMCControllerProtocol,
     NoopMCMCController,
 )
+from .engine_contract import validate_engine_contract
 from .metrics_bus import MCMCMetricsBus, MCMCMetricsFrame
 
 
@@ -103,6 +105,7 @@ class MCMCStateMachineBase(SamplingVirtial):
     def _initialize_state_machine(self) -> None:
         self._transition(MCMCState.INIT, "initialize state machine")
         self._chain_registry = self._create_chain_registry()
+        self._validate_chain_engines()
         self._pending_futures = set()
         self._future_to_sample = {}
         self._future_to_chain_id = {}
@@ -117,6 +120,16 @@ class MCMCStateMachineBase(SamplingVirtial):
         self._publish_metrics(event="run_start")
         patch = self._call_controller_hook("on_run_start", self._controller_context())
         self._apply_control_patch(patch, hook_name="on_run_start")
+
+    def _validate_chain_engines(self) -> None:
+        registry = self._must_registry()
+        method = str(getattr(self, "method", "MCMC"))
+        for chain in registry.all():
+            validate_engine_contract(
+                chain.engine,
+                sampler_method=method,
+                chain_id=int(chain.chain_id),
+            )
 
     def _controller_context(self) -> Dict[str, Any]:
         registry = self._must_registry()
@@ -154,7 +167,10 @@ class MCMCStateMachineBase(SamplingVirtial):
         if not ok:
             if getattr(self, "logger", None) is not None:
                 self.logger.warning(
-                    f"MCMC controller patch rejected -> hook={hook_name or 'unknown'} -> reason={reason}"
+                    format_two_column_log(
+                        "MCMC controller patch rejected",
+                        [("hook", hook_name or "unknown"), ("reason", reason)],
+                    )
                 )
             return False
 
@@ -186,7 +202,12 @@ class MCMCStateMachineBase(SamplingVirtial):
             self._chain_priority_weight = [float(x) for x in patch.chain_priority_weight]
 
         if getattr(self, "logger", None) is not None:
-            self.logger.info(f"MCMC controller patch applied -> hook={hook_name or 'unknown'}")
+            self.logger.info(
+                format_two_column_log(
+                    "MCMC controller patch applied",
+                    [("hook", hook_name or "unknown")],
+                )
+            )
         return True
 
     def _enqueue_chain(self, chain_id: int) -> None:
@@ -353,8 +374,12 @@ class MCMCStateMachineBase(SamplingVirtial):
                 sample_cfg = self.build_sample_config(base_sample_cfg, save_dir=save_dir)
                 sample.set_config(sample_cfg)
                 self._on_before_submit(chain, sample)
-
-                future = self.factory.submit_task(sample.info)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                except Exception:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
+                    raise
                 self._pending_futures.add(future)
                 self._future_to_sample[future] = sample
                 self._future_to_chain_id[future] = cid
@@ -421,11 +446,15 @@ class MCMCStateMachineBase(SamplingVirtial):
                     suuid = sample.uuid if sample is not None else "UNKNOWN"
                     self._transition(MCMCState.FAILED, "future failed")
                     self.logger.error(
-                        f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}"
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", suuid), ("error", exc)],
+                        )
                     )
                     raise
                 finally:
                     if sample is not None:
+                        self._on_sample_completed(sample.info)
                         sample.close()
 
         self._transition(MCMCState.TERMINATE, "all chains completed")
@@ -506,14 +535,34 @@ class MCMCStateMachineBase(SamplingVirtial):
     def _emit_chain_summary(self, label: str | None = None) -> None:
         if self._chain_registry is None or getattr(self, "logger", None) is None:
             return
+        summary = self.chain_summary()
+        if summary is None:
+            return
+
+        sampler_name = str(label or getattr(self, "method", "MCMC"))
+        self.logger.warning(
+            "{} Summary ->\n\tchains      -> {}\n\taccepted    -> {}\n\trejected    -> {}\n\tacc_rate    -> {:.4f}\n\tbest_logl   -> {}".format(
+                sampler_name,
+                int(summary["chains"]),
+                int(summary["accepted"]),
+                int(summary["rejected"]),
+                float(summary["acc_rate"]),
+                "N/A" if summary["best_logl"] is None else f"{float(summary['best_logl']):.6f}",
+            )
+        )
+
+    def chain_summary(self) -> Dict[str, Any] | None:
+        if self._chain_registry is None:
+            return None
         chains = self._chain_registry.all()
         if not chains:
-            return
+            return None
 
         accepted = sum(int(chain.accepted) for chain in chains)
         rejected = sum(int(chain.rejected) for chain in chains)
         total = accepted + rejected
         acc_rate = (float(accepted) / float(total)) if total > 0 else 0.0
+
         best_logl = None
         for chain in chains:
             logl = chain.last_logl
@@ -521,14 +570,12 @@ class MCMCStateMachineBase(SamplingVirtial):
                 continue
             if best_logl is None or float(logl) > float(best_logl):
                 best_logl = float(logl)
-        sampler_name = str(label or getattr(self, "method", "MCMC"))
-        self.logger.warning(
-            "{} Summary ->\n\tchains      -> {}\n\taccepted    -> {}\n\trejected    -> {}\n\tacc_rate    -> {:.4f}\n\tbest_logl   -> {}".format(
-                sampler_name,
-                len(chains),
-                accepted,
-                rejected,
-                acc_rate,
-                "N/A" if best_logl is None else f"{best_logl:.6f}",
-            )
-        )
+
+        return {
+            "method": str(getattr(self, "method", "MCMC")),
+            "chains": int(len(chains)),
+            "accepted": int(accepted),
+            "rejected": int(rejected),
+            "acc_rate": float(acc_rate),
+            "best_logl": best_logl,
+        }

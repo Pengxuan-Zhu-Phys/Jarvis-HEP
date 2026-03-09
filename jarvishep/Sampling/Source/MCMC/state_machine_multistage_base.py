@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures
 from typing import Any, Dict
 
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.sample import Sample
 
 from .chain_runtime import ChainRuntime
@@ -91,8 +92,12 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
                 sample.set_config(sample_cfg)
                 self._on_before_submit(chain, sample)
                 sample.info["chain_stage"] = int(stage_idx)
-
-                future = self.factory.submit_task(sample.info)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                except Exception:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
+                    raise
                 self._pending_futures.add(future)
                 self._future_to_sample[future] = sample
                 self._future_to_chain_id[future] = cid
@@ -214,11 +219,15 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
                     suuid = sample.uuid if sample is not None else "UNKNOWN"
                     self._transition(MCMCState.FAILED, "future failed")
                     self.logger.error(
-                        f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}"
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", suuid), ("error", exc)],
+                        )
                     )
                     raise
                 finally:
                     if sample is not None:
+                        self._on_sample_completed(sample.info)
                         sample.close()
 
         self._transition(MCMCState.TERMINATE, "all chains completed")

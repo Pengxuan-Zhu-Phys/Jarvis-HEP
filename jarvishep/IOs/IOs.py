@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 from copy import deepcopy
-import imp
 import logging
 import os
+from pathlib import Path
 from plistlib import FMT_XML
 import sys
 from re import L
@@ -16,6 +16,20 @@ import pandas as pd
 from jarvishep.base import Base
 import asyncio
 import aiofiles
+
+_PROJECT_MARKERS = (".jarvis-project.json", "jarvis.project.yaml")
+
+
+def _detect_project_root_from_cwd() -> str | None:
+    try:
+        path = Path.cwd().resolve()
+    except Exception:
+        return None
+    for candidate in [path, *path.parents]:
+        for marker in _PROJECT_MARKERS:
+            if (candidate / marker).exists():
+                return str(candidate)
+    return None
 
 
 class IOfile(Base):
@@ -57,7 +71,12 @@ class IOfile(Base):
         if isinstance(getattr(self, "path", None), dict):
             runtime_root = self.path.get("task_root") or self.path.get("jpath")
         if not runtime_root:
-            runtime_root = os.getenv("JARVIS_HEP_TASK_ROOT") or os.getenv("JHEP_TASK_ROOT") or os.getcwd()
+            runtime_root = (
+                os.getenv("JARVIS_HEP_TASK_ROOT")
+                or os.getenv("JHEP_TASK_ROOT")
+                or _detect_project_root_from_cwd()
+                or os.getcwd()
+            )
 
         source_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 

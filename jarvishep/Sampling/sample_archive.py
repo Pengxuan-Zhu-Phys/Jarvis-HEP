@@ -9,6 +9,8 @@ import time
 import shutil
 import tarfile
 
+from jarvishep.log_kv import format_two_column_log
+
 
 _STOP = "__JARVIS_SAMPLE_ARCHIVE_STOP__"
 
@@ -148,9 +150,21 @@ class SampleArchiveManager:
             daemon=True,
         )
         self._proc.start()
-        self._log("warning", f"Sample archive worker started -> pid={self._proc.pid}")
+        self._log(
+            "warning",
+            format_two_column_log(
+                "Sample archive worker started",
+                [("pid", self._proc.pid)],
+            ),
+        )
 
-    def enqueue_bucket_dir(self, bucket_dir: str, blocking: bool = False, timeout: float = 5.0) -> bool:
+    def enqueue_bucket_dir(
+        self,
+        bucket_dir: str,
+        blocking: bool = False,
+        timeout: float = 5.0,
+        force: bool = False,
+    ) -> bool:
         if not self.enabled:
             return False
         self.start()
@@ -162,7 +176,7 @@ class SampleArchiveManager:
             return False
         if not os.path.isdir(bucket_dir):
             return False
-        if bucket_dir in self._scheduled:
+        if (not force) and bucket_dir in self._scheduled:
             return False
 
         try:
@@ -171,19 +185,43 @@ class SampleArchiveManager:
             else:
                 self._task_q.put_nowait(bucket_dir)
             self._scheduled.add(bucket_dir)
-            self._log("info", f"Sample archive enqueue -> {bucket_dir}")
+            self._log(
+                "info",
+                format_two_column_log(
+                    "Sample archive enqueue",
+                    [("bucket_dir", bucket_dir)],
+                ),
+            )
             return True
         except queue.Full:
             try:
                 self._task_q.put(bucket_dir, block=True, timeout=float(timeout))
                 self._scheduled.add(bucket_dir)
-                self._log("warning", f"Sample archive queue full -> blocking enqueue succeeded -> {bucket_dir}")
+                self._log(
+                    "warning",
+                    format_two_column_log(
+                        "Sample archive queue full; blocking enqueue succeeded",
+                        [("bucket_dir", bucket_dir)],
+                    ),
+                )
                 return True
             except Exception:
-                self._log("warning", f"Sample archive queue full -> skip enqueue -> {bucket_dir}")
+                self._log(
+                    "warning",
+                    format_two_column_log(
+                        "Sample archive queue full; skip enqueue",
+                        [("bucket_dir", bucket_dir)],
+                    ),
+                )
                 return False
         except Exception as exc:
-            self._log("error", f"Sample archive enqueue failed -> {bucket_dir} -> err={exc}")
+            self._log(
+                "error",
+                format_two_column_log(
+                    "Sample archive enqueue failed",
+                    [("bucket_dir", bucket_dir), ("error", exc)],
+                ),
+            )
             return False
 
     def _list_existing_bucket_dirs(self):
@@ -204,7 +242,7 @@ class SampleArchiveManager:
         if not self.enabled:
             return
         for bucket_dir in self._list_existing_bucket_dirs():
-            self.enqueue_bucket_dir(bucket_dir, blocking=True, timeout=30.0)
+            self.enqueue_bucket_dir(bucket_dir, blocking=True, timeout=30.0, force=True)
 
     def shutdown(self, wait: bool = True, timeout: float = 120.0):
         if not self.enabled:
@@ -237,19 +275,16 @@ class SampleArchiveManager:
         if summary is not None:
             self._log(
                 "warning",
-                "Sample archive summary ->\n"
-                "\tenqueued -> {}\n"
-                "\tpacked   -> {}\n"
-                "\tskipped  -> {}\n"
-                "\tfailed   -> {}\n"
-                "\trecords  -> {}\n"
-                "\tmanifest -> {}".format(
-                    summary.get("enqueued", 0),
-                    summary.get("packed", 0),
-                    summary.get("skipped", 0),
-                    summary.get("failed", 0),
-                    summary.get("records", 0),
-                    summary.get("manifest_path", self.manifest_jsonl_path),
+                format_two_column_log(
+                    "Sample archive summary",
+                    [
+                        ("enqueued", summary.get("enqueued", 0)),
+                        ("packed", summary.get("packed", 0)),
+                        ("skipped", summary.get("skipped", 0)),
+                        ("failed", summary.get("failed", 0)),
+                        ("records", summary.get("records", 0)),
+                        ("manifest", summary.get("manifest_path", self.manifest_jsonl_path)),
+                    ],
                 ),
             )
 

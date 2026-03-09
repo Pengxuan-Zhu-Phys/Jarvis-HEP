@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep.Sampling.Source.MCMC.config_contract import bounds_get_float, normalize_proposal_scales
 from jarvishep.Sampling.Source.MCMC.engine_demcmc import DEMCMCChain
 from jarvishep.Sampling.mcmc_standard import MCMC
 
@@ -23,20 +24,34 @@ class DEMCMC(MCMC):
     def init_generator(self):
         super().init_generator()
         smp = self.config["Sampling"]["Bounds"]
-        self._de_gamma = float(smp.get("de_gamma", 0.0))
-        self._de_noise = float(smp.get("de_noise", 1.0e-3))
-        self._de_crossover = float(smp.get("de_crossover", 1.0))
+        self._de_gamma = bounds_get_float(
+            smp,
+            "de_gamma",
+            aliases=("de.gamma",),
+            default=0.0,
+            minimum=0.0,
+        )
+        self._de_noise = bounds_get_float(
+            smp,
+            "de_noise",
+            aliases=("de.noise",),
+            default=1.0e-3,
+            minimum=0.0,
+        )
+        self._de_crossover = bounds_get_float(
+            smp,
+            "de_crossover",
+            aliases=("de.crossover",),
+            default=1.0,
+            minimum=0.0,
+        )
 
     def _normalize_proposal_scales(self):
-        scales = self._proposal_scales
-        if isinstance(scales, (int, float)):
-            return [float(scales) for _ in range(self._nchains)]
-        values = [float(x) for x in scales]
-        if len(values) != self._nchains:
-            raise ValueError(
-                f"proposal_scale size mismatch for DEMCMC: expect {self._nchains}, got {len(values)}"
-            )
-        return values
+        return normalize_proposal_scales(
+            self._proposal_scales,
+            nchains=self._nchains,
+            sampler_method=self.method,
+        )
 
     def _create_chain_registry(self) -> ChainRegistry:
         proposal_scales = self._normalize_proposal_scales()

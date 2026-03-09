@@ -23,6 +23,9 @@ class Distributor(Base):
             case "Random":
                 from jarvishep.Sampling.randoms import RandomS
                 return RandomS()
+            case "CSV":
+                from jarvishep.Sampling.csv_sampler import CSVSampler
+                return CSVSampler()
             case "DNN":
                 from jarvishep.Sampling.dnn import DNN
                 return DNN()
@@ -78,7 +81,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAM", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
+                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "CSV", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAM", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

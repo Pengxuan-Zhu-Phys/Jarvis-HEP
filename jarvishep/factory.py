@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time 
 
+from jarvishep.log_kv import format_two_column_log
+
 
 class WorkerFactory:
     _instance = None
@@ -47,6 +49,7 @@ class WorkerFactory:
             self._low_throughput_summary_seconds = 60.0
             self._low_throughput_enabled = False
             self._last_low_throughput_log_ts = self._factory_start_ts
+            self.subprocess_scheduler = None
             self.initialized = True
 
     def get_executor(self):
@@ -64,6 +67,12 @@ class WorkerFactory:
         else:
             self.logger.warning("Building the factory for workers ...")
         self.info   = {}
+
+    def set_subprocess_scheduler(self, scheduler):
+        self.subprocess_scheduler = scheduler
+
+    def get_subprocess_scheduler(self):
+        return getattr(self, "subprocess_scheduler", None)
 
     @staticmethod
     def _compute_task_count_interval(task_count):
@@ -122,7 +131,10 @@ class WorkerFactory:
             if exc is not None:
                 self.log_executor.submit(
                     self.logger.error,
-                    f"future exception consumed: uuid={sample_uuid} error={exc}",
+                    format_two_column_log(
+                        "future exception consumed",
+                        [("uuid", sample_uuid), ("error", exc)],
+                    ),
                 )
 
         future.add_done_callback(_on_done)
@@ -201,29 +213,52 @@ class WorkerFactory:
             "tail_tasks": tail_tasks,
             "total_seconds": total_seconds,
             "avg_rate": avg_rate,
+            "subprocess": (
+                self.get_subprocess_scheduler().snapshot()
+                if self.get_subprocess_scheduler() is not None
+                else None
+            ),
         }
 
     def _log_shutdown_summary(self, summary):
         from jarvishep.utils import format_duration
 
         self.logger.warning(
-            "Factory shutdown summary ->\n"
-            "\tsubmitted   -> {}\n"
-            "\tok          -> {}\n"
-            "\tfailed      -> {}\n"
-            "\tunfinished  -> {}\n"
-            "\ttail_tasks  -> {}\n"
-            "\ttotal_time  -> {}\n"
-            "\tavg_rate    -> {:.2f} tasks/s".format(
-                summary["submitted"],
-                summary["ok"],
-                summary["failed"],
-                summary["unfinished"],
-                summary["tail_tasks"],
-                format_duration(summary["total_seconds"]),
-                summary["avg_rate"],
+            format_two_column_log(
+                "Factory shutdown summary",
+                [
+                    ("submitted", summary["submitted"]),
+                    ("ok", summary["ok"]),
+                    ("failed", summary["failed"]),
+                    ("unfinished", summary["unfinished"]),
+                    ("tail_tasks", summary["tail_tasks"]),
+                    ("total_time", format_duration(summary["total_seconds"])),
+                    ("avg_rate", f"{summary['avg_rate']:.2f} tasks/s"),
+                ],
             )
         )
+        sp = summary.get("subprocess")
+        if isinstance(sp, dict):
+            self.logger.warning(
+                format_two_column_log(
+                    "Subprocess scheduler summary",
+                    [
+                        ("submitted", sp.get("submitted", 0)),
+                        ("completed", sp.get("completed", 0)),
+                        ("failed", sp.get("failed", 0)),
+                        ("timed_out", sp.get("timed_out", 0)),
+                        ("peak_running", sp.get("peak_running", 0)),
+                        ("pending", sp.get("pending", 0)),
+                        ("fd_count", sp.get("fd_count", "N/A")),
+                        (
+                            "rss_mb",
+                            "N/A"
+                            if sp.get("rss_mb") is None
+                            else f"{sp.get('rss_mb'):.2f}",
+                        ),
+                    ],
+                )
+            )
 
     def print_status(self, task_count=None):
         task_count = self.task_count if task_count is None else task_count
@@ -289,6 +324,15 @@ class WorkerFactory:
         summary = None
         if hasattr(self, "logger"):
             summary = self._build_shutdown_summary()
+
+        if self.get_subprocess_scheduler() is not None:
+            try:
+                self.get_subprocess_scheduler().shutdown(wait=wait, timeout=60.0)
+            except Exception as exc:
+                if hasattr(self, "logger"):
+                    self.logger.error(f"Subprocess scheduler shutdown failed -> {exc}")
+            finally:
+                self.subprocess_scheduler = None
 
         if getattr(self, "log_executor", None) is not None:
             if summary is not None:

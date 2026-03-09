@@ -9,6 +9,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from jarvishep.dataconvert import DataConvert
+from jarvishep.log_kv import format_two_column_log
 import matplotlib.pyplot as plt
 from copy import deepcopy
 # from torch.autograd import Variable
@@ -31,10 +32,7 @@ def _json_safe(value):
 
 
 def _format_kv_block(title, items):
-    lines = [str(title)]
-    for key, value in items:
-        lines.append(f"  {key:<20} -> {value}")
-    return "\n".join(lines)
+    return format_two_column_log(title, items)
 
 
 # Add by Erdong Guo, modified by Pengxuan Zhu
@@ -642,8 +640,13 @@ class DNN(SamplingVirtial):
                 except Exception as exc:
                     suuid = sample.uuid if sample else "UNKNOWN"
                     self.logger.error(
-                        "[WorkerFactory] future exception consumed -> uuid={} | type -> {} | detail -> {!r}".format(
-                            suuid, type(exc).__name__, exc
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [
+                                ("uuid", suuid),
+                                ("type", type(exc).__name__),
+                                ("detail", repr(exc)),
+                            ],
                         )
                     )
                     raise

@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep.Sampling.Source.MCMC.config_contract import bounds_get_float
 from jarvishep.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
 from jarvishep.Sampling.tpmcmc import TPMCMC
 
@@ -22,7 +23,13 @@ class PTEnsemble(TPMCMC):
     def init_generator(self):
         super().init_generator()
         smp = self.config["Sampling"]["Bounds"]
-        self._stretch_a = float(smp.get("stretch_a", 2.0))
+        self._stretch_a = bounds_get_float(
+            smp,
+            "stretch_a",
+            aliases=("ensemble.stretch_a",),
+            default=2.0,
+            minimum=1.01,
+        )
 
     def _create_chain_registry(self) -> ChainRegistry:
         proposal_scales = self._normalize_proposal_scales()

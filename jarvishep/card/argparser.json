@@ -61,6 +61,46 @@
             "dest": "mkproject",
             "type": "str",
             "help": "Create a standalone Jarvis project folder in the current directory"
+        },
+        {
+            "long": "--packproject",
+            "dest": "packproject",
+            "type": "str",
+            "nargs": "?",
+            "const": ".",
+            "help": "Package a standalone Jarvis project directory (default: current directory)"
+        },
+        {
+            "long": "--profile",
+            "dest": "packprofile",
+            "type": "str",
+            "default": "repro",
+            "choices": ["share", "repro", "full"],
+            "help": "Packaging profile for --packproject: share | repro | full"
+        },
+        {
+            "long": "--max-concurrency",
+            "dest": "max_concurrency",
+            "type": "int",
+            "help": "Override Runtime.Subprocess.max_concurrency"
+        },
+        {
+            "long": "--per-task-timeout-sec",
+            "dest": "per_task_timeout_sec",
+            "type": "float",
+            "help": "Override Runtime.Subprocess.per_task_timeout_sec"
+        },
+        {
+            "long": "--progress-interval-sec",
+            "dest": "progress_interval_sec",
+            "type": "float",
+            "help": "Override Runtime.Subprocess.progress_interval_sec"
+        },
+        {
+            "long": "--log-policy",
+            "dest": "log_policy",
+            "type": "str",
+            "help": "Override Runtime.Subprocess.log_policy: logger | file | quiet | tee-limited"
         }
     ]
 }

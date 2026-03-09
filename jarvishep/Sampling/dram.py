@@ -4,6 +4,7 @@ from __future__ import annotations
 import numpy as np
 
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep.Sampling.Source.MCMC.config_contract import bounds_get_int, bounds_get_list
 from jarvishep.Sampling.Source.MCMC.dram_chain import DRAMChain
 from jarvishep.Sampling.Source.MCMC.state_machine_multistage_base import (
     MCMCMultiStageStateMachineBase,
@@ -25,8 +26,19 @@ class DRAM(AMMCMC):
     def init_generator(self):
         super().init_generator()
         smp = self.config["Sampling"]["Bounds"]
-        self._dr_steps = max(1, int(smp.get("dr_steps", 2)))
-        factors = smp.get("dr_scale_factors", [1.0, 0.5])
+        self._dr_steps = bounds_get_int(
+            smp,
+            "dr_steps",
+            aliases=("dr.steps",),
+            default=2,
+            minimum=1,
+        )
+        factors = bounds_get_list(
+            smp,
+            "dr_scale_factors",
+            aliases=("dr.scale_factors",),
+            default=[1.0, 0.5],
+        )
         if isinstance(factors, (int, float)):
             factors = [1.0, float(factors)]
         self._dr_scale_factors = [max(1e-6, float(x)) for x in factors]
@@ -64,11 +76,12 @@ class DRAM(AMMCMC):
         return MCMCMultiStageStateMachineBase.run_nested(self)
 
     def _create_chain_registry(self) -> ChainRegistry:
+        proposal_scales = self._normalize_proposal_scales()
         chains = []
         for ii in range(self._nchains):
             engine = DRAMChain(
                 np.random.rand(self._dimensions),
-                self._proposal_scales,
+                proposal_scales[ii],
                 self._niters,
                 adapt_enabled=self._adapt_enabled,
                 adapt_start_iter=self._adapt_start_iter,

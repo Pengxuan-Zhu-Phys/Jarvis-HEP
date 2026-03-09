@@ -10,13 +10,24 @@ class MALAChain:
     Uses a local drift estimated from accepted trajectory and Gaussian noise.
     """
 
-    def __init__(self, initial_param, proposal_scale, n_iterations, step_size=0.1):
+    def __init__(
+        self,
+        initial_param,
+        proposal_scale,
+        n_iterations,
+        step_size=0.1,
+        gradient_provider=None,
+        gradient_clip_norm=None,
+    ):
         self.param = np.asarray(initial_param, dtype=float)
         self.proposal_scale = float(proposal_scale)
         self.n_iterations = int(n_iterations)
         self.iterations = 0
         self.last_loglikelihood = None
         self.proposed_param = None
+        self.gradient_provider = gradient_provider
+        self.gradient_clip_norm = gradient_clip_norm
+        self.gradient_contract_level = "placeholder"
 
         self._dim = int(self.param.shape[0])
         self._step_size = max(1.0e-4, float(step_size))

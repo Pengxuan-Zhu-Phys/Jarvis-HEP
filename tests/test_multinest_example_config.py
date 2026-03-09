@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+import warnings
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -32,7 +33,20 @@ class MultiNestExampleConfigTests(unittest.TestCase):
         loader.logger = _NoopLogger()
         loader.load_config(yaml_path)
         loader.set_schema(sampler.schema)
-        loader.validate_config()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            loader.validate_config()
+        remote_ref_warnings = [
+            item
+            for item in caught
+            if isinstance(item.message, DeprecationWarning)
+            and "Automatically retrieving remote references" in str(item.message)
+        ]
+        self.assertEqual(
+            len(remote_ref_warnings),
+            0,
+            msg="jsonschema validation should not rely on implicit remote-reference retrieval.",
+        )
         self.assertTrue(loader.config.get("Sampling", {}).get("Method") == "MultiNest")
 
     def test_multinest_calculator_example_schema_valid(self):

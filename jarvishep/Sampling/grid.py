@@ -12,6 +12,7 @@ from sympy.geometry import parabola
 import time 
 from random import randint
 # from jarvishep.Sampling.sampler import SamplingVirtial
+from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 import json
 from scipy.special import gammainc
@@ -121,7 +122,12 @@ class Grid(SamplingVirtial):
                     future.result()
                 except Exception as exc:
                     suuid = sample.uuid if sample else "UNKNOWN"
-                    self.logger.error(f"[WorkerFactory] future exception consumed: uuid={suuid} error={exc}")
+                    self.logger.error(
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", suuid), ("error", exc)],
+                        )
+                    )
                     raise
                 finally:
                     if sample is not None:

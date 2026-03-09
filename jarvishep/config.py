@@ -5,12 +5,17 @@ import yaml
 import platform
 import os, sys 
 import re 
+import shlex
 import subprocess
+from pathlib import Path
+from urllib.parse import unquote, urlparse
 from importlib import metadata as importlib_metadata
 from jarvishep.base import Base
 import json
-from jsonschema import validate
 from jsonschema.exceptions import ValidationError
+from jsonschema.validators import validator_for
+from referencing import Registry, Resource
+from referencing.jsonschema import DRAFT7
 from jarvishep.Module.module import Module
 
 class ConfigLoader(Base):
@@ -324,12 +329,18 @@ class ConfigLoader(Base):
         self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path']))
 
     def get_modules(self):
+        sampling_cfg = self.config.get('Sampling', {}) if isinstance(self.config, dict) else {}
+        parameters = sampling_cfg.get('Variables', [])
+        if parameters is None:
+            parameters = []
+        if not isinstance(parameters, list):
+            parameters = []
         modules = {
-            "Parameter": self.config['Sampling']['Variables']
+            "Parameter": parameters
         }
         
-        if self.config['Sampling'].get("Nuisance", False): 
-            modules['Nuisance'] = self.config['Sampling']['Nuisance']['Variables']
+        if sampling_cfg.get("Nuisance", False): 
+            modules['Nuisance'] = sampling_cfg['Nuisance']['Variables']
         
         if "LibDeps" in self.config:
             if self.config["LibDeps"]["Modules"]:
@@ -351,18 +362,11 @@ class ConfigLoader(Base):
         return modules
         
     def decode_lib_command_via_config(self, command, pwd, pack):
-        def parse_cd_command(command, cwd):
-            parts = command.split()
-            if len(parts) == 2 and parts[0] == "cd":
-                return parts[1]
-            else:
-                return cwd 
-        cmd = self.resolve_placeholders_config(self.config, command)
-        cmd = self.resolve_placeholders_config(pack, cmd)
-        cmd = self.resolve_placeholders_summary(cmd)
-        cmdd =  {"cmd": cmd, "cwd": pwd}
-        cwd = parse_cd_command(cmd, pwd)
-        return cmdd, cwd  
+        cmd = self._resolve_command_text(command=command, scopes=(self.config, pack))
+        current_cwd = self.decode_path(pwd)
+        cmdd = {"cmd": cmd, "cwd": current_cwd}
+        next_cwd = self._next_cwd_from_command(command=cmd, current_cwd=current_cwd)
+        return cmdd, next_cwd
 
     def analysis_Library(self):
         def analysis_path(lib):
@@ -387,22 +391,11 @@ class ConfigLoader(Base):
             lib.update(analysis_commands(lib))
 
     def decode_calc_command_via_config(self, command, pwd, pack):
-        def parse_cd_command(command, cwd):
-            parts = command.split()
-            if len(parts) == 2 and parts[0] == "cd":
-                return parts[1]
-            else:
-                return cwd 
-        # print("0 ->", command)
-        cmd = self.resolve_placeholders_config(self.config, command)
-        # print("1 ->", cmd)
-        cmd = self.resolve_placeholders_config(pack, cmd)
-        # print("2 ->", cmd)
-        cmd = self.resolve_placeholders_summary(cmd)
-        # print("3 ->", cmd)
-        cmdd =  {"cmd": cmd, "cwd": pwd}
-        cwd = parse_cd_command(cmd, pwd)
-        return cmdd, cwd  
+        cmd = self._resolve_command_text(command=command, scopes=(self.config, pack))
+        current_cwd = self.decode_path(pwd)
+        cmdd = {"cmd": cmd, "cwd": current_cwd}
+        next_cwd = self._next_cwd_from_command(command=cmd, current_cwd=current_cwd)
+        return cmdd, next_cwd
 
     def analysis_calculator(self):
         def analysis_path(calc):
@@ -438,8 +431,9 @@ class ConfigLoader(Base):
             calc_setting['path'] = self.decode_path(calc_setting['path'])
 
             commands = []
+            cwd = calc_setting['path']
             for command in calc_setting['commands']:
-                cmd, cwd = self.decode_calc_command_via_config(command, calc_setting['path'], calc_setting)
+                cmd, cwd = self.decode_calc_command_via_config(command, cwd, calc_setting)
                 commands.append(cmd)
             calc_setting['commands'] = commands
 
@@ -456,7 +450,7 @@ class ConfigLoader(Base):
         if "path" in calc_root:
             calc_root['path'] = self.decode_path(calc_root['path'])
         else:
-            calc_root["path"] = self.decode_path("Workshop/Program")
+            calc_root["path"] = self.decode_path("&J/calculators/runtime/program")
         self.config["Calculators"] = calc_root
         calc_config = calc_root.get('Modules', []) or []
         for calc in calc_config:
@@ -581,6 +575,87 @@ class ConfigLoader(Base):
                 candidates.append(val)
         return max(candidates) if candidates else 4
 
+    def get_subprocess_runtime_options(self, worker_parallel: int | None = None) -> dict:
+        """Return normalized runtime knobs for async subprocess scheduler.
+
+        Preferred user config path (schema-friendly, optional):
+        - Runtime.Subprocess
+        Legacy-compatible fallback:
+        - Runtime
+        """
+        cpu_count = int(os.cpu_count() or 4)
+        io_default = min(128, max(4, cpu_count * 2))
+        worker_parallel = int(worker_parallel or self.get_worker_parallel())
+        default_max_concurrency = max(1, min(worker_parallel, io_default))
+
+        hard_max_concurrency = 256
+
+        defaults = {
+            "max_concurrency": default_max_concurrency,
+            "max_pending": max(128, default_max_concurrency * 16),
+            "per_task_timeout_sec": None,
+            "progress_interval_sec": 5.0,
+            "log_policy": "logger",
+            "diagnostics_enabled": False,
+            "diagnostics_interval_sec": 10.0,
+            "terminate_grace_sec": 5.0,
+        }
+
+        runtime_cfg = self.config.get("Runtime", {}) if isinstance(self.config, dict) else {}
+        if not isinstance(runtime_cfg, dict):
+            runtime_cfg = {}
+        sub_cfg = runtime_cfg.get("Subprocess", runtime_cfg)
+        if not isinstance(sub_cfg, dict):
+            sub_cfg = {}
+
+        opts = dict(defaults)
+        for kk in defaults.keys():
+            if kk in sub_cfg and sub_cfg.get(kk) is not None:
+                opts[kk] = sub_cfg[kk]
+
+        try:
+            opts["max_concurrency"] = max(1, int(opts["max_concurrency"]))
+        except Exception:
+            opts["max_concurrency"] = default_max_concurrency
+        if opts["max_concurrency"] > hard_max_concurrency:
+            if self.logger is not None:
+                self.logger.warning(
+                    f"Runtime.Subprocess.max_concurrency={opts['max_concurrency']} exceeds hard cap {hard_max_concurrency}; clamp to cap."
+                )
+            opts["max_concurrency"] = hard_max_concurrency
+        try:
+            opts["max_pending"] = max(1, int(opts["max_pending"]))
+        except Exception:
+            opts["max_pending"] = defaults["max_pending"]
+
+        if opts.get("per_task_timeout_sec") is not None:
+            try:
+                opts["per_task_timeout_sec"] = max(0.1, float(opts["per_task_timeout_sec"]))
+            except Exception:
+                opts["per_task_timeout_sec"] = None
+
+        try:
+            opts["progress_interval_sec"] = max(0.2, float(opts["progress_interval_sec"]))
+        except Exception:
+            opts["progress_interval_sec"] = defaults["progress_interval_sec"]
+
+        mode = str(opts.get("log_policy", "logger")).strip().lower()
+        if mode not in {"logger", "file", "quiet", "tee-limited"}:
+            mode = "logger"
+        opts["log_policy"] = mode
+
+        opts["diagnostics_enabled"] = bool(opts.get("diagnostics_enabled", False))
+        try:
+            opts["diagnostics_interval_sec"] = max(0.2, float(opts["diagnostics_interval_sec"]))
+        except Exception:
+            opts["diagnostics_interval_sec"] = defaults["diagnostics_interval_sec"]
+        try:
+            opts["terminate_grace_sec"] = max(0.1, float(opts["terminate_grace_sec"]))
+        except Exception:
+            opts["terminate_grace_sec"] = defaults["terminate_grace_sec"]
+
+        return opts
+
     def get_operas_function_whitelist(self) -> list[dict]:
         funcs = (self.config.get("Operas", {}) or {}).get("Functions", []) or []
         if not isinstance(funcs, list):
@@ -612,8 +687,39 @@ class ConfigLoader(Base):
             )
         return normalized
 
-    def decode_path(self, path) -> None:
-        return super().decode_path(path)
+    def decode_path(self, path, *, base_dir=None) -> None:
+        return super().decode_path(path, base_dir=base_dir)
+
+    def _resolve_command_text(self, command: str, scopes: tuple) -> str:
+        text = str(command)
+        for scope in scopes:
+            if isinstance(scope, dict):
+                text = self.resolve_placeholders_config(scope, text)
+        text = self.resolve_placeholders_summary(text)
+        unresolved = sorted(set(re.findall(r"\$\{[^}]+\}", text)))
+        if unresolved:
+            missing = ", ".join(unresolved)
+            self.logger.error(
+                f"Unresolved placeholder(s) in command: {missing}. Command: {command}"
+            )
+            sys.exit(2)
+        return text
+
+    def _next_cwd_from_command(self, command: str, current_cwd: str) -> str:
+        line = str(command).strip()
+        if not line:
+            return current_cwd
+        try:
+            parts = shlex.split(line, posix=True)
+        except ValueError:
+            return current_cwd
+        if not parts or parts[0] != "cd":
+            return current_cwd
+        # Keep a strict contract: only standalone `cd <path>` updates inherited cwd.
+        if len(parts) != 2:
+            return current_cwd
+        target = parts[1]
+        return self.decode_path(target, base_dir=current_cwd)
 
     def resolve_placeholders_config(self, data, text, separator=':'):
         pattern = re.compile(r'\$\{([^}]+)\}')
@@ -663,6 +769,37 @@ class ConfigValidator(Base):
         with open(schema, 'r') as file:
             self.schema = json.load(file)
 
+    def _build_local_schema_registry(self, schema_block):
+        registry = Registry()
+        for block_name, block_schema in schema_block.items():
+            if not isinstance(block_schema, dict):
+                continue
+            ref_uri = block_schema.get("$ref")
+            if not isinstance(ref_uri, str) or not ref_uri:
+                continue
+
+            parsed = urlparse(ref_uri)
+            if parsed.scheme and parsed.scheme != "file":
+                continue
+
+            if parsed.scheme == "file":
+                ref_path = Path(unquote(parsed.path))
+            else:
+                ref_path = Path(ref_uri)
+
+            if not ref_path.is_file():
+                raise FileNotFoundError(
+                    f"schemaBlock.{block_name} points to missing file: {ref_path}"
+                )
+
+            with open(ref_path, "r", encoding="utf-8") as file:
+                ref_schema = json.load(file)
+            registry = registry.with_resource(
+                ref_uri,
+                Resource.from_contents(ref_schema, default_specification=DRAFT7),
+            )
+        return registry
+
     def validate_yaml(self):
         if self.config is None or self.schema is None:
             self.logger.error("Error: Config or schema not set.")
@@ -675,8 +812,12 @@ class ConfigValidator(Base):
             for kk, vv in self.schemablock.items():
                 if kk in schema_block and isinstance(schema_block.get(kk), dict):
                     schema_block[kk]['$ref'] = vv
-            
-            validate(instance=self.config, schema=self.schema)
+
+            validator_cls = validator_for(self.schema)
+            validator_cls.check_schema(self.schema)
+            registry = self._build_local_schema_registry(schema_block)
+            validator = validator_cls(self.schema, registry=registry)
+            validator.validate(self.config)
             self.logger.warning("Validation successful. The input YAML file meets the schema requirement.")
             self.passcheck = True
         except ValidationError as e:

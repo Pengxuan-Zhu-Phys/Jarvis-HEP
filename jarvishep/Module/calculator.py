@@ -1,19 +1,14 @@
 #!/usr/bin/env python3 
-from jarvishep.base import Base
-from jarvishep.IOs.parameter import Parameter
-import uuid
-from pprint import pprint
-import yaml 
-# import logging
-from loguru import logger
-import subprocess
-import threading
-import os
-from time import sleep
-from jarvishep.Module.module import Module
 import asyncio
-import sympy as sp 
-import json
+import os
+
+import sympy as sp
+from loguru import logger
+
+from jarvishep.Module.module import Module
+from jarvishep.async_subprocess import SubprocessExecutionError, SubprocessJob
+
+
 class CalculatorModule(Module):
     def __init__(self, name, config):
         super().__init__(name)
@@ -40,6 +35,8 @@ class CalculatorModule(Module):
             self.run_log_file       = None
             self.sample_info        = {}
             self._funcs             = {}
+            self.subprocess_scheduler = None
+            self._command_counter   = 0
             self.analyze_config()
 
     def assign_ID(self, PackID):
@@ -122,6 +119,9 @@ class CalculatorModule(Module):
     def funcs(self):
         return self._funcs
 
+    def set_subprocess_scheduler(self, scheduler):
+        self.subprocess_scheduler = scheduler
+
     def analyze_config_multi(self):
         pass 
 
@@ -173,6 +173,97 @@ class CalculatorModule(Module):
             # del self.handlers['sample']  
         self.logger = None 
 
+    def _next_command_index(self) -> int:
+        self._command_counter += 1
+        return self._command_counter
+
+    def _build_command_meta(self, stage: str, command_index: int, command: dict) -> dict:
+        sample_uuid = None
+        if isinstance(self.sample_info, dict):
+            sample_uuid = self.sample_info.get("uuid")
+        return {
+            "module": self.name,
+            "pack_id": self.PackID,
+            "stage": stage,
+            "command_index": int(command_index),
+            "sample_uuid": sample_uuid,
+            "cwd": command.get("cwd"),
+        }
+
+    def _resolve_sample_runtime_tokens(self, text: str, *, stage: str, field: str) -> str:
+        """Resolve runtime-only command tokens.
+
+        `@SampleID` is resolved from `sample_info['uuid']` only during task-run stages.
+        Install stage intentionally skips this replacement.
+        """
+        if text is None:
+            return ""
+        raw = str(text)
+        if stage == "install" or "@SampleID" not in raw:
+            return raw
+
+        sample_uuid = None
+        if isinstance(self.sample_info, dict):
+            sample_uuid = self.sample_info.get("uuid")
+        if sample_uuid is None:
+            raise RuntimeError(
+                f"@SampleID requires sample_info['uuid'] during runtime stage '{stage}' for field '{field}'"
+            )
+        return raw.replace("@SampleID", str(sample_uuid))
+
+    async def _run_command_local(self, command: dict, stage: str, command_index: int):
+        process = await asyncio.create_subprocess_shell(
+            command["cmd"],
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=command["cwd"],
+            start_new_session=True,
+        )
+
+        async def _drain(stream, stream_name: str):
+            total = 0
+            text_buffer = ""
+            while True:
+                chunk = await stream.read(65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if self.logger is not None:
+                    text_buffer += chunk.decode(errors="replace")
+                    while "\n" in text_buffer:
+                        line, text_buffer = text_buffer.split("\n", 1)
+                        line = line.rstrip("\r")
+                        if line:
+                            self.logger.info(
+                                f"[{stage}#{command_index:05}][{stream_name}] {line}"
+                            )
+            if self.logger is not None:
+                tail = text_buffer.rstrip("\r")
+                if tail:
+                    self.logger.info(
+                        f"[{stage}#{command_index:05}][{stream_name}] {tail}"
+                    )
+            return total
+
+        out_task = asyncio.create_task(_drain(process.stdout, "stdout"))
+        err_task = asyncio.create_task(_drain(process.stderr, "stderr"))
+        rc = await process.wait()
+        stdout_bytes, stderr_bytes = await asyncio.gather(out_task, err_task)
+        if self.logger is not None:
+            self.logger.info(
+                "Command done [{}#{:05}] rc={} out={}B err={}B".format(
+                    stage,
+                    command_index,
+                    rc,
+                    int(stdout_bytes),
+                    int(stderr_bytes),
+                )
+            )
+        if int(rc) != 0:
+            raise RuntimeError(
+                f"Command failed [{stage}#{command_index:05}] rc={rc} cmd={command['cmd']}"
+            )
+
 
     async def install(self):
         self.create_basic_logger()
@@ -181,31 +272,82 @@ class CalculatorModule(Module):
         for cmd in self.installation:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(cmd)
-                self.logger.info(f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                # asyncio.run(self.run_command(command=command))
-                await self.run_command(command=command)
-            else: 
-                asyncio.run(self.run_command(command=cmd))
-                await self.run_command(command=cmd)
+            else:
+                command = dict(cmd)
+
+            if self.logger is not None:
+                self.logger.info(
+                    f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> "
+                )
+            command_index = self._next_command_index()
+            await self.run_command(command=command, stage="install", command_index=command_index)
         
         logger.remove(self.handlers['install'])
         del self.handlers['install']
         self.logger = None
         self.is_installed = True
 
-    async def run_command(self, command):
-        process = await asyncio.create_subprocess_shell(
-            command['cmd'],
-            stdout=asyncio.subprocess.PIPE, 
-            stderr=asyncio.subprocess.PIPE, 
-            cwd=command['cwd']
+    async def run_command(self, command, stage="execution", command_index=0):
+        cmd_text = self._resolve_sample_runtime_tokens(
+            command.get("cmd", ""),
+            stage=stage,
+            field="cmd",
         )
-        stdout, stderr = await asyncio.gather(
-            self.log_stream_info(process.stdout),
-            self.log_stream_error(process.stderr)
+        cwd_text = self._resolve_sample_runtime_tokens(
+            command.get("cwd", "."),
+            stage=stage,
+            field="cwd",
         )
+        command = {
+            "cmd": cmd_text,
+            "cwd": self.decode_path(cwd_text),
+        }
+        if self.subprocess_scheduler is None:
+            await self._run_command_local(command, stage=stage, command_index=command_index)
+            return
 
-        await process.wait()
+        task_id = f"{self.name}-{self.PackID or 'NA'}-{stage}-{command_index:05}"
+        job = SubprocessJob(
+            cmd=command["cmd"],
+            cwd=command["cwd"],
+            shell=True,
+            log_dir=None,
+            log_policy="logger",
+            task_id=task_id,
+            meta=self._build_command_meta(stage=stage, command_index=command_index, command=command),
+        )
+        try:
+            result = await self.subprocess_scheduler.arun(job)
+        except SubprocessExecutionError:
+            raise
+        except Exception as exc:
+            raise RuntimeError(
+                f"Subprocess scheduler failed [{stage}#{command_index:05}] -> {exc}"
+            ) from exc
+
+        if self.logger is not None:
+            timeout_tag = " timeout=1" if bool(result.timed_out) else ""
+            self.logger.info(
+                "Command done [{}#{:05}] rc={} dur={:.3f}s out={}B err={}B{}".format(
+                    stage,
+                    command_index,
+                    result.returncode,
+                    float(result.duration_sec),
+                    int(result.stdout_bytes),
+                    int(result.stderr_bytes),
+                    timeout_tag,
+                )
+            )
+        if not result.ok:
+            raise RuntimeError(
+                "Command failed [{}#{:05}] rc={} timeout={} cmd={}".format(
+                    stage,
+                    command_index,
+                    result.returncode,
+                    result.timed_out,
+                    command["cmd"],
+                )
+            )
 
     def log_stream(self, stream, level, logger):
         # Using the child logger to handle the logging 
@@ -222,38 +364,40 @@ class CalculatorModule(Module):
 
     async def initialize(self):
         for command in self.initialization:
-            if self.clone_shadow: 
+            if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n")
-                await self.run_command(command=command)
+            else:
+                command = dict(command)
+
+            if self.logger is not None:
+                self.logger.info(
+                    f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n"
+                )
+            command_index = self._next_command_index()
+            await self.run_command(command=command, stage="initialize", command_index=command_index)
 
     async def execute_commands(self):
         for command in self.execution['commands']:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
-                self.logger.info(f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> ")
-                await self.run_command(command=command)
+            else:
+                command = dict(command)
+
+            if self.logger is not None:
+                self.logger.info(
+                    f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> "
+                )
+            command_index = self._next_command_index()
+            await self.run_command(command=command, stage="execution", command_index=command_index)
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
         self.update_sample_logger(sample_info)
+        self._command_counter = 0
 
         result = {}
         try:
-            asyncio.run(self.initialize())
-            # self.logger.info(f"Executing sample {sample_info['uuid']} in {self.name} on inputs: {json.dumps(input_data)}")
-
-            input_obs = asyncio.run(self.load_input(input_data=input_data))
-
-            if isinstance(input_obs, dict):
-                result.update(input_obs)
-
-            asyncio.run(self.execute_commands())
-
-            output_obs = asyncio.run(self.read_output())
-            if isinstance(output_obs, dict):
-                result.update(output_obs)
-
+            result = asyncio.run(self._execute_async(input_data=input_data))
 
         except Exception as e:
             # Capture and logging the error information 
@@ -264,6 +408,21 @@ class CalculatorModule(Module):
             # Make sure the sample logger is closed
             self.close_sample_logger()
 
+        return result
+
+    async def _execute_async(self, input_data):
+        result = {}
+        await self.initialize()
+
+        input_obs = await self.load_input(input_data=input_data)
+        if isinstance(input_obs, dict):
+            result.update(input_obs)
+
+        await self.execute_commands()
+
+        output_obs = await self.read_output()
+        if isinstance(output_obs, dict):
+            result.update(output_obs)
         return result
 
 

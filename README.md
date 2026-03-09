@@ -109,11 +109,46 @@ Use `--mkproject` to create a fresh Jarvis project directory:
 Jarvis --mkproject PROJECT_NAME
 ```
 
-This creates:
-- `PROJECT_NAME/bin` for YAML cards
-- `PROJECT_NAME/Library` for source libraries
-- `PROJECT_NAME/Workshop` for workflow files
-- `PROJECT_NAME/Result` for outputs
+This creates a standalone project workspace with:
+
+- project markers: `.jarvis-project.json`, `jarvis.project.yaml`
+- runnable YAML: `bin/`
+- project data: `data/`
+- run outputs: `outputs/`
+- toolchain folders: `calculators/`, `deps/`
+- project artifacts: `images/`, `logs/`, `checkpoints/`
+
+Quick start after scaffold:
+
+```bash
+cd PROJECT_NAME
+Jarvis bin/quickstart_mcmc_operas.yaml
+```
+
+### Pack a standalone project
+
+After a run finishes, package the project with:
+
+```bash
+Jarvis --packproject [path-to-project-root] --profile share|repro|full
+```
+
+Rules:
+
+- `path-to-project-root` is optional; default is current directory.
+- if no Jarvis project marker is found in target path, CLI reports:
+  - "Jarvis project not found in target path."
+- `--profile` default is `repro`.
+
+Profile intent:
+
+- `share`: lightweight sharing package (results-focused)
+- `repro` (default): reproducible rerun package
+- `full`: full archival package
+
+Recommended default output path for generated archive:
+
+- parent directory of project root (`dirname(&J)`)
 
 ## Running
 
@@ -131,8 +166,8 @@ python -m jarvishep /path/to/project/bin/task.yaml
 
 ### Path Markers
 
-- `&J/...` resolves to the runtime task root (auto-inferred from the YAML location, typically the parent of `bin/`)
-- `&SRC/...` resolves to the Jarvis-HEP source tree (internal cards/schema/logo)
+- `&J/...` resolves to the runtime task root (project marker first, then YAML-location inference)
+- `&SRC/...` resolves to the installed `jarvishep` package resources (internal cards/schema/logo)
 
 ### Observable Schema And CSV Flattening
 

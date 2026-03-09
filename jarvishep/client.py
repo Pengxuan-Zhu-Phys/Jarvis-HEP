@@ -218,11 +218,19 @@ def main(argv=None) -> int:
     from jarvishep.core import Core
 
     jc = Core()
-    jc.initialization()
+    old_argv = sys.argv
+    try:
+        # Core argparse consumes sys.argv; mirror explicit argv for tests/embedded calls.
+        sys.argv = list(argv)
+        jc.initialization()
+    finally:
+        sys.argv = old_argv
     if getattr(jc.args, "version", False):
         print(_render_version_banner())
     elif getattr(jc.args, "mkproject", None):
         jc.mkproject()
+    elif getattr(jc.args, "packproject", None) is not None:
+        jc.packproject()
     elif jc.scan_mode:
         jc.run_sampling()
     elif jc.args.cvtDB:
