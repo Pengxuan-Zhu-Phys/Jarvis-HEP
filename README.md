@@ -73,6 +73,7 @@ python3 -m pip install Jarvis-HEP
 ```
 
 Dependency installation is handled by `pip` from package metadata at install time.
+The default install now includes `Jarvis-Operas`, because the shipped standalone quickstarts are operas-backed.
 Jarvis runtime no longer provides a dependency-installer CLI mode.
 
 After installation, run directly:

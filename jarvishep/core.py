@@ -617,10 +617,10 @@ class Core(Base):
             return
 
         elif self.mode == "PLOT" or getattr(self.args, 'plot', False):
-            # Plot mode: lightweight setup; no scan-only preprocessing
+            # Plot mode: static config emission only; keep optional runtime
+            # integrations such as Jarvis-Operas out of this path.
             _init_common_project_and_logger()
             self.init_configparser_light()
-            self.init_utils()
             # main() will call self.plot() afterwards
             return
         

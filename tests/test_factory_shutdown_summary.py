@@ -66,13 +66,13 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
 
         summaries = [
             msg for level, msg in logger.records
-            if level == "WARNING" and "Factory shutdown summary ->" in msg
+            if level == "WARNING" and "Factory shutdown summary" in msg
         ]
         self.assertTrue(summaries, "Expected shutdown summary log in factory warnings")
         summary = summaries[-1]
-        self.assertIn("submitted   -> 3", summary)
-        self.assertIn("ok          -> 3", summary)
-        self.assertIn("failed      -> 0", summary)
+        self.assertRegex(summary, r"submitted\s+\|\s+3\b")
+        self.assertRegex(summary, r"ok\s+\|\s+3\b")
+        self.assertRegex(summary, r"failed\s+\|\s+0\b")
 
     def test_status_interval_only_degrades_by_task_count(self):
         logger = _CaptureLogger()

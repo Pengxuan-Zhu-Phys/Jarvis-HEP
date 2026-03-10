@@ -51,15 +51,25 @@ class PathResolutionPyPITests(unittest.TestCase):
             with open(fake_cfg, "w", encoding="utf-8") as f1:
                 f1.write("Scan: {name: test, save_dir: '&J/outputs'}\n")
 
-            base.configure_runtime_context(config_path=fake_cfg)
-            self.assertEqual(
-                os.path.realpath(base.path["task_root"]),
-                os.path.realpath(project_root),
-            )
-            self.assertEqual(
-                os.path.realpath(os.getenv("JARVIS_HEP_TASK_ROOT", "")),
-                os.path.realpath(project_root),
-            )
+            inherited_root = os.path.join(tmpdir, "Inherited")
+            os.makedirs(inherited_root, exist_ok=True)
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "JARVIS_HEP_TASK_ROOT": inherited_root,
+                    "JHEP_TASK_ROOT": inherited_root,
+                },
+                clear=False,
+            ):
+                base.configure_runtime_context(config_path=fake_cfg)
+                self.assertEqual(
+                    os.path.realpath(base.path["task_root"]),
+                    os.path.realpath(project_root),
+                )
+                self.assertEqual(
+                    os.path.realpath(os.getenv("JARVIS_HEP_TASK_ROOT", "")),
+                    os.path.realpath(project_root),
+                )
 
     def test_iofile_decode_path_prefers_project_marker_when_env_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:

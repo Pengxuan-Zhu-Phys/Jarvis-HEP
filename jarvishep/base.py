@@ -63,10 +63,12 @@ class Base():
             config_dir = os.path.dirname(config_file)
 
         env_root = self._env_task_root()
-        if env_root:
-            task_root = env_root
-        elif config_dir:
+        if config_dir:
+            # An explicit config path should re-anchor runtime paths to that
+            # project instead of inheriting stale task-root env from a prior run.
             task_root = self._infer_task_root_from_config_dir(config_dir)
+        elif env_root:
+            task_root = env_root
         else:
             task_root = os.path.abspath(os.path.expanduser(cwd or os.getcwd()))
 

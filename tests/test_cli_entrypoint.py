@@ -76,6 +76,12 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn('[project.scripts]', content)
         self.assertIn('Jarvis = "jarvishep.client:main"', content)
 
+    def test_pyproject_includes_jarvis_operas_runtime_dependency(self):
+        pyproject = os.path.join(PROJECT_ROOT, "pyproject.toml")
+        with open(pyproject, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn('"Jarvis-Operas>=1.3.2"', content)
+
     def test_help_contract_does_not_expose_install_dependencies(self):
         parser = self._build_argparser()
         help_text = parser.format_help()
@@ -169,7 +175,11 @@ class CliEntrypointTests(unittest.TestCase):
 
                     project_root = os.path.join(tmpdir, "DemoProject")
                     os.chdir(project_root)
-                    rc_plot = main(["Jarvis", "bin/quickstart_mcmc_operas.yaml", "--plot"])
+                    with mock.patch(
+                        "jarvishep.core.Core.init_operas_functions",
+                        side_effect=AssertionError("plot mode should not initialize Jarvis-Operas"),
+                    ):
+                        rc_plot = main(["Jarvis", "bin/quickstart_mcmc_operas.yaml", "--plot"])
             finally:
                 os.chdir(old_cwd)
 
