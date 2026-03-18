@@ -13,7 +13,6 @@ VALID_FLATTEN_MODES = {"json", "split", "drop", "scalar"}
 SCHEMA_VERSION_CURRENT = 1
 SCHEMA_VERSION_MIN_COMPATIBLE = 1
 
-
 def _is_sympy_boolean(value: Any) -> bool:
     try:
         from sympy.logic.boolalg import Boolean
@@ -179,7 +178,8 @@ def load_schema(path: str, pathroot: str) -> dict[str, Any]:
     warnings: list[str] = []
 
     if not os.path.exists(path):
-        warnings.append(f"Schema file not found; creating default schema -> {path}")
+        msg = f"Schema file not found; creating default schema -> {path}"
+        warnings.append(msg)
         schema = create_default_schema(pathroot)
         schema["_warnings"] = warnings
         return schema
@@ -196,11 +196,13 @@ def load_schema(path: str, pathroot: str) -> dict[str, Any]:
             normalized, changed, warn_msgs = sanitize_schema(loaded, pathroot=pathroot)
             warnings.extend(warn_msgs)
             if changed:
-                warnings.append("Schema had invalid/missing fields; normalized with fallback defaults.")
+                msg = "Schema had invalid/missing fields; normalized with fallback defaults."
+                warnings.append(msg)
             normalized["_warnings"] = warnings
             return normalized
         except Exception as exc:
-            warnings.append(f"Failed to read schema ({exc}); fallback to default schema -> {path}")
+            msg = f"Failed to read schema ({exc}); fallback to default schema -> {path}"
+            warnings.append(msg)
             schema = create_default_schema(pathroot)
             schema["_warnings"] = warnings
             return schema

@@ -204,10 +204,6 @@ class LogLikelihood(Base):
             # self.childlogger.warning(f"\t Total LogLikelihood -> \n\t LogL: {total_loglikelihood}")
             self.values['LogL'] = total_loglikelihood
             values.update(self.values)
-            slogger.info(
-                f"Sample SUMMARY\n============================================================================\n{LogLikelihood.format_summary(values)}\n============================================================================"
-            )
-
             return self.values 
         except Exception as exc:
             self.logger.warning(exc)
@@ -225,13 +221,20 @@ class LogLikelihood(Base):
 
     def update_logger(self, sample_info):
         logger_name = f"{sample_info['logger_name']} (Likelihood)"
-        sample_logger = logger.bind(
+        parent_logger = sample_info.get("logger")
+        if parent_logger is not None:
+            return parent_logger.bind(
+                module=logger_name,
+                to_console=True,
+                Jarvis=True,
+                _log_domain="jarvis_hep",
+            )
+        return logger.bind(
             module=logger_name,
             to_console=True,
             Jarvis=True,
             _log_domain="jarvis_hep",
         )
-        return sample_logger
 
     def __deepcopy__(self, memo):
         # Create a new instance

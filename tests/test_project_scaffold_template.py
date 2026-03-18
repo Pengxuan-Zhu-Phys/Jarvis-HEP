@@ -15,6 +15,7 @@ from jarvishep.project_scaffold import (  # noqa: E402
     LEGACY_COMPAT_SUBDIRS,
     PROJECT_DESCRIPTOR_NAME,
     PROJECT_MARKER_NAME,
+    PROJECT_NESTED_SUBDIRS,
     PROJECT_SUBDIRS,
     create_project_scaffold,
 )
@@ -26,6 +27,8 @@ class ProjectScaffoldTemplateTests(unittest.TestCase):
             project_root = create_project_scaffold("StandaloneA", cwd=tmpdir)
             self.assertTrue(os.path.isdir(project_root))
             for subdir in PROJECT_SUBDIRS:
+                self.assertTrue(os.path.isdir(os.path.join(project_root, subdir)))
+            for subdir in PROJECT_NESTED_SUBDIRS:
                 self.assertTrue(os.path.isdir(os.path.join(project_root, subdir)))
             for subdir in LEGACY_COMPAT_SUBDIRS:
                 self.assertTrue(os.path.isdir(os.path.join(project_root, subdir)))
@@ -46,6 +49,15 @@ class ProjectScaffoldTemplateTests(unittest.TestCase):
                     os.path.join(project_root, "deps", "environment_default.yaml")
                 )
             )
+            self.assertFalse(os.path.exists(os.path.join(project_root, "outputs")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "logs")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "images")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "configs")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "scripts")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "docs")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "assets")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "cache")))
+            self.assertFalse(os.path.exists(os.path.join(project_root, "calculators")))
 
             with open(
                 os.path.join(project_root, "bin", "quickstart_mcmc_operas.yaml"),
@@ -63,6 +75,25 @@ class ProjectScaffoldTemplateTests(unittest.TestCase):
             expected_env_path = 'default_yaml_path: "&J/deps/environment_default.yaml"'
             self.assertIn(expected_env_path, mcmc_yaml)
             self.assertIn(expected_env_path, csv_yaml)
+
+            with open(
+                os.path.join(project_root, PROJECT_DESCRIPTOR_NAME),
+                "r",
+                encoding="utf-8",
+            ) as f1:
+                descriptor = f1.read()
+            self.assertIn("artifact_roots:", descriptor)
+            self.assertIn("logs: logs", descriptor)
+            self.assertIn("images: images", descriptor)
+
+            with open(
+                os.path.join(project_root, "README.md"),
+                "r",
+                encoding="utf-8",
+            ) as f1:
+                scaffold_readme = f1.read()
+            self.assertIn("Jarvis project create", scaffold_readme)
+            self.assertNotIn("Jarvis --mkproject", scaffold_readme)
 
 
 if __name__ == "__main__":

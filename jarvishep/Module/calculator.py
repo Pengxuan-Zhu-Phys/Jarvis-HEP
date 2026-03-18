@@ -1,6 +1,7 @@
 #!/usr/bin/env python3 
 import asyncio
 import os
+import time
 
 import sympy as sp
 from loguru import logger
@@ -32,10 +33,11 @@ class CalculatorModule(Module):
             self.installation_event = None
             self.is_busy            = False
             self.PackID             = None
-            self.run_log_file       = None
             self.sample_info        = {}
             self._funcs             = {}
             self.subprocess_scheduler = None
+            self.io_manager         = None
+            self.run_summary_collector = None
             self._command_counter   = 0
             self.analyze_config()
 
@@ -122,6 +124,12 @@ class CalculatorModule(Module):
     def set_subprocess_scheduler(self, scheduler):
         self.subprocess_scheduler = scheduler
 
+    def set_io_manager(self, io_manager):
+        self.io_manager = io_manager
+
+    def set_run_summary_collector(self, collector):
+        self.run_summary_collector = collector
+
     def analyze_config_multi(self):
         pass 
 
@@ -164,52 +172,46 @@ class CalculatorModule(Module):
         self.logger.info("Module load instance and logger is correctly set!")
 
     def close_sample_logger(self):
-        
-        """Ensure logging processor is properly shut down after task completion"""
-        # if 'sample' in self.handlers:
-            # self.logger.info("Closing calculator logging handler")
-            # sample_handler = self.handlers['sample']
-            # self.logger.remove(sample_handler)
-            # del self.handlers['sample']  
+        """Detach the sample-local logger after task completion."""
         self.logger = None 
 
     def _next_command_index(self) -> int:
         self._command_counter += 1
         return self._command_counter
 
-    def _build_command_meta(self, stage: str, command_index: int, command: dict) -> dict:
-        sample_uuid = None
-        if isinstance(self.sample_info, dict):
-            sample_uuid = self.sample_info.get("uuid")
-        return {
-            "module": self.name,
-            "pack_id": self.PackID,
-            "stage": stage,
-            "command_index": int(command_index),
-            "sample_uuid": sample_uuid,
-            "cwd": command.get("cwd"),
-        }
-
     def _resolve_sample_runtime_tokens(self, text: str, *, stage: str, field: str) -> str:
         """Resolve runtime-only command tokens.
 
-        `@SampleID` is resolved from `sample_info['uuid']` only during task-run stages.
+        `@SampleID` and `@Sdir` are resolved from `sample_info` only during task-run stages.
         Install stage intentionally skips this replacement.
         """
         if text is None:
             return ""
         raw = str(text)
-        if stage == "install" or "@SampleID" not in raw:
+        if stage == "install" or ("@SampleID" not in raw and "@Sdir" not in raw):
             return raw
 
-        sample_uuid = None
-        if isinstance(self.sample_info, dict):
-            sample_uuid = self.sample_info.get("uuid")
-        if sample_uuid is None:
+        if not isinstance(self.sample_info, dict):
             raise RuntimeError(
-                f"@SampleID requires sample_info['uuid'] during runtime stage '{stage}' for field '{field}'"
+                f"Runtime token requires sample_info during runtime stage '{stage}' for field '{field}'"
             )
-        return raw.replace("@SampleID", str(sample_uuid))
+
+        resolved = raw
+        if "@SampleID" in resolved:
+            sample_uuid = self.sample_info.get("uuid")
+            if sample_uuid is None:
+                raise RuntimeError(
+                    f"@SampleID requires sample_info['uuid'] during runtime stage '{stage}' for field '{field}'"
+                )
+            resolved = resolved.replace("@SampleID", str(sample_uuid))
+        if "@Sdir" in resolved:
+            sample_save_dir = self.sample_info.get("save_dir")
+            if sample_save_dir is None:
+                raise RuntimeError(
+                    f"@Sdir requires sample_info['save_dir'] during runtime stage '{stage}' for field '{field}'"
+                )
+            resolved = resolved.replace("@Sdir", str(sample_save_dir))
+        return resolved
 
     async def _run_command_local(self, command: dict, stage: str, command_index: int):
         process = await asyncio.create_subprocess_shell(
@@ -302,65 +304,85 @@ class CalculatorModule(Module):
             "cmd": cmd_text,
             "cwd": self.decode_path(cwd_text),
         }
-        if self.subprocess_scheduler is None:
-            await self._run_command_local(command, stage=stage, command_index=command_index)
-            return
+        collector = self.run_summary_collector
+        if collector is None and isinstance(self.sample_info, dict):
+            collector = self.sample_info.get("run_summary_collector")
 
-        task_id = f"{self.name}-{self.PackID or 'NA'}-{stage}-{command_index:05}"
-        job = SubprocessJob(
-            cmd=command["cmd"],
-            cwd=command["cwd"],
-            shell=True,
-            log_dir=None,
-            log_policy="logger",
-            task_id=task_id,
-            meta=self._build_command_meta(stage=stage, command_index=command_index, command=command),
-        )
+        started_monotonic = time.monotonic()
+        duration_sec = None
+        timed_out = False
+        ok = False
         try:
-            result = await self.subprocess_scheduler.arun(job)
-        except SubprocessExecutionError:
-            raise
-        except Exception as exc:
-            raise RuntimeError(
-                f"Subprocess scheduler failed [{stage}#{command_index:05}] -> {exc}"
-            ) from exc
+            if self.subprocess_scheduler is None:
+                await self._run_command_local(command, stage=stage, command_index=command_index)
+                duration_sec = max(0.0, time.monotonic() - started_monotonic)
+                ok = True
+                return
 
-        if self.logger is not None:
-            timeout_tag = " timeout=1" if bool(result.timed_out) else ""
-            self.logger.info(
-                "Command done [{}#{:05}] rc={} dur={:.3f}s out={}B err={}B{}".format(
-                    stage,
-                    command_index,
-                    result.returncode,
-                    float(result.duration_sec),
-                    int(result.stdout_bytes),
-                    int(result.stderr_bytes),
-                    timeout_tag,
-                )
+            task_id = f"{self.name}-{self.PackID or 'NA'}-{stage}-{command_index:05}"
+            job = SubprocessJob(
+                cmd=command["cmd"],
+                cwd=command["cwd"],
+                shell=True,
+                log_dir=None,
+                log_policy="logger",
+                task_id=task_id,
+                meta={
+                    "module": self.name,
+                    "pack_id": self.PackID,
+                    "stage": stage,
+                    "command_index": int(command_index),
+                    "sample_uuid": self.sample_info.get("uuid") if isinstance(self.sample_info, dict) else None,
+                    "cwd": command.get("cwd"),
+                },
             )
-        if not result.ok:
-            raise RuntimeError(
-                "Command failed [{}#{:05}] rc={} timeout={} cmd={}".format(
-                    stage,
-                    command_index,
-                    result.returncode,
-                    result.timed_out,
-                    command["cmd"],
+            try:
+                result = await self.subprocess_scheduler.arun(job)
+            except SubprocessExecutionError:
+                duration_sec = max(0.0, time.monotonic() - started_monotonic)
+                raise
+            except Exception as exc:
+                duration_sec = max(0.0, time.monotonic() - started_monotonic)
+                raise RuntimeError(
+                    f"Subprocess scheduler failed [{stage}#{command_index:05}] -> {exc}"
+                ) from exc
+
+            duration_sec = float(result.duration_sec)
+            timed_out = bool(result.timed_out)
+
+            if self.logger is not None:
+                timeout_tag = " timeout=1" if bool(result.timed_out) else ""
+                self.logger.info(
+                    "Command done [{}#{:05}] rc={} dur={:.3f}s out={}B err={}B{}".format(
+                        stage,
+                        command_index,
+                        result.returncode,
+                        float(result.duration_sec),
+                        int(result.stdout_bytes),
+                        int(result.stderr_bytes),
+                        timeout_tag,
+                    )
                 )
-            )
-
-    def log_stream(self, stream, level, logger):
-        # Using the child logger to handle the logging 
-        for line in iter(stream.readline, ''):
-            logger.log(level, "\t{}".format(line.strip()))
-
-    async def log_stream_info(self, stream):
-        async for line in stream:
-            self.logger.bind(raw=True).info(f"\t{line.decode()}")
-
-    async def log_stream_error(self, stream):
-        async for line in stream:
-            self.logger.bind(raw=True).info(f"\t{line.decode()}")
+            if not result.ok:
+                raise RuntimeError(
+                    "Command failed [{}#{:05}] rc={} timeout={} cmd={}".format(
+                        stage,
+                        command_index,
+                        result.returncode,
+                        result.timed_out,
+                        command["cmd"],
+                    )
+                )
+            ok = True
+        finally:
+            if collector is not None:
+                if duration_sec is None:
+                    duration_sec = max(0.0, time.monotonic() - started_monotonic)
+                collector.record_external_command(
+                    duration_sec=duration_sec,
+                    ok=ok,
+                    timed_out=timed_out,
+                )
 
     async def initialize(self):
         for command in self.initialization:
@@ -429,6 +451,7 @@ class CalculatorModule(Module):
 
     async def read_output(self):
         from jarvishep.IOs.IOs import IOfile
+
         read_coroutines = [
             IOfile.load(
                 ffile['name'],
@@ -438,46 +461,25 @@ class CalculatorModule(Module):
                 save=ffile['save'],
                 logger=self.logger,
                 PackID=self.PackID,
+                sample_uuid=self.sample_info.get("uuid"),
                 sample_save_dir=self.sample_info['save_dir'],
                 module=self.name,
-                funcs=self.funcs
+                funcs=self.funcs,
+                io_manager=self.io_manager,
             ).read()
             for ffile in self.output
         ]
-        observables = await asyncio.gather(*read_coroutines) 
-        # print("Line 261 ->", observables)
-        try:
-            merged_observables = {key: val for d in observables for key, val in d.items()}
-        except:
-            merged_observables = {}
-        # print("Line 262->", merged_observables)
+        observables = await asyncio.gather(*read_coroutines)
+        merged_observables = {}
+        for batch in observables:
+            if isinstance(batch, dict):
+                merged_observables.update(batch)
         return merged_observables
 
     async def load_input(self, input_data):
-        """
-            Asynchronously loads input data into SLHA files based on the specified configuration.
-
-            This method reads the configuration for each file from the `self.input` list, creates 
-            instances for handling the files, and then concurrently writes the input data to these 
-            files using their respective `write` methods. The operation is performed asynchronously 
-            to improve performance when dealing with I/O operations and multiple files.
-
-            Args:
-            input_data (dict): The input data to be written into the files. This dictionary should 
-                               contain the necessary information that matches the expected structure 
-                               for each file type being written.
-
-            The method uses `asyncio.gather` to concurrently execute all write operations for the 
-            files defined in `self.input`. Each file is handled based on its configuration, including 
-            the path, type, actions (variables), and whether it should be saved, along with other 
-            metadata like `PackID`, the directory to save the file (`sample_save_dir`), and the 
-            module name (`self.name`). The logger is used for logging purposes, and it's passed to 
-            each file handler instance for consistent logging throughout the operation.
-
-            After all files have been processed and the input data written, a log message is generated 
-            to indicate completion of the loading process.
-        """
+        """Write all configured input files concurrently within the input stage."""
         from jarvishep.IOs.IOs import IOfile
+
         write_coroutines = [
             IOfile.create(
                 ffile["name"], 
@@ -487,17 +489,20 @@ class CalculatorModule(Module):
                 save=ffile['save'],
                 logger=self.logger, 
                 PackID=self.PackID,
+                sample_uuid=self.sample_info.get("uuid"),
                 sample_save_dir=self.sample_info['save_dir'],
                 module=self.name,
-                funcs=self.funcs
-            ).write(input_data)  # Return directly to the coroutine
+                funcs=self.funcs,
+                io_manager=self.io_manager,
+            ).write(input_data)
             for ffile in self.input
         ]
-        # Perform all write operations concurrently and wait for them all to complete
         observables = await asyncio.gather(*write_coroutines)
-        merged_observables = {key: val for d in observables for key, val in d.items()}
+        merged_observables = {}
+        for batch in observables:
+            if isinstance(batch, dict):
+                merged_observables.update(batch)
         return merged_observables
-        # self.logger.warn(self.funcs)
 
     def decode_shadow_commands(self, cmd):
         command = {

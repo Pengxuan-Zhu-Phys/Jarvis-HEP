@@ -124,7 +124,9 @@ class SamplingVirtial(Base):
     @abstractmethod
     def logo_at_pos(self, pos, ax):
         from PIL import Image
-        image_path = self.decode_path("&SRC/icons/JarvisHEP.png")
+        image_path = os.path.abspath(
+            os.path.join(self.path.get("package_root", ""), "icons", "JarvisHEP.png")
+        )
         with Image.open(image_path) as image:
             image = np.array(image.convert("RGBA"))
             ax.axes("off")

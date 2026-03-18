@@ -11,13 +11,9 @@ from importlib import resources as importlib_resources
 PROJECT_SUBDIRS = (
     "bin",
     "data",
-    "outputs",
-    "calculators",
     "deps",
-    "images",
-    "logs",
-    "checkpoints",
 )
+PROJECT_NESTED_SUBDIRS = ()
 LEGACY_COMPAT_SUBDIRS = ()
 PROJECT_MARKER_NAME = ".jarvis-project.json"
 PROJECT_DESCRIPTOR_NAME = "jarvis.project.yaml"
@@ -32,17 +28,21 @@ def _contains_path_separator(name: str) -> bool:
     return any(sep in name for sep in separators)
 
 
-def _copy_template_tree(src, dst: str) -> None:
+def _copy_template_tree(src, dst: str) -> bool:
+    copied_any = False
     for entry in src.iterdir():
         if entry.name in {"__pycache__", ".DS_Store"}:
             continue
         target = os.path.join(dst, entry.name)
         if entry.is_dir():
-            os.makedirs(target, exist_ok=True)
-            _copy_template_tree(entry, target)
+            if _copy_template_tree(entry, target):
+                copied_any = True
             continue
+        os.makedirs(dst, exist_ok=True)
         with entry.open("rb") as f_src, open(target, "wb") as f_dst:
             f_dst.write(f_src.read())
+        copied_any = True
+    return copied_any
 
 
 def _write_project_marker(project_root: str) -> None:
@@ -63,9 +63,13 @@ def _write_project_descriptor(project_root: str) -> None:
         "  format: jarvis-hep-standalone-project",
         "  version: 1",
         "  output_root: outputs",
+        "  artifact_roots:",
+        "    outputs: outputs",
+        "    logs: logs",
+        "    images: images",
+        "    checkpoints: checkpoints",
         "  path_markers:",
         "    task_root: '&J'",
-        "    package_root: '&SRC'",
         "  defaults:",
         "    main_config: bin/quickstart_mcmc_operas.yaml",
     ]
@@ -79,11 +83,13 @@ def _bootstrap_minimal_files(project_root: str) -> None:
         with open(readme_path, "w", encoding="utf-8") as f1:
             f1.write(
                 "# Jarvis-HEP Project\n\n"
-                "Create this project via `Jarvis --mkproject <name>`.\n"
+                "Create this project via `Jarvis project create <name>`.\n"
                 "Put runnable YAML cards under `bin/` and run with:\n\n"
                 "```bash\n"
                 "Jarvis bin/quickstart_mcmc_operas.yaml\n"
-                "```\n"
+                "```\n\n"
+                "Runtime artifact directories such as `outputs/`, `logs/`, and "
+                "`images/` are created automatically on first use.\n"
             )
 
 
@@ -102,7 +108,7 @@ def _apply_project_template(project_root: str) -> None:
 def create_project_scaffold(project_name: str, cwd: Optional[str] = None) -> str:
     name = project_name.strip()
     if not name:
-        raise ValueError("--mkproject requires a non-empty project name.")
+        raise ValueError("project create requires a non-empty project name.")
     if _contains_path_separator(name):
         raise ValueError("Project name should be a folder name, not a path.")
 
@@ -114,6 +120,8 @@ def create_project_scaffold(project_name: str, cwd: Optional[str] = None) -> str
     os.makedirs(project_root, exist_ok=False)
     for subdir in PROJECT_SUBDIRS:
         os.makedirs(os.path.join(project_root, subdir), exist_ok=False)
+    for subdir in PROJECT_NESTED_SUBDIRS:
+        os.makedirs(os.path.join(project_root, subdir), exist_ok=True)
     for subdir in LEGACY_COMPAT_SUBDIRS:
         os.makedirs(os.path.join(project_root, subdir), exist_ok=False)
     _apply_project_template(project_root)

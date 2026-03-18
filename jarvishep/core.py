@@ -4,7 +4,6 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import os
-from subprocess import Popen, run
 import sys
 import time 
 import argparse
@@ -19,12 +18,9 @@ from jarvishep.workflow import Workflow
 from jarvishep.factory import WorkerFactory 
 from jarvishep.sample import Sample
 from jarvishep.moduleManager import ModuleManager
-from pprint import pprint
-import pandas as pd 
-import concurrent.futures
 import asyncio 
-from jarvishep.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 from jarvishep.log_kv import format_two_column_log
+from jarvishep.io_manager import IOManager
 from loguru import logger
 import setproctitle 
 logger.remove()
@@ -51,11 +47,13 @@ class Core(Base):
         self.module_manager             = None
         self._funcs                     = {}
         self.tasks                      = []
-        self.async_loop                 = asyncio.get_event_loop()
         self.scan_mode                  = True
         self.plotter                    = PlotterClass()
         self.mode                       = None
         self.subprocess_scheduler       = None
+        self.io_manager                 = None
+        self.run_summary_collector      = None
+        self.run_summary_renderer       = None
         # self.monitor                    = Monitor()
         # self.monitor.start()
 
@@ -109,14 +107,6 @@ class Core(Base):
             self.scan_mode = False
             self.mode = "VERSION"
             return
-        if self.args.mkproject:
-            self.scan_mode = False
-            self.mode      = "MKPROJECT"
-            return
-        if getattr(self.args, "packproject", None) is not None:
-            self.scan_mode = False
-            self.mode = "PACKPROJECT"
-            return
         if self.args.cvtDB:
             self.scan_mode = False
             self.mode      = "CDB"      # CDB means Convert DataBase from hdf5 into csv
@@ -159,18 +149,23 @@ class Core(Base):
             # Use a 'PLOT' folder next to the YAML to hold outputs
             task_result_dir = os.path.join(yaml_dir, "PLOT", self.info['scan_name'])
 
+        logs_dir = self.decode_path(os.path.join("&J", "logs", self.info["scan_name"]))
+        images_dir = self.decode_path(os.path.join("&J", "images", self.info["scan_name"]))
+
         # Common paths (exist regardless of mode)
-        self.info['jarvis_log'] = os.path.join(task_result_dir, "LOG", f"{self.info['scan_name']}.log")
+        self.info['logs_dir'] = logs_dir
+        self.info['images_dir'] = images_dir
+        self.info['jarvis_log'] = os.path.join(logs_dir, f"{self.info['scan_name']}.log")
         self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
-        self.info['flowchart_path'] = os.path.join(task_result_dir, "flowchart.png")
+        self.info['flowchart_path'] = os.path.join(images_dir, "flowchart.png")
         # Sampling method may be absent for plotting-only YAML
         sampling_method = None
         try:
             sampling_method = config['Sampling']['Method']
         except Exception:
             sampling_method = "Sampler"
-        self.info['sampler_log'] = os.path.join(task_result_dir, "LOG", f"{sampling_method}.log")
-        self.info['factory_log'] = os.path.join(task_result_dir, "LOG", "Factory.log")
+        self.info['sampler_log'] = os.path.join(logs_dir, f"{sampling_method}.log")
+        self.info['factory_log'] = os.path.join(logs_dir, "Factory.log")
 
         directory_cfg = {}
         scan_cfg = config.get("Scan", {})
@@ -201,13 +196,14 @@ class Core(Base):
         # Ensure directories exist (create minimal layout for plotting-only YAML)
         os.makedirs(task_result_dir, exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
-        os.makedirs(os.path.join(task_result_dir, "LOG"), exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
+        os.makedirs(logs_dir, exist_ok=True)
+        os.makedirs(images_dir, exist_ok=True)
 
         # Plot folder and config reference
         if self.args.plot:
             # Keep plot configs/assets at project scope instead of run-output scope.
-            plot_dir = self.decode_path("&J/images")
+            plot_dir = images_dir
             os.makedirs(plot_dir, exist_ok=True)
             if 'Scan' in config:
                 # With full scan YAML, emit plotting config under project images root.
@@ -461,10 +457,12 @@ class Core(Base):
         self.factory = WorkerFactory()
         self.module_manager = ModuleManager()
         max_workers = self.yaml.get_worker_parallel()
+        self.io_manager = IOManager(max_workers=max_workers)
         self.factory.configure(module_manager=self.module_manager,
             max_workers=max_workers
             )
         self.sampler.set_max_workers(max_workers)
+        self.module_manager.set_io_manager(self.io_manager)
 
         if hasattr(self.yaml, "get_subprocess_runtime_options"):
             runtime_opts = self.yaml.get_subprocess_runtime_options(worker_parallel=max_workers)
@@ -480,15 +478,6 @@ class Core(Base):
                 "diagnostics_interval_sec": 10.0,
                 "terminate_grace_sec": 5.0,
             }
-        args = getattr(self, "args", None)
-        if getattr(args, "max_concurrency", None) is not None:
-            runtime_opts["max_concurrency"] = int(args.max_concurrency)
-        if getattr(args, "per_task_timeout_sec", None) is not None:
-            runtime_opts["per_task_timeout_sec"] = float(args.per_task_timeout_sec)
-        if getattr(args, "progress_interval_sec", None) is not None:
-            runtime_opts["progress_interval_sec"] = float(args.progress_interval_sec)
-        if getattr(args, "log_policy", None):
-            runtime_opts["log_policy"] = str(args.log_policy).strip().lower()
 
         from jarvishep.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 
@@ -544,9 +533,13 @@ class Core(Base):
         )
         factory_log_path = self.info.get("factory_log")
         if not factory_log_path:
-            sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
-            task_result_dir = sample_cfg.get("task_result_dir", "/tmp")
-            factory_log_path = os.path.join(task_result_dir, "Factory.log")
+            logs_dir = self.info.get("logs_dir")
+            if logs_dir:
+                factory_log_path = os.path.join(logs_dir, "Factory.log")
+            else:
+                sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+                task_result_dir = sample_cfg.get("task_result_dir", "/tmp")
+                factory_log_path = os.path.join(task_result_dir, "Factory.log")
             self.info["factory_log"] = factory_log_path
         flogger.add(
             factory_log_path,
@@ -578,6 +571,13 @@ class Core(Base):
             self.module_manager.nuisance_passconditions = self.sampler.nuisance_sampler.passconditions
             self.module_manager._with_nuisance = True
 
+    def shutdown_io_manager(self) -> None:
+        manager = getattr(self, "io_manager", None)
+        if manager is None:
+            return
+        manager.shutdown(wait=True, cancel_futures=True)
+        self.io_manager = None
+
     def init_likelihood(self) -> None: 
         if self.yaml.config['Sampling'].get("LogLikelihood", False):
             self.module_manager.set_likelihood()
@@ -589,6 +589,70 @@ class Core(Base):
         from jarvishep.hdf5writer import GlobalHDF5Writer
         self.module_manager._database = GlobalHDF5Writer(self.info['db'])
         self.module_manager.database.start()
+
+    def init_run_summary(self) -> None:
+        from jarvishep.monitoring.run_summary import (
+            RunSummaryCollector,
+            RunSummaryRenderer,
+        )
+
+        sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+        task_result_dir = sample_cfg.get("task_result_dir")
+        if not task_result_dir:
+            return
+
+        sampler_name = getattr(getattr(self, "sampler", None), "method", None)
+        if not sampler_name:
+            try:
+                sampler_name = self.yaml.get_sampling_method()
+            except Exception:
+                sampler_name = None
+
+        configured_workers = None
+        try:
+            configured_workers = self.yaml.get_worker_parallel()
+        except Exception:
+            configured_workers = None
+
+        self.run_summary_collector = RunSummaryCollector(
+            output_dir=task_result_dir,
+            project_name=self.info.get("project_name"),
+            sampler_name=sampler_name,
+            configured_workers=configured_workers,
+            run_label=self.info.get("scan_name") or self.info.get("project_name"),
+        )
+        self.run_summary_renderer = RunSummaryRenderer()
+
+        if getattr(self, "factory", None) is not None:
+            self.factory.set_run_summary_collector(self.run_summary_collector)
+            self.run_summary_collector.attach_factory(self.factory)
+        if getattr(self, "subprocess_scheduler", None) is not None:
+            self.run_summary_collector.attach_scheduler(self.subprocess_scheduler)
+        if getattr(self, "module_manager", None) is not None:
+            for pool in self.module_manager.module_pools.values():
+                if hasattr(pool, "set_run_summary_collector"):
+                    pool.set_run_summary_collector(self.run_summary_collector)
+
+    def _start_run_summary(self) -> None:
+        if self.run_summary_collector is not None:
+            self.run_summary_collector.start()
+
+    def _emit_run_summary(self) -> None:
+        if self.run_summary_collector is None or self.run_summary_renderer is None:
+            return
+        try:
+            summary = self.run_summary_collector.finish()
+            rendered = self.run_summary_renderer.render(summary)
+            if getattr(self, "logger", None) is not None:
+                self.logger.warning(rendered.rstrip("\n"))
+            self.run_summary_renderer.write_outputs(
+                summary,
+                self.info["sample"]["task_result_dir"],
+                rendered_text=rendered,
+            )
+        except Exception as exc:
+            if getattr(self, "logger", None) is not None:
+                self.logger.error(f"Run summary emission failed -> {exc}")
 
     def initialization(self) -> None:
         # Parse CLI and decide mode
@@ -604,15 +668,8 @@ class Core(Base):
             self.init_logger()
 
 
-        # Mode switch: MKPROJECT / PLOT / CDB / Monitor / SCAN (default) / 1PC
-        if self.mode == "MKPROJECT" or getattr(self.args, 'mkproject', None):
-            # Project scaffold mode: no YAML/project logger required
-            return
-        if self.mode == "PACKPROJECT" or getattr(self.args, "packproject", None) is not None:
-            # Project packaging mode: no YAML/project logger required
-            return
-
-        elif self.mode == "VERSION" or getattr(self.args, "version", False):
+        # Mode switch: PLOT / CDB / Monitor / SCAN (default) / 1PC
+        if self.mode == "VERSION" or getattr(self.args, "version", False):
             # Version mode: no project/config/runtime initialization required
             return
 
@@ -657,6 +714,7 @@ class Core(Base):
             self.init_WorkerFactory()
             self.init_likelihood()
             self.init_database()
+            self.init_run_summary()
             return
 
     def save_pid(self):
@@ -672,6 +730,7 @@ class Core(Base):
 
     def test_assembly_line(self):
         self.logger.warning("Start testing assembly line")
+        self._start_run_summary()
         try:
             for ii in range(10):
                 param = next(self.sampler)
@@ -691,16 +750,19 @@ class Core(Base):
         finally:
             self.factory.shutdown()
             self.module_manager.database.stop()
+            self.shutdown_io_manager()
 
             from time import time
             start = time()
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
+            self._emit_run_summary()
             # self.monitor.stop()
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
         run_exc = None
+        self._start_run_summary()
         try:
             self.sampler.run_nested()
         except Exception as exc:
@@ -725,6 +787,8 @@ class Core(Base):
             _cleanup_step("sampler.combine_data", lambda: self.sampler.combine_data(self.info['db']['path']))
             _cleanup_step("factory.shutdown", self.factory.shutdown)
             _cleanup_step("sampler.finalize_sample_archive", self.sampler.finalize_sample_archive)
+            _cleanup_step("io_manager.shutdown", self.shutdown_io_manager)
+            self._emit_run_summary()
 
             if run_exc is None and cleanup_errors:
                 first_step, first_exc = cleanup_errors[0]
@@ -739,93 +803,16 @@ class Core(Base):
             self.argparser.print_help()
             sys.exit(2)
 
-        if self.args.mkproject:
-            if self.args.file:
-                self.argparser.error("positional argument `file` cannot be used with --mkproject")
-            if getattr(self.args, "packproject", None) is not None:
-                self.argparser.error("--mkproject cannot be combined with --packproject")
-            if any([
-                getattr(self.args, "plot", False),
-                getattr(self.args, "cvtDB", False),
-                getattr(self.args, "monitor", False),
-                getattr(self.args, "OPC", False),
-            ]):
-                self.argparser.error("--mkproject cannot be combined with workflow mode options")
-            return
-
-        if getattr(self.args, "packproject", None) is not None:
-            if self.args.file:
-                self.argparser.error("positional argument `file` cannot be used with --packproject")
-            if any([
-                getattr(self.args, "plot", False),
-                getattr(self.args, "cvtDB", False),
-                getattr(self.args, "monitor", False),
-                getattr(self.args, "OPC", False),
-            ]):
-                self.argparser.error("--packproject cannot be combined with workflow mode options")
-            return
-
         if getattr(self.args, "version", False):
             return
 
         if not self.args.file:
             self.argparser.error("the following arguments are required: file")
 
-    def mkproject(self) -> None:
-        try:
-            project_root = create_project_scaffold(str(self.args.mkproject), cwd=os.getcwd())
-        except ValueError as exc:
-            print(f"[Jarvis-HEP] {exc}")
-            sys.exit(2)
-        except FileExistsError as exc:
-            print(f"[Jarvis-HEP] Project directory already exists: {exc}")
-            sys.exit(1)
-
-        print(f"[Jarvis-HEP] Project scaffold created at: {project_root}")
-        print(f"[Jarvis-HEP] Created folders: {', '.join(PROJECT_SUBDIRS)}")
-
-    def packproject(self) -> None:
-        from jarvishep.project_packager import (
-            ProjectPackError,
-            create_project_package,
-        )
-
-        def _human_bytes(value: int) -> str:
-            units = ["B", "KB", "MB", "GB", "TB"]
-            amount = float(max(0, int(value)))
-            idx = 0
-            while amount >= 1024.0 and idx < len(units) - 1:
-                amount /= 1024.0
-                idx += 1
-            if idx == 0:
-                return f"{int(amount)} {units[idx]}"
-            return f"{amount:.2f} {units[idx]}"
-
-        try:
-            report = create_project_package(
-                project_root=str(self.args.packproject),
-                profile=str(getattr(self.args, "packprofile", "repro")),
-            )
-        except ProjectPackError as exc:
-            print(f"[Jarvis-HEP] {exc}")
-            sys.exit(2)
-        except Exception as exc:
-            print(f"[Jarvis-HEP] Failed to package project: {exc}")
-            sys.exit(1)
-
-        print(
-            format_two_column_log(
-                "Jarvis-HEP project package created",
-                [
-                    ("Project root", report.project_root),
-                    ("Archive", report.archive_path),
-                    ("Profile", report.profile),
-                    ("Packed files", report.included_files),
-                    ("Skipped files", report.excluded_files),
-                    ("Payload size", _human_bytes(report.total_bytes)),
-                ],
-            )
-        )
+        config_file = os.path.abspath(os.path.expanduser(str(self.args.file)))
+        if not os.path.isfile(config_file):
+            self.argparser.error(f"YAML file not found: {config_file}")
+        self.args.file = config_file
 
     def convert(self) -> None: 
         if os.path.exists(self.info['db']['info']):

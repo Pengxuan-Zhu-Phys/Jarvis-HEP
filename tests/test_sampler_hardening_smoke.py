@@ -441,6 +441,18 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
     def _sample_cfg(self):
         return {"sample": {"save_dir": self.tempdir.name, "task_result_dir": self.tempdir.name}}
 
+    def _sample_cfg_with_bucket_root(self):
+        sample_root = os.path.join(self.tempdir.name, "SAMPLE")
+        os.makedirs(sample_root, exist_ok=True)
+        return {
+            "sample": {
+                "save_dir": self.tempdir.name,
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": sample_root,
+                "archive_samples": False,
+            }
+        }
+
     @staticmethod
     def _fake_torch_modules():
         fake_torch = types.ModuleType("torch")
@@ -540,6 +552,97 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         self.assertLess(time.perf_counter() - t0, 1.0)
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
+
+    def test_random_sampler_uses_bucketed_sample_save_dir_and_completion_tracking(self):
+        sampler = RandomS()
+        sampler.logger = _NoopLogger()
+        sampler.info = self._sample_cfg_with_bucket_root()
+        sampler.factory = _ImmediateFactory()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Point number": 3,
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "description": "x",
+                            "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                        }
+                    ],
+                },
+                "Scan": {"sample_directory": {"limit": 200, "width": 6}},
+            }
+        )
+
+        completed = []
+        original_on_completed = sampler._on_sample_completed
+
+        def _capture_completed(sample_info):
+            completed.append(sample_info.get("uuid"))
+            original_on_completed(sample_info)
+
+        sampler._on_sample_completed = _capture_completed
+
+        points = iter([{"x": 0.1}, {"x": 0.2}, {"x": 0.3}])
+        sampler.next_sample = lambda: next(points)
+
+        _CaptureConfigSample.reset()
+        with patch("jarvishep.Sampling.randoms.Sample", _CaptureConfigSample):
+            sampler.run_nested()
+
+        self.assertEqual(sampler.factory.calls, 3)
+        self.assertEqual(_CaptureConfigSample.close_calls, 3)
+        self.assertEqual(len(completed), 3)
+        self.assertGreaterEqual(len(_CaptureConfigSample.save_dirs), 1)
+        sample_root = sampler.info["sample"]["sample_dirs"]
+        for save_dir in _CaptureConfigSample.save_dirs:
+            self.assertTrue(save_dir.startswith(sample_root))
+            self.assertEqual(os.path.basename(save_dir), "000001")
+
+    def test_grid_sampler_uses_bucketed_sample_save_dir_and_completion_tracking(self):
+        sampler = Grid()
+        sampler.logger = _NoopLogger()
+        sampler.info = self._sample_cfg_with_bucket_root()
+        sampler.factory = _ImmediateFactory()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "description": "x",
+                            "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0, "num": 4}},
+                        }
+                    ],
+                },
+                "Scan": {"sample_directory": {"limit": 200, "width": 6}},
+            }
+        )
+
+        completed = []
+        original_on_completed = sampler._on_sample_completed
+
+        def _capture_completed(sample_info):
+            completed.append(sample_info.get("uuid"))
+            original_on_completed(sample_info)
+
+        sampler._on_sample_completed = _capture_completed
+
+        points = iter([{"x": 0.1}, {"x": 0.2}, {"x": 0.3}])
+        sampler.next_sample = lambda: next(points)
+
+        _CaptureConfigSample.reset()
+        with patch("jarvishep.Sampling.grid.Sample", _CaptureConfigSample):
+            sampler.run_nested()
+
+        self.assertEqual(sampler.factory.calls, 3)
+        self.assertEqual(_CaptureConfigSample.close_calls, 3)
+        self.assertEqual(len(completed), 3)
+        self.assertGreaterEqual(len(_CaptureConfigSample.save_dirs), 1)
+        sample_root = sampler.info["sample"]["sample_dirs"]
+        for save_dir in _CaptureConfigSample.save_dirs:
+            self.assertTrue(save_dir.startswith(sample_root))
+            self.assertEqual(os.path.basename(save_dir), "000001")
 
     def test_mcmc_sampler_smoke_closes_samples(self):
         sampler = MCMC()
@@ -1569,6 +1672,30 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         self.assertLess(time.perf_counter() - t0, 1.0)
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
+
+    def test_bridson_progress_logging_uses_info_for_permille_and_warning_for_percent(self):
+        sampler = Bridson()
+        sampler.logger = _CaptureLogger()
+        sampler._P = np.zeros((1000, 2), dtype=float)
+        sampler.barinfo = {}
+
+        sampler.progress_bar()
+        sampler._index = 1
+        sampler.progress_bar()
+        sampler._index = 10
+        sampler.progress_bar()
+
+        progress_records = [
+            (level, args[0])
+            for level, args, _kwargs in sampler.logger.records
+            if args and "samples submited" in str(args[0])
+        ]
+        self.assertEqual(progress_records[0][0], "INFO")
+        self.assertIn("0‰", progress_records[0][1])
+        self.assertEqual(progress_records[1][0], "INFO")
+        self.assertIn("1‰", progress_records[1][1])
+        self.assertEqual(progress_records[2][0], "WARNING")
+        self.assertIn("10‰", progress_records[2][1])
 
     def test_diver_sampler_smoke_closes_samples(self):
         sampler = Diver()

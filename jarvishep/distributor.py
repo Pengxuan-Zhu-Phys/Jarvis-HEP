@@ -32,6 +32,9 @@ class Distributor(Base):
             case "TPMCMC":
                 from jarvishep.Sampling.tpmcmc import TPMCMC 
                 return TPMCMC()
+            case "RLTPMCMC":
+                from jarvishep.Sampling.rltpmcmc import RLTPMCMC
+                return RLTPMCMC()
             case "MCMC":
                 from jarvishep.Sampling.mcmc_standard import MCMC
                 return MCMC()
@@ -81,7 +84,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "CSV", "DNN", "TPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAM", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
+                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "CSV", "DNN", "TPMCMC", "RLTPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAM", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

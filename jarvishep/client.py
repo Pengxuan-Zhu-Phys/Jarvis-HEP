@@ -1,12 +1,119 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import sys
-import json
 
+from jarvishep.log_kv import format_two_column_log
+from jarvishep.official_project_library import (
+    OfficialLibraryError,
+    OfficialProjectFetchError,
+    OfficialProjectNotFoundError,
+    fetch_official_project,
+    get_official_project,
+    list_official_projects,
+)
+from jarvishep.project_packager import ProjectPackError, create_project_package
 from jarvishep.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 from jarvishep.versioning import render_logo_with_version
+
+
+_TOP_LEVEL_HELP_TEXT = """Usage:
+  Jarvis [file] [options]
+  Jarvis project <command> [arguments]
+
+Jarvis Program Help Center
+
+Main entry points:
+  file                  Run Jarvis with a YAML input file
+  project               Manage Jarvis standalone projects
+
+General options:
+  -h, --help            Show this help message and exit
+  -d, --debug           Run Jarvis-HEP in debug mode
+  -v, --version         Print version and runtime package information
+
+Workflow options:
+  --plot                Run plotting mode
+  --convert             Convert sample.hdf5 into CSV format
+  --monitor             Start a real-time resource monitor
+  --check-modules       Run calculator/module checks
+  --skip-library-installation
+                        Skip library installation
+  --skip-draw-flowchart
+                        Skip flowchart drawing
+
+Hint:
+  Run `Jarvis project -h` to see project workflow commands.
+"""
+
+_PROJECT_HELP_TEXT = """Usage:
+  Jarvis project <command> [arguments]
+
+Manage Jarvis standalone projects.
+
+Commands:
+  create <name>      Create a new local project scaffold
+  pack [path]        Pack a local project for sharing, reproduction, or full export
+  browse             List verified projects in the official Jarvis library
+  fetch <name>       Fetch an official project into a local directory
+  info <name>        Show details for an official project
+
+Scope:
+  create and pack work on local projects.
+  browse, fetch, and info work on the official Jarvis project library.
+
+Examples:
+  Jarvis project create MyProject
+  Jarvis project browse
+  Jarvis project fetch Example_Bridson
+  Jarvis project info Example_Bridson
+"""
+
+_PROJECT_PACK_HELP_TEXT = """Usage:
+  Jarvis project pack [path] [--share | --repro | --full]
+
+Pack a local standalone project.
+
+Modes:
+  --share           Create a lightweight shareable bundle
+  --repro           Create a reproducible bundle
+  --full            Create a full bundle
+
+Notes:
+  If no mode is specified, `--share` is used by default.
+"""
+
+_PROJECT_SUBCOMMAND_HELP = {
+    "create": """Usage:
+  Jarvis project create <name>
+
+Create a new local project scaffold.
+""",
+    "browse": """Usage:
+  Jarvis project browse
+
+List verified projects in the official Jarvis library.
+""",
+    "fetch": """Usage:
+  Jarvis project fetch <name>
+
+Fetch an official project into a local directory.
+""",
+    "info": """Usage:
+  Jarvis project info <name>
+
+Show details for an official project.
+""",
+}
+
+_HELP_FLAGS = {"-h", "--help"}
+_PACK_MODE_FLAGS = {
+    "--share": "share",
+    "--repro": "repro",
+    "--full": "full",
+}
 
 
 def _render_version_banner() -> str:
@@ -120,8 +227,8 @@ def _render_document_links() -> str:
         return ""
 
     try:
-        with open(links_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        with open(links_path, "r", encoding="utf-8") as f1:
+            payload = json.load(f1)
     except Exception:
         return ""
 
@@ -143,53 +250,35 @@ def _render_document_links() -> str:
     return "\n\n".join(sections)
 
 
-def _version_fast_path(argv) -> int | None:
-    if "--version" not in argv and "-v" not in argv:
-        return None
-
-    print(_render_version_banner())
-    return 0
+def _print_top_level_help() -> None:
+    print(_TOP_LEVEL_HELP_TEXT, end="")
 
 
-def _mkproject_fast_path(argv) -> int | None:
-    if "--mkproject" not in argv:
-        return None
+def _print_project_help() -> None:
+    print(_PROJECT_HELP_TEXT, end="")
 
-    conflicts = [
-        flag for flag in (
-            "--plot",
-            "--convert",
-            "--monitor",
-            "--check-modules",
-        )
-        if flag in argv
-    ]
-    if conflicts:
-        print(f"[Jarvis-HEP] --mkproject cannot be combined with: {' '.join(conflicts)}")
-        return 2
 
-    i = argv.index("--mkproject")
-    if i + 1 >= len(argv) or argv[i + 1].startswith("-"):
-        print("[Jarvis-HEP] Missing project name for --mkproject")
-        return 2
+def _print_project_pack_help() -> None:
+    print(_PROJECT_PACK_HELP_TEXT, end="")
 
-    # Fast-path mode is intentionally strict: only `--mkproject <name>` is accepted.
-    extra_tokens = argv[1:i] + argv[i + 2 :]
-    if extra_tokens:
-        unsupported_opts = [tok for tok in extra_tokens if tok.startswith("-")]
-        if unsupported_opts:
-            print(
-                "[Jarvis-HEP] --mkproject does not accept option(s): "
-                + " ".join(unsupported_opts)
-            )
-        else:
-            print(
-                "[Jarvis-HEP] --mkproject does not accept extra arguments: "
-                + " ".join(extra_tokens)
-            )
-        return 2
 
-    project_name = argv[i + 1]
+def _print_project_subcommand_help(command: str) -> None:
+    print(_PROJECT_SUBCOMMAND_HELP[command], end="")
+
+
+def _human_bytes(value: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    amount = float(max(0, int(value)))
+    idx = 0
+    while amount >= 1024.0 and idx < len(units) - 1:
+        amount /= 1024.0
+        idx += 1
+    if idx == 0:
+        return f"{int(amount)} {units[idx]}"
+    return f"{amount:.2f} {units[idx]}"
+
+
+def _run_project_create(project_name: str) -> int:
     try:
         project_root = create_project_scaffold(project_name, cwd=os.getcwd())
     except ValueError as exc:
@@ -204,33 +293,235 @@ def _mkproject_fast_path(argv) -> int | None:
     return 0
 
 
+def _run_project_pack(project_path: str | None, profile: str) -> int:
+    try:
+        report = create_project_package(
+            project_root=project_path,
+            profile=profile,
+        )
+    except ProjectPackError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 2
+    except Exception as exc:
+        print(f"[Jarvis-HEP] Failed to package project: {exc}")
+        return 1
+
+    print(
+        format_two_column_log(
+            "Jarvis-HEP project package created",
+            [
+                ("Project root", report.project_root),
+                ("Archive", report.archive_path),
+                ("Mode", report.profile),
+                ("Packed files", report.included_files),
+                ("Skipped files", report.excluded_files),
+                ("Payload size", _human_bytes(report.total_bytes)),
+            ],
+        )
+    )
+    return 0
+
+
+def _run_project_browse() -> int:
+    try:
+        projects = list_official_projects()
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis-HEP] Failed to query the official Jarvis library: {exc}")
+        return 1
+
+    if not projects:
+        print("[Jarvis-HEP] No verified projects are currently listed in the official Jarvis library.")
+        return 0
+
+    print("[Jarvis-HEP] Verified projects in the official Jarvis library:")
+    for project in projects:
+        name = project.get("name") or "<unnamed>"
+        category = project.get("category") or "general"
+        summary = project.get("summary") or "No summary available."
+        print(f"[Jarvis-HEP] - {name} | {category} | {summary}")
+    return 0
+
+
+def _run_project_info(project_name: str) -> int:
+    try:
+        project = get_official_project(project_name)
+    except OfficialProjectNotFoundError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 2
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis-HEP] Failed to query the official Jarvis library: {exc}")
+        return 1
+
+    print(f"[Jarvis-HEP] Official project: {project['name']}")
+    print(f"[Jarvis-HEP] Summary: {project.get('summary') or 'N/A'}")
+    print(f"[Jarvis-HEP] Category: {project.get('category') or 'N/A'}")
+    print(f"[Jarvis-HEP] Entrypoint: {project.get('entrypoint') or 'N/A'}")
+    notes = project.get("compatibility_notes") or "None"
+    print(f"[Jarvis-HEP] Compatibility notes: {notes}")
+    return 0
+
+
+def _run_project_fetch(project_name: str) -> int:
+    try:
+        report = fetch_official_project(project_name)
+    except OfficialProjectNotFoundError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 2
+    except OfficialProjectFetchError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 1
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis-HEP] Failed to query the official Jarvis library: {exc}")
+        return 1
+
+    print(
+        f"[Jarvis-HEP] Official project '{report.project_name}' fetched to: {report.target_dir}"
+    )
+    print(f"[Jarvis-HEP] Entrypoint: {report.entrypoint or 'N/A'}")
+    return 0
+
+
+def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str] | int:
+    path: str | None = None
+    mode_flag: str | None = None
+
+    for tok in tokens:
+        if tok in _HELP_FLAGS:
+            _print_project_pack_help()
+            return 0
+        if tok in _PACK_MODE_FLAGS:
+            if mode_flag is not None:
+                print("[Jarvis-HEP] project pack modes are mutually exclusive: --share, --repro, --full")
+                return 2
+            mode_flag = tok
+            continue
+        if tok.startswith("-"):
+            print(f"[Jarvis-HEP] Unsupported option for project pack: {tok}")
+            return 2
+        if path is None:
+            path = tok
+            continue
+        print(f"[Jarvis-HEP] Unexpected argument for project pack: {tok}")
+        return 2
+
+    profile = _PACK_MODE_FLAGS.get(mode_flag, "share")
+    return path, profile
+
+
+def _handle_project_subcommand(command: str, args: list[str]) -> int:
+    if command == "create":
+        if len(args) == 1 and args[0] in _HELP_FLAGS:
+            _print_project_subcommand_help("create")
+            return 0
+        if len(args) != 1 or args[0].startswith("-"):
+            print("[Jarvis-HEP] Usage error: Jarvis project create <name>")
+            return 2
+        return _run_project_create(args[0])
+
+    if command == "pack":
+        parsed = _parse_pack_arguments(args)
+        if isinstance(parsed, int):
+            return parsed
+        path, profile = parsed
+        return _run_project_pack(path, profile)
+
+    if command == "browse":
+        if len(args) == 1 and args[0] in _HELP_FLAGS:
+            _print_project_subcommand_help("browse")
+            return 0
+        if args:
+            print("[Jarvis-HEP] Usage error: Jarvis project browse")
+            return 2
+        return _run_project_browse()
+
+    if command == "fetch":
+        if len(args) == 1 and args[0] in _HELP_FLAGS:
+            _print_project_subcommand_help("fetch")
+            return 0
+        if len(args) != 1 or args[0].startswith("-"):
+            print("[Jarvis-HEP] Usage error: Jarvis project fetch <name>")
+            return 2
+        return _run_project_fetch(args[0])
+
+    if command == "info":
+        if len(args) == 1 and args[0] in _HELP_FLAGS:
+            _print_project_subcommand_help("info")
+            return 0
+        if len(args) != 1 or args[0].startswith("-"):
+            print("[Jarvis-HEP] Usage error: Jarvis project info <name>")
+            return 2
+        return _run_project_info(args[0])
+
+    print(f"[Jarvis-HEP] Unknown project command: {command}")
+    _print_project_help()
+    return 2
+
+
+def _project_fast_path(argv: list[str]) -> int | None:
+    if len(argv) < 2 or argv[1] != "project":
+        return None
+
+    tokens = argv[2:]
+    if not tokens:
+        _print_project_help()
+        return 0
+    if tokens[0] in _HELP_FLAGS:
+        if len(tokens) > 1:
+            print("[Jarvis-HEP] Usage error: Jarvis project --help")
+            return 2
+        _print_project_help()
+        return 0
+
+    return _handle_project_subcommand(tokens[0], tokens[1:])
+
+
+def _top_level_help_fast_path(argv: list[str]) -> int | None:
+    if len(argv) == 1:
+        _print_top_level_help()
+        return 0
+    if len(argv) >= 2 and argv[1] == "project":
+        return None
+    if any(token in _HELP_FLAGS for token in argv[1:]):
+        _print_top_level_help()
+        return 0
+    return None
+
+
+def _version_fast_path(argv: list[str]) -> int | None:
+    if "--version" not in argv and "-v" not in argv:
+        return None
+
+    print(_render_version_banner())
+    return 0
+
+
 def main(argv=None) -> int:
-    argv = sys.argv if argv is None else argv
+    argv = sys.argv if argv is None else list(argv)
+
+    project_code = _project_fast_path(argv)
+    if project_code is not None:
+        return project_code
+
+    help_code = _top_level_help_fast_path(argv)
+    if help_code is not None:
+        return help_code
 
     version_code = _version_fast_path(argv)
     if version_code is not None:
         return version_code
-
-    fast_path_code = _mkproject_fast_path(argv)
-    if fast_path_code is not None:
-        return fast_path_code
 
     from jarvishep.core import Core
 
     jc = Core()
     old_argv = sys.argv
     try:
-        # Core argparse consumes sys.argv; mirror explicit argv for tests/embedded calls.
         sys.argv = list(argv)
         jc.initialization()
     finally:
         sys.argv = old_argv
+
     if getattr(jc.args, "version", False):
         print(_render_version_banner())
-    elif getattr(jc.args, "mkproject", None):
-        jc.mkproject()
-    elif getattr(jc.args, "packproject", None) is not None:
-        jc.packproject()
     elif jc.scan_mode:
         jc.run_sampling()
     elif jc.args.cvtDB:
@@ -240,8 +531,7 @@ def main(argv=None) -> int:
     elif jc.args.monitor:
         jc.monitor()
     else:
-        import argparse as _ap
-        _ap.ArgumentParser(prog="Jarvis").print_help()
+        _print_top_level_help()
 
     return 0
 

@@ -33,6 +33,8 @@ class ChainRuntime:
             "window_iter": int(self.window_iter),
             "last_logl": self.last_logl,
             "history_size": len(self.history),
+            "proposal_scale": getattr(self.engine, "proposal_scale", None),
+            "meta": dict(self.meta),
         }
 
 

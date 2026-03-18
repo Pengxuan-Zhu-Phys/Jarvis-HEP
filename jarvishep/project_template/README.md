@@ -3,7 +3,7 @@
 This folder was created by:
 
 ```bash
-Jarvis --mkproject <PROJECT_NAME>
+Jarvis project create <PROJECT_NAME>
 ```
 
 ## Quick Start
@@ -22,16 +22,21 @@ Jarvis bin/quickstart_csv_operas.yaml
 
 ## Layout
 
-- `.jarvis-project.json` / `jarvis.project.yaml`: project-root markers and metadata
+- `.jarvis-project.json` / `jarvis.project.yaml`: project-root markers
 - `bin/`: runnable YAML entry cards
 - `data/`: project input datasets
-- `outputs/`: default runtime outputs (`Scan.save_dir: "&J/outputs"`)
-- `calculators/`: calculator runtime/shadow workspaces
-- `deps/`: external program/library dependencies and project-local env baseline (`environment_default.yaml`)
-- `images/`: project-local plots and exported figures
-- `logs/`: project-level runtime logs
-- `checkpoints/`: reserved for future resume/restart support
+- `deps/`: project-local dependency baseline (`environment_default.yaml`)
+
+Runtime directories are created automatically on first run:
+
+- `outputs/<scan>/DATABASE`: HDF5, CSV, schema, run metadata
+- `outputs/<scan>/SAMPLE`: per-sample artifacts and sample-local logs
+- `logs/<scan>/`: Jarvis / sampler / factory logs
+- `images/<scan>/`: plots, generated plotting YAML, and workflow flowcharts
+
+Add optional project directories such as `calculators/`, `configs/`, `scripts/`,
+`assets/`, and `docs/` only when your workflow actually needs them.
 
 Path rules:
 - `&J/...` resolves against project root.
-- `&SRC/...` resolves against installed `jarvishep` package resources.
+- Use `deps/` for project-local bundled defaults such as `&J/deps/environment_default.yaml`.

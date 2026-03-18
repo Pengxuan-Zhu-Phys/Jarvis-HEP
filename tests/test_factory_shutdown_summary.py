@@ -74,7 +74,7 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
         self.assertRegex(summary, r"ok\s+\|\s+3\b")
         self.assertRegex(summary, r"failed\s+\|\s+0\b")
 
-    def test_status_interval_only_degrades_by_task_count(self):
+    def test_warning_status_interval_stays_at_1000(self):
         logger = _CaptureLogger()
         manager = _FakeModuleManager()
 
@@ -82,24 +82,47 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
         factory.configure(module_manager=manager, max_workers=2)
         factory.set_logger(logger)
 
-        factory._update_status_interval(9999)
-        self.assertEqual(factory._status_interval, 100)
-        factory._update_status_interval(10000)
-        self.assertEqual(factory._status_interval, 1000)
-        factory._update_status_interval(50000)
-        self.assertEqual(factory._status_interval, 5000)
-        factory._update_status_interval(100000)
-        self.assertEqual(factory._status_interval, 10000)
-        factory._update_status_interval(500000)
-        self.assertEqual(factory._status_interval, 50000)
-        # One-way degradation: should not restore to smaller interval.
         factory._update_status_interval(1)
-        self.assertEqual(factory._status_interval, 50000)
+        self.assertEqual(factory._status_interval, 1000)
+        factory._update_status_interval(1000)
+        self.assertEqual(factory._status_interval, 1000)
+        factory._update_status_interval(100_000)
+        self.assertEqual(factory._status_interval, 1000)
+        factory._update_status_interval(5_000_000)
+        factory._update_status_interval(1)
+        self.assertEqual(factory._status_interval, 1000)
 
         fut = factory.submit_task({"uuid": "pressure-001", "value": 1.0})
         self.assertIsNotNone(fut.result(timeout=2.0))
 
         factory.shutdown(wait=True, cancel_futures=False)
+
+    def test_progress_logs_emit_info_every_100_and_warning_every_1000(self):
+        logger = _CaptureLogger()
+        manager = _FakeModuleManager()
+
+        factory = WorkerFactory()
+        factory.configure(module_manager=manager, max_workers=2)
+        factory.set_logger(logger)
+        factory.log_executor = None
+
+        for count in range(100, 1001, 100):
+            with factory._status_lock:
+                factory.task_count = count
+            factory.print_status(task_count=count)
+
+        submitted_logs = [
+            (level, msg)
+            for level, msg in logger.records
+            if msg.startswith("Submitted ")
+        ]
+        info_logs = [msg for level, msg in submitted_logs if level == "INFO"]
+        warning_logs = [msg for level, msg in submitted_logs if level == "WARNING"]
+
+        self.assertEqual(len(info_logs), 10)
+        self.assertEqual(len(warning_logs), 1)
+        self.assertIn("Submitted 100 tasks, time for last 100 tasks:", info_logs[0])
+        self.assertIn("Submitted 1000 tasks, time for last 1000 tasks:", warning_logs[0])
 
     def test_low_throughput_mode_emits_minutely_summary(self):
         logger = _CaptureLogger()

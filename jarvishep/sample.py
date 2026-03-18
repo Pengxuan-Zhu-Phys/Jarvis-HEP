@@ -7,8 +7,7 @@ import sympy as sp
 from copy import deepcopy 
 from time import sleep
 from jarvishep.base import Base
-from jarvishep.log_kv import format_two_column_log
-from loguru import logger
+from jarvishep.sample_logger import SampleLogger
 from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
 class Sample(Base):
@@ -91,20 +90,19 @@ class Sample(Base):
     def set_logger(self): 
         logger_name = f"Sample@{self.info['uuid']}"
         self.info['logger_name'] = logger_name
-        def filte_func(record):
-            return logger_name in record['extra']['module']
         
         if not os.path.exists(self.info['save_dir']):
             os.makedirs(self.info['save_dir'])
         
-        self.logger = logger.bind(
+        self.logger = SampleLogger.open(
+            self.info['run_log'],
             module=logger_name,
-            to_console=True,
-            Jarvis=True,
-            _log_domain="jarvis_hep",
+            extra={
+                "to_console": True,
+                "Jarvis": True,
+                "_log_domain": "jarvis_hep",
+            },
         )
-        sample_handler = self.logger.add(self.info['run_log'], format=self.custom_format, level="DEBUG", rotation=None, retention=None, filter=filte_func)
-        self.handlers['sample'] = sample_handler
         self.logger.info("Sample created into the Disk")
         self.info['logger'] = self.logger
         
@@ -146,13 +144,23 @@ class Sample(Base):
 
     def close(self):
         if getattr(self, "logger", None) is not None:
-            self.logger.info(
-                format_two_column_log(
-                    "[Sample] sample close",
-                    [("uuid", self.uuid)],
-                )
-            )
+            self.logger.info(self._build_close_message())
         self.close_logger() 
+
+    def _build_close_message(self) -> str:
+        observables = self.info.get("observables", {}) if isinstance(getattr(self, "info", None), dict) else {}
+        if not isinstance(observables, dict) or not observables:
+            return "Sample closed"
+
+        from jarvishep.Module.likelihood import LogLikelihood
+
+        return (
+            "Sample SUMMARY\n"
+            "============================================================================\n"
+            f"{LogLikelihood.format_summary(observables)}\n"
+            "============================================================================\n"
+            "Sample closed"
+        )
         
     def close_logger(self):
         """Close per-sample logger handler safely.
@@ -160,18 +168,12 @@ class Sample(Base):
         This removes the per-sample file sink (if registered) and clears self.logger.
         It is safe to call multiple times.
         """
-        if getattr(self, 'logger', None) is None:
-            pass 
+        if getattr(self, 'logger', None) is not None:
+            try:
+                self.logger.close()
+            except Exception:
+                pass
 
-        # Remove per-sample handler if we have it
-        handlers = getattr(self, 'handlers', None)
-        if isinstance(handlers, dict):
-            for kk, hh in handlers.items(): 
-                try: 
-                    logger.remove(hh)
-                except Exception:
-                    pass
-                
         self.handlers = {}
         self.logger = None
         

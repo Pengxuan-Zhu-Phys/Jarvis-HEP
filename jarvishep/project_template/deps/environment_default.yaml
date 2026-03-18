@@ -12,9 +12,6 @@ EnvReqs:
   Python:
     version: ">=3.10"
     Dependencies:
-    - name: aiofiles
-      required: true
-      version: ">=23.2.1"
     - name: dill
       required: true
       version: ">=0.3.8"

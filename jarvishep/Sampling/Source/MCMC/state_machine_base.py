@@ -185,6 +185,8 @@ class MCMCStateMachineBase(SamplingVirtial):
             for ii, temp in enumerate(ladder):
                 registry.set_temperature(ii, temp)
                 registry.mark_cold(ii, ii == cold_idx)
+            if hasattr(self, "_temperature_ladder"):
+                self._temperature_ladder = list(ladder)
 
         if patch.exchange_interval is not None and hasattr(self, "_exchange_interval"):
             self._exchange_interval = int(patch.exchange_interval)

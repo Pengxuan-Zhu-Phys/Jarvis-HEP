@@ -21,10 +21,14 @@ class Base():
             # Backward-compatible alias for legacy code/config.
             "jpath": task_root,
         }
-        self.path['args_info'] = self.decode_path("&SRC/card/argparser.json")
-        self.path['logger_config_path'] = self.decode_path("&SRC/card/jarvis_logging_config.yaml")
+        self.path['args_info'] = self._package_path("card/argparser.json")
+        self.path['logger_config_path'] = self._package_path("card/jarvis_logging_config.yaml")
         self.schemablock = {}
         self.load_schema_paths()
+
+    def _package_path(self, relative_path: str) -> str:
+        package_root = self.path.get("package_root") or self.path.get("src_root", "")
+        return os.path.abspath(os.path.join(package_root, relative_path))
 
     def _resolve_initial_task_root(self, default: str) -> str:
         env_root = self._env_task_root()
@@ -99,18 +103,13 @@ class Base():
             return path
 
         normalized = path.replace("\\", "/")
-        if (normalized.startswith("&SRC/") or normalized.startswith("&J/")) and "/src/card/" in normalized:
+        if normalized.startswith("&J/") and "/src/card/" in normalized:
             raise ValueError(
                 "Legacy card path prefix is no longer supported: "
-                f"{path}. Use '&SRC/card/...' in packaged runtime."
+                f"{path}. Use project-local packaged copies such as '&J/deps/...'."
             )
 
-        source_root = self.path.get("package_root") or self.path.get("src_root", "")
         task_root = self.path.get("task_root") or self.path.get("jpath") or os.getcwd()
-
-        # Internal project marker: resolve against installed jarvishep package root.
-        if "&SRC" in path:
-            path = path.replace("&SRC", source_root)
 
         # Runtime project marker: resolve against external task/workspace root.
         if "&J" in path:
@@ -119,6 +118,9 @@ class Base():
         # Replace the user home directory marker ~
         if "~" in path:
             path = os.path.expanduser(path)
+
+        if path.startswith("&"):
+            raise ValueError(f"Unable to resolve path: {path}")
 
         if not self._is_uri(path) and not os.path.isabs(path):
             if base_dir:
@@ -132,17 +134,17 @@ class Base():
         return path  
 
     def load_schema_paths(self) -> None:
-        self.path['preference'] = self.decode_path("&SRC/card/preference.json")
+        self.path['preference'] = self._package_path("card/preference.json")
         with open(self.path['preference'], 'r') as f1:
             js = json.loads(f1.read())
             for kk, vv in js["Schema"].items():
-                js["Schema"][kk] = self.decode_path(vv)
+                js["Schema"][kk] = self._package_path(vv)
             for kk, vv in js['SchemaBlock'].items():
-                js["SchemaBlock"][kk] = f"file://{self.decode_path(vv)}"
+                js["SchemaBlock"][kk] = f"file://{self._package_path(vv)}"
             
             self.path.update(js['Schema'])
             self.schemablock.update(js['SchemaBlock'])
-            self.path['logo'] = self.decode_path(js['logo'])
+            self.path['logo'] = self._package_path(js['logo'])
 
 
     def manage_directories(self, base_path):

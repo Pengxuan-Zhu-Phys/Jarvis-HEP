@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 
 from copy import deepcopy
-import logging
 import os
-from plistlib import FMT_XML
-import sys
-from re import L
 import json
-import numpy
 import xslha
 import pyslha
-import xmltodict
-import pandas as pd 
-from jarvishep.base import Base
-import asyncio 
-import aiofiles
 from jarvishep.IOs.IOs import OutputFile
-from copy import deepcopy 
 
 class SLHAOutputFile(OutputFile):
     """
@@ -33,161 +22,114 @@ class SLHAOutputFile(OutputFile):
     """
 
     async def read(self):
-        """
-            Methods:
-                Asynchronously reads the SLHA file specified by the path attribute, extracts the values of the observables defined in the variables list, and optionally saves a copy of the file.
-                
-                Processing Steps:
-                1. Decodes the file path to resolve any placeholders.
-                2. Asynchronously reads the entire SLHA file content into memory.
-                3. Parses the SLHA content using the pyslha library to facilitate data extraction.
-                4. Iterates through the specified variables, extracting values from the corresponding blocks and entries.
-                5. If the save flag is True, saves a copy of the original SLHA file to a specified directory or a temporary location, appending the module's name to the file name for identification.
-                6. Returns a dictionary containing the extracted observables, keyed by their names as specified in the variables configuration.
-                
-                Parameters:
-                    None, uses class attributes for configuration.
-                
-                Returns:
-                    observables (dict): A dictionary with keys corresponding to the names of the observables specified in the variables attribute, and values being the extracted data from the SLHA file.
-                
-                Raises:
-                    Exception: If an error occurs during file reading or parsing, logs an error message with the file name.
-                
-                Usage:
-                    This method should be called within an asynchronous context using the 'await' keyword to ensure non-blocking operation. The returned dictionary can be used for further analysis or reporting.
-
-            Note:
-                This class requires an asynchronous environment and the pyslha library for parsing SLHA files. Ensure aiofiles and pyslha are installed and properly configured in your environment.
-        """
-
         self.path = self.decode_path(self.path)
-        self.logger.info(f"Start reading the output file -> {self.path}")
+        return await self.io_run_blocking(self._read_sync)
 
+    def _read_sync(self):
+        self.logger.info(f"Start reading the output file -> {self.path}")
         observables = {}
-        content = None
-        source = None
-        try: 
-            async with aiofiles.open(self.path, 'r') as slha_file: 
-                source = await slha_file.read()
+        try:
+            source = self.sync_read_text(self.path)
             content = pyslha.readSLHA(source)
 
             for var in self.variables:
-                # self.logger.warning(f"{var}, {type(var['entry'])}")
-                if var['block'] == "DECAY":
-                    if isinstance(var['entry'], int):
-                        value = float(content.decays[var['entry']].__dict__["totalwidth"])
-                        observables[var['name']] = value
-                    elif isinstance(var['entry'], list): 
-                        decays = content.decays[var['entry'][0]].__dict__["decays"]
-                        value = 0. 
+                if var["block"] == "DECAY":
+                    if isinstance(var["entry"], int):
+                        observables[var["name"]] = float(
+                            content.decays[var["entry"]].__dict__["totalwidth"]
+                        )
+                    elif isinstance(var["entry"], list):
+                        decays = content.decays[var["entry"][0]].__dict__["decays"]
+                        value = 0.0
                         for decay in decays:
-                            if set(var['entry'][1:]) == set(decay.ids):
-                                value = decay.br 
+                            if set(var["entry"][1:]) == set(decay.ids):
+                                value = decay.br
                                 break
-                        observables[var['name']] = value 
+                        observables[var["name"]] = value
                     else:
                         self.logger.error(f"Unsupport decay entry {var['entry']}")
-                elif content.blocks[var['block']]:
-                    if isinstance(var['entry'], int):
-                        value = content.blocks[var['block']][var['entry']]
-                        observables[var['name']] = value 
-                    elif isinstance(var['entry'], list):
-                        value = content.blocks[var['block']][var['entry']]
-                        observables[var['name']] = value 
-                    else: 
+                elif content.blocks[var["block"]]:
+                    if isinstance(var["entry"], int):
+                        observables[var["name"]] = content.blocks[var["block"]][var["entry"]]
+                    elif isinstance(var["entry"], list):
+                        observables[var["name"]] = content.blocks[var["block"]][var["entry"]]
+                    else:
                         self.logger.error(f"Unsupported block entry {var['entry']}")
-                else: 
+                else:
                     self.logger.error(f"Unsupported SLHA read item {var}")
 
             if self.save:
-                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file:
-                    await dst_file.write(source)
+                target = os.path.join(
+                    self.sample_save_dir,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
-            else: 
+            else:
                 target_path = os.path.join(self.sample_save_dir, ".temp")
-                if not os.path.exists(target_path):
-                    os.makedirs(target_path)
-                target = os.path.join(target_path, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file: 
-                    await dst_file.write(source)
+                self.sync_make_dirs(target_path, exist_ok=True)
+                target = os.path.join(
+                    target_path,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
-
 
             self.logger.info(f"Finish reading the input file -> {self.path}")
             return observables
-        except Exception as e: 
+        except Exception as e:
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
             return observables
 
 
 class JsonOutputFile(OutputFile):
     async def read(self):
-        """
-            Asynchronously reads data from a JSON file specified by the decoded path and updates observables based on the defined variables.
-        
-            The method performs the following steps:
-            1. Decodes the file path where the JSON data is expected to be located.
-            2. Attempts to asynchronously open and read the JSON file at the decoded path. If the file does not exist or contains invalid JSON, an error is logged.
-            3. Iterates over the defined variables in self.variables. For each variable:
-                - If an 'entry' is specified, uses the read_json_value_by_entry method to fetch a value from a nested path within the JSON structure.
-                - If no 'entry' is specified, fetches the value directly from the root of the JSON object.
-            4. Depending on the value of self.save:
-                - If true, saves the read content to a file named after the module in the sample_save_dir directory.
-                - If false, saves the read content to a temporary file in the .temp directory within sample_save_dir.
-            5. Logs the completion of the reading process and returns the observables dictionary.
-        
-            Parameters:
-            None
-        
-            Returns:
-            - observables (dict): A dictionary containing the fetched values for each variable. The keys are the variable names, and the values are the fetched data from the JSON file.
-        
-            The method ensures that any reading errors are caught and logged, preventing unhandled exceptions from causing runtime errors.
-        """
         self.path = self.decode_path(self.path)
-        self.logger.info(f"Start reading the output file -> {self.path}")
+        return await self.io_run_blocking(self._read_sync)
 
+    def _read_sync(self):
+        self.logger.info(f"Start reading the output file -> {self.path}")
         observables = {}
         content = None
         source = None
 
         try:
             try:
-                async with aiofiles.open(self.path, 'r') as f1:
-                    source = await f1.read()
-                    content = json.loads(source)
+                source = self.sync_read_text(self.path)
+                content = json.loads(source)
             except FileNotFoundError:
                 self.logger.error(f"File not found: {self.path}")
             except json.JSONDecodeError:
                 self.logger.error(f"Error decoding JSON from file: {self.path}")
-            
+
             for var in self.variables:
                 if "entry" in var:
-                    observables[var['name']] = self.read_json_value_by_entry(content, var['entry'])
+                    observables[var["name"]] = self.read_json_value_by_entry(content, var["entry"])
                 else:
-                    observables[var['name']] = content[var['name']]
+                    observables[var["name"]] = content[var["name"]]
 
             if self.save:
-                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file:
-                    await dst_file.write(source)
+                target = os.path.join(
+                    self.sample_save_dir,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
-            else: 
+            else:
                 target_path = os.path.join(self.sample_save_dir, ".temp")
-                if not os.path.exists(target_path):
-                    os.makedirs(target_path)
-                target = os.path.join(target_path, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file: 
-                    await dst_file.write(source)
+                self.sync_make_dirs(target_path, exist_ok=True)
+                target = os.path.join(
+                    target_path,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
 
             self.logger.info(f"Finish reading the input file -> {self.path}")
             return observables
-        except Exception as e: 
+        except Exception as e:
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
-            return observables 
+            return observables
         
     def read_json_value_by_entry(self, json_dict, entry):
         parts = entry.split('.')
@@ -215,129 +157,82 @@ class xSLHAOutputFile(OutputFile):
     """
 
     async def read(self):
-        """
-            Methods:
-                Asynchronously reads the SLHA file specified by the path attribute, extracts the values of the observables defined in the variables list, and optionally saves a copy of the file.
-                
-                Processing Steps:
-                1. Decodes the file path to resolve any placeholders.
-                2. Asynchronously reads the entire SLHA file content into memory.
-                3. Parses the SLHA content using the pyslha library to facilitate data extraction.
-                4. Iterates through the specified variables, extracting values from the corresponding blocks and entries.
-                5. If the save flag is True, saves a copy of the original SLHA file to a specified directory or a temporary location, appending the module's name to the file name for identification.
-                6. Returns a dictionary containing the extracted observables, keyed by their names as specified in the variables configuration.
-                
-                Parameters:
-                    None, uses class attributes for configuration.
-                
-                Returns:
-                    observables (dict): A dictionary with keys corresponding to the names of the observables specified in the variables attribute, and values being the extracted data from the SLHA file.
-                
-                Raises:
-                    Exception: If an error occurs during file reading or parsing, logs an error message with the file name.
-                
-                Usage:
-                    This method should be called within an asynchronous context using the 'await' keyword to ensure non-blocking operation. The returned dictionary can be used for further analysis or reporting.
-
-            Note:
-                This class requires an asynchronous environment and the pyslha library for parsing SLHA files. Ensure aiofiles and pyslha are installed and properly configured in your environment.
-        """
-
         self.path = self.decode_path(self.path)
-        self.logger.info(f"Start reading the output file -> {self.path}")
+        return await self.io_run_blocking(self._read_sync)
 
+    def _read_sync(self):
+        self.logger.info(f"Start reading the output file -> {self.path}")
         observables = {}
-        content = None
-        source = None
-        try: 
-            async with aiofiles.open(self.path, 'r') as slha_file: 
-                source = await slha_file.read()
+        try:
+            source = self.sync_read_text(self.path)
             content = xslha.read(self.path)
             for var in self.variables:
-                if var['block'] == "DECAY":
-                    if isinstance(var['entry'], int):
-                        value = content.widths[var['entry']]
-                        observables[var['name']] = value
-                    elif isinstance(var['entry'], list): 
-                        decays = content.br[var['entry'][0]]
-                        dkentry = deepcopy(var['entry'][1:])
-                        dkentry = sorted(dkentry)
-                        dkentry = tuple(dkentry)
-                        if dkentry in decays:
-                            value   = decays[dkentry]
-                        else: 
-                            value   = 0.                        
-                        observables[var['name']] = value 
+                if var["block"] == "DECAY":
+                    if isinstance(var["entry"], int):
+                        observables[var["name"]] = content.widths[var["entry"]]
+                    elif isinstance(var["entry"], list):
+                        decays = content.br[var["entry"][0]]
+                        dkentry = tuple(sorted(deepcopy(var["entry"][1:])))
+                        observables[var["name"]] = decays.get(dkentry, 0.0)
                     else:
                         self.logger.error(f"Unsupport decay entry {var['entry']}")
-                elif var['block'] == "DECAY1L":
-                    if isinstance(var['entry'], int):
-                        value = content.widths1L[var['entry']]
-                        observables[var['name']] = value
-                    elif isinstance(var['entry'], list):
-                        decays = content.br1L[var['entry'][0]]
-                        dkentry = deepcopy(var['entry'][1:])
-                        dkentry = sorted(dkentry)
-                        dkentry = tuple(dkentry)
-                        if dkentry in decays:
-                            value   = decays[dkentry]
-                        else: 
-                            value   = 0.
-                        observables[var['name']] = value 
+                elif var["block"] == "DECAY1L":
+                    if isinstance(var["entry"], int):
+                        observables[var["name"]] = content.widths1L[var["entry"]]
+                    elif isinstance(var["entry"], list):
+                        decays = content.br1L[var["entry"][0]]
+                        dkentry = tuple(sorted(deepcopy(var["entry"][1:])))
+                        observables[var["name"]] = decays.get(dkentry, 0.0)
                     else:
                         self.logger.error(f"Unsupport decay entry {var['entry']}")
-                elif var['block'] == "HIGGSBOUNDS":
-                    if isinstance(var['entry'], list): 
-                        blkentry = list(map(str, var['entry']))
-                        blkentry = ",".join(blkentry)
-                        if blkentry in content.blocks["HIGGSBOUNDS"]: 
-                            value = content.blocks["HIGGSBOUNDS"][blkentry]
+                elif var["block"] == "HIGGSBOUNDS":
+                    if isinstance(var["entry"], list):
+                        blkentry = ",".join(list(map(str, var["entry"])))
+                        if blkentry in content.blocks["HIGGSBOUNDS"]:
+                            observables[var["name"]] = content.blocks["HIGGSBOUNDS"][blkentry]
                         else:
-                            value = 0.
-                            self.logger.info(f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0.")
-                        observables[var['name']] = value
+                            observables[var["name"]] = 0.0
+                            self.logger.info(
+                                f"Entry {blkentry} in HIGGSBOUNDS unfound, setted as 0."
+                            )
                     else:
                         self.logger.error(f"Unsupport entry {var['entry']} for block HIGGSBOUNDS")
-                elif content.blocks[var['block'].upper()]:
-                    blk = var['block'].upper()
-                    if isinstance(var['entry'], int):
-                        value = content.blocks[blk][str(var['entry'])]
-                        if not isinstance(value, list):
-                            observables[var['name']] = value 
-                        else:
-                            observables[f"Re[{var['name']}]"] = value[0]
-                            observables[f"Im[{var['name']}]"] = value[1]
-                    elif isinstance(var['entry'], list):
-                        blkentry = list(map(str, var['entry']))
-                        blkentry = ",".join(blkentry)
-                        value = content.blocks[blk][blkentry]
-                        if not isinstance(value, list):
-                            observables[var['name']] = value 
-                        else: 
-                            observables[f"Re[{var['name']}]"] = value[0]
-                            observables[f"Im[{var['name']}]"] = value[1]
-                    else: 
+                elif content.blocks[var["block"].upper()]:
+                    blk = var["block"].upper()
+                    if isinstance(var["entry"], int):
+                        value = content.blocks[blk][str(var["entry"])]
+                    elif isinstance(var["entry"], list):
+                        value = content.blocks[blk][",".join(list(map(str, var["entry"])))]
+                    else:
                         self.logger.error(f"Unsupported block entry {var['entry']}")
-                else: 
+                        continue
+                    if not isinstance(value, list):
+                        observables[var["name"]] = value
+                    else:
+                        observables[f"Re[{var['name']}]"] = value[0]
+                        observables[f"Im[{var['name']}]"] = value[1]
+                else:
                     self.logger.error(f"Unsupported SLHA read item {var}")
             if self.save:
-                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file:
-                    await dst_file.write(source)
+                target = os.path.join(
+                    self.sample_save_dir,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
-            else: 
+            else:
                 target_path = os.path.join(self.sample_save_dir, ".temp")
-                if not os.path.exists(target_path):
-                    os.makedirs(target_path)
-                target = os.path.join(target_path, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file: 
-                    await dst_file.write(source)
+                self.sync_make_dirs(target_path, exist_ok=True)
+                target = os.path.join(
+                    target_path,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
                 observables[self.name] = target
-
 
             self.logger.info(f"Finish reading the input file -> {self.path}")
             return observables
-        except Exception as e: 
+        except Exception as e:
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
             return observables
 
@@ -345,27 +240,29 @@ class xSLHAOutputFile(OutputFile):
 class FileOutput(OutputFile):
     async def read(self):
         self.path = self.decode_path(self.path)
-        self.logger.info(f"Start reading the output file -> {self.path}")
+        return await self.io_run_blocking(self._read_sync)
 
+    def _read_sync(self):
+        self.logger.info(f"Start reading the output file -> {self.path}")
         observables = {}
-        source = None
-        
-        try: 
+        try:
             try:
-                async with aiofiles.open(self.path, 'r') as f1:
-                    source = await f1.read()
+                source = self.sync_read_text(self.path)
             except FileNotFoundError:
                 self.logger.error(f"File not found: {self.path}")
+                source = None
             except json.JSONDecodeError:
                 self.logger.error(f"Error decoding JSON from file: {self.path}")
-                
+                source = None
+
             if self.save:
-                target = os.path.join(self.sample_save_dir, f"{os.path.basename(self.path)}@{self.module}")
-                async with aiofiles.open(target, "w") as dst_file:
-                    await dst_file.write(source)
-                observables[self.name] = target    
-            return observables 
-                            
-        except Exception as e: 
+                target = os.path.join(
+                    self.sample_save_dir,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, source)
+                observables[self.name] = target
+            return observables
+        except Exception as e:
             self.logger.error(f"Error reading SLHA input file '{self.name}': {e}")
-            return observables 
+            return observables

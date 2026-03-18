@@ -18,6 +18,7 @@ class ModuleManager:
                 cls._instance.nuisance_loglikelihoods = {}
                 cls._instance.nuisance_passconditions = {}
                 cls._instance.subprocess_scheduler = None
+                cls._instance.io_manager = None
         return cls._instance
 
     # ModuleManager的其他方法
@@ -36,6 +37,12 @@ class ModuleManager:
         for pool in self.module_pools.values():
             if hasattr(pool, "set_subprocess_scheduler"):
                 pool.set_subprocess_scheduler(scheduler)
+
+    def set_io_manager(self, io_manager):
+        self.io_manager = io_manager
+        for pool in self.module_pools.values():
+            if hasattr(pool, "set_io_manager"):
+                pool.set_io_manager(io_manager)
 
     def set_likelihood(self):
         from jarvishep.Module.likelihood import LogLikelihood
@@ -196,6 +203,7 @@ class ModuleManager:
                 self.module_pools[module.name] = ModulePool(module, max_workers=self.max_worker)
                 self.module_pools[module.name].set_funcs(self.funcs)
                 self.module_pools[module.name].set_subprocess_scheduler(self.subprocess_scheduler)
+                self.module_pools[module.name].set_io_manager(self.io_manager)
                 self.module_pools[module.name].set_logger()
             elif getattr(module, "type", "") == "Operas":
                 self.logger.warning(f"Manager adding Operas executor {module.name}. ")

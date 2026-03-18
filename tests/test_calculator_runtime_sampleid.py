@@ -37,10 +37,10 @@ def _minimal_calc_config() -> dict:
 
 
 class CalculatorRuntimeSampleIDTests(unittest.TestCase):
-    def test_execution_stage_replaces_sample_id_in_cmd_and_cwd(self):
+    def test_execution_stage_replaces_runtime_tokens_in_cmd_and_cwd(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
         with tempfile.TemporaryDirectory() as tmpdir:
-            sample_dir = os.path.join(tmpdir, "samples")
+            sample_dir = os.path.join(tmpdir, "outputs", "SAMPLE", "S-1001")
             module.sample_info = {"uuid": "S-1001", "save_dir": sample_dir}
             captured = {}
 
@@ -53,7 +53,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
             _run_async(
                 module.run_command(
                     {
-                        "cmd": "echo @SampleID > out_@SampleID.txt",
+                        "cmd": "echo @SampleID > @Sdir/out_@SampleID.txt",
                         "cwd": os.path.join(tmpdir, "@SampleID"),
                     },
                     stage="execution",
@@ -63,7 +63,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
 
             self.assertEqual(captured["stage"], "execution")
             self.assertEqual(captured["command_index"], 9)
-            self.assertEqual(captured["command"]["cmd"], "echo S-1001 > out_S-1001.txt")
+            self.assertEqual(captured["command"]["cmd"], f"echo S-1001 > {sample_dir}/out_S-1001.txt")
             self.assertEqual(captured["command"]["cwd"], os.path.join(tmpdir, "S-1001"))
 
     def test_execution_stage_without_uuid_raises(self):
@@ -91,13 +91,25 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
         module._run_command_local = _fake_local  # type: ignore[method-assign]
         _run_async(
             module.run_command(
-                {"cmd": "echo @SampleID", "cwd": "."},
+                {"cmd": "echo @SampleID @Sdir", "cwd": "."},
                 stage="install",
                 command_index=2,
             )
         )
         self.assertEqual(captured["stage"], "install")
-        self.assertEqual(captured["command"]["cmd"], "echo @SampleID")
+        self.assertEqual(captured["command"]["cmd"], "echo @SampleID @Sdir")
+
+    def test_execution_stage_without_save_dir_raises_for_sdir(self):
+        module = CalculatorModule("DemoCalc", _minimal_calc_config())
+        module.sample_info = {"uuid": "S-1001"}
+        with self.assertRaises(RuntimeError):
+            _run_async(
+                module.run_command(
+                    {"cmd": "echo @Sdir", "cwd": "."},
+                    stage="execution",
+                    command_index=3,
+                )
+            )
 
     def test_scheduler_command_submission_is_loguru_only(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())

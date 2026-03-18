@@ -31,17 +31,17 @@ class WorkerFactory:
             self.task_time = 0
             self.completed_ok = 0
             self.completed_failed = 0
-            self.last_time_mark = time.time()
+            self._status_start_time = time.time()
+            self.last_time_mark = self._status_start_time
             self._last_status_count = 0
+            self._info_status_interval = 100
+            self._last_info_status_count = 0
+            self._last_info_time_mark = self._status_start_time
             self._status_lock = threading.Lock()
-            # Status interval is monotonic: only degrades to larger windows.
-            # Base policy:
-            #   < 10k tasks  -> 100
-            #   >=10k        -> 1000
-            #   >=50k        -> 5000
-            #   >=100k       -> 10000
-            # then continue similarly with x5/x2 growth.
-            self._status_interval = 100
+            # Regular progress logs use two fixed cadences in normal-throughput mode:
+            #   INFO    -> every 100 submitted tasks
+            #   WARNING -> every 1000 submitted tasks
+            self._status_interval = 1000
 
             # After long-running scans, switch to minute-level summary logs.
             self._factory_start_ts = time.monotonic()
@@ -50,6 +50,15 @@ class WorkerFactory:
             self._low_throughput_enabled = False
             self._last_low_throughput_log_ts = self._factory_start_ts
             self.subprocess_scheduler = None
+            self.run_summary_collector = None
+            self._active_workers = 0
+            self._peak_active_workers = 0
+            self._active_worker_integral = 0.0
+            self._active_worker_last_ts = self._factory_start_ts
+            self._total_point_eval_sec = 0.0
+            self._completed_durations_sec = []
+            self._retry_metric_supported = False
+            self.retry_count = 0
             self.initialized = True
 
     def get_executor(self):
@@ -74,25 +83,74 @@ class WorkerFactory:
     def get_subprocess_scheduler(self):
         return getattr(self, "subprocess_scheduler", None)
 
+    def set_run_summary_collector(self, collector):
+        self.run_summary_collector = collector
+
+    def _update_active_worker_integral_locked(self, now_monotonic):
+        now_monotonic = float(now_monotonic)
+        elapsed = max(0.0, now_monotonic - self._active_worker_last_ts)
+        self._active_worker_integral += elapsed * float(self._active_workers)
+        self._active_worker_last_ts = now_monotonic
+
+    @staticmethod
+    def _extract_retry_count(sample_info):
+        if not isinstance(sample_info, dict):
+            return None
+
+        candidates = []
+        if "NAttempt" in sample_info:
+            candidates.append(sample_info.get("NAttempt"))
+
+        nuisance = sample_info.get("nuisance")
+        if isinstance(nuisance, dict) and "NAttempt" in nuisance:
+            candidates.append(nuisance.get("NAttempt"))
+
+        attempts = None
+        for candidate in candidates:
+            try:
+                value = int(candidate)
+            except Exception:
+                continue
+            attempts = value if attempts is None else max(attempts, value)
+
+        if attempts is None:
+            return None
+        return max(0, attempts - 1)
+
+    def _execute_workflow_tracked(self, sample_info):
+        start_monotonic = time.monotonic()
+        retry_count = self._extract_retry_count(sample_info)
+
+        with self._status_lock:
+            self._update_active_worker_integral_locked(start_monotonic)
+            self._active_workers += 1
+            if self._active_workers > self._peak_active_workers:
+                self._peak_active_workers = self._active_workers
+
+        success = False
+        try:
+            result = self.module_manager.execute_workflow(sample_info)
+            success = True
+            return result
+        finally:
+            end_monotonic = time.monotonic()
+            duration_sec = max(0.0, end_monotonic - start_monotonic)
+            with self._status_lock:
+                self._update_active_worker_integral_locked(end_monotonic)
+                self._active_workers = max(0, self._active_workers - 1)
+                self._total_point_eval_sec += duration_sec
+                if success:
+                    self.completed_ok += 1
+                    self._completed_durations_sec.append(duration_sec)
+                else:
+                    self.completed_failed += 1
+                if retry_count is not None:
+                    self._retry_metric_supported = True
+                    self.retry_count += retry_count
+
     @staticmethod
     def _compute_task_count_interval(task_count):
-        task_count = int(task_count)
-        if task_count < 10_000:
-            return 100
-
-        threshold = 10_000
-        interval = 1_000
-        multipliers = (5, 2)
-        level = 0
-
-        while True:
-            mult = multipliers[level % len(multipliers)]
-            next_threshold = threshold * mult
-            if task_count < next_threshold:
-                return int(interval)
-            threshold = next_threshold
-            interval *= mult
-            level += 1
+        return 1_000
 
     def _update_status_interval(self, task_count):
         target = self._compute_task_count_interval(task_count)
@@ -119,23 +177,24 @@ class WorkerFactory:
             self.get_executor()
 
         sample_uuid = (sample_info or {}).get("uuid", "UNKNOWN")
-        future = self.executor.submit(self.module_manager.execute_workflow, sample_info)
+        if isinstance(sample_info, dict) and self.run_summary_collector is not None:
+            sample_info.setdefault("run_summary_collector", self.run_summary_collector)
+        future = self.executor.submit(self._execute_workflow_tracked, sample_info)
 
         def _on_done(done_future):
-            exc = done_future.exception()
-            with self._status_lock:
-                if exc is not None:
-                    self.completed_failed += 1
-                else:
-                    self.completed_ok += 1
+            try:
+                exc = done_future.exception()
+            except Exception as done_exc:
+                exc = done_exc
             if exc is not None:
-                self.log_executor.submit(
-                    self.logger.error,
-                    format_two_column_log(
-                        "future exception consumed",
-                        [("uuid", sample_uuid), ("error", exc)],
-                    ),
+                message = format_two_column_log(
+                    "future exception consumed",
+                    [("uuid", sample_uuid), ("error", exc)],
                 )
+                if getattr(self, "log_executor", None) is not None:
+                    self.log_executor.submit(self.logger.error, message)
+                else:
+                    self.logger.error(message)
 
         future.add_done_callback(_on_done)
 
@@ -152,6 +211,7 @@ class WorkerFactory:
         elapsed_seconds,
         total_seconds,
         window_tasks,
+        level="WARNING",
         low_throughput_mode=False,
         completed_ok=0,
         completed_failed=0,
@@ -184,7 +244,11 @@ class WorkerFactory:
             )
             return
 
-        self.logger.warning(
+        log_method = self.logger.warning
+        if str(level).upper() == "INFO":
+            log_method = self.logger.info
+
+        log_method(
             "Submitted {} tasks, time for last {} tasks: {}, total time: {}".format(
                 task_count,
                 window_tasks,
@@ -200,7 +264,7 @@ class WorkerFactory:
             completed_ok = int(self.completed_ok)
             completed_failed = int(self.completed_failed)
             last_status_count = int(self._last_status_count)
-            total_seconds = float(self.task_time + max(0.0, now - self.last_time_mark))
+            total_seconds = float(max(0.0, now - self._status_start_time))
 
         tail_tasks = max(0, task_count - last_status_count)
         unfinished = max(0, task_count - completed_ok - completed_failed)
@@ -219,6 +283,31 @@ class WorkerFactory:
                 else None
             ),
         }
+
+    def get_run_metrics(self):
+        now_monotonic = time.monotonic()
+        with self._status_lock:
+            self._update_active_worker_integral_locked(now_monotonic)
+            elapsed = max(0.0, now_monotonic - self._factory_start_ts)
+            mean_active_workers = (
+                self._active_worker_integral / elapsed
+                if elapsed > 0.0
+                else 0.0
+            )
+            retry_count = self.retry_count if self._retry_metric_supported else None
+            completed_durations_sec = list(self._completed_durations_sec)
+
+            return {
+                "submitted": int(self.task_count),
+                "ok": int(self.completed_ok),
+                "failed": int(self.completed_failed),
+                "configured_workers": int(self._max_workers),
+                "peak_active_workers": int(self._peak_active_workers),
+                "mean_active_workers": float(mean_active_workers),
+                "total_point_eval_sec": float(self._total_point_eval_sec),
+                "completed_durations_sec": completed_durations_sec,
+                "retry_count": retry_count,
+            }
 
     def _log_shutdown_summary(self, summary):
         from jarvishep.utils import format_duration
@@ -268,53 +357,101 @@ class WorkerFactory:
         with self._status_lock:
             interval = self._status_interval
             previous_count = self._last_status_count
+            info_previous_count = self._last_info_status_count
 
             if low_throughput_mode:
                 if (now_monotonic - self._last_low_throughput_log_ts) < self._low_throughput_summary_seconds:
                     return
-            elif (task_count - previous_count) < interval:
-                return
-
-            if not low_throughput_mode and task_count <= self._last_status_count:
-                return
+            else:
+                info_due = (
+                    (task_count - info_previous_count) >= self._info_status_interval
+                    and task_count > info_previous_count
+                )
+                warning_due = (
+                    (task_count - previous_count) >= interval
+                    and task_count > previous_count
+                )
+                if not info_due and not warning_due:
+                    return
 
             end_time = time.time()
-            elapsed_seconds = end_time - self.last_time_mark
-            self.task_time += elapsed_seconds
-            total_seconds = self.task_time
-            window_tasks = max(0, task_count - previous_count)
-            self.last_time_mark = end_time
-            if task_count > self._last_status_count:
-                self._last_status_count = task_count
             completed_ok = self.completed_ok
             completed_failed = self.completed_failed
             unfinished = max(0, task_count - completed_ok - completed_failed)
             if low_throughput_mode:
+                elapsed_seconds = end_time - self.last_time_mark
+                total_seconds = max(0.0, end_time - self._status_start_time)
+                window_tasks = max(0, task_count - previous_count)
+                self.last_time_mark = end_time
+                if task_count > self._last_status_count:
+                    self._last_status_count = task_count
                 self._last_low_throughput_log_ts = now_monotonic
+                info_payload = None
+                warning_payload = (
+                    task_count,
+                    elapsed_seconds,
+                    total_seconds,
+                    window_tasks,
+                    "WARNING",
+                    True,
+                    completed_ok,
+                    completed_failed,
+                    unfinished,
+                )
+            else:
+                total_seconds = max(0.0, end_time - self._status_start_time)
+                info_payload = None
+                warning_payload = None
+
+                if info_due and task_count > self._last_info_status_count:
+                    info_elapsed_seconds = end_time - self._last_info_time_mark
+                    info_window_tasks = max(0, task_count - self._last_info_status_count)
+                    self._last_info_time_mark = end_time
+                    self._last_info_status_count = task_count
+                    info_payload = (
+                        task_count,
+                        info_elapsed_seconds,
+                        total_seconds,
+                        info_window_tasks,
+                        "INFO",
+                        False,
+                        completed_ok,
+                        completed_failed,
+                        unfinished,
+                    )
+
+                if warning_due and task_count > self._last_status_count:
+                    warning_elapsed_seconds = end_time - self.last_time_mark
+                    warning_window_tasks = max(0, task_count - self._last_status_count)
+                    self.last_time_mark = end_time
+                    self._last_status_count = task_count
+                    warning_payload = (
+                        task_count,
+                        warning_elapsed_seconds,
+                        total_seconds,
+                        warning_window_tasks,
+                        "WARNING",
+                        False,
+                        completed_ok,
+                        completed_failed,
+                        unfinished,
+                    )
+
+        payloads = []
+        if info_payload is not None:
+            payloads.append(info_payload)
+        if warning_payload is not None:
+            payloads.append(warning_payload)
+
+        if not payloads:
+            return
 
         if getattr(self, "log_executor", None) is not None:
-            self.log_executor.submit(
-                self._log_status,
-                task_count,
-                elapsed_seconds,
-                total_seconds,
-                window_tasks,
-                low_throughput_mode,
-                completed_ok,
-                completed_failed,
-                unfinished,
-            )
+            for payload in payloads:
+                self.log_executor.submit(self._log_status, *payload)
         else:
-            self._log_status(
-                task_count,
-                elapsed_seconds,
-                total_seconds,
-                window_tasks,
-                low_throughput_mode,
-                completed_ok,
-                completed_failed,
-                unfinished,
-            )
+            for payload in payloads:
+                self._log_status(*payload)
 
     def shutdown(self, wait=True, cancel_futures=True):
         if getattr(self, "executor", None) is not None:

@@ -17,17 +17,17 @@ from jarvishep.IOs.IOs import IOfile  # noqa: E402
 
 
 class PathResolutionPyPITests(unittest.TestCase):
-    def test_src_marker_points_to_package_root(self):
+    def test_package_resource_paths_are_initialized_without_src_marker(self):
         base = Base()
         self.assertTrue(base.path["src_root"].endswith("jarvishep"))
         self.assertTrue(os.path.exists(base.path["args_info"]))
         self.assertTrue(os.path.exists(base.path["logger_config_path"]))
         self.assertTrue(os.path.exists(base.path["preference"]))
 
-    def test_legacy_src_marker_is_not_remapped(self):
+    def test_src_marker_is_removed(self):
         base = Base()
-        legacy = "&SRC/" + "src/card/preference.json"
-        with self.assertRaises(ValueError):
+        legacy = "&SRC/card/preference.json"
+        with self.assertRaisesRegex(ValueError, "Unable to resolve path"):
             base.decode_path(legacy)
 
     def test_runtime_legacy_src_marker_is_not_remapped(self):
@@ -95,6 +95,7 @@ class PathResolutionPyPITests(unittest.TestCase):
                         save=False,
                         logger=None,
                         PackID=None,
+                        sample_uuid="U-001",
                         sample_save_dir="",
                         module="Demo",
                         funcs={},
@@ -103,8 +104,31 @@ class PathResolutionPyPITests(unittest.TestCase):
                         os.path.realpath(iofile.decode_path("&J/outputs")),
                         os.path.realpath(os.path.join(project_root, "outputs")),
                     )
+                    with self.assertRaisesRegex(ValueError, "Unable to resolve path"):
+                        iofile.decode_path("&SRC/card/preference.json")
             finally:
                 os.chdir(old_cwd)
+
+    def test_iofile_decode_path_replaces_sample_runtime_tokens(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            iofile = IOfile(
+                name="demo",
+                path="",
+                file_type="Json",
+                variables=[],
+                save=False,
+                logger=None,
+                PackID="P-2",
+                sample_uuid="U-9",
+                sample_save_dir=os.path.join(tmpdir, "SAMPLE", "U-9"),
+                module="Demo",
+                funcs={},
+            )
+            resolved = iofile.decode_path("@Sdir/result_@SampleID_@PackID.json")
+            self.assertEqual(
+                os.path.realpath(resolved),
+                os.path.realpath(os.path.join(tmpdir, "SAMPLE", "U-9", "result_U-9_P-2.json")),
+            )
 
 
 if __name__ == "__main__":

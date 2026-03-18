@@ -68,8 +68,8 @@ class Bridson(SamplingVirtial):
                 self.barinfo['total'],
                 format_duration(time.time() - self.barinfo['t0']),
             )
-            # Use WARNING on exact integer percentages (1%, 2%, ...), INFO otherwise.
-            if permille % 10 == 0:
+            # INFO for 1‰ steps; WARNING only for exact 1%, 2%, ... milestones.
+            if permille > 0 and permille % 10 == 0:
                 self.logger.warning(msg)
             else:
                 self.logger.info(msg)

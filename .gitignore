@@ -15,6 +15,7 @@ Jarvis
 src/
 docs/
 github-ci/
+benchmarks/
 
 src/__pycache__/
 src/IOs/__pycache__/
@@ -59,6 +60,3 @@ jhrel
 .mypy_cache/
 .ruff_cache/
 pip-wheel-metadata/
-
-# Docs (local-only workflow)
-docs/

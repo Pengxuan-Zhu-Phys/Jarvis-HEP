@@ -1,30 +1,31 @@
 {
     "Schema":  {
-        "GridSchema":       "&SRC/card/schema/Grid_schema.json",
-        "BridsonSchema":    "&SRC/card/schema/Bridson_schema.json",
-        "DiverSchema":      "&SRC/card/schema/Diver_schema.json",
-        "DynestySchema":    "&SRC/card/schema/Dynesty_schema.json",
-        "MultiNestSchema":  "&SRC/card/schema/MultiNest_schema.json",
-        "RandomSchema":     "&SRC/card/schema/Random_schema.json",
-        "CSVSchema":        "&SRC/card/schema/CSV_schema.json",
-        "DNNSchema":        "&SRC/card/schema/DNN_schema.json",
-        "MCMCSchema":       "&SRC/card/schema/MCMC_schema.json",
-        "DEMCMCSchema":     "&SRC/card/schema/DEMCMC_schema.json",
-        "DREAMSchema":      "&SRC/card/schema/DREAM_schema.json",
-        "DREAMLiteSchema":  "&SRC/card/schema/DREAMLite_schema.json",
-        "EnsembleSchema":   "&SRC/card/schema/Ensemble_schema.json",
-        "PTEnsembleSchema": "&SRC/card/schema/PTEnsemble_schema.json",
-        "SliceSchema":      "&SRC/card/schema/SliceMCMC_schema.json",
-        "ESSSchema":        "&SRC/card/schema/ESS_schema.json",
-        "MALASchema":       "&SRC/card/schema/MALA_schema.json",
-        "HMCSchema":        "&SRC/card/schema/HMC_schema.json",
-        "NUTSSchema":       "&SRC/card/schema/NUTS_schema.json",
-        "TPMCMCSchema":     "&SRC/card/schema/TPMCMC_schema.json"
+        "GridSchema":       "card/schema/Grid_schema.json",
+        "BridsonSchema":    "card/schema/Bridson_schema.json",
+        "DiverSchema":      "card/schema/Diver_schema.json",
+        "DynestySchema":    "card/schema/Dynesty_schema.json",
+        "MultiNestSchema":  "card/schema/MultiNest_schema.json",
+        "RandomSchema":     "card/schema/Random_schema.json",
+        "CSVSchema":        "card/schema/CSV_schema.json",
+        "DNNSchema":        "card/schema/DNN_schema.json",
+        "MCMCSchema":       "card/schema/MCMC_schema.json",
+        "DEMCMCSchema":     "card/schema/DEMCMC_schema.json",
+        "DREAMSchema":      "card/schema/DREAM_schema.json",
+        "DREAMLiteSchema":  "card/schema/DREAMLite_schema.json",
+        "EnsembleSchema":   "card/schema/Ensemble_schema.json",
+        "PTEnsembleSchema": "card/schema/PTEnsemble_schema.json",
+        "SliceSchema":      "card/schema/SliceMCMC_schema.json",
+        "ESSSchema":        "card/schema/ESS_schema.json",
+        "MALASchema":       "card/schema/MALA_schema.json",
+        "HMCSchema":        "card/schema/HMC_schema.json",
+        "NUTSSchema":       "card/schema/NUTS_schema.json",
+        "TPMCMCSchema":     "card/schema/TPMCMC_schema.json",
+        "RLTPMCMCSchema":   "card/schema/RLTPMCMC_schema.json"
     },
     "SchemaBlock":  {
-        "input":    "&SRC/card/schema/inputs.json",
-        "output":   "&SRC/card/schema/outputs.json",
-        "Nuisance": "&SRC/card/schema/Nuisance_schema.json"
+        "input":    "card/schema/inputs.json",
+        "output":   "card/schema/outputs.json",
+        "Nuisance": "card/schema/Nuisance_schema.json"
     },
-    "logo":    "&SRC/card/logo"
+    "logo":    "card/logo"
 }

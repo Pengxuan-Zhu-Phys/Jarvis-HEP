@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from unittest import mock
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -33,6 +34,21 @@ class _InMemoryDatabase:
 
     def add_data(self, row):
         self.rows.append(dict(row))
+
+
+class _CaptureBindLogger:
+    def __init__(self):
+        self.records = []
+
+    def bind(self, **kwargs):
+        self.records.append(("BIND", dict(kwargs)))
+        return self
+
+    def warning(self, msg, *args, **kwargs):
+        self.records.append(("WARNING", str(msg)))
+
+    def error(self, msg, *args, **kwargs):
+        self.records.append(("ERROR", str(msg)))
 
 
 class _FakeYaml:
@@ -88,6 +104,8 @@ class ExecutionPathSmokeTests(unittest.TestCase):
                 executor = getattr(self.core.factory, "executor", None)
                 if executor is not None:
                     executor.shutdown(wait=True, cancel_futures=True)
+        if self.core is not None and getattr(self.core, "io_manager", None) is not None:
+            self.core.shutdown_io_manager()
         WorkerFactory._instance = None
         ModuleManager._instance = None
 
@@ -136,6 +154,8 @@ class ExecutionPathSmokeTests(unittest.TestCase):
         self.core.init_WorkerFactory()
 
         self.assertEqual(self.core.sampler.max_workers, 2)
+        self.assertIsNotNone(self.core.io_manager)
+        self.assertIs(self.core.module_manager.io_manager, self.core.io_manager)
         self.assertEqual(self.core.module_manager.workflow, {2: ["BuildY"], 3: ["BuildZ"]})
         self.assertIn("BuildY", self.core.module_manager.module_pools)
         self.assertIn("BuildZ", self.core.module_manager.module_pools)
@@ -156,6 +176,53 @@ class ExecutionPathSmokeTests(unittest.TestCase):
         self.assertEqual(db.rows[0]["y"], 3)
         self.assertEqual(db.rows[0]["z"], 30)
         self.assertEqual(sample_info["observables"]["z"], 30)
+
+    def test_emit_run_summary_uses_logger_not_print(self):
+        class _FakeCollector:
+            def finish(self):
+                return {"run_id": "summary-001"}
+
+        class _FakeRenderer:
+            def __init__(self):
+                self.calls = []
+
+            def render(self, summary):
+                self.calls.append(("render", dict(summary)))
+                return "[Run Overview]\nsummary block\n"
+
+            def write_outputs(self, summary, output_dir, *, rendered_text=None):
+                self.calls.append(
+                    ("write_outputs", dict(summary), str(output_dir), str(rendered_text))
+                )
+                return {}
+
+        self.core = Core()
+        self.core.info = {"sample": {"task_result_dir": "/tmp"}}
+        self.core.logger = _CaptureBindLogger()
+        self.core.run_summary_collector = _FakeCollector()
+        self.core.run_summary_renderer = _FakeRenderer()
+
+        with mock.patch("builtins.print") as print_mock:
+            self.core._emit_run_summary()
+
+        print_mock.assert_not_called()
+        warnings = [
+            msg for level, msg in self.core.logger.records
+            if level == "WARNING"
+        ]
+        self.assertEqual(warnings, ["[Run Overview]\nsummary block"])
+        self.assertEqual(
+            self.core.run_summary_renderer.calls,
+            [
+                ("render", {"run_id": "summary-001"}),
+                (
+                    "write_outputs",
+                    {"run_id": "summary-001"},
+                    "/tmp",
+                    "[Run Overview]\nsummary block\n",
+                ),
+            ],
+        )
 
 
 if __name__ == "__main__":

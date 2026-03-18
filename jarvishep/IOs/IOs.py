@@ -1,21 +1,11 @@
 #!/usr/bin/env python3
 
-from copy import deepcopy
-import logging
+from functools import partial
 import os
 from pathlib import Path
-from plistlib import FMT_XML
-import sys
-from re import L
-import json
-import numpy
-import xslha
-import pyslha
-import xmltodict
-import pandas as pd 
-from jarvishep.base import Base
 import asyncio
-import aiofiles
+
+from jarvishep.base import Base
 
 _PROJECT_MARKERS = (".jarvis-project.json", "jarvis.project.yaml")
 
@@ -33,9 +23,24 @@ def _detect_project_root_from_cwd() -> str | None:
 
 
 class IOfile(Base):
-    def __init__(self, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
+    def __init__(
+        self,
+        name,
+        path,
+        file_type,
+        variables,
+        save,
+        logger,
+        PackID,
+        sample_uuid,
+        sample_save_dir,
+        module,
+        funcs,
+        io_manager=None,
+    ):
         self.logger     = logger
         self.PackID     = PackID
+        self.sample_uuid = sample_uuid
         self.name       = name
         self.path_template = None
         self.file_type = file_type
@@ -45,6 +50,46 @@ class IOfile(Base):
         self.sample_save_dir = sample_save_dir
         self.module = module
         self.funcs = funcs
+        self.io_manager = io_manager
+
+    def sync_make_dirs(self, path, *, exist_ok=True):
+        os.makedirs(str(path), exist_ok=exist_ok)
+
+    def sync_exists(self, path):
+        return bool(os.path.exists(str(path)))
+
+    def sync_read_text(self, path, *, encoding="utf-8"):
+        return Path(path).read_text(encoding=encoding)
+
+    def sync_write_text(self, path, content, *, encoding="utf-8", ensure_parent=True):
+        p = Path(path)
+        if ensure_parent:
+            self.sync_make_dirs(p.parent, exist_ok=True)
+        return int(p.write_text(content, encoding=encoding))
+
+    async def io_run_blocking(self, fn, *args, **kwargs):
+        if self.io_manager is not None:
+            return await self.io_manager.run_blocking(fn, *args, **kwargs)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
+
+    def _resolve_runtime_tokens(self, text):
+        if text is None or not isinstance(text, str):
+            return text
+        resolved = str(text)
+        if "@PackID" in resolved:
+            if self.PackID is None:
+                raise ValueError(f"Unable to resolve path: {text}")
+            resolved = resolved.replace("@PackID", str(self.PackID))
+        if "@SampleID" in resolved:
+            if self.sample_uuid is None:
+                raise ValueError(f"Unable to resolve path: {text}")
+            resolved = resolved.replace("@SampleID", str(self.sample_uuid))
+        if "@Sdir" in resolved:
+            if self.sample_save_dir is None:
+                raise ValueError(f"Unable to resolve path: {text}")
+            resolved = resolved.replace("@Sdir", str(self.sample_save_dir))
+        return resolved
 
     def decode_path(self, path) -> None:
         """
@@ -61,10 +106,10 @@ class IOfile(Base):
             return path
 
         normalized = path.replace("\\", "/")
-        if (normalized.startswith("&SRC/") or normalized.startswith("&J/")) and "/src/card/" in normalized:
+        if normalized.startswith("&J/") and "/src/card/" in normalized:
             raise ValueError(
                 "Legacy card path prefix is no longer supported: "
-                f"{path}. Use '&SRC/card/...' in packaged runtime."
+                f"{path}. Use project-local packaged copies such as '&J/deps/...'."
             )
 
         runtime_root = None
@@ -78,16 +123,17 @@ class IOfile(Base):
                 or os.getcwd()
             )
 
-        source_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-        if "&SRC" in path:
-            path = path.replace("&SRC", source_root)
         if "&J" in path:
             path = path.replace("&J", runtime_root)
 
         # Replace the user home directory marker ~
         if "~" in path:
             path = os.path.expanduser(path)
+
+        path = self._resolve_runtime_tokens(path)
+
+        if path.startswith("&"):
+            raise ValueError(f"Unable to resolve path: {path}")
 
         if "://" not in path and not os.path.isabs(path):
             path = os.path.abspath(os.path.join(runtime_root, path))
@@ -97,51 +143,65 @@ class IOfile(Base):
         
         return path  
 
-    def set_logger(self, logger):
-        self.logger = logger
-
-    def set_packID(self, packID):
-        self.PackID = packID
-
-    def set_filepath(self, filepath):
-        fpath = self.decode_path(filepath)
-        if os.path.exists(fpath):
-            self.filepath = fpath
-        else:
-            self.logger.error(f"File not found: {filepath}")
-            raise FileNotFoundError
-
     @classmethod
-    def create(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
+    def create(
+        cls,
+        name,
+        path,
+        file_type,
+        variables,
+        save,
+        logger,
+        PackID,
+        sample_uuid,
+        sample_save_dir,
+        module,
+        funcs,
+        io_manager=None,
+    ):
         if file_type == "Json":
             from jarvishep.IOs.Input import JsonInputFile
             logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
-            return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
         elif file_type == "SLHA":
             from jarvishep.IOs.Input import SLHAInputFile
             logger.debug(f"Adding the file {name} as 'SLHAInputFile' type")
-            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
         else:
             raise ValueError(f"Unsupported file type: {file_type}")
 
     @classmethod
-    def load(cls, name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs):
+    def load(
+        cls,
+        name,
+        path,
+        file_type,
+        variables,
+        save,
+        logger,
+        PackID,
+        sample_uuid,
+        sample_save_dir,
+        module,
+        funcs,
+        io_manager=None,
+    ):
         if file_type == "SLHA":
             from jarvishep.IOs.Output import SLHAOutputFile
             logger.debug(f"Loading the file {name} as 'SLHAOutputFile' type")
-            return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
         elif file_type == "Json":
             from jarvishep.IOs.Output import JsonOutputFile
             logger.debug(f"Loading the file {name} as 'JsonOutputFile' type")
-            return JsonOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return JsonOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
         elif file_type == "xSLHA":
             from jarvishep.IOs.Output import xSLHAOutputFile
             logger.debug(f"Loading the file {name} as 'xSLHAOutputFile' type")
-            return xSLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return xSLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
         elif file_type == "File":
             from jarvishep.IOs.Output import FileOutput
             logger.debug(f"Loading the file {name} as 'fileOutput' type")
-            return FileOutput(name, path, file_type, variables, save, logger, PackID, sample_save_dir, module, funcs)
+            return FileOutput(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
 
 class InputFile(IOfile):
     async def write(self, param_values):

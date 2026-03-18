@@ -32,6 +32,7 @@ class RandomS(SamplingVirtial):
 
     def set_config(self, config_info) -> None:
         self.config = config_info
+        self.set_bucket_alloc()
         self.init_generator()
 
     def __iter__(self):
@@ -115,8 +116,17 @@ class RandomS(SamplingVirtial):
                     break
 
                 sample = Sample(param)
-                sample.set_config(self.build_sample_config(base_sample_cfg))
-                future = self.factory.submit_task(sample.info)
+                sconfig = self.build_sample_config(
+                    base_sample_cfg,
+                    save_dir=self._next_bucket_dir_for_sample(),
+                )
+                sample.set_config(sconfig)
+                try:
+                    future = self.factory.submit_task(sample.info)
+                except Exception:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
+                    raise
                 self.tasks.add(future)
                 self.future_to_sample[future] = sample
 
@@ -144,6 +154,7 @@ class RandomS(SamplingVirtial):
                     raise
                 finally:
                     if sample is not None:
+                        self._on_sample_completed(sample.info)
                         sample.close()
 
     def finalize(self):

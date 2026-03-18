@@ -4,9 +4,40 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Mapping
+from typing import Any
 
-from jarvishep.log_kv import format_two_column_log
 from jarvishep.Module.module import Module
+
+
+class _OperasSampleLoggerBridge:
+    """Forward sample logs while silencing low-signal Operas debug chatter."""
+
+    def __init__(self, logger):
+        self._logger = logger
+        self._options = getattr(logger, "_options", None)
+
+    def bind(self, **extra):
+        return type(self)(self._logger.bind(**extra))
+
+    def log(self, level, message, *args, **kwargs):
+        if str(level).strip().upper() == "DEBUG":
+            return None
+        return self._logger.log(level, message, *args, **kwargs)
+
+    def debug(self, *_args, **_kwargs):
+        return None
+
+    def info(self, *args, **kwargs):
+        return self._logger.info(*args, **kwargs)
+
+    def warning(self, *args, **kwargs):
+        return self._logger.warning(*args, **kwargs)
+
+    def error(self, *args, **kwargs):
+        return self._logger.error(*args, **kwargs)
+
+    def critical(self, *args, **kwargs):
+        return self._logger.critical(*args, **kwargs)
 
 
 class OperasModule(Module):
@@ -186,6 +217,43 @@ class OperasModule(Module):
         dropped = [k for k in call_kwargs.keys() if k not in accepted_kwargs]
         return filtered, dropped
 
+    @staticmethod
+    def _normalize_log_value(value: Any):
+        try:
+            import numpy as np
+        except Exception:
+            np = None
+
+        if np is not None and isinstance(value, np.generic):
+            return value.item()
+        if np is not None and isinstance(value, np.ndarray):
+            return [OperasModule._normalize_log_value(v) for v in value.tolist()]
+        if isinstance(value, Mapping):
+            return {
+                str(k): OperasModule._normalize_log_value(v)
+                for k, v in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [OperasModule._normalize_log_value(v) for v in value]
+        return value
+
+    @staticmethod
+    def _format_inline_pairs(values: Mapping[str, Any]) -> str:
+        rendered = []
+        for key, value in values.items():
+            normalized = OperasModule._normalize_log_value(value)
+            rendered.append(f"{key} : {normalized}")
+        return "[" + ", ".join(rendered) + "]"
+
+    @staticmethod
+    def _format_dispatch_message(module_name: str, operator: str, call_mode: str) -> str:
+        return (
+            "Operas input dispatch:\n"
+            f"   module \t-> {module_name}\n"
+            f"   operator \t-> {operator}\n"
+            f"   call_mode \t-> {call_mode}"
+        )
+
     def execute(self, observables, sample_info):
         slogger = sample_info.get("logger", None) if isinstance(sample_info, dict) else None
         registry = self._get_registry()
@@ -213,30 +281,41 @@ class OperasModule(Module):
 
         if slogger is not None:
             slogger.info(
-                format_two_column_log(
-                    "Operas input dispatch",
-                    [
-                        ("module", self.name),
-                        ("operator", resolved_operator),
-                        ("call_mode", self.call_mode),
-                    ],
+                self._format_dispatch_message(
+                    self.name,
+                    resolved_operator,
+                    self.call_mode,
                 )
             )
-            slogger.info(f"Operas input observables -> {input_observables}")
+            normalized_observables = self._normalize_log_value(input_observables)
+            slogger.info(
+                "Operas input observables:\n"
+                f"   with input \t-> {self._format_inline_pairs(normalized_observables)}"
+            )
             extra_kwargs = {
                 key: value
                 for key, value in call_kwargs.items()
                 if key not in {"observables", "logger"}
             }
-            if extra_kwargs:
-                slogger.info(f"Operas input kwargs -> {extra_kwargs}")
+            normalized_kwargs = self._normalize_log_value(extra_kwargs)
+            if normalized_kwargs and normalized_kwargs != normalized_observables:
+                slogger.info(
+                    "Operas input kwargs:\n"
+                    f"   with kwargs \t-> {self._format_inline_pairs(normalized_kwargs)}"
+                )
+
+        registry_logger = (
+            _OperasSampleLoggerBridge(slogger)
+            if slogger is not None
+            else None
+        )
 
         if self.call_mode == "acall":
             result = self._run_coro(
-                registry.acall(resolved_operator, logger=slogger, **call_kwargs)
+                registry.acall(resolved_operator, logger=registry_logger, **call_kwargs)
             )
         else:
-            result = registry.call(resolved_operator, logger=slogger, **call_kwargs)
+            result = registry.call(resolved_operator, logger=registry_logger, **call_kwargs)
         output_specs = [
             spec for spec in self.output if isinstance(spec, dict) and "name" in spec
         ]
