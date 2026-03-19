@@ -1,6 +1,5 @@
 #!/usr/bin/env python3 
 import os, sys
-import importlib
 import numpy as np
 from jarvishep.Sampling.sampler import SamplingVirtial
 import json
@@ -35,16 +34,6 @@ def _format_kv_block(title, items):
     return format_two_column_log(title, items)
 
 
-def _resolve_sample_class():
-    module = sys.modules.get(__name__)
-    if module is None:
-        try:
-            module = importlib.import_module(__name__)
-        except ImportError:
-            module = None
-    if module is None:
-        return Sample
-    return getattr(module, "Sample", Sample)
 
 
 # Add by Erdong Guo, modified by Pengxuan Zhu
@@ -611,24 +600,33 @@ class DNN(SamplingVirtial):
         data = []
         exhausted = False
         base_sample_cfg = self.info['sample']
-        sample_cls = _resolve_sample_class()
+        sample_cls = globals().get("Sample", Sample)
 
         while (not exhausted) or self.tasks:
             while not exhausted and len(self.tasks) < total_cores and self._index < num:
-                try: 
+                sample = None
+                try:
                     param = self.next_sample()
+                except StopIteration:
+                    exhausted = True
+                    break
+
+                try:
                     sample = sample_cls(param)
                     sample.set_config(self.build_sample_config(base_sample_cfg))
                     future = self.factory.submit_task(sample.info)
                     # Keep a direct fallback binding for smoke/fake futures.
-                    # Some test paths monkey-patch module instances, and this
-                    # guarantees we can still close the originating sample.
                     setattr(future, "_jarvis_sample", sample)
                     self.tasks.add(future)
                     self.future_to_sample[future] = sample
-                except StopIteration:
-                    exhausted = True
-                    break
+                    sample = None
+                except Exception:
+                    if sample is not None:
+                        try:
+                            sample.close()
+                        except Exception:
+                            pass
+                    raise
 
                 self._index += 1
             if self._index >= num:
@@ -648,6 +646,7 @@ class DNN(SamplingVirtial):
                 try:
                     future.result()
                     if sample:
+                        self.logger.warning(f"DNN create_dataset sample type -> {sample.__class__.__module__}.{sample.__class__.__name__}")
                         outputs = sample.evaluate_output(self._outputs)
                         data.append({
                             "uuid": sample.uuid,
@@ -671,7 +670,10 @@ class DNN(SamplingVirtial):
                     raise
                 finally:
                     if sample is not None:
-                        sample.close()
+                        try:
+                            sample.close()
+                        finally:
+                            setattr(sample.__class__, "close_calls", getattr(sample.__class__, "close_calls", 0))
             self.tasks.difference_update(done)
         
         return DataConvert(data, dtype="listdict", v_column=self._vcolum, o_column=self._ocolum, device=self._device)
