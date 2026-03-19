@@ -13,9 +13,7 @@ trash/
 # Legacy runtime paths (pre-PyPI layout)
 Jarvis
 src/
-docs/*
-!docs/release/
-!docs/release/**
+docs/
 github-ci/
 benchmarks/
 
