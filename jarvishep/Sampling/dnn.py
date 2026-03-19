@@ -620,6 +620,10 @@ class DNN(SamplingVirtial):
                     sample = sample_cls(param)
                     sample.set_config(self.build_sample_config(base_sample_cfg))
                     future = self.factory.submit_task(sample.info)
+                    # Keep a direct fallback binding for smoke/fake futures.
+                    # Some test paths monkey-patch module instances, and this
+                    # guarantees we can still close the originating sample.
+                    setattr(future, "_jarvis_sample", sample)
                     self.tasks.add(future)
                     self.future_to_sample[future] = sample
                 except StopIteration:
@@ -639,6 +643,8 @@ class DNN(SamplingVirtial):
             )
             for future in done:
                 sample = self.future_to_sample.pop(future, None)
+                if sample is None:
+                    sample = getattr(future, "_jarvis_sample", None)
                 try:
                     future.result()
                     if sample:
