@@ -1312,6 +1312,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         ):
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
+        
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
 
@@ -1339,6 +1340,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         ):
             sampler.run_nested()
         self.assertLess(time.perf_counter() - t0, 1.0)
+        
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
         sampler.finalize()
@@ -1380,7 +1382,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         ):
             sampler.run_nested()
             sampler.finalize()
-        self.assertLess(time.perf_counter() - t0, 1.0)
+        self.assertLess(time.perf_counter() - t0, 1.0)       
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
 
@@ -1583,6 +1585,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         ):
             sampler.run_nested()
         self.assertGreaterEqual(pool_build_counter["count"], 1)
+
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
 
@@ -1670,6 +1673,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         with patch("jarvishep.Sampling.bridson.Sample", _FakeSample):
             sampler.run_wo_nuisance()
         self.assertLess(time.perf_counter() - t0, 1.0)
+        
         self.assertEqual(sampler.factory.calls, 3)
         self.assertEqual(_FakeSample.close_calls, 3)
 
@@ -1711,7 +1715,9 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         with patch("jarvishep.Sampling.diver.Sample", _FakeSample):
             values = sampler._evaluate_population_loglike(population)
         self.assertLess(time.perf_counter() - t0, 1.0)
+        
         self.assertEqual(sampler.factory.calls, 3)
+        
         self.assertEqual(_FakeSample.close_calls, 3)
         self.assertEqual(values.shape[0], 3)
 

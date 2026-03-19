@@ -600,7 +600,8 @@ class DNN(SamplingVirtial):
         data = []
         exhausted = False
         base_sample_cfg = self.info['sample']
-        sample_cls = globals().get("Sample", Sample)
+        # sample_cls = Sample
+        sample_cls = getattr(sys.modules.get(self.__class__.__module__), "Sample", Sample)
 
         while (not exhausted) or self.tasks:
             while not exhausted and len(self.tasks) < total_cores and self._index < num:
