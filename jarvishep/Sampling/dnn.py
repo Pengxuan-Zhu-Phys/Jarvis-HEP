@@ -1,5 +1,6 @@
 #!/usr/bin/env python3 
 import os, sys
+import importlib
 import numpy as np
 from jarvishep.Sampling.sampler import SamplingVirtial
 import json
@@ -10,7 +11,6 @@ import torch
 import torch.nn as nn
 from jarvishep.dataconvert import DataConvert
 from jarvishep.log_kv import format_two_column_log
-import matplotlib.pyplot as plt
 from copy import deepcopy
 # from torch.autograd import Variable
 # from dnn import device
@@ -33,6 +33,18 @@ def _json_safe(value):
 
 def _format_kv_block(title, items):
     return format_two_column_log(title, items)
+
+
+def _resolve_sample_class():
+    module = sys.modules.get(__name__)
+    if module is None:
+        try:
+            module = importlib.import_module(__name__)
+        except ImportError:
+            module = None
+    if module is None:
+        return Sample
+    return getattr(module, "Sample", Sample)
 
 
 # Add by Erdong Guo, modified by Pengxuan Zhu
@@ -599,12 +611,13 @@ class DNN(SamplingVirtial):
         data = []
         exhausted = False
         base_sample_cfg = self.info['sample']
+        sample_cls = _resolve_sample_class()
 
         while (not exhausted) or self.tasks:
             while not exhausted and len(self.tasks) < total_cores and self._index < num:
                 try: 
                     param = self.next_sample()
-                    sample = Sample(param)
+                    sample = sample_cls(param)
                     sample.set_config(self.build_sample_config(base_sample_cfg))
                     future = self.factory.submit_task(sample.info)
                     self.tasks.add(future)
@@ -663,6 +676,8 @@ class DNN(SamplingVirtial):
         return len(self._missing_likelihood_outputs) == 0
         
     def plot_status(self, Niter):
+        from matplotlib import pyplot as plt
+
         savepath = os.path.join(self.info["DNN_Simu"], "sample.{}.png".format(Niter))
         fig = plt.figure(figsize=[10, 8])
         ax  = fig.add_axes([0.16, 0.16, 0.615, 0.82])

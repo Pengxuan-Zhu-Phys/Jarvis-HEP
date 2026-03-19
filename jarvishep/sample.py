@@ -12,11 +12,11 @@ from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
 class Sample(Base):
     def __init__(self, params):
-        self._params = params
+        self._params = dict(params)
         self._uuid = str(uuid4())
         self._likelihood = None  # Initialize likelihood with None
         self.processed = False
-        self.observables = params 
+        self.observables = dict(params)
         self.observables['uuid'] = self.uuid
         self.logger = None 
         self.handlers = {}

@@ -49,8 +49,20 @@ class IOfile(Base):
         self.path = path  
         self.sample_save_dir = sample_save_dir
         self.module = module
-        self.funcs = funcs
-        self.io_manager = io_manager
+
+        funcs_value = funcs
+        io_manager_value = io_manager
+        if (
+            io_manager_value is None
+            and funcs_value is not None
+            and not isinstance(funcs_value, dict)
+            and hasattr(funcs_value, "run_blocking")
+        ):
+            io_manager_value = funcs_value
+            funcs_value = {}
+
+        self.funcs = funcs_value
+        self.io_manager = io_manager_value
 
     def sync_make_dirs(self, path, *, exist_ok=True):
         os.makedirs(str(path), exist_ok=exist_ok)

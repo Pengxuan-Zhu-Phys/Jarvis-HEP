@@ -36,6 +36,11 @@ class ModulePool:
         self._inst_lock = threading.Lock()   # protects instances list + is_busy transitions
         self._io_lock = threading.Lock()     # protects info-file writes
 
+    def _maybe_call(self, instance, method_name, *args, **kwargs):
+        method = getattr(instance, method_name, None)
+        if callable(method):
+            method(*args, **kwargs)
+
     def set_logger(self):
         self.logger = logger.bind(
             module=f"Jarvis-HEP.Workflow.{self.name}",
@@ -56,9 +61,9 @@ class ModulePool:
         instance.is_busy = False
         instance.installation_event = threading.Event()
         instance._funcs = self.funcs
-        instance.set_subprocess_scheduler(self._subprocess_scheduler)
-        instance.set_io_manager(self._io_manager)
-        instance.set_run_summary_collector(self._run_summary_collector)
+        self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
+        self._maybe_call(instance, "set_io_manager", self._io_manager)
+        self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)
         self.instances.append(instance)
         return instance
 
@@ -84,9 +89,9 @@ class ModulePool:
             instance.installation_event.set()
 
         instance._funcs = self.funcs
-        instance.set_subprocess_scheduler(self._subprocess_scheduler)
-        instance.set_io_manager(self._io_manager)
-        instance.set_run_summary_collector(self._run_summary_collector)
+        self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
+        self._maybe_call(instance, "set_io_manager", self._io_manager)
+        self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)
         self.instances.append(instance)
         return instance
 
@@ -99,17 +104,17 @@ class ModulePool:
     def set_subprocess_scheduler(self, scheduler):
         self._subprocess_scheduler = scheduler
         for instance in self.instances:
-            instance.set_subprocess_scheduler(scheduler)
+            self._maybe_call(instance, "set_subprocess_scheduler", scheduler)
 
     def set_io_manager(self, io_manager):
         self._io_manager = io_manager
         for instance in self.instances:
-            instance.set_io_manager(io_manager)
+            self._maybe_call(instance, "set_io_manager", io_manager)
 
     def set_run_summary_collector(self, collector):
         self._run_summary_collector = collector
         for instance in self.instances:
-            instance.set_run_summary_collector(collector)
+            self._maybe_call(instance, "set_run_summary_collector", collector)
 
     @property
     def funcs(self):
@@ -144,9 +149,9 @@ class ModulePool:
             self.update_instances_info_file()
 
         try:
-            instance.set_subprocess_scheduler(self._subprocess_scheduler)
-            instance.set_io_manager(self._io_manager)
-            instance.set_run_summary_collector(self._run_summary_collector)
+            self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
+            self._maybe_call(instance, "set_io_manager", self._io_manager)
+            self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)
             # Execute directly on current worker thread to avoid nested
             # ThreadPoolExecutor submit/result overhead.
             return instance.execute(params, sample_info)

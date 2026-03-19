@@ -61,6 +61,8 @@ MyScan/
 └── jarvis.project.yaml
 ```
 
+The marker files (`.jarvis-project.json`, `jarvis.project.yaml`) identify the standalone project root.
+
 Runtime artifact directories such as `outputs/`, `logs/`, and `images/` are created automatically on first use.
 
 Project command reference:
@@ -92,6 +94,8 @@ Modes:
 - `share`: lighter result-sharing package
 - `repro`: unpack-and-rerun package
 - `full`: full archival package
+
+If no mode is provided, `--share` is used.
 
 ### 5. Browse the official Jarvis library
 
@@ -144,13 +148,13 @@ Jarvis-HEP currently includes:
 - reference-grade gradient-family entries: `MALA`, `HMC`, `NUTS`
 - experimental `RLTPMCMC`
 
-> `RLTPMCMC` is currently experimental in the active `v1.6.9` development line.
+> `RLTPMCMC` is currently experimental in the active `v1.6.10` release-prep line.
 
 ## Path Markers
 
 | Marker | Meaning |
 | --- | --- |
-| `&J/...` | project task root |
+| `&J/...` | standalone project root |
 
 Task YAML should use project-local `&J/...` paths. Package-owned resources are internal implementation details, not a public path marker.
 
