@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Jarvis-HEP"
-version = "1.6.9"
+version = "1.6.10"
 description = "Jarvis-HEP: likelihood-driven HEP scanning framework"
 readme = "README.md"
 requires-python = ">=3.10"
