@@ -23,6 +23,7 @@ from jarvishep.Sampling.rltpmcmc import (  # noqa: E402
     RLTPStateBuilder,
     RLTPTorchPPOTrainer,
 )
+from jarvishep.Sampling.Source.MCMC.state_machine_base import MCMCState  # noqa: E402
 
 
 class _NoopLogger:
@@ -197,11 +198,12 @@ class RLTPMCMCTests(unittest.TestCase):
             self.assertTrue(os.path.isdir(rl_info["checkpoints_root"]))
             self.assertTrue(os.path.exists(os.path.join(rl_info["outputs_root"], "decision_metrics.jsonl")))
             self.assertTrue(os.path.exists(os.path.join(rl_info["outputs_root"], "manifest.json")))
-            self.assertTrue(os.path.exists(os.path.join(rl_info["checkpoints_root"], "control_state.json")))
+            self.assertFalse(os.path.exists(os.path.join(rl_info["checkpoints_root"], "control_state.json")))
+            self.assertFalse(os.path.exists(os.path.join(rl_info["checkpoints_root"], "policy.pt")))
             self.assertEqual(sampler.state.value, "TERMINATE")
             self.assertGreaterEqual(_FakeSample.close_calls, 1)
 
-    def test_rltpmcmc_ppo_path_trains_and_saves_policy(self):
+    def test_rltpmcmc_ppo_path_trains_and_records_metadata(self):
         with tempfile.TemporaryDirectory() as td:
             sampler = RLTPMCMC()
             sampler.set_logger(_NoopLogger())
@@ -218,29 +220,30 @@ class RLTPMCMCTests(unittest.TestCase):
                 sampler.finalize()
 
             rl_info = sampler.info["rl"]
-            policy_path = os.path.join(rl_info["checkpoints_root"], "policy.pt")
             training_metrics_path = os.path.join(rl_info["outputs_root"], "training_metrics.jsonl")
             decision_metrics_path = os.path.join(rl_info["outputs_root"], "decision_metrics.jsonl")
+            manifest_path = os.path.join(rl_info["outputs_root"], "manifest.json")
 
-            self.assertTrue(os.path.exists(policy_path))
             self.assertTrue(os.path.exists(training_metrics_path))
             self.assertTrue(os.path.exists(decision_metrics_path))
+            self.assertTrue(os.path.exists(manifest_path))
+            self.assertFalse(os.path.exists(os.path.join(rl_info["checkpoints_root"], "policy.pt")))
+            self.assertFalse(os.path.exists(os.path.join(rl_info["checkpoints_root"], "control_state.json")))
 
             with open(training_metrics_path, "r", encoding="utf-8") as handle:
                 training_rows = [json.loads(line) for line in handle if line.strip()]
             with open(decision_metrics_path, "r", encoding="utf-8") as handle:
                 decision_rows = [json.loads(line) for line in handle if line.strip()]
-            with open(os.path.join(rl_info["outputs_root"], "manifest.json"), "r", encoding="utf-8") as handle:
+            with open(manifest_path, "r", encoding="utf-8") as handle:
                 manifest = json.load(handle)
-            with open(os.path.join(rl_info["checkpoints_root"], "control_state.json"), "r", encoding="utf-8") as handle:
-                control_state = json.load(handle)
 
             self.assertGreaterEqual(len(training_rows), 1)
             self.assertGreaterEqual(len(decision_rows), 1)
             self.assertEqual(training_rows[0]["backend"], "torch")
             self.assertEqual(decision_rows[0]["ppo_backend"], "torch")
             self.assertEqual(manifest["ppo_backend"], "torch")
-            self.assertEqual(control_state["ppo_backend"], "torch")
+            self.assertEqual(manifest["control_state"]["ppo_backend"], "torch")
+            self.assertIsNone(manifest["control_state"]["checkpoint"])
             for idx in range(3):
                 snapshot = sampler.chain_snapshot(idx)
                 self.assertGreater(float(snapshot["temperature"]), 0.0)
@@ -268,14 +271,14 @@ class RLTPMCMCTests(unittest.TestCase):
                 training_rows = [json.loads(line) for line in handle if line.strip()]
             with open(os.path.join(rl_info["outputs_root"], "decision_metrics.jsonl"), "r", encoding="utf-8") as handle:
                 decision_rows = [json.loads(line) for line in handle if line.strip()]
-            with open(os.path.join(rl_info["checkpoints_root"], "control_state.json"), "r", encoding="utf-8") as handle:
-                control_state = json.load(handle)
+            with open(os.path.join(rl_info["outputs_root"], "manifest.json"), "r", encoding="utf-8") as handle:
+                manifest = json.load(handle)
 
             self.assertGreaterEqual(len(training_rows), 1)
             self.assertGreaterEqual(len(decision_rows), 1)
             self.assertEqual(training_rows[0]["backend"], "numpy")
             self.assertEqual(decision_rows[0]["ppo_backend"], "numpy")
-            self.assertEqual(control_state["ppo_backend"], "numpy")
+            self.assertEqual(manifest["control_state"]["ppo_backend"], "numpy")
             self.assertEqual(sampler.state.value, "TERMINATE")
 
     def test_rltpmcmc_frozen_mode_loads_saved_checkpoint(self):
@@ -294,7 +297,7 @@ class RLTPMCMCTests(unittest.TestCase):
                 trainer_sampler.run_nested()
                 trainer_sampler.finalize()
 
-            policy_path = os.path.join(trainer_sampler.info["rl"]["checkpoints_root"], "policy.pt")
+            policy_path = trainer_sampler.save_rl_checkpoint("policy", trainer_sampler._trainer.export_state())
             self.assertTrue(os.path.exists(policy_path))
 
             frozen_cfg = self._config(controller="ppo", adaptation_mode="frozen", backend="torch")
@@ -332,7 +335,7 @@ class RLTPMCMCTests(unittest.TestCase):
                 trainer_sampler.run_nested()
                 trainer_sampler.finalize()
 
-            policy_path = os.path.join(trainer_sampler.info["rl"]["checkpoints_root"], "policy.pt")
+            policy_path = trainer_sampler.save_rl_checkpoint("policy", trainer_sampler._trainer.export_state())
             mismatch_cfg = self._config(controller="ppo", adaptation_mode="frozen", backend="torch")
             mismatch_cfg["Sampling"]["PPO"]["resume_from"] = policy_path
 
@@ -347,6 +350,64 @@ class RLTPMCMCTests(unittest.TestCase):
             with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
                 with self.assertRaisesRegex(ValueError, "checkpoint backend mismatch"):
                     sampler.initialize()
+
+    def test_rltpmcmc_runtime_checkpoint_roundtrip_restores_trainer_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            checkpoint_root = os.path.join(td, "checkpoints", "rltpmcmc")
+
+            sampler = RLTPMCMC()
+            sampler.set_logger(_NoopLogger())
+            sampler.path["task_root"] = td
+            sampler.path["jpath"] = td
+            sampler.info["sample"] = self._sample_info(td)
+            sampler.set_config(self._config(controller="ppo", adaptation_mode="train", backend="numpy"))
+            sampler.set_factory(_ImmediateFactory())
+            sampler.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                sampler.initialize()
+                sampler.run_nested()
+                sampler._state = MCMCState.UPDATE
+                self.assertTrue(sampler.persist_runtime_checkpoint(force=True, reason="unit-test"))
+
+            checkpoint_file = os.path.join(checkpoint_root, "state.pkl")
+            self.assertTrue(os.path.exists(checkpoint_file))
+            self.assertFalse(os.path.exists(os.path.join(checkpoint_root, "runtime_state.pkl")))
+            original_update_count = sampler._trainer.update_count
+            original_exchange_counter = sampler._exchange_counter
+            original_replica_positions = list(sampler._replica_positions)
+
+            restored = RLTPMCMC()
+            restored.set_logger(_NoopLogger())
+            restored.path["task_root"] = td
+            restored.path["jpath"] = td
+            restored.info["sample"] = self._sample_info(td)
+            restored.set_config(self._config(controller="ppo", adaptation_mode="train", backend="numpy"))
+            restored.set_factory(_ImmediateFactory())
+            restored.set_runtime_checkpoint_resume_hint(True)
+            restored.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                restored.initialize()
+                self.assertTrue(restored.restore_runtime_checkpoint_if_available())
+
+            self.assertEqual(restored._exchange_counter, original_exchange_counter)
+            self.assertEqual(restored._replica_positions, original_replica_positions)
+            self.assertEqual(restored._trainer.update_count, original_update_count)
+            self.assertEqual(restored._current_ppo_backend(), "numpy")
+            self.assertEqual(restored._ppo_cfg["backend"], "numpy")
 
     def test_rltpmcmc_trainers_preserve_valid_control_patch_contract(self):
         summary = {

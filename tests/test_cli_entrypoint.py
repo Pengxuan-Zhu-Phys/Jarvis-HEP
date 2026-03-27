@@ -141,6 +141,7 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn("--plot", help_text)
         self.assertIn("--convert", help_text)
         self.assertIn("--monitor", help_text)
+        self.assertIn("--resume", help_text)
         self.assertIn("--check-modules", help_text)
         self.assertNotIn("--mkproject", help_text)
         self.assertNotIn("--packproject", help_text)
@@ -214,6 +215,7 @@ class CliEntrypointTests(unittest.TestCase):
             ("--plot", "plot"),
             ("--convert", "cvtDB"),
             ("--monitor", "monitor"),
+            ("--resume", "resume"),
             ("--check-modules", "OPC"),
         ]
         for flag, dest in cases:

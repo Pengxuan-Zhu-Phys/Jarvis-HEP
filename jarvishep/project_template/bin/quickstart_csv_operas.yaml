@@ -21,7 +21,7 @@ EnvReqs:
       version: ">=3.10.0"
     - name: Darwin
       version: ">=10.14"
-  Check_default_dependences:
+  Check_default_dependencies:
     required: true
     default_yaml_path: "&J/deps/environment_default.yaml"
 

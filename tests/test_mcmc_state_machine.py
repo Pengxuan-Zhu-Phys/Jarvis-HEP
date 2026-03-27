@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import os
+import pickle
 import sys
 import tempfile
 import unittest
@@ -36,7 +37,7 @@ from jarvishep.Sampling.nuts import NUTS  # noqa: E402
 from jarvishep.Sampling.pt_ensemble import PTEnsemble  # noqa: E402
 from jarvishep.Sampling.robustam import RobustAM  # noqa: E402
 from jarvishep.Sampling.slicemcmc import SliceMCMC  # noqa: E402
-from jarvishep.Sampling.tpmcmc import TPMCMC  # noqa: E402
+from jarvishep.Sampling.tpmcmc import PTMCMC  # noqa: E402
 from jarvishep.distributor import Distributor  # noqa: E402
 
 
@@ -97,6 +98,17 @@ class _ImmediateFactory:
         sample_info["observables"]["LogL"] = logl
         fut.set_result(logl)
         return fut
+
+
+class _CutoffFactory(_ImmediateFactory):
+    def __init__(self, allowed_calls):
+        super().__init__()
+        self.allowed_calls = int(allowed_calls)
+
+    def submit_task(self, sample_info):
+        if self.calls >= self.allowed_calls:
+            raise RuntimeError("intentional checkpoint cutoff")
+        return super().submit_task(sample_info)
 
 
 class _BootstrapController:
@@ -249,7 +261,7 @@ class MCMCStateMachineTests(unittest.TestCase):
         ladder = [1.0, 3.0, 6.0]
 
         with tempfile.TemporaryDirectory() as td:
-            sampler = TPMCMC()
+            sampler = PTMCMC()
             sampler.set_logger(_NoopLogger())
             sampler.info["sample"] = {
                 "task_result_dir": td,
@@ -981,7 +993,7 @@ class MCMCStateMachineTests(unittest.TestCase):
             ms.initialize()
             self.assertEqual(ms._max_inflight(), 3)
 
-            ts = TPMCMC()
+            ts = PTMCMC()
             ts.set_logger(_NoopLogger())
             ts.info["sample"] = {
                 "task_result_dir": td,
@@ -1121,7 +1133,7 @@ class MCMCStateMachineTests(unittest.TestCase):
             ms.initialize()
             self.assertEqual(ms._normalize_proposal_scales(), [0.2, 0.3, 0.4])
 
-            ts = TPMCMC()
+            ts = PTMCMC()
             ts.set_logger(_NoopLogger())
             ts.info["sample"] = {
                 "task_result_dir": td,
@@ -1263,6 +1275,387 @@ class MCMCStateMachineTests(unittest.TestCase):
             os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
             with self.assertRaises(TypeError):
                 sampler.set_config(cfg)
+
+    def test_mcmc_runtime_checkpoint_resume_from_file(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            checkpoint_root = os.path.join(td, "checkpoints", "mcmc")
+
+            sampler = MCMC()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_max_workers(1)
+            sampler.set_factory(_CutoffFactory(allowed_calls=3))
+            sampler.initialize()
+            sampler.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                with self.assertRaisesRegex(RuntimeError, "intentional checkpoint cutoff"):
+                    sampler.run_nested()
+
+            self.assertTrue(
+                sampler.persist_runtime_checkpoint(force=True, reason="unit-test"),
+            )
+            checkpoint_file = os.path.join(checkpoint_root, "state.pkl")
+            self.assertTrue(os.path.exists(checkpoint_file))
+            self.assertFalse(os.path.exists(os.path.join(checkpoint_root, "runtime_state.pkl")))
+            with open(checkpoint_file, "rb") as handle:
+                payload = pickle.load(handle)
+            self.assertEqual(payload["format"], "jarvis-hep.statesaver")
+            self.assertIn("run_spec", payload)
+            self.assertIn("factory_blueprint", payload)
+            self.assertIn("sampler_state", payload)
+            partial_iters = [sampler.chain_snapshot(i)["iter"] for i in range(2)]
+            self.assertGreater(sum(partial_iters), 0)
+            self.assertLess(sum(partial_iters), 8)
+
+            resumed = MCMC()
+            resumed.set_logger(_NoopLogger())
+            resumed.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            resumed.set_config(cfg)
+            resumed.set_max_workers(1)
+            resumed.set_factory(_ImmediateFactory())
+            resumed.initialize()
+            resumed.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+            self.assertTrue(resumed.restore_runtime_checkpoint_if_available())
+            self.assertEqual(
+                [resumed.chain_snapshot(i)["iter"] for i in range(2)],
+                partial_iters,
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                resumed.run_nested()
+
+            summary = resumed.chain_summary()
+            self.assertIsNotNone(summary)
+            self.assertEqual(summary["accepted"] + summary["rejected"], 8)
+
+    def test_tpmcmc_runtime_checkpoint_restores_exchange_state(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 3,
+                    "exchange_interval": 1,
+                    "proposal_scales": [0.1, 0.2],
+                    "temperature_ladder": [1.0, 2.0],
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            checkpoint_root = os.path.join(td, "checkpoints", "ptmcmc")
+
+            sampler = PTMCMC()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.set_max_workers(1)
+            sampler.set_factory(_CutoffFactory(allowed_calls=3))
+            sampler.initialize()
+            sampler.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                with self.assertRaisesRegex(RuntimeError, "intentional checkpoint cutoff"):
+                    sampler.run_nested()
+
+            self.assertTrue(
+                sampler.persist_runtime_checkpoint(force=True, reason="unit-test"),
+            )
+            self.assertFalse(os.path.exists(os.path.join(checkpoint_root, "runtime_state.pkl")))
+            partial_offset = int(sampler._exchange_offset)
+            partial_iters = [sampler.chain_snapshot(i)["iter"] for i in range(2)]
+            self.assertGreaterEqual(partial_offset, 1)
+
+            resumed = PTMCMC()
+            resumed.set_logger(_NoopLogger())
+            resumed.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            resumed.set_config(cfg)
+            resumed.set_max_workers(1)
+            resumed.set_factory(_ImmediateFactory())
+            resumed.initialize()
+            resumed.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+            self.assertTrue(resumed.restore_runtime_checkpoint_if_available())
+            self.assertEqual(int(resumed._exchange_offset), partial_offset)
+            self.assertEqual(
+                [resumed.chain_snapshot(i)["iter"] for i in range(2)],
+                partial_iters,
+            )
+
+            _FakeSample.reset()
+            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                resumed.run_nested()
+
+            summary = resumed.chain_summary()
+            self.assertIsNotNone(summary)
+            self.assertEqual(summary["accepted"] + summary["rejected"], 6)
+
+    def test_dram_runtime_checkpoint_restores_delayed_rejection_cache(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                    "adapt_enabled": False,
+                    "dr_steps": 2,
+                    "dr_scale_factors": [1.0, 0.5],
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            checkpoint_root = os.path.join(td, "checkpoints", "dram")
+
+            sampler = DRAM()
+            sampler.set_logger(_NoopLogger())
+            sampler.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+            sampler.set_config(cfg)
+            sampler.initialize()
+            sampler.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+
+            chain = sampler._must_registry().get(0)
+            chain.engine.propose_stage(0)
+            accepted = chain.engine.consume_stage_result(0, 0.0, beta=1.0)
+            self.assertTrue(accepted["accepted"])
+            chain.iter = int(chain.engine.iterations)
+            chain.accepted = 1
+            chain.last_logl = float(chain.engine.last_loglikelihood)
+            chain.window_iter = 1
+
+            chain.engine.propose_stage(0)
+            rejected = chain.engine.consume_stage_result(0, -1.0e6, beta=1.0)
+            self.assertFalse(rejected["iteration_done"])
+            self.assertEqual(rejected["next_stage"], 1)
+
+            sampler._chain_stage_idx[0] = 1
+            sampler._ready_queue.clear()
+            sampler._ready_set.clear()
+            sampler._enqueue_chain(0)
+
+            self.assertTrue(
+                sampler.persist_runtime_checkpoint(force=True, reason="unit-test"),
+            )
+
+            resumed = DRAM()
+            resumed.set_logger(_NoopLogger())
+            resumed.info["sample"] = {
+                "task_result_dir": td,
+                "sample_dirs": os.path.join(td, "SAMPLE"),
+                "archive_samples": False,
+            }
+            resumed.set_config(cfg)
+            resumed.initialize()
+            resumed.configure_runtime_checkpointing(
+                checkpoint_root,
+                interval_seconds=3600.0,
+                auto_resume=True,
+                logger=_NoopLogger(),
+            )
+            self.assertTrue(resumed.restore_runtime_checkpoint_if_available())
+            restored_chain = resumed._must_registry().get(0)
+            self.assertEqual(resumed._chain_stage_idx[0], 1)
+            self.assertIn(0, restored_chain.engine._stage_proposals)
+            self.assertIn(0, restored_chain.engine._stage_alpha)
+
+            restored_chain.engine.propose_stage(1)
+            outcome = restored_chain.engine.consume_stage_result(1, -10.0, beta=1.0)
+            self.assertTrue(outcome["iteration_done"])
+            self.assertEqual(outcome["stage_attempts"], 2)
+
+    def test_shared_mcmc_family_runtime_checkpoint_roundtrip(self):
+        cfg = {
+            "Sampling": {
+                "Bounds": {
+                    "num_chains": 2,
+                    "num_iters": 4,
+                    "proposal_scale": 0.1,
+                    "exchange_interval": 1,
+                    "temperature_ladder": [1.0, 2.0],
+                    "stretch_a": 2.1,
+                    "slice_width": 0.25,
+                    "slice_max_steps_out": 8,
+                    "slice_max_shrink": 16,
+                    "mala_step_size": 0.05,
+                    "hmc_step_size": 0.05,
+                    "hmc_leapfrog_steps": 4,
+                    "nuts_step_size": 0.05,
+                    "nuts_max_depth": 4,
+                },
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    }
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+
+        cases = [
+            MCMC,
+            AMMCMC,
+            RobustAM,
+            DEMCMC,
+            DREAM,
+            DREAMLite,
+            EnsembleMCMC,
+            PTMCMC,
+            PTEnsemble,
+            SliceMCMC,
+            ESS,
+            MALA,
+            HMC,
+            NUTS,
+        ]
+
+        for sampler_cls in cases:
+            with self.subTest(sampler=sampler_cls.__name__):
+                with tempfile.TemporaryDirectory() as td:
+                    checkpoint_root = os.path.join(td, "checkpoints", sampler_cls.__name__.lower())
+
+                    sampler = sampler_cls()
+                    sampler.set_logger(_NoopLogger())
+                    sampler.info["sample"] = {
+                        "task_result_dir": td,
+                        "sample_dirs": os.path.join(td, "SAMPLE"),
+                        "archive_samples": False,
+                    }
+                    os.makedirs(sampler.info["sample"]["sample_dirs"], exist_ok=True)
+                    sampler.set_config(cfg)
+                    sampler.set_max_workers(1)
+                    sampler.set_factory(_CutoffFactory(allowed_calls=3))
+                    sampler.initialize()
+                    sampler.configure_runtime_checkpointing(
+                        checkpoint_root,
+                        interval_seconds=3600.0,
+                        auto_resume=True,
+                        logger=_NoopLogger(),
+                    )
+
+                    _FakeSample.reset()
+                    with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                        with self.assertRaisesRegex(RuntimeError, "intentional checkpoint cutoff"):
+                            sampler.run_nested()
+
+                    self.assertTrue(
+                        sampler.persist_runtime_checkpoint(force=True, reason=f"{sampler_cls.__name__}-unit-test"),
+                    )
+                    checkpoint_file = os.path.join(checkpoint_root, "state.pkl")
+                    self.assertTrue(os.path.exists(checkpoint_file))
+
+                    resumed = sampler_cls()
+                    resumed.set_logger(_NoopLogger())
+                    resumed.info["sample"] = {
+                        "task_result_dir": td,
+                        "sample_dirs": os.path.join(td, "SAMPLE"),
+                        "archive_samples": False,
+                    }
+                    resumed.set_config(cfg)
+                    resumed.set_max_workers(1)
+                    resumed.set_factory(_ImmediateFactory())
+                    resumed.initialize()
+                    resumed.configure_runtime_checkpointing(
+                        checkpoint_root,
+                        interval_seconds=3600.0,
+                        auto_resume=True,
+                        logger=_NoopLogger(),
+                    )
+                    self.assertTrue(resumed.restore_runtime_checkpoint_if_available())
+
+                    _FakeSample.reset()
+                    with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                        resumed.run_nested()
+
+                    summary = resumed.chain_summary()
+                    self.assertIsNotNone(summary)
+                    self.assertEqual(summary["accepted"] + summary["rejected"], 8)
 
 
 if __name__ == "__main__":

@@ -46,7 +46,7 @@ class ConfigLoader(Base):
                 self._normalize_optional_sections()
                 self.filepath = filepath
                 env_reqs = self.config.get("EnvReqs", {}) if isinstance(self.config, dict) else {}
-                check_default = env_reqs.get("Check_default_dependences", {}) if isinstance(env_reqs, dict) else {}
+                check_default = env_reqs.get("Check_default_dependencies", {}) if isinstance(env_reqs, dict) else {}
                 if isinstance(check_default, dict) and bool(check_default.get("required", False)):
                     self.update_dependences()
         except Exception as e: 
@@ -106,7 +106,7 @@ class ConfigLoader(Base):
     def check_dependency_installed(self) -> None:
         dependencies = self.config["EnvReqs"]
         # Update the environment requirement by default setting 
-        if "Check_default_dependences" in dependencies:
+        if "Check_default_dependencies" in dependencies:
             self.update_dependences()
         # Check the system version
         if "OS" in dependencies:
@@ -317,16 +317,16 @@ class ConfigLoader(Base):
             sys.exit(2)
 
     def update_dependences(self) -> None:
-        if "required" in self.config['EnvReqs']['Check_default_dependences'] and "default_yaml_path" in self.config['EnvReqs']['Check_default_dependences']: 
-            if self.config['EnvReqs']['Check_default_dependences']['required']:
+        if "required" in self.config['EnvReqs']['Check_default_dependencies'] and "default_yaml_path" in self.config['EnvReqs']['Check_default_dependencies']: 
+            if self.config['EnvReqs']['Check_default_dependencies']['required']:
                 try:
-                    self.config['EnvReqs']['Check_default_dependences']['default_yaml_path'] = self.decode_path(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path'])
-                    with open(self.decode_path(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path']), 'r') as file:
+                    self.config['EnvReqs']['Check_default_dependencies']['default_yaml_path'] = self.decode_path(self.config['EnvReqs']['Check_default_dependencies']['default_yaml_path'])
+                    with open(self.decode_path(self.config['EnvReqs']['Check_default_dependencies']['default_yaml_path']), 'r') as file:
                         default_env = yaml.safe_load(file)
                         self.config['EnvReqs'].update(default_env['EnvReqs'])
                 except FileExistsError:
                     self.logger.error("Jarvis-HEP load file error: {} not found".format(self.config['EnvReqs']['default_yaml_path']))
-        self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvReqs']['Check_default_dependences']['default_yaml_path']))
+        self.logger.info("Updating the Environment Requirements from default setting file \n\t{}".format(self.config['EnvReqs']['Check_default_dependencies']['default_yaml_path']))
 
     def get_modules(self):
         sampling_cfg = self.config.get('Sampling', {}) if isinstance(self.config, dict) else {}

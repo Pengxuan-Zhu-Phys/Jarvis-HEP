@@ -382,7 +382,7 @@
                         "additionalProperties": false
                     }
                 },
-                "Check_default_dependences": {
+                "Check_default_dependencies": {
                     "type": "object",
                     "properties": {
                         "required": {

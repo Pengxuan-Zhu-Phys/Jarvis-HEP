@@ -171,7 +171,7 @@ class IOfile(Base):
         funcs,
         io_manager=None,
     ):
-        if file_type == "Json":
+        if file_type == "JSON":
             from jarvishep.IOs.Input import JsonInputFile
             logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
             return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
@@ -202,7 +202,7 @@ class IOfile(Base):
             from jarvishep.IOs.Output import SLHAOutputFile
             logger.debug(f"Loading the file {name} as 'SLHAOutputFile' type")
             return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        elif file_type == "Json":
+        elif file_type == "JSON":
             from jarvishep.IOs.Output import JsonOutputFile
             logger.debug(f"Loading the file {name} as 'JsonOutputFile' type")
             return JsonOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)

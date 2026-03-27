@@ -277,6 +277,9 @@ class DNN(SamplingVirtial):
         self._iter   = 0 
         self.plotter = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
+
     @property
     def device(self):
         return self._device 
@@ -352,40 +355,9 @@ class DNN(SamplingVirtial):
 
     def initialize(self):
         self.logger.warning("DNN Sampler -> initialize network and runtime")
-        # self.sampler = FeedforwardNN(
-        #     input_size=self._dimensions,
-        #     hidden_sizes=self._hidden_layers,
-        #     output_size=self._dimoutputs)
         self.set_torch_backend()        
-        self.regressors = [
-            FeedforwardNN(
-                input_size = self._dimensions,
-                hidden_sizes = self._hidden_layers,
-                output_size = 1,
-                otag = output_name,
-                dropout_prob = 0.1,
-                learning_rate = self._learning_rate
-            )
-                for output_name in self._outputs
-            ]
-        for reg in self.regressors:
-            reg.logger = self.logger
-            reg.set_device(self.device)
+        self._build_runtime_models()
         self.check_evaluation()
-        self.classifier = Classifier(
-            nn.Sequential(nn.Linear(self._dimensions, 100), nn.ReLU(),
-                          nn.Linear(100, 100), nn.ReLU(),
-                          nn.Linear(100, 100), nn.ReLU(), 
-                          nn.Linear(100, 100), nn.ReLU(),
-                          nn.Linear(100, 1), nn.Sigmoid()
-                          ), 
-            self._dimensions,
-            learning_rate = self._learning_rate
-            )
-        self.classifier.set_device(self.device)
-        self.classifier.logger = self.logger
-
-
         self.info['accept_avg'] = []
         self.info['LogL']       = []
         self.info['sample_collect'] = pd.DataFrame()
@@ -407,6 +379,117 @@ class DNN(SamplingVirtial):
             os.makedirs(self.info["DNN_Simu"])
         self._log_dnn_runtime_parameters()
         self.logger.warning("DNN Sampler -> ready for training and sampling")
+
+    def _build_runtime_models(self):
+        self.regressors = [
+            FeedforwardNN(
+                input_size=self._dimensions,
+                hidden_sizes=self._hidden_layers,
+                output_size=1,
+                otag=output_name,
+                dropout_prob=0.1,
+                learning_rate=self._learning_rate,
+            )
+            for output_name in self._outputs
+        ]
+        for reg in self.regressors:
+            reg.logger = self.logger
+            reg.set_device(self.device)
+
+        self.classifier = Classifier(
+            nn.Sequential(
+                nn.Linear(self._dimensions, 100), nn.ReLU(),
+                nn.Linear(100, 100), nn.ReLU(),
+                nn.Linear(100, 100), nn.ReLU(),
+                nn.Linear(100, 100), nn.ReLU(),
+                nn.Linear(100, 1), nn.Sigmoid(),
+            ),
+            self._dimensions,
+            learning_rate=self._learning_rate,
+        )
+        self.classifier.set_device(self.device)
+        self.classifier.logger = self.logger
+
+    @staticmethod
+    def _sanitize_nested(value):
+        if isinstance(value, dict):
+            cleaned = {}
+            for key, item in value.items():
+                if key in {"logger", "handlers"}:
+                    continue
+                cleaned[key] = DNN._sanitize_nested(item)
+            return cleaned
+        if isinstance(value, list):
+            return [DNN._sanitize_nested(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(DNN._sanitize_nested(item) for item in value)
+        return value
+
+    @staticmethod
+    def _tensor_state_to_cpu(state_dict):
+        return {k: v.detach().cpu() for k, v in state_dict.items()}
+
+    def _export_model_state(self, model_obj):
+        return {
+            "x_mean": np.asarray(model_obj.x_mean).tolist(),
+            "x_std": np.asarray(model_obj.x_std).tolist(),
+            "model_state": self._tensor_state_to_cpu(model_obj.model.state_dict()),
+            "optimizer_state": deepcopy(model_obj.optimizer.state_dict()),
+        }
+
+    def _restore_model_state(self, model_obj, payload):
+        if not payload:
+            return
+        model_state = payload.get("model_state")
+        if model_state:
+            model_obj.model.load_state_dict(model_state)
+        optimizer_state = payload.get("optimizer_state")
+        if optimizer_state is not None:
+            model_obj.optimizer.load_state_dict(optimizer_state)
+        if "x_mean" in payload:
+            model_obj.x_mean = np.asarray(payload["x_mean"])
+        if "x_std" in payload:
+            model_obj.x_std = np.asarray(payload["x_std"])
+
+    def _export_sampler_state(self):
+        torch_rng_state = None
+        if hasattr(torch, "get_rng_state"):
+            try:
+                torch_rng_state = torch.get_rng_state()
+            except Exception:
+                torch_rng_state = None
+        return {
+            "iter": int(self._iter),
+            "device": self._device,
+            "dataset": self.dataset.copy(deep=True),
+            "df": self.df.copy(deep=True),
+            "info": self._sanitize_nested(deepcopy(self.info)),
+            "numpy_random_state": np.random.get_state(),
+            "regressors": [self._export_model_state(reg) for reg in getattr(self, "regressors", []) or []],
+            "classifier": self._export_model_state(self.classifier) if getattr(self, "classifier", None) is not None else None,
+            "torch_rng_state": torch_rng_state,
+        }
+
+    def _import_sampler_state(self, payload):
+        self._iter = int(payload.get("iter", self._iter or 0))
+        self._device = payload.get("device", self._device)
+        self.dataset = payload.get("dataset", self.dataset)
+        self.df = payload.get("df", self.df)
+        self.info = deepcopy(payload.get("info", self.info))
+        np_state = payload.get("numpy_random_state")
+        if np_state is not None:
+            np.random.set_state(np_state)
+        if not getattr(self, "regressors", None) or not getattr(self, "classifier", None):
+            self._build_runtime_models()
+        for reg, reg_payload in zip(self.regressors, payload.get("regressors", [])):
+            self._restore_model_state(reg, reg_payload)
+        self._restore_model_state(self.classifier, payload.get("classifier"))
+        torch_state = payload.get("torch_rng_state")
+        if torch_state is not None and hasattr(torch, "set_rng_state"):
+            try:
+                torch.set_rng_state(torch_state)
+            except Exception:
+                pass
 
     def map_DNNoutput_to_Observable_and_logL(self, Dx):
         for reg in self.regressors:
@@ -452,14 +535,16 @@ class DNN(SamplingVirtial):
             )
             sys.exit(2)
             
-        # First data set 
-        dataset = self.create_dataset(self._ninit) 
-        dpth = os.path.join(self.info["DNN_Simu"], "iter.0.csv")
-        dataset.save(dpth)
-        self.info['DNN_info']['iter_data'].append(dpth)
-        self.dataset = dataset
-        self._log_dataset_snapshot("init", self.dataset)
-        self._write_run_info()
+        if self.dataset is None or getattr(self.dataset, "empty", True):
+            dataset = self.create_dataset(self._ninit)
+            dpth = os.path.join(self.info["DNN_Simu"], "iter.0.csv")
+            dataset.save(dpth)
+            self.info['DNN_info']['iter_data'] = [dpth]
+            self.dataset = dataset
+            self._log_dataset_snapshot("init", self.dataset)
+            self._write_run_info()
+        else:
+            self._log_dataset_snapshot(f"resume-iter-{self._iter}", self.dataset)
             
         while self._iter < self._niter:
             self._iter += 1
@@ -498,6 +583,7 @@ class DNN(SamplingVirtial):
             self.dataset.update(dataset)
             self._log_dataset_snapshot(f"iter-{self._iter}", self.dataset)
             self._write_run_info()
+            self.persist_runtime_checkpoint(reason="dnn_iteration")
             self.logger.warning(
                 "DNN Iteration -> {}/{} | stage -> completed".format(self._iter, self._niter)
             )
@@ -636,10 +722,15 @@ class DNN(SamplingVirtial):
             if not self.tasks:
                 continue
 
+            timeout = self._checkpoint_seconds_until_due()
             done, _ = concurrent.futures.wait(
                 self.tasks,
+                timeout=timeout,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
             for future in done:
                 sample = self.future_to_sample.pop(future, None)
                 if sample is None:

@@ -106,7 +106,7 @@ Operas:
                     input:
                       - name: params
                         path: "input.json"
-                        type: Json
+                        type: JSON
                         save: true
                         actions:
                           - type: Dump
@@ -116,7 +116,7 @@ Operas:
                     output:
                       - name: observables
                         path: "output.json"
-                        type: Json
+                        type: JSON
                         save: false
                         variables:
                           - name: z

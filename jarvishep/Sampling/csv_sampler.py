@@ -5,6 +5,7 @@ import concurrent.futures
 import csv
 import os
 import re
+from copy import deepcopy
 from typing import Any, Dict, Iterator, Sequence
 from uuid import uuid4
 
@@ -35,6 +36,9 @@ class CSVSampler(SamplingVirtial):
         self._uuid_column_resolved = None
         self._selected_variables = None
         self._records_iter = None
+        self._runtime_pending_samples = []
+        self._runtime_csv_cursor = 0
+        self._runtime_seen_source_uuid = set()
 
     def load_schema_file(self):
         self.schema = self.path["CSVSchema"]
@@ -42,6 +46,9 @@ class CSVSampler(SamplingVirtial):
     def set_config(self, config_info) -> None:
         self.config = config_info
         self.init_generator()
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
 
     def set_logger(self, logger) -> None:
         super().set_logger(logger)
@@ -84,6 +91,38 @@ class CSVSampler(SamplingVirtial):
             self.logger.error(f"CSV Sampler meets error when checking selection expression: {exc}")
             raise
 
+    def _export_sampler_state(self):
+        return {
+            "csv_path": self._csv_path,
+            "csv_delimiter": self._csv_delimiter,
+            "csv_encoding": self._csv_encoding,
+            "uuid_column_requested": self._uuid_column_requested,
+            "uuid_column_resolved": self._uuid_column_resolved,
+            "selected_variables": deepcopy(self._selected_variables),
+            "selectionexp": self._selectionexp,
+            "cursor_row_index": int(self._runtime_csv_cursor),
+            "seen_source_uuid": sorted(str(item) for item in self._runtime_seen_source_uuid),
+            "info": deepcopy(self.info),
+            "bucket_allocator": None if self.bucket_alloc is None else self.bucket_alloc.get_state(),
+            "pending_samples": self._collect_pending_sample_infos(),
+        }
+
+    def _import_sampler_state(self, payload):
+        self._csv_path = payload.get("csv_path", self._csv_path)
+        self._csv_delimiter = payload.get("csv_delimiter", self._csv_delimiter)
+        self._csv_encoding = payload.get("csv_encoding", self._csv_encoding)
+        self._uuid_column_requested = payload.get("uuid_column_requested", self._uuid_column_requested)
+        self._uuid_column_resolved = payload.get("uuid_column_resolved", self._uuid_column_resolved)
+        self._selected_variables = deepcopy(payload.get("selected_variables", self._selected_variables))
+        self._selectionexp = payload.get("selectionexp", self._selectionexp)
+        self._runtime_csv_cursor = int(payload.get("cursor_row_index", self._runtime_csv_cursor or 0))
+        self._runtime_seen_source_uuid = set(str(item) for item in payload.get("seen_source_uuid", []))
+        self.info = deepcopy(payload.get("info", self.info))
+        bucket_state = payload.get("bucket_allocator")
+        if bucket_state and self.bucket_alloc is not None:
+            self.bucket_alloc.set_state(dict(bucket_state))
+        self._runtime_pending_samples = list(payload.get("pending_samples", []))
+
     def _resolve_uuid_column_from_file(self) -> str | None:
         assert self._csv_path is not None
         with open(self._csv_path, "r", encoding=self._csv_encoding, newline="") as f1:
@@ -124,13 +163,20 @@ class CSVSampler(SamplingVirtial):
         return cols if cols else []
 
     def __iter__(self):
-        self._records_iter = self._iter_records()
+        self._records_iter = self._iter_records(
+            start_row_index=int(getattr(self, "_runtime_csv_cursor", 0) or 0),
+            seen_source_uuid=self._runtime_seen_source_uuid,
+        )
         return self
 
     def __next__(self):
         if self._records_iter is None:
-            self._records_iter = self._iter_records()
+            self._records_iter = self._iter_records(
+                start_row_index=int(getattr(self, "_runtime_csv_cursor", 0) or 0),
+                seen_source_uuid=self._runtime_seen_source_uuid,
+            )
         record = next(self._records_iter)
+        self._runtime_csv_cursor = int(record["row_index"])
         return record["params"]
 
     def next_sample(self):
@@ -162,9 +208,10 @@ class CSVSampler(SamplingVirtial):
         except Exception:
             return text
 
-    def _iter_records(self) -> Iterator[Dict[str, Any]]:
+    def _iter_records(self, *, start_row_index: int = 0, seen_source_uuid=None) -> Iterator[Dict[str, Any]]:
         assert self._csv_path is not None
-        seen_source_uuid = set()
+        if seen_source_uuid is None:
+            seen_source_uuid = set()
         with open(self._csv_path, "r", encoding=self._csv_encoding, newline="") as f1:
             reader = csv.reader(f1, delimiter=self._csv_delimiter)
             header_row = next(reader, None)
@@ -193,6 +240,8 @@ class CSVSampler(SamplingVirtial):
                 selected_idx.append((col, int(name_to_idx[col])))
 
             for row_index, row in enumerate(reader, start=1):
+                if int(row_index) <= int(start_row_index):
+                    continue
                 params: Dict[str, Any] = {}
                 for key, col_idx in selected_idx:
                     raw_value = row[col_idx] if col_idx < len(row) else ""
@@ -237,8 +286,13 @@ class CSVSampler(SamplingVirtial):
         worker_slots = max(1, int(getattr(self, "max_workers", os.cpu_count() or 1)))
         self.tasks = set()
         self.future_to_sample = {}
+        pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
+        self._runtime_pending_samples = []
         exhausted = False
-        records = self._iter_records()
+        records = self._iter_records(
+            start_row_index=int(getattr(self, "_runtime_csv_cursor", 0) or 0),
+            seen_source_uuid=self._runtime_seen_source_uuid,
+        )
         base_sample_cfg = self.info["sample"]
         submitted = 0
         completed = 0
@@ -248,12 +302,25 @@ class CSVSampler(SamplingVirtial):
         map_writer = None
         if map_path is not None:
             os.makedirs(os.path.dirname(map_path), exist_ok=True)
-            map_fp = open(map_path, "w", encoding="utf-8", newline="")
+            append_mode = os.path.exists(map_path) and os.path.getsize(map_path) > 0
+            map_fp = open(map_path, "a" if append_mode else "w", encoding="utf-8", newline="")
             map_writer = csv.DictWriter(
                 map_fp,
                 fieldnames=["row_index", "source_uuid", "effective_uuid"],
             )
-            map_writer.writeheader()
+            if not append_mode:
+                map_writer.writeheader()
+
+        for sample_info in pending_samples:
+            sample = self._rebuild_sample_from_info(sample_info)
+            try:
+                future = self.factory.submit_task(sample.info)
+            except Exception:
+                self._on_sample_completed(sample.info)
+                sample.close()
+                raise
+            self.tasks.add(future)
+            self.future_to_sample[future] = sample
 
         try:
             while (not exhausted) or self.tasks:
@@ -263,12 +330,15 @@ class CSVSampler(SamplingVirtial):
                     except StopIteration:
                         exhausted = True
                         break
+                    self._runtime_csv_cursor = int(record["row_index"])
 
                     sample = Sample(record["params"])
                     sample.update_uuid(record["uuid"])
                     save_dir = self._next_bucket_dir_for_sample()
                     sample_cfg = self.build_sample_config(base_sample_cfg, save_dir=save_dir)
                     sample.set_config(sample_cfg)
+                    sample.info["csv_row_index"] = int(record["row_index"])
+                    sample.info["csv_source_uuid"] = record["source_uuid"] or ""
 
                     if map_writer is not None:
                         map_writer.writerow(

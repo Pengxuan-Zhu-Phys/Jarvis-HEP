@@ -3,8 +3,45 @@
 from jarvishep.base import Base
 
 class Distributor(Base):
+    RESUME_SUPPORT_STATUS = {
+        "Bridson": "implemented",
+        "Dynesty": "implemented",
+        "MultiNest": "implemented",
+        "Grid": "implemented",
+        "Random": "implemented",
+        "CSV": "implemented",
+        "DNN": "implemented",
+        "PTMCMC": "implemented",
+        "RLTPMCMC": "implemented",
+        "MCMC": "implemented",
+        "AMMCMC": "implemented",
+        "RobustAM": "implemented",
+        "DRAM": "implemented",
+        "DEMCMC": "implemented",
+        "DREAM": "implemented",
+        "DREAMLite": "implemented",
+        "EnsembleMCMC": "implemented",
+        "PTEnsemble": "implemented",
+        "SliceMCMC": "implemented",
+        "ESS": "implemented",
+        "MALA": "implemented",
+        "HMC": "implemented",
+        "NUTS": "implemented",
+        "ToyMCMC": "implemented",
+        "Diver": "implemented",
+    }
+    _VALID_RESUME_STATUSES = {"implemented", "intentionally unsupported"}
+
     def __init__(self) -> None:
         super().__init__()
+
+    @classmethod
+    def get_resume_status(cls, method: str) -> str:
+        return cls.RESUME_SUPPORT_STATUS.get(method, "intentionally unsupported")
+
+    @classmethod
+    def list_resume_statuses(cls) -> dict:
+        return dict(cls.RESUME_SUPPORT_STATUS)
 
     def set_method(method) -> None:
         match method:
@@ -29,9 +66,9 @@ class Distributor(Base):
             case "DNN":
                 from jarvishep.Sampling.dnn import DNN
                 return DNN()
-            case "TPMCMC":
-                from jarvishep.Sampling.tpmcmc import TPMCMC 
-                return TPMCMC()
+            case "PTMCMC":
+                from jarvishep.Sampling.tpmcmc import PTMCMC 
+                return PTMCMC()
             case "RLTPMCMC":
                 from jarvishep.Sampling.rltpmcmc import RLTPMCMC
                 return RLTPMCMC()
@@ -84,7 +121,7 @@ class Distributor(Base):
                 from jarvishep.Sampling.diver import Diver
                 return Diver()
             case _:
-                supported = ["Bridson", "Dynesty", "MultiNest", "Grid", "Random", "CSV", "DNN", "TPMCMC", "RLTPMCMC", "MCMC", "AMMCMC", "RobustAM", "DRAM", "DEMCMC", "DREAM", "DREAMLite", "EnsembleMCMC", "PTEnsemble", "SliceMCMC", "ESS", "MALA", "HMC", "NUTS", "ToyMCMC", "Diver"]
+                supported = sorted(Distributor.RESUME_SUPPORT_STATUS.keys())
                 raise ValueError(f"Unknown Sampling.Method={method!r}. Supported: {', '.join(supported)}")
         
         

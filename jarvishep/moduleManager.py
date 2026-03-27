@@ -219,3 +219,50 @@ class ModuleManager:
                 self.module_pools[module.name] = module
             else:
                 self.logger.error(f"Unsupported module type '{getattr(module, 'type', None)}' for module '{module.name}'")
+
+    def export_factory_blueprint(self) -> dict:
+        module_pools = {}
+        for name, pool in self.module_pools.items():
+            if hasattr(pool, "export_blueprint"):
+                module_pools[str(name)] = pool.export_blueprint()
+        return {
+            "max_workers": int(getattr(self, "_max_worker", 0) or 0),
+            "workflow": deepcopy(getattr(self, "workflow", {})),
+            "module_pools": module_pools,
+        }
+
+    def restore_factory_blueprint(self, blueprint: dict) -> None:
+        if not isinstance(blueprint, dict):
+            return
+
+        if "max_workers" in blueprint:
+            try:
+                self._max_worker = int(blueprint["max_workers"])
+            except Exception:
+                pass
+
+        expected_pools = self.module_pools or {}
+        saved_pools = blueprint.get("module_pools", {}) or {}
+        expected_names = set(expected_pools.keys())
+        saved_names = set(saved_pools.keys())
+        missing = sorted(expected_names - saved_names)
+        extra = sorted(saved_names - expected_names)
+        if missing or extra:
+            raise ValueError(
+                "Factory blueprint mismatch: "
+                f"missing={missing or []}, extra={extra or []}"
+            )
+
+        for module_name, pool_blueprint in saved_pools.items():
+            pool = self.module_pools.get(module_name)
+            if pool is None:
+                raise ValueError(f"Factory blueprint module missing from runtime rebuild: {module_name!r}")
+            expected_type = getattr(pool, "type", None)
+            blueprint_type = (pool_blueprint or {}).get("type")
+            if expected_type is not None and blueprint_type is not None and expected_type != blueprint_type:
+                raise ValueError(
+                    f"Factory blueprint type mismatch for {module_name!r}: "
+                    f"expected {expected_type!r}, got {blueprint_type!r}"
+                )
+            if hasattr(pool, "restore_blueprint"):
+                pool.restore_blueprint(pool_blueprint)

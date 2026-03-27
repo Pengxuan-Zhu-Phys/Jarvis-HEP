@@ -38,6 +38,7 @@ Workflow options:
   --plot                Run plotting mode
   --convert             Convert sample.hdf5 into CSV format
   --monitor             Start a real-time resource monitor
+  --resume              Resume from the latest checkpoint without prompting
   --check-modules       Run calculator/module checks
   --skip-library-installation
                         Skip library installation

@@ -5,14 +5,13 @@ from copy import deepcopy
 import json
 import os
 import sys
+import threading
 import time 
 import argparse
 from jarvishep.config import ConfigLoader
 import logging
 from jarvishep.base import Base
 from jarvishep.distributor import Distributor
-import dill 
-from threading import Timer
 from jarvishep.library import Library
 from jarvishep.workflow import Workflow
 from jarvishep.factory import WorkerFactory 
@@ -26,6 +25,7 @@ import setproctitle
 logger.remove()
 from jarvishep.plot import JarvisPLOT as PlotterClass
 from jarvishep.versioning import render_logo_with_version
+from jarvishep.Sampling.Source.MCMC.runtime_checkpoint import StateSaver, stable_json_hash, validate_state_payload
 # from monitor import Monitor
 
 JARVIS_HEP_LOG_DOMAIN = "jarvis_hep"
@@ -54,6 +54,10 @@ class Core(Base):
         self.io_manager                 = None
         self.run_summary_collector      = None
         self.run_summary_renderer       = None
+        self._resume_checkpoint_payload = None
+        self._resume_run_spec           = None
+        self._resume_factory_blueprint  = None
+        self._resume_checkpoint_policy  = "auto"
         # self.monitor                    = Monitor()
         # self.monitor.start()
 
@@ -391,15 +395,289 @@ class Core(Base):
             self.logger.info(f"Register Operas function '{item['name']}' as alias '{alias}'")
 
     def init_StateSaver(self) -> None:
-        # logger = self.logger.create_dynamic_logger("StateSaver", logging.INFO)
         slogger = logger.bind(
-            module="Jarvis-HEP.StateSaver",
+            module="Jarvis-HEP.Checkpoint",
             to_console=True,
             Jarvis=True,
             _log_domain=JARVIS_HEP_LOG_DOMAIN,
         )
-        slogger.warning("Enabling breakpoint resume function ... ")
-        self.__state_saver = self.__StateSaver(self, filename=self.info['pickle_file'] , logger=slogger, save_interval_seconds=60)
+        checkpoint_root = self._checkpoint_root_for_sampler()
+        self.info["checkpoint_root"] = checkpoint_root
+        self.info["checkpoint_file"] = os.path.join(checkpoint_root, "state.pkl")
+
+        if not getattr(self.sampler, "supports_runtime_checkpointing", lambda: False)():
+            slogger.info(
+                f"Runtime checkpointing skipped for sampler -> {getattr(self.sampler, 'method', 'unknown')}"
+            )
+            return
+
+        os.makedirs(checkpoint_root, exist_ok=True)
+        slogger.warning(f"Configuring runtime checkpointing -> {checkpoint_root}")
+        self.sampler.configure_runtime_checkpointing(
+            checkpoint_root,
+            interval_seconds=30.0,
+            auto_resume=True,
+            logger=slogger,
+        )
+        if self._resume_run_spec is not None:
+            self.sampler.set_runtime_checkpoint_context(run_spec=self._resume_run_spec)
+        if self._resume_factory_blueprint is not None:
+            self.sampler.set_runtime_checkpoint_context(factory_blueprint=self._resume_factory_blueprint)
+        resumed = self.sampler.restore_runtime_checkpoint_if_available(self._resume_checkpoint_payload)
+        if resumed:
+            slogger.warning("Breakpoint resume state restored into sampler runtime")
+
+    def _checkpoint_root_for_sampler(self) -> str:
+        scan_name = self.info.get("scan_name", self.info.get("project_name", "scan"))
+        sampler_name = getattr(self.sampler, "method", None)
+        if not sampler_name:
+            try:
+                sampler_name = self.yaml.get_sampling_method()
+            except Exception:
+                sampler_name = "sampler"
+        return os.path.join(self.path.get("task_root", os.getcwd()), "checkpoints", str(scan_name), str(sampler_name))
+
+    def _checkpoint_file_for_sampler(self) -> str:
+        return os.path.join(self._checkpoint_root_for_sampler(), "state.pkl")
+
+    def _prompt_resume_from_checkpoint(self, checkpoint_file: str, timeout_seconds: float = 30.0) -> bool:
+        prompt = "Detected checkpoint file. Re-run from scratch? [y/N] (default: resume in 30s): "
+        clogger = getattr(self, "logger", None)
+        if not getattr(sys.stdin, "isatty", lambda: False)():
+            if clogger is not None:
+                clogger.warning(
+                    f"Detected checkpoint file -> {checkpoint_file}, but no interactive terminal is available; resuming from checkpoint."
+                )
+            return True
+
+        response = {"text": None, "error": None}
+
+        def _read_response():
+            try:
+                response["text"] = sys.stdin.readline()
+            except Exception as exc:
+                response["error"] = exc
+
+        print(prompt, end="", flush=True)
+        reader = threading.Thread(target=_read_response, daemon=True)
+        reader.start()
+        reader.join(timeout_seconds)
+        if reader.is_alive():
+            if clogger is not None:
+                clogger.warning(
+                    f"Checkpoint prompt timed out after {int(timeout_seconds)}s; resuming from checkpoint."
+                )
+            return True
+
+        if response["error"] is not None:
+            if clogger is not None:
+                clogger.warning(
+                    f"Checkpoint prompt failed ({response['error']}); resuming from checkpoint."
+                )
+            return True
+
+        answer = str(response["text"] or "").strip().lower()
+        if answer in {"y", "yes"}:
+            return False
+        return True
+
+    def _discard_existing_checkpoint(self, checkpoint_file: str) -> None:
+        clogger = getattr(self, "logger", None)
+        try:
+            os.remove(checkpoint_file)
+            if clogger is not None:
+                clogger.warning(f"Discarded existing checkpoint file -> {checkpoint_file}")
+        except FileNotFoundError:
+            return
+        except Exception as exc:
+            if clogger is not None:
+                clogger.warning(
+                    f"Failed to remove existing checkpoint file -> {checkpoint_file}: {exc}"
+                )
+
+    def _build_run_spec(self) -> dict:
+        raw_yaml_text = None
+        config_file = self.info.get("config_file")
+        if isinstance(config_file, str) and os.path.exists(config_file):
+            try:
+                with open(config_file, "r", encoding="utf-8") as handle:
+                    raw_yaml_text = handle.read()
+            except Exception:
+                raw_yaml_text = None
+
+        return {
+            "raw_yaml_text": raw_yaml_text,
+            "normalized_config": deepcopy(self.yaml.config),
+            "scan_name": self.info.get("scan_name"),
+            "task_root": self.path.get("task_root"),
+            "task_result_dir": self.info.get("sample", {}).get("task_result_dir"),
+            "logs_dir": self.info.get("logs_dir"),
+            "images_dir": self.info.get("images_dir"),
+            "worker_parallel": int(getattr(self.factory, "_max_workers", self.yaml.get_worker_parallel())),
+            "sampler_method": getattr(self.sampler, "method", None),
+            "workflow": deepcopy(getattr(self.workflow, "workflow", {})),
+            "workflow_layers": deepcopy(getattr(self.workflow, "calc_layer", {})),
+        }
+
+    def _build_factory_blueprint(self) -> dict:
+        module_pools = {}
+        if getattr(self.module_manager, "module_pools", None):
+            for name, pool in self.module_manager.module_pools.items():
+                if hasattr(pool, "export_blueprint"):
+                    module_pools[str(name)] = pool.export_blueprint()
+        return {
+            "max_workers": int(getattr(self.factory, "_max_workers", 0) or 0),
+            "workflow": deepcopy(getattr(self.workflow, "workflow", {})),
+            "calc_layer": deepcopy(getattr(self.workflow, "calc_layer", {})),
+            "module_pools": module_pools,
+        }
+
+    def _apply_resume_runtime_spec(self, run_spec: dict) -> None:
+        if not isinstance(run_spec, dict):
+            return
+        normalized_config = run_spec.get("normalized_config")
+        if isinstance(normalized_config, dict):
+            self.yaml.config = deepcopy(normalized_config)
+
+        scan_name = run_spec.get("scan_name")
+        if scan_name:
+            self.info["scan_name"] = str(scan_name)
+
+        task_root = run_spec.get("task_root")
+        if task_root:
+            self.path["task_root"] = os.path.abspath(str(task_root))
+            self.path["jpath"] = self.path["task_root"]
+
+        task_result_dir = run_spec.get("task_result_dir")
+        if isinstance(task_result_dir, str) and task_result_dir:
+            self.info.setdefault("sample", {})
+            self.info["sample"]["task_result_dir"] = task_result_dir
+            self.info["sample"]["sample_dirs"] = os.path.join(task_result_dir, "SAMPLE")
+            self.info.setdefault("db", {})
+            self.info["db"]["path"] = os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
+            self.info["db"]["info"] = os.path.join(task_result_dir, "DATABASE", "running.json")
+            self.info.setdefault("proc", {})
+            self.info["proc"]["path"] = os.path.join(task_result_dir, "DATABASE", ".pid.txt")
+
+        logs_dir = run_spec.get("logs_dir")
+        if isinstance(logs_dir, str) and logs_dir:
+            self.info["logs_dir"] = logs_dir
+            self.info["jarvis_log"] = os.path.join(logs_dir, f"{self.info.get('scan_name', 'scan')}.log")
+            self.info["factory_log"] = os.path.join(logs_dir, "Factory.log")
+
+        images_dir = run_spec.get("images_dir")
+        if isinstance(images_dir, str) and images_dir:
+            self.info["images_dir"] = images_dir
+
+        self._resume_run_spec = deepcopy(run_spec)
+
+    def _preload_resume_checkpoint(self) -> None:
+        slogger = logger.bind(
+            module="Jarvis-HEP.Checkpoint",
+            to_console=True,
+            Jarvis=True,
+            _log_domain=JARVIS_HEP_LOG_DOMAIN,
+        )
+        supported_methods = {
+            "MCMC",
+            "ToyMCMC",
+            "PTMCMC",
+            "AMMCMC",
+            "RobustAM",
+            "DRAM",
+            "DEMCMC",
+            "DREAM",
+            "DREAMLite",
+            "EnsembleMCMC",
+            "PTEnsemble",
+            "SliceMCMC",
+            "ESS",
+            "MALA",
+            "HMC",
+            "NUTS",
+            "Grid",
+            "Random",
+            "Bridson",
+            "CSV",
+            "DNN",
+            "Diver",
+            "Dynesty",
+            "MultiNest",
+            "RLTPMCMC",
+        }
+        try:
+            method_name = str(self.yaml.get_sampling_method())
+        except Exception:
+            method_name = ""
+        if method_name not in supported_methods:
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            self._resume_checkpoint_policy = "auto"
+            return
+
+        checkpoint_root = self._checkpoint_root_for_sampler()
+        current_checkpoint = os.path.join(checkpoint_root, "state.pkl")
+        if self._resume_checkpoint_policy == "fresh":
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            return
+
+        if not os.path.exists(current_checkpoint):
+            if getattr(self.args, "resume", False):
+                slogger.warning(
+                    f"Checkpoint resume requested but no checkpoint was found -> {current_checkpoint}. Starting a fresh run."
+                )
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            return
+
+        if not getattr(self.args, "resume", False):
+            resume_from_checkpoint = self._prompt_resume_from_checkpoint(current_checkpoint, timeout_seconds=30.0)
+            if not resume_from_checkpoint:
+                self._resume_checkpoint_policy = "fresh"
+                self._resume_checkpoint_payload = None
+                self._resume_run_spec = None
+                self._resume_factory_blueprint = None
+                self._discard_existing_checkpoint(current_checkpoint)
+                slogger.warning("Starting a fresh run from user confirmation; existing checkpoint was discarded.")
+                return
+            self._resume_checkpoint_policy = "resume"
+        else:
+            self._resume_checkpoint_policy = "resume"
+
+        payload = None
+        saver = StateSaver(current_checkpoint, logger=slogger)
+        payload = saver.load(default=None)
+        if not isinstance(payload, dict):
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            return
+
+        ok, reason = validate_state_payload(payload)
+        if not ok:
+            slogger.warning(f"StateSaver checkpoint rejected -> {reason}")
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            return
+
+        integrity = dict(payload.get("integrity", {}))
+        saved_hash = integrity.get("config_hash")
+        current_hash = stable_json_hash(self.yaml.config)
+        if saved_hash and saved_hash != current_hash:
+            slogger.warning(
+                "Resume checkpoint config drift detected; using frozen checkpoint run_spec instead of current YAML."
+            )
+
+        self._resume_checkpoint_payload = payload
+        run_spec = payload.get("run_spec", {})
+        if isinstance(run_spec, dict):
+            self._apply_resume_runtime_spec(run_spec)
+            self._resume_factory_blueprint = deepcopy(payload.get("factory_blueprint", {}))
 
     def init_sampler(self) -> None:
         logger_name = f"Jarvis-HEP.{self.sampler.method}"
@@ -421,6 +699,8 @@ class Core(Base):
         self.sampler.info['sample'] = deepcopy(self.info['sample'])
         self.sampler.set_logger(slogger)
         self.sampler.set_config(self.yaml.config)
+        if self._resume_checkpoint_payload is not None and hasattr(self.sampler, "set_runtime_checkpoint_resume_hint"):
+            self.sampler.set_runtime_checkpoint_resume_hint(True)
         self.sampler.initialize()
         self.yaml.vars = self.sampler.vars 
 
@@ -585,6 +865,8 @@ class Core(Base):
             self.module_manager.nuisance_loglikelihoods = self.sampler.nuisance_sampler.loglikelihoods
             self.module_manager.nuisance_passconditions = self.sampler.nuisance_sampler.passconditions
             self.module_manager._with_nuisance = True
+        if self._resume_factory_blueprint is not None:
+            self.module_manager.restore_factory_blueprint(self._resume_factory_blueprint)
 
     def shutdown_io_manager(self) -> None:
         manager = getattr(self, "io_manager", None)
@@ -717,13 +999,13 @@ class Core(Base):
             _init_common_project_and_logger()
             self.init_configparser()
             self.init_utils()
+            self._preload_resume_checkpoint()
             
             setproctitle.setproctitle(self.info['proctitle'])
             self.logger.warning("Setting process title -> {}".format(self.info['proctitle']))
             self.save_pid()
-            self.init_StateSaver()
-
             self.init_sampler()
+            self.init_StateSaver()
             self.init_workflow()
             self.init_librarys()
             self.init_WorkerFactory()
@@ -776,6 +1058,11 @@ class Core(Base):
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)
+        if hasattr(self.sampler, "set_runtime_checkpoint_context"):
+            self.sampler.set_runtime_checkpoint_context(
+                run_spec_getter=self._build_run_spec,
+                factory_blueprint_getter=self._build_factory_blueprint,
+            )
         run_exc = None
         self._start_run_summary()
         try:
@@ -795,10 +1082,18 @@ class Core(Base):
                     self.logger.error(f"Cleanup step failed -> {step_name} -> {exc}")
 
             start = time()
+            _cleanup_step(
+                "sampler.persist_runtime_checkpoint",
+                lambda: self.sampler.persist_runtime_checkpoint(force=True, reason="core_cleanup"),
+            )
             _cleanup_step("database.stop", self.factory.module_manager.database.stop)
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             _cleanup_step("sampler.finalize", self.sampler.finalize)
+            _cleanup_step(
+                "sampler.shutdown_runtime_checkpointing",
+                lambda: getattr(self.sampler, "shutdown_runtime_checkpointing", lambda: None)(),
+            )
             _cleanup_step("sampler.combine_data", lambda: self.sampler.combine_data(self.info['db']['path']))
             _cleanup_step("factory.shutdown", self.factory.shutdown)
             _cleanup_step("sampler.finalize_sample_archive", self.sampler.finalize_sample_archive)
@@ -866,48 +1161,6 @@ class Core(Base):
                 pid = f1.read().strip()
             self.monitor = JarvisMonitor(pid)
             asyncio.run(curses.wrapper(self.monitor.main))
-
-    class __StateSaver:
-        def __init__(self, 
-                     obj, 
-                     filename='my_object.pkl', 
-                     save_interval_seconds=30, 
-                     logger=logging.getLogger('MyClassStateSaver')
-            ):
-            self.obj = obj  # Save the outside object 
-            self.filename = os.path.abspath(filename)
-            self.save_interval_seconds = save_interval_seconds
-            self.logger = logger
-            self.timer = None
-            self.start_auto_save()
-            self.logger.warning(f"Started successfully, Jarvis-HEP create the storage station -> {self.filename}")
-
-        def save_state(self):
-            try:
-                with open(self.filename, 'wb') as f:
-                    dill.dump(self.obj, f)
-                self.logger.info(f"Progress has been saved to hard disk space -> {self.filename}")
-            except Exception as e:
-                self.logger.error(f"Failed to save state: {e}")
-
-        def start_auto_save(self):
-            """Start auto saving mission"""
-            self.timer = Timer(self.save_interval_seconds, self.auto_save)
-            self.timer.daemon = True
-            self.timer.start()
-
-        def auto_save(self):
-            """Auto saving the object, and restart the timer"""
-            self.save_state()
-            self.start_auto_save()  # save the state, restart the auto save 
-
-        def stop_auto_save(self):
-            """Stop auto saving method"""
-            if self.timer is not None:
-                self.timer.cancel()
-                self.timer = None
-
-
 
 def load_args_config(json_file):
     with open(json_file, 'r') as file:

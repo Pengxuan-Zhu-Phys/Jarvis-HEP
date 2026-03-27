@@ -20,6 +20,7 @@ from scipy.special import gammainc
 from jarvishep.sample import Sample
 import concurrent.futures
 from jarvishep.utils import format_duration
+from copy import deepcopy
 class Bridson(SamplingVirtial):
     def __init__(self) -> None:
         super().__init__()
@@ -30,6 +31,7 @@ class Bridson(SamplingVirtial):
         self.tasks  = {}
         self.info   = {}
         self.barinfo = {}
+        self._runtime_pending_samples = []
 
     def load_schema_file(self):
         self.schema = self.path['BridsonSchema']
@@ -38,6 +40,9 @@ class Bridson(SamplingVirtial):
         self.config = config_info
         self.set_bucket_alloc()
         self.init_generator()
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
 
     def __iter__(self):
         if self._P is None:
@@ -127,6 +132,26 @@ class Bridson(SamplingVirtial):
             self.logger.error("Bridson Sampler meets error when trying to scan the parameter space.")
             sys.exit(2)
 
+    def _export_sampler_state(self):
+        return {
+            "grid_points": self._P,
+            "index": int(self._index),
+            "info": deepcopy(self.info),
+            "barinfo": deepcopy(self.barinfo),
+            "bucket_allocator": None if self.bucket_alloc is None else self.bucket_alloc.get_state(),
+            "pending_samples": self._collect_pending_sample_infos(),
+        }
+
+    def _import_sampler_state(self, payload):
+        self._P = payload.get("grid_points", self._P)
+        self._index = int(payload.get("index", self._index or 0))
+        self.info = deepcopy(payload.get("info", self.info))
+        self.barinfo = deepcopy(payload.get("barinfo", self.barinfo))
+        bucket_state = payload.get("bucket_allocator")
+        if bucket_state and self.bucket_alloc is not None:
+            self.bucket_alloc.set_state(dict(bucket_state))
+        self._runtime_pending_samples = list(payload.get("pending_samples", []))
+
     def run_nested(self):
         if not self._with_nuisance: 
             self.run_wo_nuisance()
@@ -137,6 +162,21 @@ class Bridson(SamplingVirtial):
         total_cores = self.total_core
         exhausted = False 
         base_sample_cfg = self.info['sample']
+        pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
+        self._runtime_pending_samples = []
+
+        for sample_info in pending_samples:
+            sample = self._rebuild_sample_from_info(sample_info)
+            if self._with_nuisance:
+                sample.start()
+            try:
+                future = self.factory.submit_task(sample.info)
+            except Exception:
+                self._on_sample_completed(sample.info)
+                sample.close()
+                raise
+            self.tasks[future] = sample
+
         while True: 
             while not exhausted and len(self.tasks) < total_cores: 
                 try: 
@@ -170,10 +210,15 @@ class Bridson(SamplingVirtial):
                     break
                 continue
 
+            timeout = self._checkpoint_seconds_until_due()
             done, _ = concurrent.futures.wait(
                 list(self.tasks.keys()), 
+                timeout=timeout,
                 return_when=concurrent.futures.FIRST_COMPLETED
             )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
             
             for future in done: 
                 sample = self.tasks.pop(future) 
@@ -209,6 +254,19 @@ class Bridson(SamplingVirtial):
         total_cores = self.total_core
         exhausted = False 
         base_sample_cfg = self.info['sample']
+        pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
+        self._runtime_pending_samples = []
+
+        for sample_info in pending_samples:
+            sample = self._rebuild_sample_from_info(sample_info)
+            try:
+                future = self.factory.submit_task(sample.info)
+            except Exception:
+                self._on_sample_completed(sample.info)
+                sample.close()
+                raise
+            self.tasks[future] = sample
+
         while True:
             while not exhausted and len(self.tasks) < total_cores: 
                 try: 
@@ -240,10 +298,15 @@ class Bridson(SamplingVirtial):
                     break
                 continue
 
+            timeout = self._checkpoint_seconds_until_due()
             done, _ = concurrent.futures.wait(
                 list(self.tasks.keys()), 
+                timeout=timeout,
                 return_when=concurrent.futures.FIRST_COMPLETED
             )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
             
             for future in done: 
                 sample = self.tasks.pop(future) 

@@ -19,6 +19,7 @@ from scipy.special import gammainc
 from jarvishep.sample import Sample
 import concurrent.futures
 import itertools
+from copy import deepcopy
 
 
 class Grid(SamplingVirtial):
@@ -31,6 +32,7 @@ class Grid(SamplingVirtial):
         self.tasks  = set()
         self.info   = {}
         self.future_to_sample = {}
+        self._runtime_pending_samples = []
 
     def load_schema_file(self):
         self.schema = self.path['GridSchema']
@@ -39,6 +41,9 @@ class Grid(SamplingVirtial):
         self.config = config_info
         self.set_bucket_alloc()
         self.init_generator()
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
 
     def __iter__(self):
         if self._P is None:
@@ -88,12 +93,43 @@ class Grid(SamplingVirtial):
             self.logger.error("Grid Sampler meets error when trying scan the parameter space.")
             sys.exit(2)
 
+    def _export_sampler_state(self):
+        return {
+            "grid_points": self._P,
+            "index": int(self._index),
+            "info": deepcopy(self.info),
+            "bucket_allocator": None if self.bucket_alloc is None else self.bucket_alloc.get_state(),
+            "pending_samples": self._collect_pending_sample_infos(),
+        }
+
+    def _import_sampler_state(self, payload):
+        self._P = payload.get("grid_points", self._P)
+        self._index = int(payload.get("index", self._index or 0))
+        self.info = deepcopy(payload.get("info", self.info))
+        bucket_state = payload.get("bucket_allocator")
+        if bucket_state and self.bucket_alloc is not None:
+            self.bucket_alloc.set_state(dict(bucket_state))
+        self._runtime_pending_samples = list(payload.get("pending_samples", []))
+
     def run_nested(self):
         total_cores = os.cpu_count() or 1
         self.tasks = set()
         self.future_to_sample = {}
+        pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
+        self._runtime_pending_samples = []
         exhausted = False
         base_sample_cfg = self.info['sample']
+
+        for sample_info in pending_samples:
+            sample = self._rebuild_sample_from_info(sample_info)
+            try:
+                future = self.factory.submit_task(sample.info)
+            except Exception:
+                self._on_sample_completed(sample.info)
+                sample.close()
+                raise
+            self.tasks.add(future)
+            self.future_to_sample[future] = sample
 
         while (not exhausted) or self.tasks:
             while not exhausted and len(self.tasks) < total_cores:

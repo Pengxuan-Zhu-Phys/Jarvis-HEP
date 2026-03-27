@@ -90,7 +90,7 @@ class PathResolutionPyPITests(unittest.TestCase):
                     iofile = IOfile(
                         name="demo",
                         path="",
-                        file_type="Json",
+                        file_type="JSON",
                         variables=[],
                         save=False,
                         logger=None,
@@ -114,7 +114,7 @@ class PathResolutionPyPITests(unittest.TestCase):
             iofile = IOfile(
                 name="demo",
                 path="",
-                file_type="Json",
+                file_type="JSON",
                 variables=[],
                 save=False,
                 logger=None,

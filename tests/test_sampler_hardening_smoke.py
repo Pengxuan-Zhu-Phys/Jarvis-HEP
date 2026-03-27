@@ -42,7 +42,7 @@ from jarvishep.Sampling.pt_ensemble import PTEnsemble  # noqa: E402
 from jarvishep.Sampling.randoms import RandomS  # noqa: E402
 from jarvishep.Sampling.robustam import RobustAM  # noqa: E402
 from jarvishep.Sampling.slicemcmc import SliceMCMC  # noqa: E402
-from jarvishep.Sampling.tpmcmc import TPMCMC  # noqa: E402
+from jarvishep.Sampling.tpmcmc import PTMCMC  # noqa: E402
 from jarvishep.distributor import Distributor  # noqa: E402
 from jarvishep.moduleManager import ModuleManager  # noqa: E402
 
@@ -226,8 +226,12 @@ class _FakeDynamicNestedSampler:
         self.prior_transform = prior_transform
         self.ndim = int(ndim)
         self.results = _FakeResults()
+        self.run_calls = 0
+        self.last_resume = None
 
-    def run_nested(self, **_kwargs):
+    def run_nested(self, resume=False, **_kwargs):
+        self.run_calls += 1
+        self.last_resume = bool(resume)
         uu = np.array(
             [
                 [0.1, 0.2],
@@ -313,8 +317,12 @@ class _FakeNestedSampler:
         self.prior_transform = prior_transform
         self.ndim = int(ndim)
         self.results = _FakeResults()
+        self.run_calls = 0
+        self.last_resume = None
 
-    def run_nested(self, **_kwargs):
+    def run_nested(self, resume=False, **_kwargs):
+        self.run_calls += 1
+        self.last_resume = bool(resume)
         uu = np.array(
             [
                 [0.1, 0.2],
@@ -686,7 +694,7 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         self.assertEqual(_FakeSample.close_calls, sampler.factory.calls)
 
     def test_tpmcmc_sampler_smoke_closes_samples(self):
-        sampler = TPMCMC()
+        sampler = PTMCMC()
         sampler.logger = _NoopLogger()
         sampler.info = self._sample_cfg()
         sampler.info["sample"]["sample_dirs"] = self.tempdir.name
@@ -1352,6 +1360,156 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         self.assertIn("niter", payload)
         self.assertIn("ncall", payload)
         self.assertIn("logz", payload)
+
+    def test_dynesty_sampler_native_checkpoint_resume(self):
+        sampler = Dynesty()
+        sampler.logger = _NoopLogger()
+        sample_root = os.path.join(self.tempdir.name, "SAMPLE")
+        sampler.info = {
+            "sample": {
+                "save_dir": self.tempdir.name,
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": sample_root,
+                "archive_samples": False,
+            },
+            "logfile": os.path.join(self.tempdir.name, "dynesty.log"),
+        }
+        sampler.factory = _ImmediateFactory()
+        config = {
+            "Sampling": {
+                "Method": "Dynesty",
+                "Bounds": {"nlive": 5, "rseed": 1, "run_nested": {"maxiter": 1}},
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    },
+                    {
+                        "name": "y",
+                        "description": "y",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    },
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+        sampler.set_config(config)
+        sampler._runnested = {"maxiter": 1}
+        checkpoint_root = os.path.join(self.tempdir.name, "checkpoints", "dynesty")
+        sampler.configure_runtime_checkpointing(checkpoint_root, logger=_NoopLogger())
+        sampler.set_runtime_checkpoint_context(run_spec={"normalized_config": sampler.config}, factory_blueprint={})
+
+        fake_dynesty_mod = types.ModuleType("jarvishep.Sampling.Source.Dynesty.py.dynesty")
+        fake_dynesty_mod.DynamicNestedSampler = _FakeDynamicNestedSampler
+        with patch("jarvishep.Sampling.dynesty.Sample", _FakeSample), patch.dict(
+            sys.modules,
+            {"jarvishep.Sampling.Source.Dynesty.py.dynesty": fake_dynesty_mod},
+            clear=False,
+        ):
+            sampler.run_nested()
+        self.assertEqual(sampler.sampler.run_calls, 1)
+        self.assertFalse(sampler.sampler.last_resume)
+        self.assertTrue(sampler.persist_runtime_checkpoint(force=True, reason="unit-test"))
+
+        restored = Dynesty()
+        restored.logger = _NoopLogger()
+        restored.info = {
+            "sample": {
+                "save_dir": self.tempdir.name,
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": sample_root,
+                "archive_samples": False,
+            },
+            "logfile": os.path.join(self.tempdir.name, "dynesty.log"),
+        }
+        restored.factory = _ImmediateFactory()
+        restored.set_config(config)
+        restored.configure_runtime_checkpointing(checkpoint_root, logger=_NoopLogger())
+        self.assertTrue(restored.restore_runtime_checkpoint_if_available())
+        with patch("jarvishep.Sampling.dynesty.Sample", _FakeSample), patch.dict(
+            sys.modules,
+            {"jarvishep.Sampling.Source.Dynesty.py.dynesty": fake_dynesty_mod},
+            clear=False,
+        ):
+            restored.run_nested()
+        self.assertEqual(restored.sampler.run_calls, 2)
+        self.assertTrue(restored.sampler.last_resume)
+
+    def test_multinest_sampler_native_checkpoint_resume(self):
+        sampler = MultiNest()
+        sampler.logger = _NoopLogger()
+        sample_root = os.path.join(self.tempdir.name, "SAMPLE")
+        sampler.info = {
+            "sample": {
+                "save_dir": self.tempdir.name,
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": sample_root,
+                "archive_samples": False,
+            },
+            "logfile": os.path.join(self.tempdir.name, "multinest.log"),
+        }
+        sampler.factory = _ImmediateFactory()
+        config = {
+            "Sampling": {
+                "Method": "MultiNest",
+                "Bounds": {"nlive": 5, "rseed": 1, "run_nested": {"maxiter": 1}},
+                "Variables": [
+                    {
+                        "name": "x",
+                        "description": "x",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    },
+                    {
+                        "name": "y",
+                        "description": "y",
+                        "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
+                    },
+                ],
+            },
+            "Scan": {"sample_directory": {"limit": 20, "width": 4}},
+        }
+        sampler.set_config(config)
+        sampler._runnested = {"maxiter": 1}
+        checkpoint_root = os.path.join(self.tempdir.name, "checkpoints", "multinest")
+        sampler.configure_runtime_checkpointing(checkpoint_root, logger=_NoopLogger())
+        sampler.set_runtime_checkpoint_context(run_spec={"normalized_config": sampler.config}, factory_blueprint={})
+
+        fake_dynesty_mod = types.ModuleType("jarvishep.Sampling.Source.Dynesty.py.dynesty")
+        fake_dynesty_mod.NestedSampler = _FakeNestedSampler
+        with patch("jarvishep.Sampling.multinest.Sample", _FakeSample), patch.dict(
+            sys.modules,
+            {"jarvishep.Sampling.Source.Dynesty.py.dynesty": fake_dynesty_mod},
+            clear=False,
+        ):
+            sampler.run_nested()
+        self.assertEqual(sampler.sampler.run_calls, 1)
+        self.assertFalse(sampler.sampler.last_resume)
+        self.assertTrue(sampler.persist_runtime_checkpoint(force=True, reason="unit-test"))
+
+        restored = MultiNest()
+        restored.logger = _NoopLogger()
+        restored.info = {
+            "sample": {
+                "save_dir": self.tempdir.name,
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": sample_root,
+                "archive_samples": False,
+            },
+            "logfile": os.path.join(self.tempdir.name, "multinest.log"),
+        }
+        restored.factory = _ImmediateFactory()
+        restored.set_config(config)
+        restored.configure_runtime_checkpointing(checkpoint_root, logger=_NoopLogger())
+        self.assertTrue(restored.restore_runtime_checkpoint_if_available())
+        with patch("jarvishep.Sampling.multinest.Sample", _FakeSample), patch.dict(
+            sys.modules,
+            {"jarvishep.Sampling.Source.Dynesty.py.dynesty": fake_dynesty_mod},
+            clear=False,
+        ):
+            restored.run_nested()
+        self.assertEqual(restored.sampler.run_calls, 2)
+        self.assertTrue(restored.sampler.last_resume)
 
     def test_distributor_supports_multinest_method(self):
         sampler = Distributor.set_method("MultiNest")

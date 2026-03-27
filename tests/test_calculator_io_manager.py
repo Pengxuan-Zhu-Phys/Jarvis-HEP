@@ -73,7 +73,7 @@ class CalculatorIOManagerTests(unittest.TestCase):
             handler = JsonInputFile(
                 "input_cfg",
                 path,
-                "Json",
+                "JSON",
                 [{"type": "Dump", "variables": [{"name": "alpha"}]}],
                 False,
                 logger,
@@ -103,7 +103,7 @@ class CalculatorIOManagerTests(unittest.TestCase):
             handler = JsonOutputFile(
                 "output_cfg",
                 path,
-                "Json",
+                "JSON",
                 [{"name": "alpha"}],
                 True,
                 logger,

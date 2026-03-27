@@ -7,9 +7,19 @@ from jarvishep.Sampling.variables import Variable
 import sympy as sp 
 from jarvishep.inner_func import update_const, update_funcs
 import numpy as np 
-import sys, os 
+import sys, os, time 
+import threading
 from typing import Any, Dict, Tuple
 from copy import deepcopy
+
+from jarvishep.Sampling.Source.MCMC.runtime_checkpoint import (
+    StateSaver,
+    build_sampler_signature,
+    build_state_payload,
+    utc_now_iso,
+    validate_sampler_signature,
+    validate_state_payload,
+)
 
 class BoolConversionError(Exception):
     """Nothing but raise bool error"""
@@ -30,7 +40,280 @@ class SamplingVirtial(Base):
         self.bucket_alloc               = None 
         self.sample_archive_manager     = None
         self.total_core                 = os.cpu_count()
-        
+        self._runtime_checkpoint_root: str | None = None
+        self._runtime_checkpoint_file: str | None = None
+        self._runtime_state_saver: StateSaver | None = None
+        self._runtime_checkpoint_logger = None
+        self._runtime_checkpoint_interval_seconds = 30.0
+        self._runtime_checkpoint_enabled = False
+        self._runtime_checkpoint_auto_resume = True
+        self._runtime_checkpoint_last_save_ts = 0.0
+        self._runtime_checkpoint_loaded = False
+        self._runtime_checkpoint_payload: Dict[str, Any] | None = None
+        self._runtime_checkpoint_run_spec: Dict[str, Any] | None = None
+        self._runtime_checkpoint_factory_blueprint: Dict[str, Any] | None = None
+        self._runtime_checkpoint_run_spec_getter = None
+        self._runtime_checkpoint_factory_blueprint_getter = None
+        self._runtime_checkpoint_reason = ""
+        self._runtime_checkpoint_resume_hint = False
+        self._runtime_checkpoint_save_lock = threading.Lock()
+        self._runtime_checkpoint_stop_event = None
+        self._runtime_checkpoint_thread = None
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return False
+
+    def configure_runtime_checkpointing(
+        self,
+        checkpoint_root: str,
+        *,
+        interval_seconds: float = 30.0,
+        auto_resume: bool = True,
+        logger=None,
+    ) -> None:
+        root = os.path.abspath(str(checkpoint_root))
+        os.makedirs(root, exist_ok=True)
+        self._runtime_checkpoint_root = root
+        self._runtime_checkpoint_file = os.path.join(root, "state.pkl")
+        self._runtime_checkpoint_logger = logger
+        self._runtime_checkpoint_interval_seconds = max(1.0, float(interval_seconds))
+        self._runtime_checkpoint_enabled = True
+        self._runtime_checkpoint_auto_resume = bool(auto_resume)
+        self._runtime_state_saver = StateSaver(
+            self._runtime_checkpoint_file,
+            logger=self._checkpoint_logger(),
+        )
+        self._start_runtime_checkpoint_heartbeat()
+
+    def _runtime_checkpoint_heartbeat_loop(self) -> None:
+        stop_event = self._runtime_checkpoint_stop_event
+        if stop_event is None:
+            return
+        while not stop_event.wait(float(self._runtime_checkpoint_interval_seconds)):
+            try:
+                self.persist_runtime_checkpoint(force=True, reason="checkpoint_heartbeat")
+            except Exception as exc:
+                self._checkpoint_log("warning", f"StateSaver heartbeat checkpoint failed -> {exc}")
+
+    def _start_runtime_checkpoint_heartbeat(self) -> None:
+        self.shutdown_runtime_checkpointing()
+        if not self._runtime_checkpoint_enabled or self._runtime_state_saver is None:
+            return
+        self._runtime_checkpoint_stop_event = threading.Event()
+        self._runtime_checkpoint_thread = threading.Thread(
+            target=self._runtime_checkpoint_heartbeat_loop,
+            name=f"{self.__class__.__name__}-StateSaverHeartbeat",
+            daemon=True,
+        )
+        self._runtime_checkpoint_thread.start()
+
+    def shutdown_runtime_checkpointing(self) -> None:
+        stop_event = self._runtime_checkpoint_stop_event
+        thread = self._runtime_checkpoint_thread
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._runtime_checkpoint_stop_event = None
+        self._runtime_checkpoint_thread = None
+
+    def set_runtime_checkpoint_context(
+        self,
+        *,
+        run_spec: Dict[str, Any] | None = None,
+        factory_blueprint: Dict[str, Any] | None = None,
+        run_spec_getter=None,
+        factory_blueprint_getter=None,
+    ) -> None:
+        if run_spec is not None:
+            self._runtime_checkpoint_run_spec = deepcopy(run_spec)
+        if factory_blueprint is not None:
+            self._runtime_checkpoint_factory_blueprint = deepcopy(factory_blueprint)
+        if run_spec_getter is not None:
+            self._runtime_checkpoint_run_spec_getter = run_spec_getter
+        if factory_blueprint_getter is not None:
+            self._runtime_checkpoint_factory_blueprint_getter = factory_blueprint_getter
+
+    def set_runtime_checkpoint_resume_hint(self, enabled: bool) -> None:
+        self._runtime_checkpoint_resume_hint = bool(enabled)
+
+    def get_runtime_checkpoint_payload(self) -> Dict[str, Any] | None:
+        return deepcopy(self._runtime_checkpoint_payload)
+
+    def _checkpoint_logger(self):
+        return self._runtime_checkpoint_logger or getattr(self, "logger", None)
+
+    def _checkpoint_log(self, level: str, message: str) -> None:
+        clogger = self._checkpoint_logger()
+        if clogger is None:
+            return
+        method = getattr(clogger, str(level).lower(), None)
+        if callable(method):
+            method(message)
+
+    def _checkpoint_seconds_until_due(self) -> float | None:
+        if not self._runtime_checkpoint_enabled or self._runtime_state_saver is None:
+            return None
+        last_save = float(self._runtime_checkpoint_last_save_ts or 0.0)
+        if last_save <= 0.0:
+            return 0.0
+        elapsed = time.monotonic() - last_save
+        remaining = float(self._runtime_checkpoint_interval_seconds) - float(elapsed)
+        return max(0.0, remaining)
+
+    def _checkpoint_should_attempt(self) -> bool:
+        remaining = self._checkpoint_seconds_until_due()
+        return remaining is not None and remaining <= 0.0
+
+    def _resolve_runtime_checkpoint_context(self, attr_name: str, getter_name: str) -> Dict[str, Any]:
+        getter = getattr(self, getter_name, None)
+        if callable(getter):
+            try:
+                value = getter()
+                if isinstance(value, dict):
+                    return deepcopy(value)
+            except Exception:
+                pass
+        stored = getattr(self, attr_name, None)
+        return deepcopy(stored) if isinstance(stored, dict) else {}
+
+    def _sanitize_sample_info(self, sample_info: Dict[str, Any]) -> Dict[str, Any]:
+        info = deepcopy(sample_info)
+        if isinstance(info, dict):
+            info["logger"] = None
+            info["handlers"] = {}
+        return info
+
+    def _collect_pending_sample_infos(self) -> list[Dict[str, Any]]:
+        pending = []
+        mapping = getattr(self, "future_to_sample", None)
+        if isinstance(mapping, dict):
+            values = mapping.values()
+        else:
+            tasks = getattr(self, "tasks", None)
+            values = tasks.values() if isinstance(tasks, dict) else []
+        for sample in values:
+            info = getattr(sample, "info", None)
+            if isinstance(info, dict):
+                pending.append(self._sanitize_sample_info(info))
+        return pending
+
+    def _rebuild_sample_from_info(self, sample_info: Dict[str, Any]):
+        from jarvishep.sample import Sample
+
+        params = deepcopy(sample_info.get("params", {})) if isinstance(sample_info, dict) else {}
+        sample = Sample(params)
+        if isinstance(sample_info, dict):
+            if sample_info.get("uuid"):
+                sample.update_uuid(sample_info["uuid"])
+            sample.info = deepcopy(sample_info)
+            sample.info["logger"] = None
+            sample.info["handlers"] = {}
+            sample._with_nuisance = bool(sample_info.get("nuisance"))
+            sample.handlers = {}
+            sample.set_logger()
+        return sample
+
+    def _export_sampler_state(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    def _import_sampler_state(self, payload: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def export_runtime_state(self) -> Dict[str, Any]:
+        if not self.supports_runtime_checkpointing():
+            raise RuntimeError("Runtime checkpointing is not supported for this sampler.")
+        sampler_state = self._export_sampler_state()
+        if isinstance(sampler_state, dict) and "sampler_signature" not in sampler_state:
+            sampler_state["sampler_signature"] = build_sampler_signature(self)
+        return build_state_payload(
+            run_spec=self._resolve_runtime_checkpoint_context(
+                "_runtime_checkpoint_run_spec",
+                "_runtime_checkpoint_run_spec_getter",
+            ),
+            factory_blueprint=self._resolve_runtime_checkpoint_context(
+                "_runtime_checkpoint_factory_blueprint",
+                "_runtime_checkpoint_factory_blueprint_getter",
+            ),
+            sampler_state=sampler_state,
+            reason=self._runtime_checkpoint_reason,
+        )
+
+    def import_runtime_state(self, payload: Dict[str, Any]) -> None:
+        if "sampler_state" in payload and isinstance(payload.get("sampler_state"), dict):
+            self._runtime_checkpoint_payload = deepcopy(payload)
+            self._runtime_checkpoint_run_spec = deepcopy(payload.get("run_spec", {}))
+            self._runtime_checkpoint_factory_blueprint = deepcopy(payload.get("factory_blueprint", {}))
+            payload = dict(payload.get("sampler_state", {}))
+        signature = dict(payload.get("sampler_signature", {}))
+        if signature:
+            ok, reason = validate_sampler_signature(build_sampler_signature(self), signature)
+            if not ok:
+                raise ValueError(reason)
+        self._import_sampler_state(payload)
+        self._runtime_checkpoint_loaded = True
+        if self._runtime_checkpoint_payload is None:
+            self._runtime_checkpoint_payload = {
+                "format": "jarvis-hep.simple-runtime",
+                "version": 1,
+                "timestamp_utc": utc_now_iso(),
+                "sampler_state": deepcopy(payload),
+                "run_spec": deepcopy(self._runtime_checkpoint_run_spec or {}),
+                "factory_blueprint": deepcopy(self._runtime_checkpoint_factory_blueprint or {}),
+                "integrity": {},
+            }
+
+    def restore_runtime_checkpoint_if_available(self, payload: Dict[str, Any] | None = None) -> bool:
+        if not self._runtime_checkpoint_enabled or not self._runtime_checkpoint_auto_resume:
+            return False
+        if self._runtime_state_saver is None:
+            return False
+        if payload is None:
+            payload = self._runtime_state_saver.load(default=None)
+        if not payload:
+            return False
+        ok, reason = validate_state_payload(payload)
+        if not ok:
+            self._checkpoint_log(
+                "warning",
+                f"StateSaver checkpoint rejected -> {reason}",
+            )
+            return False
+        self.import_runtime_state(payload)
+        self._checkpoint_log(
+            "warning",
+            f"StateSaver checkpoint restored -> {self._runtime_checkpoint_file}",
+        )
+        return True
+
+    def persist_runtime_checkpoint(self, *, force: bool = False, reason: str = "") -> bool:
+        if not self._runtime_checkpoint_enabled or self._runtime_state_saver is None:
+            return False
+        with self._runtime_checkpoint_save_lock:
+            now = time.monotonic()
+            if (not force) and (
+                (now - self._runtime_checkpoint_last_save_ts)
+                < float(self._runtime_checkpoint_interval_seconds)
+            ):
+                return False
+
+            self._runtime_checkpoint_reason = str(reason or "")
+            payload = self.export_runtime_state()
+            self._runtime_checkpoint_payload = deepcopy(payload)
+            self._runtime_state_saver.save(payload)
+            self._runtime_checkpoint_last_save_ts = now
+            if reason:
+                self._checkpoint_log(
+                    "info",
+                    f"StateSaver checkpoint saved ({reason}) -> {self._runtime_checkpoint_file}",
+                )
+            else:
+                self._checkpoint_log(
+                    "info",
+                    f"StateSaver checkpoint saved -> {self._runtime_checkpoint_file}",
+                )
+            return True
+
     def load_nuisance_sampler(self): 
         nui_config = (self.config.get('Sampling', {}) or {}).get('Nuisance', None)
         if nui_config: 

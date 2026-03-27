@@ -73,7 +73,7 @@
             {
                 "properties": {
                     "type": {
-                        "const": "Json"
+                        "const": "JSON"
                     },
                     "variables": {
                         "type": "array",

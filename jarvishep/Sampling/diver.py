@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import concurrent.futures
 import sys
+from copy import deepcopy
+from dataclasses import asdict
 from typing import Any
 
 import numpy as np
@@ -47,6 +49,7 @@ class Diver(SamplingVirtial):
         self._de_cfg: DEConfig | None = None
         self._de_result = None
         self._best_params: dict[str, float] | None = None
+        self._de_state: dict[str, Any] | None = None
 
     def load_schema_file(self):
         self.schema = self.path.get("DiverSchema", self.path.get("RandomSchema"))
@@ -58,6 +61,9 @@ class Diver(SamplingVirtial):
     def set_factory(self, factory) -> None:
         self.factory = factory
         self.logger.warning("WorkerFactory is ready for Diver sampler")
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
 
     def set_config(self, config_info) -> None:
         self.config = config_info
@@ -106,6 +112,49 @@ class Diver(SamplingVirtial):
             "\t1.) arXiv:1705.07959\n"
             "\t2.) arXiv:2101.04525"
         )
+
+    def _export_sampler_state(self):
+        if self._de_result is not None and hasattr(self._de_result, "_asdict"):
+            de_result = dict(self._de_result._asdict())
+        elif self._de_result is not None and isinstance(self._de_result, dict):
+            de_result = dict(self._de_result)
+        elif self._de_result is not None:
+            de_result = {
+                "best_vector": getattr(self._de_result, "best_vector", None),
+                "best_cost": float(getattr(self._de_result, "best_cost", np.inf)),
+                "best_loglike": float(getattr(self._de_result, "best_loglike", float("-inf"))),
+                "best_civilization": int(getattr(self._de_result, "best_civilization", 0)),
+                "best_generation": int(getattr(self._de_result, "best_generation", 0)),
+                "evaluations": int(getattr(self._de_result, "evaluations", 0)),
+                "acceptance_rate": float(getattr(self._de_result, "acceptance_rate", 0.0)),
+                "population": getattr(self._de_result, "population", None),
+                "costs": getattr(self._de_result, "costs", None),
+            }
+        else:
+            de_result = None
+        return {
+            "D": int(self._D),
+            "run_cfg": dict(self._run_cfg),
+            "de_cfg": None if self._de_cfg is None else asdict(self._de_cfg),
+            "de_result": de_result,
+            "best_params": None if self._best_params is None else dict(self._best_params),
+            "de_state": None if self._de_state is None else dict(self._de_state),
+            "numpy_random_state": np.random.get_state(),
+        }
+
+    def _import_sampler_state(self, payload):
+        self._D = int(payload.get("D", self._D or 0))
+        self._run_cfg = dict(payload.get("run_cfg", self._run_cfg))
+        de_cfg = payload.get("de_cfg")
+        if de_cfg is not None:
+            self._de_cfg = DEConfig(**de_cfg)
+        best_params = payload.get("best_params")
+        self._best_params = dict(best_params) if isinstance(best_params, dict) else None
+        self._de_state = deepcopy(payload.get("de_state", self._de_state))
+        np_state = payload.get("numpy_random_state")
+        if np_state is not None:
+            np.random.set_state(np_state)
+        self._de_result = payload.get("de_result")
 
     def __iter__(self):
         return self
@@ -215,25 +264,36 @@ class Diver(SamplingVirtial):
             future_to_idx[future] = idx
             future_to_sample[future] = sample
 
-        for future in concurrent.futures.as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            sample = future_to_sample.pop(future)
+        pending = set(future_to_idx)
+        while pending:
+            timeout = self._checkpoint_seconds_until_due()
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=timeout,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
+            for future in done:
+                idx = future_to_idx[future]
+                sample = future_to_sample.pop(future)
 
-            try:
-                result = float(future.result())
-                if np.isfinite(result):
-                    values[idx] = result
-            except Exception as exc:
-                self.logger.error(
-                    format_two_column_log(
-                        "[WorkerFactory] future exception consumed",
-                        [("uuid", sample.uuid), ("error", exc)],
+                try:
+                    result = float(future.result())
+                    if np.isfinite(result):
+                        values[idx] = result
+                except Exception as exc:
+                    self.logger.error(
+                        format_two_column_log(
+                            "[WorkerFactory] future exception consumed",
+                            [("uuid", sample.uuid), ("error", exc)],
+                        )
                     )
-                )
-                raise RuntimeError(f"Diver sample evaluation failed at index {idx}") from exc
-            finally:
-                self._on_sample_completed(sample.info)
-                sample.close()
+                    raise RuntimeError(f"Diver sample evaluation failed at index {idx}") from exc
+                finally:
+                    self._on_sample_completed(sample.info)
+                    sample.close()
 
         return values
 
@@ -245,14 +305,27 @@ class Diver(SamplingVirtial):
             self.logger.error("Diver sampler has no WorkerFactory.")
             sys.exit(2)
 
+        if self._de_result is not None and self._best_params is not None:
+            self.logger.warning("Diver sampler resume detected -> using restored DE result")
+            return
+
         optimizer = DifferentialEvolution(self._de_cfg)
+        if self._de_state is not None:
+            optimizer.import_state(self._de_state)
+
+        def _checkpoint_diver_state(engine: DifferentialEvolution) -> None:
+            self._de_state = engine.export_state()
+            if self._runtime_checkpoint_enabled:
+                self.persist_runtime_checkpoint(force=True, reason="Diver civilization checkpoint")
 
         self._de_result = optimizer.run(
             self._evaluate_population_loglike,
             logger=self.logger,
+            checkpoint_callback=_checkpoint_diver_state,
         )
 
         self._best_params = self.map_point_into_distribution(self._de_result.best_vector)
+        self._de_state = optimizer.export_state()
         self.logger.warning(
             "Diver finished: best LogL={:.6e}, civ={}, gen={}, evals={}, accept_rate={:.3f}".format(
                 self._de_result.best_loglike,

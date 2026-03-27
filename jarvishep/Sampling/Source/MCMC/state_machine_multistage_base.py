@@ -24,6 +24,22 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
         self._future_to_stage_idx = {}
         self._chain_stage_idx = {}
 
+    def _export_runtime_extras(self) -> Dict[str, Any]:
+        payload = dict(MCMCStateMachineBase._export_runtime_extras(self))
+        payload["chain_stage_idx"] = {
+            str(chain_id): int(stage_idx)
+            for chain_id, stage_idx in self._chain_stage_idx.items()
+        }
+        return payload
+
+    def _import_runtime_extras(self, payload: Dict[str, Any]) -> None:
+        MCMCStateMachineBase._import_runtime_extras(self, payload)
+        raw = payload.get("chain_stage_idx", {})
+        self._chain_stage_idx = {
+            int(chain_id): int(stage_idx)
+            for chain_id, stage_idx in dict(raw).items()
+        }
+
     def _initial_stage_index(self, chain: ChainRuntime) -> int:
         _ = chain
         return 0
@@ -63,6 +79,7 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
 
         base_sample_cfg = self.info["sample"]
         self._transition(MCMCState.PROPOSE, "start run")
+        self.persist_runtime_checkpoint(force=True, reason="run_start")
 
         while True:
             if self._all_chains_finished() and not self._pending_futures:
@@ -119,10 +136,15 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
                 continue
 
             self._transition(MCMCState.WAIT, "wait for futures")
+            timeout = self._checkpoint_seconds_until_due()
             done, _ = concurrent.futures.wait(
                 self._pending_futures,
+                timeout=timeout,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
 
             self._transition(MCMCState.UPDATE, "apply completed results")
             for future in done:
@@ -230,5 +252,8 @@ class MCMCMultiStageStateMachineBase(MCMCStateMachineBase):
                         self._on_sample_completed(sample.info)
                         sample.close()
 
+            self.persist_runtime_checkpoint(reason="post_step_batch")
+
         self._transition(MCMCState.TERMINATE, "all chains completed")
         self._publish_metrics(event="run_end")
+        self.persist_runtime_checkpoint(force=True, reason="run_end")

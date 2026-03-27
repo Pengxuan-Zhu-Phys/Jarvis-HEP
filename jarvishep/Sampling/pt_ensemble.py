@@ -6,10 +6,10 @@ import numpy as np
 from jarvishep.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
 from jarvishep.Sampling.Source.MCMC.config_contract import bounds_get_float
 from jarvishep.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
-from jarvishep.Sampling.tpmcmc import TPMCMC
+from jarvishep.Sampling.tpmcmc import PTMCMC
 
 
-class PTEnsemble(TPMCMC):
+class PTEnsemble(PTMCMC):
     """Parallel-tempered EnsembleMCMC sampler."""
 
     def __init__(self) -> None:

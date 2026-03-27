@@ -46,6 +46,12 @@ class DRAM(AMMCMC):
     def _initialize_state_machine(self) -> None:
         MCMCMultiStageStateMachineBase._initialize_state_machine(self)
 
+    def _export_runtime_extras(self):
+        return MCMCMultiStageStateMachineBase._export_runtime_extras(self)
+
+    def _import_runtime_extras(self, payload):
+        MCMCMultiStageStateMachineBase._import_runtime_extras(self, payload)
+
     def _initial_stage_index(self, chain: ChainRuntime) -> int:
         _ = chain
         return 0

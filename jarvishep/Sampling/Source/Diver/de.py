@@ -12,6 +12,7 @@ In Jarvis-HEP integration we use objective = -LogL.
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
@@ -98,6 +99,66 @@ class DifferentialEvolution:
         # Convergence state (SFIM-style)
         self._mean_cost: float = np.inf
         self._improvements: deque[float] = deque([1.0] * self.cfg.convsteps, maxlen=self.cfg.convsteps)
+        self._runtime_state: dict | None = None
+
+    def export_state(self) -> dict:
+        return {
+            "cfg": asdict(self.cfg),
+            "rng_state": self.rng.bit_generator.state,
+            "fjde": None if self._fjde is None else np.asarray(self._fjde),
+            "crjde": None if self._crjde is None else np.asarray(self._crjde),
+            "lambdajde": None if self._lambdajde is None else np.asarray(self._lambdajde),
+            "mean_cost": float(self._mean_cost),
+            "improvements": list(self._improvements),
+            "runtime_state": deepcopy(self._runtime_state),
+        }
+
+    def import_state(self, payload: dict) -> None:
+        cfg = payload.get("cfg")
+        if cfg:
+            self.cfg = DEConfig(**cfg)
+        rng_state = payload.get("rng_state")
+        if rng_state is not None:
+            self.rng.bit_generator.state = rng_state
+        self._fjde = None if payload.get("fjde") is None else np.asarray(payload["fjde"], dtype=float)
+        self._crjde = None if payload.get("crjde") is None else np.asarray(payload["crjde"], dtype=float)
+        self._lambdajde = None if payload.get("lambdajde") is None else np.asarray(payload["lambdajde"], dtype=float)
+        self._mean_cost = float(payload.get("mean_cost", np.inf))
+        improvements = payload.get("improvements")
+        if improvements is not None:
+            self._improvements = deque([float(v) for v in improvements], maxlen=self.cfg.convsteps)
+        self._runtime_state = deepcopy(payload.get("runtime_state"))
+
+    def _capture_runtime_state(
+        self,
+        *,
+        next_civ: int,
+        best_vector: Array,
+        best_cost: float,
+        best_loglike: float,
+        best_civ: int,
+        best_gen: int,
+        total_evals: int,
+        total_accept: int,
+        total_trials: int,
+    ) -> dict:
+        return {
+            "next_civ": int(next_civ),
+            "best_vector": np.asarray(best_vector, dtype=float),
+            "best_cost": float(best_cost),
+            "best_loglike": float(best_loglike),
+            "best_civilization": int(best_civ),
+            "best_generation": int(best_gen),
+            "total_evals": int(total_evals),
+            "total_accept": int(total_accept),
+            "total_trials": int(total_trials),
+            "rng_state": self.rng.bit_generator.state,
+            "fjde": None if self._fjde is None else np.asarray(self._fjde),
+            "crjde": None if self._crjde is None else np.asarray(self._crjde),
+            "lambdajde": None if self._lambdajde is None else np.asarray(self._lambdajde),
+            "mean_cost": float(self._mean_cost),
+            "improvements": list(self._improvements),
+        }
 
     @staticmethod
     def _normalize_mode(mode: str) -> str:
@@ -293,6 +354,7 @@ class DifferentialEvolution:
         evaluate_loglike: Callable[[Array], Array],
         *,
         logger=None,
+        checkpoint_callback: Callable[["DifferentialEvolution"], None] | None = None,
     ) -> DEResult:
         """Run differential evolution.
 
@@ -318,7 +380,31 @@ class DifferentialEvolution:
         final_population = np.zeros((self.cfg.pop_size, self.cfg.dim), dtype=float)
         final_costs = np.full(self.cfg.pop_size, np.inf, dtype=float)
 
-        for civ in range(1, self.cfg.max_civ + 1):
+        runtime_state = deepcopy(self._runtime_state) if isinstance(self._runtime_state, dict) else None
+        start_civ = int(runtime_state.get("next_civ", 1)) if runtime_state else 1
+        if runtime_state:
+            best_vector = np.asarray(runtime_state.get("best_vector", best_vector), dtype=float)
+            best_cost = float(runtime_state.get("best_cost", best_cost))
+            best_civ = int(runtime_state.get("best_civilization", best_civ))
+            best_gen = int(runtime_state.get("best_generation", best_gen))
+            total_evals = int(runtime_state.get("total_evals", total_evals))
+            total_accept = int(runtime_state.get("total_accept", total_accept))
+            total_trials = int(runtime_state.get("total_trials", total_trials))
+            rng_state = runtime_state.get("rng_state")
+            if rng_state is not None:
+                self.rng.bit_generator.state = rng_state
+            if runtime_state.get("fjde") is not None:
+                self._fjde = np.asarray(runtime_state.get("fjde"), dtype=float)
+            if runtime_state.get("crjde") is not None:
+                self._crjde = np.asarray(runtime_state.get("crjde"), dtype=float)
+            if runtime_state.get("lambdajde") is not None:
+                self._lambdajde = np.asarray(runtime_state.get("lambdajde"), dtype=float)
+            self._mean_cost = float(runtime_state.get("mean_cost", self._mean_cost))
+            improvements = runtime_state.get("improvements")
+            if improvements is not None:
+                self._improvements = deque([float(v) for v in improvements], maxlen=self.cfg.convsteps)
+
+        for civ in range(start_civ, self.cfg.max_civ + 1):
             self._init_adaptive_memory()
             self._reset_convergence()
 
@@ -345,6 +431,20 @@ class DifferentialEvolution:
                     f"[Diver] civ={civ}/{self.cfg.max_civ} gen=0/{self.cfg.max_gen} "
                     f"best_logl={-costs[civ_best_idx]:.6e} mean_logl={mean_logl:.6e}"
                 )
+
+            self._runtime_state = self._capture_runtime_state(
+                next_civ=civ,
+                best_vector=best_vector,
+                best_cost=best_cost,
+                best_loglike=-best_cost if np.isfinite(best_cost) else float("-inf"),
+                best_civ=best_civ,
+                best_gen=best_gen,
+                total_evals=total_evals,
+                total_accept=total_accept,
+                total_trials=total_trials,
+            )
+            if checkpoint_callback is not None:
+                checkpoint_callback(self)
 
             for gen in range(1, self.cfg.max_gen + 1):
                 trial_population = np.empty_like(population)
@@ -440,8 +540,23 @@ class DifferentialEvolution:
             final_population = population
             final_costs = costs
 
+            self._runtime_state = self._capture_runtime_state(
+                next_civ=civ + 1,
+                best_vector=best_vector,
+                best_cost=best_cost,
+                best_loglike=-best_cost if np.isfinite(best_cost) else float("-inf"),
+                best_civ=best_civ,
+                best_gen=best_gen,
+                total_evals=total_evals,
+                total_accept=total_accept,
+                total_trials=total_trials,
+            )
+            if checkpoint_callback is not None:
+                checkpoint_callback(self)
+
         acceptance_rate = (total_accept / total_trials) if total_trials > 0 else 0.0
         best_loglike = -best_cost if np.isfinite(best_cost) else float("-inf")
+        self._runtime_state = None
 
         return DEResult(
             best_vector=best_vector,

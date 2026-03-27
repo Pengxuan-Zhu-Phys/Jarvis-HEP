@@ -18,11 +18,11 @@ from jarvishep.Sampling.Source.MCMC.state_machine_base import MCMCStateMachineBa
 from jarvishep.sample import Sample  # Backward-compatible patch point for tests/tools.
 
 
-class TPMCMC(MCMCStateMachineBase):
+class PTMCMC(MCMCStateMachineBase):
     def __init__(self) -> None:
         super().__init__()
         self.load_schema_file()
-        self.method = "TPMCMC"
+        self.method = "PTMCMC"
         self._selectionexp = None
         self._nchains = 2
         self._niters = 1
@@ -110,11 +110,11 @@ class TPMCMC(MCMCStateMachineBase):
         self._temperature_ladder = [float(x) for x in ladder]
 
     def initialize(self):
-        self.logger.warning("Initializing the temporal parallel MCMC (TPMCMC) Sampling")
+        self.logger.warning("Initializing the temporal parallel MCMC (PTMCMC) Sampling")
         t0 = time.time()
         self._initialize_state_machine()
         self.info["t0"] = time.time() - t0
-        self.logger.info("TPMCMC Sampler initialized in {:.2f} sec".format(self.info["t0"]))
+        self.logger.info("PTMCMC Sampler initialized in {:.2f} sec".format(self.info["t0"]))
 
     def _normalize_proposal_scales(self):
         return normalize_proposal_scales(
@@ -127,7 +127,7 @@ class TPMCMC(MCMCStateMachineBase):
         proposal_scales = self._normalize_proposal_scales()
         if len(self._temperature_ladder) != self._nchains:
             raise ValueError(
-                f"temperature_ladder size mismatch for TPMCMC: expect {self._nchains}, got {len(self._temperature_ladder)}"
+                f"temperature_ladder size mismatch for PTMCMC: expect {self._nchains}, got {len(self._temperature_ladder)}"
             )
 
         cold_idx = 0
@@ -245,15 +245,15 @@ class TPMCMC(MCMCStateMachineBase):
 
         self.logger.warning(
             format_two_column_log(
-                "TPMCMC exchange summary",
+                "PTMCMC exchange summary",
                 [("attempted", attempted), ("accepted", accepted)],
             )
         )
         return {"attempted": attempted, "accepted": accepted}
 
     def finalize(self):
-        self._emit_chain_summary("TPMCMC")
+        self._emit_chain_summary("PTMCMC")
 
     def set_factory(self, factory) -> None:
         self.factory = factory
-        self.logger.warning("WorkerFactory is ready for TPMCMC sampler")
+        self.logger.warning("WorkerFactory is ready for PTMCMC sampler")

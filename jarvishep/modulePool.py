@@ -95,6 +95,41 @@ class ModulePool:
         self.instances.append(instance)
         return instance
 
+    def export_blueprint(self) -> Dict[str, Any]:
+        instances = {}
+        for instance in self.instances:
+            pack_id = getattr(instance, "PackID", None)
+            if pack_id is None:
+                continue
+            instances[str(pack_id)] = {
+                "is_installed": bool(getattr(instance, "is_installed", False)),
+            }
+        return {
+            "name": self.name,
+            "type": self.type,
+            "config": deepcopy(self.config),
+            "instances": instances,
+        }
+
+    def restore_blueprint(self, blueprint: Dict[str, Any]) -> None:
+        if not isinstance(blueprint, dict):
+            return
+
+        instances = blueprint.get("instances", {})
+        if not isinstance(instances, dict):
+            instances = {}
+
+        with self._inst_lock:
+            self.instances = []
+            self.id_counter = 0
+            self._info_loaded = False
+
+        for pack_id in sorted(instances.keys(), key=lambda value: str(value)):
+            pack_info = instances.get(pack_id, {})
+            self.reload_instance(pack_id=pack_id, pack_info=pack_info)
+
+        self.update_instances_info_file()
+
     def set_funcs(self, funcs):
         self._funcs = funcs
         for instance in self.instances:
@@ -217,8 +252,7 @@ class ModulePool:
                 with open(self.instances_info_file, 'r') as file:
                     installed_instances_info = json.load(file)
                     installed_ids = installed_instances_info.get("installed_instances", {})
-                    for pack_id, info in installed_ids.items():
-                        self.reload_instance(pack_id=pack_id, pack_info=info)
+                    self.restore_blueprint({"instances": installed_ids})
                     self.logger.warning("Instance reloaded!")
             except FileNotFoundError:
                 self.logger.info(f"{self.instances_info_file} not found. Assuming no instances are installed.")

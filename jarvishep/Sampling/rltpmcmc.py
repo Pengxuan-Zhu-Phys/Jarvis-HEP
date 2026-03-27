@@ -10,7 +10,7 @@ import numpy as np
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.Source.MCMC.controller import MCMCControlPatch
 from jarvishep.Sampling.rl_sampler_base import RLSamplerBase, make_json_safe
-from jarvishep.Sampling.tpmcmc import TPMCMC
+from jarvishep.Sampling.tpmcmc import PTMCMC
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -876,7 +876,7 @@ class RLTPController:
         return metrics
 
 
-class RLTPMCMC(TPMCMC, RLSamplerBase):
+class RLTPMCMC(PTMCMC, RLSamplerBase):
     def __init__(self) -> None:
         super().__init__()
         self.method = "RLTPMCMC"
@@ -935,6 +935,9 @@ class RLTPMCMC(TPMCMC, RLSamplerBase):
         self._round_trip_intervals = deque(maxlen=128)
         self._exchange_counter = 0
 
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
+
     def load_schema_file(self) -> None:
         self.schema = self.path["RLTPMCMCSchema"]
 
@@ -957,6 +960,41 @@ class RLTPMCMC(TPMCMC, RLSamplerBase):
         if backend not in {"torch", "numpy"}:
             raise ValueError(f"RLTPMCMC unsupported PPO backend: {backend}")
         return backend
+
+    def _export_runtime_extras(self) -> Dict[str, Any]:
+        trainer_state = None
+        if self._trainer is not None and hasattr(self._trainer, "export_state"):
+            trainer_state = self._trainer.export_state()
+        return {
+            "control_cfg": dict(self._control_cfg),
+            "reward_cfg": dict(self._reward_cfg),
+            "ppo_cfg": dict(self._ppo_cfg),
+            "diagnostics_cfg": dict(self._diagnostics_cfg),
+            "replica_positions": list(self._replica_positions),
+            "replica_hot_seen": {int(k): (None if v is None else int(v)) for k, v in self._replica_hot_seen.items()},
+            "round_trip_intervals": list(self._round_trip_intervals),
+            "exchange_counter": int(self._exchange_counter),
+            "trainer_state": trainer_state,
+            "ppo_backend": self._current_ppo_backend(),
+        }
+
+    def _import_runtime_extras(self, payload: Dict[str, Any]) -> None:
+        if not isinstance(payload, dict):
+            return
+        self._control_cfg.update(payload.get("control_cfg", {}) or {})
+        self._reward_cfg.update(payload.get("reward_cfg", {}) or {})
+        self._ppo_cfg.update(payload.get("ppo_cfg", {}) or {})
+        self._diagnostics_cfg.update(payload.get("diagnostics_cfg", {}) or {})
+        self._replica_positions = list(payload.get("replica_positions", self._replica_positions))
+        self._replica_hot_seen = {int(k): v for k, v in dict(payload.get("replica_hot_seen", {})).items()}
+        self._round_trip_intervals = deque(payload.get("round_trip_intervals", []), maxlen=128)
+        self._exchange_counter = int(payload.get("exchange_counter", self._exchange_counter))
+        trainer_state = payload.get("trainer_state")
+        if trainer_state is not None and self._trainer is not None and hasattr(self._trainer, "load_state"):
+            try:
+                self._trainer.load_state(trainer_state)
+            except Exception as exc:
+                self.rl_log("warning", f"Failed to restore PPO trainer state: {exc}")
 
     def _current_ppo_backend(self) -> str | None:
         if self._trainer is not None:
@@ -1115,7 +1153,7 @@ class RLTPMCMC(TPMCMC, RLSamplerBase):
                 action_dim=self._action_mapper.action_dim,
             )
             resume_from = self._ppo_cfg.get("resume_from")
-            if resume_from:
+            if resume_from and not getattr(self, "_runtime_checkpoint_resume_hint", False):
                 payload = self.rl_state_saver.load_checkpoint(str(resume_from), default=None)
                 if payload:
                     self._trainer.load_state(payload)
@@ -1140,23 +1178,16 @@ class RLTPMCMC(TPMCMC, RLSamplerBase):
         if training_metrics:
             self.write_rl_record("training_metrics", training_metrics)
 
-        if self._trainer is not None:
-            checkpoint_path = self.save_rl_checkpoint("policy", self._trainer.export_state())
-        else:
-            checkpoint_path = None
-
-        control_state_path = self.save_rl_metadata(
-            "control_state",
-            {
-                "method": self.method,
-                "control": self._control_cfg,
-                "reward": self._reward_cfg,
-                "ppo": self._ppo_cfg,
-                "diagnostics": self._diagnostics_cfg,
-                "ppo_backend": self._current_ppo_backend(),
-                "checkpoint": checkpoint_path,
-            },
-        )
+        checkpoint_path = None
+        control_state = {
+            "method": self.method,
+            "control": self._control_cfg,
+            "reward": self._reward_cfg,
+            "ppo": self._ppo_cfg,
+            "diagnostics": self._diagnostics_cfg,
+            "ppo_backend": self._current_ppo_backend(),
+            "checkpoint": checkpoint_path,
+        }
 
         super().finalize()
         self.close_rl_runtime(
@@ -1165,7 +1196,7 @@ class RLTPMCMC(TPMCMC, RLSamplerBase):
                 "controller": self._control_cfg["controller"],
                 "ppo_backend": self._current_ppo_backend(),
                 "checkpoint_path": checkpoint_path,
-                "control_state_path": control_state_path,
+                "control_state": control_state,
             }
         )
 

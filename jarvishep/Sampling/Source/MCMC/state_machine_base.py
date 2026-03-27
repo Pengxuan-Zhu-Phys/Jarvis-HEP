@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import concurrent.futures
+import os
+import time
 from abc import ABCMeta, abstractmethod
 from collections import deque
+from copy import deepcopy
 from enum import Enum
 from typing import Any, Dict, Sequence
+
+import numpy as np
 
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
@@ -20,6 +25,24 @@ from .controller import (
 )
 from .engine_contract import validate_engine_contract
 from .metrics_bus import MCMCMetricsBus, MCMCMetricsFrame
+from .runtime_checkpoint import (
+    CHECKPOINT_FORMAT,
+    CHECKPOINT_VERSION,
+    STATE_SAVER_FORMAT,
+    STATE_SAVER_VERSION,
+    StateSaver,
+    build_checkpoint_manifest,
+    build_factory_blueprint,
+    build_run_spec,
+    build_state_payload,
+    pickle_load,
+    build_sampler_signature,
+    export_engine_state,
+    restore_engine_state,
+    utc_now_iso,
+    validate_sampler_signature,
+    validate_state_payload,
+)
 
 
 class MCMCState(str, Enum):
@@ -35,6 +58,15 @@ class MCMCState(str, Enum):
 
 class MCMCStateMachineBase(SamplingVirtial):
     __metaclass__ = ABCMeta
+    _RUNTIME_CONTROL_ATTRS = (
+        "_proposal_scales",
+        "_exchange_interval",
+        "_temperature_ladder",
+        "_exchange_offset",
+        "_swap_pairing_mode",
+        "_exchange_rule",
+        "_chain_priority_weight",
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -50,6 +82,324 @@ class MCMCStateMachineBase(SamplingVirtial):
         self._controller: MCMCControllerProtocol = NoopMCMCController()
         self._metrics_bus = MCMCMetricsBus()
         self._metrics_step = 0
+        self._runtime_checkpoint_root: str | None = None
+        self._runtime_checkpoint_file: str | None = None
+        self._runtime_state_saver: StateSaver | None = None
+        self._runtime_checkpoint_logger = None
+        self._runtime_checkpoint_interval_seconds = 30.0
+        self._runtime_checkpoint_enabled = False
+        self._runtime_checkpoint_auto_resume = True
+        self._runtime_checkpoint_last_save_ts = 0.0
+        self._runtime_checkpoint_loaded = False
+        self._runtime_checkpoint_payload: Dict[str, Any] | None = None
+        self._runtime_checkpoint_run_spec: Dict[str, Any] | None = None
+        self._runtime_checkpoint_factory_blueprint: Dict[str, Any] | None = None
+        self._runtime_checkpoint_run_spec_getter = None
+        self._runtime_checkpoint_factory_blueprint_getter = None
+        self._runtime_checkpoint_reason = ""
+        self._runtime_pending_samples: list[Dict[str, Any]] = []
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
+
+    def configure_runtime_checkpointing(
+        self,
+        checkpoint_root: str,
+        *,
+        interval_seconds: float = 30.0,
+        auto_resume: bool = True,
+        logger=None,
+    ) -> None:
+        root = os.path.abspath(str(checkpoint_root))
+        os.makedirs(root, exist_ok=True)
+        self._runtime_checkpoint_root = root
+        self._runtime_checkpoint_file = os.path.join(root, "state.pkl")
+        self._runtime_checkpoint_logger = logger
+        self._runtime_checkpoint_interval_seconds = max(1.0, float(interval_seconds))
+        self._runtime_checkpoint_enabled = True
+        self._runtime_checkpoint_auto_resume = bool(auto_resume)
+        self._runtime_state_saver = StateSaver(
+            self._runtime_checkpoint_file,
+            logger=self._checkpoint_logger(),
+        )
+        self._start_runtime_checkpoint_heartbeat()
+
+    def set_runtime_checkpoint_context(
+        self,
+        *,
+        run_spec: Dict[str, Any] | None = None,
+        factory_blueprint: Dict[str, Any] | None = None,
+        run_spec_getter=None,
+        factory_blueprint_getter=None,
+    ) -> None:
+        if run_spec is not None:
+            self._runtime_checkpoint_run_spec = deepcopy(run_spec)
+        if factory_blueprint is not None:
+            self._runtime_checkpoint_factory_blueprint = deepcopy(factory_blueprint)
+        if run_spec_getter is not None:
+            self._runtime_checkpoint_run_spec_getter = run_spec_getter
+        if factory_blueprint_getter is not None:
+            self._runtime_checkpoint_factory_blueprint_getter = factory_blueprint_getter
+
+    def get_runtime_checkpoint_payload(self) -> Dict[str, Any] | None:
+        return deepcopy(self._runtime_checkpoint_payload)
+
+    def _checkpoint_logger(self):
+        return self._runtime_checkpoint_logger or getattr(self, "logger", None)
+
+    def _checkpoint_log(self, level: str, message: str) -> None:
+        clogger = self._checkpoint_logger()
+        if clogger is None:
+            return
+        method = getattr(clogger, str(level).lower(), None)
+        if callable(method):
+            method(message)
+
+    def _checkpoint_signature(self) -> Dict[str, Any]:
+        return build_sampler_signature(self)
+
+    def _checkpoint_manifest(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return build_checkpoint_manifest(payload, self._runtime_checkpoint_file or "")
+
+    def _export_chain_payload(self, chain: ChainRuntime) -> Dict[str, Any]:
+        return {
+            "chain_id": int(chain.chain_id),
+            "temperature": float(chain.temperature),
+            "is_cold": bool(chain.is_cold),
+            "iter": int(chain.iter),
+            "accepted": int(chain.accepted),
+            "rejected": int(chain.rejected),
+            "window_iter": int(chain.window_iter),
+            "last_logl": chain.last_logl,
+            "meta": dict(chain.meta),
+            "engine": export_engine_state(chain.engine),
+        }
+
+    def _restore_chain_payload(self, chain: ChainRuntime, payload: Dict[str, Any]) -> None:
+        chain.temperature = float(payload.get("temperature", chain.temperature))
+        chain.is_cold = bool(payload.get("is_cold", chain.is_cold))
+        chain.iter = int(payload.get("iter", chain.iter))
+        chain.accepted = int(payload.get("accepted", chain.accepted))
+        chain.rejected = int(payload.get("rejected", chain.rejected))
+        chain.window_iter = int(payload.get("window_iter", chain.window_iter))
+        chain.last_logl = payload.get("last_logl", chain.last_logl)
+        chain.meta = dict(payload.get("meta", chain.meta or {}))
+        restore_engine_state(chain.engine, dict(payload.get("engine", {})))
+
+    def _export_runtime_extras(self) -> Dict[str, Any]:
+        return {}
+
+    def _import_runtime_extras(self, payload: Dict[str, Any]) -> None:
+        self._runtime_pending_samples = list(payload.get("pending_samples", [])) if isinstance(payload, dict) else []
+
+    def _resolve_runtime_checkpoint_context(self, attr_name: str, getter_name: str) -> Dict[str, Any]:
+        getter = getattr(self, getter_name, None)
+        if callable(getter):
+            try:
+                value = getter()
+                if isinstance(value, dict):
+                    return deepcopy(value)
+            except Exception:
+                pass
+        stored = getattr(self, attr_name, None)
+        return deepcopy(stored) if isinstance(stored, dict) else {}
+
+    def _export_sampler_state(self) -> Dict[str, Any]:
+        control_state = {}
+        for attr in self._RUNTIME_CONTROL_ATTRS:
+            if hasattr(self, attr):
+                control_state[attr] = getattr(self, attr)
+
+        return {
+            "format": CHECKPOINT_FORMAT,
+            "version": CHECKPOINT_VERSION,
+            "timestamp_utc": utc_now_iso(),
+            "sampler_signature": self._checkpoint_signature(),
+            "numpy_random_state": np.random.get_state(),
+            "bucket_allocator": (
+                None
+                if getattr(self, "bucket_alloc", None) is None
+                else self.bucket_alloc.get_state()
+            ),
+            "state_machine": {
+                "state": self._state.value,
+                "ready_queue": list(self._ready_queue),
+                "control_state": control_state,
+                "chains": [
+                    self._export_chain_payload(chain)
+                    for chain in self._must_registry().all()
+                ],
+                "extras": self._export_runtime_extras(),
+            },
+        }
+
+    def _export_runtime_extras(self) -> Dict[str, Any]:
+        return {
+            "pending_samples": self._collect_pending_sample_infos(),
+        }
+
+    def export_runtime_state(self) -> Dict[str, Any]:
+        if not self._state_machine_ready or self._chain_registry is None:
+            raise RuntimeError("Cannot export MCMC runtime state before initialization.")
+
+        return build_state_payload(
+            run_spec=self._resolve_runtime_checkpoint_context(
+                "_runtime_checkpoint_run_spec",
+                "_runtime_checkpoint_run_spec_getter",
+            ),
+            factory_blueprint=self._resolve_runtime_checkpoint_context(
+                "_runtime_checkpoint_factory_blueprint",
+                "_runtime_checkpoint_factory_blueprint_getter",
+            ),
+            sampler_state=self._export_sampler_state(),
+            reason=self._runtime_checkpoint_reason,
+        )
+
+    def import_runtime_state(self, payload: Dict[str, Any]) -> None:
+        if self._chain_registry is None:
+            raise RuntimeError("Cannot import runtime state before sampler initialization.")
+
+        if "sampler_state" in payload and isinstance(payload.get("sampler_state"), dict):
+            self._runtime_checkpoint_payload = deepcopy(payload)
+            self._runtime_checkpoint_run_spec = deepcopy(payload.get("run_spec", {}))
+            self._runtime_checkpoint_factory_blueprint = deepcopy(payload.get("factory_blueprint", {}))
+            payload = dict(payload.get("sampler_state", {}))
+
+        signature = dict(payload.get("sampler_signature", {}))
+        ok, reason = validate_sampler_signature(self._checkpoint_signature(), signature)
+        if not ok:
+            raise ValueError(reason)
+
+        np_state = payload.get("numpy_random_state", None)
+        if np_state is not None:
+            np.random.set_state(np_state)
+
+        bucket_state = payload.get("bucket_allocator", None)
+        if bucket_state and getattr(self, "bucket_alloc", None) is not None:
+            self.bucket_alloc.set_state(dict(bucket_state))
+
+        machine = dict(payload.get("state_machine", {}))
+        self._state = MCMCState(str(machine.get("state", MCMCState.INIT.value)))
+        self._pending_futures = set()
+        self._future_to_sample = {}
+        self._future_to_chain_id = {}
+        self._inflight_chain_ids = set()
+        self._ready_queue.clear()
+        self._ready_set.clear()
+        self._metrics_bus = MCMCMetricsBus()
+        self._metrics_step = 0
+
+        control_state = dict(machine.get("control_state", {}))
+        for attr, value in control_state.items():
+            setattr(self, attr, value)
+
+        chain_payloads = {
+            int(item["chain_id"]): item
+            for item in machine.get("chains", [])
+            if isinstance(item, dict) and "chain_id" in item
+        }
+        registry = self._must_registry()
+        for cid in registry.ids():
+            if cid not in chain_payloads:
+                continue
+            self._restore_chain_payload(registry.get(cid), chain_payloads[cid])
+
+        for chain in registry.all():
+            registry.mark_cold(chain.chain_id, bool(chain.is_cold))
+
+        ready_queue = [int(cid) for cid in machine.get("ready_queue", [])]
+        for cid in ready_queue:
+            if cid not in chain_payloads:
+                continue
+            chain = registry.get(cid)
+            if chain.iter >= int(self._niters):
+                continue
+            self._ready_queue.append(cid)
+            self._ready_set.add(cid)
+
+        if not self._ready_queue and any(
+            chain.iter < int(self._niters) for chain in registry.all()
+        ):
+            for chain in registry.all():
+                if chain.iter < int(self._niters):
+                    self._enqueue_chain(chain.chain_id)
+
+        self._import_runtime_extras(dict(machine.get("extras", {})))
+        self._state_machine_ready = True
+        self._runtime_checkpoint_loaded = True
+        if self._runtime_checkpoint_payload is None:
+            self._runtime_checkpoint_payload = {
+                "format": STATE_SAVER_FORMAT,
+                "version": STATE_SAVER_VERSION,
+                "sampler_state": deepcopy(payload),
+                "run_spec": deepcopy(self._runtime_checkpoint_run_spec or {}),
+                "factory_blueprint": deepcopy(self._runtime_checkpoint_factory_blueprint or {}),
+                "integrity": {},
+            }
+
+    def restore_runtime_checkpoint_if_available(self, payload: Dict[str, Any] | None = None) -> bool:
+        if not self._runtime_checkpoint_enabled or not self._runtime_checkpoint_auto_resume:
+            return False
+        if self._runtime_state_saver is None:
+            return False
+
+        if payload is None:
+            payload = self._runtime_state_saver.load(default=None)
+        if not payload:
+            return False
+        ok, reason = validate_state_payload(payload)
+        if not ok:
+            self._checkpoint_log(
+                "warning",
+                f"StateSaver checkpoint rejected -> {reason}",
+            )
+            return False
+
+        state_payload = payload.get("sampler_state", payload) if isinstance(payload, dict) else None
+        state = dict(state_payload.get("state_machine", {})).get("state") if isinstance(state_payload, dict) else None
+        if state == MCMCState.TERMINATE.value:
+            self._checkpoint_log(
+                "info",
+                f"StateSaver checkpoint present but already complete -> {self._runtime_checkpoint_file}",
+            )
+            return False
+
+        self.import_runtime_state(payload)
+        self._checkpoint_log(
+            "warning",
+            f"StateSaver checkpoint restored -> {self._runtime_checkpoint_file}",
+        )
+        return True
+
+    def persist_runtime_checkpoint(self, *, force: bool = False, reason: str = "") -> bool:
+        if not self._runtime_checkpoint_enabled or self._runtime_state_saver is None:
+            return False
+        if not self._state_machine_ready or self._chain_registry is None:
+            return False
+        with self._runtime_checkpoint_save_lock:
+            now = time.monotonic()
+            if (not force) and (
+                (now - self._runtime_checkpoint_last_save_ts)
+                < float(self._runtime_checkpoint_interval_seconds)
+            ):
+                return False
+
+            self._runtime_checkpoint_reason = str(reason or "")
+            payload = self.export_runtime_state()
+            self._runtime_checkpoint_payload = deepcopy(payload)
+            self._runtime_state_saver.save(payload)
+            self._runtime_checkpoint_last_save_ts = now
+            if reason:
+                self._checkpoint_log(
+                    "info",
+                    f"StateSaver checkpoint saved ({reason}) -> {self._runtime_checkpoint_file}",
+                )
+            else:
+                self._checkpoint_log(
+                    "info",
+                    f"StateSaver checkpoint saved -> {self._runtime_checkpoint_file}",
+                )
+            return True
 
     def set_controller(self, controller: MCMCControllerProtocol | None) -> None:
         self._controller = controller if controller is not None else NoopMCMCController()
@@ -339,6 +689,7 @@ class MCMCStateMachineBase(SamplingVirtial):
             "on_post_exchange", self._controller_context(), dict(metrics)
         )
         self._apply_control_patch(post_patch, hook_name="on_post_exchange")
+        self.persist_runtime_checkpoint(reason="post_exchange")
 
     @abstractmethod
     def _create_chain_registry(self) -> ChainRegistry:
@@ -350,6 +701,7 @@ class MCMCStateMachineBase(SamplingVirtial):
 
         base_sample_cfg = self.info["sample"]
         self._transition(MCMCState.PROPOSE, "start run")
+        self.persist_runtime_checkpoint(force=True, reason="run_start")
 
         while True:
             if self._all_chains_finished() and not self._pending_futures:
@@ -402,10 +754,17 @@ class MCMCStateMachineBase(SamplingVirtial):
                 continue
 
             self._transition(MCMCState.WAIT, "wait for futures")
+            timeout = self._checkpoint_seconds_until_due()
+            if timeout is None:
+                timeout = None
             done, _ = concurrent.futures.wait(
                 self._pending_futures,
+                timeout=timeout,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
+            if not done:
+                self.persist_runtime_checkpoint(reason="checkpoint_heartbeat")
+                continue
 
             self._transition(MCMCState.UPDATE, "apply completed results")
             for future in done:
@@ -459,8 +818,11 @@ class MCMCStateMachineBase(SamplingVirtial):
                         self._on_sample_completed(sample.info)
                         sample.close()
 
+            self.persist_runtime_checkpoint(reason="post_step_batch")
+
         self._transition(MCMCState.TERMINATE, "all chains completed")
         self._publish_metrics(event="run_end")
+        self.persist_runtime_checkpoint(force=True, reason="run_end")
 
     def _publish_metrics(self, event: str, extra: Dict[str, Any] | None = None) -> None:
         if self._chain_registry is None:

@@ -86,7 +86,7 @@ class CalculatorModule(Module):
                         ipf['variables'][act['source']] = {"name": act['source']}
                 # print(ipf['variables'])
 
-            elif ipf['type'] == "Json":
+            elif ipf['type'] == "JSON":
                 ipf['variables'] = {}
                 for act in ipf['actions']:
                     if act['type'] == "Dump":

@@ -144,7 +144,7 @@ Jarvis-HEP currently includes:
 - random, grid, and CSV replay workflows
 - Bridson sampling
 - Dynesty and MultiNest
-- MCMC-family methods such as `MCMC`, `TPMCMC`, `AMMCMC`, `RobustAM`, `DRAM`, `DEMCMC`, `DREAM`, `DREAMLite`, `EnsembleMCMC`, `PTEnsemble`, `SliceMCMC`, and `ESS`
+- MCMC-family methods such as `MCMC`, `PTMCMC`, `AMMCMC`, `RobustAM`, `DRAM`, `DEMCMC`, `DREAM`, `DREAMLite`, `EnsembleMCMC`, `PTEnsemble`, `SliceMCMC`, and `ESS`
 - reference-grade gradient-family entries: `MALA`, `HMC`, `NUTS`
 - experimental `RLTPMCMC`
 

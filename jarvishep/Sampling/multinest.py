@@ -4,6 +4,7 @@ import os
 import threading
 import inspect
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -12,6 +13,7 @@ import pandas as pd
 from prettytable import PrettyTable
 
 from jarvishep.log_kv import format_two_column_log
+from jarvishep.Sampling.nested_checkpoint_bridge import NestedLikelihoodBridge
 from jarvishep.Sampling.Source.Dynesty.py.dynesty.pool import JarvisFactoryAsyncPool
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
@@ -42,6 +44,11 @@ class MultiNest(SamplingVirtial):
         self._execution_profile = {}
         self.df = None
         self.lnX_from_LogLike = None
+        self._sampler_results_snapshot = None
+        self._native_sampler_loaded = False
+
+    def supports_runtime_checkpointing(self) -> bool:
+        return True
 
     def load_schema_file(self):
         self.schema = self.path.get("MultiNestSchema", self.path.get("DynestySchema"))
@@ -62,6 +69,123 @@ class MultiNest(SamplingVirtial):
         if max_pending_factory is not None:
             profile["max_pending_factory"] = int(max_pending_factory)
         self._execution_profile = profile
+
+    @staticmethod
+    def _sanitize_nested(value):
+        if isinstance(value, dict):
+            return {
+                key: MultiNest._sanitize_nested(item)
+                for key, item in value.items()
+                if key not in {"logger", "handlers"}
+            }
+        if isinstance(value, list):
+            return [MultiNest._sanitize_nested(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(MultiNest._sanitize_nested(item) for item in value)
+        return value
+
+    def _export_sampler_state(self):
+        return {
+            "dimensions": int(getattr(self, "_dimensions", 0) or 0),
+            "nlive": int(getattr(self, "_nlive", 0) or 0),
+            "rstate": getattr(self._rstate, "bit_generator", None).state if getattr(self, "_rstate", None) is not None else None,
+            "runnested": dict(getattr(self, "_runnested", {}) or {}),
+            "execution_profile": dict(self._execution_profile),
+            "native_sampler": self.sampler if self._native_sampler_loaded or self.sampler is not None else None,
+            "sampler_results": None if self.sampler is None else getattr(self.sampler, "results", None),
+            "df": None if self.df is None else self.df.copy(deep=True),
+            "info": self._sanitize_nested(deepcopy(self.info)) if isinstance(self.info, dict) else {},
+        }
+
+    def _import_sampler_state(self, payload):
+        self._dimensions = int(payload.get("dimensions", self._dimensions or 0))
+        self._nlive = int(payload.get("nlive", self._nlive or 0))
+        rstate = payload.get("rstate")
+        if rstate is not None:
+            self._rstate = np.random.default_rng()
+            self._rstate.bit_generator.state = rstate
+        self._runnested = dict(payload.get("runnested", self._runnested or {}))
+        self._execution_profile = dict(payload.get("execution_profile", self._execution_profile or {}))
+        native_sampler = payload.get("native_sampler", None)
+        if native_sampler is not None:
+            self.sampler = native_sampler
+            self._native_sampler_loaded = True
+        self._sampler_results_snapshot = payload.get("sampler_results", self._sampler_results_snapshot)
+        self.df = payload.get("df", self.df)
+        self.info = deepcopy(payload.get("info", self.info))
+
+    def _ensure_sampler_results_proxy(self):
+        if self.sampler is not None:
+            return
+        if self._sampler_results_snapshot is None:
+            return
+        proxy = type("_MultiNestCheckpointResultsProxy", (), {})()
+        proxy.results = self._sampler_results_snapshot
+        self.sampler = proxy
+
+    def _build_likelihood_bridge(self) -> NestedLikelihoodBridge:
+        sample_cfg = deepcopy(self.info.get("sample", {})) if isinstance(self.info, dict) else {}
+        bucket_state = self.bucket_alloc.get_state() if getattr(self, "bucket_alloc", None) is not None else None
+        submit_limit = max(1, int(getattr(self, "_factory_submit_limit", self._multinest_workers or 1) or 1))
+        limit = 200
+        width = 6
+        if getattr(self, "bucket_alloc", None) is not None:
+            try:
+                state = self.bucket_alloc.get_state()
+                limit = int(state.get("limit", limit))
+                width = int(state.get("width", width))
+            except Exception:
+                pass
+        bridge = NestedLikelihoodBridge(
+            sampler_name=self.method,
+            variables=self.vars,
+            base_sample_cfg=sample_cfg,
+            sample_cls=Sample,
+            bucket_state=bucket_state,
+            bucket_limit=limit,
+            bucket_width=width,
+            submit_limit=submit_limit,
+        )
+        bridge.attach_runtime(factory=self.factory, logger=self.logger)
+        return bridge
+
+    def _extract_bridge(self):
+        candidates = [
+            getattr(self.sampler, "loglikelihood", None),
+            getattr(getattr(self.sampler, "loglikelihood", None), "loglikelihood", None),
+            getattr(getattr(getattr(self.sampler, "loglikelihood", None), "loglikelihood", None), "func", None),
+        ]
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            if hasattr(candidate, "attach_runtime"):
+                return candidate
+            bridge = getattr(candidate, "func", None)
+            if hasattr(bridge, "attach_runtime"):
+                return bridge
+        return None
+
+    def _reattach_native_sampler_runtime(self) -> None:
+        if self.sampler is None:
+            return
+        bridge = self._extract_bridge()
+        if bridge is not None:
+            bridge.attach_runtime(factory=self.factory, logger=self.logger)
+        pool = self._multinest_pool
+        if pool is None:
+            return
+        samplers = [self.sampler]
+        inner = getattr(self.sampler, "sampler", None)
+        if inner is not None:
+            samplers.append(inner)
+        for cursamp in samplers:
+            try:
+                cursamp.M = pool.map
+                cursamp.pool = pool
+                if hasattr(cursamp, "loglikelihood"):
+                    cursamp.loglikelihood.pool = pool
+            except Exception:
+                pass
 
     def __next__(self):
         u = np.random.random(self._dimensions)
@@ -218,39 +342,26 @@ class MultiNest(SamplingVirtial):
     def run_nested(self):
         self._ensure_bucket_allocator()
         self._resolve_execution_profile()
-        base_sample_cfg = self.info["sample"]
-
-        def log_likelihood(params):
-            param = params[0:-1].astype(np.float64, copy=False)
-            uid = params[-1]
-            pars = self.map_point_into_distribution(param)
-            sample = Sample(pars)
-            sample.update_uuid(uid)
-            sample_cfg = self.build_sample_config(
-                base_sample_cfg,
-                save_dir=self._next_bucket_dir_for_sample(),
-            )
-            sample.set_config(sample_cfg)
-            try:
-                return self._submit_with_backpressure(sample)
-            except Exception as exc:
-                self.logger.error(
-                    format_two_column_log(
-                        "[WorkerFactory] future exception consumed",
-                        [("uuid", sample.uuid), ("error", exc)],
-                    )
-                )
-                raise
-            finally:
-                self._on_sample_completed(sample.info)
-                sample.close()
-
         self.init_sampler_db()
-        from jarvishep.Sampling.Source.Dynesty.py.dynesty import NestedSampler
 
         try:
+            if self._native_sampler_loaded and self.sampler is not None:
+                self._reattach_native_sampler_runtime()
+                run_kwargs = dict(self._runnested)
+                try:
+                    sig = inspect.signature(self.sampler.run_nested)
+                    if "resume" in sig.parameters:
+                        run_kwargs.setdefault("resume", True)
+                except (TypeError, ValueError):
+                    run_kwargs.setdefault("resume", True)
+                self.sampler.run_nested(**run_kwargs)
+                return
+
+            bridge = self._build_likelihood_bridge()
+
+            from jarvishep.Sampling.Source.Dynesty.py.dynesty import NestedSampler
             sampler_kwargs = {
-                "loglikelihood": log_likelihood,
+                "loglikelihood": bridge,
                 "prior_transform": prior_transform,
                 "ndim": self._dimensions,
                 "nlive": self._nlive,
@@ -270,6 +381,8 @@ class MultiNest(SamplingVirtial):
 
             self.sampler = NestedSampler(**sampler_kwargs)
             self.sampler.logger = self.logger
+            self._native_sampler_loaded = True
+            self._reattach_native_sampler_runtime()
             self.sampler.run_nested(**self._runnested)
         finally:
             self._shutdown_multinest_pool()
@@ -473,6 +586,7 @@ class MultiNest(SamplingVirtial):
         )
 
     def finalize(self):
+        self._ensure_sampler_results_proxy()
         if self.sampler is None or not hasattr(self.sampler, "results"):
             self.logger.warning("MultiNest finalize skipped -> no sampler results available")
             return

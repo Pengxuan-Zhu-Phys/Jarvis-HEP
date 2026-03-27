@@ -180,7 +180,7 @@ class JsonInputFile(InputFile):
             json_str = json.dumps(json_ready, indent=4)
             self.sync_write_text(self.path, json_str)
         except Exception as e:
-            self.logger.error(f"Error writing Json input file '{self.name}': {e}")
+            self.logger.error(f"Error writing JSON input file '{self.name}': {e}")
 
         self.logger = None
         return observables
