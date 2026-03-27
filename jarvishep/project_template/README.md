@@ -34,7 +34,7 @@ Runtime directories are created automatically on first run:
 - `outputs/<scan>/DATABASE`: HDF5, CSV, schema, and run metadata
 - `outputs/<scan>/SAMPLE`: per-sample artifacts and sample-local logs
 - `logs/<scan>/`: Jarvis / sampler / factory logs
-- `images/<scan>/`: plots, generated plotting YAML, and workflow flowcharts
+- `images/<scan>/`: plots, generated plotting YAML, semantic flowchart JSON, and workflow flowcharts
 
 Add optional project directories such as `calculators/`, `configs/`, `scripts/`, `assets/`, and `docs/` only when your workflow actually needs them.
 

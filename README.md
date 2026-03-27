@@ -133,7 +133,7 @@ Typical project-local artifacts include:
 - `logs/<scan>/...`
   Jarvis, sampler, and runtime logs
 - `images/<scan>/...`
-  generated plot configs and figures
+  generated plot configs, semantic flowchart JSON, and figures
 - `run_summary.json`, `run_summary.csv`, `run_summary.txt`
   machine-readable and human-readable end-of-run summaries
 

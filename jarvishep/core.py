@@ -158,6 +158,7 @@ class Core(Base):
         self.info['jarvis_log'] = os.path.join(logs_dir, f"{self.info['scan_name']}.log")
         self.info['pickle_file'] = os.path.join(task_result_dir, f"{self.info['project_name']}.pkl")
         self.info['flowchart_path'] = os.path.join(images_dir, "flowchart.png")
+        self.info['flowchart_semantic_path'] = os.path.join(images_dir, "flowchart.json")
         # Sampling method may be absent for plotting-only YAML
         sampling_method = None
         try:
@@ -446,6 +447,20 @@ class Core(Base):
         modules = self.yaml.get_modules()
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
+        try:
+            self.logger.warning(
+                f"Export workflow semantic graph into {self.info['flowchart_semantic_path']}"
+            )
+            asyncio.run(
+                self.workflow.export_flowchart_semantics(
+                    save_path=self.info['flowchart_semantic_path'],
+                    workflow_name=self.info.get("project_name", "Workflow"),
+                )
+            )
+        except Exception as exc:
+            self.logger.warning(
+                f"Skipping semantic flowchart export after failure: {exc}"
+            )
         if not self.args.skipFC:
             self.logger.warning(f"Draw workflow chart into {self.info['flowchart_path']}")
             asyncio.run(

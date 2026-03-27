@@ -60,6 +60,10 @@ class ProjectRuntimeLayoutTests(unittest.TestCase):
                 self._real(core.info["flowchart_path"]),
                 self._real(os.path.join(images_root, "flowchart.png")),
             )
+            self.assertEqual(
+                self._real(core.info["flowchart_semantic_path"]),
+                self._real(os.path.join(images_root, "flowchart.json")),
+            )
             self.assertFalse(
                 self._real(core.info["jarvis_log"]).startswith(
                     self._real(outputs_root) + os.sep
@@ -77,6 +81,11 @@ class ProjectRuntimeLayoutTests(unittest.TestCase):
             )
             self.assertFalse(
                 self._real(core.info["flowchart_path"]).startswith(
+                    self._real(outputs_root) + os.sep
+                )
+            )
+            self.assertFalse(
+                self._real(core.info["flowchart_semantic_path"]).startswith(
                     self._real(outputs_root) + os.sep
                 )
             )
