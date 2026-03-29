@@ -105,6 +105,35 @@ Jarvis project info Example_Bridson
 Jarvis project fetch Example_Bridson
 ```
 
+### Resume and re-run
+
+Jarvis-HEP writes a single checkpoint file per sampler at:
+
+```text
+<task_root>/checkpoints/<scan_name>/<sampler>/state.pkl
+```
+
+Use `--resume` to continue from the latest checkpoint without any prompt:
+
+```bash
+Jarvis bin/quickstart_mcmc_operas.yaml --resume
+```
+
+If you do not pass `--resume` and a checkpoint already exists, Jarvis-HEP prompts in English:
+
+```text
+Detected checkpoint file. Re-run from scratch? [y/N] (default: resume in 30s):
+```
+
+Behavior of that prompt:
+
+- `y` / `yes` starts a fresh run and discards the existing checkpoint file
+- pressing Enter resumes from the checkpoint
+- typing anything else also resumes from the checkpoint
+- no response for 30 seconds also resumes from the checkpoint
+
+If no checkpoint exists, Jarvis-HEP starts a fresh run immediately.
+
 ## Core Workflow
 
 ```mermaid
