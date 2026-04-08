@@ -50,6 +50,7 @@ src/.DS_Store
 
 .cache/
 .claude/
+github CI/
 
 #WARP
 WARP.md 
