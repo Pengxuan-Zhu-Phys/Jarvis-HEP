@@ -177,11 +177,43 @@ class SamplingVirtial(Base):
         stored = getattr(self, attr_name, None)
         return deepcopy(stored) if isinstance(stored, dict) else {}
 
+    def _checkpoint_safe_value(self, value: Any) -> Any:
+        if value is None or isinstance(value, (str, bool, int, float)):
+            return value
+        if isinstance(value, np.generic):
+            return value.item()
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, dict):
+            safe: Dict[str, Any] = {}
+            for key, item in value.items():
+                if key in {"logger", "handlers"}:
+                    continue
+                safe[str(key)] = self._checkpoint_safe_value(item)
+            return safe
+        if isinstance(value, (list, tuple, set)):
+            return [self._checkpoint_safe_value(item) for item in value]
+        try:
+            return deepcopy(value)
+        except Exception:
+            return str(value)
+
     def _sanitize_sample_info(self, sample_info: Dict[str, Any]) -> Dict[str, Any]:
-        info = deepcopy(sample_info)
-        if isinstance(info, dict):
-            info["logger"] = None
-            info["handlers"] = {}
+        if not isinstance(sample_info, dict):
+            return {}
+
+        info = self._checkpoint_safe_value(sample_info)
+        if not isinstance(info, dict):
+            return {}
+
+        # The runtime logger/handler objects must never enter the checkpoint.
+        info["logger"] = None
+        info["handlers"] = {}
+
+        for key in ("uuid", "save_dir", "run_log", "logger_name", "status"):
+            if key in sample_info and sample_info[key] is not None:
+                value = sample_info[key]
+                info[key] = value.item() if isinstance(value, np.generic) else str(value) if key in {"uuid", "save_dir", "run_log", "logger_name", "status"} else value
         return info
 
     def _collect_pending_sample_infos(self) -> list[Dict[str, Any]]:
@@ -299,7 +331,7 @@ class SamplingVirtial(Base):
 
             self._runtime_checkpoint_reason = str(reason or "")
             payload = self.export_runtime_state()
-            self._runtime_checkpoint_payload = deepcopy(payload)
+            self._runtime_checkpoint_payload = payload
             self._runtime_state_saver.save(payload)
             self._runtime_checkpoint_last_save_ts = now
             if reason:

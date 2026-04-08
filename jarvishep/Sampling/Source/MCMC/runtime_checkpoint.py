@@ -50,6 +50,8 @@ def _json_safe(value: Any) -> Any:
         return {str(key): _json_safe(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return [_json_safe(item) for item in sorted(value, key=lambda item: repr(item))]
     if isinstance(value, np.ndarray):
         return value.tolist()
     if isinstance(value, (np.floating,)):
@@ -58,7 +60,9 @@ def _json_safe(value: Any) -> Any:
         return int(value)
     if isinstance(value, (np.bool_,)):
         return bool(value)
-    return value
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
 
 
 def atomic_json_dump(path: str, payload: Dict[str, Any]) -> None:

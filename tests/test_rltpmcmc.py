@@ -312,8 +312,16 @@ class RLTPMCMCTests(unittest.TestCase):
             frozen_sampler.set_factory(_ImmediateFactory())
 
             _FakeSample.reset()
+            with patch(
+                "jarvishep.Sampling.rl_sampler_base.RLStateSaver.load_checkpoint",
+                side_effect=AssertionError("legacy resume_from must not be auto-loaded"),
+            ):
+                with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
+                    frozen_sampler.initialize()
+
+            self.assertTrue(frozen_sampler.load_legacy_ppo_checkpoint(policy_path))
+
             with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
-                frozen_sampler.initialize()
                 frozen_sampler.run_nested()
                 frozen_sampler.finalize()
 
@@ -347,9 +355,15 @@ class RLTPMCMCTests(unittest.TestCase):
             sampler.set_config(mismatch_cfg)
             sampler.set_factory(_ImmediateFactory())
 
-            with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
-                with self.assertRaisesRegex(ValueError, "checkpoint backend mismatch"):
+            with patch(
+                "jarvishep.Sampling.rl_sampler_base.RLStateSaver.load_checkpoint",
+                side_effect=AssertionError("legacy resume_from must not be auto-loaded"),
+            ):
+                with patch("jarvishep.Sampling.Source.MCMC.state_machine_base.Sample", _FakeSample):
                     sampler.initialize()
+
+            with self.assertRaisesRegex(ValueError, "checkpoint backend mismatch"):
+                sampler.load_legacy_ppo_checkpoint(policy_path)
 
     def test_rltpmcmc_runtime_checkpoint_roundtrip_restores_trainer_state(self):
         with tempfile.TemporaryDirectory() as td:

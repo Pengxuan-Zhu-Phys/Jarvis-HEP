@@ -3,6 +3,7 @@
 import json
 import os
 import inspect
+import pickle
 import threading
 from copy import deepcopy
 from uuid import uuid4
@@ -78,14 +79,25 @@ class Dynesty(SamplingVirtial):
             return tuple(Dynesty._sanitize_nested(item) for item in value)
         return value
 
+    @staticmethod
+    def _pickleable_or_none(value):
+        if value is None:
+            return None
+        try:
+            pickle.dumps(value, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            return None
+        return value
+
     def _export_sampler_state(self):
+        native_sampler = self._pickleable_or_none(self.sampler if self._native_sampler_loaded or self.sampler is not None else None)
         return {
             "dimensions": int(getattr(self, "_dimensions", 0) or 0),
             "nlive": int(getattr(self, "_nlive", 0) or 0),
             "rstate": getattr(self._rstate, "bit_generator", None).state if getattr(self, "_rstate", None) is not None else None,
             "runnested": dict(getattr(self, "_runnested", {}) or {}),
             "execution_profile": dict(self._execution_profile),
-            "native_sampler": self.sampler if self._native_sampler_loaded or self.sampler is not None else None,
+            "native_sampler": native_sampler,
             "sampler_results": None if self.sampler is None else getattr(self.sampler, "results", None),
             "info": self._sanitize_nested(deepcopy(self.info)) if isinstance(self.info, dict) else {},
         }

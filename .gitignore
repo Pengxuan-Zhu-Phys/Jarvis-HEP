@@ -49,6 +49,7 @@ src/.DS_Store
 .vscode/
 
 .cache/
+.claude/
 
 #WARP
 WARP.md 

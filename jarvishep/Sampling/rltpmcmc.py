@@ -961,6 +961,21 @@ class RLTPMCMC(PTMCMC, RLSamplerBase):
             raise ValueError(f"RLTPMCMC unsupported PPO backend: {backend}")
         return backend
 
+    def load_legacy_ppo_checkpoint(self, path_or_name: str) -> bool:
+        if self._trainer is None:
+            raise RuntimeError("RLTPMCMC PPO trainer is not initialized.")
+        payload = self.rl_state_saver.load_checkpoint(str(path_or_name), default=None)
+        if not payload:
+            return False
+        self._trainer.load_state(payload)
+        self.info.setdefault("rl", {})
+        self.info["rl"]["legacy_resume_from"] = str(path_or_name)
+        self.rl_log(
+            "warning",
+            f"RLTPMCMC legacy PPO checkpoint loaded explicitly -> {path_or_name}",
+        )
+        return True
+
     def _export_runtime_extras(self) -> Dict[str, Any]:
         trainer_state = None
         if self._trainer is not None and hasattr(self._trainer, "export_state"):
@@ -1152,11 +1167,6 @@ class RLTPMCMC(PTMCMC, RLSamplerBase):
                 state_dim=state_dim,
                 action_dim=self._action_mapper.action_dim,
             )
-            resume_from = self._ppo_cfg.get("resume_from")
-            if resume_from and not getattr(self, "_runtime_checkpoint_resume_hint", False):
-                payload = self.rl_state_saver.load_checkpoint(str(resume_from), default=None)
-                if payload:
-                    self._trainer.load_state(payload)
         else:
             self._trainer = None
 

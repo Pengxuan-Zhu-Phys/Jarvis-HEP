@@ -5,8 +5,10 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 from copy import deepcopy
 import concurrent.futures
+import threading
 from unittest.mock import patch
 
 import numpy as np
@@ -21,6 +23,7 @@ from jarvishep.Sampling.dnn import DNN  # noqa: E402
 from jarvishep.Sampling.diver import Diver  # noqa: E402
 from jarvishep.Sampling.dynesty import Dynesty  # noqa: E402
 from jarvishep.Sampling.multinest import MultiNest  # noqa: E402
+from jarvishep.Sampling.Source.Dynesty.py.dynesty.dynamicsampler import compute_weights  # noqa: E402
 from jarvishep.Sampling.Source.Diver.de import DEConfig, DifferentialEvolution  # noqa: E402
 
 
@@ -290,14 +293,17 @@ class TestCheckpointPayloadRoundtrip(unittest.TestCase):
                     }
                 )
             )
-            sampler.sampler = type(
+            dummy = type(
                 "DummyDynestySampler",
                 (),
-                {"results": {"samples_uid": ["u0"], "logl": [0.1], "logvol": [0.2]}},
+                {"results": {"samples_uid": ["u0"], "logl": [0.1], "logvol": [0.2]}, "rlock": threading.RLock()},
             )()
+            sampler.sampler = dummy
+            sampler._native_sampler_loaded = True
             sampler.configure_runtime_checkpointing(os.path.join(tmp, "checkpoints"), logger=_NoopLogger())
             sampler.set_runtime_checkpoint_context(run_spec={"normalized_config": sampler.config}, factory_blueprint={})
             payload = sampler.export_runtime_state()
+            self.assertIsNone(payload["sampler_state"]["native_sampler"])
             restored = Dynesty()
             restored.logger = _NoopLogger()
             restored.info["sample"] = sampler.info["sample"]
@@ -307,6 +313,26 @@ class TestCheckpointPayloadRoundtrip(unittest.TestCase):
             self.assertEqual(restored._nlive, 5)
             self.assertEqual(restored._execution_profile, {})
             self.assertEqual(restored._sampler_results_snapshot["samples_uid"], ["u0"])
+
+    def test_dynesty_compute_weights_handles_flat_logz_arrays(self):
+        class _Results:
+            logl = np.array([-3.0, -2.0, -1.0], dtype=float)
+            logz = np.array([-1.0, -1.0, -1.0], dtype=float)
+            logvol = np.array([-0.1, -0.2, -0.3], dtype=float)
+            logwt = np.array([-2.0, -1.5, -1.0], dtype=float)
+            samples_n = np.array([5, 5, 5], dtype=int)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            zweight, pweight = compute_weights(_Results())
+
+        self.assertEqual(len(caught), 1)
+        self.assertTrue(issubclass(caught[0].category, UserWarning))
+        self.assertIn("logz values", str(caught[0].message))
+        self.assertEqual(len(zweight), 3)
+        self.assertEqual(len(pweight), 3)
+        self.assertTrue(np.allclose(np.sum(zweight), 1.0))
+        self.assertTrue(np.allclose(np.sum(pweight), 1.0))
 
     def test_multinest_sampler_checkpoint_payload_roundtrip(self):
         with tempfile.TemporaryDirectory(prefix="jarvis-multinest-") as tmp:
@@ -334,14 +360,17 @@ class TestCheckpointPayloadRoundtrip(unittest.TestCase):
                     }
                 )
             )
-            sampler.sampler = type(
+            dummy = type(
                 "DummyMultiNestSampler",
                 (),
-                {"results": {"samples_uid": ["u0"], "logl": [0.1], "logvol": [0.2], "samples": np.zeros((1, 1)), "samples_u": np.zeros((1, 1)), "logwt": np.array([0.0]), "logz": np.array([0.0]), "logzerr": np.array([0.0]), "samples_n": np.array([1]), "ncall": np.array([1]), "samples_it": np.array([0]), "samples_id": np.array([0]), "information": np.array([0.0])}},
+                {"results": {"samples_uid": ["u0"], "logl": [0.1], "logvol": [0.2], "samples": np.zeros((1, 1)), "samples_u": np.zeros((1, 1)), "logwt": np.array([0.0]), "logz": np.array([0.0]), "logzerr": np.array([0.0]), "samples_n": np.array([1]), "ncall": np.array([1]), "samples_it": np.array([0]), "samples_id": np.array([0]), "information": np.array([0.0])}, "rlock": threading.RLock()},
             )()
+            sampler.sampler = dummy
+            sampler._native_sampler_loaded = True
             sampler.configure_runtime_checkpointing(os.path.join(tmp, "checkpoints"), logger=_NoopLogger())
             sampler.set_runtime_checkpoint_context(run_spec={"normalized_config": sampler.config}, factory_blueprint={})
             payload = sampler.export_runtime_state()
+            self.assertIsNone(payload["sampler_state"]["native_sampler"])
             restored = MultiNest()
             restored.logger = _NoopLogger()
             restored.info["sample"] = sampler.info["sample"]

@@ -86,16 +86,16 @@ Jarvis bin/quickstart_csv_operas.yaml
 ### 4. Package a project
 
 ```bash
-Jarvis project pack . --share
+Jarvis project pack [path] [--share | --repro | --full]
 ```
 
 Modes:
 
-- `share`: lighter result-sharing package
-- `repro`: unpack-and-rerun package
-- `full`: full archival package
+- `--share`: lighter result-sharing package (default)
+- `--repro`: unpack-and-rerun package
+- `--full`: full archival package
 
-If no mode is provided, `--share` is used.
+If no mode flag is provided, `--share` is used. Use `.` to pack the current directory.
 
 ### 5. Browse the official Jarvis library
 
@@ -172,12 +172,14 @@ Jarvis-HEP currently includes:
 
 - random, grid, and CSV replay workflows
 - Bridson sampling
-- Dynesty and MultiNest
-- MCMC-family methods such as `MCMC`, `PTMCMC`, `AMMCMC`, `RobustAM`, `DRAM`, `DEMCMC`, `DREAM`, `DREAMLite`, `EnsembleMCMC`, `PTEnsemble`, `SliceMCMC`, and `ESS`
-- reference-grade gradient-family entries: `MALA`, `HMC`, `NUTS`
+- nested sampling: `Dynesty`, `MultiNest`
+- differential-evolution sampling: `Diver`
+- MCMC-family methods: `MCMC`, `PTMCMC`, `AMMCMC`, `RobustAM`, `DRAM`, `DEMCMC`, `DREAM`, `DREAMLite`, `EnsembleMCMC`, `PTEnsemble`, `SliceMCMC`, and `ESS`
+- gradient-family methods: `MALA`, `HMC`, `NUTS`
+- DNN-assisted iterative sampling
 - experimental `RLTPMCMC`
 
-> `RLTPMCMC` is currently experimental in the active `v1.6.10` release-prep line.
+> `RLTPMCMC` is experimental as of `v1.6.11`.
 
 ## Path Markers
 
@@ -193,6 +195,7 @@ Task YAML should use project-local `&J/...` paths. Package-owned resources are i
 | --- | --- |
 | `@SampleID` | current sample UUID |
 | `@Sdir` | current sample save directory under `outputs/.../SAMPLE/<uuid>` |
+| `@PackID` | calculator module instance ID, enables per-instance working directories and file paths |
 
 These runtime tokens are available on calculator workflow paths such as commands, working directories, and sample-scoped input/output file paths.
 
