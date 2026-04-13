@@ -136,7 +136,7 @@ class CalculatorModule(Module):
     def custom_format(record):
         module = record["extra"].get("module", "No module")
         if "raw" in record["extra"]:
-            return "{message}"
+            return "{message}\n"
         else:
             return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
     
@@ -236,15 +236,11 @@ class CalculatorModule(Module):
                         line, text_buffer = text_buffer.split("\n", 1)
                         line = line.rstrip("\r")
                         if line:
-                            self.logger.info(
-                                f"[{stage}#{command_index:05}][{stream_name}] {line}"
-                            )
+                            self.logger.bind(raw=True).info(line)
             if self.logger is not None:
                 tail = text_buffer.rstrip("\r")
                 if tail:
-                    self.logger.info(
-                        f"[{stage}#{command_index:05}][{stream_name}] {tail}"
-                    )
+                    self.logger.bind(raw=True).info(tail)
             return total
 
         out_task = asyncio.create_task(_drain(process.stdout, "stdout"))
@@ -252,15 +248,17 @@ class CalculatorModule(Module):
         rc = await process.wait()
         stdout_bytes, stderr_bytes = await asyncio.gather(out_task, err_task)
         if self.logger is not None:
-            self.logger.info(
-                "Command done [{}#{:05}] rc={} out={}B err={}B".format(
-                    stage,
-                    command_index,
-                    rc,
-                    int(stdout_bytes),
-                    int(stderr_bytes),
-                )
+            done_message = "Command done [{}#{:05}] rc={} out={}B err={}B".format(
+                stage,
+                command_index,
+                rc,
+                int(stdout_bytes),
+                int(stderr_bytes),
             )
+            if stage == "install":
+                self.logger.bind(raw=True).info(done_message)
+            else:
+                self.logger.info(done_message)
         if int(rc) != 0:
             raise RuntimeError(
                 f"Command failed [{stage}#{command_index:05}] rc={rc} cmd={command['cmd']}"
@@ -313,7 +311,10 @@ class CalculatorModule(Module):
         timed_out = False
         ok = False
         try:
-            if self.subprocess_scheduler is None:
+            # Installation commands are written to the per-instance installation log.
+            # The shared subprocess scheduler logs to its own domain, so keeping install
+            # stage on the local drain path preserves the expected log file routing.
+            if stage == "install" or self.subprocess_scheduler is None:
                 await self._run_command_local(command, stage=stage, command_index=command_index)
                 duration_sec = max(0.0, time.monotonic() - started_monotonic)
                 ok = True
@@ -327,6 +328,7 @@ class CalculatorModule(Module):
                 log_dir=None,
                 log_policy="logger",
                 task_id=task_id,
+                stream_logger=self.logger,
                 meta={
                     "module": self.name,
                     "pack_id": self.PackID,

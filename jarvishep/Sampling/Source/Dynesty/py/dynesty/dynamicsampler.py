@@ -1046,6 +1046,8 @@ class DynamicSampler:
 
         def custum_format(record):
             module = record['extra']['module'] 
+            if "raw" in record["extra"]:
+                return "{message}"
             return f"\n·•· <cyan>{module}</cyan> -> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
         
         self.logger = logger.bind(module="Dynesty.Inner", to_console=True, Jarvis=False)

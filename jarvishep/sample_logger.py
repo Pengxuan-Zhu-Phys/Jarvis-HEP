@@ -37,6 +37,11 @@ class _SampleLogBackend:
                 f"\t-> {self._timestamp()} - [{level}] >>> \n"
                 f"{text}"
             )
+        else:
+            if self._has_written and not self._last_ended_newline and not text.startswith("\n"):
+                text = "\n" + text
+            if not text.endswith("\n"):
+                text += "\n"
 
         with self._lock:
             if self._closed:
@@ -55,7 +60,11 @@ class _SampleLogBackend:
 
 
 class SampleLogger:
-    """Thin compatibility logger used only for per-sample file logging."""
+    """Custom sample-local logging adapter used only for per-sample file logging.
+
+    This is not `loguru.logger` and not the stdlib `logging.Logger`.
+    It exists to preserve the sample-log contract with a minimal logger-shaped API.
+    """
 
     def __init__(self, backend: _SampleLogBackend, *, extra: dict[str, Any] | None = None) -> None:
         self._backend = backend

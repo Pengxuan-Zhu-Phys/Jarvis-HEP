@@ -104,6 +104,7 @@ class Sample(Base):
             },
         )
         self.logger.info("Sample created into the Disk")
+        # Keep the sample-local logger on sample_info; child loggers bind from here.
         self.info['logger'] = self.logger
         
     def custom_format(self, record):

@@ -111,9 +111,19 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
                 )
             )
 
-    def test_scheduler_command_submission_is_loguru_only(self):
+    def test_scheduler_command_submission_includes_stream_logger(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
         module.sample_info = {"uuid": "S-42", "save_dir": "/tmp/s42"}
+
+        class _StreamLogger:
+            def __init__(self):
+                self.messages = []
+
+            def bind(self, **_kwargs):
+                return self
+
+            def info(self, message, *_args, **_kwargs):
+                self.messages.append(str(message))
 
         class _FakeScheduler:
             def __init__(self):
@@ -132,6 +142,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
 
         fake_scheduler = _FakeScheduler()
         module.subprocess_scheduler = fake_scheduler
+        module.logger = _StreamLogger()
 
         _run_async(
             module.run_command(
@@ -144,6 +155,101 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
         submitted = fake_scheduler.jobs[0]
         self.assertEqual(submitted.log_policy, "logger")
         self.assertIsNone(submitted.log_dir)
+        self.assertIs(submitted.stream_logger, module.logger)
+
+    def test_install_stage_uses_install_log_even_when_scheduler_exists(self):
+        module = CalculatorModule("DemoCalc", _minimal_calc_config())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.basepath = tmpdir
+            module.assign_ID("007")
+            module.create_basic_logger()
+
+            local_calls = []
+
+            async def _fake_local(command, stage, command_index):
+                local_calls.append((dict(command), stage, command_index))
+                module.logger.bind(raw=True).info("install output line")
+
+            class _FakeScheduler:
+                def __init__(self):
+                    self.jobs = []
+
+                async def arun(self, job):
+                    self.jobs.append(job)
+                    return SimpleNamespace(
+                        returncode=0,
+                        timed_out=False,
+                        duration_sec=0.01,
+                        stdout_bytes=0,
+                        stderr_bytes=0,
+                        ok=True,
+                    )
+
+            fake_scheduler = _FakeScheduler()
+            module._run_command_local = _fake_local  # type: ignore[method-assign]
+            module.subprocess_scheduler = fake_scheduler
+
+            try:
+                _run_async(
+                    module.run_command(
+                        {"cmd": "echo install-output", "cwd": tmpdir},
+                        stage="install",
+                        command_index=1,
+                    )
+                )
+            finally:
+                module.logger.remove(module.handlers["install"])
+                del module.handlers["install"]
+
+            install_log = os.path.join(
+                tmpdir,
+                f"Installation_{module.name}-{module.PackID}.log",
+            )
+            self.assertEqual(len(local_calls), 1)
+            self.assertEqual(fake_scheduler.jobs, [])
+            with open(install_log, "r", encoding="utf-8") as handle:
+                contents = handle.read()
+            self.assertIn("install output line", contents)
+            self.assertNotIn("[install#", contents)
+
+    def test_install_local_output_is_written_raw_without_formatter_prefix(self):
+        module = CalculatorModule("DemoCalc", _minimal_calc_config())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module.basepath = tmpdir
+            module.assign_ID("009")
+            module.create_basic_logger()
+
+            try:
+                _run_async(
+                    module._run_command_local(
+                        {
+                            "cmd": "printf 'install output line\\n'",
+                            "cwd": tmpdir,
+                        },
+                        stage="install",
+                        command_index=3,
+                    )
+                )
+            finally:
+                module.logger.remove(module.handlers["install"])
+                del module.handlers["install"]
+
+            install_log = os.path.join(
+                tmpdir,
+                f"Installation_{module.name}-{module.PackID}.log",
+            )
+            with open(install_log, "r", encoding="utf-8") as handle:
+                lines = handle.read().splitlines()
+
+            output_lines = [line for line in lines if "install output line" in line]
+            self.assertTrue(output_lines)
+            self.assertTrue(any(line == "install output line" for line in output_lines))
+            self.assertTrue(all("·•·" not in line for line in output_lines))
+            self.assertTrue(all("[install#" not in line for line in output_lines))
+
+            done_lines = [line for line in lines if line.startswith("Command done [install#")]
+            self.assertTrue(done_lines)
+            self.assertTrue(all("·•·" not in line for line in done_lines))
 
 
 if __name__ == "__main__":

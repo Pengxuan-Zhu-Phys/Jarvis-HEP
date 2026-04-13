@@ -31,6 +31,26 @@ def _safe_json(obj: Any) -> Any:
         return str(obj)
 
 
+def _emit_log_line(logger_obj: Any | None, message: str, *, raw: bool = False) -> None:
+    if logger_obj is None:
+        return
+
+    payload = str(message)
+    target = logger_obj
+    if raw:
+        binder = getattr(logger_obj, "bind", None)
+        if callable(binder):
+            try:
+                target = binder(raw=True)
+            except Exception:
+                target = logger_obj
+
+    try:
+        target.info(payload)
+    except Exception:
+        return
+
+
 def _normalize_cmd_for_shell(raw: str | Iterable[str]) -> str:
     if isinstance(raw, str):
         return raw
@@ -105,6 +125,7 @@ class SubprocessJob:
     log_dir: str | None = None
     log_policy: str | None = None
     task_id: str | None = None
+    stream_logger: Any | None = None
     meta: Dict[str, Any] | None = None
 
     def __post_init__(self):
@@ -385,6 +406,7 @@ class AsyncSubprocessScheduler:
 
         task_id = str(job.task_id or uuid4())
         run_meta = dict(job.meta or {})
+        stream_logger = getattr(job, "stream_logger", None)
 
         if mode in {"file", "tee-limited"} and job.log_dir:
             task_dir = Path(job.log_dir).expanduser().resolve()
@@ -407,6 +429,23 @@ class AsyncSubprocessScheduler:
             cmd_display = _normalize_cmd_for_shell(job.cmd)
         else:
             cmd_display = " ".join(_normalize_cmd_for_exec(job.cmd))
+
+        job_logger = self.logger
+        if job_logger is not None:
+            module_name = str(run_meta.get("module") or "Subprocess").strip() or "Subprocess"
+            pack_id = run_meta.get("pack_id")
+            if pack_id not in (None, "", "None"):
+                module_name = f"{module_name}-{pack_id}"
+            binder = getattr(job_logger, "bind", None)
+            if callable(binder):
+                try:
+                    job_logger = binder(module=module_name)
+                except Exception:
+                    job_logger = self.logger
+            if mode in {"logger", "tee-limited"}:
+                job_logger.info(
+                    f" Run command -> \n\t{cmd_display} \n in path -> \n\t{job.cwd or '.'} \n Screen output -> "
+                )
 
         env = None
         if isinstance(job.env, Mapping):
@@ -447,6 +486,12 @@ class AsyncSubprocessScheduler:
             total = 0
             emitted = 0
             text_buffer = ""
+
+            def _emit_text(text: str) -> None:
+                _emit_log_line(job_logger, text, raw=True)
+                if stream_logger is not None and stream_logger is not job_logger:
+                    _emit_log_line(stream_logger, text, raw=True)
+
             while True:
                 chunk = await stream.read(self.config.chunk_size)
                 if not chunk:
@@ -454,28 +499,22 @@ class AsyncSubprocessScheduler:
                 total += len(chunk)
                 if sink_fh is not None:
                     sink_fh.write(chunk)
-                if mode == "logger" and self.logger is not None:
+                if mode == "logger" and job_logger is not None:
                     text_buffer += chunk.decode(errors="replace")
                     while "\n" in text_buffer:
                         line, text_buffer = text_buffer.split("\n", 1)
                         line = line.rstrip("\r")
                         if line:
-                            self.logger.info(
-                                f"[Subprocess][{task_id}][{stream_name}] {line}"
-                            )
-                if mode == "tee-limited" and self.logger is not None and emitted < 3:
+                            _emit_text(line)
+                if mode == "tee-limited" and job_logger is not None and emitted < 3:
                     text = chunk.decode(errors="ignore")
                     if text.strip():
                         emitted += 1
-                        self.logger.info(
-                            f"[Subprocess][{task_id}][{stream_name}] {text.strip()[:200]}"
-                        )
-            if mode == "logger" and self.logger is not None:
+                        _emit_text(text.strip()[:200])
+            if mode == "logger" and job_logger is not None:
                 tail = text_buffer.rstrip("\r")
                 if tail:
-                    self.logger.info(
-                        f"[Subprocess][{task_id}][{stream_name}] {tail}"
-                    )
+                    _emit_text(tail)
             if sink_fh is not None:
                 sink_fh.flush()
             return total

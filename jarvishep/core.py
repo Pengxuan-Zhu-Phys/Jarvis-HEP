@@ -247,7 +247,7 @@ class Core(Base):
             elif "Sample@" in module:
                 return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
             else:
-                return f"\n <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
+                return f"\n·•· <cyan>{module}</cyan> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level> "
 
         jarvislog = self.info["jarvis_log"]
 
@@ -685,6 +685,8 @@ class Core(Base):
             return logger_name in record['extra']['module']
         def custom_format(record):
             module = record["extra"].get("module", "No module")
+            if "raw" in record["extra"]:
+                return "{message}"
             return f"\n·•· <red>{module}</red> \n\t-> <green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - [<level>{record['level']}</level>] >>> \n<level>{{message}}</level>"
     
         # logger = self.logger.create_dynamic_logger(self.sampler.method)
@@ -814,6 +816,8 @@ class Core(Base):
 
         def _factory_format(record):
             module = record["extra"].get("module", "No module")
+            if "raw" in record["extra"]:
+                return "{message}"
             return (
                 f"\n·•· <magenta>{module}</magenta> \n\t-> "
                 f"<green>{record['time']:MM-DD HH:mm:ss.SSS}</green> - "

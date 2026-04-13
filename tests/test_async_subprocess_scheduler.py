@@ -18,6 +18,7 @@ from jarvishep.async_subprocess import (  # noqa: E402
     SubprocessJob,
     SubprocessRuntimeConfig,
 )
+from jarvishep.sample_logger import SampleLogger  # noqa: E402
 
 
 class _NoopLogger:
@@ -225,8 +226,66 @@ class TestAsyncSubprocessScheduler(unittest.TestCase):
         self.assertFalse((task_dir / "stderr.log").exists())
         self.assertFalse((task_dir / "meta.json").exists())
         joined = "\n".join(caplog.info_lines)
-        self.assertIn("[Subprocess][logger-001][stdout] hello", joined)
-        self.assertIn("[Subprocess][logger-001][stderr] err", joined)
+        self.assertIn("Run command ->", joined)
+        self.assertIn("Screen output ->", joined)
+        self.assertIn("hello", joined)
+        self.assertIn("err", joined)
+        self.assertNotIn("[Subprocess][logger-001][stdout]", joined)
+        self.assertNotIn("[Subprocess][logger-001][stderr]", joined)
+
+    def test_logger_policy_streams_raw_output_to_sample_logger(self):
+        cfg = SubprocessRuntimeConfig(
+            max_concurrency=1,
+            max_pending=4,
+            queue_put_timeout_sec=5.0,
+            per_task_timeout_sec=None,
+            terminate_grace_sec=0.2,
+            log_policy="logger",
+            progress_interval_sec=999.0,
+            diagnostics_enabled=False,
+            diagnostics_interval_sec=1.0,
+        )
+        caplog = _CaptureLogger()
+        self.scheduler = AsyncSubprocessScheduler(
+            config=cfg,
+            logger=caplog,
+            status_path=str(self.tmpdir / "status.jsonl"),
+        )
+
+        sample_log_path = self.tmpdir / "sample.log"
+        sample_logger = SampleLogger.open(
+            str(sample_log_path),
+            module="Sample@test-uuid",
+        )
+
+        try:
+            result = self.scheduler.run(
+                SubprocessJob(
+                    cmd=[
+                        sys.executable,
+                        "-c",
+                        "import sys; print('hello'); print('err', file=sys.stderr)",
+                    ],
+                    shell=False,
+                    log_dir=str(self.tmpdir / "tasks" / "logger-raw-001"),
+                    task_id="logger-raw-001",
+                    stream_logger=sample_logger,
+                ),
+                timeout=10.0,
+            )
+        finally:
+            sample_logger.close()
+
+        self.assertTrue(result.ok)
+
+        joined = "\n".join(caplog.info_lines)
+        self.assertIn("hello", joined)
+        self.assertIn("err", joined)
+
+        contents = sample_log_path.read_text(encoding="utf-8").splitlines()
+        self.assertIn("hello", contents)
+        self.assertIn("err", contents)
+        self.assertTrue(all("NTools-001" not in line for line in contents))
 
 
 if __name__ == "__main__":

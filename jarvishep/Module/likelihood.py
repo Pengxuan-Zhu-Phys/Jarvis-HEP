@@ -186,11 +186,21 @@ class LogLikelihood(Base):
         Returns:
             float: The calculated Likelihood value. If there are multiple expressions, the sum of their values is returned.
         """
+        slogger = None
         try: 
             slogger = self.update_logger(sample_info)
-            # Ensure that values for all variables are provided
-            assert {str(var) for var in self.variables}.issubset(values.keys()), "Not all variables have values provided."
-            total_loglikelihood = 0. 
+            required_vars = {str(var) for var in self.variables}
+            missing_vars = sorted(required_vars.difference(values.keys()))
+            if missing_vars:
+                message = "Not all variables have values provided: {}".format(
+                    ", ".join(missing_vars)
+                )
+                if slogger is not None:
+                    slogger.warning(message)
+                self.logger.warning(message)
+                return {"LogL": - inf}
+
+            total_loglikelihood = 0.0
             self.values = {}
             for name, expr, _var_names, var_name_set, num_expr in self._compiled_expressions:
                 symbol_values_strs = {str(key): value for key, value in values.items() if key in var_name_set}
@@ -206,6 +216,11 @@ class LogLikelihood(Base):
             values.update(self.values)
             return self.values 
         except Exception as exc:
+            if slogger is not None:
+                try:
+                    slogger.warning(exc)
+                except Exception:
+                    pass
             self.logger.warning(exc)
             # return {"LogL": float(-sp.core.numbers.Infinity())}
             return {"LogL": - inf}
@@ -222,6 +237,7 @@ class LogLikelihood(Base):
     def update_logger(self, sample_info):
         logger_name = f"{sample_info['logger_name']} (Likelihood)"
         parent_logger = sample_info.get("logger")
+        # Likelihood child logs must inherit the sample-local logger so they land in the sample log.
         if parent_logger is not None:
             return parent_logger.bind(
                 module=logger_name,

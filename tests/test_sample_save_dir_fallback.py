@@ -41,7 +41,7 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
             child = logger.bind(module="Sample@test-uuid (Calc-No.7)")
 
             child.info("hello world")
-            child.bind(raw=True).info("\tstdout line\n")
+            child.bind(raw=True).info("stdout line")
             child.warning("warn")
             logger.close()
 
@@ -51,8 +51,8 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
                     (
                         "\n·•· Sample@test-uuid (Calc-No.7) \n"
                         "\t-> 01-02 03:04:05.678 - [INFO] >>> \n"
-                        "hello world"
-                        "\tstdout line\n"
+                        "hello world\n"
+                        "stdout line\n"
                         "\n·•· Sample@test-uuid (Calc-No.7) \n"
                         "\t-> 01-02 03:04:05.678 - [WARNING] >>> \n"
                         "warn"
@@ -112,6 +112,48 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
                         "likelihood path check"
                     ),
                 )
+
+    def test_sample_logger_is_custom_adapter_not_loguru(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "Sample_running.log")
+            logger = SampleLogger.open(
+                log_path,
+                module="Sample@test-uuid",
+                time_provider=lambda: datetime(2026, 1, 2, 3, 4, 5, 678000),
+            )
+
+            try:
+                self.assertTrue(hasattr(logger, "bind"))
+                self.assertTrue(hasattr(logger, "info"))
+                self.assertTrue(hasattr(logger, "warning"))
+                self.assertFalse(hasattr(logger, "add"))
+            finally:
+                logger.close()
+
+    def test_likelihood_missing_inputs_are_logged_to_sample_logger(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "Sample_running.log")
+            fixed_dt = datetime(2026, 1, 2, 3, 4, 5, 678000)
+            logger = SampleLogger.open(
+                log_path,
+                module="Sample@test-uuid",
+                time_provider=lambda: fixed_dt,
+            )
+
+            sample_info = {
+                "logger": logger,
+                "logger_name": "Sample@test-uuid",
+            }
+            result = LogLikelihood([
+                {"name": "LogL_test", "expression": "x"},
+            ]).calculate({}, sample_info)
+            logger.close()
+
+            self.assertEqual(result, {"LogL": float("-inf")})
+            with open(log_path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertIn("Sample@test-uuid (Likelihood)", text)
+            self.assertIn("Not all variables have values provided: x", text)
 
     def test_sample_close_logs_summary_and_not_close_kv_footer(self):
         with tempfile.TemporaryDirectory() as tmpdir:
