@@ -64,6 +64,12 @@ class Core(Base):
     def _render_logo_banner(self) -> str:
         return render_logo_with_version(self.path["logo"])
 
+    def _sample_root_dir(self, task_result_dir: str) -> str:
+        sample_root = os.path.join(task_result_dir, "SAMPLE")
+        if self.mode == "1PC":
+            return os.path.join(sample_root, "tests")
+        return sample_root
+
     def init_argparser(self) -> None:
         self.argparser = argparse.ArgumentParser(description="Jarvis Program Help Center", formatter_class=argparse.RawTextHelpFormatter)
         self.info['args'] = load_args_config(self.path['args_info'])
@@ -186,7 +192,7 @@ class Core(Base):
 
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
-            "sample_dirs": os.path.join(task_result_dir, "SAMPLE"),
+            "sample_dirs": self._sample_root_dir(task_result_dir),
             "jarvis_log":  self.info['jarvis_log'],
             "archive_samples": archive_samples,
         }
@@ -200,7 +206,7 @@ class Core(Base):
 
         # Ensure directories exist (create minimal layout for plotting-only YAML)
         os.makedirs(task_result_dir, exist_ok=True)
-        os.makedirs(os.path.join(task_result_dir, "SAMPLE"), exist_ok=True)
+        os.makedirs(self.info["sample"]["sample_dirs"], exist_ok=True)
         os.makedirs(os.path.join(task_result_dir, "DATABASE"), exist_ok=True)
         os.makedirs(logs_dir, exist_ok=True)
         os.makedirs(images_dir, exist_ok=True)
@@ -413,17 +419,20 @@ class Core(Base):
 
         os.makedirs(checkpoint_root, exist_ok=True)
         slogger.warning(f"Configuring runtime checkpointing -> {checkpoint_root}")
+        allow_auto_resume = self._resume_checkpoint_policy != "fresh"
         self.sampler.configure_runtime_checkpointing(
             checkpoint_root,
             interval_seconds=30.0,
-            auto_resume=True,
+            auto_resume=allow_auto_resume,
             logger=slogger,
         )
         if self._resume_run_spec is not None:
             self.sampler.set_runtime_checkpoint_context(run_spec=self._resume_run_spec)
         if self._resume_factory_blueprint is not None:
             self.sampler.set_runtime_checkpoint_context(factory_blueprint=self._resume_factory_blueprint)
-        resumed = self.sampler.restore_runtime_checkpoint_if_available(self._resume_checkpoint_payload)
+        resumed = False
+        if allow_auto_resume:
+            resumed = self.sampler.restore_runtime_checkpoint_if_available(self._resume_checkpoint_payload)
         if resumed:
             slogger.warning("Breakpoint resume state restored into sampler runtime")
 
@@ -552,7 +561,7 @@ class Core(Base):
         if isinstance(task_result_dir, str) and task_result_dir:
             self.info.setdefault("sample", {})
             self.info["sample"]["task_result_dir"] = task_result_dir
-            self.info["sample"]["sample_dirs"] = os.path.join(task_result_dir, "SAMPLE")
+            self.info["sample"]["sample_dirs"] = self._sample_root_dir(task_result_dir)
             self.info.setdefault("db", {})
             self.info["db"]["path"] = os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
             self.info["db"]["info"] = os.path.join(task_result_dir, "DATABASE", "running.json")
@@ -614,6 +623,16 @@ class Core(Base):
             self._resume_run_spec = None
             self._resume_factory_blueprint = None
             self._resume_checkpoint_policy = "auto"
+            return
+
+        if self.mode == "1PC" and not getattr(self.args, "resume", False):
+            slogger.warning(
+                "Check-modules mode starts fresh and ignores existing checkpoints."
+            )
+            self._resume_checkpoint_payload = None
+            self._resume_run_spec = None
+            self._resume_factory_blueprint = None
+            self._resume_checkpoint_policy = "fresh"
             return
 
         checkpoint_root = self._checkpoint_root_for_sampler()
@@ -707,7 +726,8 @@ class Core(Base):
         self.yaml.vars = self.sampler.vars 
 
     def init_librarys(self) -> None:
-        if hasattr(self.yaml, "SupportLibrary"):
+        libdeps = getattr(self.yaml, "config", {}) or {}
+        if isinstance(libdeps, dict) and libdeps.get("LibDeps", {}).get("Modules"):
             self.libraries = Library()
             self.libraries._skip_library = self.args.skiplibrary
             # logger = self.logger.create_dynamic_logger("Library", logging.INFO)

@@ -77,6 +77,16 @@ class TestBucketAllocatorArchiveCoordination(unittest.TestCase):
             queued = manager._task_q.get_nowait()
             self.assertEqual(os.path.abspath(bucket_dir), queued)
 
+    def test_archive_manager_uses_project_database_for_check_modules_sample_root(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-archive-opc-") as tmp:
+            sample_root = os.path.join(tmp, "SAMPLE", "tests")
+            manager = SampleArchiveManager(sample_root=sample_root, enabled=False)
+            self.assertEqual(manager.database_root, os.path.join(tmp, "DATABASE"))
+            self.assertEqual(
+                manager.manifest_jsonl_path,
+                os.path.join(tmp, "DATABASE", "archive_manifest.jsonl"),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

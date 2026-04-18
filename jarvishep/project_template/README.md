@@ -33,6 +33,8 @@ Runtime directories are created automatically on first run:
 
 - `outputs/<scan>/DATABASE`: HDF5, CSV, schema, and run metadata
 - `outputs/<scan>/SAMPLE`: per-sample artifacts and sample-local logs
+  (`Jarvis ... --check-modules` uses `outputs/<scan>/SAMPLE/tests`)
+  (`DATABASE` remains `outputs/<scan>/DATABASE`, not under `SAMPLE/`)
 - `logs/<scan>/`: Jarvis / sampler / factory logs
 - `images/<scan>/`: plots, generated plotting YAML, semantic flowchart JSON, and workflow flowcharts
 

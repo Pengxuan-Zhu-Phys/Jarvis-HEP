@@ -254,6 +254,73 @@ class TestResumeContractMatrix(unittest.TestCase):
             self.assertFalse(os.path.exists(checkpoint_file))
             self.assertEqual(core._resume_checkpoint_policy, "fresh")
 
+    def test_check_modules_mode_ignores_existing_checkpoint_by_default(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-core-opc-") as tmp:
+            scan_name = "opc-scan"
+            checkpoint_root = os.path.join(tmp, "checkpoints", scan_name, "Grid")
+            os.makedirs(checkpoint_root, exist_ok=True)
+            checkpoint_file = os.path.join(checkpoint_root, "state.pkl")
+
+            payload = build_state_payload(
+                run_spec={
+                    "raw_yaml_text": "frozen",
+                    "normalized_config": deepcopy(_minimal_config("Grid")),
+                    "scan_name": scan_name,
+                    "task_root": tmp,
+                    "task_result_dir": os.path.join(tmp, "RESULTS"),
+                    "logs_dir": os.path.join(tmp, "LOGS"),
+                    "images_dir": os.path.join(tmp, "IMAGES"),
+                    "worker_parallel": 1,
+                    "sampler_method": "Grid",
+                    "workflow": {},
+                    "workflow_layers": {},
+                },
+                factory_blueprint={"max_workers": 1, "workflow": {}, "calc_layer": {}, "module_pools": {}},
+                sampler_state={
+                    "sampler_signature": {
+                        "method": "Grid",
+                        "dimensions": 1,
+                        "nchains": 1,
+                        "niters": 1,
+                        "variable_names": ["x"],
+                        "task_result_dir": os.path.join(tmp, "RESULTS"),
+                    },
+                    "state_machine": {"state": "INIT", "ready_queue": [], "chains": [], "extras": {}},
+                },
+                reason="unit-test",
+            )
+            StateSaver(checkpoint_file, logger=_NoopLogger()).save(payload)
+
+            core = Core()
+            core.args = SimpleNamespace(debug=False, plot=False, skipFC=True, skiplibrary=True, resume=False)
+            core.mode = "1PC"
+            core.path = {"task_root": tmp, "jpath": tmp, "logo": tmp, "args_info": tmp}
+            core.info = {
+                "scan_name": scan_name,
+                "project_name": scan_name,
+                "config_file": os.path.join(tmp, "current.yaml"),
+                "sample": {
+                    "task_result_dir": os.path.join(tmp, "RESULTS"),
+                    "sample_dirs": os.path.join(tmp, "RESULTS", "SAMPLE"),
+                    "archive_samples": False,
+                },
+                "logs_dir": os.path.join(tmp, "LOGS"),
+                "images_dir": os.path.join(tmp, "IMAGES"),
+            }
+            core.yaml.config = deepcopy(_minimal_config("Grid"))
+            core.yaml.get_sampling_method = lambda: "Grid"
+            core.yaml.get_worker_parallel = lambda: 1
+            core.sampler = SimpleNamespace(method="Grid")
+
+            with mock.patch.object(core, "_prompt_resume_from_checkpoint", side_effect=AssertionError("prompt must not be called")):
+                core._preload_resume_checkpoint()
+
+            self.assertIsNone(core._resume_checkpoint_payload)
+            self.assertIsNone(core._resume_run_spec)
+            self.assertIsNone(core._resume_factory_blueprint)
+            self.assertEqual(core._resume_checkpoint_policy, "fresh")
+            self.assertTrue(os.path.exists(checkpoint_file))
+
     def test_core_resume_prompt_defaults_to_resume_on_blank_input(self):
         core = Core()
         with contextlib.redirect_stdout(io.StringIO()):
@@ -328,6 +395,38 @@ class TestResumeContractMatrix(unittest.TestCase):
 
             self.assertIsInstance(core._resume_checkpoint_payload, dict)
             self.assertEqual(core._resume_checkpoint_policy, "resume")
+
+    def test_init_statesaver_skips_auto_resume_when_policy_is_fresh(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-core-statesaver-") as tmp:
+            class _FakeSampler:
+                method = "Random"
+
+                def __init__(self) -> None:
+                    self.configure_calls = []
+                    self.restore_calls = 0
+
+                def supports_runtime_checkpointing(self):
+                    return True
+
+                def configure_runtime_checkpointing(self, checkpoint_root, **kwargs):
+                    self.configure_calls.append((checkpoint_root, dict(kwargs)))
+
+                def restore_runtime_checkpoint_if_available(self, _payload=None):
+                    self.restore_calls += 1
+                    return False
+
+            core = Core()
+            core._resume_checkpoint_policy = "fresh"
+            core.path = {"task_root": tmp}
+            core.info = {"scan_name": "fresh-opc", "project_name": "fresh-opc"}
+            core.sampler = _FakeSampler()
+
+            core.init_StateSaver()
+
+            self.assertEqual(len(core.sampler.configure_calls), 1)
+            _root, kwargs = core.sampler.configure_calls[0]
+            self.assertFalse(kwargs.get("auto_resume", True))
+            self.assertEqual(core.sampler.restore_calls, 0)
 
     def test_module_manager_restore_factory_blueprint_fails_fast(self):
         manager = ModuleManager()

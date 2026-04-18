@@ -109,6 +109,13 @@ def _archive_worker(
 
 
 class SampleArchiveManager:
+    @staticmethod
+    def _database_root_from_sample_root(sample_root: str) -> str:
+        parent = os.path.dirname(sample_root)
+        if os.path.basename(parent) == "SAMPLE":
+            return os.path.join(os.path.dirname(parent), "DATABASE")
+        return os.path.join(parent, "DATABASE")
+
     def __init__(
         self,
         sample_root: str,
@@ -117,7 +124,7 @@ class SampleArchiveManager:
         queue_size: int = 256,
     ):
         self.sample_root = os.path.abspath(sample_root)
-        self.database_root = os.path.join(os.path.dirname(self.sample_root), "DATABASE")
+        self.database_root = self._database_root_from_sample_root(self.sample_root)
         self.manifest_jsonl_path = os.path.join(self.database_root, "archive_manifest.jsonl")
         self.logger = logger
         self.enabled = bool(enabled)

@@ -140,7 +140,7 @@ client.py (CLI) → core.py (Core)
 - **Path marker** `&J/` resolves to standalone project root (identified by `.jarvis-project.json` or `jarvis.project.yaml`)
 - **Runtime tokens**: `@SampleID` (sample UUID), `@Sdir` (sample save dir), `@PackID` (calculator instance ID)
 - **Checkpoint path**: `<task_root>/checkpoints/<scan_name>/<sampler>/state.pkl`
-- **Output structure**: `outputs/<scan>/DATABASE/` (HDF5, CSV), `outputs/<scan>/SAMPLE/` (per-sample artifacts)
+- **Output structure**: `outputs/<scan>/DATABASE/` (HDF5, CSV), `outputs/<scan>/SAMPLE/` (per-sample artifacts; `outputs/<scan>/SAMPLE/tests/` in `--check-modules`; `DATABASE` stays at `outputs/<scan>/DATABASE/`)
 - **Calculator YAML key**: `make_paraller` (intentional legacy spelling — do not rename)
 
 ---

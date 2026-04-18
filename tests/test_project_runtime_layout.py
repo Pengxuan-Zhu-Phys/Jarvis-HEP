@@ -119,6 +119,24 @@ class ProjectRuntimeLayoutTests(unittest.TestCase):
                 self._real(os.path.join(images_root, f"{scan_name}.yaml")),
             )
 
+    def test_check_modules_mode_uses_tests_subdirectory_for_sample_outputs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = create_project_scaffold("StandaloneC", cwd=tmpdir)
+            yaml_path = os.path.join(
+                project_root, "bin", "quickstart_mcmc_operas.yaml"
+            )
+
+            core = Core()
+            core.configure_runtime_context(config_path=yaml_path)
+            core.mode = "1PC"
+            core.args = SimpleNamespace(file=yaml_path, plot=False)
+            core.init_project()
+
+            scan_name = "quickstart_mcmc_operas"
+            expected = os.path.join(project_root, "outputs", scan_name, "SAMPLE", "tests")
+            self.assertEqual(self._real(core.info["sample"]["sample_dirs"]), self._real(expected))
+            self.assertTrue(os.path.isdir(expected))
+
 
 if __name__ == "__main__":
     unittest.main()

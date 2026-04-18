@@ -730,9 +730,10 @@ class Workflow(Base):
             self.add_module(module)
 
     def get_workflow_dict(self):
-        for kk, layer in self.layer_info.items():
+        for kk, layer in self.calc_layer.items():
             if kk > 1: 
-                self.workflow[kk] = list(layer.keys())
+                module_names = layer.get("module", []) if isinstance(layer, dict) else []
+                self.workflow[kk] = list(module_names)
     
     def resolve_layers(self):
         self.calc_layer = {}  

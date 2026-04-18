@@ -157,8 +157,10 @@ Typical project-local artifacts include:
 
 - `outputs/<scan>/DATABASE/...`
   HDF5 samples, schema files, CSV exports, and run metadata
+  (shared database path for normal runs and `--check-modules`)
 - `outputs/<scan>/SAMPLE/...`
   per-sample artifacts and retained files
+  (`--check-modules` writes under `outputs/<scan>/SAMPLE/tests/...`)
 - `logs/<scan>/...`
   Jarvis, sampler, and runtime logs
 - `images/<scan>/...`
@@ -194,7 +196,7 @@ Task YAML should use project-local `&J/...` paths. Package-owned resources are i
 | Token | Meaning |
 | --- | --- |
 | `@SampleID` | current sample UUID |
-| `@Sdir` | current sample save directory under `outputs/.../SAMPLE/<uuid>` |
+| `@Sdir` | current sample save directory under `outputs/.../SAMPLE/<uuid>` (or `outputs/.../SAMPLE/tests/<uuid>` in `--check-modules`) |
 | `@PackID` | calculator module instance ID, enables per-instance working directories and file paths |
 
 These runtime tokens are available on calculator workflow paths such as commands, working directories, and sample-scoped input/output file paths.
