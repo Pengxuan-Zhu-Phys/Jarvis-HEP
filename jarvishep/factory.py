@@ -117,6 +117,17 @@ class WorkerFactory:
             return None
         return max(0, attempts - 1)
 
+    def _module_failure_policy(self) -> str:
+        manager = getattr(self, "module_manager", None)
+        if manager is not None and hasattr(manager, "_module_failure_policy"):
+            try:
+                policy = str(manager._module_failure_policy()).strip().lower()
+            except Exception:
+                return "fail-fast"
+            if policy in {"continue", "continue-on-error"}:
+                return "continue"
+        return "fail-fast"
+
     def _execute_workflow_tracked(self, sample_info):
         start_monotonic = time.monotonic()
         retry_count = self._extract_retry_count(sample_info)
@@ -132,6 +143,24 @@ class WorkerFactory:
             result = self.module_manager.execute_workflow(sample_info)
             success = True
             return result
+        except Exception as exc:
+            if self._module_failure_policy() == "continue":
+                sample_uuid = (sample_info or {}).get("uuid", "UNKNOWN")
+                if isinstance(sample_info, dict):
+                    observables = sample_info.setdefault("observables", {})
+                    if isinstance(observables, dict):
+                        observables.setdefault("uuid", sample_uuid)
+                    sample_info["status"] = "Failed"
+                message = format_two_column_log(
+                    "Workflow exception downgraded by ModuleFailurePolicy=continue",
+                    [("uuid", sample_uuid), ("error", exc)],
+                )
+                if getattr(self, "log_executor", None) is not None:
+                    self.log_executor.submit(self.logger.error, message)
+                else:
+                    self.logger.error(message)
+                return 1.0
+            raise
         finally:
             end_monotonic = time.monotonic()
             duration_sec = max(0.0, end_monotonic - start_monotonic)

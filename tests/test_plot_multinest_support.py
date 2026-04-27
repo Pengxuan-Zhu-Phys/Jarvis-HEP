@@ -73,6 +73,10 @@ class PlotMultiNestSupportTests(unittest.TestCase):
             self.assertEqual(len(dynesty_like), 1)
             self.assertEqual(dynesty_like[0].get("path"), "DATABASE/multinest_result.csv")
 
+            figure_names = [fig.get("name") for fig in payload.get("Figures", [])]
+            self.assertIn("runplot", figure_names)
+            self.assertNotIn("dynesty_logL_vs_logX", figure_names)
+
 
 if __name__ == "__main__":
     unittest.main()

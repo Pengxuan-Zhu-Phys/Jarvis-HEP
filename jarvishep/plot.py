@@ -269,7 +269,7 @@ class JarvisPLOT(Base):
 
     def _build_dynesty_diagnostics_figure(self):
         return {
-            "name": "dynesty_logL_vs_logX",
+            "name": "runplot",
             "enable": True,
             "style": ["a4paper_2x1", "rect_5x1"],
             "frame": {

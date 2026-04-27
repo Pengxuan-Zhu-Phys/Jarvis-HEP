@@ -68,7 +68,7 @@ class ModuleManager:
 
     def _module_failure_policy(self) -> str:
         sampling_cfg = (self.config or {}).get("Sampling", {}) if isinstance(self.config, dict) else {}
-        raw_policy = str(sampling_cfg.get("ModuleFailurePolicy", "fail-fast")).strip().lower()
+        raw_policy = str(sampling_cfg.get("ModuleFailurePolicy", "continue")).strip().lower()
         if raw_policy in {"continue", "continue-on-error"}:
             return "continue"
         return "fail-fast"
@@ -89,6 +89,7 @@ class ModuleManager:
             f"Start execute workflow for sample -> {sample_info['uuid']} (module failure policy: {policy})"
         )
         observables = deepcopy(sample_info['observables'])
+        module_failed = False
         
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
@@ -99,12 +100,22 @@ class ModuleManager:
                 except Exception as exc:
                     self.logger.error(f"Module {module_name} generated an exception: {exc}")
                     if policy == "continue":
-                        continue
+                        module_failed = True
+                        break
                     raise
+
+            if module_failed:
+                break
 
             passed = self.nuisance_check(observables, sample_info)
             if not passed: 
                 return 1. 
+
+        if module_failed:
+            observables['uuid'] = sample_info['uuid']
+            sample_info['observables'] = observables
+            self.database.add_data(observables)
+            return 1.
         # After all modules have executed, calculate likelihood based on the final observables
         if self.config['Sampling'].get('LogLikelihood', False):
             observables = self.calculate_likelihood(observables, sample_info)

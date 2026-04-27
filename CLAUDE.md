@@ -327,7 +327,7 @@ Settings cascade manually through 4 layers: `Core → ModuleManager → ModulePo
 
 ## Undocumented Features (not in user-facing docs)
 
-- `Sampling.ModuleFailurePolicy`: config key accepted by `ModuleManager`; values `"fail-fast"` (default) or `"continue"`. Not in README or specs.
+- `Sampling.ModuleFailurePolicy`: config key accepted by `ModuleManager`; values `"continue"` (default) or `"fail-fast"`.
 - `Operas` module `call_mode: "acall"`: enables async operator dispatch. Not in docs.
 - `Runtime.Subprocess.*` keys (`max_concurrency`, `per_task_timeout_sec`, `log_policy`, etc.): full set of subprocess scheduler options not documented in README.
 - `ToyMCMC`: alias for `MCMC` in `distributor.py`. Not mentioned in README sampler list.

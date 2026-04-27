@@ -33,6 +33,20 @@ class _FakeModuleManager:
     def execute_workflow(self, sample_info):
         return float(sample_info.get("value", 1.0))
 
+    def _module_failure_policy(self):
+        return "fail-fast"
+
+
+class _RaisingModuleManager:
+    def __init__(self, policy="fail-fast"):
+        self._policy = str(policy)
+
+    def execute_workflow(self, sample_info):
+        raise RuntimeError("boom")
+
+    def _module_failure_policy(self):
+        return self._policy
+
 
 class FactoryShutdownSummaryTests(unittest.TestCase):
     def setUp(self):
@@ -123,6 +137,30 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
         self.assertEqual(len(warning_logs), 1)
         self.assertIn("Submitted 100 tasks, time for last 100 tasks:", info_logs[0])
         self.assertIn("Submitted 1000 tasks, time for last 1000 tasks:", warning_logs[0])
+
+    def test_continue_policy_downgrades_sample_exception_without_killing_factory(self):
+        logger = _CaptureLogger()
+        manager = _RaisingModuleManager(policy="continue")
+
+        factory = WorkerFactory()
+        factory.configure(module_manager=manager, max_workers=2)
+        factory.set_logger(logger)
+
+        sample_info = {"uuid": "u-fail", "observables": {"seed": 1}}
+        fut = factory.submit_task(sample_info)
+
+        self.assertEqual(fut.result(timeout=2.0), 1.0)
+        self.assertEqual(sample_info["status"], "Failed")
+
+        factory.shutdown(wait=True, cancel_futures=False)
+
+        self.assertEqual(factory.completed_ok, 0)
+        self.assertEqual(factory.completed_failed, 1)
+        errors = [
+            msg for level, msg in logger.records
+            if level == "ERROR" and "Workflow exception downgraded by ModuleFailurePolicy=continue" in msg
+        ]
+        self.assertTrue(errors)
 
     def test_low_throughput_mode_emits_minutely_summary(self):
         logger = _CaptureLogger()

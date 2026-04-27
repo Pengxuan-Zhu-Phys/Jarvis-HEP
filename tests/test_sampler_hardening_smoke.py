@@ -1884,10 +1884,10 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         self.assertTrue(sampler.evaluate_selection("x > 0.5", {"x": 0.7}))
         self.assertFalse(sampler.evaluate_selection("x > 0.5", {"x": 0.2}))
 
-    def test_module_failure_policy_fail_fast_default(self):
+    def test_module_failure_policy_fail_fast_override(self):
         manager = ModuleManager()
         manager.set_logger(_NoopLogger())
-        manager.set_config({"Sampling": {}})
+        manager.set_config({"Sampling": {"ModuleFailurePolicy": "fail-fast"}})
         manager.workflow = {2: ["bad"]}
         manager.module_pools = {"bad": _FailPool()}
         manager._database = _InMemoryDb()
@@ -1896,10 +1896,10 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             manager.execute_workflow(sample_info)
 
-    def test_module_failure_policy_continue_mode(self):
+    def test_module_failure_policy_continue_default_skips_remaining_modules_for_sample(self):
         manager = ModuleManager()
         manager.set_logger(_NoopLogger())
-        manager.set_config({"Sampling": {"ModuleFailurePolicy": "continue"}})
+        manager.set_config({"Sampling": {}})
         manager.workflow = {2: ["bad", "good"]}
         manager.module_pools = {"bad": _FailPool(), "good": _GoodPool()}
         manager._database = _InMemoryDb()
@@ -1907,8 +1907,9 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         sample_info = {"uuid": "s-002", "observables": {"seed": 1}, "logger": _NoopLogger()}
         result = manager.execute_workflow(sample_info)
         self.assertEqual(result, 1.0)
-        self.assertEqual(sample_info["observables"]["ok"], 2)
+        self.assertNotIn("ok", sample_info["observables"])
         self.assertEqual(len(manager.database.rows), 1)
+        self.assertEqual(manager.database.rows[0]["seed"], 1)
 
 
 if __name__ == "__main__":
