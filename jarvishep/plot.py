@@ -269,62 +269,7 @@ class JarvisPLOT(Base):
 
     def _build_dynesty_diagnostics_figure(self):
         return {
-            "name": "runplot",
+            "name": "dynesty_runplot",
             "enable": True,
-            "style": ["a4paper_2x1", "rect_5x1"],
-            "frame": {
-                "ax0": {"labels": {"x": "$-\\ln(X)$", "y": "$N_{\\mathrm{live}}$"}},
-                "ax1": {"labels": {"x": "$-\\ln(X)$", "y": "Likelihood"}},
-                "ax2": {"labels": {"x": "$-\\ln(X)$", "y": "Importance\nweight PDF"}},
-                "ax3": {"labels": {"x": "$-\\ln(X)$", "y": "Evidence"}},
-                "ax4": {"labels": {"x": "$-\\ln(X)$", "y": "Iters"}},
-            },
-            "layers": [
-                {
-                    "name": "nlive",
-                    "data": [{"source": "dynesty"}],
-                    "axes": "ax0",
-                    "method": "scatter",
-                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_nlive"}},
-                    "style": {"alpha": 0.7, "zorder": 1},
-                },
-                {
-                    "name": "loglike",
-                    "data": [{"source": "dynesty"}],
-                    "axes": "ax1",
-                    "method": "scatter",
-                    "coordinates": {
-                        "x": {"expr": "-log_PriorVolume"},
-                        "y": {"expr": "np.exp(log_Like) / np.exp(np.max(log_Like))"},
-                    },
-                    "style": {"alpha": 0.7, "zorder": 1},
-                },
-                {
-                    "name": "Importance\nweight PDF",
-                    "data": [{"source": "dynesty"}],
-                    "axes": "ax2",
-                    "method": "scatter",
-                    "coordinates": {
-                        "x": {"expr": "-log_PriorVolume"},
-                        "y": {"expr": "np.exp(log_weight) / np.exp(np.max(log_weight))"},
-                    },
-                    "style": {"alpha": 0.7, "zorder": 1},
-                },
-                {
-                    "name": "logevidence",
-                    "data": [{"source": "dynesty"}],
-                    "axes": "ax3",
-                    "method": "scatter",
-                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "np.exp(log_Evidence)"}},
-                    "style": {"alpha": 0.7, "zorder": 1},
-                },
-                {
-                    "name": "iters",
-                    "data": [{"source": "dynesty"}],
-                    "axes": "ax4",
-                    "method": "scatter",
-                    "coordinates": {"x": {"expr": "-log_PriorVolume"}, "y": {"expr": "samples_it"}},
-                    "style": {"alpha": 0.7, "zorder": 1},
-                },
-            ],
+            "style": ["a4paper_2x1", "dynesty_runplot"],
         }
