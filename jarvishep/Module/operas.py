@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import queue
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -51,6 +53,9 @@ class OperasModule(Module):
         self.output = config.get("output", []) or []
         self.kwargs = config.get("kwargs", {}) or {}
         self.call_mode = self._normalize_call_mode(config.get("call_mode", "call"))
+        self.timeout_sec = self._normalize_timeout(
+            config.get("timeout_sec", config.get("timeout"))
+        )
         self._funcs = {}
         self._registry = None
         self._init_io_specs()
@@ -71,6 +76,18 @@ class OperasModule(Module):
         if normalized not in {"call", "acall"}:
             raise ValueError(f"Unsupported Operas call_mode '{mode}'. Expected 'call' or 'acall'.")
         return normalized
+
+    @staticmethod
+    def _normalize_timeout(value):
+        if value is None:
+            return None
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Unsupported Operas timeout_sec '{value}'. Expected a positive number or null.")
+        if timeout <= 0:
+            return None
+        return timeout
 
     def _init_io_specs(self):
         import sympy as sp
@@ -179,6 +196,35 @@ class OperasModule(Module):
             return loop.run_until_complete(coro)
         finally:
             loop.close()
+
+    @staticmethod
+    def _run_with_timeout(callable_obj, timeout_sec, timeout_label):
+        if timeout_sec is None:
+            return callable_obj()
+
+        result_queue = queue.Queue(maxsize=1)
+
+        def _target():
+            try:
+                result_queue.put((True, callable_obj()))
+            except BaseException as exc:
+                result_queue.put((False, exc))
+
+        worker = threading.Thread(
+            target=_target,
+            name=f"JarvisOperasTimeoutGuard:{timeout_label}",
+            daemon=True,
+        )
+        worker.start()
+        try:
+            ok, value = result_queue.get(timeout=timeout_sec)
+        except queue.Empty:
+            raise TimeoutError(
+                f"Operas call timed out after {timeout_sec:g}s -> {timeout_label}"
+            )
+        if ok:
+            return value
+        raise value
 
     def _resolve_operator_signature(self, registry):
         resolved_operator = registry.resolve_name(self.operator)
@@ -309,13 +355,28 @@ class OperasModule(Module):
             if slogger is not None
             else None
         )
+        if registry_logger is not None:
+            call_kwargs.setdefault("sample_logger", registry_logger)
+            call_kwargs, _ = self._filter_call_kwargs(
+                call_kwargs,
+                accepted_kwargs,
+                accepts_var_kwargs,
+            )
 
         if self.call_mode == "acall":
-            result = self._run_coro(
-                registry.acall(resolved_operator, logger=registry_logger, **call_kwargs)
+            result = self._run_with_timeout(
+                lambda: self._run_coro(
+                    registry.acall(resolved_operator, logger=registry_logger, **call_kwargs)
+                ),
+                self.timeout_sec,
+                resolved_operator,
             )
         else:
-            result = registry.call(resolved_operator, logger=registry_logger, **call_kwargs)
+            result = self._run_with_timeout(
+                lambda: registry.call(resolved_operator, logger=registry_logger, **call_kwargs),
+                self.timeout_sec,
+                resolved_operator,
+            )
         output_specs = [
             spec for spec in self.output if isinstance(spec, dict) and "name" in spec
         ]

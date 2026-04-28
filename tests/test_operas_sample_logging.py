@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime
 
@@ -19,22 +20,46 @@ from jarvishep.sample_logger import SampleLogger  # noqa: E402
 
 
 class _FakeOperasRegistry:
+    seen_logger = None
+
     @staticmethod
     def resolve_name(name):
         return name
 
     @staticmethod
     def get(_name):
-        def _operator(x=None, y=None, uuid=None, observables=None):
+        def _operator(x=None, y=None, uuid=None, observables=None, sample_logger=None):
             return {"z": float(x) + float(y)}
 
         return _operator
 
-    @staticmethod
-    def call(_name, logger=None, **kwargs):
+    @classmethod
+    def call(cls, _name, logger=None, **kwargs):
+        cls.seen_logger = kwargs.get("sample_logger")
         if logger is not None:
             logger.debug("dispatched call")
+        if kwargs.get("sample_logger") is not None:
+            kwargs["sample_logger"].info("operator received sample logger")
         return {"z": float(kwargs["x"]) + float(kwargs["y"])}
+
+
+class _BlockingAsyncOperasRegistry:
+    @staticmethod
+    def resolve_name(name):
+        return name
+
+    @staticmethod
+    def get(_name):
+        async def _operator(x=None):
+            time.sleep(0.25)
+            return {"z": x}
+
+        return _operator
+
+    @staticmethod
+    async def acall(_name, logger=None, **kwargs):
+        time.sleep(0.25)
+        return {"z": kwargs["x"]}
 
 
 class OperasSampleLoggingTests(unittest.TestCase):
@@ -81,6 +106,27 @@ class OperasSampleLoggingTests(unittest.TestCase):
             self.assertNotIn("Operas input kwargs", text)
             self.assertNotIn("np.float64", text)
             self.assertNotIn("dispatched call", text)
+            self.assertIn("operator received sample logger", text)
+            self.assertIsNotNone(_FakeOperasRegistry.seen_logger)
+
+    def test_operas_acall_timeout_escapes_blocked_coroutine(self):
+        module = OperasModule(
+            "SlowOperas",
+            {
+                "operator": "helper.slow",
+                "input": [],
+                "output": [{"name": "z"}],
+                "kwargs": {},
+                "call_mode": "acall",
+                "timeout_sec": 0.05,
+            },
+        )
+        module._registry = _BlockingAsyncOperasRegistry()
+
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "Operas call timed out"):
+            module.execute({"x": 1.0, "uuid": "test-uuid"}, {})
+        self.assertLess(time.monotonic() - started, 0.2)
 
 
 if __name__ == "__main__":

@@ -1069,15 +1069,36 @@ class Core(Base):
             self.logger.error(f"An error occurred: {e}")
 
         finally:
-            self.factory.shutdown()
-            self.module_manager.database.stop()
-            self.shutdown_io_manager()
+            cleanup_errors = []
+
+            def _cleanup_step(step_name, fn):
+                try:
+                    fn()
+                except Exception as exc:
+                    cleanup_errors.append((step_name, exc))
+                    self.logger.error(f"Cleanup step failed -> {step_name} -> {exc}")
+
+            _cleanup_step(
+                "sampler.persist_runtime_checkpoint",
+                lambda: self.sampler.persist_runtime_checkpoint(force=True, reason="check_modules_cleanup"),
+            )
+            _cleanup_step("factory.shutdown", self.factory.shutdown)
+            _cleanup_step("database.stop", self.module_manager.database.stop)
+            _cleanup_step(
+                "sampler.shutdown_runtime_checkpointing",
+                lambda: getattr(self.sampler, "shutdown_runtime_checkpointing", lambda: None)(),
+            )
+            _cleanup_step("sampler.finalize_sample_archive", self.sampler.finalize_sample_archive)
+            _cleanup_step("io_manager.shutdown", self.shutdown_io_manager)
 
             from time import time
             start = time()
             tot = 1000 * (time() - start)
             self.logger.info(f"{tot} millisecond -> All samples have been processed.")
             self._emit_run_summary()
+            if cleanup_errors:
+                first_step, first_exc = cleanup_errors[0]
+                raise RuntimeError(f"Cleanup failed after check-modules -> {first_step}") from first_exc
             # self.monitor.stop()
 
     def run_until_finished(self):
