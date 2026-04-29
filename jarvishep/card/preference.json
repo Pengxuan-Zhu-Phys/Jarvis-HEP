@@ -1,0 +1,31 @@
+{
+    "Schema":  {
+        "GridSchema":       "card/schema/Grid_schema.json",
+        "BridsonSchema":    "card/schema/Bridson_schema.json",
+        "DiverSchema":      "card/schema/Diver_schema.json",
+        "DynestySchema":    "card/schema/Dynesty_schema.json",
+        "MultiNestSchema":  "card/schema/MultiNest_schema.json",
+        "RandomSchema":     "card/schema/Random_schema.json",
+        "CSVSchema":        "card/schema/CSV_schema.json",
+        "DNNSchema":        "card/schema/DNN_schema.json",
+        "MCMCSchema":       "card/schema/MCMC_schema.json",
+        "DEMCMCSchema":     "card/schema/DEMCMC_schema.json",
+        "DREAMSchema":      "card/schema/DREAM_schema.json",
+        "DREAMLiteSchema":  "card/schema/DREAMLite_schema.json",
+        "EnsembleSchema":   "card/schema/Ensemble_schema.json",
+        "PTEnsembleSchema": "card/schema/PTEnsemble_schema.json",
+        "SliceSchema":      "card/schema/SliceMCMC_schema.json",
+        "ESSSchema":        "card/schema/ESS_schema.json",
+        "MALASchema":       "card/schema/MALA_schema.json",
+        "HMCSchema":        "card/schema/HMC_schema.json",
+        "NUTSSchema":       "card/schema/NUTS_schema.json",
+        "TPMCMCSchema":     "card/schema/TPMCMC_schema.json",
+        "RLTPMCMCSchema":   "card/schema/RLTPMCMC_schema.json"
+    },
+    "SchemaBlock":  {
+        "input":    "card/schema/inputs.json",
+        "output":   "card/schema/outputs.json",
+        "Nuisance": "card/schema/Nuisance_schema.json"
+    },
+    "logo":    "card/logo"
+}

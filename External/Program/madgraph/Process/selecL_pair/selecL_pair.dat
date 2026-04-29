@@ -1,3 +1,0 @@
-import model MSSM_SLHA2 
-generate e+ e- > el+ > el- e+ n1 
-output seleL

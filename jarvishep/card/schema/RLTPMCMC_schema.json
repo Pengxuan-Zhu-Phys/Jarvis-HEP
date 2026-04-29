@@ -1,0 +1,345 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "variable": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "distribution": {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "type": "string"
+                        },
+                        "parameters": {
+                            "type": "object"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "parameters"
+                    ],
+                    "additionalProperties": true
+                }
+            },
+            "required": [
+                "name",
+                "description",
+                "distribution"
+            ],
+            "additionalProperties": false
+        },
+        "loglikelihood": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "expression": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "name",
+                "expression"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "type": "object",
+    "properties": {
+        "Scan": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "save_dir": {
+                    "type": "string"
+                },
+                "sample_directory": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "width": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "archive_samples": {
+                            "type": "boolean"
+                        },
+                        "archive_prune": {
+                            "type": "boolean"
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "name",
+                "save_dir"
+            ],
+            "additionalProperties": false
+        },
+        "Sampling": {
+            "type": "object",
+            "properties": {
+                "Method": {
+                    "const": "RLTPMCMC"
+                },
+                "Variables": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/variable"
+                    },
+                    "minItems": 1
+                },
+                "LogLikelihood": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/loglikelihood"
+                    },
+                    "minItems": 1
+                },
+                "selection": {
+                    "type": "string"
+                },
+                "Bounds": {
+                    "type": "object",
+                    "properties": {
+                        "num_chains": {
+                            "type": "integer",
+                            "minimum": 2
+                        },
+                        "num_iters": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "exchange_interval": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "proposal_scales": {
+                            "oneOf": [
+                                {
+                                    "type": "number",
+                                    "exclusiveMinimum": 0.0
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "number",
+                                        "exclusiveMinimum": 0.0
+                                    },
+                                    "minItems": 1
+                                }
+                            ]
+                        },
+                        "temperature_ladder": {
+                            "type": "array",
+                            "items": {
+                                "type": "number",
+                                "exclusiveMinimum": 0.0
+                            },
+                            "minItems": 2
+                        }
+                    },
+                    "required": [
+                        "num_chains",
+                        "num_iters",
+                        "exchange_interval",
+                        "proposal_scales"
+                    ],
+                    "additionalProperties": true
+                },
+                "Control": {
+                    "type": "object",
+                    "properties": {
+                        "controller": {
+                            "type": "string",
+                            "enum": [
+                                "none",
+                                "ppo"
+                            ]
+                        },
+                        "adaptation_mode": {
+                            "type": "string",
+                            "enum": [
+                                "train",
+                                "frozen",
+                                "scheduled"
+                            ]
+                        },
+                        "decision_interval": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "smoothing": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0
+                        },
+                        "max_action_magnitude": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        },
+                        "freeze_after_burnin": {
+                            "type": "boolean"
+                        },
+                        "burnin_iters": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "deterministic_eval": {
+                            "type": "boolean"
+                        },
+                        "min_beta_floor": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        },
+                        "min_proposal_scale": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        },
+                        "max_proposal_scale": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "Reward": {
+                    "type": "object",
+                    "properties": {
+                        "ess_weight": {
+                            "type": "number"
+                        },
+                        "round_trip_weight": {
+                            "type": "number"
+                        },
+                        "swap_weight": {
+                            "type": "number"
+                        },
+                        "discovery_weight": {
+                            "type": "number"
+                        },
+                        "swap_target": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0
+                        },
+                        "discovery_metric": {
+                            "type": "string"
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "PPO": {
+                    "type": "object",
+                    "properties": {
+                        "backend": {
+                            "type": "string",
+                            "enum": [
+                                "torch",
+                                "numpy"
+                            ]
+                        },
+                        "rollout_size": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "epochs": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "gamma": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0
+                        },
+                        "gae_lambda": {
+                            "type": "number",
+                            "minimum": 0.0,
+                            "maximum": 1.0
+                        },
+                        "clip_ratio": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        },
+                        "learning_rate": {
+                            "type": "number",
+                            "exclusiveMinimum": 0.0
+                        },
+                        "entropy_coef": {
+                            "type": "number",
+                            "minimum": 0.0
+                        },
+                        "value_coef": {
+                            "type": "number",
+                            "minimum": 0.0
+                        },
+                        "hidden_sizes": {
+                            "type": "array",
+                            "items": {
+                                "type": "integer",
+                                "minimum": 1
+                            },
+                            "minItems": 1
+                        },
+                        "seed": {
+                            "type": "integer"
+                        },
+                        "device": {
+                            "type": "string"
+                        },
+                        "resume_from": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
+                },
+                "Diagnostics": {
+                    "type": "object",
+                    "properties": {
+                        "state_window": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "reward_window": {
+                            "type": "integer",
+                            "minimum": 1
+                        },
+                        "log_interval": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "additionalProperties": false
+                }
+            },
+            "required": [
+                "Method",
+                "Variables",
+                "LogLikelihood",
+                "Bounds"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "required": [
+        "Scan",
+        "Sampling"
+    ],
+    "additionalProperties": true
+}

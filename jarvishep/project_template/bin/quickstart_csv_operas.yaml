@@ -1,0 +1,39 @@
+Scan:
+  name: "quickstart_csv_operas"
+  save_dir: "&J/outputs"
+  sample_directory:
+    limit: 200
+    width: 6
+    archive_samples: true
+
+Sampling:
+  Method: "CSV"
+  CSV:
+    path: "&J/data/points.csv"
+    uuid_column: "uuid"
+    variables: ["x", "y"]
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  OS:
+    - name: linux
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+
+Operas:
+  make_paraller: 8
+  Modules:
+    - name: EggBox
+      operator: "helper.eggbox2d"
+      call_mode: call
+      required_modules: []
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}

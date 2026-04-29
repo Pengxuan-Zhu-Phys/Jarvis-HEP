@@ -1,123 +1,243 @@
+<div align="center">
+
 # Jarvis-HEP
 
-Jarvis-HEP (Just a Really Viable Interface to Suites for High Energy Physics) is an open-source, modular Python framework for
-likelihood-based parameter scanning and global fits in
-high-energy physics phenomenology.
+**YAML-driven orchestration for likelihood-based HEP scans**
 
-The project focuses on **robust sampling strategies**, **nuisance-parameter handling**, and **scalable asynchronous workflows**, with an emphasis on *profile likelihood*–oriented studies commonly encountered in modern collider phenomenology.
+Run external calculators, explore difficult parameter spaces, persist structured outputs, and finish each run with explicit diagnostics.
 
----
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-111111)
+![PyPI](https://img.shields.io/pypi/v/Jarvis-HEP)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.25557-b31b1b.svg)](https://arxiv.org/abs/2604.25557)
 
-## Motivation
+</div>
 
-Modern HEP analyses often suffer from:
-- Extremely sparse viable regions in high-dimensional parameter spaces
-- Expensive external likelihood evaluations (collider simulations, Higgs constraints, flavour physics, etc.)
-- Non-trivial treatment of nuisance parameters
-- Poor reproducibility and opaque analysis pipelines
+## Why Jarvis-HEP
 
-Jarvis-HEP is designed to address these issues by providing:
-- A **unified orchestration layer** for sampling, likelihoods, and external tools
-- Explicit separation between **parameters of interest** and **nuisance parameters**
-- Flexible, engineering-oriented solutions such as **profile likelihood–based inference**
-- Transparent data management and diagnostic logging
+Jarvis-HEP is built for scan workflows that are painful to manage by hand:
 
----
+- expensive external calculators
+- sparse or fine-tuned parameter regions
+- profile-likelihood style workflows
+- output bookkeeping that needs to stay reproducible
 
-## Key Features
+The project keeps those concerns in one runtime: task YAML, sampler choice, calculator orchestration, persisted outputs, and operator-facing diagnostics.
 
-### Sampling & Exploration
-- Multiple sampling strategies (random, grid-like, adaptive, nested-style, and custom algorithms)
-- Designed for **highly constrained and fine-tuned** parameter spaces
-- Iterator-style, point-level sampling (not generation-locked)
+## At A Glance
 
-### Likelihood & Nuisance Parameters
-- Native support for **profile likelihood construction**
-- Dedicated nuisance-parameter samplers decoupled from main exploration
-- Fast evaluation paths for nuisance optimization
+| Problem | Jarvis-HEP answer |
+| --- | --- |
+| External program orchestration | Ordered calculator workflow with async-friendly execution |
+| Hard-to-scan parameter spaces | Multiple sampler families, from random and Bridson to nested and MCMC-based methods |
+| Output sprawl | Project-local outputs, logs, images, and packaged rerun workflows |
+| Post-run analysis | HDF5 storage plus schema-driven CSV conversion |
+| Run visibility | Logger-routed diagnostics and end-of-run summaries |
 
-### Architecture
-- Pure Python implementation
-- Asynchronous execution of expensive external programs
-- Modular factory-based design (samplers, likelihoods, IO, monitors)
-- YAML-driven configuration for reproducibility
+## Quick Start
 
-### Data Handling & Diagnostics
-- HDF5-based structured output
-- Explicit resource and file-handle monitoring
-- Detailed logging via `loguru`
-- Designed to survive partial failures (no silent data loss)
-
-### Visualization
-- Dynamic sampling visualizations (under active development)
-- Designed to interface with the standalone plotting package **JarvisPLOT**
-
-Example visualization of an adaptive sampling procedure:  
-👉 https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/simu/sample_dynamic_viz.gif
-
----
-📘 **Full documentation and tutorials are hosted on a dedicated documentation site:**
-
-👉 https://pengxuan-zhu-phys.github.io/Jarvis-Docs/
----
-
-## Installation
-
-Jarvis-HEP is a **pure Python** project. No need to compile, but need to install all python Dependencies.
-
-### Dependencies
-
-Install required packages via `pip`:
+### 1. Install
 
 ```bash
-python3 -m pip install \
-  numpy scipy pandas pyyaml h5py matplotlib \
-  dynesty pyhf networkx shapely sympy \
-  xslha pyslha xmltodict \
-  sqlalchemy aiofiles dill emoji prettytable loguru
+python3 -m pip install Jarvis-HEP
 ```
 
-### Create a standalone project workspace
+The default install also brings in `Jarvis-Operas`, because the built-in quickstarts use it.
 
-Use `--mkproject` to create a fresh Jarvis project directory in your current working path:
+### 2. Create a standalone project
 
 ```bash
-./Jarvis --mkproject PROJECT_NAME
+Jarvis project create MyScan
+cd MyScan
 ```
 
-This creates:
-- `PROJECT_NAME/bin` for YAML cards
-- `PROJECT_NAME/Library` for source libraries
-- `PROJECT_NAME/Workshop` for workflow files
-- `PROJECT_NAME/Result` for outputs
+This creates a minimal project scaffold:
 
----
+```text
+MyScan/
+├── bin/
+├── data/
+├── deps/
+├── .jarvis-project.json
+└── jarvis.project.yaml
+```
 
-## Contributing
+The marker files (`.jarvis-project.json`, `jarvis.project.yaml`) identify the standalone project root.
 
-Contributions are welcome in all forms, including feature proposals, documentation improvements, bug reports, and bug fixes.  
-Please refer to `CONTRIBUTING.md` for guidelines on how to get started.
+Runtime artifact directories such as `outputs/`, `logs/`, and `images/` are created automatically on first use.
 
----
+Project command reference:
+
+```bash
+Jarvis project --help
+```
+
+### 3. Run the built-in quickstart
+
+```bash
+Jarvis bin/quickstart_mcmc_operas.yaml
+```
+
+You can also replay tabulated points directly:
+
+```bash
+Jarvis bin/quickstart_csv_operas.yaml
+```
+
+### 4. Package a project
+
+```bash
+Jarvis project pack [path] [--share | --repro | --full]
+```
+
+Modes:
+
+- `--share`: lighter result-sharing package (default)
+- `--repro`: unpack-and-rerun package
+- `--full`: full archival package
+
+If no mode flag is provided, `--share` is used. Use `.` to pack the current directory.
+
+### 5. Browse the official Jarvis library
+
+```bash
+Jarvis project browse
+Jarvis project info Example_Bridson
+Jarvis project fetch Example_Bridson
+```
+
+### Resume and re-run
+
+Jarvis-HEP writes a single checkpoint file per sampler at:
+
+```text
+<task_root>/checkpoints/<scan_name>/<sampler>/state.pkl
+```
+
+Use `--resume` to continue from the latest checkpoint without any prompt:
+
+```bash
+Jarvis bin/quickstart_mcmc_operas.yaml --resume
+```
+
+If you do not pass `--resume` and a checkpoint already exists, Jarvis-HEP prompts in English:
+
+```text
+Detected checkpoint file. Re-run from scratch? [y/N] (default: resume in 30s):
+```
+
+Behavior of that prompt:
+
+- `y` / `yes` starts a fresh run and discards the existing checkpoint file
+- pressing Enter resumes from the checkpoint
+- typing anything else also resumes from the checkpoint
+- no response for 30 seconds also resumes from the checkpoint
+
+If no checkpoint exists, Jarvis-HEP starts a fresh run immediately.
+
+## Core Workflow
+
+```mermaid
+flowchart LR
+    A["Task YAML"] --> B["Sampler"]
+    B --> C["Factory / Workflow"]
+    C --> D["Calculator Modules"]
+    D --> E["Structured Outputs"]
+    D --> F["Logs And Run Summary"]
+```
+
+Inside calculator modules, the maintained execution order is:
+
+1. write input files
+2. run external commands
+3. read output files
+
+## What Jarvis-HEP Produces
+
+Typical project-local artifacts include:
+
+- `outputs/<scan>/DATABASE/...`
+  HDF5 samples, schema files, CSV exports, and run metadata
+  (shared database path for normal runs and `--check-modules`)
+- `outputs/<scan>/SAMPLE/...`
+  per-sample artifacts and retained files
+  (`--check-modules` writes under `outputs/<scan>/SAMPLE/tests/...`)
+- `logs/<scan>/...`
+  Jarvis, sampler, and runtime logs
+- `images/<scan>/...`
+  generated plot configs, semantic flowchart JSON, and figures
+- `run_summary.json`, `run_summary.csv`, `run_summary.txt`
+  machine-readable and human-readable end-of-run summaries
+
+## Sampling Support
+
+Jarvis-HEP currently includes:
+
+- random, grid, and CSV replay workflows
+- Bridson sampling
+- nested sampling: `Dynesty`, `MultiNest`
+- differential-evolution sampling: `Diver`
+- MCMC-family methods: `MCMC`, `PTMCMC`, `AMMCMC`, `RobustAM`, `DRAM`, `DEMCMC`, `DREAM`, `DREAMLite`, `EnsembleMCMC`, `PTEnsemble`, `SliceMCMC`, and `ESS`
+- gradient-family methods: `MALA`, `HMC`, `NUTS`
+- DNN-assisted iterative sampling
+- experimental `RLTPMCMC`
+
+> `RLTPMCMC` is experimental as of `v1.6.11`.
+
+## Path Markers
+
+| Marker | Meaning |
+| --- | --- |
+| `&J/...` | standalone project root |
+
+Task YAML should use project-local `&J/...` paths. Package-owned resources are internal implementation details, not a public path marker.
+
+## Runtime Tokens
+
+| Token | Meaning |
+| --- | --- |
+| `@SampleID` | current sample UUID |
+| `@Sdir` | current sample save directory under `outputs/.../SAMPLE/<uuid>` (or `outputs/.../SAMPLE/tests/<uuid>` in `--check-modules`) |
+| `@PackID` | calculator module instance ID, enables per-instance working directories and file paths |
+
+These runtime tokens are available on calculator workflow paths such as commands, working directories, and sample-scoped input/output file paths.
+
+## Design Principles
+
+- no repo-root requirement for normal usage
+- project-local outputs by default
+- explicit logging instead of silent failure paths
+- structured outputs that remain post-processable after the run
+- runtime diagnostics that are additive, not bolted on later
+
+## Documentation
+
+- Online docs: <https://pengxuan-zhu-phys.github.io/Jarvis-Docs/>
+- Project homepage: <https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP>
+- CLI reference: `Jarvis --help`
+- Project workflow reference: `Jarvis project --help`
+
+## Citation
+
+Jarvis-HEP is described in:
+
+Erdong Guo, Paul Jackson, Jin Min Yang, and Pengxuan Zhu,
+*Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics*,
+arXiv:2604.25557 [hep-ph], 2026.
+
+```bibtex
+@misc{guo2026jarvishep,
+  title         = {Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics},
+  author        = {Guo, Erdong and Jackson, Paul and Yang, Jin Min and Zhu, Pengxuan},
+  year          = {2026},
+  eprint        = {2604.25557},
+  archivePrefix = {arXiv},
+  primaryClass  = {hep-ph},
+  doi           = {10.48550/arXiv.2604.25557},
+  url           = {https://arxiv.org/abs/2604.25557}
+}
+```
 
 ## License
 
-Jarvis-HEP is released under the **MIT License**.  
-See the [`LICENSE`](LICENSE) file for details.
-
----
-
-## Acknowledgements
-
-The author thanks  
-**Yang Zhang** and **Liangliang Shang**  
-for helpful discussions during the development of this project.
-
----
-
-## References
-
-- **Exploring supersymmetry with machine learning**  
-  Jie Ren, Lei Wu, Jin-Ming Yang, Jun Zhao  
-  *Nuclear Physics B*, 2019  
-  arXiv:1708.06615
+Jarvis-HEP is released under the **MIT License**. See [LICENSE](LICENSE).

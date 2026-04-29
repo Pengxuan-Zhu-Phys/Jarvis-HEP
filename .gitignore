@@ -8,6 +8,15 @@ demos/
 Results/
 TestScan/
 WorkShop/
+trash/
+
+# Legacy runtime paths (pre-PyPI layout)
+Jarvis
+src/
+docs/
+github-ci/
+benchmarks/
+
 src/__pycache__/
 src/IOs/__pycache__/
 src/Module/__pycache__/
@@ -18,6 +27,9 @@ src/Sampling/__pycache__/
 # Ignore Python bytecode files
 *.pyc
 __pycache__/
+build/
+dist/
+*.egg-info/
 
 # Ignore Python bytecode files
 *.pyc
@@ -36,5 +48,17 @@ src/.DS_Store
 # VSCode 
 .vscode/
 
+.cache/
+.claude/
+github CI/
+
 #WARP
 WARP.md 
+
+# PyPI/release workflow local ignores
+jhrel
+.pypirc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+pip-wheel-metadata/
