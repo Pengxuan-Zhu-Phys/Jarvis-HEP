@@ -9,6 +9,7 @@ Run external calculators, explore difficult parameter spaces, persist structured
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-111111)
 ![PyPI](https://img.shields.io/pypi/v/Jarvis-HEP)
+[![arXiv](https://img.shields.io/badge/arXiv-2604.25557-b31b1b.svg)](https://arxiv.org/abs/2604.25557)
 
 </div>
 
@@ -215,6 +216,27 @@ These runtime tokens are available on calculator workflow paths such as commands
 - Project homepage: <https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP>
 - CLI reference: `Jarvis --help`
 - Project workflow reference: `Jarvis project --help`
+
+## Citation
+
+Jarvis-HEP is described in:
+
+Erdong Guo, Paul Jackson, Jin Min Yang, and Pengxuan Zhu,
+*Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics*,
+arXiv:2604.25557 [hep-ph], 2026.
+
+```bibtex
+@misc{guo2026jarvishep,
+  title         = {Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics},
+  author        = {Guo, Erdong and Jackson, Paul and Yang, Jin Min and Zhu, Pengxuan},
+  year          = {2026},
+  eprint        = {2604.25557},
+  archivePrefix = {arXiv},
+  primaryClass  = {hep-ph},
+  doi           = {10.48550/arXiv.2604.25557},
+  url           = {https://arxiv.org/abs/2604.25557}
+}
+```
 
 ## License
 
