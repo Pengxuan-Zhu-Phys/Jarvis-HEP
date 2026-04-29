@@ -2,6 +2,8 @@
 
 # Jarvis-HEP
 
+**Just a Really Viable Interface to Suite for High Energy Physics.**
+
 **YAML-driven orchestration for likelihood-based HEP scans**
 
 Run external calculators, explore difficult parameter spaces, persist structured outputs, and finish each run with explicit diagnostics.
@@ -226,15 +228,14 @@ Erdong Guo, Paul Jackson, Jin Min Yang, and Pengxuan Zhu,
 arXiv:2604.25557 [hep-ph], 2026.
 
 ```bibtex
-@misc{guo2026jarvishep,
-  title         = {Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics},
-  author        = {Guo, Erdong and Jackson, Paul and Yang, Jin Min and Zhu, Pengxuan},
-  year          = {2026},
-  eprint        = {2604.25557},
-  archivePrefix = {arXiv},
-  primaryClass  = {hep-ph},
-  doi           = {10.48550/arXiv.2604.25557},
-  url           = {https://arxiv.org/abs/2604.25557}
+@article{Guo:2026kfy,
+    author = "Guo, Erdong and Jackson, Paul and Yang, Jin Min and Zhu, Pengxuan",
+    title = "{Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics}",
+    eprint = "2604.25557",
+    archivePrefix = "arXiv",
+    primaryClass = "hep-ph",
+    month = "4",
+    year = "2026"
 }
 ```
 
