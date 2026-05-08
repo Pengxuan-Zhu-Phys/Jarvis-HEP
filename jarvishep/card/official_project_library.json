@@ -11,18 +11,9 @@
       "category": "sampling",
       "summary": "Bridson + Jarvis-Operas standalone example with a ready-to-run YAML card.",
       "entrypoint": "bin/Example_Bridson_Operas.yaml",
-      "archive_url": "https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples/releases/download/latest/Eggbox.tar.gz",
+      "archive_url": "https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples/releases/download/latest/Eggbox_repro_pack_20260508_001.tar.gz",
       "archive_root": ".",
       "compatibility_notes": "Entry follows current standalone project layout expectations."
-    },
-    {
-      "name": "Example_EggBox",
-      "category": "benchmark",
-      "summary": "EggBox benchmark project for sampler regression checks.",
-      "entrypoint": "bin/Smoke_RLTPMCMC_Operas.yaml",
-      "archive_url": "https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples/archive/refs/heads/main.tar.gz",
-      "archive_root": "Jarvis-Examples-main/EggBox",
-      "compatibility_notes": "Entrypoints may evolve with official Jarvis library updates; check the fetched project README."
     }
   ]
 }
