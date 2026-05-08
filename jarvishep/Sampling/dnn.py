@@ -6,13 +6,29 @@ import json
 from jarvishep.sample import Sample
 import concurrent.futures
 import pandas as pd 
-import torch
-import torch.nn as nn
 from jarvishep.dataconvert import DataConvert
 from jarvishep.log_kv import format_two_column_log
 from copy import deepcopy
 # from torch.autograd import Variable
 # from dnn import device
+
+torch = None
+nn = None
+
+
+def _ensure_torch():
+    global torch, nn
+    if torch is None or nn is None:
+        import importlib
+
+        try:
+            torch = importlib.import_module("torch")
+            nn = importlib.import_module("torch.nn")
+        except Exception as exc:
+            raise RuntimeError(
+                "DNN sampler requires PyTorch, but PyTorch could not be imported."
+            ) from exc
+    return torch, nn
 
 
 def _json_safe(value):
@@ -24,9 +40,10 @@ def _json_safe(value):
         return value.item()
     if isinstance(value, np.ndarray):
         return [_json_safe(v) for v in value.tolist()]
-    tensor_type = getattr(torch, "Tensor", None)
-    if tensor_type is not None and isinstance(value, tensor_type):
-        return _json_safe(value.detach().cpu().tolist())
+    if torch is not None:
+        tensor_type = getattr(torch, "Tensor", None)
+        if tensor_type is not None and isinstance(value, tensor_type):
+            return _json_safe(value.detach().cpu().tolist())
     return value
 
 
@@ -54,6 +71,7 @@ class FeedforwardNN():
                  otag,
                  dropout_prob: float = 0.0,
                  learning_rate: float = 1e-3):
+        torch, nn = _ensure_torch()
         super().__init__()
         self.otag = otag
 
@@ -188,6 +206,7 @@ class FeedforwardNN():
 
 class Classifier():
     def __init__(self, model, x_dim, learning_rate=1e-2):
+        torch, nn = _ensure_torch()
         self.model = model
         self.x_dim = x_dim
 
@@ -355,6 +374,7 @@ class DNN(SamplingVirtial):
 
     def initialize(self):
         self.logger.warning("DNN Sampler -> initialize network and runtime")
+        _ensure_torch()
         self.set_torch_backend()        
         self._build_runtime_models()
         self.check_evaluation()
@@ -381,6 +401,7 @@ class DNN(SamplingVirtial):
         self.logger.warning("DNN Sampler -> ready for training and sampling")
 
     def _build_runtime_models(self):
+        torch, nn = _ensure_torch()
         self.regressors = [
             FeedforwardNN(
                 input_size=self._dimensions,
@@ -453,9 +474,10 @@ class DNN(SamplingVirtial):
 
     def _export_sampler_state(self):
         torch_rng_state = None
-        if hasattr(torch, "get_rng_state"):
+        torch_mod = torch
+        if torch_mod is not None and hasattr(torch_mod, "get_rng_state"):
             try:
-                torch_rng_state = torch.get_rng_state()
+                torch_rng_state = torch_mod.get_rng_state()
             except Exception:
                 torch_rng_state = None
         return {
@@ -485,9 +507,10 @@ class DNN(SamplingVirtial):
             self._restore_model_state(reg, reg_payload)
         self._restore_model_state(self.classifier, payload.get("classifier"))
         torch_state = payload.get("torch_rng_state")
-        if torch_state is not None and hasattr(torch, "set_rng_state"):
+        torch_mod = torch
+        if torch_state is not None and torch_mod is not None and hasattr(torch_mod, "set_rng_state"):
             try:
-                torch.set_rng_state(torch_state)
+                torch_mod.set_rng_state(torch_state)
             except Exception:
                 pass
 
@@ -659,6 +682,7 @@ class DNN(SamplingVirtial):
         self.logger.warning("DNN WorkerFactory -> ready")
     
     def set_torch_backend(self): 
+        torch, _nn = _ensure_torch()
         if torch.backends.mps.is_available():
             self._device = "mps"
             self.logger.warning("DNN Backend -> Apple MPS")

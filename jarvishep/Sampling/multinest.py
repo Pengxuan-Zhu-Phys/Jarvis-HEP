@@ -29,6 +29,30 @@ def prior_transform(u):
 MultiNestFactoryPool = JarvisFactoryAsyncPool
 
 
+def _linear_interp_extrapolate(x, y):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    def interp(values):
+        arr = np.asarray(values, dtype=float)
+        result = np.interp(arr, x, y)
+        left = arr < x[0]
+        if np.any(left):
+            slope = (y[1] - y[0]) / (x[1] - x[0])
+            result = np.asarray(result, dtype=float)
+            result[left] = y[0] + (arr[left] - x[0]) * slope
+        right = arr > x[-1]
+        if np.any(right):
+            slope = (y[-1] - y[-2]) / (x[-1] - x[-2])
+            result = np.asarray(result, dtype=float)
+            result[right] = y[-1] + (arr[right] - x[-1]) * slope
+        if np.isscalar(values):
+            return float(np.asarray(result))
+        return result
+
+    return interp
+
+
 class MultiNest(SamplingVirtial):
     """Static nested sampling wrapper (dynesty NestedSampler)."""
 
@@ -586,16 +610,7 @@ class MultiNest(SamplingVirtial):
         np.add.at(cnt, inv, 1)
         agg_y /= np.maximum(cnt, 1)
 
-        from scipy.interpolate import interp1d
-
-        self.lnX_from_LogLike = interp1d(
-            uniq_x,
-            agg_y,
-            kind="linear",
-            fill_value="extrapolate",
-            bounds_error=False,
-            assume_sorted=True,
-        )
+        self.lnX_from_LogLike = _linear_interp_extrapolate(uniq_x, agg_y)
 
     def finalize(self):
         self._ensure_sampler_results_proxy()

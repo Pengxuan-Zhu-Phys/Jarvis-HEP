@@ -2,7 +2,17 @@
 
 import numpy as np
 import pandas as pd
-import torch
+
+
+def _load_torch():
+    import importlib
+
+    try:
+        return importlib.import_module("torch")
+    except Exception as exc:
+        raise RuntimeError(
+            "PyTorch is required for tensor conversion but could not be imported."
+        ) from exc
 
 class DataConvert:
     def __init__(self, data_list, dtype="listdict", u_column=None, v_column=None, o_column=None, device="cpu"):
@@ -20,6 +30,7 @@ class DataConvert:
 
     def _to_tensor(self, columns):
         """Generic function to convert specified DataFrame columns to a PyTorch tensor."""
+        torch = _load_torch()
         return torch.tensor(self.data[columns].values, dtype=torch.float32, device=self.device)
 
     @property

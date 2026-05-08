@@ -26,6 +26,30 @@ def prior_transform(u):
 DynestyFactoryPool = JarvisFactoryAsyncPool
 
 
+def _linear_interp_extrapolate(x, y):
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    def interp(values):
+        arr = np.asarray(values, dtype=float)
+        result = np.interp(arr, x, y)
+        left = arr < x[0]
+        if np.any(left):
+            slope = (y[1] - y[0]) / (x[1] - x[0])
+            result = np.asarray(result, dtype=float)
+            result[left] = y[0] + (arr[left] - x[0]) * slope
+        right = arr > x[-1]
+        if np.any(right):
+            slope = (y[-1] - y[-2]) / (x[-1] - x[-2])
+            result = np.asarray(result, dtype=float)
+            result[right] = y[-1] + (arr[right] - x[-1]) * slope
+        if np.isscalar(values):
+            return float(np.asarray(result))
+        return result
+
+    return interp
+
+
 class Dynesty(SamplingVirtial):
     def __init__(self) -> None:
         super().__init__()
@@ -425,8 +449,6 @@ class Dynesty(SamplingVirtial):
         # self.plot_dynesty_results()
 
     def _build_logl_to_logvol_interpolator(self):
-        from scipy.interpolate import interp1d
-
         results = self.sampler.results
         try:
             x_raw = results["logl"]
@@ -465,15 +487,7 @@ class Dynesty(SamplingVirtial):
             self.logger.warning("Dynesty logl/logvol interpolation disabled -> no unique logl points")
             return None
 
-        kind = "cubic" if x_unique.size >= 4 else "linear"
-        return interp1d(
-            x_unique,
-            y_unique,
-            kind=kind,
-            bounds_error=False,
-            fill_value="extrapolate",
-            assume_sorted=True,
-        )
+        return _linear_interp_extrapolate(x_unique, y_unique)
 
     def save_dynesty_results_to_csv(self):
         data = {

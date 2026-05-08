@@ -23,7 +23,7 @@ from jarvishep.Sampling.dnn import DNN  # noqa: E402
 from jarvishep.Sampling.diver import Diver  # noqa: E402
 from jarvishep.Sampling.dynesty import Dynesty  # noqa: E402
 from jarvishep.Sampling.multinest import MultiNest  # noqa: E402
-from jarvishep.Sampling.Source.Dynesty.py.dynesty.dynamicsampler import compute_weights  # noqa: E402
+from jarvishep.Sampling.Source.Dynesty.py.dynesty.weighting import compute_weights  # noqa: E402
 from jarvishep.Sampling.Source.Diver.de import DEConfig, DifferentialEvolution  # noqa: E402
 
 

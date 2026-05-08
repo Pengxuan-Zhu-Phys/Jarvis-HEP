@@ -1,9 +1,15 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
+
+from statistics import NormalDist
 
 import numpy as np
-import scipy.special
-from scipy.stats import binom, poisson, beta, expon, gamma
-import scipy
+
+
+_STANDARD_NORMAL = NormalDist()
+
+
+def _unit_interval(value):
+    return float(np.clip(float(value), np.finfo(float).tiny, 1.0 - np.finfo(float).eps))
 
 class Variable:
     def __init__(self, name, description, distribution, parameters):
@@ -47,16 +53,16 @@ class Variable:
             p = np.random.uniform(0, 1)  # Generate a uniform random number between 0 and 1
             return mu + s * np.log(p / (1 - p))  # Apply the inverse CDF of the Logit distribution
         elif self._distribution == 'Binomial':
-            return binom.rvs(self._parameters['n'], self._parameters['p'])
+            return np.random.binomial(self._parameters['n'], self._parameters['p'])
         elif self._distribution == 'Poisson':
-            return poisson.rvs(self._parameters['lambda'])
+            return np.random.poisson(self._parameters['lambda'])
         elif self._distribution == 'Beta':
-            return beta.rvs(self._parameters['alpha'], self._parameters['beta'])
+            return np.random.beta(self._parameters['alpha'], self._parameters['beta'])
         elif self._distribution == 'Exponential':
             # The exponential distibution in scipy is the inverse of the probility 
-            return expon.rvs(scale=1/self._parameters['rate'])  
+            return np.random.exponential(scale=1/self._parameters['rate'])
         elif self._distribution == 'Gamma':
-            return gamma.rvs(self._parameters['shape'], scale=self._parameters['scale'])
+            return np.random.gamma(self._parameters['shape'], scale=self._parameters['scale'])
         else:
             raise ValueError(f"Unsupported distribution type: {self._distribution}")
 
@@ -75,11 +81,11 @@ class Variable:
         elif self.distribution == 'Normal':
             mean = self.parameters['mean']
             stddev = self.parameters['stddev']
-            return scipy.stats.norm.ppf(std_rand, loc=mean, scale=stddev)
+            return mean + stddev * _STANDARD_NORMAL.inv_cdf(_unit_interval(std_rand))
         elif self.distribution == 'Log-Normal':
             mean = self.parameters['mean']
             stddev = self.parameters['stddev']
-            return scipy.stats.lognorm.ppf(std_rand, s=stddev, scale=np.exp(mean))
+            return np.exp(mean + stddev * _STANDARD_NORMAL.inv_cdf(_unit_interval(std_rand)))
         elif self.distribution == 'Logit':
             # Using the Percent Point Function (PPF) of the logistic distribution, 
             # which is the inverse function of the logit, to map from the [0, 1] range to the real number range.
@@ -87,8 +93,8 @@ class Variable:
             # used to describe probabilities and does not involve direct distribution parameters like mean or standard deviation.
             location = self.parameters.get('location', 0)  # The default value is 0
             scale = self.parameters.get('scale', 1)  # The default value is 1
-            # The scipy's logit function is used as the inverse function of the logistic CDF
-            return scipy.special.logit(std_rand) * scale + location
+            p = _unit_interval(std_rand)
+            return (np.log(p) - np.log1p(-p)) * scale + location
         # Notice: the following distribution not support the mapping function 
         elif self.distribution in ['Binomial', 'Poisson', 'Beta', 'Exponential', 'Gamma']:
             raise ValueError(f"Distribution type '{self.distribution}' does not support mapping from standard random numbers.")

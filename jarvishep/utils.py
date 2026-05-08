@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import pandas as pd 
-from scipy.interpolate import interp1d
 import numpy as np 
 from jarvishep.observable_io import (
     flatten_records_for_csv,
@@ -52,6 +51,8 @@ def get_interpolate_1D_function_from_config(config):
         "y_values":  []
     }
     try:
+        from scipy.interpolate import interp1d
+
         temp = deepcopy(template)
         temp.update(config)
         # print(temp)
