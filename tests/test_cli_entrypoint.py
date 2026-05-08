@@ -253,10 +253,12 @@ class CliEntrypointTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         text = out.getvalue()
-        self.assertIn("Jarvis project pack [path] [--share | --repro | --full]", text)
+        self.assertIn("Jarvis project pack [path] [--share | --repro | --full] [--man]", text)
+        self.assertIn("Jarvis project pack <pack_manifest.yaml>", text)
         self.assertIn("--share", text)
         self.assertIn("--repro", text)
         self.assertIn("--full", text)
+        self.assertIn("--man", text)
         self.assertIn("--share` is used by default", text)
 
     def test_main_project_subcommand_help_pages(self):

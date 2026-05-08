@@ -90,6 +90,8 @@ Jarvis bin/quickstart_csv_operas.yaml
 
 ```bash
 Jarvis project pack [path] [--share | --repro | --full]
+Jarvis project pack [path] [--share | --repro | --full] --man
+Jarvis project pack pack_YYYYMMDD_NNN.yaml
 ```
 
 Modes:
@@ -99,6 +101,9 @@ Modes:
 - `--full`: full archival package
 
 If no mode flag is provided, `--share` is used. Use `.` to pack the current directory.
+Add `--man` to write a manifest such as `pack_20260508_001.yaml` without creating an archive.
+Passing a YAML manifest as the first argument packages from its `project_root`, `output`,
+`include`, and `exclude` fields.
 
 ### 5. Browse the official Jarvis library
 

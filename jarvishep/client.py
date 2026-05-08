@@ -14,7 +14,12 @@ from jarvishep.official_project_library import (
     get_official_project,
     list_official_projects,
 )
-from jarvishep.project_packager import ProjectPackError, create_project_package
+from jarvishep.project_packager import (
+    ProjectPackError,
+    create_project_pack_manifest,
+    create_project_package,
+    create_project_package_from_manifest,
+)
 from jarvishep.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 from jarvishep.versioning import render_logo_with_version
 
@@ -73,7 +78,8 @@ Examples:
 """
 
 _PROJECT_PACK_HELP_TEXT = """Usage:
-  Jarvis project pack [path] [--share | --repro | --full]
+  Jarvis project pack [path] [--share | --repro | --full] [--man]
+  Jarvis project pack <pack_manifest.yaml>
 
 Pack a local standalone project.
 
@@ -81,6 +87,7 @@ Modes:
   --share           Create a lightweight shareable bundle
   --repro           Create a reproducible bundle
   --full            Create a full bundle
+  --man             Write a pack manifest only; do not create an archive
 
 Notes:
   If no mode is specified, `--share` is used by default.
@@ -115,6 +122,7 @@ _PACK_MODE_FLAGS = {
     "--repro": "repro",
     "--full": "full",
 }
+_PACK_MANIFEST_FLAG = "--man"
 
 
 def _render_version_banner() -> str:
@@ -323,6 +331,68 @@ def _run_project_pack(project_path: str | None, profile: str) -> int:
     return 0
 
 
+def _run_project_pack_manifest(project_path: str | None, profile: str) -> int:
+    try:
+        report = create_project_pack_manifest(
+            project_root=project_path,
+            profile=profile,
+        )
+    except ProjectPackError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 2
+    except Exception as exc:
+        print(f"[Jarvis-HEP] Failed to write project pack manifest: {exc}")
+        return 1
+
+    print(
+        format_two_column_log(
+            "Jarvis-HEP project pack manifest created",
+            [
+                ("Project root", report.project_root),
+                ("Manifest", report.manifest_path),
+                ("Pack ID", report.pack_id),
+                ("Mode", report.profile),
+                ("Manifest files", report.included_files),
+                ("Manifest excludes", report.excluded_files),
+                ("Output", report.output),
+            ],
+        )
+    )
+    return 0
+
+
+def _run_project_pack_from_manifest(manifest_path: str) -> int:
+    try:
+        report = create_project_package_from_manifest(manifest_path)
+    except ProjectPackError as exc:
+        print(f"[Jarvis-HEP] {exc}")
+        return 2
+    except Exception as exc:
+        print(f"[Jarvis-HEP] Failed to package project from manifest: {exc}")
+        return 1
+
+    print(
+        format_two_column_log(
+            "Jarvis-HEP project package created from manifest",
+            [
+                ("Project root", report.project_root),
+                ("Archive", report.archive_path),
+                ("Mode", report.profile),
+                ("Packed files", report.included_files),
+                ("Skipped files", report.excluded_files),
+                ("Payload size", _human_bytes(report.total_bytes)),
+            ],
+        )
+    )
+    return 0
+
+
+def _looks_like_yaml_path(path: str | None) -> bool:
+    if path is None:
+        return False
+    return path.lower().endswith((".yaml", ".yml"))
+
+
 def _run_project_browse() -> int:
     try:
         projects = list_official_projects()
@@ -382,14 +452,18 @@ def _run_project_fetch(project_name: str) -> int:
     return 0
 
 
-def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str] | int:
+def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str, bool, bool] | int:
     path: str | None = None
     mode_flag: str | None = None
+    manifest_only = False
 
     for tok in tokens:
         if tok in _HELP_FLAGS:
             _print_project_pack_help()
             return 0
+        if tok == _PACK_MANIFEST_FLAG:
+            manifest_only = True
+            continue
         if tok in _PACK_MODE_FLAGS:
             if mode_flag is not None:
                 print("[Jarvis-HEP] project pack modes are mutually exclusive: --share, --repro, --full")
@@ -405,8 +479,17 @@ def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str] | int:
         print(f"[Jarvis-HEP] Unexpected argument for project pack: {tok}")
         return 2
 
+    if manifest_only and _looks_like_yaml_path(path):
+        print("[Jarvis-HEP] --man writes a new manifest from a project path, not from a manifest file")
+        return 2
+
+    is_manifest_input = _looks_like_yaml_path(path)
+    if is_manifest_input and mode_flag is not None:
+        print("[Jarvis-HEP] Manifest packing does not accept --share, --repro, or --full")
+        return 2
+
     profile = _PACK_MODE_FLAGS.get(mode_flag, "share")
-    return path, profile
+    return path, profile, manifest_only, is_manifest_input
 
 
 def _handle_project_subcommand(command: str, args: list[str]) -> int:
@@ -423,7 +506,11 @@ def _handle_project_subcommand(command: str, args: list[str]) -> int:
         parsed = _parse_pack_arguments(args)
         if isinstance(parsed, int):
             return parsed
-        path, profile = parsed
+        path, profile, manifest_only, is_manifest_input = parsed
+        if manifest_only:
+            return _run_project_pack_manifest(path, profile)
+        if is_manifest_input:
+            return _run_project_pack_from_manifest(str(path))
         return _run_project_pack(path, profile)
 
     if command == "browse":

@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tarfile
 import tempfile
 import unittest
+
+import yaml
 
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -13,8 +17,11 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from jarvishep.project_packager import (  # noqa: E402
+    ProjectPackError,
     ProjectNotFoundError,
+    create_project_pack_manifest,
     create_project_package,
+    create_project_package_from_manifest,
 )
 
 
@@ -114,6 +121,242 @@ class ProjectPackagerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(ProjectNotFoundError):
                 create_project_package(tmpdir, profile="repro")
+
+    def test_manifest_generation_creates_incrementing_yaml_without_archive(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            manifest_dir = os.path.join(tmpdir, "manifests")
+            self._make_demo_project(project_root)
+
+            first = create_project_pack_manifest(
+                project_root,
+                profile="repro",
+                manifest_dir=manifest_dir,
+            )
+            second = create_project_pack_manifest(
+                project_root,
+                profile="repro",
+                manifest_dir=manifest_dir,
+            )
+
+            self.assertRegex(
+                os.path.basename(first.manifest_path),
+                r"^pack_\d{8}_001\.yaml$",
+            )
+            self.assertRegex(
+                os.path.basename(second.manifest_path),
+                r"^pack_\d{8}_002\.yaml$",
+            )
+            self.assertTrue(os.path.exists(first.manifest_path))
+            self.assertTrue(os.path.exists(second.manifest_path))
+            self.assertEqual(
+                [],
+                [
+                    name for name in os.listdir(manifest_dir)
+                    if name.endswith(".tar.gz")
+                ],
+            )
+
+    def test_cli_man_creates_manifest_without_archive(self):
+        from jarvishep.client import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+
+            old_cwd = os.getcwd()
+            out = io.StringIO()
+            try:
+                os.chdir(tmpdir)
+                with contextlib.redirect_stdout(out):
+                    rc = main([
+                        "Jarvis",
+                        "project",
+                        "pack",
+                        project_root,
+                        "--repro",
+                        "--man",
+                    ])
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(rc, 0, msg=out.getvalue())
+            manifests = [
+                name for name in os.listdir(tmpdir)
+                if name.startswith("pack_") and name.endswith(".yaml")
+            ]
+            archives = [
+                name for name in os.listdir(tmpdir)
+                if name.endswith(".tar.gz")
+            ]
+            self.assertEqual(1, len(manifests), msg=out.getvalue())
+            self.assertEqual([], archives, msg=out.getvalue())
+
+    def test_generated_manifest_has_required_structure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+
+            report = create_project_pack_manifest(
+                project_root,
+                profile="share",
+                manifest_dir=tmpdir,
+            )
+            with open(report.manifest_path, "r", encoding="utf-8") as f1:
+                payload = yaml.safe_load(f1)
+
+            self.assertEqual(report.pack_id, payload["pack_id"])
+            self.assertEqual("share", payload["mode"])
+            self.assertEqual(
+                os.path.realpath(project_root),
+                os.path.realpath(payload["project_root"]),
+            )
+            self.assertTrue(payload["output"].endswith(".tar.gz"))
+            self.assertIsInstance(payload["include"], list)
+            self.assertIsInstance(payload["exclude"], list)
+            self.assertIn("jarvis.project.yaml", payload["include"])
+
+    def test_manifest_input_creates_archive_and_preserves_relative_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            archive_path = os.path.join(tmpdir, "from_manifest.tar.gz")
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            payload = {
+                "pack_id": "pack_20260508_001",
+                "mode": "repro",
+                "project_root": project_root,
+                "output": archive_path,
+                "include": [
+                    "jarvis.project.yaml",
+                    "README.md",
+                    "bin/task.yaml",
+                    "logs/run.log",
+                    "checkpoints/state.ckpt",
+                ],
+                "exclude": [
+                    "logs/",
+                    "checkpoints/state.ckpt",
+                ],
+            }
+            with open(manifest_path, "w", encoding="utf-8") as f1:
+                yaml.safe_dump(payload, f1, sort_keys=False)
+
+            report = create_project_package_from_manifest(manifest_path)
+            self.assertEqual(archive_path, report.archive_path)
+            self.assertTrue(os.path.exists(archive_path))
+
+            names = self._tar_names(archive_path)
+            self.assertIn("jarvis.project.yaml", names)
+            self.assertIn("README.md", names)
+            self.assertIn("bin/task.yaml", names)
+            self.assertNotIn("logs/run.log", names)
+            self.assertNotIn("checkpoints/state.ckpt", names)
+            self.assertNotIn("DemoProject/bin/task.yaml", names)
+
+    def test_cli_manifest_input_creates_archive(self):
+        from jarvishep.client import main
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            archive_path = os.path.join(tmpdir, "cli_manifest.tar.gz")
+            payload = {
+                "pack_id": "pack_20260508_001",
+                "mode": "share",
+                "project_root": project_root,
+                "output": archive_path,
+                "include": ["README.md", "bin/task.yaml"],
+                "exclude": [],
+            }
+            with open(manifest_path, "w", encoding="utf-8") as f1:
+                yaml.safe_dump(payload, f1, sort_keys=False)
+
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(["Jarvis", "project", "pack", manifest_path])
+
+            self.assertEqual(rc, 0, msg=out.getvalue())
+            self.assertTrue(os.path.exists(archive_path), msg=out.getvalue())
+
+    def test_manifest_output_relative_to_current_working_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            payload = {
+                "pack_id": "pack_20260508_001",
+                "mode": "share",
+                "project_root": project_root,
+                "output": "relative_manifest.tar.gz",
+                "include": ["README.md"],
+                "exclude": [],
+            }
+            with open(manifest_path, "w", encoding="utf-8") as f1:
+                yaml.safe_dump(payload, f1, sort_keys=False)
+
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                report = create_project_package_from_manifest(manifest_path)
+            finally:
+                os.chdir(old_cwd)
+
+            self.assertEqual(
+                os.path.realpath(os.path.join(tmpdir, "relative_manifest.tar.gz")),
+                os.path.realpath(report.archive_path),
+            )
+            self.assertTrue(os.path.exists(report.archive_path))
+
+    def test_manifest_rejects_absolute_and_parent_paths(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            base_payload = {
+                "pack_id": "pack_20260508_001",
+                "mode": "share",
+                "project_root": project_root,
+                "output": os.path.join(tmpdir, "bad.tar.gz"),
+                "include": ["README.md"],
+                "exclude": [],
+            }
+
+            for key, bad_path in (
+                ("include", "/tmp/secret.txt"),
+                ("include", "../secret.txt"),
+                ("exclude", "/tmp/secret.txt"),
+                ("exclude", "../secret.txt"),
+            ):
+                with self.subTest(key=key, bad_path=bad_path):
+                    payload = dict(base_payload)
+                    payload["include"] = list(base_payload["include"])
+                    payload["exclude"] = list(base_payload["exclude"])
+                    payload[key] = [bad_path]
+                    with open(manifest_path, "w", encoding="utf-8") as f1:
+                        yaml.safe_dump(payload, f1, sort_keys=False)
+                    with self.assertRaises(ProjectPackError):
+                        create_project_package_from_manifest(manifest_path)
+
+    def test_manifest_fails_loudly_for_missing_included_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            payload = {
+                "pack_id": "pack_20260508_001",
+                "mode": "share",
+                "project_root": project_root,
+                "output": os.path.join(tmpdir, "missing.tar.gz"),
+                "include": ["missing.txt"],
+                "exclude": [],
+            }
+            with open(manifest_path, "w", encoding="utf-8") as f1:
+                yaml.safe_dump(payload, f1, sort_keys=False)
+
+            with self.assertRaises(ProjectPackError):
+                create_project_package_from_manifest(manifest_path)
 
 
 if __name__ == "__main__":

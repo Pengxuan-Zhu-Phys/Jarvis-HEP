@@ -156,6 +156,8 @@ Jarvis <file.yaml> --monitor        # Real-time resource monitor
 Jarvis <file.yaml> --check-modules  # Test-run 10 samples (1PC mode)
 Jarvis project create <name>        # Create scaffold
 Jarvis project pack [path] [--share|--repro|--full]
+Jarvis project pack [path] [--share|--repro|--full] --man
+Jarvis project pack <pack-manifest.yaml>
 Jarvis project browse               # List official projects
 Jarvis project fetch <name>         # Download official project
 Jarvis project info <name>          # Show project metadata
