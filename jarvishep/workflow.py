@@ -52,7 +52,7 @@ class Workflow(Base):
     @staticmethod
     def _flowchart_edge_role(role: str) -> str:
         normalized = str(role).strip().lower()
-        allowed = {"parameterflow", "dataflow", "fileflow", "bridgeflow"}
+        allowed = {"parameterflow", "dataflow", "fileflow", "bridgeflow", "selectionflow"}
         return normalized if normalized in allowed else "dataflow"
 
     @staticmethod
@@ -66,6 +66,22 @@ class Workflow(Base):
         if normalized == "calculator":
             return "module", "calculator"
         return "module", normalized or "module"
+
+    @staticmethod
+    def _flowchart_selection_spec(module):
+        expression = getattr(module, "selection", None)
+        if expression is None or str(expression).strip() == "":
+            return None
+
+        deps = getattr(module, "_selection_deps", None)
+        if deps is None and hasattr(module, "_compile_selection"):
+            module._compile_selection()
+            deps = getattr(module, "_selection_deps", ())
+
+        return {
+            "expression": str(expression),
+            "variables": Workflow._flowchart_unique_names([str(dep) for dep in (deps or [])]),
+        }
 
     @staticmethod
     def _flowchart_port(port_id, role, label=None, metadata=None):
@@ -221,6 +237,7 @@ class Workflow(Base):
             "role": self._flowchart_module_role(module)[1],
             "inputs": inputs,
             "outputs": outputs,
+            "selection": self._flowchart_selection_spec(module),
             "required_modules": [str(val) for val in getattr(module, "required_modules", []) or []],
         }
 
@@ -492,6 +509,47 @@ class Workflow(Base):
                     module_node.setdefault("metadata", {})["operator"] = str(getattr(module, "operator", ""))
                 if hasattr(module, "call_mode"):
                     module_node.setdefault("metadata", {})["call_mode"] = str(getattr(module, "call_mode", ""))
+                if module_specs["selection"]:
+                    module_node["selection"] = module_specs["selection"]
+                    module_node.setdefault("metadata", {})["selection"] = module_specs["selection"]
+
+                    for selection_var in module_specs["selection"]["variables"]:
+                        selection_port = f"selection::{selection_var}"
+                        self._flowchart_add_port(
+                            module_node,
+                            "in",
+                            self._flowchart_port(
+                                selection_port,
+                                "selection",
+                                label=selection_var,
+                                metadata={"selection": True},
+                            ),
+                        )
+                        source_node = get_variable_node(
+                            selection_var,
+                            get_producer_layer(selection_var, layer_id),
+                            role="observable",
+                            metadata={"selection_consumer": module_name},
+                        )
+                        self._flowchart_bridge_chain(
+                            nodes_by_id,
+                            layer_nodes,
+                            edges,
+                            edge_keys,
+                            source_node,
+                            "out",
+                            nodes_by_id[source_node]["layer_index"],
+                            module_name,
+                            selection_port,
+                            layer_id,
+                            "selectionflow",
+                            selection_var,
+                            metadata={
+                                "module": module_name,
+                                "selection": True,
+                                "variable": selection_var,
+                            },
+                        )
 
                 for spec in module_specs["inputs"]:
                     self._flowchart_add_port(
@@ -794,11 +852,16 @@ class Workflow(Base):
         # Update required_modules via IOs 
         for module in self.modules.values():
             module.required_modules = module.required_modules or []
-            for input_var in module.inputs:
+            input_vars = [str(input_var) for input_var in module.inputs]
+            selection = self._flowchart_selection_spec(module)
+            if selection:
+                input_vars.extend(selection["variables"])
+
+            for input_var in self._flowchart_unique_names(input_vars):
                 if input_var in output_to_module:
                     # if the output is the input of other module, then generate teh dependencies 
                     dep_module = output_to_module[input_var]
-                    if dep_module not in module.required_modules:
+                    if dep_module != module.name and dep_module not in module.required_modules:
                         module.required_modules.append(dep_module)
 
         # Resolve the layers using the current dependencies  

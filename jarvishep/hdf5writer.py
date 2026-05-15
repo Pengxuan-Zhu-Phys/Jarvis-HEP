@@ -14,6 +14,8 @@ from loguru import logger
 
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.observable_io import (
+    csv_export_fieldnames_from_schema,
+    format_csv_export_report,
     flatten_records_for_csv,
     load_schema,
     make_json_compatible,
@@ -395,28 +397,18 @@ class GlobalHDF5Writer:
             if schema_for_csv.get("_warnings"):
                 save_schema(self.schema_path, schema_for_csv)
 
-            schema_changed = False
-            fieldnames = []
-            seen = set()
+            self.logger.warning(format_csv_export_report(schema_for_csv))
+            fieldnames = csv_export_fieldnames_from_schema(schema_for_csv)
             row_count = 0
             for record in self._iter_records_from_hdf5():
-                csv_rows, row_changed = flatten_records_for_csv(
+                csv_rows, _ = flatten_records_for_csv(
                     records=[record],
                     schema=schema_for_csv,
-                    populate_name_map=True,
+                    populate_name_map=False,
                 )
                 if not csv_rows:
                     continue
-                row = csv_rows[0]
                 row_count += 1
-                schema_changed = schema_changed or row_changed
-                for key in row.keys():
-                    if key not in seen:
-                        seen.add(key)
-                        fieldnames.append(key)
-
-            if schema_changed:
-                save_schema(self.schema_path, schema_for_csv)
 
             if row_count == 0:
                 self.infos.setdefault("converted", []).append(csv_path)
@@ -450,6 +442,18 @@ class GlobalHDF5Writer:
                 self.infos["pending_converted"].remove(csv_path)
             self._save_infos()
             return True
+
+        except ValueError as exc:
+            msg = (
+                "CSV conversion schema validation failed ->\n"
+                "\tactive -> {}\n"
+                "\terror  -> {}"
+            ).format(self.infos["active path"], exc)
+            self.logger.warning(msg)
+            self.infos.setdefault("errors", []).append(msg)
+            self.infos["errors"] = self.infos["errors"][-50:]
+            self._save_infos()
+            raise
 
         except (BlockingIOError, OSError) as exc:
             msg = (

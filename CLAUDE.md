@@ -30,7 +30,7 @@ jarvishep/
 ├── client.py              # CLI dispatch (Jarvis command)
 ├── core.py                # Main runtime orchestrator
 ├── config.py              # YAML config loader & validator
-├── workflow.py            # Task DAG management, flowchart generation
+├── workflow.py            # Task DAG management, semantic flowchart JSON export
 ├── factory.py             # WorkerFactory, thread pool management
 ├── distributor.py         # Sampler dispatch (match/case)
 ├── sample.py              # Sample data structure
@@ -126,7 +126,7 @@ client.py (CLI) → core.py (Core)
 6. `_preload_resume_checkpoint()` — check for resumable state
 7. `init_sampler()` — instantiate sampling method
 8. `init_StateSaver()` — set up checkpointing
-9. `init_workflow()` — build DAG, generate flowchart
+9. `init_workflow()` — build DAG, export flowchart.json
 10. `init_librarys()` — install required libraries
 11. `init_WorkerFactory()` — create thread pool
 12. `init_likelihood()` — set up likelihood (if configured)
@@ -142,6 +142,7 @@ client.py (CLI) → core.py (Core)
 - **Checkpoint path**: `<task_root>/checkpoints/<scan_name>/<sampler>/state.pkl`
 - **Output structure**: `outputs/<scan>/DATABASE/` (HDF5, CSV), `outputs/<scan>/SAMPLE/` (per-sample artifacts; `outputs/<scan>/SAMPLE/tests/` in `--check-modules`; `DATABASE` stays at `outputs/<scan>/DATABASE/`)
 - **Calculator YAML key**: `make_paraller` (intentional legacy spelling — do not rename)
+- **Calculator timeout**: `Calculators.Modules[].timeout` is an optional total-second limit for one sample `execution` section; it starts after `initialization`.
 
 ---
 
@@ -331,6 +332,5 @@ Settings cascade manually through 4 layers: `Core → ModuleManager → ModulePo
 
 - `Sampling.ModuleFailurePolicy`: config key accepted by `ModuleManager`; values `"continue"` (default) or `"fail-fast"`.
 - `Operas` module `call_mode: "acall"`: enables async operator dispatch. Not in docs.
-- `Runtime.Subprocess.*` keys (`max_concurrency`, `per_task_timeout_sec`, `log_policy`, etc.): full set of subprocess scheduler options not documented in README.
 - `ToyMCMC`: alias for `MCMC` in `distributor.py`. Not mentioned in README sampler list.
 - `--resume` CLI flag triggers `checkpoint_policy = "resume"` in `core.py`. The complementary `"fresh"` policy (answering `y` to the resume prompt) is not exposed as a CLI flag.

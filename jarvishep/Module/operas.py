@@ -44,7 +44,7 @@ class _OperasSampleLoggerBridge:
 
 class OperasModule(Module):
     def __init__(self, name, config):
-        super().__init__(name)
+        super().__init__(name, selection=config.get("selection"))
         self.config = config
         self.type = "Operas"
         self.required_modules = config.get("required_modules", []) or []
@@ -65,7 +65,8 @@ class OperasModule(Module):
         return self._funcs
 
     def set_funcs(self, funcs):
-        self._funcs = funcs
+        super().set_funcs(funcs)
+        self._funcs = dict(funcs or {})
 
     def set_logger(self, logger):
         self.logger = logger

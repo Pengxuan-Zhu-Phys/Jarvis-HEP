@@ -9,9 +9,30 @@ from typing import Any
 import numpy as np
 import sympy
 
-VALID_FLATTEN_MODES = {"json", "split", "drop", "scalar"}
-SCHEMA_VERSION_CURRENT = 1
-SCHEMA_VERSION_MIN_COMPATIBLE = 1
+SCHEMA_VERSION_CURRENT = 3
+SCHEMA_VERSION_MIN_COMPATIBLE = 3
+CSV_EXPORT_POLICY_DEFAULTS = {
+    "scalar": "keep",
+    "path_like_string": "keep",
+    "small_list": "split",
+    "small_flat_dict": "split",
+    "large_list": "drop",
+    "large_dict": "drop",
+    "nested_dict": "drop",
+    "mixed": "drop",
+    "unsupported": "drop",
+}
+CSV_EXPORT_LIMIT_DEFAULTS = {
+    "max_list_len": 20,
+    "max_dict_keys": 20,
+    "max_nested_depth": 1,
+}
+PATH_LIKE_FIELD_NAMES = {
+    "gmfit_output",
+    "spheno_input",
+    "spheno_output",
+    "rge_output",
+}
 
 def _is_sympy_boolean(value: Any) -> bool:
     try:
@@ -119,6 +140,7 @@ def infer_column_descriptor(value: Any) -> dict[str, Any]:
 
     if isinstance(value, (list, tuple, set)):
         seq = list(value)
+        desc["length"] = len(seq)
         desc["shape"] = _infer_list_shape(seq)
         desc["ndim"] = len(desc["shape"])
         element_kind = _infer_list_element_kind(seq)
@@ -128,6 +150,7 @@ def infer_column_descriptor(value: Any) -> dict[str, Any]:
 
     if isinstance(value, dict):
         desc["keys_preview"] = [str(k) for k in list(value.keys())[:20]]
+        desc["num_keys"] = len(value)
         return desc
 
     if isinstance(value, np.generic):
@@ -143,12 +166,6 @@ def infer_column_descriptor(value: Any) -> dict[str, Any]:
     return desc
 
 
-def _default_mode_for_kind(kind: str) -> str:
-    if kind in {"array", "ndarray", "list", "dict", "mixed"}:
-        return "split"
-    return "scalar"
-
-
 def create_default_schema(pathroot: str) -> dict[str, Any]:
     now = utc_now_iso()
     return {
@@ -156,12 +173,8 @@ def create_default_schema(pathroot: str) -> dict[str, Any]:
         "pathroot": pathroot,
         "created_at": now,
         "updated_at": now,
-        "flatten_defaults": {
-            "array": "split",
-            "list": "split",
-            "dict": "split",
-            "mixed": "split",
-        },
+        "csv_export_policy": dict(CSV_EXPORT_POLICY_DEFAULTS),
+        "csv_export_limits": dict(CSV_EXPORT_LIMIT_DEFAULTS),
         "columns": {},
     }
 
@@ -220,13 +233,7 @@ def save_schema(path: str, schema: dict[str, Any]) -> None:
 
 
 def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, Any], bool, list[str]]:
-    """Normalize user-edited schema and collect warnings.
-
-    Version policy:
-    - Missing/invalid/legacy versions are migrated to ``SCHEMA_VERSION_CURRENT``.
-    - Future versions are preserved (not downgraded) and normalized best-effort
-      for known fields to keep backward-compatible behavior.
-    """
+    """Normalize schema metadata and simplify obsolete export blocks."""
     normalized = dict(schema)
     changed = False
     warnings: list[str] = []
@@ -246,26 +253,43 @@ def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, An
         changed = True
     normalized.setdefault("updated_at", utc_now_iso())
 
-    defaults = normalized.get("flatten_defaults")
-    if not isinstance(defaults, dict):
-        defaults = {}
-        normalized["flatten_defaults"] = defaults
+    if "flatten_defaults" in normalized:
+        normalized.pop("flatten_defaults", None)
         changed = True
-        warnings.append("schema.flatten_defaults is invalid; replaced with defaults.")
+        warnings.append("schema.flatten_defaults is obsolete; removed.")
 
-    for kind in ("array", "list", "dict", "mixed"):
-        mode = str(defaults.get(kind, _default_mode_for_kind(kind))).strip().lower()
-        if mode not in VALID_FLATTEN_MODES:
-            fallback = _default_mode_for_kind(kind)
-            defaults[kind] = fallback
+    policy = normalized.get("csv_export_policy")
+    if not isinstance(policy, dict):
+        normalized["csv_export_policy"] = dict(CSV_EXPORT_POLICY_DEFAULTS)
+        changed = True
+        warnings.append("schema.csv_export_policy is invalid or missing; replaced with defaults.")
+    else:
+        normalized_policy = dict(CSV_EXPORT_POLICY_DEFAULTS)
+        for key, value in policy.items():
+            if key in CSV_EXPORT_POLICY_DEFAULTS and value in {"keep", "split", "drop"}:
+                normalized_policy[key] = value
+        if normalized_policy != policy:
+            normalized["csv_export_policy"] = normalized_policy
             changed = True
-            warnings.append(
-                f"schema.flatten_defaults.{kind} has invalid mode '{mode}'; fallback to '{fallback}'."
-            )
-        else:
-            if defaults.get(kind) != mode:
-                defaults[kind] = mode
-                changed = True
+            warnings.append("schema.csv_export_policy had invalid entries; normalized.")
+
+    limits = normalized.get("csv_export_limits")
+    if not isinstance(limits, dict):
+        normalized["csv_export_limits"] = dict(CSV_EXPORT_LIMIT_DEFAULTS)
+        changed = True
+        warnings.append("schema.csv_export_limits is invalid or missing; replaced with defaults.")
+    else:
+        normalized_limits = dict(CSV_EXPORT_LIMIT_DEFAULTS)
+        for key, default_value in CSV_EXPORT_LIMIT_DEFAULTS.items():
+            try:
+                value = int(limits.get(key, default_value))
+            except Exception:
+                value = default_value
+            normalized_limits[key] = max(0, value)
+        if normalized_limits != limits:
+            normalized["csv_export_limits"] = normalized_limits
+            changed = True
+            warnings.append("schema.csv_export_limits had invalid entries; normalized.")
 
     columns = normalized.get("columns")
     if not isinstance(columns, dict):
@@ -276,56 +300,24 @@ def sanitize_schema(schema: dict[str, Any], pathroot: str) -> tuple[dict[str, An
 
     for name, meta in list(columns.items()):
         if not isinstance(meta, dict):
-            columns[name] = {"kind": "unknown", "flatten": {"mode": "scalar"}}
+            columns[name] = {"kind": "unknown"}
             changed = True
-            warnings.append(f"schema.columns.{name} is not an object; reset with fallback config.")
+            warnings.append(f"schema.columns.{name} is not an object; reset with descriptor metadata only.")
             continue
 
-        kind = str(meta.get("kind", "unknown"))
-        flatten_cfg = meta.get("flatten")
-        if not isinstance(flatten_cfg, dict):
-            flatten_cfg = {"mode": _default_mode_for_kind(kind)}
-            meta["flatten"] = flatten_cfg
+        had_obsolete = False
+        for obsolete_key in ("flatten", "csv_export"):
+            if obsolete_key in meta:
+                meta.pop(obsolete_key, None)
+                had_obsolete = True
+        if had_obsolete:
             changed = True
-            warnings.append(f"schema.columns.{name}.flatten is invalid; fallback applied.")
+            warnings.append(f"schema.columns.{name} had obsolete export metadata; simplified.")
 
-        mode = str(flatten_cfg.get("mode", "")).strip().lower()
-        if not mode:
-            mode = _default_mode_for_kind(kind)
-            flatten_cfg["mode"] = mode
+        if "keep" not in meta or "name" not in meta:
+            meta.update(_descriptor_keep_config(name, meta, normalized))
             changed = True
-            warnings.append(f"schema.columns.{name}.flatten.mode missing; fallback to '{mode}'.")
-        elif mode not in VALID_FLATTEN_MODES:
-            fallback = _default_mode_for_kind(kind)
-            flatten_cfg["mode"] = fallback
-            changed = True
-            warnings.append(
-                f"schema.columns.{name}.flatten.mode '{mode}' invalid; fallback to '{fallback}'."
-            )
-        elif flatten_cfg.get("mode") != mode:
-            flatten_cfg["mode"] = mode
-            changed = True
-
-        name_map = flatten_cfg.get("name_map", None)
-        if name_map is not None and not isinstance(name_map, dict):
-            flatten_cfg["name_map"] = {}
-            changed = True
-            warnings.append(f"schema.columns.{name}.flatten.name_map is invalid; reset to empty object.")
-        elif isinstance(name_map, dict):
-            normalized_name_map: dict[str, str] = {}
-            map_changed = False
-            for kk, vv in name_map.items():
-                nk = str(kk)
-                nv = str(vv).strip()
-                if not nv:
-                    nv = nk
-                    map_changed = True
-                normalized_name_map[nk] = nv
-                if nk != kk or nv != vv:
-                    map_changed = True
-            if map_changed:
-                flatten_cfg["name_map"] = normalized_name_map
-                changed = True
+            warnings.append(f"schema.columns.{name} missing keep/name; generated from current policy.")
 
     return normalized, changed, warnings
 
@@ -335,10 +327,7 @@ def _normalize_schema_version(raw_version: Any) -> tuple[int, bool, str | None]:
         return (
             SCHEMA_VERSION_CURRENT,
             True,
-            (
-                f"schema.version missing; migrated to {SCHEMA_VERSION_CURRENT} "
-                f"(legacy compatibility mode)."
-            ),
+            f"schema.version missing; set to {SCHEMA_VERSION_CURRENT}.",
         )
 
     parsed: int | None = None
@@ -360,8 +349,8 @@ def _normalize_schema_version(raw_version: Any) -> tuple[int, bool, str | None]:
             SCHEMA_VERSION_CURRENT,
             True,
             (
-                f"schema.version {parsed} is below minimum compatible "
-                f"{SCHEMA_VERSION_MIN_COMPATIBLE}; migrated to {SCHEMA_VERSION_CURRENT}."
+                f"schema.version {parsed} is below supported "
+                f"{SCHEMA_VERSION_MIN_COMPATIBLE}; set to {SCHEMA_VERSION_CURRENT}."
             ),
         )
 
@@ -371,7 +360,7 @@ def _normalize_schema_version(raw_version: Any) -> tuple[int, bool, str | None]:
             changed,
             (
                 f"schema.version {parsed} is newer than supported {SCHEMA_VERSION_CURRENT}; "
-                "applying best-effort compatibility normalization for known fields."
+                "normalizing known container metadata only."
             ),
         )
 
@@ -432,14 +421,302 @@ def _merge_descriptor(existing: dict[str, Any], current: dict[str, Any]) -> tupl
             merged["keys_preview"] = sorted(merged_keys)[:20]
             changed = True
 
-    if "flatten" not in merged or not isinstance(merged.get("flatten"), dict):
-        merged["flatten"] = {"mode": _default_mode_for_kind(str(merged.get("kind", "unknown")))}
-        changed = True
-    elif "mode" not in merged["flatten"]:
-        merged["flatten"]["mode"] = _default_mode_for_kind(str(merged.get("kind", "unknown")))
-        changed = True
+    if "num_keys" in current:
+        new_num_keys = current["num_keys"]
+        old_num_keys = merged.get("num_keys")
+        if old_num_keys is None or old_num_keys != new_num_keys:
+            merged["num_keys"] = new_num_keys
+            changed = True
+
+    if "length" in current:
+        new_length = current["length"]
+        old_length = merged.get("length")
+        if old_length is None:
+            merged["length"] = new_length
+            changed = True
+        elif old_length != new_length and old_length != "variable":
+            merged["length"] = "variable"
+            changed = True
+
+    for obsolete_key in ("flatten", "csv_export"):
+        if obsolete_key in merged:
+            merged.pop(obsolete_key, None)
+            changed = True
 
     return merged, changed
+
+
+def _csv_export_policy(schema: dict[str, Any]) -> dict[str, str]:
+    policy = dict(CSV_EXPORT_POLICY_DEFAULTS)
+    raw = schema.get("csv_export_policy", {}) if isinstance(schema, dict) else {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if key in policy and value in {"keep", "split", "drop"}:
+                policy[key] = value
+    return policy
+
+
+def _csv_export_limits(schema: dict[str, Any]) -> dict[str, int]:
+    limits = dict(CSV_EXPORT_LIMIT_DEFAULTS)
+    raw = schema.get("csv_export_limits", {}) if isinstance(schema, dict) else {}
+    if isinstance(raw, dict):
+        for key, default in CSV_EXPORT_LIMIT_DEFAULTS.items():
+            try:
+                limits[key] = max(0, int(raw.get(key, default)))
+            except Exception:
+                limits[key] = default
+    return limits
+
+
+def _column_suffix(value: Any) -> str:
+    suffix = re.sub(r"[^0-9A-Za-z_]+", "_", str(value)).strip("_")
+    return suffix or "value"
+
+
+def _scalar_type_group(value: Any) -> str:
+    if isinstance(value, (np.integer, np.floating, sympy.Float, sympy.Integer)):
+        return "number"
+    if isinstance(value, bool) or _is_sympy_boolean(value):
+        return "bool"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "str"
+    if value is None:
+        return "null"
+    return _infer_kind(value)
+
+
+def _is_flat_sequence(values: list[Any]) -> bool:
+    return all(not isinstance(item, (dict, list, tuple, set, np.ndarray)) for item in values)
+
+
+def _is_mixed_flat_values(values: list[Any]) -> bool:
+    groups = {_scalar_type_group(item) for item in values if item is not None}
+    return len(groups) > 1
+
+
+def _dict_depth(value: Any) -> int:
+    if not isinstance(value, dict) or not value:
+        return 0
+    child_depths = []
+    for item in value.values():
+        if isinstance(item, dict):
+            child_depths.append(1 + _dict_depth(item))
+        elif isinstance(item, (list, tuple, set, np.ndarray)):
+            child_depths.append(2)
+        else:
+            child_depths.append(1)
+    return max(child_depths, default=0)
+
+
+def _is_flat_dict(value: dict[Any, Any]) -> bool:
+    return all(not isinstance(item, (dict, list, tuple, set, np.ndarray)) for item in value.values())
+
+
+def _is_path_like_field(name: str, value: Any) -> bool:
+    if name in PATH_LIKE_FIELD_NAMES:
+        return True
+    if not isinstance(value, str):
+        return False
+    lowered = name.lower()
+    return lowered.endswith("_path") or lowered.endswith("_file")
+
+
+def _policy_decision(policy: dict[str, str], reason_key: str) -> str:
+    return policy.get(reason_key, CSV_EXPORT_POLICY_DEFAULTS.get(reason_key, "drop"))
+
+
+def _value_dtype(value: Any) -> str:
+    if isinstance(value, np.ndarray):
+        return str(value.dtype)
+    if isinstance(value, np.generic):
+        return str(value.dtype)
+    if isinstance(value, (sympy.Float, sympy.Integer)):
+        return type(value).__name__
+    if _is_sympy_boolean(value):
+        return "bool"
+    if value is None:
+        return "null"
+    return type(value).__name__
+
+
+def _field_keep_config(keep: bool, name: Any, value: Any, kind: str | None = None) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "keep": bool(keep),
+        "name": name,
+    }
+    if kind in {"dict", "list", "ndarray", "mixed"}:
+        config["kind"] = kind
+    else:
+        config["dtype"] = _value_dtype(value)
+    return config
+
+
+def _subfield_config(column_name: str, value: Any, keep: bool = True) -> dict[str, Any]:
+    return {
+        "name": column_name,
+        "keep": bool(keep),
+        "dtype": _value_dtype(value),
+    }
+
+
+def _default_keep_config(field: str, desc: dict[str, Any], value: Any, schema: dict[str, Any]) -> dict[str, Any]:
+    policy = _csv_export_policy(schema)
+    limits = _csv_export_limits(schema)
+    kind = str(desc.get("kind", "unknown"))
+
+    if kind == "str" and _is_path_like_field(field, value):
+        decision = _policy_decision(policy, "path_like_string")
+        return _field_keep_config(decision == "keep", field, value)
+
+    if kind in {"bool", "int", "float", "str", "null", "numpy_scalar", "sympy_scalar"}:
+        decision = _policy_decision(policy, "scalar")
+        return _field_keep_config(decision == "keep", field, value)
+
+    if isinstance(value, np.ndarray):
+        if value.ndim != 1:
+            return _field_keep_config(False, field, value, kind="ndarray")
+        length = int(value.shape[0])
+        desc["length"] = length
+        keep = 0 < length <= limits["max_list_len"] and _policy_decision(policy, "small_list") == "split"
+        values = value.tolist()
+        names = {
+            str(idx): _subfield_config(f"{field}_{idx}", values[idx])
+            for idx in range(length)
+        }
+        return _field_keep_config(keep, names, value, kind="ndarray")
+
+    if isinstance(value, (list, tuple, set)):
+        seq = list(value)
+        desc["length"] = len(seq)
+        keep = (
+            0 < len(seq) <= limits["max_list_len"]
+            and _is_flat_sequence(seq)
+            and not _is_mixed_flat_values(seq)
+            and _policy_decision(policy, "small_list") == "split"
+        )
+        names = {
+            str(idx): _subfield_config(f"{field}_{idx}", item)
+            for idx, item in enumerate(seq)
+        }
+        return _field_keep_config(keep, names, value, kind="list")
+
+    if isinstance(value, dict):
+        num_keys = len(value)
+        desc["num_keys"] = num_keys
+        keep = (
+            0 < num_keys <= limits["max_dict_keys"]
+            and _dict_depth(value) <= limits["max_nested_depth"]
+            and _is_flat_dict(value)
+            and not _is_mixed_flat_values(list(value.values()))
+            and _policy_decision(policy, "small_flat_dict") == "split"
+        )
+        names = {
+            str(key): _subfield_config(f"{field}_{_column_suffix(key)}", item)
+            for key, item in value.items()
+        }
+        return _field_keep_config(keep, names, value, kind="dict")
+
+    if kind == "mixed":
+        return _field_keep_config(False, field, value, kind="mixed")
+
+    return _field_keep_config(False, field, value)
+
+
+def _descriptor_keep_config(field: str, meta: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    policy = _csv_export_policy(schema)
+    limits = _csv_export_limits(schema)
+    kind = str(meta.get("kind", "unknown"))
+    dtype = str(meta.get("dtype", kind if kind != "unknown" else "object"))
+
+    if kind == "str" and _is_path_like_field(field, ""):
+        return {
+            "dtype": "str",
+            "keep": _policy_decision(policy, "path_like_string") == "keep",
+            "name": field,
+        }
+
+    if kind in {"bool", "int", "float", "str", "null", "numpy_scalar", "sympy_scalar", "unknown"}:
+        return {
+            "dtype": dtype,
+            "keep": _policy_decision(policy, "scalar") == "keep",
+            "name": field,
+        }
+
+    if kind in {"ndarray", "list"}:
+        length = meta.get("length")
+        if not isinstance(length, int):
+            shape = meta.get("shape")
+            length = shape[0] if isinstance(shape, list) and shape and isinstance(shape[0], int) else 0
+        keep = 0 < length <= limits["max_list_len"] and _policy_decision(policy, "small_list") == "split"
+        element_dtype = str(meta.get("element_kind") or meta.get("dtype") or "object")
+        names = {
+            str(idx): {
+                "name": f"{field}_{idx}",
+                "keep": True,
+                "dtype": element_dtype,
+            }
+            for idx in range(max(0, int(length)))
+        }
+        return {
+            "kind": kind,
+            "keep": keep,
+            "name": names,
+        }
+
+    if kind == "dict":
+        num_keys = meta.get("num_keys")
+        keys = meta.get("keys_preview", [])
+        if not isinstance(num_keys, int):
+            num_keys = len(keys) if isinstance(keys, list) else 0
+        keep = (
+            0 < num_keys <= limits["max_dict_keys"]
+            and isinstance(keys, list)
+            and len(keys) >= num_keys
+            and _policy_decision(policy, "small_flat_dict") == "split"
+        )
+        names = {
+            str(key): {
+                "name": f"{field}_{_column_suffix(key)}",
+                "keep": True,
+                "dtype": "object",
+            }
+            for key in (keys if isinstance(keys, list) else [])
+        }
+        return {
+            "kind": "dict",
+            "keep": keep,
+            "name": names,
+        }
+
+    return {
+        "dtype": dtype,
+        "keep": False,
+        "name": field,
+    }
+
+
+def _ensure_export_for_descriptor(
+    name: str,
+    descriptor: dict[str, Any],
+    value: Any,
+    schema: dict[str, Any],
+) -> tuple[dict[str, Any], bool]:
+    updated = dict(descriptor)
+    changed = False
+    for obsolete_key in ("flatten", "csv_export"):
+        if obsolete_key in updated:
+            updated.pop(obsolete_key, None)
+            changed = True
+    if "keep" not in updated or "name" not in updated:
+        keep_config = _default_keep_config(name, updated, value, schema)
+        updated.update(keep_config)
+        changed = True
+    if updated.get("kind") not in {"dict", "list", "ndarray", "mixed"} and "kind" in updated:
+        updated.pop("kind", None)
+        changed = True
+    return updated, changed
 
 
 def update_schema_with_record(schema: dict[str, Any], record: Any) -> bool:
@@ -455,13 +732,17 @@ def update_schema_with_record(schema: dict[str, Any], record: Any) -> bool:
         current = infer_column_descriptor(value)
         existing = columns.get(key)
         if existing is None:
-            current["flatten"] = {"mode": _default_mode_for_kind(current.get("kind", "unknown"))}
+            current, _ = _ensure_export_for_descriptor(key, current, value, schema)
             columns[key] = current
             changed = True
             continue
 
         merged, merged_changed = _merge_descriptor(existing, current)
+        merged, export_changed = _ensure_export_for_descriptor(key, merged, value, schema)
         if merged_changed:
+            columns[key] = merged
+            changed = True
+        elif export_changed:
             columns[key] = merged
             changed = True
 
@@ -474,108 +755,67 @@ def _json_cell(value: Any) -> str:
     return json.dumps(make_json_compatible(value), ensure_ascii=False, separators=(",", ":"))
 
 
-def _flatten_nested(prefix: str, value: Any, row: dict[str, Any]) -> None:
-    if isinstance(value, dict):
-        if not value:
-            row[prefix] = "{}"
-            return
-        for key, item in value.items():
-            _flatten_nested(f"{prefix}.{key}", item, row)
-        return
-
-    if isinstance(value, list):
-        if not value:
-            row[prefix] = "[]"
-            return
-        for idx, item in enumerate(value):
-            _flatten_nested(f"{prefix}[{idx}]", item, row)
-        return
-
-    row[prefix] = value
-
-
-def _resolve_flatten_mode(schema: dict[str, Any], key: str, value: Any) -> str:
-    columns = schema.get("columns", {}) if isinstance(schema, dict) else {}
-    col_meta = columns.get(key, {}) if isinstance(columns, dict) else {}
-
-    flatten_cfg = col_meta.get("flatten", {}) if isinstance(col_meta, dict) else {}
-    if isinstance(flatten_cfg, dict) and flatten_cfg.get("mode"):
-        mode = str(flatten_cfg["mode"]).strip().lower()
-        if mode in VALID_FLATTEN_MODES:
-            return mode
-
-    kind = str(col_meta.get("kind", _infer_kind(value)))
-    if kind == "ndarray":
-        kind = "array"
-    defaults = schema.get("flatten_defaults", {}) if isinstance(schema, dict) else {}
-    mode = str(defaults.get(kind, _default_mode_for_kind(kind))).strip().lower()
-    if mode not in VALID_FLATTEN_MODES:
-        return _default_mode_for_kind(kind)
-    return mode
-
-
-def _ensure_split_name_map(
-    schema: dict[str, Any],
-    column: str,
-    generated_keys: list[str],
-    value: Any,
-    populate_name_map: bool,
-) -> tuple[dict[str, str], bool]:
-    if not isinstance(schema, dict):
-        return {}, False
-
-    changed = False
-    columns = schema.setdefault("columns", {})
+def validate_csv_export_schema(schema: dict[str, Any]) -> None:
+    """Validate the simplified CSV export schema."""
+    columns = schema.get("columns")
     if not isinstance(columns, dict):
-        schema["columns"] = {}
-        columns = schema["columns"]
-        changed = True
+        raise ValueError("schema.columns must be an object")
 
-    col_meta = columns.get(column)
-    if not isinstance(col_meta, dict):
-        if populate_name_map:
-            col_meta = infer_column_descriptor(value)
-            col_meta["flatten"] = {"mode": "split", "name_map": {}}
-            columns[column] = col_meta
-            changed = True
-        else:
-            col_meta = {}
+    for field, meta in columns.items():
+        if not isinstance(meta, dict):
+            raise ValueError(f"schema.columns.{field} must be an object")
+        if not isinstance(meta.get("keep"), bool):
+            raise ValueError(f"schema.columns.{field}.keep must be boolean")
+        name = meta.get("name")
+        if not isinstance(name, (str, dict)):
+            raise ValueError(f"schema.columns.{field}.name must be a string or object")
+        if isinstance(name, str) and meta["keep"] and not name:
+            raise ValueError(f"schema.columns.{field}.name must be non-empty when keep is true")
+        if isinstance(name, dict):
+            for subkey, submeta in name.items():
+                if not isinstance(submeta, dict):
+                    raise ValueError(f"schema.columns.{field}.name.{subkey} must be an object")
+                if not isinstance(submeta.get("keep"), bool):
+                    raise ValueError(f"schema.columns.{field}.name.{subkey}.keep must be boolean")
+                subname = submeta.get("name")
+                if not isinstance(subname, str) or not subname:
+                    raise ValueError(f"schema.columns.{field}.name.{subkey}.name must be a non-empty string")
 
-    flatten_cfg = col_meta.get("flatten")
-    if not isinstance(flatten_cfg, dict):
-        flatten_cfg = {"mode": "split"}
-        if populate_name_map:
-            col_meta["flatten"] = flatten_cfg
-            changed = True
 
-    name_map = flatten_cfg.get("name_map")
-    if not isinstance(name_map, dict):
-        name_map = {}
-        if populate_name_map:
-            flatten_cfg["name_map"] = name_map
-            changed = True
+def _field_export_config(schema: dict[str, Any], field: str) -> dict[str, Any]:
+    columns = schema.get("columns", {}) if isinstance(schema, dict) else {}
+    meta = columns.get(field) if isinstance(columns, dict) else None
+    if not isinstance(meta, dict):
+        raise ValueError(f"schema.columns.{field} must exist for CSV export")
+    return meta
 
-    if populate_name_map:
-        for key in generated_keys:
-            if key not in name_map:
-                name_map[key] = key
-                changed = True
-            else:
-                alias = str(name_map[key]).strip()
-                if not alias:
-                    name_map[key] = key
-                    changed = True
-                elif alias != name_map[key]:
-                    name_map[key] = alias
-                    changed = True
 
-    normalized_map: dict[str, str] = {}
-    for key in generated_keys:
-        alias = str(name_map.get(key, key)).strip()
-        if not alias:
-            alias = key
-        normalized_map[key] = alias
-    return normalized_map, changed
+def _split_values_for_field(value: Any, name_map: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    if isinstance(value, np.ndarray):
+        value = value.tolist()
+
+    if isinstance(value, (list, tuple)):
+        seq = list(value)
+        for raw_idx, submeta in name_map.items():
+            if not isinstance(submeta, dict) or not submeta.get("keep", False):
+                continue
+            try:
+                idx = int(raw_idx)
+            except Exception:
+                continue
+            if 0 <= idx < len(seq):
+                row[submeta["name"]] = seq[idx]
+        return row
+
+    if isinstance(value, dict):
+        for raw_key, submeta in name_map.items():
+            if not isinstance(submeta, dict) or not submeta.get("keep", False):
+                continue
+            row[submeta["name"]] = value.get(str(raw_key), value.get(raw_key))
+        return row
+
+    return row
 
 
 def _flatten_record_for_csv_internal(
@@ -588,42 +828,31 @@ def _flatten_record_for_csv_internal(
         return {}, False
 
     row: dict[str, Any] = {}
-    schema_changed = False
     normalized_record = make_json_compatible(record)
 
+    validate_csv_export_schema(schema)
+    columns = schema.get("columns", {})
+
     for key, value in normalized_record.items():
-        column = str(key)
-        mode = _resolve_flatten_mode(schema, column, value)
+        field = str(key)
+        meta = _field_export_config(schema, field)
+        keep = meta["keep"]
+        name = meta["name"]
 
-        if mode == "drop":
+        if not keep:
             continue
 
-        if mode == "split":
-            split_items: dict[str, Any] = {}
+        if isinstance(name, str):
             if isinstance(value, (dict, list)):
-                _flatten_nested(column, value, split_items)
+                row[name] = _json_cell(value)
             else:
-                split_items[column] = value
-
-            generated_keys = list(split_items.keys())
-            name_map, changed = _ensure_split_name_map(
-                schema=schema,
-                column=column,
-                generated_keys=generated_keys,
-                value=value,
-                populate_name_map=populate_name_map,
-            )
-            schema_changed = schema_changed or changed
-            for raw_key, raw_value in split_items.items():
-                row[name_map.get(raw_key, raw_key)] = raw_value
+                row[name] = value
             continue
 
-        if isinstance(value, (dict, list)):
-            row[column] = _json_cell(value)
-        else:
-            row[column] = value
+        if isinstance(name, dict):
+            row.update(_split_values_for_field(value, name))
 
-    return row, schema_changed
+    return row, False
 
 
 def flatten_record_for_csv(record: dict[str, Any], schema: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -668,6 +897,71 @@ def collect_csv_fieldnames(rows: list[dict[str, Any]]) -> list[str]:
                 seen.add(key)
                 fieldnames.append(key)
     return fieldnames
+
+
+def csv_export_fieldnames_from_schema(schema: dict[str, Any]) -> list[str]:
+    """Return default CSV columns in schema order."""
+    validate_csv_export_schema(schema)
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    columns = schema.get("columns", {})
+    for meta in columns.values():
+        if not isinstance(meta, dict) or not meta.get("keep", False):
+            continue
+        name = meta.get("name")
+        columns_to_add: list[str] = []
+        if isinstance(name, str):
+            columns_to_add.append(name)
+        elif isinstance(name, dict):
+            columns_to_add.extend(
+                submeta["name"]
+                for submeta in name.values()
+                if isinstance(submeta, dict) and submeta.get("keep", False)
+            )
+        for column in columns_to_add:
+            if column not in seen:
+                seen.add(column)
+                fieldnames.append(column)
+    return fieldnames
+
+
+def format_csv_export_report(schema: dict[str, Any]) -> str:
+    validate_csv_export_schema(schema)
+    kept_scalar: list[str] = []
+    split_fields: list[str] = []
+    json_fields: list[str] = []
+    dropped: list[str] = []
+    columns = schema.get("columns", {})
+    for field, meta in columns.items():
+        if not meta.get("keep", False):
+            dropped.append(field)
+            continue
+        name = meta.get("name")
+        if isinstance(name, dict):
+            split_fields.append(field)
+        elif meta.get("kind") in {"dict", "list", "ndarray"}:
+            json_fields.append(field)
+        else:
+            kept_scalar.append(field)
+
+    def _summary(values: list[str]) -> str:
+        if not values:
+            return "none"
+        preview = ", ".join(values[:12])
+        extra = len(values) - 12
+        return f"{preview} (+{extra} more)" if extra > 0 else preview
+
+    lines = [
+        "[CSV Export]",
+        f"kept scalar fields: {_summary(kept_scalar)}",
+        f"split fields: {_summary(split_fields)}",
+        f"json fields: {_summary(json_fields)}",
+        f"dropped fields: {len(dropped)}",
+    ]
+    if dropped:
+        lines.append("dropped examples:")
+        lines.extend(f"  - {field}" for field in dropped[:5])
+    return "\n".join(lines)
 
 
 def resolve_schema_path(pathroot_or_hdf5: str) -> str:

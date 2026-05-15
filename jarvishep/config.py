@@ -398,6 +398,17 @@ class ConfigLoader(Base):
         return cmdd, next_cwd
 
     def analysis_calculator(self):
+        def normalize_selection(value, *, context: str):
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                self.logger.error(
+                    f"Invalid module selection in {context}: expected string or null, got {value!r}"
+                )
+                sys.exit(2)
+            text = value.strip()
+            return text or None
+
         def analysis_path(calc):
             if 'path' in calc:
                 calc['path'] = self.decode_path(calc['path'])
@@ -454,6 +465,10 @@ class ConfigLoader(Base):
         self.config["Calculators"] = calc_root
         calc_config = calc_root.get('Modules', []) or []
         for calc in calc_config:
+            calc["selection"] = normalize_selection(
+                calc.get("selection"),
+                context=f"Calculators.Modules[{calc.get('name', '<unknown>')}]",
+            )
             calc.update(analysis_path(calc))
             calc.update(analysis_install_commands(calc))
             if "modes" in calc:
@@ -466,6 +481,17 @@ class ConfigLoader(Base):
 
     def analysis_operas(self):
         """Normalize Operas section into a workflow-ready structure."""
+        def normalize_selection(value, *, context: str):
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                self.logger.error(
+                    f"Invalid module selection in {context}: expected string or null, got {value!r}"
+                )
+                sys.exit(2)
+            text = value.strip()
+            return text or None
+
         def normalize_call_mode(value, *, context: str) -> str:
             if value is None:
                 return "call"
@@ -497,6 +523,10 @@ class ConfigLoader(Base):
                 sys.exit(2)
             module["call_mode"] = normalize_call_mode(
                 module.get("call_mode", "call"),
+                context=f"Operas.Modules[{module.get('name', '<unknown>')}]",
+            )
+            module["selection"] = normalize_selection(
+                module.get("selection"),
                 context=f"Operas.Modules[{module.get('name', '<unknown>')}]",
             )
             if "required_modules" not in module:

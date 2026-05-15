@@ -37,6 +37,15 @@ def _minimal_calc_config() -> dict:
 
 
 class CalculatorRuntimeSampleIDTests(unittest.TestCase):
+    def test_module_selection_expression_evaluates_against_observables(self):
+        config = _minimal_calc_config()
+        config["selection"] = "x > 0.5"
+        module = CalculatorModule("DemoCalc", config)
+        module.set_funcs({})
+
+        self.assertTrue(module.evaluate_selection({"x": 0.6}))
+        self.assertFalse(module.evaluate_selection({"x": 0.2}))
+
     def test_execution_stage_replaces_runtime_tokens_in_cmd_and_cwd(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -44,7 +53,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
             module.sample_info = {"uuid": "S-1001", "save_dir": sample_dir}
             captured = {}
 
-            async def _fake_local(command, stage, command_index):
+            async def _fake_local(command, stage, command_index, timeout_sec=None):
                 captured["command"] = dict(command)
                 captured["stage"] = stage
                 captured["command_index"] = command_index
@@ -83,7 +92,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
         module.sample_info = {}
         captured = {}
 
-        async def _fake_local(command, stage, command_index):
+        async def _fake_local(command, stage, command_index, timeout_sec=None):
             captured["command"] = dict(command)
             captured["stage"] = stage
             captured["command_index"] = command_index
@@ -166,7 +175,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
 
             local_calls = []
 
-            async def _fake_local(command, stage, command_index):
+            async def _fake_local(command, stage, command_index, timeout_sec=None):
                 local_calls.append((dict(command), stage, command_index))
                 module.logger.bind(raw=True).info("install output line")
 
@@ -250,6 +259,77 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
             done_lines = [line for line in lines if line.startswith("Command done [install#")]
             self.assertTrue(done_lines)
             self.assertTrue(all("·•·" not in line for line in done_lines))
+
+    def test_calculator_timeout_is_normalized_from_module_config(self):
+        config = _minimal_calc_config()
+        config["timeout"] = "2.5"
+
+        module = CalculatorModule("DemoCalc", config)
+
+        self.assertEqual(module.timeout, 2.5)
+
+    def test_execution_timeout_budget_is_passed_to_commands(self):
+        config = _minimal_calc_config()
+        config["timeout"] = 0.5
+        config["execution"]["commands"] = [
+            {"cmd": "echo one", "cwd": "."},
+            {"cmd": "echo two", "cwd": "."},
+        ]
+        module = CalculatorModule("DemoCalc", config)
+        captured_timeouts = []
+
+        async def _fake_run_command(command, stage="execution", command_index=0, timeout_sec=None):
+            captured_timeouts.append(timeout_sec)
+            await asyncio.sleep(0.01)
+
+        module.run_command = _fake_run_command  # type: ignore[method-assign]
+
+        _run_async(module.execute_commands())
+
+        self.assertEqual(len(captured_timeouts), 2)
+        self.assertTrue(all(timeout is not None for timeout in captured_timeouts))
+        self.assertTrue(all(0 < timeout <= 0.5 for timeout in captured_timeouts))
+        self.assertLess(captured_timeouts[1], captured_timeouts[0])
+
+    def test_execution_timeout_stops_before_next_command_after_budget_expires(self):
+        config = _minimal_calc_config()
+        config["timeout"] = 0.01
+        config["execution"]["commands"] = [
+            {"cmd": "echo one", "cwd": "."},
+            {"cmd": "echo two", "cwd": "."},
+        ]
+        module = CalculatorModule("DemoCalc", config)
+        calls = []
+
+        async def _fake_run_command(command, stage="execution", command_index=0, timeout_sec=None):
+            calls.append(command["cmd"])
+            await asyncio.sleep(0.02)
+
+        module.run_command = _fake_run_command  # type: ignore[method-assign]
+
+        with self.assertRaises(RuntimeError) as ctx:
+            _run_async(module.execute_commands())
+
+        self.assertEqual(calls, ["echo one"])
+        self.assertIn("Calculator execution timed out after", str(ctx.exception))
+
+    def test_local_execution_command_timeout_terminates_process(self):
+        module = CalculatorModule("DemoCalc", _minimal_calc_config())
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(RuntimeError) as ctx:
+                _run_async(
+                    module.run_command(
+                        {
+                            "cmd": f'"{sys.executable}" -c "import time; time.sleep(2)"',
+                            "cwd": tmpdir,
+                        },
+                        stage="execution",
+                        command_index=4,
+                        timeout_sec=0.1,
+                    )
+                )
+
+        self.assertIn("timeout=True", str(ctx.exception))
 
 
 if __name__ == "__main__":

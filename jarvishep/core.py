@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import glob
 import json
 import os
 import sys
@@ -763,11 +764,6 @@ class Core(Base):
             self.logger.warning(
                 f"Skipping semantic flowchart export after failure: {exc}"
             )
-        if not self.args.skipFC:
-            self.logger.warning(f"Draw workflow chart into {self.info['flowchart_path']}")
-            asyncio.run(
-                self.workflow.draw_flowchart(save_path=self.info['flowchart_path'])
-            )
         self.workflow.get_workflow_dict()
 
     def init_WorkerFactory(self) -> None: 
@@ -1169,28 +1165,96 @@ class Core(Base):
             self.argparser.error(f"YAML file not found: {config_file}")
         self.args.file = config_file
 
-    def convert(self) -> None: 
-        if os.path.exists(self.info['db']['info']):
-            with open(self.info['db']['info'], 'r') as f1:
-                dbinfo = json.load(f1)
-            out_csv = "".join([dbinfo['pathroot'], ".{}".format(dbinfo['activeNO']), ".csv"])
+    def convert(self) -> None:
+        if not os.path.exists(self.info['db']['info']):
+            return
 
-            if out_csv not in dbinfo['converted'] or not os.path.exists(out_csv):
-                if os.path.exists(dbinfo['active path']):
-                    self.logger.warning("Jarvis-HEP not find the -> {}.\nStarting converting from hdf5.".format(out_csv))
-                    snapshot_path = dbinfo['active path'] + ".snap"
-                    import shutil 
-                    shutil.copy2(dbinfo['active path'], snapshot_path)
-                    try: 
-                        from jarvishep.utils import convert_hdf5_to_csv
-                        convert_hdf5_to_csv(snapshot_path, out_csv)
-                        self.logger.warning(f"Data has been successfully written to -> {out_csv}")
-                    finally:
-                        try:
-                            os.remove(snapshot_path)
-                            self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
-                        except Exception as e:
-                            self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
+        with open(self.info['db']['info'], 'r') as f1:
+            dbinfo = json.load(f1)
+
+        pathroot = str(dbinfo.get("pathroot") or os.path.splitext(self.info["db"]["path"])[0])
+        pathext = str(dbinfo.get("pathext") or ".hdf5")
+        hdf5_paths = set()
+
+        active_path = dbinfo.get("active path")
+        if isinstance(active_path, str) and active_path:
+            hdf5_paths.add(active_path)
+
+        for old_path in dbinfo.get("paths", []):
+            if isinstance(old_path, str) and old_path:
+                hdf5_paths.add(old_path)
+
+        hdf5_paths.update(glob.glob(f"{pathroot}.*{pathext}"))
+        if os.path.exists(f"{pathroot}{pathext}"):
+            hdf5_paths.add(f"{pathroot}{pathext}")
+
+        def _sort_key(path: str):
+            stem = os.path.splitext(path)[0]
+            suffix = stem.removeprefix(pathroot).lstrip(".")
+            try:
+                return (0, int(suffix))
+            except Exception:
+                return (1, path)
+
+        converted = dbinfo.get("converted", [])
+        if isinstance(converted, str):
+            converted = [converted]
+        elif not isinstance(converted, list):
+            converted = []
+        dbinfo["converted"] = converted
+
+        pending = dbinfo.get("pending_converted", [])
+        if isinstance(pending, str):
+            pending = [pending]
+        elif not isinstance(pending, list):
+            pending = []
+        dbinfo["pending_converted"] = pending
+
+        for hdf5_path in sorted(hdf5_paths, key=_sort_key):
+            if not hdf5_path.endswith(pathext) or hdf5_path.endswith(".snap") or not os.path.exists(hdf5_path):
+                continue
+
+            out_csv = os.path.splitext(hdf5_path)[0] + ".csv"
+            if os.path.exists(out_csv):
+                self.logger.warning(
+                    "CSV file already exists -> {}. Skip HDF5-to-CSV conversion. "
+                    "To regenerate it, rename or delete the old CSV file first.".format(out_csv)
+                )
+                if out_csv not in converted:
+                    converted.append(out_csv)
+                continue
+
+            self.logger.warning(
+                "CSV file not found -> {}.\nStarting HDF5-to-CSV conversion from -> {}".format(
+                    out_csv, hdf5_path
+                )
+            )
+            snapshot_path = hdf5_path + ".snap"
+            import shutil
+            shutil.copy2(hdf5_path, snapshot_path)
+            try:
+                from jarvishep.utils import convert_hdf5_to_csv
+
+                convert_hdf5_to_csv(snapshot_path, out_csv)
+                if os.path.exists(out_csv):
+                    self.logger.warning(f"Data has been successfully written to -> {out_csv}")
+                else:
+                    self.logger.warning(
+                        f"HDF5-to-CSV conversion finished but produced no CSV file -> {out_csv}"
+                    )
+                if os.path.exists(out_csv) and out_csv not in converted:
+                    converted.append(out_csv)
+                if out_csv in pending:
+                    pending.remove(out_csv)
+            finally:
+                try:
+                    os.remove(snapshot_path)
+                    self.logger.warning(f"Snapshot -> {snapshot_path} has been successfully deleted.")
+                except Exception as e:
+                    self.logger.error(f"Failed to delete snapshot {snapshot_path}: {str(e)}")
+
+        with open(self.info['db']['info'], "w") as f1:
+            json.dump(dbinfo, f1, indent=4)
 
     def plot(self) -> None:
         self.plotter.logger.warning(f"Generate JarvisPLOT YAML for {self.info['project_name']}")

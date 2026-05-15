@@ -2,6 +2,8 @@
 import pandas as pd 
 import numpy as np 
 from jarvishep.observable_io import (
+    csv_export_fieldnames_from_schema,
+    format_csv_export_report,
     flatten_records_for_csv,
     load_schema,
     resolve_schema_path,
@@ -137,28 +139,18 @@ def convert_hdf5_to_csv(snapshot_path, csv_path, schema_path=None):
         # Persist normalized schema so users can inspect the corrected result.
         save_schema(schema_path, schema)
 
-    schema_changed = False
-    fieldnames = []
-    seen = set()
+    print(format_csv_export_report(schema))
+    fieldnames = csv_export_fieldnames_from_schema(schema)
     row_count = 0
     for record in _iter_records():
-        rows, row_changed = flatten_records_for_csv(
+        rows, _ = flatten_records_for_csv(
             records=[record],
             schema=schema,
-            populate_name_map=True,
+            populate_name_map=False,
         )
         if not rows:
             continue
-        row = rows[0]
         row_count += 1
-        schema_changed = schema_changed or row_changed
-        for key in row.keys():
-            if key not in seen:
-                seen.add(key)
-                fieldnames.append(key)
-
-    if schema_changed:
-        save_schema(schema_path, schema)
 
     if row_count == 0 or not fieldnames:
         return

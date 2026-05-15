@@ -90,10 +90,14 @@ class ModuleManager:
         )
         observables = deepcopy(sample_info['observables'])
         module_failed = False
+        selection_blocked = False
         
         for layer in sorted(self.workflow.keys()):
             module_names = self.workflow[layer]
             for module_name in module_names:
+                if not self._module_selection_allows(module_name, observables, sample_info):
+                    selection_blocked = True
+                    break
                 try:
                     updated_observables = self.execute_module(module_name, observables.copy(), sample_info)
                     observables.update(updated_observables)
@@ -105,6 +109,8 @@ class ModuleManager:
                     raise
 
             if module_failed:
+                break
+            if selection_blocked:
                 break
 
             passed = self.nuisance_check(observables, sample_info)
@@ -128,6 +134,43 @@ class ModuleManager:
             # print(observables)
             self.database.add_data(observables)
             return 1.
+
+    def _module_selection_allows(self, module_name, observables, sample_info) -> bool:
+        module_pool = self.module_pools.get(module_name)
+        if module_pool is None:
+            raise RuntimeError(f"Module pool for '{module_name}' not found.")
+
+        checker = getattr(module_pool, "selection_checker", None)
+        evaluator = getattr(module_pool, "evaluate_selection", None)
+        if not callable(checker) or not callable(evaluator):
+            return True
+
+        ok, missing = checker(observables.keys())
+        selection_expr = getattr(module_pool, "selection", None)
+        if selection_expr is None and hasattr(module_pool, "template_module"):
+            selection_expr = getattr(module_pool.template_module, "selection", None)
+        if selection_expr is None:
+            return True
+        if not ok:
+            raise KeyError(
+                f"Module selection for '{module_name}' is missing required observables: {sorted(missing)}"
+            )
+
+        value = bool(evaluator(observables))
+        slogger = sample_info.get("logger") if isinstance(sample_info, dict) else None
+        if slogger is not None:
+            slogger.info(
+                "Evaluating Module Selection -> \n\tname \t-> {}\n\texpr \t-> {}\n\tOutput \t-> {}".format(
+                    module_name,
+                    selection_expr,
+                    value,
+                )
+            )
+        if not value:
+            self.logger.warning(
+                f"Module selection blocked workflow at module '{module_name}' -> {selection_expr}"
+            )
+        return value
 
     def nuisance_check(self, observables: dict, sample_info: dict) -> bool:
         """Check nuisance passconditions and decide whether to early-stop workflow.

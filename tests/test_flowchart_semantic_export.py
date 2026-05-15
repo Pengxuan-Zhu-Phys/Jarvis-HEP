@@ -53,6 +53,21 @@ class _FakeRelayModule:
         self.outputs = {"z": None}
 
 
+class _FakeSelectionModule:
+    def __init__(self):
+        self.name = "SelectedOperas"
+        self.type = "Operas"
+        self.required_modules = []
+        self.input = []
+        self.output = []
+        self.inputs = {}
+        self.outputs = {}
+        self.operator = "noop"
+        self.call_mode = "call"
+        self.selection = "y > 0"
+        self._selection_deps = ("y",)
+
+
 class FlowchartSemanticExportTests(unittest.TestCase):
     def test_export_writes_typed_graph_without_renderer_geometry(self):
         workflow = Workflow()
@@ -73,6 +88,7 @@ class FlowchartSemanticExportTests(unittest.TestCase):
         workflow.parameter_module = parameters
         workflow.add_module(_FakeCalculatorModule())
         workflow.add_module(_FakeRelayModule())
+        workflow.add_module(_FakeSelectionModule())
         workflow.resolve_dependencies()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -103,6 +119,7 @@ class FlowchartSemanticExportTests(unittest.TestCase):
         self.assertIn("Parameters", node_ids)
         self.assertIn("CalcA", node_ids)
         self.assertIn("CalcB", node_ids)
+        self.assertIn("SelectedOperas", node_ids)
         self.assertIn("var::x", node_ids)
         self.assertIn("var::y", node_ids)
         self.assertIn("var::z", node_ids)
@@ -138,6 +155,27 @@ class FlowchartSemanticExportTests(unittest.TestCase):
             )
         )
         self.assertTrue(any(edge["role"] == "dataflow" for edge in edges))
+
+        selection_node = next(node for node in payload["nodes"] if node["id"] == "SelectedOperas")
+        self.assertEqual(
+            selection_node["selection"],
+            {"expression": "y > 0", "variables": ["y"]},
+        )
+        self.assertTrue(
+            any(
+                port["id"] == "selection::y" and port["role"] == "selection"
+                for port in selection_node["in_ports"]
+            )
+        )
+        self.assertTrue(
+            any(
+                edge["source"]["node"] == "var::y"
+                and edge["target"]["node"] == "SelectedOperas"
+                and edge["target"]["port"] == "selection::y"
+                and edge["role"] == "selectionflow"
+                for edge in edges
+            )
+        )
 
         for node in payload["nodes"]:
             self.assertNotIn("bp", node)

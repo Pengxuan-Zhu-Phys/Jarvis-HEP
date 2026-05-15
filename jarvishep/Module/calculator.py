@@ -1,6 +1,7 @@
 #!/usr/bin/env python3 
 import asyncio
 import os
+import signal
 import time
 
 import sympy as sp
@@ -12,7 +13,7 @@ from jarvishep.async_subprocess import SubprocessExecutionError, SubprocessJob
 
 class CalculatorModule(Module):
     def __init__(self, name, config):
-        super().__init__(name)
+        super().__init__(name, selection=config.get("selection"))
         if config["modes"]:
             self.modes = True
             self.analyze_config_multi()
@@ -24,6 +25,7 @@ class CalculatorModule(Module):
             self.installation       = config["installation"]
             self.initialization     = config["initialization"]
             self.execution          = config["execution"]
+            self.timeout            = self._normalize_timeout(config.get("timeout"))
             self.input              = config["execution"].get("input", [])
             self.output             = config["execution"].get("output", [])
             self.basepath           = config['path']
@@ -40,6 +42,18 @@ class CalculatorModule(Module):
             self.run_summary_collector = None
             self._command_counter   = 0
             self.analyze_config()
+
+    @staticmethod
+    def _normalize_timeout(value):
+        if value is None:
+            return None
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Unsupported Calculator timeout '{value}'. Expected a positive number or null.")
+        if timeout <= 0:
+            return None
+        return timeout
 
     def assign_ID(self, PackID):
         self.PackID = PackID 
@@ -120,6 +134,9 @@ class CalculatorModule(Module):
     @property
     def funcs(self):
         return self._funcs
+
+    def set_funcs(self, funcs):
+        super().set_funcs(funcs)
 
     def set_subprocess_scheduler(self, scheduler):
         self.subprocess_scheduler = scheduler
@@ -213,7 +230,38 @@ class CalculatorModule(Module):
             resolved = resolved.replace("@Sdir", str(sample_save_dir))
         return resolved
 
-    async def _run_command_local(self, command: dict, stage: str, command_index: int):
+    @staticmethod
+    async def _terminate_process_with_fallback(process: asyncio.subprocess.Process, grace_sec: float = 5.0) -> None:
+        pid = int(getattr(process, "pid", 0) or 0)
+        try:
+            if pid > 0:
+                os.killpg(pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except Exception:
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
+        try:
+            await asyncio.wait_for(process.wait(), timeout=max(0.1, float(grace_sec)))
+            return
+        except Exception:
+            pass
+
+        try:
+            if pid > 0:
+                os.killpg(pid, signal.SIGKILL)
+            else:
+                process.kill()
+        except Exception:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    async def _run_command_local(self, command: dict, stage: str, command_index: int, timeout_sec=None):
         process = await asyncio.create_subprocess_shell(
             command["cmd"],
             stdout=asyncio.subprocess.PIPE,
@@ -245,23 +293,33 @@ class CalculatorModule(Module):
 
         out_task = asyncio.create_task(_drain(process.stdout, "stdout"))
         err_task = asyncio.create_task(_drain(process.stderr, "stderr"))
-        rc = await process.wait()
+        timed_out = False
+        try:
+            if timeout_sec is None:
+                rc = await process.wait()
+            else:
+                rc = await asyncio.wait_for(process.wait(), timeout=float(timeout_sec))
+        except asyncio.TimeoutError:
+            timed_out = True
+            await self._terminate_process_with_fallback(process)
+            rc = await process.wait()
         stdout_bytes, stderr_bytes = await asyncio.gather(out_task, err_task)
         if self.logger is not None:
+            timeout_tag = " timeout=1" if timed_out else ""
             done_message = "Command done [{}#{:05}] rc={} out={}B err={}B".format(
                 stage,
                 command_index,
                 rc,
                 int(stdout_bytes),
                 int(stderr_bytes),
-            )
+            ) + timeout_tag
             if stage == "install":
                 self.logger.bind(raw=True).info(done_message)
             else:
                 self.logger.info(done_message)
-        if int(rc) != 0:
+        if int(rc) != 0 or timed_out:
             raise RuntimeError(
-                f"Command failed [{stage}#{command_index:05}] rc={rc} cmd={command['cmd']}"
+                f"Command failed [{stage}#{command_index:05}] rc={rc} timeout={timed_out} cmd={command['cmd']}"
             )
 
 
@@ -287,7 +345,7 @@ class CalculatorModule(Module):
         self.logger = None
         self.is_installed = True
 
-    async def run_command(self, command, stage="execution", command_index=0):
+    async def run_command(self, command, stage="execution", command_index=0, timeout_sec=None):
         cmd_text = self._resolve_sample_runtime_tokens(
             command.get("cmd", ""),
             stage=stage,
@@ -315,7 +373,12 @@ class CalculatorModule(Module):
             # The shared subprocess scheduler logs to its own domain, so keeping install
             # stage on the local drain path preserves the expected log file routing.
             if stage == "install" or self.subprocess_scheduler is None:
-                await self._run_command_local(command, stage=stage, command_index=command_index)
+                await self._run_command_local(
+                    command,
+                    stage=stage,
+                    command_index=command_index,
+                    timeout_sec=timeout_sec,
+                )
                 duration_sec = max(0.0, time.monotonic() - started_monotonic)
                 ok = True
                 return
@@ -328,6 +391,7 @@ class CalculatorModule(Module):
                 log_dir=None,
                 log_policy="logger",
                 task_id=task_id,
+                timeout_sec=timeout_sec,
                 stream_logger=self.logger,
                 meta={
                     "module": self.name,
@@ -400,19 +464,52 @@ class CalculatorModule(Module):
             command_index = self._next_command_index()
             await self.run_command(command=command, stage="initialize", command_index=command_index)
 
-    async def execute_commands(self):
+    def _execution_timeout_error(self):
+        return RuntimeError(
+            f"Calculator execution timed out after {self.timeout:g}s "
+            f"for {self.name}-{self.PackID or 'NA'}"
+        )
+
+    def _remaining_execution_timeout(self, deadline):
+        if deadline is None:
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise self._execution_timeout_error()
+        return remaining
+
+    async def _await_with_execution_timeout(self, awaitable_factory, deadline):
+        timeout_sec = self._remaining_execution_timeout(deadline)
+        if timeout_sec is None:
+            return await awaitable_factory()
+        try:
+            return await asyncio.wait_for(awaitable_factory(), timeout=timeout_sec)
+        except asyncio.TimeoutError as exc:
+            raise self._execution_timeout_error() from exc
+
+    async def execute_commands(self, deadline=None):
+        if deadline is None and self.timeout is not None:
+            deadline = time.monotonic() + float(self.timeout)
+
         for command in self.execution['commands']:
             if self.clone_shadow:
                 command = self.decode_shadow_commands(command)
             else:
                 command = dict(command)
 
+            command_timeout = self._remaining_execution_timeout(deadline)
+
             if self.logger is not None:
                 self.logger.info(
                     f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> "
                 )
             command_index = self._next_command_index()
-            await self.run_command(command=command, stage="execution", command_index=command_index)
+            await self.run_command(
+                command=command,
+                stage="execution",
+                command_index=command_index,
+                timeout_sec=command_timeout,
+            )
 
     def execute(self, input_data, sample_info):
         self.sample_info = sample_info
@@ -438,13 +535,23 @@ class CalculatorModule(Module):
         result = {}
         await self.initialize()
 
-        input_obs = await self.load_input(input_data=input_data)
+        execution_deadline = None
+        if self.timeout is not None:
+            execution_deadline = time.monotonic() + float(self.timeout)
+
+        input_obs = await self._await_with_execution_timeout(
+            lambda: self.load_input(input_data=input_data),
+            execution_deadline,
+        )
         if isinstance(input_obs, dict):
             result.update(input_obs)
 
-        await self.execute_commands()
+        await self.execute_commands(deadline=execution_deadline)
 
-        output_obs = await self.read_output()
+        output_obs = await self._await_with_execution_timeout(
+            self.read_output,
+            execution_deadline,
+        )
         if isinstance(output_obs, dict):
             result.update(output_obs)
         return result

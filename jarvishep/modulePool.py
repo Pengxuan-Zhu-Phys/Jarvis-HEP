@@ -17,6 +17,7 @@ class ModulePool:
     def __init__(self, module, max_workers=2):
         self.name = module.name 
         self.config = module.config 
+        self.template_module = module
         # Keep a lightweight executor for background installation tasks only.
         # Runtime module execution stays on the caller thread (Factory worker)
         # to avoid nested executor scheduling in the hot path.
@@ -60,7 +61,7 @@ class ModulePool:
         instance.is_installed = False
         instance.is_busy = False
         instance.installation_event = threading.Event()
-        instance._funcs = self.funcs
+        instance.set_funcs(self.funcs)
         self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
         self._maybe_call(instance, "set_io_manager", self._io_manager)
         self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)
@@ -88,7 +89,7 @@ class ModulePool:
         if instance.is_installed:
             instance.installation_event.set()
 
-        instance._funcs = self.funcs
+        instance.set_funcs(self.funcs)
         self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
         self._maybe_call(instance, "set_io_manager", self._io_manager)
         self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)
@@ -132,9 +133,22 @@ class ModulePool:
 
     def set_funcs(self, funcs):
         self._funcs = funcs
+        self._maybe_call(self.template_module, "set_funcs", funcs)
         for instance in self.instances:
-            instance._funcs = funcs
+            instance.set_funcs(funcs)
         # self.logger.warning(f"ModulePool {self.name} funcs -> {self.funcs}")
+
+    def selection_checker(self, available_keys):
+        checker = getattr(self.template_module, "selection_checker", None)
+        if callable(checker):
+            return checker(available_keys)
+        return True, set()
+
+    def evaluate_selection(self, values):
+        evaluator = getattr(self.template_module, "evaluate_selection", None)
+        if callable(evaluator):
+            return evaluator(values)
+        return True
 
     def set_subprocess_scheduler(self, scheduler):
         self._subprocess_scheduler = scheduler

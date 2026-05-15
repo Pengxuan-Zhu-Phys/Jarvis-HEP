@@ -173,8 +173,15 @@ Typical project-local artifacts include:
   Jarvis, sampler, and runtime logs
 - `images/<scan>/...`
   generated plot configs, semantic flowchart JSON, and figures
+  (Jarvis-HEP writes `flowchart.json`; rendering is handled by JarvisPLOT)
 - `run_summary.json`, `run_summary.csv`, `run_summary.txt`
   machine-readable and human-readable end-of-run summaries
+
+Flowchart export is semantic-only in Jarvis-HEP. The JSON is built by
+`Workflow.build_flowchart_semantics()` and includes workflow layers, nodes, ports,
+and edges. Calculator / Operas module selections are exported on module nodes as
+`selection.expression` plus `selection.variables`; selection dependencies are also
+represented with `selectionflow` edges.
 
 ## Sampling Support
 
@@ -208,6 +215,67 @@ Task YAML should use project-local `&J/...` paths. Package-owned resources are i
 | `@PackID` | calculator module instance ID, enables per-instance working directories and file paths |
 
 These runtime tokens are available on calculator workflow paths such as commands, working directories, and sample-scoped input/output file paths.
+
+## Calculator Modules
+
+Calculator modules wrap external programs. A typical calculator entry under `Calculators.Modules` uses these top-level keys:
+
+| Key | Meaning |
+| --- | --- |
+| `name` | module name used in the workflow graph |
+| `required_modules` | upstream modules that must finish before this calculator runs |
+| `clone_shadow` | whether to use per-instance shadow paths |
+| `path` | calculator installation/runtime root |
+| `source` | optional source path for installation commands |
+| `installation` | commands run during calculator installation |
+| `initialization` | commands run before each execution |
+| `execution` | per-sample input writing, external commands, and output reading |
+| `timeout` | optional total time limit in seconds for one `execution` section |
+
+`timeout` is a calculator-level fallback cut for one sample execution. It starts after `initialization` and covers the full `execution` section: input file writes, `execution.commands`, and output reads. If it is omitted, there is no calculator-level total execution limit. Positive numbers are interpreted as seconds.
+
+Example:
+
+```yaml
+Calculators:
+  make_paraller: 4
+  Modules:
+    - name: DemoCalc
+      required_modules: []
+      clone_shadow: false
+      path: "&J/calculators/runtime/program/demo"
+      source: "&J/calculators/source/demo"
+      timeout: 120
+      installation: []
+      initialization: []
+      execution:
+        path: "&J/calculators/runtime/program/demo"
+        commands:
+          - "./run_demo.sh @SampleID"
+        input: []
+        output: []
+```
+
+`make_paraller` keeps its legacy spelling for compatibility.
+
+## Subprocess Runtime
+
+External calculator commands normally run through the shared subprocess scheduler. Runtime knobs can be set under `Runtime.Subprocess`:
+
+```yaml
+Runtime:
+  Subprocess:
+    max_concurrency: 8
+    max_pending: 256
+    per_task_timeout_sec: 300
+    terminate_grace_sec: 5
+    log_policy: logger
+    progress_interval_sec: 5
+    diagnostics_enabled: false
+    diagnostics_interval_sec: 10
+```
+
+`Runtime.Subprocess.per_task_timeout_sec` is a per-command scheduler limit. Calculator `timeout` is a higher-level total limit for the whole calculator `execution` section. When both are configured, the effective command timeout is bounded by the remaining calculator execution budget.
 
 ## Design Principles
 

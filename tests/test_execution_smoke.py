@@ -13,11 +13,15 @@ if PROJECT_ROOT not in sys.path:
 
 from jarvishep.core import Core  # noqa: E402
 from jarvishep.factory import WorkerFactory  # noqa: E402
+from jarvishep.Module.module import Module  # noqa: E402
 from jarvishep.moduleManager import ModuleManager  # noqa: E402
 from jarvishep.workflow import Workflow  # noqa: E402
 
 
 class _NoopSampleLogger:
+    def bind(self, **_kwargs):
+        return self
+
     def info(self, *_args, **_kwargs):
         return None
 
@@ -44,6 +48,9 @@ class _CaptureBindLogger:
         self.records.append(("BIND", dict(kwargs)))
         return self
 
+    def info(self, msg, *args, **kwargs):
+        self.records.append(("INFO", str(msg)))
+
     def warning(self, msg, *args, **kwargs):
         self.records.append(("WARNING", str(msg)))
 
@@ -69,8 +76,9 @@ class _FakeSampler:
         self.max_workers = nworkers
 
 
-class _FakeOperasModule:
-    def __init__(self, name, inputs, outputs, callback):
+class _FakeOperasModule(Module):
+    def __init__(self, name, inputs, outputs, callback, *, selection=None):
+        super().__init__(name, selection=selection)
         self.name = name
         self.type = "Operas"
         self.required_modules = []
@@ -80,7 +88,7 @@ class _FakeOperasModule:
         self.calls = 0
 
     def set_funcs(self, funcs):
-        self._funcs = funcs
+        super().set_funcs(funcs)
 
     def set_logger(self, logger):
         self.logger = logger
@@ -223,6 +231,67 @@ class ExecutionPathSmokeTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_module_selection_false_skips_remaining_modules_and_runs_likelihood(self):
+        manager = ModuleManager()
+        manager.set_logger(_CaptureBindLogger())
+        manager.set_config(
+            {
+                "Sampling": {
+                    "ModuleFailurePolicy": "continue",
+                    "LogLikelihood": [
+                        {"name": "LogL_xy", "expression": "x + y"},
+                    ],
+                }
+            }
+        )
+        manager.set_funcs({})
+        manager.set_likelihood()
+        manager.workflow = {2: ["BuildY"], 3: ["BuildZ"], 4: ["BuildW"]}
+        manager._database = _InMemoryDatabase()
+
+        build_y = _FakeOperasModule(
+            "BuildY",
+            inputs=["x"],
+            outputs=["y"],
+            callback=lambda obs, _sample: {"y": obs["x"] + 1},
+        )
+        build_z = _FakeOperasModule(
+            "BuildZ",
+            inputs=["y"],
+            outputs=["z"],
+            callback=lambda obs, _sample: {"z": obs["y"] * 10},
+            selection="y < 0",
+        )
+        build_w = _FakeOperasModule(
+            "BuildW",
+            inputs=["z"],
+            outputs=["w"],
+            callback=lambda obs, _sample: {"w": obs["z"] + 5},
+        )
+
+        manager.add_module_pool(build_y)
+        manager.add_module_pool(build_z)
+        manager.add_module_pool(build_w)
+
+        sample_info = {
+            "uuid": "selection-001",
+            "logger_name": "selection-001",
+            "logger": _NoopSampleLogger(),
+            "observables": {"x": 2},
+        }
+        result = manager.execute_workflow(sample_info)
+
+        self.assertEqual(result, 5.0)
+        self.assertEqual(build_y.calls, 1)
+        self.assertEqual(build_z.calls, 0)
+        self.assertEqual(build_w.calls, 0)
+        self.assertEqual(sample_info["observables"]["LogL"], 5.0)
+        self.assertEqual(sample_info["observables"]["y"], 3)
+        self.assertNotIn("z", sample_info["observables"])
+        self.assertNotIn("w", sample_info["observables"])
+        self.assertEqual(len(manager.database.rows), 1)
+        self.assertEqual(manager.database.rows[0]["LogL"], 5.0)
 
 
 if __name__ == "__main__":

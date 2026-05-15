@@ -493,6 +493,10 @@
                             "clone_shadow": {
                                 "type": "boolean"
                             },
+                            "timeout": {
+                                "type": "number",
+                                "exclusiveMinimum": 0.0
+                            },
                             "path": {
                                 "type": "string"
                             },
