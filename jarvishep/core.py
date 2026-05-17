@@ -750,11 +750,12 @@ class Core(Base):
         modules = self.yaml.get_modules()
         self.workflow.set_modules(modules)
         self.workflow.resolve_dependencies()
+        semantic_graph = None
         try:
             self.logger.warning(
                 f"Export workflow semantic graph into {self.info['flowchart_semantic_path']}"
             )
-            asyncio.run(
+            semantic_graph = asyncio.run(
                 self.workflow.export_flowchart_semantics(
                     save_path=self.info['flowchart_semantic_path'],
                     workflow_name=self.info.get("project_name", "Workflow"),
@@ -764,7 +765,31 @@ class Core(Base):
             self.logger.warning(
                 f"Skipping semantic flowchart export after failure: {exc}"
             )
+        else:
+            if not getattr(self.args, "skipFC", False):
+                self._render_flowchart_with_jarvisplot(semantic_graph)
         self.workflow.get_workflow_dict()
+
+    def _render_flowchart_with_jarvisplot(self, semantic_graph) -> bool:
+        try:
+            from jarvisplot import render_flowchart
+        except ImportError:
+            self.logger.warning(
+                "JarvisPLOT is not installed; skipped flowchart.png rendering. "
+                "Install it with `pip install JarvisPLOT`."
+            )
+            return False
+
+        try:
+            output_path = self.info["flowchart_path"]
+            self.logger.warning(f"Render workflow chart into {output_path} using JarvisPLOT")
+            render_flowchart(semantic_graph, output_path=output_path)
+        except Exception as exc:
+            self.logger.warning(
+                f"Skipping JarvisPLOT flowchart rendering after failure: {exc}"
+            )
+            return False
+        return True
 
     def init_WorkerFactory(self) -> None: 
         self.factory = WorkerFactory()

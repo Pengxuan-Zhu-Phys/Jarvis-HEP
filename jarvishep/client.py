@@ -48,7 +48,7 @@ Workflow options:
   --skip-library-installation
                         Skip library installation
   --skip-draw-flowchart
-                        Deprecated; Jarvis-HEP only exports flowchart.json
+                        Skip JarvisPLOT flowchart.png rendering
 
 Hint:
   Run `Jarvis project -h` to see project workflow commands.

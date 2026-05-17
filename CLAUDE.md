@@ -126,7 +126,7 @@ client.py (CLI) → core.py (Core)
 6. `_preload_resume_checkpoint()` — check for resumable state
 7. `init_sampler()` — instantiate sampling method
 8. `init_StateSaver()` — set up checkpointing
-9. `init_workflow()` — build DAG, export flowchart.json
+9. `init_workflow()` — build DAG, export flowchart.json, optionally render PNG via JarvisPLOT
 10. `init_librarys()` — install required libraries
 11. `init_WorkerFactory()` — create thread pool
 12. `init_likelihood()` — set up likelihood (if configured)

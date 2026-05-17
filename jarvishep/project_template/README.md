@@ -36,8 +36,8 @@ Runtime directories are created automatically on first run:
   (`Jarvis ... --check-modules` uses `outputs/<scan>/SAMPLE/tests`)
   (`DATABASE` remains `outputs/<scan>/DATABASE`, not under `SAMPLE/`)
 - `logs/<scan>/`: Jarvis / sampler / factory logs
-- `images/<scan>/`: plots, generated plotting YAML, and semantic `flowchart.json`
-  (`flowchart.json` is rendered by JarvisPLOT, not by Jarvis-HEP)
+- `images/<scan>/`: plots, generated plotting YAML, semantic `flowchart.json`,
+  and JarvisPLOT-rendered `flowchart.png` when JarvisPLOT is installed
 
 Add optional project directories such as `calculators/`, `configs/`, `scripts/`, `assets/`, and `docs/` only when your workflow actually needs them.
 

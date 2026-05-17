@@ -42,7 +42,7 @@
             "long": "--skip-draw-flowchart",
             "action": "store_true",
             "dest": "skipFC",
-            "help": "Deprecated: Jarvis-HEP only exports flowchart.json; rendering is handled by JarvisPLOT"
+            "help": "Skip JarvisPLOT flowchart.png rendering; flowchart.json is still exported"
         },
         {
             "long": "--convert",

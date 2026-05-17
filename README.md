@@ -173,15 +173,19 @@ Typical project-local artifacts include:
   Jarvis, sampler, and runtime logs
 - `images/<scan>/...`
   generated plot configs, semantic flowchart JSON, and figures
-  (Jarvis-HEP writes `flowchart.json`; rendering is handled by JarvisPLOT)
+  (Jarvis-HEP writes `flowchart.json`; if JarvisPLOT is installed, it also asks
+  JarvisPLOT to render `flowchart.png`)
 - `run_summary.json`, `run_summary.csv`, `run_summary.txt`
   machine-readable and human-readable end-of-run summaries
 
-Flowchart export is semantic-only in Jarvis-HEP. The JSON is built by
+Flowchart data export is semantic-only in Jarvis-HEP. The JSON is built by
 `Workflow.build_flowchart_semantics()` and includes workflow layers, nodes, ports,
 and edges. Calculator / Operas module selections are exported on module nodes as
 `selection.expression` plus `selection.variables`; selection dependencies are also
-represented with `selectionflow` edges.
+represented with `selectionflow` edges. JarvisPLOT owns layout, rendering, and
+styling; Jarvis-HEP only calls JarvisPLOT's public renderer when that optional
+dependency is available. `--skip-draw-flowchart` skips this PNG rendering step
+while still exporting `flowchart.json`.
 
 ## Sampling Support
 
