@@ -65,71 +65,55 @@ class CalculatorModule(Module):
             funcs=update_funcs({}),
             consts=update_const({}),
         )
+
+        def add_dump_variable(ipf, var):
+            if "expression" in var.keys():
+                expr = sp.sympify(var["expression"], locals=parse_locals)
+                varis = set(expr.free_symbols)
+                for vv in varis:
+                    self.inputs[str(vv)] = None
+                var.update({"inc": varis})
+                ipf["variables"][var["name"]] = var
+            else:
+                self.inputs[var["name"]] = None
+                ipf["variables"][var["name"]] = var
+
         for ipf in self.input:
             if ipf['type'] == "SLHA":
                 ipf['variables'] = {}
                 for act in ipf['actions']:
                     if act['type'] == "Replace":
                         for var in act['variables']:
-                            if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=parse_locals)
-                                varis = set(expr.free_symbols)
-                                for vv in varis:
-                                    self.inputs[str(vv)] = None
-                                    # ipf['variables'][str(vv)] = var 
-                                var.update({"inc": varis})
-                                ipf['variables'][var['name']] = var 
-                            else:
-                                self.inputs[var['name']] = None
-                                ipf['variables'][var['name']] = var
+                            add_dump_variable(ipf, var)
                     elif act['type'] == "SLHA":
                         for var in act['variables']:
-                            if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=parse_locals)
-                                varis = set(expr.free_symbols)
-                                for vv in varis:
-                                    self.inputs[str(vv)] = None
-                                    # ipf['variables'][str(vv)] = var 
-                                var.update({"inc": varis})
-                                ipf['variables'][var['name']] = var 
-                            else:
-                                self.inputs[var['name']] = None
-                                ipf['variables'][var['name']] = var
+                            add_dump_variable(ipf, var)
                     elif act['type'] == "File":
                         self.inputs[act['source']] = None
                         ipf['variables'][act['source']] = {"name": act['source']}
                 # print(ipf['variables'])
 
-            elif ipf['type'] == "JSON":
+            elif "actions" in ipf:
                 ipf['variables'] = {}
                 for act in ipf['actions']:
                     if act['type'] == "Dump":
                         for var in act['variables']:
-                            if "expression" in var.keys():
-                                expr = sp.sympify(var['expression'], locals=parse_locals)
-                                varis = set(expr.free_symbols)
-                                for vv in varis:
-                                    self.inputs[str(vv)] = None
-                                    # ipf['variables'][str(vv)] = var 
-                                var.update({"inc": varis})
-                                ipf['variables'][var['name']] = var 
-                            # print(var.keys())
-                            else:
-                                ipf['variables'][var['name']] = var 
-                                self.inputs[var['name']] = None
+                            add_dump_variable(ipf, var)
                 # pprint(ipf['variables'])
 
             else:
-                for ipv in ipf['variables']:
-                    self.inputs[ipv['name']] = None
+                for ipv in ipf.get('variables', []):
+                    if isinstance(ipv, dict) and ipv.get('name'):
+                        self.inputs[ipv['name']] = None
         # pprint(self.inputs)
         for opf in self.output:
             # self.outputs[opf['name']] = None
             if opf['type'] == "File":
                 pass 
             else:
-                for opv in opf['variables']:
-                    self.outputs[opv['name']] = None
+                for opv in opf.get('variables', []):
+                    if isinstance(opv, dict) and opv.get('name'):
+                        self.outputs[opv['name']] = None
 
     @property
     def funcs(self):
@@ -575,6 +559,10 @@ class CalculatorModule(Module):
                 module=self.name,
                 funcs=self.funcs,
                 io_manager=self.io_manager,
+                header=ffile.get("header"),
+                columns=ffile.get("columns"),
+                comment=ffile.get("comment"),
+                spec=ffile,
             ).read()
             for ffile in self.output
         ]
@@ -603,6 +591,10 @@ class CalculatorModule(Module):
                 module=self.name,
                 funcs=self.funcs,
                 io_manager=self.io_manager,
+                header=ffile.get("header"),
+                columns=ffile.get("columns"),
+                comment=ffile.get("comment"),
+                spec=ffile,
             ).write(input_data)
             for ffile in self.input
         ]

@@ -73,7 +73,14 @@
             {
                 "properties": {
                     "type": {
-                        "const": "JSON"
+                        "type": "string",
+                        "not": {
+                            "enum": [
+                                "SLHA",
+                                "xSLHA",
+                                "File"
+                            ]
+                        }
                     },
                     "variables": {
                         "type": "array",
@@ -86,12 +93,27 @@
                                 "entry": {
                                     "type": "string",
                                     "optional": true
+                                },
+                                "column": {
+                                    "oneOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "integer"
+                                        }
+                                    ],
+                                    "optional": true
+                                },
+                                "row": {
+                                    "type": "integer",
+                                    "optional": true
                                 }
                             },
                             "required": [
                                 "name"
                             ],
-                            "additionalProperties": false
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -134,6 +156,16 @@
                                 "entry"
                             ]
                         }
+                    }
+                }
+            },
+            {
+                "properties": {
+                    "type": {
+                        "const": "File"
+                    },
+                    "variables": {
+                        "type": "array"
                     }
                 }
             }

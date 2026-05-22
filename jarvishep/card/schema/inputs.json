@@ -133,7 +133,10 @@
             {
                 "properties": {
                     "type": {
-                        "const": "JSON"
+                        "type": "string",
+                        "not": {
+                            "const": "SLHA"
+                        }
                     },
                     "actions": {
                         "type": "array",
@@ -158,12 +161,25 @@
                                                     },
                                                     "entry": {
                                                         "type": "string"
+                                                    },
+                                                    "column": {
+                                                        "oneOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "integer"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "row": {
+                                                        "type": "integer"
                                                     }
                                                 },
                                                 "required": [
                                                     "name"
                                                 ],
-                                                "additionalProperties": false
+                                                "additionalProperties": true
                                             }
                                         }
                                     },

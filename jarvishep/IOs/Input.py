@@ -179,6 +179,13 @@ class JsonInputFile(InputFile):
             json_ready = self._to_json_compatible(data_to_write)
             json_str = json.dumps(json_ready, indent=4)
             self.sync_write_text(self.path, json_str)
+            if self.save:
+                target = os.path.join(
+                    self.sample_save_dir,
+                    f"{os.path.basename(self.path)}@{self.module}",
+                )
+                self.sync_write_text(target, json_str)
+                observables[self.name] = target
         except Exception as e:
             self.logger.error(f"Error writing JSON input file '{self.name}': {e}")
 

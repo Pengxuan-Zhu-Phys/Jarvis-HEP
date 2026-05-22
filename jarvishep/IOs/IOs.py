@@ -6,6 +6,7 @@ from pathlib import Path
 import asyncio
 
 from jarvishep.base import Base
+from jarvishep.IOs import registry as io_registry
 
 _PROJECT_MARKERS = (".jarvis-project.json", "jarvis.project.yaml")
 
@@ -37,6 +38,10 @@ class IOfile(Base):
         module,
         funcs,
         io_manager=None,
+        header=None,
+        columns=None,
+        comment=None,
+        spec=None,
     ):
         self.logger     = logger
         self.PackID     = PackID
@@ -49,6 +54,7 @@ class IOfile(Base):
         self.path = path  
         self.sample_save_dir = sample_save_dir
         self.module = module
+        self.spec = dict(spec or {})
 
         funcs_value = funcs
         io_manager_value = io_manager
@@ -170,17 +176,30 @@ class IOfile(Base):
         module,
         funcs,
         io_manager=None,
+        header=None,
+        columns=None,
+        comment=None,
+        spec=None,
     ):
-        if file_type == "JSON":
-            from jarvishep.IOs.Input import JsonInputFile
-            logger.debug(f"Adding the file {name} as 'JsonInputFile' type")
-            return JsonInputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        elif file_type == "SLHA":
-            from jarvishep.IOs.Input import SLHAInputFile
-            logger.debug(f"Adding the file {name} as 'SLHAInputFile' type")
-            return SLHAInputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        else:
-            raise ValueError(f"Unsupported file type: {file_type}")
+        adapter = io_registry.get(file_type, "input")
+        log_label = getattr(adapter, "log_label", adapter.format_name)
+        logger.debug(f"Adding the file {name} as '{log_label}' type")
+        return adapter.create_handler(
+            name=name,
+            path=path,
+            file_type=file_type,
+            variables=variables,
+            save=save,
+            logger=logger,
+            PackID=PackID,
+            sample_uuid=sample_uuid,
+            sample_save_dir=sample_save_dir,
+            module=module,
+            funcs=funcs,
+            io_manager=io_manager,
+            **_format_options(header=header, columns=columns, comment=comment),
+            spec=spec,
+        )
 
     @classmethod
     def load(
@@ -197,23 +216,30 @@ class IOfile(Base):
         module,
         funcs,
         io_manager=None,
+        header=None,
+        columns=None,
+        comment=None,
+        spec=None,
     ):
-        if file_type == "SLHA":
-            from jarvishep.IOs.Output import SLHAOutputFile
-            logger.debug(f"Loading the file {name} as 'SLHAOutputFile' type")
-            return SLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        elif file_type == "JSON":
-            from jarvishep.IOs.Output import JsonOutputFile
-            logger.debug(f"Loading the file {name} as 'JsonOutputFile' type")
-            return JsonOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        elif file_type == "xSLHA":
-            from jarvishep.IOs.Output import xSLHAOutputFile
-            logger.debug(f"Loading the file {name} as 'xSLHAOutputFile' type")
-            return xSLHAOutputFile(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
-        elif file_type == "File":
-            from jarvishep.IOs.Output import FileOutput
-            logger.debug(f"Loading the file {name} as 'fileOutput' type")
-            return FileOutput(name, path, file_type, variables, save, logger, PackID, sample_uuid, sample_save_dir, module, funcs, io_manager)
+        adapter = io_registry.get(file_type, "output")
+        log_label = getattr(adapter, "log_label", adapter.format_name)
+        logger.debug(f"Loading the file {name} as '{log_label}' type")
+        return adapter.create_handler(
+            name=name,
+            path=path,
+            file_type=file_type,
+            variables=variables,
+            save=save,
+            logger=logger,
+            PackID=PackID,
+            sample_uuid=sample_uuid,
+            sample_save_dir=sample_save_dir,
+            module=module,
+            funcs=funcs,
+            io_manager=io_manager,
+            **_format_options(header=header, columns=columns, comment=comment),
+            spec=spec,
+        )
 
 class InputFile(IOfile):
     async def write(self, param_values):
@@ -225,6 +251,10 @@ class OutputFile(IOfile):
     async def read(self):
         """Read the varaible values in the output files """
         raise NotImplementedError("This method should be implemented by subclasses.")
+
+
+def _format_options(**values):
+    return {key: value for key, value in values.items() if value is not None}
 
 
 

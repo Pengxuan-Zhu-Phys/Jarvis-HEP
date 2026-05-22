@@ -165,7 +165,7 @@ class Workflow(Base):
         spec_type = str(spec.get("type", "") or "").strip().lower()
         if spec.get("path"):
             return True
-        if spec_type in {"file", "slha", "json", "xslha"}:
+        if spec_type in {"file", "slha", "xslha"}:
             return True
 
         if direction == "input":
