@@ -341,6 +341,115 @@ def _is_manifest_excluded(relpath: str, excludes: list[str]) -> bool:
     return False
 
 
+def _manifest_exclude_rules(project_root: str, excludes: list[str]) -> list[str]:
+    rules: list[str] = []
+    for rel in excludes:
+        src = os.path.join(project_root, rel)
+        if rel.endswith("/") or os.path.isdir(src):
+            rules.append(rel.rstrip("/") + "/")
+        else:
+            rules.append(rel.rstrip("/"))
+    return rules
+
+
+def _manifest_skip_reason(relpath: str, excludes: list[str]) -> str | None:
+    parts = relpath.split("/")
+    common = _common_exclude(parts, parts[-1])
+    if common is not None:
+        return common
+    if _is_manifest_excluded(relpath, excludes):
+        return "manifest-exclude"
+    return None
+
+
+def _count_manifest_files(path: str) -> int:
+    if os.path.isfile(path):
+        return 1
+    if not os.path.isdir(path):
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(path):
+        dirs[:] = sorted(d for d in dirs if d not in ALWAYS_EXCLUDE_DIRS)
+        for fname in sorted(files):
+            if fname in ALWAYS_EXCLUDE_BASENAMES:
+                continue
+            if any(fname.endswith(suffix) for suffix in ALWAYS_EXCLUDE_SUFFIXES):
+                continue
+            fpath = os.path.join(root, fname)
+            if os.path.isfile(fpath):
+                count += 1
+    return count
+
+
+def _expand_manifest_include(
+    project_root: str,
+    relpath: str,
+    excludes: list[str],
+) -> tuple[list[str], int]:
+    src = os.path.join(project_root, relpath)
+    if not os.path.exists(src):
+        raise ProjectPackError(f"Included path does not exist: {relpath}")
+
+    rel = relpath.rstrip("/")
+    if os.path.isfile(src):
+        if _manifest_skip_reason(rel, excludes) is not None:
+            return [], 1
+        return [rel], 0
+
+    if not os.path.isdir(src):
+        raise ProjectPackError(f"Included path is not a file or directory: {relpath}")
+
+    included: list[str] = []
+    excluded_count = 0
+    for root, dirs, files in os.walk(src):
+        dirs.sort()
+        files.sort()
+
+        kept_dirs = []
+        for dname in dirs:
+            dpath = os.path.join(root, dname)
+            drel = os.path.relpath(dpath, project_root).replace("\\", "/")
+            if dname in ALWAYS_EXCLUDE_DIRS or _is_manifest_excluded(drel + "/", excludes):
+                excluded_count += _count_manifest_files(dpath)
+                continue
+            kept_dirs.append(dname)
+        dirs[:] = kept_dirs
+
+        for fname in files:
+            fpath = os.path.join(root, fname)
+            if not os.path.isfile(fpath):
+                continue
+            frel = os.path.relpath(fpath, project_root).replace("\\", "/")
+            if _manifest_skip_reason(frel, excludes) is not None:
+                excluded_count += 1
+                continue
+            included.append(frel)
+
+    return included, excluded_count
+
+
+def _expand_manifest_includes(
+    project_root: str,
+    includes: list[str],
+    excludes: list[str],
+) -> tuple[list[str], int]:
+    final_files: list[str] = []
+    excluded_count = 0
+    seen: set[str] = set()
+
+    for rel in includes:
+        expanded, skipped = _expand_manifest_include(project_root, rel, excludes)
+        excluded_count += skipped
+        for item in expanded:
+            if item not in seen:
+                seen.add(item)
+                final_files.append(item)
+
+    final_files.sort()
+    return final_files, excluded_count
+
+
 def create_project_package_from_manifest(manifest_path: str) -> ProjectPackReport:
     manifest = os.path.abspath(os.path.expanduser(str(manifest_path)))
     payload = _load_manifest_yaml(manifest)
@@ -367,16 +476,13 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
         _validate_manifest_relpath(rel, "exclude")
         for rel in _manifest_list(payload, "exclude")
     ]
+    exclude_rules = _manifest_exclude_rules(project_root, excludes)
 
-    for rel in includes:
-        src = os.path.join(project_root, rel)
-        if not os.path.isfile(src):
-            raise ProjectPackError(f"Included file does not exist: {rel}")
-
-    final_files = [
-        rel for rel in includes
-        if not _is_manifest_excluded(rel, excludes)
-    ]
+    final_files, excluded_count = _expand_manifest_includes(
+        project_root,
+        includes,
+        exclude_rules,
+    )
     if not final_files:
         raise ProjectPackError("No files selected for packaging.")
 
@@ -396,7 +502,7 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
         archive_path=archive_path,
         profile=mode,
         included_files=len(final_files),
-        excluded_files=len(includes) - len(final_files),
+        excluded_files=excluded_count,
         total_bytes=total_bytes,
     )
 

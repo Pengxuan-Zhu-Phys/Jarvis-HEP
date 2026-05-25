@@ -70,6 +70,34 @@ class ProjectPackagerTests(unittest.TestCase):
         with tarfile.open(archive_path, "r:gz") as tf:
             return set(tf.getnames())
 
+    def _write_manifest(self, manifest_path: str, payload: dict) -> None:
+        with open(manifest_path, "w", encoding="utf-8") as f1:
+            yaml.safe_dump(payload, f1, sort_keys=False)
+
+    def _make_bsmpt_tree(self, project_root: str) -> None:
+        bsmpt_root = os.path.join(project_root, "deps", "BSMPT-master")
+        os.makedirs(os.path.join(bsmpt_root, "src"), exist_ok=True)
+        os.makedirs(os.path.join(bsmpt_root, "build"), exist_ok=True)
+        os.makedirs(os.path.join(bsmpt_root, ".build-venv"), exist_ok=True)
+        os.makedirs(os.path.join(bsmpt_root, "__pycache__"), exist_ok=True)
+        os.makedirs(os.path.join(bsmpt_root, ".git"), exist_ok=True)
+        with open(os.path.join(bsmpt_root, "Build.py"), "w", encoding="utf-8") as f1:
+            f1.write("print('build')\n")
+        with open(os.path.join(bsmpt_root, "Setup.py"), "w", encoding="utf-8") as f1:
+            f1.write("print('setup')\n")
+        with open(os.path.join(bsmpt_root, "src", "model.cpp"), "w", encoding="utf-8") as f1:
+            f1.write("int main() { return 0; }\n")
+        with open(os.path.join(bsmpt_root, "build", "artifact.o"), "w", encoding="utf-8") as f1:
+            f1.write("object\n")
+        with open(os.path.join(bsmpt_root, ".build-venv", "python"), "w", encoding="utf-8") as f1:
+            f1.write("venv\n")
+        with open(os.path.join(bsmpt_root, "__pycache__", "Build.pyc"), "w", encoding="utf-8") as f1:
+            f1.write("cache\n")
+        with open(os.path.join(bsmpt_root, ".git", "config"), "w", encoding="utf-8") as f1:
+            f1.write("git\n")
+        with open(os.path.join(bsmpt_root, ".DS_Store"), "w", encoding="utf-8") as f1:
+            f1.write("finder\n")
+
     def test_share_repro_full_profile_selection(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = os.path.join(tmpdir, "DemoProject")
@@ -254,6 +282,143 @@ class ProjectPackagerTests(unittest.TestCase):
             self.assertNotIn("checkpoints/state.ckpt", names)
             self.assertNotIn("DemoProject/bin/task.yaml", names)
 
+    def test_manifest_include_single_file_still_works(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            archive_path = os.path.join(tmpdir, "single_file.tar.gz")
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            self._write_manifest(
+                manifest_path,
+                {
+                    "pack_id": "pack_20260508_001",
+                    "mode": "share",
+                    "project_root": project_root,
+                    "output": archive_path,
+                    "include": ["README.md"],
+                    "exclude": [],
+                },
+            )
+
+            report = create_project_package_from_manifest(manifest_path)
+
+            self.assertEqual(1, report.included_files)
+            self.assertEqual({"README.md"}, self._tar_names(archive_path))
+
+    def test_manifest_include_directory_expands_to_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            self._make_bsmpt_tree(project_root)
+            archive_path = os.path.join(tmpdir, "directory.tar.gz")
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            self._write_manifest(
+                manifest_path,
+                {
+                    "pack_id": "pack_20260508_001",
+                    "mode": "repro",
+                    "project_root": project_root,
+                    "output": archive_path,
+                    "include": ["deps/BSMPT-master/"],
+                    "exclude": [],
+                },
+            )
+
+            create_project_package_from_manifest(manifest_path)
+            names = self._tar_names(archive_path)
+
+            self.assertIn("deps/BSMPT-master/Build.py", names)
+            self.assertIn("deps/BSMPT-master/Setup.py", names)
+            self.assertIn("deps/BSMPT-master/src/model.cpp", names)
+            self.assertIn("deps/BSMPT-master/build/artifact.o", names)
+            self.assertNotIn("deps/BSMPT-master", names)
+            self.assertNotIn("deps/BSMPT-master/.DS_Store", names)
+            self.assertNotIn("deps/BSMPT-master/__pycache__/Build.pyc", names)
+            self.assertNotIn("deps/BSMPT-master/.git/config", names)
+
+    def test_manifest_include_directory_excludes_subdirectory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            self._make_bsmpt_tree(project_root)
+            archive_path = os.path.join(tmpdir, "exclude_dir.tar.gz")
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            self._write_manifest(
+                manifest_path,
+                {
+                    "pack_id": "pack_20260508_001",
+                    "mode": "repro",
+                    "project_root": project_root,
+                    "output": archive_path,
+                    "include": ["deps/BSMPT-master/"],
+                    "exclude": [
+                        "deps/BSMPT-master/build",
+                        "deps/BSMPT-master/.build-venv/",
+                    ],
+                },
+            )
+
+            create_project_package_from_manifest(manifest_path)
+            names = self._tar_names(archive_path)
+
+            self.assertIn("deps/BSMPT-master/Build.py", names)
+            self.assertIn("deps/BSMPT-master/Setup.py", names)
+            self.assertNotIn("deps/BSMPT-master/build/artifact.o", names)
+            self.assertNotIn("deps/BSMPT-master/.build-venv/python", names)
+
+    def test_manifest_include_directory_excludes_single_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            self._make_bsmpt_tree(project_root)
+            archive_path = os.path.join(tmpdir, "exclude_file.tar.gz")
+            manifest_path = os.path.join(tmpdir, "pack_20260508_001.yaml")
+            self._write_manifest(
+                manifest_path,
+                {
+                    "pack_id": "pack_20260508_001",
+                    "mode": "repro",
+                    "project_root": project_root,
+                    "output": archive_path,
+                    "include": ["deps/BSMPT-master/"],
+                    "exclude": ["deps/BSMPT-master/Setup.py"],
+                },
+            )
+
+            create_project_package_from_manifest(manifest_path)
+            names = self._tar_names(archive_path)
+
+            self.assertIn("deps/BSMPT-master/Build.py", names)
+            self.assertNotIn("deps/BSMPT-master/Setup.py", names)
+
+    def test_manifest_directory_items_work_with_and_without_trailing_slash(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = os.path.join(tmpdir, "DemoProject")
+            self._make_demo_project(project_root)
+            self._make_bsmpt_tree(project_root)
+
+            include_entries = ("deps/BSMPT-master", "deps/BSMPT-master/")
+            for idx, include_entry in enumerate(include_entries, start=1):
+                with self.subTest(include_entry=include_entry):
+                    archive_path = os.path.join(tmpdir, f"slash_{idx}.tar.gz")
+                    manifest_path = os.path.join(tmpdir, f"pack_20260508_00{idx}.yaml")
+                    self._write_manifest(
+                        manifest_path,
+                        {
+                            "pack_id": f"pack_20260508_00{idx}",
+                            "mode": "repro",
+                            "project_root": project_root,
+                            "output": archive_path,
+                            "include": [include_entry],
+                            "exclude": ["deps/BSMPT-master/build"],
+                        },
+                    )
+
+                    create_project_package_from_manifest(manifest_path)
+                    names = self._tar_names(archive_path)
+                    self.assertIn("deps/BSMPT-master/Build.py", names)
+                    self.assertNotIn("deps/BSMPT-master/build/artifact.o", names)
+
     def test_cli_manifest_input_creates_archive(self):
         from jarvishep.client import main
 
@@ -355,7 +520,10 @@ class ProjectPackagerTests(unittest.TestCase):
             with open(manifest_path, "w", encoding="utf-8") as f1:
                 yaml.safe_dump(payload, f1, sort_keys=False)
 
-            with self.assertRaises(ProjectPackError):
+            with self.assertRaisesRegex(
+                ProjectPackError,
+                "Included path does not exist: missing.txt",
+            ):
                 create_project_package_from_manifest(manifest_path)
 
 
