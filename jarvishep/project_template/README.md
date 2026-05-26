@@ -45,3 +45,20 @@ Add optional project directories such as `calculators/`, `configs/`, `scripts/`,
 
 - `&J/...` resolves against the standalone project root
 - Prefer `deps/` for project-local bundled defaults such as `&J/deps/environment_default.yaml`
+
+## LogLikelihood Notes
+
+`Sampling.LogLikelihood` is a list of named expressions. Jarvis-HEP evaluates
+every item and writes each value into the sample outputs.
+
+If no item is named `LogL`, the total `LogL` is the sum of all listed items. If
+an item is named `LogL`, that expression defines the total likelihood instead,
+and it can reference earlier named items:
+
+```yaml
+Sampling:
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+    - {name: "LogL_H", expression: "LogGauss(h, 125, 2)"}
+    - {name: "LogL", expression: "LogL_Z + 0.5 * LogL_H"}
+```

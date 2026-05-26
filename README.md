@@ -220,6 +220,39 @@ Task YAML should use project-local `&J/...` paths. Package-owned resources are i
 
 These runtime tokens are available on calculator workflow paths such as commands, working directories, and sample-scoped input/output file paths.
 
+## LogLikelihood
+
+`Sampling.LogLikelihood` is a list of named expressions. Each item is evaluated
+for every sample and written back into the sample observables under its `name`.
+
+By default, Jarvis-HEP sums all items and stores the sum in the standard `LogL`
+field:
+
+```yaml
+Sampling:
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+    - {name: "LogL_H", expression: "LogGauss(h, 125, 2)"}
+```
+
+This produces `LogL_Z`, `LogL_H`, and `LogL = LogL_Z + LogL_H`.
+
+To define the total likelihood explicitly, add an item named `LogL`. All other
+items are still evaluated and saved, and the `LogL` expression may reference
+those named items:
+
+```yaml
+Sampling:
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+    - {name: "LogL_H", expression: "LogGauss(h, 125, 2)"}
+    - {name: "LogL", expression: "LogL_Z + 0.5 * LogL_H"}
+```
+
+In this form, the sampler uses the explicit `LogL` value as the total
+log-likelihood, while `LogL_Z` and `LogL_H` remain available in outputs for
+diagnostics and post-processing.
+
 ## Calculator Modules
 
 Calculator modules wrap external programs. A typical calculator entry under `Calculators.Modules` uses these top-level keys:

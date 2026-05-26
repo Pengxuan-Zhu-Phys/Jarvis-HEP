@@ -39,7 +39,15 @@ class LogLikelihood(Base):
                 # Append the name and sympy expression as a tuple
                 self.named_expressions.append((expr_dict['name'], sympy_expr))
 
-        self.variables = set().union(*[expr.free_symbols for _, expr in self.named_expressions])
+        self.expression_names = {str(name) for name, _ in self.named_expressions}
+        self.variables = set().union(*[
+            {
+                symbol
+                for symbol in expr.free_symbols
+                if str(symbol) not in self.expression_names
+            }
+            for _, expr in self.named_expressions
+        ])
         self.logger = logger.bind(
             module="Jarvis-HEP.LogLikelihood",
             to_console=True,
@@ -80,6 +88,14 @@ class LogLikelihood(Base):
             num_expr = lambdify(var_names, expr, modules=[self.numeric_modules, "numpy"])
             compiled.append((name, expr, var_names, var_name_set, num_expr))
         self._compiled_expressions = compiled
+
+    def _compiled_evaluation_order(self):
+        explicit_total = any(name == "LogL" for name, *_ in self._compiled_expressions)
+        if not explicit_total:
+            return self._compiled_expressions, False
+        components = [item for item in self._compiled_expressions if item[0] != "LogL"]
+        totals = [item for item in self._compiled_expressions if item[0] == "LogL"]
+        return components + totals, True
 
     @staticmethod
     def format_summary(values: dict,
@@ -166,11 +182,23 @@ class LogLikelihood(Base):
         for _, row in df.iterrows():
             try:
                 total = 0.0
-                for name, expr in self.named_expressions:
-                    var_names = [str(var) for var in expr.free_symbols]
-                    symbol_values = {var: row[var] for var in var_names if var in row}
-                    num_expr = lambdify(var_names, expr, modules=[self.numeric_modules, "numpy"])
-                    total += float(num_expr(**symbol_values))
+                eval_values = row.to_dict()
+                ordered_expressions, explicit_total = self._compiled_evaluation_order()
+                for name, _expr, _var_names, var_name_set, num_expr in ordered_expressions:
+                    missing_vars = sorted(var_name_set.difference(eval_values.keys()))
+                    if missing_vars:
+                        raise KeyError(
+                            "Not all variables have values provided: {}".format(
+                                ", ".join(missing_vars)
+                            )
+                        )
+                    symbol_values = {var: eval_values[var] for var in var_name_set}
+                    likelihood = float(num_expr(**symbol_values))
+                    eval_values[name] = likelihood
+                    if name == "LogL":
+                        total = likelihood
+                    elif not explicit_total:
+                        total += likelihood
                 results.append(total)
             except Exception:
                 results.append(-np.inf)
@@ -178,13 +206,17 @@ class LogLikelihood(Base):
 
     def calculate(self, values, sample_info):
         """
-        Calculates the Likelihood value based on the provided values of variables. If multiple expressions are provided, their sum is computed.
+        Calculates the Likelihood value based on the provided values of variables.
+        By default, multiple expressions are summed into ``LogL``. If an
+        expression named ``LogL`` is present, that expression defines the total
+        ``LogL`` while all other expressions are still evaluated and returned.
 
         Args:
             values (dict): A dictionary containing the values for all variables in the expressions, e.g., {'a': 1, 'b': 2, 'c': 3}.
 
         Returns:
-            float: The calculated Likelihood value. If there are multiple expressions, the sum of their values is returned.
+            dict: Calculated likelihood fields. The ``LogL`` key contains either
+            the sum of all expressions or the explicit ``LogL`` expression value.
         """
         slogger = None
         try: 
@@ -202,14 +234,30 @@ class LogLikelihood(Base):
 
             total_loglikelihood = 0.0
             self.values = {}
-            for name, expr, _var_names, var_name_set, num_expr in self._compiled_expressions:
-                symbol_values_strs = {str(key): value for key, value in values.items() if key in var_name_set}
+            eval_values = dict(values)
+            ordered_expressions, explicit_total = self._compiled_evaluation_order()
+            for name, expr, _var_names, var_name_set, num_expr in ordered_expressions:
+                missing_expr_vars = sorted(var_name_set.difference(eval_values.keys()))
+                if missing_expr_vars:
+                    message = "LogLikelihood expression '{}' missing required input: {}".format(
+                        name,
+                        ", ".join(missing_expr_vars),
+                    )
+                    if slogger is not None:
+                        slogger.warning(message)
+                    self.logger.warning(message)
+                    return {"LogL": - inf}
+                symbol_values_strs = {key: eval_values[key] for key in var_name_set}
                 likelihood = float(num_expr(**symbol_values_strs))
                 slogger.info(
                     f"Evaluating   {name}: \n   expression \t-> {str(expr)} \n   with input \t-> [{', '.join(['{} : {}'.format(kk, vv) for kk, vv in symbol_values_strs.items()])}] \n   Output \t\t-> {likelihood}"
                 )
                 self.values[name] = likelihood
-                total_loglikelihood += likelihood
+                eval_values[name] = likelihood
+                if name == "LogL":
+                    total_loglikelihood = likelihood
+                elif not explicit_total:
+                    total_loglikelihood += likelihood
 
             # self.childlogger.warning(f"\t Total LogLikelihood -> \n\t LogL: {total_loglikelihood}")
             self.values['LogL'] = total_loglikelihood
