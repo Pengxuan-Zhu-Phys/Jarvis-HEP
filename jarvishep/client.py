@@ -27,12 +27,14 @@ from jarvishep.versioning import render_logo_with_version
 _TOP_LEVEL_HELP_TEXT = """Usage:
   Jarvis [file] [options]
   Jarvis project <command> [arguments]
+  Jarvis portal formats
 
 Jarvis Program Help Center
 
 Main entry points:
   file                  Run Jarvis with a YAML input file
   project               Manage Jarvis standalone projects
+  portal formats        Show Jarvis-Portal supported calculator IO formats
 
 General options:
   -h, --help            Show this help message and exit
@@ -52,6 +54,7 @@ Workflow options:
 
 Hint:
   Run `Jarvis project -h` to see project workflow commands.
+  Run `Jarvis portal -h` to see Portal inspection commands.
 """
 
 _PROJECT_HELP_TEXT = """Usage:
@@ -115,6 +118,15 @@ Fetch an official project into a local directory.
 Show details for an official project.
 """,
 }
+
+_PORTAL_HELP_TEXT = """Usage:
+  Jarvis portal formats
+
+Inspect Jarvis-Portal integration.
+
+Commands:
+  formats            Show calculator IO formats registered by Jarvis-Portal
+"""
 
 _HELP_FLAGS = {"-h", "--help"}
 _PACK_MODE_FLAGS = {
@@ -273,6 +285,89 @@ def _print_project_pack_help() -> None:
 
 def _print_project_subcommand_help(command: str) -> None:
     print(_PROJECT_SUBCOMMAND_HELP[command], end="")
+
+
+def _print_portal_help() -> None:
+    print(_PORTAL_HELP_TEXT, end="")
+
+
+def _run_portal_formats() -> int:
+    try:
+        from jarvis_portal import available_formats
+    except ImportError as exc:
+        print(f"[Jarvis-HEP] Jarvis-Portal is not available: {exc}")
+        return 1
+
+    try:
+        all_formats = available_formats()
+        input_formats = available_formats("input")
+        output_formats = available_formats("output")
+    except Exception as exc:
+        print(f"[Jarvis-HEP] Failed to query Jarvis-Portal IO registry: {exc}")
+        return 1
+
+    print(
+        _render_portal_formats_table(
+            [
+                ("All", all_formats),
+                ("Input", input_formats),
+                ("Output", output_formats),
+            ]
+        )
+    )
+    return 0
+
+
+def _format_names(values) -> str:
+    names = [str(value) for value in values or []]
+    return ", ".join(names) if names else "none"
+
+
+def _render_portal_formats_table(rows) -> str:
+    normalized = [(str(scope), list(formats or [])) for scope, formats in rows]
+    format_names = []
+    seen = set()
+    for _, formats in normalized:
+        for format_name in formats:
+            text = str(format_name)
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            format_names.append(text)
+
+    scopes = [scope for scope, _ in normalized]
+    headers = ["Format", *scopes]
+    table_rows = []
+    supported_by_scope = {
+        scope: {str(format_name).casefold() for format_name in formats}
+        for scope, formats in normalized
+    }
+    for format_name in format_names:
+        key = format_name.casefold()
+        table_rows.append(
+            [format_name, *["✓" if key in supported_by_scope[scope] else "" for scope in scopes]]
+        )
+
+    widths = [
+        max(len(str(row[idx])) for row in [headers, *table_rows])
+        for idx in range(len(headers))
+    ]
+    spacing = "  "
+    rule = spacing.join("-" * width for width in widths)
+    header_line = spacing.join(
+        f"{header:<{width}}" for header, width in zip(headers, widths)
+    )
+    lines = [
+        "Jarvis-Portal calculator IO formats",
+        rule,
+        header_line,
+        rule,
+    ]
+    for row in table_rows:
+        lines.append(spacing.join(f"{cell:<{width}}" for cell, width in zip(row, widths)))
+    lines.append(rule)
+    return "\n".join(lines)
 
 
 def _human_bytes(value: int) -> str:
@@ -563,11 +658,42 @@ def _project_fast_path(argv: list[str]) -> int | None:
     return _handle_project_subcommand(tokens[0], tokens[1:])
 
 
+def _portal_fast_path(argv: list[str]) -> int | None:
+    if len(argv) < 2 or argv[1] != "portal":
+        return None
+
+    tokens = argv[2:]
+    if not tokens:
+        _print_portal_help()
+        return 0
+    if tokens[0] in _HELP_FLAGS:
+        if len(tokens) > 1:
+            print("[Jarvis-HEP] Usage error: Jarvis portal --help")
+            return 2
+        _print_portal_help()
+        return 0
+
+    command = tokens[0]
+    args = tokens[1:]
+    if command == "formats":
+        if len(args) == 1 and args[0] in _HELP_FLAGS:
+            print("Usage:\n  Jarvis portal formats\n")
+            return 0
+        if args:
+            print("[Jarvis-HEP] Usage error: Jarvis portal formats")
+            return 2
+        return _run_portal_formats()
+
+    print(f"[Jarvis-HEP] Unknown portal command: {command}")
+    _print_portal_help()
+    return 2
+
+
 def _top_level_help_fast_path(argv: list[str]) -> int | None:
     if len(argv) == 1:
         _print_top_level_help()
         return 0
-    if len(argv) >= 2 and argv[1] == "project":
+    if len(argv) >= 2 and argv[1] in {"project", "portal"}:
         return None
     if any(token in _HELP_FLAGS for token in argv[1:]):
         _print_top_level_help()
@@ -589,6 +715,10 @@ def main(argv=None) -> int:
     project_code = _project_fast_path(argv)
     if project_code is not None:
         return project_code
+
+    portal_code = _portal_fast_path(argv)
+    if portal_code is not None:
+        return portal_code
 
     help_code = _top_level_help_fast_path(argv)
     if help_code is not None:

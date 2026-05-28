@@ -183,10 +183,12 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn("Usage:", text)
         self.assertIn("Jarvis [file] [options]", text)
         self.assertIn("Jarvis project <command> [arguments]", text)
+        self.assertIn("Jarvis portal formats", text)
         self.assertIn("Main entry points:", text)
         self.assertIn("General options:", text)
         self.assertIn("Workflow options:", text)
         self.assertIn("Run `Jarvis project -h`", text)
+        self.assertIn("Run `Jarvis portal -h`", text)
         self.assertNotIn("--mkproject", text)
         self.assertNotIn("--packproject", text)
         self.assertNotIn("--profile", text)
@@ -243,6 +245,56 @@ class CliEntrypointTests(unittest.TestCase):
         text = outputs[("Jarvis", "project")]
         self.assertIn("Jarvis project <command> [arguments]", text)
         self.assertIn("Pack a local project for sharing, reproduction, or full export", text)
+
+    def test_main_portal_help_pages_match(self):
+        from jarvishep.client import main
+
+        outputs = {}
+        for argv in (
+            ["Jarvis", "portal"],
+            ["Jarvis", "portal", "-h"],
+            ["Jarvis", "portal", "--help"],
+        ):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = main(argv)
+            self.assertEqual(rc, 0)
+            outputs[tuple(argv)] = out.getvalue()
+
+        self.assertEqual(outputs[("Jarvis", "portal")], outputs[("Jarvis", "portal", "-h")])
+        self.assertEqual(outputs[("Jarvis", "portal")], outputs[("Jarvis", "portal", "--help")])
+        text = outputs[("Jarvis", "portal")]
+        self.assertIn("Jarvis portal formats", text)
+        self.assertIn("Show calculator IO formats", text)
+
+    def test_main_portal_formats_lists_jarvis_portal_registry(self):
+        from jarvishep.client import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = main(["Jarvis", "portal", "formats"])
+
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("Jarvis-Portal calculator IO formats", text)
+        self.assertIn("Format", text)
+        self.assertIn("All", text)
+        self.assertIn("Input", text)
+        self.assertIn("Output", text)
+        self.assertIn("✓", text)
+        self.assertNotIn("Formats", text)
+        self.assertNotIn("| Scope", text)
+        self.assertIn("JSON", text)
+
+    def test_main_portal_formats_rejects_extra_args(self):
+        from jarvishep.client import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = main(["Jarvis", "portal", "formats", "extra"])
+
+        self.assertEqual(rc, 2)
+        self.assertIn("Usage error: Jarvis portal formats", out.getvalue())
 
     def test_main_project_pack_help(self):
         from jarvishep.client import main
