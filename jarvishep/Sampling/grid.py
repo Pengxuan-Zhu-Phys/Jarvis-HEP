@@ -54,13 +54,14 @@ class Grid(SamplingVirtial):
     def __next__(self):
         if self._P is None or not isinstance(self._P, np.ndarray):
             raise StopIteration  # Stop iteration, if _P is not defined or _P is not np.array
-        if self._index < len(self._P):
+        while self._index < len(self._P):
             result = self._P[self._index]
             result = self.map_point_into_distribution(result)
             self._index += 1
+            if self._selectionexp and not self.evaluate_selection(self._selectionexp, result):
+                continue
             return result
-        else:
-            raise StopIteration
+        raise StopIteration
 
     def next_sample(self):
         return self.__next__()
@@ -78,6 +79,8 @@ class Grid(SamplingVirtial):
     def init_generator(self):
         self.load_variable()
         self._dimensions = len(self.vars)
+        if "selection" in self.config["Sampling"]:
+            self._selectionexp = self.config["Sampling"]["selection"]
 
     def initialize(self):
         self.logger.warning("Initializing the Grid Sampling")
@@ -97,6 +100,7 @@ class Grid(SamplingVirtial):
         return {
             "grid_points": self._P,
             "index": int(self._index),
+            "selectionexp": self._selectionexp,
             "info": deepcopy(self.info),
             "bucket_allocator": None if self.bucket_alloc is None else self.bucket_alloc.get_state(),
             "pending_samples": self._collect_pending_sample_infos(),
@@ -105,6 +109,7 @@ class Grid(SamplingVirtial):
     def _import_sampler_state(self, payload):
         self._P = payload.get("grid_points", self._P)
         self._index = int(payload.get("index", self._index or 0))
+        self._selectionexp = payload.get("selectionexp", self._selectionexp)
         self.info = deepcopy(payload.get("info", self.info))
         bucket_state = payload.get("bucket_allocator")
         if bucket_state and self.bucket_alloc is not None:

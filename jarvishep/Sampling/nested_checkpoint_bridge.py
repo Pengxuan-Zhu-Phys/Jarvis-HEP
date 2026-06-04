@@ -7,7 +7,9 @@ from copy import deepcopy
 from typing import Any, Dict, Sequence
 
 import numpy as np
+import sympy as sp
 
+from jarvishep.inner_func import update_const, update_funcs
 from jarvishep.Sampling.bucketallocator import BucketAllocator
 from jarvishep.sample import Sample
 
@@ -26,6 +28,7 @@ class NestedLikelihoodBridge:
         bucket_limit: int = 200,
         bucket_width: int = 6,
         submit_limit: int = 1,
+        selection_expression: str | None = None,
     ) -> None:
         self.sampler_name = str(sampler_name)
         self.variables = tuple(variables or ())
@@ -35,6 +38,7 @@ class NestedLikelihoodBridge:
         self.bucket_limit = max(1, int(bucket_limit))
         self.bucket_width = max(1, int(bucket_width))
         self.submit_limit = max(1, int(submit_limit))
+        self.selection_expression = selection_expression
         self._factory = None
         self._logger = None
         self._bucket_alloc: BucketAllocator | None = None
@@ -107,6 +111,17 @@ class NestedLikelihoodBridge:
             cfg["nuisance"] = deepcopy(nuisance)
         return cfg
 
+    def _selection_allows(self, values: Dict[str, Any]) -> bool:
+        expression = self.selection_expression
+        if not expression:
+            return True
+        custom_functions = update_funcs({})
+        custom_constants = update_const({})
+        symbols = {name: sp.symbols(name) for name in values.keys()}
+        locals_context = {**custom_functions, **custom_constants, **symbols}
+        expr = sp.sympify(expression, locals=locals_context)
+        return bool(expr.subs(values))
+
     def __call__(self, params):
         if self._factory is None:
             raise RuntimeError(f"{self.sampler_name} runtime bridge has no attached factory")
@@ -120,6 +135,10 @@ class NestedLikelihoodBridge:
         values = {}
         for ii, variable in enumerate(self.variables):
             values[getattr(variable, "name", f"x{ii}")] = variable.map_standard_random_to_distribution(unit[ii])
+
+        if not self._selection_allows(values):
+            self._log("info", f"{self.sampler_name} selection rejected sample -> {self.selection_expression}")
+            return -np.inf
 
         sample = self.sample_cls(values)
         sample.update_uuid(str(uuid))

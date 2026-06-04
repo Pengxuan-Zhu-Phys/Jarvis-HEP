@@ -38,6 +38,7 @@ from jarvishep.Sampling.multinest import MultiNest  # noqa: E402
 from jarvishep.Sampling.hmc import HMC  # noqa: E402
 from jarvishep.Sampling.mala import MALA  # noqa: E402
 from jarvishep.Sampling.nuts import NUTS  # noqa: E402
+from jarvishep.Sampling.nested_checkpoint_bridge import NestedLikelihoodBridge  # noqa: E402
 from jarvishep.Sampling.pt_ensemble import PTEnsemble  # noqa: E402
 from jarvishep.Sampling.randoms import RandomS  # noqa: E402
 from jarvishep.Sampling.robustam import RobustAM  # noqa: E402
@@ -1911,6 +1912,123 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
 
         self.assertEqual(sample, {"HiggsMass": 0.9, "BottomMass": 0.3})
         self.assertEqual(sampler._index, 2)
+
+    def test_grid_selection_filters_generated_points(self):
+        sampler = Grid()
+        sampler.vars = (_FakeVar("x"), _FakeVar("y"))
+        sampler._P = np.array(
+            [
+                [0.10, 0.40],
+                [0.80, 0.30],
+                [0.20, 0.60],
+            ],
+            dtype=float,
+        )
+        sampler._selectionexp = "x > y"
+
+        sample = sampler.next_sample()
+
+        self.assertEqual(sample, {"x": 0.8, "y": 0.3})
+        self.assertEqual(sampler._index, 2)
+
+    def test_nested_bridge_selection_rejects_without_factory_submit(self):
+        bridge = NestedLikelihoodBridge(
+            sampler_name="Dynesty",
+            variables=(_FakeVar("x"), _FakeVar("y")),
+            base_sample_cfg={
+                "task_result_dir": self.tempdir.name,
+                "sample_dirs": os.path.join(self.tempdir.name, "SAMPLE"),
+            },
+            sample_cls=_FakeSample,
+            selection_expression="x > y",
+        )
+        factory = _ImmediateFactory()
+        bridge.attach_runtime(factory=factory, logger=_NoopLogger())
+
+        rejected = bridge(np.array([0.10, 0.40, "uid-rejected"], dtype=object))
+        accepted = bridge(np.array([0.80, 0.30, "uid-accepted"], dtype=object))
+
+        self.assertEqual(rejected, -np.inf)
+        self.assertEqual(accepted, 1.1)
+        self.assertEqual(factory.calls, 1)
+
+    def test_dynesty_and_multinest_bridge_carries_selection(self):
+        for cls, method in ((Dynesty, "Dynesty"), (MultiNest, "MultiNest")):
+            sampler = cls()
+            sampler.method = method
+            sampler.vars = (_FakeVar("x"), _FakeVar("y"))
+            sampler.info = self._sample_cfg_with_bucket_root()
+            sampler._factory_submit_limit = 1
+            sampler._selectionexp = "x > y"
+            sampler.factory = _ImmediateFactory()
+            sampler.logger = _NoopLogger()
+
+            bridge = sampler._build_likelihood_bridge()
+
+            self.assertEqual(bridge.selection_expression, "x > y")
+            self.assertEqual(bridge(np.array([0.10, 0.40, f"{method}-reject"], dtype=object)), -np.inf)
+            self.assertEqual(sampler.factory.calls, 0)
+
+    def test_selection_is_loaded_from_sampling_config(self):
+        def _variables(*, grid=False):
+            params = {"min": 0.0, "max": 1.0, "length": 10.0}
+            if grid:
+                params = {"min": 0.0, "max": 1.0, "num": 3}
+            return [
+                {
+                    "name": "x",
+                    "description": "x",
+                    "distribution": {"type": "Flat", "parameters": dict(params)},
+                },
+                {
+                    "name": "y",
+                    "description": "y",
+                    "distribution": {"type": "Flat", "parameters": dict(params)},
+                },
+            ]
+
+        cases = [
+            (
+                Grid(),
+                {
+                    "Sampling": {
+                        "Method": "Grid",
+                        "Variables": _variables(grid=True),
+                        "LogLikelihood": [{"name": "LogL", "expression": "0"}],
+                        "selection": "x > y",
+                    },
+                },
+            ),
+            (
+                Dynesty(),
+                {
+                    "Sampling": {
+                        "Method": "Dynesty",
+                        "Variables": _variables(),
+                        "Bounds": {"nlive": 2, "rseed": 1, "run_nested": {"maxiter": 1}},
+                        "LogLikelihood": [{"name": "LogL", "expression": "0"}],
+                        "selection": "x > y",
+                    },
+                },
+            ),
+            (
+                MultiNest(),
+                {
+                    "Sampling": {
+                        "Method": "MultiNest",
+                        "Variables": _variables(),
+                        "Bounds": {"nlive": 2, "rseed": 1, "run_nested": {"maxiter": 1}},
+                        "LogLikelihood": [{"name": "LogL", "expression": "0"}],
+                        "selection": "x > y",
+                    },
+                },
+            ),
+        ]
+        for sampler, config in cases:
+            sampler.info = self._sample_cfg_with_bucket_root()
+            sampler.logger = _NoopLogger()
+            sampler.set_config(config)
+            self.assertEqual(sampler._selectionexp, "x > y")
 
     def test_module_failure_policy_fail_fast_override(self):
         manager = ModuleManager()

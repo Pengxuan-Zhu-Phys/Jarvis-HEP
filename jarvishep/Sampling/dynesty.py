@@ -120,6 +120,7 @@ class Dynesty(SamplingVirtial):
             "nlive": int(getattr(self, "_nlive", 0) or 0),
             "rstate": getattr(self._rstate, "bit_generator", None).state if getattr(self, "_rstate", None) is not None else None,
             "runnested": dict(getattr(self, "_runnested", {}) or {}),
+            "selectionexp": self._selectionexp,
             "execution_profile": dict(self._execution_profile),
             "native_sampler": native_sampler,
             "sampler_results": None if self.sampler is None else getattr(self.sampler, "results", None),
@@ -134,6 +135,7 @@ class Dynesty(SamplingVirtial):
             self._rstate = np.random.default_rng()
             self._rstate.bit_generator.state = rstate
         self._runnested = dict(payload.get("runnested", self._runnested or {}))
+        self._selectionexp = payload.get("selectionexp", self._selectionexp)
         self._execution_profile = dict(payload.get("execution_profile", self._execution_profile or {}))
         native_sampler = payload.get("native_sampler", None)
         if native_sampler is not None:
@@ -173,6 +175,7 @@ class Dynesty(SamplingVirtial):
             bucket_limit=limit,
             bucket_width=width,
             submit_limit=submit_limit,
+            selection_expression=self._selectionexp,
         )
         bridge.attach_runtime(factory=self.factory, logger=self.logger)
         return bridge
@@ -220,9 +223,12 @@ class Dynesty(SamplingVirtial):
 
     def __next__(self):
         # for dynesty sampling method, next() method is only for testing the assembing line, not the real sampling method
-        u = np.random.random(self._dimensions)
-        param = self.map_point_into_distribution(u)
-        return param
+        while True:
+            u = np.random.random(self._dimensions)
+            param = self.map_point_into_distribution(u)
+            if self._selectionexp and not self.evaluate_selection(self._selectionexp, param):
+                continue
+            return param
         
 
     def map_point_into_distribution(self, row) -> np.ndarray:
@@ -242,6 +248,7 @@ class Dynesty(SamplingVirtial):
         self._rstate = np.random.default_rng(self.config['Sampling']['Bounds']['rseed'])
         self._runnested = self.config['Sampling']['Bounds']['run_nested']
         self._dimensions = len(self.vars)
+        self._selectionexp = self.config["Sampling"].get("selection")
 
     def initialize(self):
         self.logger.warning("Initializing the Dynesty Sampling")
