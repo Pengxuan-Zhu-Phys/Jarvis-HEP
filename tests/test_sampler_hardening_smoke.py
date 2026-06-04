@@ -215,6 +215,12 @@ class _FakeVar:
         return float(value)
 
 
+class _FakeBridsonVar(_FakeVar):
+    def __init__(self, name, length=1.0):
+        super().__init__(name)
+        self._parameters = {"length": float(length)}
+
+
 class _FakeResults(dict):
     def summary(self):
         return "fake-summary"
@@ -1883,6 +1889,28 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
         sampler = RandomS()
         self.assertTrue(sampler.evaluate_selection("x > 0.5", {"x": 0.7}))
         self.assertFalse(sampler.evaluate_selection("x > 0.5", {"x": 0.2}))
+
+    def test_bridson_selection_filters_generated_points(self):
+        sampler = Bridson()
+        sampler.logger = _NoopLogger()
+        sampler.vars = (
+            _FakeBridsonVar("HiggsMass"),
+            _FakeBridsonVar("BottomMass"),
+        )
+        sampler._P = np.array(
+            [
+                [0.20, 0.20],
+                [0.90, 0.30],
+                [0.30, 0.25],
+            ],
+            dtype=float,
+        )
+        sampler._selectionexp = "2.0 * BottomMass < HiggsMass"
+
+        sample = sampler.next_sample()
+
+        self.assertEqual(sample, {"HiggsMass": 0.9, "BottomMass": 0.3})
+        self.assertEqual(sampler._index, 2)
 
     def test_module_failure_policy_fail_fast_override(self):
         manager = ModuleManager()
