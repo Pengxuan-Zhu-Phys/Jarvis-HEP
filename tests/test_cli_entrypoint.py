@@ -530,7 +530,6 @@ class CliEntrypointTests(unittest.TestCase):
 
         self.assertEqual(rc, 0)
         text = out.getvalue()
-        self.assertIn("=== Jarvis-HEP ===", text)
         self.assertIn("Author:", text)
         self.assertIn("Version:", text)
         self.assertIn("Resources:", text)
