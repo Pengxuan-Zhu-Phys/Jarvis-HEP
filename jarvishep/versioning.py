@@ -6,6 +6,7 @@ import re
 
 
 RESET = "\033[0m"
+BOLD = "\033[1m"
 ICON_PIXEL = "⬤ "
 ICON_COLORS = {
     "B": "#2f7fd8",
@@ -13,6 +14,18 @@ ICON_COLORS = {
     "Y": "#f6d33f",
     ".": "#134a8d",
 }
+TEXT_GRADIENT_START = ICON_COLORS["B"]
+TEXT_GRADIENT_END = ICON_COLORS["Y"]
+TEXT_GRADIENT_COLORS = [
+    "#2f7fd8",
+    "#73b8f4",
+    "#aee4fc",
+    "#b8ffe4",
+    "#d5f884",
+    "#f8f675",
+    "#ffe95d",
+    "#ffdc3f",
+]
 ICON_TEMPLATE_RE = re.compile(r"^([BWY.]{8})( {2})(.*)$")
 
 
@@ -30,13 +43,33 @@ def _render_icon_cells(cells: str) -> str:
     return "".join(f"{_ansi_fg(ICON_COLORS[cell])}{ICON_PIXEL}{RESET}" for cell in cells)
 
 
-def _render_logo_template_line(line: str) -> str:
+def _render_logo_template_line(line: str, gradient_index: int, gradient_total: int) -> str:
     matched = ICON_TEMPLATE_RE.match(line)
     if not matched:
         return line
 
     cells, separator, text = matched.groups()
-    return f"{_render_icon_cells(cells)}{separator}{text}"
+    if gradient_index < len(TEXT_GRADIENT_COLORS):
+        text_color = TEXT_GRADIENT_COLORS[gradient_index]
+    elif gradient_total <= 1:
+        text_color = TEXT_GRADIENT_START
+    else:
+        text_color = TEXT_GRADIENT_END
+    text_style = BOLD if "Just a Robust" in text or "Author:" in text or "Version:" in text else ""
+    return f"{_render_icon_cells(cells)}{separator}{_ansi_fg(text_color)}{text_style}{text}{RESET}"
+
+
+def _render_logo_template_lines(lines: list[str]) -> list[str]:
+    gradient_total = sum(1 for line in lines if ICON_TEMPLATE_RE.match(line))
+    gradient_index = 0
+    rendered: list[str] = []
+    for line in lines:
+        if ICON_TEMPLATE_RE.match(line):
+            rendered.append(_render_logo_template_line(line, gradient_index, gradient_total))
+            gradient_index += 1
+        else:
+            rendered.append(line)
+    return rendered
 
 
 def get_runtime_version() -> str:
@@ -98,6 +131,6 @@ def render_logo_with_version(logo_path: str) -> str:
                 break
         lines.append(f"{prefix}Version:  {version}")
 
-    lines = [_render_logo_template_line(line) for line in lines]
+    lines = _render_logo_template_lines(lines)
 
     return "\n".join(lines)

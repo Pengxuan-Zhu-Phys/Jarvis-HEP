@@ -14,9 +14,9 @@
     "jarvis_hep": [
       {
         "caption": "Core Jarvis-HEP framework paper",
-        "title": "Jarvis-HEP: Just a Robust and Versatile Interface Suite for HEP",
-        "author": "Erdong Guo, Paul Jackson, Jin-Min Yang, Martin J. White, Pengxuan Zhu",
-        "arxiv": "TODO",
+        "title": "Jarvis-HEP: A lightweight Python framework for workflow composition and parameter scans in high-energy physics",
+        "author": "Erdong Guo, Paul Jackson, Jin-Min Yang, Pengxuan Zhu",
+        "arxiv": "2604.25557",
         "doi": "TODO"
       },
       {

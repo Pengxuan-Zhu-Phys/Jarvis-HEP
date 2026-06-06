@@ -21,6 +21,12 @@
             "action": "store_true"
         },
         {
+            "long": "--refs",
+            "dest": "refs",
+            "help": "Print full Jarvis-HEP reference information",
+            "action": "store_true"
+        },
+        {
             "long": "--plot",
             "action": "store_true",
             "dest": "plot",

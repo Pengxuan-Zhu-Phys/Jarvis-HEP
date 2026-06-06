@@ -142,6 +142,7 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn("--convert", help_text)
         self.assertIn("--monitor", help_text)
         self.assertIn("--resume", help_text)
+        self.assertIn("--refs", help_text)
         self.assertIn("--check-modules", help_text)
         self.assertNotIn("--mkproject", help_text)
         self.assertNotIn("--packproject", help_text)
@@ -533,7 +534,27 @@ class CliEntrypointTests(unittest.TestCase):
         self.assertIn("Author:", text)
         self.assertIn("Version:", text)
         self.assertIn("Resources:", text)
+        self.assertIn("Reference:", text)
+        self.assertNotIn("References:", text)
+        self.assertNotIn("[1] Core Jarvis-HEP framework paper", text)
+        self.assertNotIn("Built-in Scanners:", text)
+
+    def test_main_refs_fast_path_prints_full_references(self):
+        from jarvishep.client import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = main(["Jarvis", "--refs"])
+
+        self.assertEqual(rc, 0)
+        text = out.getvalue()
+        self.assertIn("Just a Robust and Versatile Interface Suite for HEP", text)
+        self.assertIn("Version:", text)
         self.assertIn("References:", text)
+        self.assertIn("Jarvis-HEP:", text)
+        self.assertIn("Built-in Scanners:", text)
+        self.assertIn("MultiNest:", text)
+        self.assertNotIn("Resources:", text)
 
 
 if __name__ == "__main__":

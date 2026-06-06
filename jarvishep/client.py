@@ -23,6 +23,9 @@ from jarvishep.project_packager import (
 from jarvishep.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
 from jarvishep.versioning import render_logo_with_version
 
+RESET = "\033[0m"
+BOLD = "\033[1m"
+
 
 _TOP_LEVEL_HELP_TEXT = """Usage:
   Jarvis [file] [options]
@@ -40,6 +43,7 @@ General options:
   -h, --help            Show this help message and exit
   -d, --debug           Run Jarvis-HEP in debug mode
   -v, --version         Print version and runtime package information
+  --refs                Print full reference information
 
 Workflow options:
   --plot                Run plotting mode
@@ -140,9 +144,27 @@ _PACK_MANIFEST_FLAG = "--man"
 def _render_version_banner() -> str:
     logo_path = os.path.join(os.path.dirname(__file__), "card", "logo")
     banner = render_logo_with_version(logo_path)
-    links_text = _render_document_links()
+    links_text = _render_document_links(
+        include_resources=True,
+        include_compact_reference=True,
+        include_references=False,
+    )
     if links_text:
         banner = f"{banner}\n\n{links_text}"
+    return banner
+
+
+def _render_refs_text() -> str:
+    logo_path = os.path.join(os.path.dirname(__file__), "card", "logo")
+    banner = render_logo_with_version(logo_path)
+    links_text = _render_document_links(
+        include_resources=False,
+        include_compact_reference=False,
+        include_references=True,
+        include_builtin_scanners=True,
+    )
+    if links_text:
+        return f"{banner}\n\n{links_text}"
     return banner
 
 
@@ -155,7 +177,7 @@ def _normalize_public_value(value: object) -> str:
     return text
 
 
-def _render_resources_block(documents: dict, paper: dict) -> str:
+def _render_resources_block(documents: dict, paper: dict, primary_reference: dict | None = None) -> str:
     candidates = [
         ("Online docs", documents.get("online_docs")),
         ("User manual", documents.get("user_manual")),
@@ -169,11 +191,33 @@ def _render_resources_block(documents: dict, paper: dict) -> str:
         for label, value in candidates
     ]
     public_links = [(label, value) for label, value in public_links if value]
-    if not public_links:
+    if not public_links and not primary_reference:
         return ""
 
+    reference_title = ""
+    reference_fields: list[tuple[str, str]] = []
+    if primary_reference:
+        title = primary_reference.get("title", "")
+        if title:
+            reference_title = title
+        if primary_reference.get("author"):
+            reference_fields.append(("Author", primary_reference["author"]))
+        if primary_reference.get("arxiv"):
+            reference_fields.append(("arXiv", primary_reference["arxiv"]))
+        if primary_reference.get("doi"):
+            reference_fields.append(("DOI", primary_reference["doi"]))
+
+    labels = [f"{label}:" for label, _value in public_links]
+    if reference_title:
+        labels.append("Reference:")
+    label_width = max(len(label) for label in labels)
     lines = ["Resources:"]
-    lines.extend(f"\t{label}:\t{value}" for label, value in public_links)
+    lines.extend(f"  {f'{label}:':<{label_width}}  {value}" for label, value in public_links)
+    if reference_title:
+        lines.append(f"  {'Reference:':<{label_width}}  {BOLD}{reference_title}{RESET}")
+        metadata_indent = "  " + (" " * label_width) + "  "
+        for label, value in reference_fields:
+            lines.append(f"{metadata_indent}{label}: {value}")
     return "\n".join(lines)
 
 
@@ -190,15 +234,16 @@ def _normalize_reference_entry(entry: object) -> dict:
     }
 
 
-def _render_references_block(payload: dict, paper: dict) -> str:
+def _render_references_block(payload: dict, paper: dict, *, include_builtin_scanners: bool = False) -> str:
     references = payload.get("references", {})
     if not isinstance(references, dict):
         references = {}
 
     section_specs = [
         ("Jarvis-HEP", references.get("jarvis_hep")),
-        ("Built-in Scanners", references.get("builtin_scanners")),
     ]
+    if include_builtin_scanners:
+        section_specs.append(("Built-in Scanners", references.get("builtin_scanners")))
     rendered_sections = []
     for section_name, entries in section_specs:
         if not isinstance(entries, list):
@@ -208,21 +253,21 @@ def _render_references_block(payload: dict, paper: dict) -> str:
         if not normalized:
             continue
 
-        block_lines = [f"\t{section_name}:"]
+        block_lines = [f"  {section_name}:"]
         for idx, entry in enumerate(normalized, start=1):
-            title_line = f"\t\t[{idx}] "
+            title_line = f"[{idx}] "
             if entry["caption"]:
                 title_line += entry["caption"]
             else:
                 title_line += entry["title"]
             block_lines.append(title_line)
-            block_lines.append(f"\t\t\tTitle:\t{entry['title']}")
+            block_lines.append(f"  {'Title:':<7}  {entry['title']}")
             if entry["author"]:
-                block_lines.append(f"\t\t\tAuthor:\t{entry['author']}")
+                block_lines.append(f"  {'Author:':<7}  {entry['author']}")
             if entry["arxiv"]:
-                block_lines.append(f"\t\t\tarXiv:\t{entry['arxiv']}")
+                block_lines.append(f"  {'arXiv:':<7}  {entry['arxiv']}")
             if entry["doi"]:
-                block_lines.append(f"\t\t\tDOI:\t{entry['doi']}")
+                block_lines.append(f"  {'DOI:':<7}  {entry['doi']}")
         rendered_sections.append("\n".join(block_lines))
 
     # Backward-compatibility with legacy "paper" schema.
@@ -230,10 +275,10 @@ def _render_references_block(payload: dict, paper: dict) -> str:
         legacy_title = _normalize_public_value(paper.get("title"))
         legacy_url = _normalize_public_value(paper.get("url"))
         if legacy_title or legacy_url:
-            legacy_block = ["\tJarvis-HEP:"]
-            legacy_block.append(f"\t\t[1] {legacy_title or 'Jarvis-HEP Paper'}")
+            legacy_block = ["  Jarvis-HEP:"]
+            legacy_block.append(f"[1] {legacy_title or 'Jarvis-HEP Paper'}")
             if legacy_url:
-                legacy_block.append(f"\t\t\tLink:\t{legacy_url}")
+                legacy_block.append(f"  {'Link:':<7}  {legacy_url}")
             rendered_sections.append("\n".join(legacy_block))
 
     if not rendered_sections:
@@ -242,7 +287,27 @@ def _render_references_block(payload: dict, paper: dict) -> str:
     return "References:\n" + "\n".join(rendered_sections)
 
 
-def _render_document_links() -> str:
+def _primary_jarvis_reference(payload: dict) -> dict:
+    references = payload.get("references", {})
+    if not isinstance(references, dict):
+        return {}
+    entries = references.get("jarvis_hep")
+    if not isinstance(entries, list):
+        return {}
+    for entry in entries:
+        normalized = _normalize_reference_entry(entry)
+        if normalized.get("title"):
+            return normalized
+    return {}
+
+
+def _render_document_links(
+    *,
+    include_resources: bool = True,
+    include_compact_reference: bool = False,
+    include_references: bool = True,
+    include_builtin_scanners: bool = False,
+) -> str:
     links_path = os.path.join(os.path.dirname(__file__), "card", "document_links.json")
     if not os.path.exists(links_path):
         return ""
@@ -263,10 +328,12 @@ def _render_document_links() -> str:
     if not isinstance(paper, dict):
         paper = {}
 
-    sections = [
-        _render_resources_block(documents, paper),
-        _render_references_block(payload, paper),
-    ]
+    sections = []
+    if include_resources:
+        primary_reference = _primary_jarvis_reference(payload) if include_compact_reference else None
+        sections.append(_render_resources_block(documents, paper, primary_reference))
+    if include_references:
+        sections.append(_render_references_block(payload, paper, include_builtin_scanners=include_builtin_scanners))
     sections = [section for section in sections if section]
     return "\n\n".join(sections)
 
@@ -709,6 +776,14 @@ def _version_fast_path(argv: list[str]) -> int | None:
     return 0
 
 
+def _refs_fast_path(argv: list[str]) -> int | None:
+    if "--refs" not in argv:
+        return None
+
+    print(_render_refs_text())
+    return 0
+
+
 def main(argv=None) -> int:
     argv = sys.argv if argv is None else list(argv)
 
@@ -723,6 +798,10 @@ def main(argv=None) -> int:
     help_code = _top_level_help_fast_path(argv)
     if help_code is not None:
         return help_code
+
+    refs_code = _refs_fast_path(argv)
+    if refs_code is not None:
+        return refs_code
 
     version_code = _version_fast_path(argv)
     if version_code is not None:
