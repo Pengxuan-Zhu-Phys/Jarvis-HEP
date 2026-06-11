@@ -29,6 +29,37 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
             finally:
                 sample.close()
 
+    def test_sample_start_marks_running_status(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Sample({"x": 1.0})
+            sample.set_config({"sample_dirs": tmpdir, "task_result_dir": tmpdir})
+            try:
+                self.assertEqual(sample.info["status"], "Init")
+                sample.start()
+                self.assertEqual(sample.info["status"], "Running")
+            finally:
+                sample.close()
+
+    def test_sample_start_marks_nuisance_running_status(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Sample({"x": 1.0})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "nuisance": {
+                        "NAttempt": 1,
+                        "active": {"param": {"theta": 0.5}},
+                    },
+                }
+            )
+            try:
+                sample.start()
+                self.assertEqual(sample.info["status"], "Running")
+                self.assertEqual(sample.info["nuisance"]["status"], "Running")
+            finally:
+                sample.close()
+
     def test_sample_logger_preserves_legacy_format_and_raw_behavior(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "Sample_running.log")

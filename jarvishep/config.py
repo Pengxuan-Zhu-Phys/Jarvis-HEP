@@ -839,7 +839,7 @@ class ConfigValidator(Base):
             if not isinstance(schema_block, dict):
                 schema_block = {}
             # Only patch refs that are declared by the active sampler schema.
-            for kk, vv in self.schemablock.items():
+            for kk, vv in getattr(self, "schemablock", {}).items():
                 if kk in schema_block and isinstance(schema_block.get(kk), dict):
                     schema_block[kk]['$ref'] = vv
 

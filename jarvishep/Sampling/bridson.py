@@ -13,6 +13,7 @@ from sympy import sympify
 from sympy.geometry import parabola
 import time 
 from random import randint
+from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 import json
@@ -158,10 +159,19 @@ class Bridson(SamplingVirtial):
         self._runtime_pending_samples = list(payload.get("pending_samples", []))
 
     def run_nested(self):
-        if not self._with_nuisance: 
-            self.run_wo_nuisance()
-        else:
-            self.run_w_nuisance()
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
+            if not self._with_nuisance: 
+                self.run_wo_nuisance()
+            else:
+                self.run_w_nuisance()
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "sampler_loop",
+                    benchmark.monotonic_seconds() - timing_start,
+                )
      
     def run_w_nuisance(self):
         total_cores = self.total_core

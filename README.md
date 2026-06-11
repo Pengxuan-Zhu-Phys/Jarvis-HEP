@@ -327,6 +327,7 @@ Runtime:
 - Online docs: <https://pengxuan-zhu-phys.github.io/Jarvis-Docs/>
 - Project homepage: <https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP>
 - CLI reference: `Jarvis --help`
+- Full references: `Jarvis --refs`
 - Project workflow reference: `Jarvis project --help`
 
 ## Citation

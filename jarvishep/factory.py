@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import time 
 
+from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
 
 
@@ -202,37 +203,46 @@ class WorkerFactory:
         return enabled
 
     def submit_task(self, sample_info):
-        if self.executor is None:
-            self.get_executor()
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
+            if self.executor is None:
+                self.get_executor()
 
-        sample_uuid = (sample_info or {}).get("uuid", "UNKNOWN")
-        if isinstance(sample_info, dict) and self.run_summary_collector is not None:
-            sample_info.setdefault("run_summary_collector", self.run_summary_collector)
-        future = self.executor.submit(self._execute_workflow_tracked, sample_info)
+            sample_uuid = (sample_info or {}).get("uuid", "UNKNOWN")
+            if isinstance(sample_info, dict) and self.run_summary_collector is not None:
+                sample_info.setdefault("run_summary_collector", self.run_summary_collector)
+            future = self.executor.submit(self._execute_workflow_tracked, sample_info)
 
-        def _on_done(done_future):
-            try:
-                exc = done_future.exception()
-            except Exception as done_exc:
-                exc = done_exc
-            if exc is not None:
-                message = format_two_column_log(
-                    "future exception consumed",
-                    [("uuid", sample_uuid), ("error", exc)],
+            def _on_done(done_future):
+                try:
+                    exc = done_future.exception()
+                except Exception as done_exc:
+                    exc = done_exc
+                if exc is not None:
+                    message = format_two_column_log(
+                        "future exception consumed",
+                        [("uuid", sample_uuid), ("error", exc)],
+                    )
+                    if getattr(self, "log_executor", None) is not None:
+                        self.log_executor.submit(self.logger.error, message)
+                    else:
+                        self.logger.error(message)
+
+            future.add_done_callback(_on_done)
+
+            with self._status_lock:
+                self.task_count += 1
+                current_count = self.task_count
+            self._update_status_interval(current_count)
+            self.print_status(current_count)
+            return future
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "submit_future_locks",
+                    benchmark.monotonic_seconds() - timing_start,
                 )
-                if getattr(self, "log_executor", None) is not None:
-                    self.log_executor.submit(self.logger.error, message)
-                else:
-                    self.logger.error(message)
-
-        future.add_done_callback(_on_done)
-
-        with self._status_lock:
-            self.task_count += 1
-            current_count = self.task_count
-        self._update_status_interval(current_count)
-        self.print_status(current_count)
-        return future
 
     def _log_status(
         self,

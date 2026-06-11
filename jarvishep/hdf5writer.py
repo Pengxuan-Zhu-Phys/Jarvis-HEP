@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 from loguru import logger
 
+from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.observable_io import (
     csv_export_fieldnames_from_schema,
@@ -150,31 +151,40 @@ class GlobalHDF5Writer:
 
     def add_data(self, data):
         """Add one record to the write queue with bounded backpressure."""
-        self._raise_if_writer_failed()
-        self._update_schema(data)
-        payload = convert(data)
-
-        while not self.shutdown_event.is_set():
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
             self._raise_if_writer_failed()
-            try:
-                self.data_queue.put(payload, timeout=self.enqueue_timeout)
-                self._record_enqueue()
-                return
-            except Full:
-                now = time.monotonic()
-                if now - self._backpressure_log_ts >= 5.0:
-                    self.logger.warning(
-                        format_two_column_log(
-                            "Global writer queue full; backpressure active",
-                            [
-                                ("queue_depth", self.data_queue.qsize()),
-                                ("queue_capacity", self.data_queue.maxsize),
-                            ],
-                        )
-                    )
-                    self._backpressure_log_ts = now
+            self._update_schema(data)
+            payload = convert(data)
 
-        raise RuntimeError("Global HDF5 writer has been stopped; rejecting new data.")
+            while not self.shutdown_event.is_set():
+                self._raise_if_writer_failed()
+                try:
+                    self.data_queue.put(payload, timeout=self.enqueue_timeout)
+                    self._record_enqueue()
+                    return
+                except Full:
+                    now = time.monotonic()
+                    if now - self._backpressure_log_ts >= 5.0:
+                        self.logger.warning(
+                            format_two_column_log(
+                                "Global writer queue full; backpressure active",
+                                [
+                                    ("queue_depth", self.data_queue.qsize()),
+                                    ("queue_capacity", self.data_queue.maxsize),
+                                ],
+                            )
+                        )
+                        self._backpressure_log_ts = now
+
+            raise RuntimeError("Global HDF5 writer has been stopped; rejecting new data.")
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "hdf5_enqueue",
+                    benchmark.monotonic_seconds() - timing_start,
+                )
 
     def _writer_loop(self):
         """Event-driven writer loop: flush on batch/fullness or timeout."""

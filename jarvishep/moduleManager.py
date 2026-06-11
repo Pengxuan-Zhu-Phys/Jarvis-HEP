@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from jarvishep.modulePool import ModulePool
 from copy import deepcopy
+from jarvishep import benchmark
 
 
 class ModuleManager:
@@ -83,57 +84,101 @@ class ModuleManager:
         Returns:
             float: The calculated likelihood value.
         """
+        timing_enabled = benchmark.TIMING_ENABLED
+        dispatch_start = benchmark.monotonic_seconds() if timing_enabled else None
+
+        def _pause_dispatch():
+            nonlocal dispatch_start
+            if not timing_enabled or dispatch_start is None:
+                return None
+            now = benchmark.monotonic_seconds()
+            benchmark.record_stage("module_dispatch", now - dispatch_start)
+            dispatch_start = None
+            return now
+
+        def _resume_dispatch():
+            nonlocal dispatch_start
+            if timing_enabled:
+                dispatch_start = benchmark.monotonic_seconds()
+
+        def _record_execution(start):
+            if timing_enabled and start is not None:
+                benchmark.record_stage(
+                    "module_execution",
+                    benchmark.monotonic_seconds() - start,
+                )
+
         # Execute according to the workflow's layer sequence
-        policy = self._module_failure_policy()
-        self.logger.info(
-            f"Start execute workflow for sample -> {sample_info['uuid']} (module failure policy: {policy})"
-        )
-        observables = deepcopy(sample_info['observables'])
-        module_failed = False
-        selection_blocked = False
-        
-        for layer in sorted(self.workflow.keys()):
-            module_names = self.workflow[layer]
-            for module_name in module_names:
-                if not self._module_selection_allows(module_name, observables, sample_info):
-                    selection_blocked = True
-                    break
-                try:
-                    updated_observables = self.execute_module(module_name, observables.copy(), sample_info)
-                    observables.update(updated_observables)
-                except Exception as exc:
-                    self.logger.error(f"Module {module_name} generated an exception: {exc}")
-                    if policy == "continue":
-                        module_failed = True
+        try:
+            policy = self._module_failure_policy()
+            self.logger.info(
+                f"Start execute workflow for sample -> {sample_info['uuid']} (module failure policy: {policy})"
+            )
+            observables = deepcopy(sample_info['observables'])
+            module_failed = False
+            selection_blocked = False
+            
+            for layer in sorted(self.workflow.keys()):
+                module_names = self.workflow[layer]
+                for module_name in module_names:
+                    if not self._module_selection_allows(module_name, observables, sample_info):
+                        selection_blocked = True
                         break
-                    raise
+                    try:
+                        exec_start = _pause_dispatch()
+                        try:
+                            updated_observables = self.execute_module(module_name, observables.copy(), sample_info)
+                        finally:
+                            _record_execution(exec_start)
+                            _resume_dispatch()
+                        observables.update(updated_observables)
+                    except Exception as exc:
+                        self.logger.error(f"Module {module_name} generated an exception: {exc}")
+                        if policy == "continue":
+                            module_failed = True
+                            break
+                        raise
+
+                if module_failed:
+                    break
+                if selection_blocked:
+                    break
+
+                passed = self.nuisance_check(observables, sample_info)
+                if not passed: 
+                    return 1. 
 
             if module_failed:
-                break
-            if selection_blocked:
-                break
-
-            passed = self.nuisance_check(observables, sample_info)
-            if not passed: 
-                return 1. 
-
-        if module_failed:
-            observables['uuid'] = sample_info['uuid']
-            sample_info['observables'] = observables
-            self.database.add_data(observables)
-            return 1.
-        # After all modules have executed, calculate likelihood based on the final observables
-        if self.config['Sampling'].get('LogLikelihood', False):
-            observables = self.calculate_likelihood(observables, sample_info)
-            sample_info['observables'] = observables
-            self.database.add_data(observables)
-            # print("Manager Line 82 ->", observables['LogL'])
-            return observables['LogL']
-        else: 
-            sample_info['observables'] = observables 
-            # print(observables)
-            self.database.add_data(observables)
-            return 1.
+                observables['uuid'] = sample_info['uuid']
+                sample_info['observables'] = observables
+                _pause_dispatch()
+                self.database.add_data(observables)
+                return 1.
+            # After all modules have executed, calculate likelihood based on the final observables
+            if self.config['Sampling'].get('LogLikelihood', False):
+                exec_start = _pause_dispatch()
+                try:
+                    observables = self.calculate_likelihood(observables, sample_info)
+                finally:
+                    _record_execution(exec_start)
+                    _resume_dispatch()
+                sample_info['observables'] = observables
+                _pause_dispatch()
+                self.database.add_data(observables)
+                # print("Manager Line 82 ->", observables['LogL'])
+                return observables['LogL']
+            else: 
+                sample_info['observables'] = observables 
+                # print(observables)
+                _pause_dispatch()
+                self.database.add_data(observables)
+                return 1.
+        finally:
+            if timing_enabled and dispatch_start is not None:
+                benchmark.record_stage(
+                    "module_dispatch",
+                    benchmark.monotonic_seconds() - dispatch_start,
+                )
 
     def _module_selection_allows(self, module_name, observables, sample_info) -> bool:
         module_pool = self.module_pools.get(module_name)

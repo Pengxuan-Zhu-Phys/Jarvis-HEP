@@ -5,6 +5,7 @@ from abc import ABCMeta, abstractmethod
 # from mpmath.functions.functions import re
 import numpy as np
 import time 
+from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial, BoolConversionError
 import json
@@ -130,39 +131,19 @@ class RandomS(SamplingVirtial):
                 
 
     def run_nested(self):
-        total_cores = os.cpu_count() or 1
-        self.tasks = set()
-        self.future_to_sample = {}
-        pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
-        self._runtime_pending_samples = []
-        exhausted = False
-        base_sample_cfg = self.info['sample']
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
+            total_cores = os.cpu_count() or 1
+            self.tasks = set()
+            self.future_to_sample = {}
+            pending_samples = list(getattr(self, "_runtime_pending_samples", []) or [])
+            self._runtime_pending_samples = []
+            exhausted = False
+            base_sample_cfg = self.info['sample']
 
-        for sample_info in pending_samples:
-            sample = self._rebuild_sample_from_info(sample_info)
-            try:
-                future = self.factory.submit_task(sample.info)
-            except Exception:
-                self._on_sample_completed(sample.info)
-                sample.close()
-                raise
-            self.tasks.add(future)
-            self.future_to_sample[future] = sample
-
-        while (not exhausted) or self.tasks:
-            while not exhausted and len(self.tasks) < total_cores:
-                try: 
-                    param = self.next_sample()
-                except StopIteration:
-                    exhausted = True
-                    break
-
-                sample = Sample(param)
-                sconfig = self.build_sample_config(
-                    base_sample_cfg,
-                    save_dir=self._next_bucket_dir_for_sample(),
-                )
-                sample.set_config(sconfig)
+            for sample_info in pending_samples:
+                sample = self._rebuild_sample_from_info(sample_info)
                 try:
                     future = self.factory.submit_task(sample.info)
                 except Exception:
@@ -172,32 +153,61 @@ class RandomS(SamplingVirtial):
                 self.tasks.add(future)
                 self.future_to_sample[future] = sample
 
-            if not self.tasks:
-                continue
+            while (not exhausted) or self.tasks:
+                while not exhausted and len(self.tasks) < total_cores:
+                    try: 
+                        param = self.next_sample()
+                    except StopIteration:
+                        exhausted = True
+                        break
 
-            done, _ = concurrent.futures.wait(
-                self.tasks,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-
-            self.tasks.difference_update(done)
-            for future in done:
-                sample = self.future_to_sample.pop(future, None)
-                try:
-                    future.result()
-                except Exception as exc:
-                    suuid = sample.uuid if sample else "UNKNOWN"
-                    self.logger.error(
-                        format_two_column_log(
-                            "[WorkerFactory] future exception consumed",
-                            [("uuid", suuid), ("error", exc)],
-                        )
+                    sample = Sample(param)
+                    sconfig = self.build_sample_config(
+                        base_sample_cfg,
+                        save_dir=self._next_bucket_dir_for_sample(),
                     )
-                    raise
-                finally:
-                    if sample is not None:
+                    sample.set_config(sconfig)
+                    try:
+                        future = self.factory.submit_task(sample.info)
+                    except Exception:
                         self._on_sample_completed(sample.info)
                         sample.close()
+                        raise
+                    self.tasks.add(future)
+                    self.future_to_sample[future] = sample
+
+                if not self.tasks:
+                    continue
+
+                done, _ = concurrent.futures.wait(
+                    self.tasks,
+                    return_when=concurrent.futures.FIRST_COMPLETED,
+                )
+
+                self.tasks.difference_update(done)
+                for future in done:
+                    sample = self.future_to_sample.pop(future, None)
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        suuid = sample.uuid if sample else "UNKNOWN"
+                        self.logger.error(
+                            format_two_column_log(
+                                "[WorkerFactory] future exception consumed",
+                                [("uuid", suuid), ("error", exc)],
+                            )
+                        )
+                        raise
+                    finally:
+                        if sample is not None:
+                            self._on_sample_completed(sample.info)
+                            sample.close()
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "sampler_loop",
+                    benchmark.monotonic_seconds() - timing_start,
+                )
 
     def finalize(self):
         pass

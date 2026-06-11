@@ -7,6 +7,7 @@ import sympy as sp
 from copy import deepcopy 
 from time import sleep
 from jarvishep.base import Base
+from jarvishep import benchmark
 from jarvishep.sample_logger import SampleLogger
 from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
@@ -49,11 +50,20 @@ class Sample(Base):
         self._likelihood = value  # 允许更新likelihood值
 
     def set_config(self, config):
-        self.info = config
-        self.create_info()
-        if self.info.get("nuisance", {}):
-            self.combine_nuisance_card()
-            self._with_nuisance = True
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
+            self.info = config
+            self.create_info()
+            if self.info.get("nuisance", {}):
+                self.combine_nuisance_card()
+                self._with_nuisance = True
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "sample_setup",
+                    benchmark.monotonic_seconds() - timing_start,
+                )
 
     def create_info(self):
         save_dir = self.info.get('save_dir')
@@ -138,9 +148,9 @@ class Sample(Base):
 
     def start(self):
         self.logger.info("Sample -> {} is ready for submittion".format(self.uuid))
-        self.info['status'] == "Running"
+        self.info['status'] = "Running"
         if self._with_nuisance: 
-            self.info['nuisance']['status'] == "Running"
+            self.info['nuisance']['status'] = "Running"
             self.logger.info("{}\nSample start {}-th nuisance attempt".format(">"*60, self.info['nuisance']['NAttempt']))
 
     def close(self):

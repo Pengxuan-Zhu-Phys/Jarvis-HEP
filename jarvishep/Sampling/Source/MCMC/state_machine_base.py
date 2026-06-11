@@ -12,6 +12,7 @@ from typing import Any, Dict, Sequence
 
 import numpy as np
 
+from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
 from jarvishep.Sampling.sampler import SamplingVirtial
 from jarvishep.sample import Sample
@@ -696,6 +697,18 @@ class MCMCStateMachineBase(SamplingVirtial):
         raise NotImplementedError
 
     def run_nested(self):
+        timing_enabled = benchmark.TIMING_ENABLED
+        timing_start = benchmark.monotonic_seconds() if timing_enabled else None
+        try:
+            return self._run_nested_impl()
+        finally:
+            if timing_enabled and timing_start is not None:
+                benchmark.record_stage(
+                    "sampler_loop",
+                    benchmark.monotonic_seconds() - timing_start,
+                )
+
+    def _run_nested_impl(self):
         if not self._state_machine_ready:
             self._initialize_state_machine()
 

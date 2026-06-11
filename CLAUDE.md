@@ -32,6 +32,7 @@ jarvishep/
 ├── config.py              # YAML config loader & validator
 ├── workflow.py            # Task DAG management, semantic flowchart JSON export
 ├── factory.py             # WorkerFactory, thread pool management
+├── benchmark.py           # Additive throughput benchmark mode helpers
 ├── distributor.py         # Sampler dispatch (match/case)
 ├── sample.py              # Sample data structure
 ├── base.py                # Base class with path management (&J/ resolution)
@@ -155,6 +156,7 @@ Jarvis <file.yaml> --plot           # Generate plot config
 Jarvis <file.yaml> --convert        # Convert HDF5 to CSV
 Jarvis <file.yaml> --monitor        # Real-time resource monitor
 Jarvis <file.yaml> --check-modules  # Test-run 10 samples (1PC mode)
+Jarvis <file.yaml> --benchmark [s]  # Run throughput benchmark mode (default 30 s)
 Jarvis project create <name>        # Create scaffold
 Jarvis project pack [path] [--share|--repro|--full]
 Jarvis project pack [path] [--share|--repro|--full] --man
@@ -163,6 +165,7 @@ Jarvis project browse               # List official projects
 Jarvis project fetch <name>         # Download official project
 Jarvis project info <name>          # Show project metadata
 Jarvis -v                           # Print version
+Jarvis --refs                       # Print full reference information
 ```
 
 ---
@@ -241,21 +244,21 @@ pytest tests/
 
 ## Known Bugs (validated against v1.6.11 source)
 
+### Fixed during V2 M0
+
+- **`sample.py:140,142`** — Fixed `==` vs `=` in `Sample.start()` status transitions; covered by sample status tests.
+- **`config.py:812`** — Fixed schema block access so config validation no longer raises `AttributeError`.
+- **`distributor.py:46`** — Made `Distributor.set_method(...)` a static method so CLI sampler initialization works.
+
 ### Critical (P0) — will crash or produce wrong results
 
-1. **`sample.py:140,142`** — `self.info['status'] == "Running"` uses `==` (comparison) instead of `=` (assignment). Sample status is never set to "Running".
+1. **`config.py:327`** — Catches `FileExistsError` but the error message says "not found"; should catch `FileNotFoundError`. A missing default env YAML silently passes.
 
-2. **`config.py:812`** — `self.schemablock` is undefined at that scope; should be `schema_block` (the local variable). Config validation will raise `AttributeError`.
+2. **`calculator.py:136`** — `def custom_format(record)` is missing `self`. Defined inside the class body but not as an instance method signature; will `TypeError` when called via `self.custom_format(...)`.
 
-3. **`config.py:327`** — Catches `FileExistsError` but the error message says "not found"; should catch `FileNotFoundError`. A missing default env YAML silently passes.
+3. **`sampler.py:447`** — `ax.axes("off")` should be `ax.axis("off")`. Matplotlib `Axes` objects have no `axes()` method; this will raise `AttributeError` when drawing the summary plot.
 
-4. **`distributor.py:46`** — `def set_method(method)` is missing the `self` parameter. Called as an instance method via `self.set_method(...)`, this will fail with wrong argument count on every call.
-
-5. **`calculator.py:136`** — `def custom_format(record)` is missing `self`. Defined inside the class body but not as an instance method signature; will `TypeError` when called via `self.custom_format(...)`.
-
-6. **`sampler.py:447`** — `ax.axes("off")` should be `ax.axis("off")`. Matplotlib `Axes` objects have no `axes()` method; this will raise `AttributeError` when drawing the summary plot.
-
-7. **`state_machine_base.py:189`** — `_export_runtime_extras()` is defined twice in the same class body. The first definition at line 189 returns `{}` and is dead code — it is unconditionally shadowed by the second definition at line 236 (which returns `{"pending_samples": ...}`). The second definition is the correct one. Remove the dead definition at line 189.
+4. **`state_machine_base.py:189`** — `_export_runtime_extras()` is defined twice in the same class body. The first definition at line 189 returns `{}` and is dead code — it is unconditionally shadowed by the second definition at line 236 (which returns `{"pending_samples": ...}`). The second definition is the correct one. Remove the dead definition at line 189.
 
 ### High (P1) — silent logic errors
 

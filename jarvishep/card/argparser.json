@@ -45,6 +45,15 @@
             "help": "For the Calculator test"
         },
         {
+            "long": "--benchmark",
+            "action": "store",
+            "dest": "benchmark",
+            "nargs": "?",
+            "const": 30.0,
+            "type": "float",
+            "help": "Run throughput benchmark mode for the given number of seconds (default: 30)."
+        },
+        {
             "long": "--skip-draw-flowchart",
             "action": "store_true",
             "dest": "skipFC",

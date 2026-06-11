@@ -128,6 +128,9 @@ class Core(Base):
             self.scan_mode = True
             self.args.debug = True
             self.mode      = "1PC"      # 1PC means one point check mode 
+        if getattr(self.args, "benchmark", None) is not None:
+            self.scan_mode = True
+            self.mode = "BENCHMARK"
         if self.args.monitor: 
             self.scan_mode = False
             self.mode       = "Monitor"
@@ -626,9 +629,10 @@ class Core(Base):
             self._resume_checkpoint_policy = "auto"
             return
 
-        if self.mode == "1PC" and not getattr(self.args, "resume", False):
+        if self.mode in {"1PC", "BENCHMARK"} and not getattr(self.args, "resume", False):
+            mode_label = "Benchmark" if self.mode == "BENCHMARK" else "Check-modules"
             slogger.warning(
-                "Check-modules mode starts fresh and ignores existing checkpoints."
+                f"{mode_label} mode starts fresh and ignores existing checkpoints."
             )
             self._resume_checkpoint_payload = None
             self._resume_run_spec = None
@@ -979,9 +983,9 @@ class Core(Base):
         if self.run_summary_collector is not None:
             self.run_summary_collector.start()
 
-    def _emit_run_summary(self) -> None:
+    def _emit_run_summary(self) -> dict | None:
         if self.run_summary_collector is None or self.run_summary_renderer is None:
-            return
+            return None
         try:
             summary = self.run_summary_collector.finish()
             rendered = self.run_summary_renderer.render(summary)
@@ -992,9 +996,11 @@ class Core(Base):
                 self.info["sample"]["task_result_dir"],
                 rendered_text=rendered,
             )
+            return summary
         except Exception as exc:
             if getattr(self, "logger", None) is not None:
                 self.logger.error(f"Run summary emission failed -> {exc}")
+            return None
 
     def initialization(self) -> None:
         # Parse CLI and decide mode
@@ -1067,6 +1073,8 @@ class Core(Base):
     def run_sampling(self)->None:
         if self.mode == "1PC":
             self.test_assembly_line()
+        elif self.mode == "BENCHMARK":
+            self.run_benchmark()
         else:
             self.run_until_finished()
 
@@ -1121,6 +1129,93 @@ class Core(Base):
                 first_step, first_exc = cleanup_errors[0]
                 raise RuntimeError(f"Cleanup failed after check-modules -> {first_step}") from first_exc
             # self.monitor.stop()
+
+    def run_benchmark(self):
+        from jarvishep.benchmark import (
+            BenchmarkDeadline,
+            collect_benchmark_report,
+            normalize_benchmark_seconds,
+            write_benchmark_report,
+        )
+
+        seconds = normalize_benchmark_seconds(getattr(self.args, "benchmark", None))
+        self.logger.warning(f"Start benchmark mode for {seconds:g} seconds")
+        self.sampler.set_factory(factory=self.factory)
+        if hasattr(self.sampler, "set_runtime_checkpoint_context"):
+            self.sampler.set_runtime_checkpoint_context(
+                run_spec_getter=self._build_run_spec,
+                factory_blueprint_getter=self._build_factory_blueprint,
+            )
+
+        run_exc = None
+        benchmark_window = None
+        self._start_run_summary()
+        try:
+            with BenchmarkDeadline(self.sampler, seconds) as benchmark_window:
+                self.sampler.run_nested()
+        except Exception as exc:
+            run_exc = exc
+            raise
+        finally:
+            from time import time
+
+            cleanup_errors = []
+
+            def _cleanup_step(step_name, fn):
+                try:
+                    return fn()
+                except Exception as exc:
+                    cleanup_errors.append((step_name, exc))
+                    self.logger.error(f"Cleanup step failed -> {step_name} -> {exc}")
+                    return None
+
+            start = time()
+            _cleanup_step(
+                "sampler.persist_runtime_checkpoint",
+                lambda: self.sampler.persist_runtime_checkpoint(force=True, reason="benchmark_cleanup"),
+            )
+            _cleanup_step("database.stop", self.factory.module_manager.database.stop)
+            tot = 1000 * (time() - start)
+            self.logger.info(f"{tot} millisecond -> All benchmark samples have been processed.")
+            _cleanup_step("sampler.finalize", self.sampler.finalize)
+            _cleanup_step(
+                "sampler.shutdown_runtime_checkpointing",
+                lambda: getattr(self.sampler, "shutdown_runtime_checkpointing", lambda: None)(),
+            )
+            _cleanup_step("sampler.combine_data", lambda: self.sampler.combine_data(self.info['db']['path']))
+            _cleanup_step("factory.shutdown", self.factory.shutdown)
+            _cleanup_step("sampler.finalize_sample_archive", self.sampler.finalize_sample_archive)
+            _cleanup_step("io_manager.shutdown", self.shutdown_io_manager)
+            run_summary = _cleanup_step("run_summary.emit", self._emit_run_summary)
+
+            elapsed = benchmark_window.elapsed_seconds if benchmark_window is not None else 0.0
+            report = collect_benchmark_report(
+                factory=self.factory,
+                requested_seconds=seconds,
+                wall_time_sec=elapsed,
+                run_summary=run_summary if isinstance(run_summary, dict) else None,
+            )
+            report_path = write_benchmark_report(
+                report,
+                self.info["sample"]["task_result_dir"],
+            )
+            self.logger.warning(
+                format_two_column_log(
+                    "Benchmark summary",
+                    [
+                        ("samples_per_sec", f"{report['samples_per_sec']:.3f}"),
+                        ("submitted", report["total_submitted"]),
+                        ("completed", report["total_completed"]),
+                        ("failed", report["total_failed"]),
+                        ("wall_time_sec", f"{report['wall_time_sec']:.3f}"),
+                        ("benchmark_json", report_path),
+                    ],
+                )
+            )
+
+            if run_exc is None and cleanup_errors:
+                first_step, first_exc = cleanup_errors[0]
+                raise RuntimeError(f"Cleanup failed after benchmark -> {first_step}") from first_exc
 
     def run_until_finished(self):
         self.sampler.set_factory(factory = self.factory)

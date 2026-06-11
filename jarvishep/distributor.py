@@ -43,6 +43,7 @@ class Distributor(Base):
     def list_resume_statuses(cls) -> dict:
         return dict(cls.RESUME_SUPPORT_STATUS)
 
+    @staticmethod
     def set_method(method) -> None:
         match method:
             case "Bridson":

@@ -51,6 +51,7 @@ Workflow options:
   --monitor             Start a real-time resource monitor
   --resume              Resume from the latest checkpoint without prompting
   --check-modules       Run calculator/module checks
+  --benchmark [seconds] Run throughput benchmark mode (default: 30 seconds)
   --skip-library-installation
                         Skip library installation
   --skip-draw-flowchart
