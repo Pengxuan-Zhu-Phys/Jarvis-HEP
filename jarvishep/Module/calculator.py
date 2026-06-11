@@ -134,6 +134,7 @@ class CalculatorModule(Module):
     def analyze_config_multi(self):
         pass 
 
+    @staticmethod
     def custom_format(record):
         module = record["extra"].get("module", "No module")
         if "raw" in record["extra"]:

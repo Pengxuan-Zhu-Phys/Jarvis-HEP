@@ -185,7 +185,6 @@ class WorkerFactoryRunMetricsTests(unittest.TestCase):
         factory = WorkerFactory()
         factory.configure(module_manager=_SleepyModuleManager(), max_workers=2)
         factory.set_logger(logger)
-        factory.log_executor = None
 
         futures = [
             factory.submit_task({"uuid": "ok-1", "value": 1.0, "sleep": 0.05}),

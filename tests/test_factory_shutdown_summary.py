@@ -118,7 +118,6 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
         factory = WorkerFactory()
         factory.configure(module_manager=manager, max_workers=2)
         factory.set_logger(logger)
-        factory.log_executor = None
 
         for count in range(100, 1001, 100):
             with factory._status_lock:
@@ -169,8 +168,6 @@ class FactoryShutdownSummaryTests(unittest.TestCase):
         factory = WorkerFactory()
         factory.configure(module_manager=manager, max_workers=2)
         factory.set_logger(logger)
-        # Force synchronous logging path for deterministic assertions.
-        factory.log_executor = None
 
         now_mono = time.monotonic()
         factory._factory_start_ts = now_mono - 301.0

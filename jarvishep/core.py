@@ -825,12 +825,18 @@ class Core(Base):
         self.factory = WorkerFactory()
         self.module_manager = ModuleManager()
         max_workers = self.yaml.get_worker_parallel()
-        self.io_manager = IOManager(max_workers=max_workers)
+        from jarvishep.runtime_config import workflow_has_calculator
+
+        if workflow_has_calculator(self.yaml.config):
+            self.io_manager = IOManager(max_workers=max_workers)
+        else:
+            self.io_manager = None
         self.factory.configure(module_manager=self.module_manager,
             max_workers=max_workers
             )
         self.sampler.set_max_workers(max_workers)
-        self.module_manager.set_io_manager(self.io_manager)
+        if self.io_manager is not None:
+            self.module_manager.set_io_manager(self.io_manager)
 
         if hasattr(self.yaml, "get_subprocess_runtime_options"):
             runtime_opts = self.yaml.get_subprocess_runtime_options(worker_parallel=max_workers)

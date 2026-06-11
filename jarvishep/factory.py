@@ -27,8 +27,10 @@ class WorkerFactory:
         if not hasattr(self, "initialized"):
             self.module_manager = module_manager if module_manager else self.module_manager
             self._max_workers = max_workers
-            self.executor = ThreadPoolExecutor(max_workers=max_workers)
-            self.log_executor = ThreadPoolExecutor(max_workers=1)
+            self.executor = ThreadPoolExecutor(
+                max_workers=max_workers,
+                thread_name_prefix="jarvis-hep-factory",
+            )
             self.task_count = 0
             self.task_time = 0
             self.completed_ok = 0
@@ -65,7 +67,10 @@ class WorkerFactory:
 
     def get_executor(self):
         if self.executor is None:
-            self.executor = ThreadPoolExecutor(max_workers=self._max_workers)
+            self.executor = ThreadPoolExecutor(
+                max_workers=self._max_workers,
+                thread_name_prefix="jarvis-hep-factory",
+            )
         return self.executor
 
     def set_config(self, config):
@@ -73,10 +78,7 @@ class WorkerFactory:
 
     def set_logger(self, logger):
         self.logger = logger
-        if getattr(self, "log_executor", None) is not None:
-            self.log_executor.submit(self.logger.warning, "Building the factory for workers ...")
-        else:
-            self.logger.warning("Building the factory for workers ...")
+        self.logger.warning("Building the factory for workers ...")
         self.info   = {}
 
     def set_subprocess_scheduler(self, scheduler):
@@ -161,10 +163,7 @@ class WorkerFactory:
                     "Workflow exception downgraded by ModuleFailurePolicy=continue",
                     [("uuid", sample_uuid), ("error", exc)],
                 )
-                if getattr(self, "log_executor", None) is not None:
-                    self.log_executor.submit(self.logger.error, message)
-                else:
-                    self.logger.error(message)
+                self.logger.error(message)
                 return 1.0
             raise
         finally:
@@ -229,10 +228,7 @@ class WorkerFactory:
                         "future exception consumed",
                         [("uuid", sample_uuid), ("error", exc)],
                     )
-                    if getattr(self, "log_executor", None) is not None:
-                        self.log_executor.submit(self.logger.error, message)
-                    else:
-                        self.logger.error(message)
+                    self.logger.error(message)
 
             future.add_done_callback(_on_done)
 
@@ -490,12 +486,8 @@ class WorkerFactory:
         if not payloads:
             return
 
-        if getattr(self, "log_executor", None) is not None:
-            for payload in payloads:
-                self.log_executor.submit(self._log_status, *payload)
-        else:
-            for payload in payloads:
-                self._log_status(*payload)
+        for payload in payloads:
+            self._log_status(*payload)
 
     def shutdown(self, wait=True, cancel_futures=True):
         if getattr(self, "executor", None) is not None:
@@ -515,12 +507,5 @@ class WorkerFactory:
             finally:
                 self.subprocess_scheduler = None
 
-        if getattr(self, "log_executor", None) is not None:
-            if summary is not None:
-                # Must be emitted before log executor shutdown even when
-                # `cancel_futures=True` is requested by caller.
-                self._log_shutdown_summary(summary)
-            self.log_executor.shutdown(wait=wait, cancel_futures=cancel_futures)
-            self.log_executor = None
-        elif summary is not None:
+        if summary is not None:
             self._log_shutdown_summary(summary)

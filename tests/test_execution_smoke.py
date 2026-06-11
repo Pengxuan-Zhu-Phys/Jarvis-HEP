@@ -162,8 +162,8 @@ class ExecutionPathSmokeTests(unittest.TestCase):
         self.core.init_WorkerFactory()
 
         self.assertEqual(self.core.sampler.max_workers, 2)
-        self.assertIsNotNone(self.core.io_manager)
-        self.assertIs(self.core.module_manager.io_manager, self.core.io_manager)
+        self.assertIsNone(self.core.io_manager)
+        self.assertIsNone(self.core.module_manager.io_manager)
         self.assertEqual(self.core.module_manager.workflow, {2: ["BuildY"], 3: ["BuildZ"]})
         self.assertIn("BuildY", self.core.module_manager.module_pools)
         self.assertIn("BuildZ", self.core.module_manager.module_pools)

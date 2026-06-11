@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from jarvishep.Module.calculator import CalculatorModule
 from copy import deepcopy
 import json
@@ -18,11 +17,7 @@ class ModulePool:
         self.name = module.name 
         self.config = module.config 
         self.template_module = module
-        # Keep a lightweight executor for background installation tasks only.
-        # Runtime module execution stays on the caller thread (Factory worker)
-        # to avoid nested executor scheduling in the hot path.
-        self.executor = ThreadPoolExecutor(max_workers=max_workers)
-        self.module_name = module.name 
+        self.module_name = module.name
         self.type = module.type 
         self.instances = []
         self.id_counter = 0 
@@ -175,18 +170,20 @@ class ModulePool:
         with self._inst_lock:
             instance = self.get_available_instance()
 
+            install_now = False
             if instance is None:
-                # If no available instance found, create a new one (installed asynchronously)
                 self.logger.warning(
                     f"No availiable instance for Module {self.name} found, trying to install a new one"
                 )
                 instance = self.create_instance()
-                self.executor.submit(self.install_instance, instance)
+                install_now = not instance.is_installed
             # Reserve the instance immediately to avoid double-rent races.
             instance.is_busy = True
 
-        # Wait for installation to complete (install_instance always sets the event)
-        if not instance.is_installed:
+        if install_now:
+            self.install_instance(instance)
+        elif not instance.is_installed:
+            # Another worker is installing this instance; wait for completion.
             instance.installation_event.wait()
             if not instance.is_installed:
                 with self._inst_lock:

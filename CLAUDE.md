@@ -33,7 +33,7 @@ jarvishep/
 ├── runtime_config.py      # Optional Runtime: block normalization (WP-1.1)
 ├── sample_logger.py       # SampleLogger (file sink) + BufferedSampleLogger (WP-1.2)
 ├── workflow.py            # Task DAG management, semantic flowchart JSON export
-├── factory.py             # WorkerFactory, thread pool management
+├── factory.py             # WorkerFactory, single scheduler thread pool (WP-1.3)
 ├── benchmark.py           # Additive throughput benchmark mode helpers
 ├── distributor.py         # Sampler dispatch (match/case)
 ├── sample.py              # Sample data structure
@@ -148,6 +148,7 @@ client.py (CLI) → core.py (Core)
 - **Calculator timeout**: `Calculators.Modules[].timeout` is an optional total-second limit for one sample `execution` section; it starts after `initialization`.
 - **Runtime block** (optional top-level YAML; WP-1.1): `Runtime.mode` (`auto|thread|process`), `Runtime.workers`, `Runtime.batch_size`, `Runtime.sample_artifacts` (`auto|always|never`). Only `sample_artifacts` is consumed at M1: `auto` (default) skips per-sample `SAMPLE/<bucket>/<uuid>/` creation for opera-only scans; `always` restores v1 behavior; `never` suppresses artifact creation (including failure replay). `@Sdir` resolution or any calculator workflow triggers `Sample.materialize()`. Lazy samples still expose `sample_info["logger_name"]` (metadata only) so Likelihood/Calculator child loggers bind correctly without filesystem materialization.
 - **Failure-replay logging** (WP-1.2): non-materialized samples route module/likelihood logs through `BufferedSampleLogger` (bounded in-memory buffer). On success the buffer is discarded; on failure `materialize_failure_artifacts()` replays buffered events to `Sample_running.log` using the frozen `LOGGING_CONTRACT.md` format, then appends a failure footer.
+- **Thread-pool flattening** (WP-1.3): `WorkerFactory` uses one named executor (`jarvis-hep-factory`); the legacy `log_executor` is removed (status/error logs are synchronous). Calculator installation runs on the calling factory worker thread (no per-pool installer executor). `IOManager` is created only for calculator workflows; opera-only scans skip the `jarvis-hep-io` pool entirely.
 
 ---
 
