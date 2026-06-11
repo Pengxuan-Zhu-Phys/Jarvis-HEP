@@ -1,0 +1,268 @@
+{
+  "schema": "jarvisplot.scene/v1",
+  "scene_type": "flowchart",
+  "scene_id": "workflow_main",
+  "metadata": {
+    "producer": "Jarvis-HEP",
+    "producer_version": "1.7.0",
+    "workflow_name": "benchmark_random_operas"
+  },
+  "layers": [
+    {
+      "id": "layer_1",
+      "index": 1,
+      "label": "Parameters",
+      "nodes": [
+        "Parameters",
+        "var::x",
+        "var::y",
+        "var::shift"
+      ]
+    },
+    {
+      "id": "layer_2",
+      "index": 2,
+      "label": "TrivialEggbox",
+      "nodes": [
+        "TrivialEggbox",
+        "var::z"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "Parameters",
+      "kind": "source",
+      "role": "parameter_source",
+      "label": "Parameters",
+      "in_ports": [],
+      "out_ports": [
+        {
+          "id": "x",
+          "role": "parameter"
+        },
+        {
+          "id": "y",
+          "role": "parameter"
+        },
+        {
+          "id": "shift",
+          "role": "parameter"
+        }
+      ],
+      "metadata": {
+        "module_type": "Parameter",
+        "required_modules": []
+      },
+      "layer": "layer_1"
+    },
+    {
+      "id": "var::x",
+      "kind": "variable",
+      "role": "parameter",
+      "label": "x",
+      "in_ports": [
+        {
+          "id": "in",
+          "role": "parameter"
+        }
+      ],
+      "out_ports": [
+        {
+          "id": "out",
+          "role": "parameter"
+        }
+      ],
+      "metadata": {
+        "origin": "Parameters"
+      },
+      "layer": "layer_1"
+    },
+    {
+      "id": "var::y",
+      "kind": "variable",
+      "role": "parameter",
+      "label": "y",
+      "in_ports": [
+        {
+          "id": "in",
+          "role": "parameter"
+        }
+      ],
+      "out_ports": [
+        {
+          "id": "out",
+          "role": "parameter"
+        }
+      ],
+      "metadata": {
+        "origin": "Parameters"
+      },
+      "layer": "layer_1"
+    },
+    {
+      "id": "var::shift",
+      "kind": "variable",
+      "role": "parameter",
+      "label": "shift",
+      "in_ports": [
+        {
+          "id": "in",
+          "role": "parameter"
+        }
+      ],
+      "out_ports": [
+        {
+          "id": "out",
+          "role": "parameter"
+        }
+      ],
+      "metadata": {
+        "origin": "Parameters"
+      },
+      "layer": "layer_1"
+    },
+    {
+      "id": "TrivialEggbox",
+      "kind": "module",
+      "role": "operas",
+      "label": "TrivialEggbox",
+      "in_ports": [
+        {
+          "id": "x",
+          "role": "variable",
+          "metadata": {
+            "expression": "x + shift * 0"
+          }
+        },
+        {
+          "id": "y",
+          "role": "variable",
+          "metadata": {
+            "expression": "y"
+          }
+        }
+      ],
+      "out_ports": [
+        {
+          "id": "z",
+          "role": "variable",
+          "metadata": {
+            "entry": "z"
+          }
+        }
+      ],
+      "metadata": {
+        "module_type": "Operas",
+        "required_modules": [
+          "Parameters"
+        ],
+        "operator": "helper.eggbox2d",
+        "call_mode": "call"
+      },
+      "layer": "layer_2"
+    },
+    {
+      "id": "var::z",
+      "kind": "variable",
+      "role": "observable",
+      "label": "z",
+      "in_ports": [
+        {
+          "id": "in",
+          "role": "observable"
+        }
+      ],
+      "out_ports": [
+        {
+          "id": "out",
+          "role": "observable"
+        }
+      ],
+      "metadata": {
+        "producer": "TrivialEggbox"
+      },
+      "layer": "layer_2"
+    }
+  ],
+  "edges": [
+    {
+      "source": {
+        "node": "Parameters",
+        "port": "x"
+      },
+      "target": {
+        "node": "var::x",
+        "port": "in"
+      },
+      "role": "parameterflow"
+    },
+    {
+      "source": {
+        "node": "Parameters",
+        "port": "y"
+      },
+      "target": {
+        "node": "var::y",
+        "port": "in"
+      },
+      "role": "parameterflow"
+    },
+    {
+      "source": {
+        "node": "Parameters",
+        "port": "shift"
+      },
+      "target": {
+        "node": "var::shift",
+        "port": "in"
+      },
+      "role": "parameterflow"
+    },
+    {
+      "source": {
+        "node": "var::x",
+        "port": "out"
+      },
+      "target": {
+        "node": "TrivialEggbox",
+        "port": "x"
+      },
+      "role": "dataflow",
+      "metadata": {
+        "module": "TrivialEggbox",
+        "input": "x"
+      }
+    },
+    {
+      "source": {
+        "node": "var::y",
+        "port": "out"
+      },
+      "target": {
+        "node": "TrivialEggbox",
+        "port": "y"
+      },
+      "role": "dataflow",
+      "metadata": {
+        "module": "TrivialEggbox",
+        "input": "y"
+      }
+    },
+    {
+      "source": {
+        "node": "TrivialEggbox",
+        "port": "z"
+      },
+      "target": {
+        "node": "var::z",
+        "port": "in"
+      },
+      "role": "dataflow",
+      "metadata": {
+        "module": "TrivialEggbox",
+        "output": "z"
+      }
+    }
+  ]
+}

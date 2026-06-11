@@ -26,6 +26,9 @@ class ModuleManager:
 
     def set_config(self, config):
         self.config = config
+        from jarvishep.runtime_config import workflow_has_calculator
+
+        self.workflow_has_calculator = workflow_has_calculator(config)
 
     def set_logger(self, logger):
         self.logger = logger

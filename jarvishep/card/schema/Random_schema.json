@@ -604,6 +604,32 @@
                 "Modules"
             ]
         },
+        "Runtime": {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["auto", "thread", "process"]
+                },
+                "workers": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "batch_size": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "sample_artifacts": {
+                    "type": "string",
+                    "enum": ["auto", "always", "never"]
+                },
+                "Subprocess": {
+                    "type": "object",
+                    "additionalProperties": true
+                }
+            },
+            "additionalProperties": false
+        },
         "Utils": {
             "type": "object",
             "properties": {

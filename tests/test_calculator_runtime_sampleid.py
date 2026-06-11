@@ -108,9 +108,9 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
         self.assertEqual(captured["stage"], "install")
         self.assertEqual(captured["command"]["cmd"], "echo @SampleID @Sdir")
 
-    def test_execution_stage_without_save_dir_raises_for_sdir(self):
+    def test_execution_stage_without_save_dir_raises_for_sdir_when_never_mode(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
-        module.sample_info = {"uuid": "S-1001"}
+        module.sample_info = {"uuid": "S-1001", "sample_artifacts": "never"}
         with self.assertRaises(RuntimeError):
             _run_async(
                 module.run_command(

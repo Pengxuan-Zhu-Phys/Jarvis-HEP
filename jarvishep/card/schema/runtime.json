@@ -1,0 +1,30 @@
+{
+    "type": "object",
+    "properties": {
+        "mode": {
+            "type": "string",
+            "enum": ["auto", "thread", "process"],
+            "default": "auto"
+        },
+        "workers": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+        },
+        "batch_size": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 256
+        },
+        "sample_artifacts": {
+            "type": "string",
+            "enum": ["auto", "always", "never"],
+            "default": "auto"
+        },
+        "Subprocess": {
+            "type": "object",
+            "additionalProperties": true
+        }
+    },
+    "additionalProperties": false
+}

@@ -9,8 +9,41 @@ from time import sleep
 from jarvishep.base import Base
 from jarvishep import benchmark
 from jarvishep.sample_logger import SampleLogger
+from jarvishep.runtime_config import should_eager_materialize, should_materialize_on_failure
 from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
+
+
+class _NullSampleLogger:
+    """Discard sample logs until artifacts are materialized."""
+
+    _options = (None, None, None, None, None, None, None, None, {})
+
+    def bind(self, **_extra):
+        return self
+
+    def log(self, *_args, **_kwargs):
+        return None
+
+    def debug(self, *_args, **_kwargs):
+        return None
+
+    def info(self, *_args, **_kwargs):
+        return None
+
+    def warning(self, *_args, **_kwargs):
+        return None
+
+    def error(self, *_args, **_kwargs):
+        return None
+
+    def critical(self, *_args, **_kwargs):
+        return None
+
+    def close(self):
+        return None
+
+
 class Sample(Base):
     def __init__(self, params):
         self._params = dict(params)
@@ -24,6 +57,7 @@ class Sample(Base):
         self._with_nuisance = False
         self._nuisance_status   = False
         self._u = None
+        self._materialized = False
 
     @property
     def uuid(self):
@@ -49,6 +83,19 @@ class Sample(Base):
     def likelihood(self, value):
         self._likelihood = value  # 允许更新likelihood值
 
+    @staticmethod
+    def _resolve_sample_root(info: dict) -> str:
+        bucket_parent = info.get("save_dir")
+        if bucket_parent:
+            return os.path.dirname(str(bucket_parent).rstrip(os.sep))
+
+        sample_dirs = info.get("sample_dirs")
+        if sample_dirs:
+            return str(sample_dirs)
+
+        task_root = info.get("task_result_dir", os.getcwd())
+        return os.path.join(task_root, "SAMPLE")
+
     def set_config(self, config):
         timing_enabled = benchmark.TIMING_ENABLED
         timing_start = benchmark.monotonic_seconds() if timing_enabled else None
@@ -58,6 +105,8 @@ class Sample(Base):
             if self.info.get("nuisance", {}):
                 self.combine_nuisance_card()
                 self._with_nuisance = True
+            if should_eager_materialize(self.info):
+                self.materialize()
         finally:
             if timing_enabled and timing_start is not None:
                 benchmark.record_stage(
@@ -66,25 +115,27 @@ class Sample(Base):
                 )
 
     def create_info(self):
-        save_dir = self.info.get('save_dir')
-        if not save_dir:
-            save_dir = self.info.get('sample_dirs')
-        if not save_dir:
-            task_root = self.info.get('task_result_dir', os.getcwd())
-            save_dir = os.path.join(task_root, "SAMPLE")
+        bucket_parent = self.info.get("save_dir")
+        if not bucket_parent:
+            bucket_parent = self.info.get("sample_dirs")
+        sample_root = self._resolve_sample_root(self.info)
 
         self.info.update({
             "uuid": self.uuid,
             "params": self.params,
-            "observables": self.observables, 
-            "save_dir": os.path.join(save_dir, self.uuid), 
-            "run_log":  os.path.join(save_dir, self.uuid, "Sample_running.log"),
-            "logger":   None,
+            "observables": self.observables,
+            "sample_dirs": sample_root,
+            "save_dir": None,
+            "run_log": None,
+            "logger_name": f"Sample@{self.uuid}",
+            "logger": _NullSampleLogger(),
             "handlers": self.handlers,
-            "status":   "Init"
+            "status": "Init",
+            "_materialized": False,
+            "_bucket_parent": bucket_parent if isinstance(bucket_parent, str) else None,
         })
-        self.set_logger()
-    
+        self.logger = self.info["logger"]
+
     def combine_nuisance_card(self):
         card = self.info['nuisance']
         uuid = "{}@{}".format(self.uuid, card['NAttempt'])
@@ -97,13 +148,34 @@ class Sample(Base):
     def gather_nuisance(self):
         self.info['observables'].update({"uuid": self.uuid})
     
-    def set_logger(self): 
+    def materialize(self, *, bucket_parent: str | None = None, minimal_log_message: str | None = None) -> str:
+        if self._materialized:
+            return str(self.info.get("save_dir"))
+
+        if bucket_parent is None:
+            bucket_parent = self.info.get("_bucket_parent")
+        if bucket_parent is None:
+            bucket_parent = self._resolve_sample_root(self.info)
+            os.makedirs(bucket_parent, exist_ok=True)
+
+        save_dir = os.path.join(str(bucket_parent), self.uuid)
+        run_log = os.path.join(save_dir, "Sample_running.log")
+
+        os.makedirs(save_dir, exist_ok=True)
+        self.info["save_dir"] = save_dir
+        self.info["run_log"] = run_log
+        self.info["_materialized"] = True
+        self._materialized = True
+
+        self._open_sample_logger()
+        if minimal_log_message:
+            self.logger.info(minimal_log_message)
+        return save_dir
+
+    def _open_sample_logger(self):
         logger_name = f"Sample@{self.info['uuid']}"
         self.info['logger_name'] = logger_name
-        
-        if not os.path.exists(self.info['save_dir']):
-            os.makedirs(self.info['save_dir'])
-        
+
         self.logger = SampleLogger.open(
             self.info['run_log'],
             module=logger_name,
@@ -114,9 +186,16 @@ class Sample(Base):
             },
         )
         self.logger.info("Sample created into the Disk")
-        # Keep the sample-local logger on sample_info; child loggers bind from here.
         self.info['logger'] = self.logger
-        
+
+    def set_logger(self):
+        """Backward-compatible entry point used by checkpoint rebuild paths."""
+        if self._materialized:
+            self._open_sample_logger()
+        else:
+            self.info["logger"] = _NullSampleLogger()
+            self.logger = self.info["logger"]
+    
     def custom_format(self, record):
         module = record["extra"].get("module", "No module")
         if "raw" in record["extra"]:
@@ -277,4 +356,40 @@ class Sample(Base):
         )
 
         self.logger.info(msg)
-                    
+
+
+def ensure_sample_materialized(sample_info: dict, *, minimal_log_message: str | None = None) -> str | None:
+    """Materialize sample artifacts on demand (e.g. @Sdir resolution)."""
+    if not isinstance(sample_info, dict):
+        return None
+    if str(sample_info.get("sample_artifacts", "auto")).strip().lower() == "never":
+        return None
+    if sample_info.get("_materialized") and sample_info.get("save_dir"):
+        return str(sample_info["save_dir"])
+
+    seed_params = sample_info.get("params")
+    if not isinstance(seed_params, dict) or not seed_params:
+        seed_params = sample_info.get("observables", {})
+    sample = Sample(seed_params if isinstance(seed_params, dict) else {})
+    sample.info = sample_info
+    if sample_info.get("uuid"):
+        sample.update_uuid(str(sample_info["uuid"]))
+    sample._materialized = bool(sample_info.get("_materialized"))
+    sample.logger = sample_info.get("logger") or _NullSampleLogger()
+    return sample.materialize(minimal_log_message=minimal_log_message)
+
+
+def materialize_failure_artifacts(sample_info: dict, *, error: Exception | str | None = None) -> str | None:
+    """Create per-sample artifacts for a failed sample (WP-1.1 minimal replay)."""
+    if not isinstance(sample_info, dict):
+        return None
+    if not should_materialize_on_failure(sample_info):
+        return None
+    if sample_info.get("_materialized") and sample_info.get("save_dir"):
+        return str(sample_info["save_dir"])
+
+    message = "Sample failed"
+    if error is not None:
+        message = f"Sample failed -> {error}"
+
+    return ensure_sample_materialized(sample_info, minimal_log_message=message)

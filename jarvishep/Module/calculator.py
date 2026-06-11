@@ -162,7 +162,8 @@ class CalculatorModule(Module):
 
     def update_sample_logger(self, sample_info):
         # self.close_sample_logger()
-        logger_name = f"{sample_info['logger_name']} ({self.name}-No.{self.PackID})"
+        base_name = sample_info.get("logger_name") or f"Sample@{sample_info.get('uuid', 'UNKNOWN')}"
+        logger_name = f"{base_name} ({self.name}-No.{self.PackID})"
 
         self.logger = sample_info['logger'].bind(
             module=logger_name,
@@ -206,7 +207,9 @@ class CalculatorModule(Module):
                 )
             resolved = resolved.replace("@SampleID", str(sample_uuid))
         if "@Sdir" in resolved:
-            sample_save_dir = self.sample_info.get("save_dir")
+            from jarvishep.sample import ensure_sample_materialized
+
+            sample_save_dir = ensure_sample_materialized(self.sample_info)
             if sample_save_dir is None:
                 raise RuntimeError(
                     f"@Sdir requires sample_info['save_dir'] during runtime stage '{stage}' for field '{field}'"

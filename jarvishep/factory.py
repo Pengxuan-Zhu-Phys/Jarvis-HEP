@@ -7,6 +7,7 @@ import time
 
 from jarvishep import benchmark
 from jarvishep.log_kv import format_two_column_log
+from jarvishep.sample import materialize_failure_artifacts
 
 
 class WorkerFactory:
@@ -142,9 +143,13 @@ class WorkerFactory:
         success = False
         try:
             result = self.module_manager.execute_workflow(sample_info)
+            if isinstance(sample_info, dict) and str(sample_info.get("status", "")).strip().lower() == "failed":
+                materialize_failure_artifacts(sample_info, error="workflow module failure")
             success = True
             return result
         except Exception as exc:
+            if isinstance(sample_info, dict):
+                materialize_failure_artifacts(sample_info, error=exc)
             if self._module_failure_policy() == "continue":
                 sample_uuid = (sample_info or {}).get("uuid", "UNKNOWN")
                 if isinstance(sample_info, dict):

@@ -465,6 +465,9 @@ class SamplerHardeningSmokeTests(unittest.TestCase):
                 "task_result_dir": self.tempdir.name,
                 "sample_dirs": sample_root,
                 "archive_samples": False,
+                "sample_artifacts": "always",
+                "workflow_has_calculator": False,
+                "workflow_references_sdir": False,
             }
         }
 

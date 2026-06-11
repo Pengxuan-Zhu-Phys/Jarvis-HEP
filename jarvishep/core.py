@@ -194,11 +194,23 @@ class Core(Base):
                 directory_cfg.update(legacy_cfg)
         archive_samples = bool(directory_cfg.get("archive_samples", True))
 
+        from jarvishep.runtime_config import (
+            get_runtime_block,
+            workflow_has_calculator,
+            workflow_references_sdir,
+        )
+        runtime = get_runtime_block(config)
+        sample_runtime = {
+            "sample_artifacts": runtime["sample_artifacts"],
+            "workflow_has_calculator": workflow_has_calculator(config),
+            "workflow_references_sdir": workflow_references_sdir(config),
+        }
         self.info['sample'] = {
             "task_result_dir": self.decode_path(task_result_dir),
             "sample_dirs": self._sample_root_dir(task_result_dir),
             "jarvis_log":  self.info['jarvis_log'],
             "archive_samples": archive_samples,
+            **sample_runtime,
         }
         self.info["db"] = {
             "path":  os.path.join(task_result_dir, "DATABASE", "samples.hdf5"),
@@ -551,6 +563,20 @@ class Core(Base):
         normalized_config = run_spec.get("normalized_config")
         if isinstance(normalized_config, dict):
             self.yaml.config = deepcopy(normalized_config)
+            from jarvishep.runtime_config import (
+                get_runtime_block,
+                workflow_has_calculator,
+                workflow_references_sdir,
+            )
+            runtime = get_runtime_block(normalized_config)
+            self.info.setdefault("sample", {})
+            self.info["sample"].update(
+                {
+                    "sample_artifacts": runtime["sample_artifacts"],
+                    "workflow_has_calculator": workflow_has_calculator(normalized_config),
+                    "workflow_references_sdir": workflow_references_sdir(normalized_config),
+                }
+            )
 
         scan_name = run_spec.get("scan_name")
         if scan_name:

@@ -283,7 +283,8 @@ class LogLikelihood(Base):
 
 
     def update_logger(self, sample_info):
-        logger_name = f"{sample_info['logger_name']} (Likelihood)"
+        base_name = sample_info.get("logger_name") or f"Sample@{sample_info.get('uuid', 'UNKNOWN')}"
+        logger_name = f"{base_name} (Likelihood)"
         parent_logger = sample_info.get("logger")
         # Likelihood child logs must inherit the sample-local logger so they land in the sample log.
         if parent_logger is not None:

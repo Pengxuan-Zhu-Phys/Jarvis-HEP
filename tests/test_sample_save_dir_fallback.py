@@ -21,7 +21,13 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
     def test_set_config_uses_sample_dirs_when_save_dir_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Sample({"x": 1.0})
-            sample.set_config({"sample_dirs": tmpdir, "task_result_dir": tmpdir})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "always",
+                }
+            )
             try:
                 self.assertTrue(sample.info["save_dir"].startswith(tmpdir))
                 self.assertTrue(sample.info["run_log"].startswith(tmpdir))
@@ -32,7 +38,13 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
     def test_sample_start_marks_running_status(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Sample({"x": 1.0})
-            sample.set_config({"sample_dirs": tmpdir, "task_result_dir": tmpdir})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "always",
+                }
+            )
             try:
                 self.assertEqual(sample.info["status"], "Init")
                 sample.start()
@@ -47,6 +59,7 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
                 {
                     "sample_dirs": tmpdir,
                     "task_result_dir": tmpdir,
+                    "sample_artifacts": "always",
                     "nuisance": {
                         "NAttempt": 1,
                         "active": {"param": {"theta": 0.5}},
@@ -219,7 +232,7 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
     def test_set_config_uses_task_result_dir_when_both_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Sample({"x": 1.0})
-            sample.set_config({"task_result_dir": tmpdir})
+            sample.set_config({"task_result_dir": tmpdir, "sample_artifacts": "always"})
             try:
                 expected_root = os.path.join(tmpdir, "SAMPLE")
                 self.assertTrue(sample.info["save_dir"].startswith(expected_root))

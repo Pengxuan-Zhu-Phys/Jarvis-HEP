@@ -30,6 +30,7 @@ jarvishep/
 ├── client.py              # CLI dispatch (Jarvis command)
 ├── core.py                # Main runtime orchestrator
 ├── config.py              # YAML config loader & validator
+├── runtime_config.py      # Optional Runtime: block normalization (WP-1.1)
 ├── workflow.py            # Task DAG management, semantic flowchart JSON export
 ├── factory.py             # WorkerFactory, thread pool management
 ├── benchmark.py           # Additive throughput benchmark mode helpers
@@ -144,6 +145,7 @@ client.py (CLI) → core.py (Core)
 - **Output structure**: `outputs/<scan>/DATABASE/` (HDF5, CSV), `outputs/<scan>/SAMPLE/` (per-sample artifacts; `outputs/<scan>/SAMPLE/tests/` in `--check-modules`; `DATABASE` stays at `outputs/<scan>/DATABASE/`)
 - **Calculator YAML key**: `make_paraller` (intentional legacy spelling — do not rename)
 - **Calculator timeout**: `Calculators.Modules[].timeout` is an optional total-second limit for one sample `execution` section; it starts after `initialization`.
+- **Runtime block** (optional top-level YAML; WP-1.1): `Runtime.mode` (`auto|thread|process`), `Runtime.workers`, `Runtime.batch_size`, `Runtime.sample_artifacts` (`auto|always|never`). Only `sample_artifacts` is consumed at M1: `auto` (default) skips per-sample `SAMPLE/<bucket>/<uuid>/` creation for opera-only scans; `always` restores v1 behavior; `never` suppresses artifact creation (including failure replay). `@Sdir` resolution or any calculator workflow triggers `Sample.materialize()`. Lazy samples still expose `sample_info["logger_name"]` (metadata only) so Likelihood/Calculator child loggers bind correctly without filesystem materialization.
 
 ---
 

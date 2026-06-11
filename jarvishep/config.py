@@ -17,6 +17,12 @@ from jsonschema.validators import validator_for
 from referencing import Registry, Resource
 from referencing.jsonschema import DRAFT7
 from jarvishep.Module.module import Module
+from jarvishep.runtime_config import (
+    get_runtime_block,
+    normalize_runtime_block,
+    workflow_has_calculator,
+    workflow_references_sdir,
+)
 
 class ConfigLoader(Base):
     def __init__(self) -> None:
@@ -102,6 +108,9 @@ class ConfigLoader(Base):
         self.config["Scan"] = scan_cfg
         # Keep legacy key populated for backward compatibility with older paths.
         self.config["Directory_Setting"] = dict(merged)
+
+        runtime_cfg = self.config.get("Runtime")
+        self.config["Runtime"] = normalize_runtime_block(runtime_cfg if isinstance(runtime_cfg, dict) else None)
 
     def check_dependency_installed(self) -> None:
         dependencies = self.config["EnvReqs"]
@@ -594,6 +603,17 @@ class ConfigLoader(Base):
             module["output"] = normalized_output
         operas_root["Modules"] = modules
         self.config["Operas"] = operas_root
+
+    def get_runtime_settings(self) -> dict:
+        return get_runtime_block(self.config)
+
+    def get_sample_runtime_context(self) -> dict:
+        runtime = self.get_runtime_settings()
+        return {
+            "sample_artifacts": runtime["sample_artifacts"],
+            "workflow_has_calculator": workflow_has_calculator(self.config),
+            "workflow_references_sdir": workflow_references_sdir(self.config),
+        }
 
     def get_worker_parallel(self) -> int:
         """Return unified worker parallelism from Calculators/Operas sections."""

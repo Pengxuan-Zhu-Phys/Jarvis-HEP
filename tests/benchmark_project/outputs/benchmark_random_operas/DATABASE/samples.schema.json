@@ -1,0 +1,101 @@
+{
+  "version": 3,
+  "pathroot": "/Users/p.zhu/Jarvis-Workshop/Jarvis-HEP/tests/benchmark_project/outputs/benchmark_random_operas/DATABASE/samples",
+  "created_at": "2026-06-11T19:44:13.380339+00:00",
+  "updated_at": "2026-06-11T19:44:23.400467+00:00",
+  "csv_export_policy": {
+    "scalar": "keep",
+    "path_like_string": "keep",
+    "small_list": "split",
+    "small_flat_dict": "split",
+    "large_list": "drop",
+    "large_dict": "drop",
+    "nested_dict": "drop",
+    "mixed": "drop",
+    "unsupported": "drop"
+  },
+  "csv_export_limits": {
+    "max_list_len": 20,
+    "max_dict_keys": 20,
+    "max_nested_depth": 1
+  },
+  "columns": {
+    "x": {
+      "dtype": "float64",
+      "keep": true,
+      "name": "x",
+      "kind": "mixed",
+      "variants": [
+        "mixed",
+        "numpy_scalar",
+        "unknown"
+      ]
+    },
+    "y": {
+      "dtype": "float64",
+      "keep": true,
+      "name": "y",
+      "kind": "mixed",
+      "variants": [
+        "mixed",
+        "numpy_scalar",
+        "unknown"
+      ]
+    },
+    "shift": {
+      "dtype": "float64",
+      "keep": true,
+      "name": "shift",
+      "kind": "mixed",
+      "variants": [
+        "mixed",
+        "numpy_scalar",
+        "unknown"
+      ]
+    },
+    "uuid": {
+      "dtype": "str",
+      "keep": true,
+      "name": "uuid",
+      "kind": "mixed",
+      "variants": [
+        "mixed",
+        "str",
+        "unknown"
+      ]
+    },
+    "z": {
+      "dtype": "float64",
+      "keep": true,
+      "name": "z",
+      "kind": "mixed",
+      "variants": [
+        "mixed",
+        "numpy_scalar",
+        "unknown"
+      ]
+    },
+    "LogL_Z": {
+      "dtype": "float",
+      "keep": true,
+      "name": "LogL_Z",
+      "kind": "mixed",
+      "variants": [
+        "float",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "LogL": {
+      "dtype": "float",
+      "keep": true,
+      "name": "LogL",
+      "kind": "mixed",
+      "variants": [
+        "float",
+        "mixed",
+        "unknown"
+      ]
+    }
+  }
+}

@@ -12,6 +12,7 @@ import threading
 from typing import Any, Dict, Tuple
 from copy import deepcopy
 
+from jarvishep.runtime_config import should_eager_materialize
 from jarvishep.Sampling.Source.MCMC.runtime_checkpoint import (
     StateSaver,
     build_sampler_signature,
@@ -243,7 +244,13 @@ class SamplingVirtial(Base):
             sample.info["handlers"] = {}
             sample._with_nuisance = bool(sample_info.get("nuisance"))
             sample.handlers = {}
-            sample.set_logger()
+            existing_save_dir = sample_info.get("save_dir")
+            if existing_save_dir:
+                sample.materialize(
+                    bucket_parent=os.path.dirname(str(existing_save_dir).rstrip(os.sep))
+                )
+            else:
+                sample.set_logger()
         return sample
 
     def _export_sampler_state(self) -> Dict[str, Any]:
@@ -487,6 +494,10 @@ class SamplingVirtial(Base):
         self.evaluate_selection(self._selectionexp, probe_values)
         return True
 
+    def _should_eager_materialize(self) -> bool:
+        sample_cfg = self.info.get("sample", {}) if isinstance(self.info, dict) else {}
+        return should_eager_materialize(sample_cfg)
+
     def build_sample_config(self, base_sample_cfg: Dict[str, Any], save_dir: str | None = None) -> Dict[str, Any]:
         """Build per-sample config with minimal safe copying.
 
@@ -494,7 +505,7 @@ class SamplingVirtial(Base):
         while keeping read-only large fields shared to avoid hot-path deepcopy cost.
         """
         cfg = dict(base_sample_cfg or {})
-        if save_dir is not None:
+        if save_dir is not None and self._should_eager_materialize():
             cfg["save_dir"] = save_dir
 
         nuisance = cfg.get("nuisance")
@@ -533,12 +544,16 @@ class SamplingVirtial(Base):
     def _next_bucket_dir_for_sample(self) -> str | None:
         if getattr(self, "bucket_alloc", None) is None:
             return None
+        if not self._should_eager_materialize():
+            return None
         return self.bucket_alloc.next_bucket_dir()
 
     def _on_sample_completed(self, sample_info: Dict[str, Any] | None) -> None:
         if getattr(self, "bucket_alloc", None) is None:
             return
         if not isinstance(sample_info, dict):
+            return
+        if not sample_info.get("_materialized"):
             return
         save_dir = sample_info.get("save_dir")
         if not save_dir:
