@@ -8,40 +8,21 @@ from copy import deepcopy
 from time import sleep
 from jarvishep.base import Base
 from jarvishep import benchmark
-from jarvishep.sample_logger import SampleLogger
+from jarvishep.sample_logger import BufferedSampleLogger, SampleLogger
 from jarvishep.runtime_config import should_eager_materialize, should_materialize_on_failure
 from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
 
 
-class _NullSampleLogger:
-    """Discard sample logs until artifacts are materialized."""
-
-    _options = (None, None, None, None, None, None, None, None, {})
-
-    def bind(self, **_extra):
-        return self
-
-    def log(self, *_args, **_kwargs):
-        return None
-
-    def debug(self, *_args, **_kwargs):
-        return None
-
-    def info(self, *_args, **_kwargs):
-        return None
-
-    def warning(self, *_args, **_kwargs):
-        return None
-
-    def error(self, *_args, **_kwargs):
-        return None
-
-    def critical(self, *_args, **_kwargs):
-        return None
-
-    def close(self):
-        return None
+def _make_lazy_sample_logger(*, module: str) -> BufferedSampleLogger:
+    return BufferedSampleLogger(
+        extra={
+            "module": module,
+            "to_console": True,
+            "Jarvis": True,
+            "_log_domain": "jarvis_hep",
+        }
+    )
 
 
 class Sample(Base):
@@ -96,6 +77,23 @@ class Sample(Base):
         task_root = info.get("task_result_dir", os.getcwd())
         return os.path.join(task_root, "SAMPLE")
 
+    @staticmethod
+    def _buffered_logger(sample_info: dict | None) -> BufferedSampleLogger | None:
+        if not isinstance(sample_info, dict):
+            return None
+        logger = sample_info.get("logger")
+        return logger if isinstance(logger, BufferedSampleLogger) else None
+
+    def _active_logger(self):
+        if isinstance(getattr(self, "info", None), dict):
+            return self.info.get("logger") or self.logger
+        return self.logger
+
+    def _sync_logger_handles(self, logger) -> None:
+        self.logger = logger
+        if isinstance(getattr(self, "info", None), dict):
+            self.info["logger"] = logger
+
     def set_config(self, config):
         timing_enabled = benchmark.TIMING_ENABLED
         timing_start = benchmark.monotonic_seconds() if timing_enabled else None
@@ -119,7 +117,9 @@ class Sample(Base):
         if not bucket_parent:
             bucket_parent = self.info.get("sample_dirs")
         sample_root = self._resolve_sample_root(self.info)
+        logger_name = f"Sample@{self.uuid}"
 
+        lazy_logger = _make_lazy_sample_logger(module=logger_name)
         self.info.update({
             "uuid": self.uuid,
             "params": self.params,
@@ -127,14 +127,14 @@ class Sample(Base):
             "sample_dirs": sample_root,
             "save_dir": None,
             "run_log": None,
-            "logger_name": f"Sample@{self.uuid}",
-            "logger": _NullSampleLogger(),
+            "logger_name": logger_name,
+            "logger": lazy_logger,
             "handlers": self.handlers,
             "status": "Init",
             "_materialized": False,
             "_bucket_parent": bucket_parent if isinstance(bucket_parent, str) else None,
         })
-        self.logger = self.info["logger"]
+        self._sync_logger_handles(lazy_logger)
 
     def combine_nuisance_card(self):
         card = self.info['nuisance']
@@ -148,9 +148,16 @@ class Sample(Base):
     def gather_nuisance(self):
         self.info['observables'].update({"uuid": self.uuid})
     
-    def materialize(self, *, bucket_parent: str | None = None, minimal_log_message: str | None = None) -> str:
+    def materialize(
+        self,
+        *,
+        bucket_parent: str | None = None,
+        failure_message: str | None = None,
+    ) -> str:
         if self._materialized:
             return str(self.info.get("save_dir"))
+
+        buffered = self._buffered_logger(self.info)
 
         if bucket_parent is None:
             bucket_parent = self.info.get("_bucket_parent")
@@ -167,12 +174,19 @@ class Sample(Base):
         self.info["_materialized"] = True
         self._materialized = True
 
-        self._open_sample_logger()
-        if minimal_log_message:
-            self.logger.info(minimal_log_message)
+        if buffered is not None and buffered.event_count > 0:
+            buffered.replay_to(run_log)
+            buffered.discard()
+            self._open_sample_logger(announce_creation=False)
+        else:
+            self._open_sample_logger(announce_creation=True)
+
+        if failure_message:
+            self.logger.error(failure_message)
+
         return save_dir
 
-    def _open_sample_logger(self):
+    def _open_sample_logger(self, *, announce_creation: bool = True):
         logger_name = f"Sample@{self.info['uuid']}"
         self.info['logger_name'] = logger_name
 
@@ -185,16 +199,17 @@ class Sample(Base):
                 "_log_domain": "jarvis_hep",
             },
         )
-        self.logger.info("Sample created into the Disk")
-        self.info['logger'] = self.logger
+        if announce_creation:
+            self.logger.info("Sample created into the Disk")
+        self._sync_logger_handles(self.logger)
 
     def set_logger(self):
         """Backward-compatible entry point used by checkpoint rebuild paths."""
         if self._materialized:
             self._open_sample_logger()
         else:
-            self.info["logger"] = _NullSampleLogger()
-            self.logger = self.info["logger"]
+            lazy_logger = _make_lazy_sample_logger(module=self.info.get("logger_name", f"Sample@{self.uuid}"))
+            self._sync_logger_handles(lazy_logger)
     
     def custom_format(self, record):
         module = record["extra"].get("module", "No module")
@@ -226,15 +241,17 @@ class Sample(Base):
         return result
 
     def start(self):
-        self.logger.info("Sample -> {} is ready for submittion".format(self.uuid))
+        self._active_logger().info("Sample -> {} is ready for submittion".format(self.uuid))
         self.info['status'] = "Running"
         if self._with_nuisance: 
             self.info['nuisance']['status'] = "Running"
-            self.logger.info("{}\nSample start {}-th nuisance attempt".format(">"*60, self.info['nuisance']['NAttempt']))
+            self._active_logger().info("{}\nSample start {}-th nuisance attempt".format(">"*60, self.info['nuisance']['NAttempt']))
 
     def close(self):
-        if getattr(self, "logger", None) is not None:
-            self.logger.info(self._build_close_message())
+        if self._materialized:
+            logger = self._active_logger()
+            if logger is not None:
+                logger.info(self._build_close_message())
         self.close_logger() 
 
     def _build_close_message(self) -> str:
@@ -258,11 +275,15 @@ class Sample(Base):
         This removes the per-sample file sink (if registered) and clears self.logger.
         It is safe to call multiple times.
         """
-        if getattr(self, 'logger', None) is not None:
-            try:
-                self.logger.close()
-            except Exception:
-                pass
+        logger = self._active_logger()
+        if logger is not None:
+            if isinstance(logger, BufferedSampleLogger):
+                logger.discard()
+            else:
+                try:
+                    logger.close()
+                except Exception:
+                    pass
 
         self.handlers = {}
         self.logger = None
@@ -355,18 +376,10 @@ class Sample(Base):
             + "\n================================================================="
         )
 
-        self.logger.info(msg)
+        self._active_logger().info(msg)
 
 
-def ensure_sample_materialized(sample_info: dict, *, minimal_log_message: str | None = None) -> str | None:
-    """Materialize sample artifacts on demand (e.g. @Sdir resolution)."""
-    if not isinstance(sample_info, dict):
-        return None
-    if str(sample_info.get("sample_artifacts", "auto")).strip().lower() == "never":
-        return None
-    if sample_info.get("_materialized") and sample_info.get("save_dir"):
-        return str(sample_info["save_dir"])
-
+def _attach_sample_for_materialize(sample_info: dict) -> Sample:
     seed_params = sample_info.get("params")
     if not isinstance(seed_params, dict) or not seed_params:
         seed_params = sample_info.get("observables", {})
@@ -375,12 +388,29 @@ def ensure_sample_materialized(sample_info: dict, *, minimal_log_message: str | 
     if sample_info.get("uuid"):
         sample.update_uuid(str(sample_info["uuid"]))
     sample._materialized = bool(sample_info.get("_materialized"))
-    sample.logger = sample_info.get("logger") or _NullSampleLogger()
-    return sample.materialize(minimal_log_message=minimal_log_message)
+    sample.logger = sample_info.get("logger")
+    return sample
+
+
+def ensure_sample_materialized(
+    sample_info: dict,
+    *,
+    failure_message: str | None = None,
+) -> str | None:
+    """Materialize sample artifacts on demand (e.g. @Sdir resolution)."""
+    if not isinstance(sample_info, dict):
+        return None
+    if str(sample_info.get("sample_artifacts", "auto")).strip().lower() == "never":
+        return None
+    if sample_info.get("_materialized") and sample_info.get("save_dir"):
+        return str(sample_info["save_dir"])
+
+    sample = _attach_sample_for_materialize(sample_info)
+    return sample.materialize(failure_message=failure_message)
 
 
 def materialize_failure_artifacts(sample_info: dict, *, error: Exception | str | None = None) -> str | None:
-    """Create per-sample artifacts for a failed sample (WP-1.1 minimal replay)."""
+    """Materialize failed-sample artifacts and replay buffered sample logs."""
     if not isinstance(sample_info, dict):
         return None
     if not should_materialize_on_failure(sample_info):
@@ -388,8 +418,8 @@ def materialize_failure_artifacts(sample_info: dict, *, error: Exception | str |
     if sample_info.get("_materialized") and sample_info.get("save_dir"):
         return str(sample_info["save_dir"])
 
-    message = "Sample failed"
+    message = None
     if error is not None:
         message = f"Sample failed -> {error}"
 
-    return ensure_sample_materialized(sample_info, minimal_log_message=message)
+    return ensure_sample_materialized(sample_info, failure_message=message)

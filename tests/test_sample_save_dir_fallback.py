@@ -217,7 +217,10 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
                     "LogL": -2.5,
                 },
                 "logger": sample.logger,
+                "_materialized": True,
+                "run_log": log_path,
             }
+            sample._materialized = True
 
             sample.close()
 

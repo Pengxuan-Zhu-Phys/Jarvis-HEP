@@ -31,6 +31,7 @@ jarvishep/
 ├── core.py                # Main runtime orchestrator
 ├── config.py              # YAML config loader & validator
 ├── runtime_config.py      # Optional Runtime: block normalization (WP-1.1)
+├── sample_logger.py       # SampleLogger (file sink) + BufferedSampleLogger (WP-1.2)
 ├── workflow.py            # Task DAG management, semantic flowchart JSON export
 ├── factory.py             # WorkerFactory, thread pool management
 ├── benchmark.py           # Additive throughput benchmark mode helpers
@@ -146,6 +147,7 @@ client.py (CLI) → core.py (Core)
 - **Calculator YAML key**: `make_paraller` (intentional legacy spelling — do not rename)
 - **Calculator timeout**: `Calculators.Modules[].timeout` is an optional total-second limit for one sample `execution` section; it starts after `initialization`.
 - **Runtime block** (optional top-level YAML; WP-1.1): `Runtime.mode` (`auto|thread|process`), `Runtime.workers`, `Runtime.batch_size`, `Runtime.sample_artifacts` (`auto|always|never`). Only `sample_artifacts` is consumed at M1: `auto` (default) skips per-sample `SAMPLE/<bucket>/<uuid>/` creation for opera-only scans; `always` restores v1 behavior; `never` suppresses artifact creation (including failure replay). `@Sdir` resolution or any calculator workflow triggers `Sample.materialize()`. Lazy samples still expose `sample_info["logger_name"]` (metadata only) so Likelihood/Calculator child loggers bind correctly without filesystem materialization.
+- **Failure-replay logging** (WP-1.2): non-materialized samples route module/likelihood logs through `BufferedSampleLogger` (bounded in-memory buffer). On success the buffer is discarded; on failure `materialize_failure_artifacts()` replays buffered events to `Sample_running.log` using the frozen `LOGGING_CONTRACT.md` format, then appends a failure footer.
 
 ---
 

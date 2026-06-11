@@ -1,10 +1,24 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass
 from datetime import datetime
 import os
 import threading
-from typing import Any
+from typing import Any, Deque, Iterable
+
+
+DEFAULT_BUFFER_MAX_EVENTS = 2048
+
+
+@dataclass(frozen=True)
+class SampleLogEvent:
+    timestamp: str
+    module: str
+    level: str
+    message: str
+    raw: bool
 
 
 class _SampleLogBackend:
@@ -23,7 +37,15 @@ class _SampleLogBackend:
     def _timestamp(self) -> str:
         return self._time_provider().strftime("%m-%d %H:%M:%S.%f")[:-3]
 
-    def write(self, *, module: str, level: str, message: str, raw: bool) -> None:
+    def write(
+        self,
+        *,
+        module: str,
+        level: str,
+        message: str,
+        raw: bool,
+        timestamp: str | None = None,
+    ) -> None:
         if self._closed:
             return
 
@@ -32,9 +54,10 @@ class _SampleLogBackend:
             prefix = "\n"
             if self._has_written and not self._last_ended_newline:
                 prefix = "\n\n"
+            ts = timestamp if timestamp is not None else self._timestamp()
             text = (
                 f"{prefix}·•· {module} \n"
-                f"\t-> {self._timestamp()} - [{level}] >>> \n"
+                f"\t-> {ts} - [{level}] >>> \n"
                 f"{text}"
             )
         else:
@@ -57,6 +80,26 @@ class _SampleLogBackend:
                 return
             self._closed = True
             self._handle.close()
+
+
+def replay_sample_log_events(
+    path: str,
+    events: Iterable[SampleLogEvent],
+    *,
+    time_provider=None,
+) -> None:
+    backend = _SampleLogBackend(path, time_provider=time_provider)
+    try:
+        for event in events:
+            backend.write(
+                module=event.module,
+                level=event.level,
+                message=event.message,
+                raw=event.raw,
+                timestamp=event.timestamp,
+            )
+    finally:
+        backend.close()
 
 
 class SampleLogger:
@@ -137,3 +180,82 @@ class SampleLogger:
         if args or kwargs:
             return text.format(*args, **kwargs)
         return text
+
+
+class BufferedSampleLogger:
+    """In-memory sample logger used before sample artifacts are materialized."""
+
+    def __init__(
+        self,
+        *,
+        extra: dict[str, Any] | None = None,
+        events: Deque[SampleLogEvent] | None = None,
+        max_events: int = DEFAULT_BUFFER_MAX_EVENTS,
+        time_provider=None,
+    ) -> None:
+        self._extra = dict(extra or {})
+        self._max_events = max(1, int(max_events))
+        self._events = events if events is not None else deque(maxlen=self._max_events)
+        self._time_provider = time_provider or datetime.now
+        self._closed = False
+        self._options = (None, None, None, None, None, None, None, None, self._extra)
+
+    @property
+    def events(self) -> tuple[SampleLogEvent, ...]:
+        return tuple(self._events)
+
+    @property
+    def event_count(self) -> int:
+        return len(self._events)
+
+    def bind(self, **extra: Any) -> "BufferedSampleLogger":
+        merged = dict(self._extra)
+        merged.update(extra)
+        return type(self)(
+            extra=merged,
+            events=self._events,
+            max_events=self._max_events,
+            time_provider=self._time_provider,
+        )
+
+    def close(self) -> None:
+        self._closed = True
+
+    def discard(self) -> None:
+        self._events.clear()
+        self._closed = True
+
+    def replay_to(self, path: str) -> None:
+        replay_sample_log_events(path, self.events, time_provider=self._time_provider)
+
+    def log(self, level: Any, message: Any, *args: Any, **kwargs: Any) -> None:
+        if self._closed:
+            return
+        module = str(self._extra.get("module", "No module"))
+        raw = "raw" in self._extra
+        rendered = SampleLogger._render_message(message, *args, **kwargs)
+        timestamp = self._time_provider().strftime("%m-%d %H:%M:%S.%f")[:-3]
+        self._events.append(
+            SampleLogEvent(
+                timestamp=timestamp,
+                module=module,
+                level=SampleLogger._normalize_level(level),
+                message=rendered,
+                raw=raw,
+            )
+        )
+
+    def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        self.log("DEBUG", message, *args, **kwargs)
+
+    def info(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        self.log("INFO", message, *args, **kwargs)
+
+    def warning(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        self.log("WARNING", message, *args, **kwargs)
+
+    def error(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        self.log("ERROR", message, *args, **kwargs)
+
+    def critical(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        self.log("CRITICAL", message, *args, **kwargs)

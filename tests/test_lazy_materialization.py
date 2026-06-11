@@ -216,7 +216,7 @@ class SampleMaterializationUnitTests(unittest.TestCase):
             log_path = os.path.join(save_dir, "Sample_running.log")
             self.assertTrue(os.path.exists(log_path))
             with open(log_path, "r", encoding="utf-8") as handle:
-                self.assertIn("Sample failed", handle.read())
+                self.assertIn("Sample failed -> boom", handle.read())
 
     def test_sdir_resolution_triggers_materialization(self):
         with tempfile.TemporaryDirectory() as tmpdir:
