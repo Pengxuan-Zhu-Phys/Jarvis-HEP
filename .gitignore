@@ -18,6 +18,7 @@ src/
 docs/
 github-ci/
 benchmarks/
+tests/benchmark_project/
 
 src/__pycache__/
 src/IOs/__pycache__/
