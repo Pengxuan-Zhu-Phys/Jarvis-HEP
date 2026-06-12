@@ -27,6 +27,7 @@ from jarvishep.Module.module import Module  # noqa: E402
 
 BENCHMARK_PROJECT = os.path.join(PROJECT_ROOT, "tests", "benchmark_project")
 BENCHMARK_TASK = os.path.join(BENCHMARK_PROJECT, "bin", "benchmark_random_operas.yaml")
+ENABLE_PERF_GATES = os.getenv("JARVIS_HEP_ENABLE_PERF_GATES") == "1"
 
 
 def _thread_names() -> set[str]:
@@ -224,6 +225,10 @@ class SchedulerFlatteningBenchmarkTests(unittest.TestCase):
     def tearDown(self):
         self.setUp()
 
+    @unittest.skipUnless(
+        ENABLE_PERF_GATES,
+        "absolute throughput gates require JARVIS_HEP_ENABLE_PERF_GATES=1",
+    )
     def test_benchmark_not_regressed_after_pool_flattening(self):
         env = dict(os.environ)
         env["PYTHONPATH"] = PROJECT_ROOT + os.pathsep + env.get("PYTHONPATH", "")

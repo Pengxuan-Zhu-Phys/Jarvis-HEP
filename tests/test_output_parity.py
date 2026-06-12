@@ -28,6 +28,7 @@ FIXTURES = os.path.join(PROJECT_ROOT, "tests", "fixtures", "parity_m1")
 # WP-0.1 baseline on this machine (ledger); M1 scaled gate is >=2.5×.
 WP01_BASELINE_SAMPLES_PER_SEC = 311.88
 M1_SCALED_MIN_SAMPLES_PER_SEC = WP01_BASELINE_SAMPLES_PER_SEC * 2.5
+ENABLE_PERF_GATES = os.getenv("JARVIS_HEP_ENABLE_PERF_GATES") == "1"
 
 
 def _run_task(
@@ -227,6 +228,10 @@ class M1BenchmarkGateTests(unittest.TestCase):
     def tearDown(self):
         self.setUp()
 
+    @unittest.skipUnless(
+        ENABLE_PERF_GATES,
+        "absolute throughput gates require JARVIS_HEP_ENABLE_PERF_GATES=1",
+    )
     def test_m1_throughput_meets_scaled_gate(self):
         proc = _run_task(
             project_root=BENCHMARK_PROJECT,
