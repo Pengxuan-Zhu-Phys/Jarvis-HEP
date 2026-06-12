@@ -1,0 +1,72 @@
+Scan:
+  name: "parity_calculator_check"
+  save_dir: "&J/outputs"
+  sample_directory:
+    limit: 1000000
+    width: 6
+    archive_samples: false
+
+Sampling:
+  Method: "CSV"
+  Variables:
+    - name: x
+      description: "x"
+      distribution:
+        type: Flat
+        parameters:
+          min: 0
+          max: 1
+  CSV:
+    path: "&J/data/check_modules_points.csv"
+    uuid_column: "uuid"
+    variables: ["x"]
+  LogLikelihood:
+    - name: "LogL"
+      expression: "LogGauss(calc_z, calc_z, 1.0)"
+
+EnvReqs:
+  OS:
+    - name: Darwin
+      version: ">=10.14"
+    - name: linux
+      version: ">=3.10"
+  Python:
+    version: ">=3.10"
+    Dependencies: []
+
+Calculators:
+  make_paraller: 1
+  path: "&J/calculators/runtime/program"
+  Modules:
+    - name: EchoCalc
+      required_modules: ["Parameters"]
+      clone_shadow: false
+      path: "&J/calculators/runtime/program/echo_calc/001"
+      installation: []
+      initialization: []
+      execution:
+        path: "&J/calculators/runtime/program/echo_calc/001"
+        commands:
+          - >-
+            python3 -c 'import json; p=json.load(open("@Sdir/in.json")); json.dump({"calc_z": float(p["x"])*2.0}, open("@Sdir/out.json","w"))'
+        input:
+          - name: params
+            path: "@Sdir/in.json"
+            type: JSON
+            save: false
+            actions:
+              - type: Dump
+                variables:
+                  - {name: x}
+        output:
+          - name: observables
+            path: "@Sdir/out.json"
+            type: JSON
+            save: false
+            variables:
+              - name: calc_z
+                entry: calc_z
+
+Operas:
+  make_paraller: 1
+  Modules: []

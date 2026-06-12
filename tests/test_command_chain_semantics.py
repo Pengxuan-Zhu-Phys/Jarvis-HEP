@@ -108,6 +108,47 @@ class CommandChainSemanticsTests(unittest.TestCase):
                 loader.analysis_calculator()
             self.assertEqual(cm.exception.code, 2)
 
+    def test_calculator_sdir_io_paths_are_not_decoded(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            loader = _build_loader(tmpdir)
+            loader.config = {
+                "LibDeps": {"path": os.path.join(tmpdir, "deps"), "Modules": []},
+                "Calculators": {
+                    "path": "&J/calculators/runtime/program",
+                    "Modules": [
+                        {
+                            "name": "DemoCalc",
+                            "path": "&J/calculators/runtime/program/demo",
+                            "installation": [],
+                            "initialization": [],
+                            "execution": {
+                                "path": "&J/calculators/runtime/program/demo",
+                                "commands": [],
+                                "input": [
+                                    {
+                                        "name": "params",
+                                        "path": "@Sdir/in.json",
+                                        "type": "JSON",
+                                    }
+                                ],
+                                "output": [
+                                    {
+                                        "name": "observables",
+                                        "path": "@Sdir/out.json",
+                                        "type": "JSON",
+                                    }
+                                ],
+                            },
+                        }
+                    ],
+                },
+            }
+
+            loader.analysis_calculator()
+            execution = loader.config["Calculators"]["Modules"][0]["execution"]
+            self.assertEqual(execution["input"][0]["path"], "@Sdir/in.json")
+            self.assertEqual(execution["output"][0]["path"], "@Sdir/out.json")
+
     def test_cd_with_quoted_path_updates_cwd(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             dep_root = os.path.join(tmpdir, "deps with space")

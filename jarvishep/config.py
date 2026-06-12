@@ -458,10 +458,14 @@ class ConfigLoader(Base):
             calc_setting['commands'] = commands
 
             for ipf in calc_setting['input']:
-                ipf['path'] = self.decode_path(ipf['path'])
+                ipf_path = str(ipf.get('path', ''))
+                if '@Sdir' not in ipf_path:
+                    ipf['path'] = self.decode_path(ipf_path)
 
             for opf in calc_setting['output']:
-                opf['path'] = self.decode_path(opf['path'])
+                opf_path = str(opf.get('path', ''))
+                if '@Sdir' not in opf_path:
+                    opf['path'] = self.decode_path(opf_path)
 
             return calc
 
