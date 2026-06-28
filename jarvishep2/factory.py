@@ -30,12 +30,6 @@ class TaskFactory:
         self.workers: list[Worker] = []
         self._snapshot: dict[str, Any] = {}
         self._snapshot_lock = threading.RLock()
-        self.last_op_counts = {
-            "worker": 0,
-            "calculator": 0,
-            "sample": 0,
-            "task": 0,
-        }
         self._updater_thread: threading.Thread | None = None
         self._running = False
         self._logger = get_jarvis_logger("factory")
@@ -62,23 +56,36 @@ class TaskFactory:
         self.redis.connect()
         return self.redis
 
+    def _alive_workers(self) -> list[Worker]:
+        return [worker for worker in self.workers if worker.is_alive()]
+
     def start_workers(self, n: int, **worker_kwargs: Any) -> list[Worker]:
         """Spawn ``n`` Worker processes via the spawn context.
 
-        ``worker_kwargs`` are merged into the picklable ``worker_config`` dict
-        passed to each :class:`Worker`. Workers connect to Redis independently
-        inside their child process and ``blpop`` from ``hep:task_queue``.
+        The live control-process :attr:`redis` queue is passed into each
+        :class:`Worker`; only its picklable connection settings cross the spawn
+        boundary. Child Workers open their own Redis clients in ``run()``.
+
+        Raises:
+            RuntimeError: If Redis is not initialized or workers are already running.
         """
         if n <= 0:
             return []
         if self.redis is None:
             raise RuntimeError("TaskFactory.init_redis() must be called before start_workers()")
 
+        alive = self._alive_workers()
+        if alive:
+            raise RuntimeError(
+                f"start_workers refused: {len(alive)} worker process(es) already running"
+            )
+        self.workers = [worker for worker in self.workers if worker.is_alive()]
+
         shared_config = dict(worker_kwargs)
         started: list[Worker] = []
         for worker_id in range(n):
             config = copy.deepcopy(shared_config)
-            worker = Worker(worker_id, self.redis_config, config)
+            worker = Worker(worker_id, self.redis, config)
             worker.start()
             started.append(worker)
         self.workers.extend(started)
@@ -173,14 +180,16 @@ class TaskFactory:
         self._updater_thread.start()
 
     def shutdown(self, *, wait: bool = True) -> None:
-        """Stop monitor, signal Workers, join, and release Redis handle."""
+        """Stop monitor, signal Workers, join, and close the Redis connection."""
         self._running = False
         if self._updater_thread is not None:
             self._updater_thread.join(timeout=2.0)
             self._updater_thread = None
         self.request_worker_shutdown()
         self.stop_all_workers(graceful=wait)
-        self.redis = None
+        if self.redis is not None:
+            self.redis.close()
+            self.redis = None
         self._logger.info("TaskFactory shutdown complete")
 
 

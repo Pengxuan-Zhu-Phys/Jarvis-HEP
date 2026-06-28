@@ -22,17 +22,22 @@ Process = _SPAWN_CTX.Process
 
 
 class Worker(Process):
-    """Long-lived process that pulls one Sample at a time from Redis."""
+    """Long-lived process that pulls one Sample at a time from Redis.
+
+    ``__init__`` accepts either a live :class:`RedisQueue` (from the Factory) or
+    a picklable connection mapping. Only the connection **settings** are stored
+    for spawn; the child process builds its own Redis client in ``run()``.
+    """
 
     def __init__(
         self,
         worker_id: int,
-        redis_config: Mapping[str, Any],
+        redis: RedisQueue | Mapping[str, Any],
         worker_config: Mapping[str, Any],
     ) -> None:
         super().__init__(name=f"HEP2-Worker-{worker_id}", daemon=False)
         self.worker_id = int(worker_id)
-        self.redis_config = dict(redis_config)
+        self.redis_config = RedisQueue.extract_connection_config(redis)
         self.worker_config = dict(worker_config)
         self._redis: RedisQueue | None = None
         self._mapper = None
@@ -45,8 +50,8 @@ class Worker(Process):
         self._is_running = False
 
     def _init_redis(self) -> None:
-        client = self.worker_config.get("_redis_client")
-        self._redis = RedisQueue(self.redis_config, client=client)
+        """Connect to Redis in the child process (spawn-safe)."""
+        self._redis = RedisQueue(self.redis_config)
         self._redis.connect()
         self._redis.heartbeat(
             str(self.worker_id),
@@ -160,6 +165,9 @@ class Worker(Process):
             self._main_loop()
         finally:
             self._heartbeat("stopped")
+            if self._redis is not None:
+                self._redis.close()
+                self._redis = None
 
 
 __all__ = ["Worker"]

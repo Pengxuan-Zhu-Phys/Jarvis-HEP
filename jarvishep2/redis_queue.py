@@ -363,6 +363,32 @@ class RedisQueue:
         encoded = encode_payload(dict(info), codec=self._codec)
         self.r.hset(key, mapping={"payload": encoded})
 
+    def connection_config(self) -> dict[str, Any]:
+        """Return picklable connection settings for spawn child processes."""
+        return dict(self.config)
+
+    @staticmethod
+    def extract_connection_config(
+        source: RedisQueue | Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Normalize a live queue or mapping into picklable connection settings."""
+        if isinstance(source, RedisQueue):
+            return source.connection_config()
+        return dict(source)
+
+    def close(self) -> None:
+        """Close the underlying Redis client and release the handle."""
+        client = self.r
+        self.r = None
+        if client is None:
+            return
+        closer = getattr(client, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+
     def _require_client(self) -> None:
         if self.r is None:
             raise RuntimeError("Redis client is not connected; call connect() or inject client")

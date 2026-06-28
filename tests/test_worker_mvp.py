@@ -18,6 +18,7 @@ from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context
+from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.worker import Worker
 
@@ -67,6 +68,13 @@ def _spawn_build_worker_label(args: tuple[int, dict[str, Any], dict[str, Any]]) 
     return f"{worker.worker_id}:{worker.worker_config['pull_timeout']}"
 
 
+def _spawn_extract_redis_config(args: tuple[int, dict[str, Any], dict[str, Any]]) -> str:
+    worker_id, redis_cfg, worker_cfg = args
+    queue = RedisQueue(redis_cfg)
+    worker = Worker(worker_id, queue, worker_cfg)
+    return f"{worker.worker_id}:{worker.redis_config['port']}"
+
+
 def _worker_config(tmpdir: str) -> dict[str, Any]:
     return {
         "sample_config": {
@@ -92,6 +100,67 @@ class WorkerMVPTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
+
+    def test_start_workers_refuses_duplicate_start(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **_worker_config(tmpdir))
+                with self.assertRaises(RuntimeError):
+                    factory.start_workers(1, **_worker_config(tmpdir))
+                factory.shutdown()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_factory_shutdown_closes_redis_connection(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            factory = TaskFactory.get_instance(redis_config)
+            queue = factory.init_redis()
+            self.assertIsNotNone(queue.r)
+            factory.shutdown()
+            self.assertIsNone(factory.redis)
+            self.assertIsNone(queue.r)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_worker_submits_failed_result_on_execution_error(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **_worker_config(tmpdir))
+                assert factory.redis is not None
+
+                sample = Sample(
+                    uuid="failed-sample",
+                    u_coords=np.array([0.1, 0.2, 0.3], dtype=np.float64),
+                    execution_plan=[
+                        ExecutionStep(type="opera", name="UnknownOpera", layer=0),
+                    ],
+                )
+                factory.redis.push_task(sample.to_task_dict())
+
+                deadline = time.monotonic() + 15.0
+                result = None
+                while time.monotonic() < deadline:
+                    result = factory.redis.pull_result(timeout=1)
+                    if result is not None:
+                        break
+                factory.shutdown()
+
+                self.assertIsNotNone(result)
+                assert result is not None
+                self.assertEqual(result["uuid"], "failed-sample")
+                self.assertEqual(result["status"], "Failed")
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_task_factory_starts_worker_and_monitor_snapshot(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
@@ -131,6 +200,21 @@ class WorkerMVPTests(unittest.TestCase):
         with ctx.Pool(1) as pool:
             label = pool.apply(_spawn_build_worker_label, (payload,))
         self.assertEqual(label, "0:1")
+
+    def test_worker_accepts_live_redis_queue_for_config_extraction(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            queue = RedisQueue(redis_config)
+            queue.connect()
+            payload = (0, redis_config, _worker_config(tempfile.mkdtemp()))
+            ctx = get_spawn_context()
+            with ctx.Pool(1) as pool:
+                label = pool.apply(_spawn_extract_redis_config, (payload,))
+            self.assertEqual(label, f"0:{redis_config['port']}")
+            queue.close()
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_end_to_end_opera_worker_archiver_database_parity(self) -> None:
         server, redis_config = _start_tcp_fakeredis()

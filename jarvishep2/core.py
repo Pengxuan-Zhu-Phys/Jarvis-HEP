@@ -124,6 +124,8 @@ class Jarvis2Core:
         if self.factory is not None:
             self.factory.shutdown(wait=wait)
             self.factory = None
+        elif self.redis is not None:
+            self.redis.close()
         self.redis = None
 
 
