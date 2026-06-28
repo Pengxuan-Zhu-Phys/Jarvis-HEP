@@ -3,11 +3,16 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import json
+import os
 import signal
+import threading
 import time
 from collections.abc import Mapping
 from typing import Any
 
+from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -16,7 +21,8 @@ from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.operas import preload_operas
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.sample import Sample, materialize_failure_artifacts
-from jarvishep2.workflow import group_by_layer
+from jarvishep2.sample import ExecutionStep
+from jarvishep2.workflow import group_by_layer, max_layer_width, resolve_module_layers
 
 _SPAWN_CTX = get_spawn_context()
 Process = _SPAWN_CTX.Process
@@ -45,6 +51,8 @@ class Worker(Process):
         self._operas: dict[str, Any] = {}
         self._calculators: dict[str, CalculatorModule] = {}
         self._likelihood: LogLikelihoodEvaluator | None = None
+        self._scheduler: AsyncSubprocessScheduler | None = None
+        self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
 
@@ -62,6 +70,7 @@ class Worker(Process):
         )
 
     def _init_runtime(self) -> None:
+        self._observables_lock = threading.Lock()
         self._mapper = build_mapper(self.worker_config.get("mapper"))
         opera_configs = self.worker_config.get("opera_modules") or {}
         if isinstance(opera_configs, list):
@@ -74,6 +83,22 @@ class Worker(Process):
         if isinstance(calculator_configs, dict):
             calculator_configs = list(calculator_configs.values())
         self._calculators = CalculatorModule.from_config_list(calculator_configs)
+        layer_width = max(
+            1,
+            int(self.worker_config.get("subprocess_max_concurrency", 0) or 0),
+            max_layer_width(resolve_module_layers(calculator_configs)),
+        )
+        self._scheduler = AsyncSubprocessScheduler(
+            SubprocessRuntimeConfig(
+                max_concurrency=layer_width,
+                log_policy="quiet",
+                progress_interval_sec=3600.0,
+            ),
+            logger=get_jarvis_logger("worker").bind(worker_id=self.worker_id),
+        )
+        self._scheduler.start()
+        for module in self._calculators.values():
+            module.attach_scheduler(self._scheduler)
         likelihood_exprs = self.worker_config.get("likelihood_expressions") or []
         self._likelihood = LogLikelihoodEvaluator(likelihood_exprs)
 
@@ -100,15 +125,52 @@ class Worker(Process):
         if pack_id is None:
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
         try:
-            if isinstance(sample.info, dict):
-                sample.info["pack_id"] = pack_id
             module.acquire_pack_id(pack_id)
             updated = module.execute(sample.info)
-            sample.observables.update(updated)
-            if isinstance(sample.info, dict):
-                sample.info["observables"] = dict(sample.observables)
+            lock = self._observables_lock
+            if lock is not None:
+                with lock:
+                    self._merge_calculator_observables(sample, step_name, pack_id, updated)
+            else:
+                self._merge_calculator_observables(sample, step_name, pack_id, updated)
         finally:
             self._redis.release_calc(step_name, pack_id)
+
+    def _merge_calculator_observables(
+        self,
+        sample: Sample,
+        step_name: str,
+        pack_id: str,
+        updated: Mapping[str, Any],
+    ) -> None:
+        sample.observables.update(updated)
+        if isinstance(sample.info, dict):
+            pack_ids = dict(sample.info.get("pack_ids") or {})
+            pack_ids[step_name] = pack_id
+            sample.info["pack_ids"] = pack_ids
+            sample.info["pack_id"] = pack_id
+            sample.info["observables"] = dict(sample.observables)
+
+    def _run_layer(self, layer: list[ExecutionStep], sample: Sample) -> None:
+        """Run one execution-plan layer; fan out same-layer calculators concurrently."""
+        calc_steps = [step for step in layer if step.type == "calculator"]
+        inline_steps = [step for step in layer if step.type != "calculator"]
+        if len(calc_steps) > 1:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(calc_steps)) as pool:
+                futures = [
+                    pool.submit(self._run_calculator_step, step.name, sample)
+                    for step in calc_steps
+                ]
+                for future in concurrent.futures.as_completed(futures):
+                    future.result()
+        elif len(calc_steps) == 1:
+            self._run_calculator_step(calc_steps[0].name, sample)
+
+        for step in inline_steps:
+            if step.type == "opera":
+                self._run_opera_step(step.name, sample)
+            elif step.type == "likelihood":
+                self._run_likelihood(sample)
 
     def _run_opera_step(self, step_name: str, sample: Sample) -> None:
         module = self._operas.get(step_name)
@@ -148,14 +210,38 @@ class Worker(Process):
             if self._mapper is not None:
                 sample.bind_params(self._mapper)
             sample.materialize(worker_id=str(self.worker_id))
-            for layer in group_by_layer(sample.execution_plan):
-                for step in layer:
-                    if step.type == "calculator":
-                        self._run_calculator_step(step.name, sample)
-                    elif step.type == "opera":
-                        self._run_opera_step(step.name, sample)
-                    elif step.type == "likelihood":
-                        self._run_likelihood(sample)
+            layers = group_by_layer(sample.execution_plan)
+            _profile_path = os.environ.get("JARVIS2_WORKER_PROFILE")
+            _profile_started = time.monotonic()
+            for layer in layers:
+                self._run_layer(layer, sample)
+            if _profile_path:
+                with open(_profile_path, "a", encoding="utf-8") as _profile_handle:
+                    _profile_handle.write(
+                        json.dumps(
+                            {
+                                "worker_id": self.worker_id,
+                                "layers": [
+                                    {
+                                        "calc_steps": [
+                                            step.name
+                                            for step in layer
+                                            if step.type == "calculator"
+                                        ],
+                                        "width": len(layer),
+                                    }
+                                    for layer in layers
+                                ],
+                                "elapsed_sec": time.monotonic() - _profile_started,
+                                "scheduler": (
+                                    self._scheduler.snapshot()
+                                    if self._scheduler is not None
+                                    else {}
+                                ),
+                            }
+                        )
+                        + "\n"
+                    )
             sample.status = "Completed"
             if isinstance(sample.info, dict):
                 sample.info["status"] = "Completed"
@@ -193,6 +279,9 @@ class Worker(Process):
             self._main_loop()
         finally:
             self._heartbeat("stopped")
+            if self._scheduler is not None:
+                self._scheduler.shutdown(wait=True)
+                self._scheduler = None
             if self._redis is not None:
                 self._redis.close()
                 self._redis = None

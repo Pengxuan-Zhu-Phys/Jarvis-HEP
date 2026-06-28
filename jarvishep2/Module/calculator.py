@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
 
+from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.io_json import read_json_output, write_json_input
 from jarvishep2.sample import ensure_sample_materialized
 
@@ -35,6 +36,7 @@ class CalculatorModule:
         self.PackID: str | None = None
         self._templates_loaded = False
         self._command_counter = 0
+        self._scheduler: AsyncSubprocessScheduler | None = None
 
     @staticmethod
     def _normalize_timeout(value: Any) -> float | None:
@@ -56,6 +58,10 @@ class CalculatorModule:
         if self._templates_loaded:
             return
         self._templates_loaded = True
+
+    def attach_scheduler(self, scheduler: AsyncSubprocessScheduler | None) -> None:
+        """Bind the per-Worker subprocess scheduler used for command execution."""
+        self._scheduler = scheduler
 
     def acquire_pack_id(self, pack_id: str) -> None:
         """Tag the current run for traceability."""
@@ -118,6 +124,43 @@ class CalculatorModule:
             except Exception:
                 process.kill()
 
+    def _run_command_sync(
+        self,
+        command: Mapping[str, Any],
+        *,
+        stage: str = "execution",
+        command_index: int = 0,
+        timeout_sec: float | None = None,
+    ) -> None:
+        cmd_text = self._resolve_runtime_tokens(str(command.get("cmd", "")), stage=stage, field="cmd")
+        cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
+        cwd = os.path.abspath(cwd_text or ".")
+        os.makedirs(cwd, exist_ok=True)
+        if self._scheduler is None:
+            raise RuntimeError("calculator subprocess scheduler is not attached")
+
+        meta = {
+            "module": self.name,
+            "pack_id": self.PackID,
+            "stage": stage,
+            "command_index": command_index,
+        }
+        result = self._scheduler.run(
+            SubprocessJob(
+                cmd=cmd_text,
+                cwd=cwd,
+                timeout_sec=timeout_sec,
+                log_policy="quiet",
+                meta=meta,
+            ),
+            timeout=(float(timeout_sec) + 5.0) if timeout_sec is not None else None,
+        )
+        if not result.ok:
+            raise RuntimeError(
+                f"Command failed [{stage}#{command_index:05}] rc={result.returncode} "
+                f"timeout={result.timed_out} cmd={cmd_text}"
+            )
+
     async def run_command(
         self,
         command: Mapping[str, Any],
@@ -126,6 +169,15 @@ class CalculatorModule:
         command_index: int = 0,
         timeout_sec: float | None = None,
     ) -> None:
+        if self._scheduler is not None:
+            self._run_command_sync(
+                command,
+                stage=stage,
+                command_index=command_index,
+                timeout_sec=timeout_sec,
+            )
+            return
+
         cmd_text = self._resolve_runtime_tokens(str(command.get("cmd", "")), stage=stage, field="cmd")
         cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
         cwd = os.path.abspath(cwd_text or ".")
@@ -174,7 +226,28 @@ class CalculatorModule:
             merged.update(read_json_output(path, variables=variables))
         return merged
 
+    def _execute_commands_sync(self, *, deadline: float | None = None) -> None:
+        for command in self.commands_template:
+            command_index = self._next_command_index()
+            timeout_sec = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
+                    )
+                timeout_sec = remaining
+            self._run_command_sync(
+                command,
+                stage="execution",
+                command_index=command_index,
+                timeout_sec=timeout_sec,
+            )
+
     async def execute_commands(self, *, deadline: float | None = None) -> None:
+        if self._scheduler is not None:
+            self._execute_commands_sync(deadline=deadline)
+            return
         for command in self.commands_template:
             command_index = self._next_command_index()
             timeout_sec = None
@@ -191,6 +264,44 @@ class CalculatorModule:
                 command_index=command_index,
                 timeout_sec=timeout_sec,
             )
+
+    def _load_input_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        for spec in self.input_specs:
+            if str(spec.get("type", "")).strip() != "JSON":
+                continue
+            path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
+            actions = list(spec.get("actions") or [])
+            write_json_input(path, actions=actions, param_values=input_data)
+            merged.update({key: input_data.get(key) for key in input_data})
+        return merged
+
+    def _read_output_sync(self) -> dict[str, Any]:
+        merged: dict[str, Any] = {}
+        for spec in self.output_specs:
+            if str(spec.get("type", "")).strip() != "JSON":
+                continue
+            path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
+            variables = list(spec.get("variables") or [])
+            merged.update(read_json_output(path, variables=variables))
+        return merged
+
+    def _execute_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        deadline = None
+        if self.timeout is not None:
+            deadline = time.monotonic() + float(self.timeout)
+
+        input_obs = self._load_input_sync(input_data)
+        if isinstance(input_obs, dict):
+            result.update(input_obs)
+
+        self._execute_commands_sync(deadline=deadline)
+
+        output_obs = self._read_output_sync()
+        if isinstance(output_obs, dict):
+            result.update(output_obs)
+        return result
 
     async def _execute_async(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
         result: dict[str, Any] = {}
@@ -215,6 +326,8 @@ class CalculatorModule:
         self._command_counter = 0
         input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})
         try:
+            if self._scheduler is not None:
+                return self._execute_sync(input_data)
             return asyncio.run(self._execute_async(input_data))
         finally:
             self.sample_info = {}
