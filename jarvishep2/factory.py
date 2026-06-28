@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from jarvishep2.calculator_pools import register_calculator_pools
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.worker import Worker
@@ -85,6 +86,7 @@ class TaskFactory:
 
         redis_config = self.redis.connection_config()
         shared_config = dict(worker_kwargs)
+        register_calculator_pools(self.redis, shared_config)
         started: list[Worker] = []
         for worker_id in range(n):
             config = copy.deepcopy(shared_config)

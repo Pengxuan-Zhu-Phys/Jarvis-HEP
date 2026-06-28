@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jarvishep2.likelihood import LogLikelihoodEvaluator
-from jarvishep2.Module.calculator import CalculatorModule, mint_pack_id
+from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.mapper import build_mapper
 from jarvishep2.mp_context import get_spawn_context
@@ -92,14 +92,23 @@ class Worker(Process):
         module = self._calculators.get(step_name)
         if module is None:
             raise KeyError(f"unknown calculator module '{step_name}'")
-        pack_id = mint_pack_id()
-        if isinstance(sample.info, dict):
-            sample.info["pack_id"] = pack_id
-        module.acquire_pack_id(pack_id)
-        updated = module.execute(sample.info)
-        sample.observables.update(updated)
-        if isinstance(sample.info, dict):
-            sample.info["observables"] = dict(sample.observables)
+        if self._redis is None:
+            raise RuntimeError("redis is not initialized in worker process")
+
+        timeout = int(self.worker_config.get("calc_acquire_timeout", 30))
+        pack_id = self._redis.acquire_calc(step_name, timeout=timeout)
+        if pack_id is None:
+            raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
+        try:
+            if isinstance(sample.info, dict):
+                sample.info["pack_id"] = pack_id
+            module.acquire_pack_id(pack_id)
+            updated = module.execute(sample.info)
+            sample.observables.update(updated)
+            if isinstance(sample.info, dict):
+                sample.info["observables"] = dict(sample.observables)
+        finally:
+            self._redis.release_calc(step_name, pack_id)
 
     def _run_opera_step(self, step_name: str, sample: Sample) -> None:
         module = self._operas.get(step_name)
