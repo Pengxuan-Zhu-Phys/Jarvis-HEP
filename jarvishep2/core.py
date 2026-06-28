@@ -65,7 +65,7 @@ class Jarvis2Core:
 
         merged_config = dict(worker_config or {})
         self.factory.start_workers(workers, **merged_config)
-        self.factory.start_monitor(update_hz=2.0)
+        self.factory.start_monitor(update_hz=120.0)
         self._logger.info("TaskFactory started with %d worker(s)", workers)
         return self.factory
 

@@ -18,7 +18,7 @@ from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.worker import Worker
 
@@ -260,6 +260,83 @@ class WorkerMVPTests(unittest.TestCase):
 
                 records = _normalize_database_records(SimpleHDF5Writer(db_path).read_records())
                 self.assertEqual(records, _normalize_database_records(expected))
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_get_monitor_snapshot_does_not_touch_redis(self) -> None:
+        factory = TaskFactory.get_instance()
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory._snapshot = {
+            "timestamp": time.time(),
+            "workers": [],
+            "workers_alive": 0,
+            "workers_total": 0,
+            "task_queue_length": 3,
+            "archive_queue_length": 1,
+            "sample_stats": {"completed": 2},
+            "calculator_status": {},
+            "op_counts": {"task": 1, "worker": 0, "calculator": 0, "sample": 2},
+        }
+
+        def _forbidden_redis_call(*_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("get_monitor_snapshot must not call Redis")
+
+        assert queue.r is not None
+        queue.r.get = _forbidden_redis_call  # type: ignore[method-assign]
+        queue.r.hgetall = _forbidden_redis_call  # type: ignore[method-assign]
+        queue.r.llen = _forbidden_redis_call  # type: ignore[method-assign]
+
+        snapshot = factory.get_monitor_snapshot()
+        self.assertEqual(snapshot["task_queue_length"], 3)
+        self.assertEqual(snapshot["sample_stats"]["completed"], 2)
+
+    def test_collect_latest_status_gates_hgetall_on_idle_ticks(self) -> None:
+        factory = TaskFactory.get_instance()
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        assert queue.r is not None
+
+        factory._snapshot = factory._collect_latest_status()
+        hgetall = queue.r.hgetall
+        calls = {"count": 0}
+
+        def _counting_hgetall(*args: Any, **kwargs: Any) -> Any:
+            calls["count"] += 1
+            return hgetall(*args, **kwargs)
+
+        queue.r.hgetall = _counting_hgetall  # type: ignore[method-assign]
+        factory._collect_latest_status()
+        self.assertEqual(calls["count"], 0)
+
+    def test_collect_latest_status_refreshes_sample_stats_on_op_count_bump(self) -> None:
+        factory = TaskFactory.get_instance()
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+
+        factory._snapshot = factory._collect_latest_status()
+        queue.submit_result({"uuid": "sample-1", "status": "Completed"})
+        updated = factory._collect_latest_status()
+
+        self.assertEqual(updated["sample_stats"].get("completed"), 1)
+        self.assertGreaterEqual(updated["op_counts"]["sample"], 1)
+
+    def test_shutdown_stops_monitor_thread(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            factory = TaskFactory.get_instance(redis_config)
+            factory.init_redis()
+            factory.start_monitor(update_hz=20.0)
+            time.sleep(0.1)
+            self.assertIsNotNone(factory._updater_thread)
+            assert factory._updater_thread is not None
+            self.assertTrue(factory._updater_thread.is_alive())
+
+            factory.shutdown()
+            self.assertFalse(factory._running)
+            self.assertIsNone(factory._updater_thread)
+            self.assertIsNone(factory.redis)
         finally:
             server.shutdown()
             server.server_close()

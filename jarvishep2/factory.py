@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from jarvishep2.logging import get_jarvis_logger
@@ -30,6 +31,7 @@ class TaskFactory:
         self.workers: list[Worker] = []
         self._snapshot: dict[str, Any] = {}
         self._snapshot_lock = threading.RLock()
+        self._last_op_counts: dict[str, int] = {}
         self._updater_thread: threading.Thread | None = None
         self._running = False
         self._logger = get_jarvis_logger("factory")
@@ -137,8 +139,40 @@ class TaskFactory:
             )
         return rows
 
+    def _fetch_workers_redis(self) -> dict[str, dict[str, Any]]:
+        if self.redis is None:
+            return {}
+        worker_ids = [str(worker.worker_id) for worker in self.workers]
+        return self.redis.fetch_worker_status(worker_ids)
+
+    def _carry_forward_section(
+        self,
+        prev: dict[str, Any],
+        key: str,
+        *,
+        refresh: bool,
+        supplier: Callable[[], Any],
+    ) -> Any:
+        if refresh:
+            return supplier()
+        value = prev.get(key)
+        if value is None:
+            return supplier()
+        return copy.deepcopy(value)
+
+    def _subsystem_refresh_needed(
+        self,
+        kind: str,
+        op_counts: dict[str, int],
+        prev: dict[str, Any],
+        section_key: str,
+    ) -> bool:
+        current = int(op_counts.get(kind, 0))
+        last_seen = self._last_op_counts.get(kind, -1)
+        return current > last_seen or section_key not in prev
+
     def _collect_latest_status(self) -> dict[str, Any]:
-        """Collect queue/stats snapshot from Redis (D5.1 adds op_count gating)."""
+        """Collect queue/stats snapshot from Redis with op_count gating."""
         snap: dict[str, Any] = {
             "timestamp": time.time(),
             "workers": self._worker_status(),
@@ -147,20 +181,49 @@ class TaskFactory:
         }
         if self.redis is None:
             return snap
-        raw = self.redis.snapshot_raw()
-        snap["task_queue_length"] = raw.get("task_queue_length", 0)
-        snap["archive_queue_length"] = raw.get("archive_queue_length", 0)
-        snap["sample_stats"] = raw.get("sample_stats", {})
-        snap["calculator_status"] = raw.get("calculator_status", {})
-        snap["op_counts"] = raw.get("op_counts", {})
+
+        with self._snapshot_lock:
+            prev = self._snapshot
+
+        op_counts = self.redis.get_all_op_counts()
+        snap["op_counts"] = op_counts
+
+        lengths = self.redis.get_queue_lengths()
+        snap["task_queue_length"] = lengths["task_queue_length"]
+        snap["archive_queue_length"] = lengths["archive_queue_length"]
+
+        snap["worker_heartbeats"] = self._carry_forward_section(
+            prev,
+            "worker_heartbeats",
+            refresh=self._subsystem_refresh_needed(
+                "worker", op_counts, prev, "worker_heartbeats"
+            ),
+            supplier=self._fetch_workers_redis,
+        )
+        snap["calculator_status"] = self._carry_forward_section(
+            prev,
+            "calculator_status",
+            refresh=self._subsystem_refresh_needed(
+                "calculator", op_counts, prev, "calculator_status"
+            ),
+            supplier=self.redis.fetch_calculator_status,
+        )
+        snap["sample_stats"] = self._carry_forward_section(
+            prev,
+            "sample_stats",
+            refresh=self._subsystem_refresh_needed("sample", op_counts, prev, "sample_stats"),
+            supplier=self.redis.fetch_sample_stats,
+        )
+
+        self._last_op_counts = dict(op_counts)
         return snap
 
-    def start_monitor(self, *, update_hz: float = 2.0) -> None:
-        """Launch the background snapshot updater thread."""
+    def _start_snapshot_updater(self, *, update_hz: float = 120.0) -> None:
+        """Run the background snapshot updater at ~100–120 Hz."""
         if self._updater_thread is not None and self._updater_thread.is_alive():
             return
         self._running = True
-        interval = 1.0 / max(0.1, float(update_hz))
+        interval = 1.0 / max(1.0, float(update_hz))
 
         def _loop() -> None:
             while self._running:
@@ -179,6 +242,10 @@ class TaskFactory:
         )
         self._updater_thread.start()
 
+    def start_monitor(self, *, update_hz: float = 120.0) -> None:
+        """Launch the background snapshot updater thread."""
+        self._start_snapshot_updater(update_hz=update_hz)
+
     def shutdown(self, *, wait: bool = True) -> None:
         """Stop monitor, signal Workers, join, and close the Redis connection."""
         self._running = False
@@ -190,6 +257,7 @@ class TaskFactory:
         if self.redis is not None:
             self.redis.close()
             self.redis = None
+        self._last_op_counts.clear()
         self._logger.info("TaskFactory shutdown complete")
 
 

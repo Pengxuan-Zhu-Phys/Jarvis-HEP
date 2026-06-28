@@ -337,6 +337,54 @@ class RedisQueue:
         value = self.r.get(OP_COUNT.format(kind=kind))
         return int(value or 0)
 
+    def get_all_op_counts(self) -> dict[str, int]:
+        """Return all subsystem op_count values in one pipeline round-trip."""
+        self._require_client()
+        kinds = sorted(_VALID_OP_KINDS)
+        pipe = self.r.pipeline(transaction=False)
+        for kind in kinds:
+            pipe.get(OP_COUNT.format(kind=kind))
+        values = pipe.execute()
+        return {kind: int(value or 0) for kind, value in zip(kinds, values)}
+
+    def get_queue_lengths(self) -> dict[str, int]:
+        """Return task and archive queue lengths in one pipeline round-trip."""
+        self._require_client()
+        pipe = self.r.pipeline(transaction=False)
+        pipe.llen(TASK_QUEUE)
+        pipe.llen(ARCHIVE_QUEUE)
+        task_len, archive_len = pipe.execute()
+        return {
+            "task_queue_length": int(task_len),
+            "archive_queue_length": int(archive_len),
+        }
+
+    def fetch_calculator_status(self) -> dict[str, int | float | str]:
+        """Read the calculator status hash (monitor subsystem fetch)."""
+        self._require_client()
+        calc_status = self.r.hgetall(CALC_STATUS) or {}
+        return {key: _coerce_numeric(value) for key, value in calc_status.items()}
+
+    def fetch_sample_stats(self) -> dict[str, int | float | str]:
+        """Read the sample stats hash (monitor subsystem fetch)."""
+        self._require_client()
+        sample_stats = self.r.hgetall(SAMPLE_STATS) or {}
+        return {key: _coerce_numeric(value) for key, value in sample_stats.items()}
+
+    def fetch_worker_status(self, worker_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Read heartbeat hashes for the given Worker ids."""
+        self._require_client()
+        if not worker_ids:
+            return {}
+        pipe = self.r.pipeline(transaction=False)
+        for worker_id in worker_ids:
+            pipe.hgetall(WORKER_STATUS.format(id=worker_id))
+        rows = pipe.execute()
+        return {
+            str(worker_id): dict(row or {})
+            for worker_id, row in zip(worker_ids, rows)
+        }
+
     def incr_op(self, kind: str, amount: int = 1) -> int:
         self._require_client()
         if kind not in _VALID_OP_KINDS:
