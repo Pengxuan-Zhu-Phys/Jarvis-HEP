@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
+import sympy as sp
 
 
 def _to_json_compatible(value: Any) -> Any:
@@ -23,13 +25,49 @@ def _to_json_compatible(value: Any) -> Any:
     return value
 
 
+def _coerce_numeric_param(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return float(np.asarray(value).item() if isinstance(value, np.generic) else value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _evaluate_dump_value(var: Mapping[str, Any], param_values: Mapping[str, Any]) -> Any:
+    expression = str(var.get("expression", "")).strip()
+    if expression:
+        expr = sp.sympify(expression, locals={"Pi": sp.pi, "pi": sp.pi})
+        substitutions: dict[Any, float] = {}
+        missing: list[str] = []
+        for symbol in expr.free_symbols:
+            name = str(symbol)
+            if name in {"Pi", "pi"}:
+                substitutions[symbol] = math.pi
+                continue
+            numeric = _coerce_numeric_param(param_values.get(name))
+            if numeric is None:
+                missing.append(name)
+                continue
+            substitutions[symbol] = numeric
+        if missing:
+            raise ValueError(f"Dump expression '{expression}' misses parameters: {sorted(missing)}")
+        return float(expr.evalf(subs=substitutions))
+    name = str(var.get("name", ""))
+    return param_values.get(name, "MISSING_VALUE")
+
+
 def write_json_input(
     path: str,
     *,
     actions: list[Mapping[str, Any]],
     param_values: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Write a JSON input file using Dump actions (EchoCalc parity shape)."""
+    """Write a JSON input file using Dump actions (V1-compatible expressions)."""
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -46,7 +84,7 @@ def write_json_input(
             if not isinstance(var, Mapping):
                 continue
             name = str(var.get("name", ""))
-            value = param_values.get(name, "MISSING_VALUE")
+            value = _evaluate_dump_value(var, param_values)
             data[name] = _to_json_compatible(value)
 
     with open(path, "w", encoding="utf-8") as handle:

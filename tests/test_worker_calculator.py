@@ -27,60 +27,62 @@ from jarvishep2.workflow import build_execution_plan
 TESTS_ROOT = os.path.dirname(__file__)
 PARITY_PROJECT = os.path.join(TESTS_ROOT, "parity_project")
 FIXTURES = os.path.join(TESTS_ROOT, "fixtures", "parity_m1")
-ECHO_CALC_DIR = os.path.join(
+EGGBOX_DIR = os.path.join(
     PARITY_PROJECT,
     "calculators",
     "runtime",
     "program",
-    "echo_calc",
+    "eggbox",
     "001",
 )
+EGGBOX_SCRIPT = os.path.join(EGGBOX_DIR, "eggbox.py")
 
-ECHO_CALC_MODULE = {
-    "name": "EchoCalc",
-    "required_modules": ["Parameters"],
+# Mirrors Jarvis-Examples/Eggbox/bin/Example_MultiNest.yaml EggBox calculator block.
+EGGBOX_CALC_MODULE = {
+    "name": "EggBox",
+    "required_modules": [],
     "clone_shadow": False,
-    "path": ECHO_CALC_DIR,
+    "path": EGGBOX_DIR,
     "installation": [],
     "initialization": [],
     "execution": {
-        "path": ECHO_CALC_DIR,
+        "path": EGGBOX_DIR,
         "commands": [
             {
-                "cmd": (
-                    "python3 -c 'import json; p=json.load(open(\"@Sdir/in.json\")); "
-                    "json.dump({\"calc_z\": float(p[\"x\"])*2.0}, open(\"@Sdir/out.json\",\"w\"))'"
-                ),
-                "cwd": ECHO_CALC_DIR,
+                "cmd": f"python3 {EGGBOX_SCRIPT}",
+                "cwd": "@Sdir",
             },
         ],
         "input": [
             {
-                "name": "params",
-                "path": "@Sdir/in.json",
+                "name": "inpjson",
+                "path": "@Sdir/input.json",
                 "type": "JSON",
                 "save": False,
                 "actions": [
                     {
                         "type": "Dump",
-                        "variables": [{"name": "x"}],
+                        "variables": [
+                            {"name": "xx", "expression": "x * Pi"},
+                            {"name": "yy", "expression": "y * Pi"},
+                        ],
                     }
                 ],
             }
         ],
         "output": [
             {
-                "name": "observables",
-                "path": "@Sdir/out.json",
+                "name": "oupjson",
+                "path": "@Sdir/output.json",
                 "type": "JSON",
                 "save": False,
-                "variables": [{"name": "calc_z", "entry": "calc_z"}],
+                "variables": [{"name": "z", "entry": "z"}],
             }
         ],
     },
 }
 
-LIKELIHOOD_EXPRESSIONS = [{"name": "LogL", "expression": "LogGauss(calc_z, calc_z, 1.0)"}]
+LIKELIHOOD_EXPRESSIONS = [{"name": "LogL", "expression": "LogGauss(z, z, 1.0)"}]
 
 
 def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict[str, Any]]:
@@ -100,8 +102,8 @@ def _worker_config(tmpdir: str) -> dict[str, Any]:
             "workflow_has_calculator": True,
             "workflow_references_sdir": True,
         },
-        "mapper": {"type": "identity", "keys": ["x"]},
-        "calculator_modules": [ECHO_CALC_MODULE],
+        "mapper": {"type": "identity", "keys": ["x", "y"]},
+        "calculator_modules": [EGGBOX_CALC_MODULE],
         "likelihood_expressions": LIKELIHOOD_EXPRESSIONS,
         "pull_timeout": 1,
     }
@@ -113,17 +115,23 @@ def _load_csv_points() -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _normalize_scalar(value: Any) -> float:
+    number = float(value)
+    return 0.0 if number == 0.0 else number
+
+
 def _normalize_database_records(records: list[dict[str, Any]]) -> list[dict[str, float]]:
     normalized = []
     for row in records:
         normalized.append(
             {
-                "x": float(row["x"]),
-                "calc_z": float(row["calc_z"]),
-                "LogL": float(row["LogL"]),
+                "x": round(_normalize_scalar(row["x"]), 12),
+                "y": round(_normalize_scalar(row["y"]), 12),
+                "z": round(_normalize_scalar(row["z"]), 12),
+                "LogL": round(_normalize_scalar(row["LogL"]), 12),
             }
         )
-    return sorted(normalized, key=lambda item: item["x"])
+    return sorted(normalized, key=lambda item: (item["x"], item["y"]))
 
 
 def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
@@ -146,11 +154,11 @@ def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
 class WorkflowCalculatorTests(unittest.TestCase):
     def test_build_execution_plan_orders_calculator_before_likelihood(self) -> None:
         plan = build_execution_plan(
-            calculator_modules=[ECHO_CALC_MODULE],
+            calculator_modules=[EGGBOX_CALC_MODULE],
             include_likelihood=True,
         )
         self.assertEqual([step.type for step in plan], ["calculator", "likelihood"])
-        self.assertEqual(plan[0].name, "EchoCalc")
+        self.assertEqual(plan[0].name, "EggBox")
         self.assertEqual(plan[0].layer, 0)
         # calculator-only plans reserve layer 1 for a future opera layer
         self.assertEqual(plan[1].layer, 2)
@@ -158,14 +166,14 @@ class WorkflowCalculatorTests(unittest.TestCase):
 
 class CalculatorModuleUnitTests(unittest.TestCase):
     def test_preload_templates_is_idempotent(self) -> None:
-        module = CalculatorModule("EchoCalc", ECHO_CALC_MODULE)
+        module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
         module.preload_templates()
         module.preload_templates()
         self.assertTrue(module._templates_loaded)
 
     def test_execute_produces_expected_observables(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            sample = Sample.from_params({"x": 0.25, "uuid": "unit-sample"})
+            sample = Sample.from_params({"x": 0.25, "y": 0.25, "uuid": "unit-sample"})
             sample.set_config(
                 {
                     "sample_dirs": tmpdir,
@@ -176,13 +184,17 @@ class CalculatorModuleUnitTests(unittest.TestCase):
                 }
             )
             sample.materialize()
-            module = CalculatorModule("EchoCalc", ECHO_CALC_MODULE)
+            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
             module.preload_templates()
             module.acquire_pack_id("pack-test")
             result = module.execute(sample.info)
-            self.assertAlmostEqual(float(result["calc_z"]), 0.5)
-            self.assertTrue(os.path.exists(os.path.join(sample.save_dir, "in.json")))
-            self.assertTrue(os.path.exists(os.path.join(sample.save_dir, "out.json")))
+            from math import pi
+            from numpy import sin, cos
+
+            expected_z = float((sin(0.25 * pi) * cos(0.25 * pi) + 2) ** 5)
+            self.assertAlmostEqual(float(result["z"]), expected_z, places=6)
+            self.assertTrue(os.path.exists(os.path.join(sample.save_dir, "input.json")))
+            self.assertTrue(os.path.exists(os.path.join(sample.save_dir, "output.json")))
 
 
 class WorkerCalculatorIntegrationTests(unittest.TestCase):
@@ -219,14 +231,16 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
                 sampler = SamplingVirtial()
                 sampler.set_config(core.config)
                 sampler.set_execution_plan_template(
-                    calculator_modules=[ECHO_CALC_MODULE],
+                    calculator_modules=[EGGBOX_CALC_MODULE],
                     include_likelihood=True,
                 )
                 core.set_sampler(sampler)
 
                 samples = []
                 for row in _load_csv_points():
-                    sample = sampler._build_sample(np.array([float(row["x"])], dtype=np.float64))
+                    sample = sampler._build_sample(
+                        np.array([float(row["x"]), float(row["y"])], dtype=np.float64)
+                    )
                     sample.uuid = str(row["uuid"])
                     samples.append(sample)
 
@@ -258,12 +272,12 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
                 assert factory.redis is not None
 
                 plan = build_execution_plan(
-                    calculator_modules=[ECHO_CALC_MODULE],
+                    calculator_modules=[EGGBOX_CALC_MODULE],
                     include_likelihood=True,
                 )
                 sample = Sample(
                     uuid="pack-trace-sample",
-                    u_coords=np.array([0.25], dtype=np.float64),
+                    u_coords=np.array([0.25, 0.25], dtype=np.float64),
                     execution_plan=plan,
                 )
                 factory.redis.push_task(sample.to_task_dict())
@@ -281,11 +295,15 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
                 self.assertEqual(result["status"], "Completed")
                 self.assertIn("pack_id", result)
                 self.assertTrue(str(result["pack_id"]).strip())
-                self.assertAlmostEqual(float(result["observables"]["calc_z"]), 0.5)
+                from math import pi
+                from numpy import sin, cos
+
+                expected_z = float((sin(0.25 * pi) * cos(0.25 * pi) + 2) ** 5)
+                self.assertAlmostEqual(float(result["observables"]["z"]), expected_z, places=6)
                 sample_dir = os.path.join(tmpdir, "SAMPLE", "pack-trace-sample")
                 self.assertTrue(os.path.isdir(sample_dir))
-                self.assertTrue(os.path.exists(os.path.join(sample_dir, "in.json")))
-                self.assertTrue(os.path.exists(os.path.join(sample_dir, "out.json")))
+                self.assertTrue(os.path.exists(os.path.join(sample_dir, "input.json")))
+                self.assertTrue(os.path.exists(os.path.join(sample_dir, "output.json")))
         finally:
             server.shutdown()
             server.server_close()
@@ -300,7 +318,7 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
 
                 sample = Sample(
                     uuid="calc-failed",
-                    u_coords=np.array([0.5]),
+                    u_coords=np.array([0.5, 0.5]),
                     execution_plan=[
                         ExecutionStep(type="calculator", name="MissingCalc", layer=0),
                     ],

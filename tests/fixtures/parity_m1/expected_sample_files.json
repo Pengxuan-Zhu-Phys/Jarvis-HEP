@@ -1,5 +1,5 @@
 [
   "Sample_running.log",
-  "in.json",
-  "out.json"
+  "input.json",
+  "output.json"
 ]
