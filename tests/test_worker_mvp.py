@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import tempfile
 import threading
 import time
@@ -322,6 +323,89 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertEqual(updated["sample_stats"].get("completed"), 1)
         self.assertGreaterEqual(updated["op_counts"]["sample"], 1)
 
+    def test_factory_collect_status_issues_no_redis_writes(self) -> None:
+        factory = TaskFactory.get_instance()
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory._snapshot = factory._collect_latest_status()
+        assert queue.r is not None
+
+        write_methods = (
+            "set",
+            "mset",
+            "incr",
+            "incrby",
+            "hset",
+            "hincrby",
+            "rpush",
+            "lpush",
+            "delete",
+            "hdel",
+        )
+        originals = {name: getattr(queue.r, name) for name in write_methods}
+        writes = {"count": 0}
+
+        def _guard(name: str, original: Any) -> Any:
+            def guarded(*args: Any, **kwargs: Any) -> Any:
+                writes["count"] += 1
+                return original(*args, **kwargs)
+
+            return guarded
+
+        for method_name in write_methods:
+            setattr(queue.r, method_name, _guard(method_name, originals[method_name]))
+
+        for _ in range(5):
+            factory._snapshot = factory._collect_latest_status()
+        self.assertEqual(writes["count"], 0)
+
+    def test_worker_submits_single_sample_op_count_increment(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **_worker_config(tmpdir))
+                assert factory.redis is not None
+
+                sample = Sample(
+                    uuid="opcount-sample",
+                    u_coords=np.array([0.2, 0.3, 0.4], dtype=np.float64),
+                    execution_plan=[
+                        ExecutionStep(type="opera", name="TrivialEggbox", layer=0),
+                        ExecutionStep(type="likelihood", name="LogLikelihood", layer=1),
+                    ],
+                )
+                factory.redis.push_task(sample.to_task_dict())
+
+                deadline = time.monotonic() + 15.0
+                result = None
+                while time.monotonic() < deadline:
+                    result = factory.redis.pull_result(timeout=1)
+                    if result is not None:
+                        break
+                self.assertIsNotNone(result)
+                self.assertEqual(factory.redis.get_op_count("sample"), 1)
+                factory.shutdown()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_shutdown_clears_monitor_snapshot(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            factory = TaskFactory.get_instance(redis_config)
+            factory.init_redis()
+            factory.start_monitor(update_hz=20.0)
+            time.sleep(0.1)
+            self.assertTrue(factory.get_monitor_snapshot())
+
+            factory.shutdown()
+            self.assertEqual(factory.get_monitor_snapshot(), {})
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_shutdown_stops_monitor_thread(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
         try:
@@ -341,7 +425,7 @@ class WorkerMVPTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-    def test_graceful_sigterm_finishes_inflight_sample(self) -> None:
+    def _graceful_signal_finishes_inflight_sample(self, signum: int) -> None:
         server, redis_config = _start_tcp_fakeredis()
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -361,8 +445,14 @@ class WorkerMVPTests(unittest.TestCase):
                 core.init_archiver(os.path.join(tmpdir, "DATABASE", "samples.hdf5"))
 
                 assert core.redis is not None
+                assert core.factory is not None
+                assert core.factory.workers
+                worker = core.factory.workers[0]
+                time.sleep(0.2)
+                assert worker.pid is not None
+
                 sample = Sample(
-                    uuid="sigterm-sample",
+                    uuid=f"signal-sample-{signum}",
                     u_coords=np.array([0.2, 0.3, 0.4], dtype=np.float64),
                     execution_plan=[
                         ExecutionStep(type="opera", name="TrivialEggbox", layer=0),
@@ -371,14 +461,19 @@ class WorkerMVPTests(unittest.TestCase):
                 )
                 core.redis.push_task(sample.to_task_dict())
                 time.sleep(0.5)
-                assert core.factory is not None
-                core.factory.request_worker_shutdown()
+                os.kill(worker.pid, signum)
                 core.factory.stop_all_workers(graceful=True, join_timeout=15.0)
                 core.archiver.stop(drain=True)
                 self.assertEqual(core.archiver.records_written, 1)
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_graceful_sigterm_finishes_inflight_sample(self) -> None:
+        self._graceful_signal_finishes_inflight_sample(signal.SIGTERM)
+
+    def test_graceful_sigint_finishes_inflight_sample(self) -> None:
+        self._graceful_signal_finishes_inflight_sample(signal.SIGINT)
 
 
 if __name__ == "__main__":

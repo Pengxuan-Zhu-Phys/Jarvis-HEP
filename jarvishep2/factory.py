@@ -64,9 +64,9 @@ class TaskFactory:
     def start_workers(self, n: int, **worker_kwargs: Any) -> list[Worker]:
         """Spawn ``n`` Worker processes via the spawn context.
 
-        The live control-process :attr:`redis` queue is passed into each
-        :class:`Worker`; only its picklable connection settings cross the spawn
-        boundary. Child Workers open their own Redis clients in ``run()``.
+        Each :class:`Worker` receives only picklable connection settings derived
+        from the control-process queue; child Workers open their own Redis clients
+        in ``run()``.
 
         Raises:
             RuntimeError: If Redis is not initialized or workers are already running.
@@ -83,11 +83,12 @@ class TaskFactory:
             )
         self.workers = [worker for worker in self.workers if worker.is_alive()]
 
+        redis_config = self.redis.connection_config()
         shared_config = dict(worker_kwargs)
         started: list[Worker] = []
         for worker_id in range(n):
             config = copy.deepcopy(shared_config)
-            worker = Worker(worker_id, self.redis, config)
+            worker = Worker(worker_id, redis_config, config)
             worker.start()
             started.append(worker)
         self.workers.extend(started)
@@ -251,6 +252,8 @@ class TaskFactory:
         self._running = False
         if self._updater_thread is not None:
             self._updater_thread.join(timeout=2.0)
+            if self._updater_thread.is_alive():
+                self._logger.warning("monitor thread did not stop within timeout")
             self._updater_thread = None
         self.request_worker_shutdown()
         self.stop_all_workers(graceful=wait)
@@ -258,6 +261,8 @@ class TaskFactory:
             self.redis.close()
             self.redis = None
         self._last_op_counts.clear()
+        with self._snapshot_lock:
+            self._snapshot = {}
         self._logger.info("TaskFactory shutdown complete")
 
 
