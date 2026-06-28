@@ -82,6 +82,19 @@ class RedisQueueTests(unittest.TestCase):
             self.queue.push_task({"uuid": "abc"})
         with self.assertRaises(TaskValidationError):
             self.queue.push_many_tasks([{"uuid": "only-uuid"}])
+        with self.assertRaises(TaskValidationError):
+            self.queue.push_task(
+                {
+                    "uuid": "bad-plan",
+                    "execution_plan": [{"type": "bogus", "name": "X", "layer": 0}],
+                }
+            )
+        with self.assertRaises(TaskValidationError):
+            self.queue.push_task(
+                {"uuid": "bad-artifacts", "u_coords": [0.1], "sample_artifacts": "sometimes"}
+            )
+        with self.assertRaises(TaskValidationError):
+            self.queue.push_task({"uuid": "bad-coords", "u_coords": "not-a-list"})
 
     def test_push_many_tasks_increments_op_count_once(self):
         tasks = [_minimal_task() for _ in range(5)]
@@ -173,6 +186,10 @@ class RedisQueueTests(unittest.TestCase):
     def test_submit_result_rejects_missing_uuid(self):
         with self.assertRaises(TaskValidationError):
             self.queue.submit_result({"status": "Completed"})
+        with self.assertRaises(TaskValidationError):
+            self.queue.submit_result({"uuid": "x", "status": "Broken"})
+        with self.assertRaises(TaskValidationError):
+            self.queue.submit_result({"uuid": "x", "observables": "not-a-dict"})
 
     def test_heartbeat_preserves_numeric_types(self):
         self.queue.heartbeat("worker-1", status="idle", pid=1234, load=0.75)

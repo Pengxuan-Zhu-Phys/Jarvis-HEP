@@ -24,6 +24,11 @@ OP_COUNT = "hep:{kind}:op_count"
 
 _CALC_SLOT_TOKEN = "ready"
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
+_VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
+_VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
+_VALID_EXECUTION_STEP_TYPES = frozenset(
+    {"calculator", "opera", "likelihood", "nuisance_optimize"}
+)
 
 
 class CodecError(RuntimeError):
@@ -104,7 +109,36 @@ def _encode_heartbeat_value(value: Any) -> str | int | float:
     return json.dumps(value, default=_json_default, separators=(",", ":"))
 
 
+def _validate_u_coords(value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, np.ndarray):
+        return
+    if isinstance(value, (list, tuple)):
+        return
+    raise TaskValidationError("u_coords must be a list, tuple, or numpy array")
+
+
+def _validate_execution_plan(plan: Any) -> None:
+    if plan is None:
+        return
+    if not isinstance(plan, list):
+        raise TaskValidationError("execution_plan must be a list")
+    for index, step in enumerate(plan):
+        if not isinstance(step, Mapping):
+            raise TaskValidationError(f"execution_plan[{index}] must be a mapping")
+        step_type = str(step.get("type", "")).strip()
+        if step_type not in _VALID_EXECUTION_STEP_TYPES:
+            allowed = ", ".join(sorted(_VALID_EXECUTION_STEP_TYPES))
+            raise TaskValidationError(
+                f"execution_plan[{index}].type '{step_type}' is invalid; allowed: {allowed}"
+            )
+        if "layer" not in step:
+            raise TaskValidationError(f"execution_plan[{index}] requires 'layer'")
+
+
 def _validate_task_payload(task: Mapping[str, Any]) -> None:
+    """Validate a lightweight task dict before it enters hep:task_queue."""
     if not isinstance(task, Mapping):
         raise TaskValidationError("task payload must be a mapping")
     uuid = task.get("uuid")
@@ -114,14 +148,33 @@ def _validate_task_payload(task: Mapping[str, Any]) -> None:
     has_plan = bool(task.get("execution_plan"))
     if not has_coords and not has_plan:
         raise TaskValidationError("task payload requires 'u_coords' and/or 'execution_plan'")
+    if has_coords:
+        _validate_u_coords(task.get("u_coords"))
+    if has_plan:
+        _validate_execution_plan(task.get("execution_plan"))
+    if "sample_artifacts" in task:
+        mode = str(task["sample_artifacts"]).strip().lower()
+        if mode not in _VALID_SAMPLE_ARTIFACTS:
+            raise TaskValidationError(
+                f"sample_artifacts must be one of {sorted(_VALID_SAMPLE_ARTIFACTS)}"
+            )
 
 
 def _validate_result_payload(info: Mapping[str, Any]) -> None:
+    """Validate a result/info dict before it enters the archive queue."""
     if not isinstance(info, Mapping):
         raise TaskValidationError("result payload must be a mapping")
     uuid = info.get("uuid")
     if not uuid or not str(uuid).strip():
         raise TaskValidationError("result payload requires non-empty 'uuid'")
+    status = info.get("status")
+    if status is not None and str(status) not in _VALID_RESULT_STATUSES:
+        raise TaskValidationError(
+            f"result status '{status}' is invalid; allowed: {sorted(_VALID_RESULT_STATUSES)}"
+        )
+    observables = info.get("observables")
+    if observables is not None and not isinstance(observables, Mapping):
+        raise TaskValidationError("result observables must be a mapping when provided")
 
 
 class RedisQueue:
@@ -325,6 +378,29 @@ def _coerce_numeric(value: Any) -> int | float | str:
         return int(text)
     except ValueError:
         return text
+
+
+__all__ = [
+    "ARCHIVE_QUEUE",
+    "CALC_BUSY_PACKS",
+    "CALC_FREE",
+    "CALC_STATUS",
+    "CodecError",
+    "OP_COUNT",
+    "RESULTS",
+    "RedisQueue",
+    "SAMPLE_STATS",
+    "TASK_QUEUE",
+    "TaskValidationError",
+    "WORKER_STATUS",
+    "calc_busy_packs_key",
+    "calc_free_list_key",
+    "calc_status_busy_field",
+    "calc_status_free_field",
+    "decode_payload",
+    "encode_payload",
+    "make_fakeredis_queue",
+]
 
 
 def make_fakeredis_queue(**config: Any) -> RedisQueue:

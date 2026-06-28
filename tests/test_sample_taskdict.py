@@ -218,12 +218,39 @@ class SampleTaskDictTests(unittest.TestCase):
     def test_bind_params_placeholder_accepts_mapper(self):
         class _StubMapper:
             def map(self, u_coords):
-                return {"x": float(u_coords[0]), "uuid": "mapped"}
+                return {"x": float(u_coords[0])}
 
         sample = Sample(uuid="u-1", u_coords=np.array([2.5]))
         sample.bind_params(_StubMapper())
         self.assertEqual(sample.params["x"], 2.5)
+        self.assertEqual(sample.observables["uuid"], "u-1")
+        self.assertTrue(sample._params_bound)
+        sample.bind_params(_StubMapper())
+        self.assertEqual(sample.params["x"], 2.5)
         sample.bind_params(None)
+
+    def test_to_info_dict_and_record_include_timings_and_metadata(self):
+        sample = Sample(
+            uuid="rec-1",
+            u_coords=np.array([0.2]),
+            status="Completed",
+            params={"x": 1.0},
+            observables={"x": 1.0, "LogL": -1.0},
+        )
+        sample.info = {
+            "elapsed_s": 1.25,
+            "worker_id": "w-9",
+            "pack_id": "pack-1",
+        }
+        info = sample.to_info_dict()
+        self.assertEqual(info["timings"]["elapsed_s"], 1.25)
+        self.assertEqual(info["worker_id"], "w-9")
+
+        record = sample.record()
+        self.assertEqual(record["uuid"], "rec-1")
+        self.assertEqual(record["observables"]["LogL"], -1.0)
+        self.assertEqual(record["metadata"]["worker_id"], "w-9")
+        self.assertNotIn("logger", record)
 
     def test_ensure_sample_materialized_from_info_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:

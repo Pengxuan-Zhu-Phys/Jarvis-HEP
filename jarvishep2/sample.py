@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import os
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
 import numpy as np
@@ -33,6 +33,25 @@ def _utc_now_iso() -> str:
 VALID_EXECUTION_STEP_TYPES = frozenset(
     {"calculator", "opera", "likelihood", "nuisance_optimize"}
 )
+
+_INFO_PROJECTION_KEYS = (
+    "save_dir",
+    "run_log",
+    "logger_name",
+    "pack_id",
+    "NAttempt",
+    "worker_id",
+)
+_TIMING_KEYS = ("elapsed_s", "started_at", "finished_at")
+
+
+@runtime_checkable
+class UMapperProtocol(Protocol):
+    """Worker-held u → x mapper contract (full UMapper implementation lands in D1)."""
+
+    def map(self, u_coords: np.ndarray) -> Mapping[str, Any]:
+        """Map normalized u_coords to physical parameter dict."""
+        ...
 
 
 def _validate_execution_step_type(step_type: str) -> str:
@@ -99,6 +118,7 @@ class Sample:
     _logger: SampleLogger | BufferedSampleLogger | None = field(default=None, repr=False)
     _with_nuisance: bool = field(default=False, repr=False)
     _likelihood: Any = field(default=None, repr=False)
+    _params_bound: bool = field(default=False, repr=False)
 
     @classmethod
     def from_params(cls, params: Mapping[str, Any]) -> Sample:
@@ -174,35 +194,56 @@ class Sample:
 
     def to_info_dict(self) -> dict[str, Any]:
         """Result/monitor projection without live handles (invariant #8)."""
-        projection = {
+        projection: dict[str, Any] = {
             "uuid": self.uuid,
             "status": self.status,
             "params": dict(self.params),
             "observables": dict(self.observables),
             "likelihood": self._likelihood,
+            "opera_params": dict(self.opera_params),
             "sample_artifacts": self.sample_artifacts,
             "execution_plan": [step.to_dict() for step in self.execution_plan],
             "priority": self.priority,
             "created_at": self.created_at,
         }
-        for key in ("save_dir", "run_log", "logger_name", "pack_id", "NAttempt"):
-            if key in self.info:
-                projection[key] = self.info[key]
+        if isinstance(self.info, dict):
+            timings = {
+                key: self.info[key] for key in _TIMING_KEYS if key in self.info
+            }
+            if timings:
+                projection["timings"] = timings
+            for key in _INFO_PROJECTION_KEYS:
+                if key in self.info:
+                    projection[key] = self.info[key]
         projection.pop("logger", None)
         return projection
 
-    def bind_params(self, mapper: Any) -> None:
-        """Worker-side u → x mapping via a UMapper-like object (placeholder until UMapper lands)."""
+    def bind_params(self, mapper: UMapperProtocol | None) -> None:
+        """Map u_coords → params/observables via the Worker-held UMapper.
+
+        Idempotent: safe to call multiple times; always re-maps from the current
+        ``u_coords``. The full ``UMapper`` class lands in a later milestone; any object
+        exposing ``map(u_coords) -> Mapping[str, Any]`` is accepted here.
+        """
         if mapper is None:
             return
+        if not hasattr(mapper, "map"):
+            raise TypeError("mapper must provide a map(u_coords) method")
+
         mapped = mapper.map(self.u_coords)
-        if isinstance(mapped, Mapping):
-            self.params = dict(mapped)
-            self.observables = dict(mapped)
-            self.observables["uuid"] = self.uuid
-            if self.info:
-                self.info["params"] = dict(self.params)
-                self.info["observables"] = dict(self.observables)
+        if not isinstance(mapped, Mapping):
+            raise TypeError("mapper.map(u_coords) must return a mapping")
+
+        self.params = dict(mapped)
+        self.observables = dict(mapped)
+        self.observables["uuid"] = self.uuid
+        self._params_bound = True
+
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["params"] = dict(self.params)
+        self.info["observables"] = dict(self.observables)
+        self.info["uuid"] = self.uuid
 
     def set_config(self, config: Mapping[str, Any]) -> None:
         self.info = dict(config)
@@ -456,7 +497,31 @@ class Sample:
         self._logger = None
 
     def record(self) -> dict[str, Any]:
-        return dict(self.to_info_dict())
+        """Final Archiver record: observables plus result metadata."""
+        info = self.to_info_dict()
+        metadata = {
+            key: info[key]
+            for key in (
+                "status",
+                "params",
+                "likelihood",
+                "timings",
+                "save_dir",
+                "pack_id",
+                "worker_id",
+                "logger_name",
+                "sample_artifacts",
+                "execution_plan",
+                "priority",
+                "created_at",
+            )
+            if key in info
+        }
+        return {
+            "uuid": info["uuid"],
+            "observables": dict(info.get("observables", {})),
+            "metadata": metadata,
+        }
 
     @staticmethod
     def format_summary(
@@ -565,3 +630,13 @@ def materialize_failure_artifacts(
         message = f"Sample failed -> {error}"
 
     return ensure_sample_materialized(sample_info, failure_message=message)
+
+
+__all__ = [
+    "ExecutionStep",
+    "Sample",
+    "UMapperProtocol",
+    "VALID_EXECUTION_STEP_TYPES",
+    "ensure_sample_materialized",
+    "materialize_failure_artifacts",
+]
