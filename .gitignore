@@ -1,2 +1,11 @@
 logs/
 jarvishep2.egg-info/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# macOS
+.DS_Store
