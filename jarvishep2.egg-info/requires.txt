@@ -1,4 +1,6 @@
+h5py>=3.8
 numpy>=1.24
+sympy>=1.12
 
 [dev]
 pytest>=7.0

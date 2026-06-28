@@ -12,6 +12,8 @@ from jarvishep2.redis_queue import (
     TaskValidationError,
     make_fakeredis_queue,
 )
+from jarvishep2.core import Jarvis2Core
+from jarvishep2.factory import TaskFactory
 from jarvishep2.sample import (
     ExecutionStep,
     Sample,
@@ -20,16 +22,20 @@ from jarvishep2.sample import (
     ensure_sample_materialized,
     materialize_failure_artifacts,
 )
+from jarvishep2.worker import Worker
 
 __all__ = [
     "BufferedSampleLogger",
     "ExecutionStep",
+    "Jarvis2Core",
     "RedisQueue",
     "Sample",
     "SampleLogger",
+    "TaskFactory",
     "TaskValidationError",
     "UMapperProtocol",
     "VALID_EXECUTION_STEP_TYPES",
+    "Worker",
     "ensure_sample_materialized",
     "get_jarvis_logger",
     "make_fakeredis_queue",

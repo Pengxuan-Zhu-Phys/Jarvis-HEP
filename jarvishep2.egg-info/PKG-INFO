@@ -5,7 +5,9 @@ Summary: Jarvis-HEP V2 distributed runtime (Redis + spawn Workers)
 License: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+Requires-Dist: h5py>=3.8
 Requires-Dist: numpy>=1.24
+Requires-Dist: sympy>=1.12
 Provides-Extra: distributed
 Requires-Dist: redis>=5.0; extra == "distributed"
 Requires-Dist: msgpack>=1.0; extra == "distributed"
