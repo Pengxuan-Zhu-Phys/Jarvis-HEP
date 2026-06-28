@@ -122,9 +122,7 @@ class Worker(Process):
     def _stage_and_submit(self, sample: Sample) -> None:
         if self._redis is None:
             return
-        info = sample.to_info_dict()
-        self._redis.submit_result(info)
-        self._redis.incr_op("sample")
+        self._redis.submit_result(sample.to_info_dict())
 
     def process_task(self, task: Mapping[str, Any]) -> None:
         """Core pipeline: rebuild Sample, execute workflow, submit result."""
