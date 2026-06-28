@@ -93,6 +93,35 @@ class WorkerMVPTests(unittest.TestCase):
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
 
+    def test_task_factory_starts_worker_and_monitor_snapshot(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **_worker_config(tmpdir))
+                factory.start_monitor(update_hz=5.0)
+                time.sleep(0.3)
+
+                snapshot = factory.get_monitor_snapshot()
+                self.assertIn("workers", snapshot)
+                self.assertEqual(snapshot["workers_total"], 1)
+                self.assertEqual(snapshot["workers_alive"], 1)
+                self.assertEqual(len(snapshot["workers"]), 1)
+                self.assertTrue(snapshot["workers"][0]["alive"])
+                self.assertIn("task_queue_length", snapshot)
+                self.assertIn("op_counts", snapshot)
+
+                factory.shutdown()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_core_skips_factory_when_mode_not_redis(self) -> None:
+        core = Jarvis2Core({"Runtime": {"mode": "auto"}})
+        self.assertFalse(core.is_redis_runtime())
+        self.assertIsNone(core.init_factory())
+
     def test_worker_config_pickles_under_spawn_context(self) -> None:
         config = _worker_config(tempfile.mkdtemp())
         redis_config = {"host": "127.0.0.1", "port": 6379}

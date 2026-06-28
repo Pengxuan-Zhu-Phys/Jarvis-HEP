@@ -32,6 +32,10 @@ class Jarvis2Core:
     def init_logger(self) -> None:
         setup_jarvis_logging(role="core")
 
+    def is_redis_runtime(self) -> bool:
+        """Return True when the distributed Redis path should be used."""
+        return str(self.runtime.get("mode", "auto")).strip().lower() == "redis"
+
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         redis_config = dict(self.runtime.get("redis") or {})
         if client is not None:
@@ -43,18 +47,26 @@ class Jarvis2Core:
         self.redis.connect()
         return self.redis
 
-    def init_factory(self, worker_config: Mapping[str, Any] | None = None) -> TaskFactory:
+    def init_factory(self, worker_config: Mapping[str, Any] | None = None) -> TaskFactory | None:
+        if not self.is_redis_runtime():
+            self._logger.info("Runtime.mode != redis; skipping TaskFactory bring-up")
+            return None
+
         redis_config = dict(self.runtime.get("redis") or {})
         self.factory = TaskFactory.get_instance(redis_config)
         if self.redis is not None:
             self.factory.redis = self.redis
         else:
             self.factory.init_redis()
+
         workers = int(self.runtime.get("workers", 1) or 1)
         if workers <= 0:
             workers = 1
-        self.factory.start_workers(workers, worker_config=dict(worker_config or {}))
+
+        merged_config = dict(worker_config or {})
+        self.factory.start_workers(workers, **merged_config)
         self.factory.start_monitor(update_hz=2.0)
+        self._logger.info("TaskFactory started with %d worker(s)", workers)
         return self.factory
 
     def init_archiver(self, db_path: str | None = None) -> SimpleArchiver:
