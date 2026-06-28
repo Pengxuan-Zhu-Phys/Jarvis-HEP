@@ -21,6 +21,7 @@ from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.sample import ExecutionStep, Sample
+from jarvishep2.workflow import build_execution_plan
 
 
 TESTS_ROOT = os.path.dirname(__file__)
@@ -142,6 +143,19 @@ def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
     return sorted(manifests)
 
 
+class WorkflowCalculatorTests(unittest.TestCase):
+    def test_build_execution_plan_orders_calculator_before_likelihood(self) -> None:
+        plan = build_execution_plan(
+            calculator_modules=[ECHO_CALC_MODULE],
+            include_likelihood=True,
+        )
+        self.assertEqual([step.type for step in plan], ["calculator", "likelihood"])
+        self.assertEqual(plan[0].name, "EchoCalc")
+        self.assertEqual(plan[0].layer, 0)
+        # calculator-only plans reserve layer 1 for a future opera layer
+        self.assertEqual(plan[1].layer, 2)
+
+
 class CalculatorModuleUnitTests(unittest.TestCase):
     def test_preload_templates_is_idempotent(self) -> None:
         module = CalculatorModule("EchoCalc", ECHO_CALC_MODULE)
@@ -230,6 +244,48 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
                 self.assertEqual(len(tree), 10)
                 for files in tree:
                     self.assertEqual(files, expected_files)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_worker_calculator_pack_id_traceability_in_result(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **_worker_config(tmpdir))
+                assert factory.redis is not None
+
+                plan = build_execution_plan(
+                    calculator_modules=[ECHO_CALC_MODULE],
+                    include_likelihood=True,
+                )
+                sample = Sample(
+                    uuid="pack-trace-sample",
+                    u_coords=np.array([0.25], dtype=np.float64),
+                    execution_plan=plan,
+                )
+                factory.redis.push_task(sample.to_task_dict())
+
+                deadline = time.monotonic() + 20.0
+                result = None
+                while time.monotonic() < deadline:
+                    result = factory.redis.pull_result(timeout=1)
+                    if result is not None:
+                        break
+                factory.shutdown()
+
+                self.assertIsNotNone(result)
+                assert result is not None
+                self.assertEqual(result["status"], "Completed")
+                self.assertIn("pack_id", result)
+                self.assertTrue(str(result["pack_id"]).strip())
+                self.assertAlmostEqual(float(result["observables"]["calc_z"]), 0.5)
+                sample_dir = os.path.join(tmpdir, "SAMPLE", "pack-trace-sample")
+                self.assertTrue(os.path.isdir(sample_dir))
+                self.assertTrue(os.path.exists(os.path.join(sample_dir, "in.json")))
+                self.assertTrue(os.path.exists(os.path.join(sample_dir, "out.json")))
         finally:
             server.shutdown()
             server.server_close()
