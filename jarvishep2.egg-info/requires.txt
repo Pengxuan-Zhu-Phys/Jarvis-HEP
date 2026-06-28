@@ -1,0 +1,11 @@
+numpy>=1.24
+
+[dev]
+pytest>=7.0
+fakeredis>=2.0
+colorlog>=6.0
+
+[distributed]
+redis>=5.0
+msgpack>=1.0
+aiofiles>=23.0

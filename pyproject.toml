@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvishep2"
+version = "2.0.0.dev0"
+description = "Jarvis-HEP V2 distributed runtime (Redis + spawn Workers)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+distributed = [
+    "redis>=5.0",
+    "msgpack>=1.0",
+    "aiofiles>=23.0",
+]
+dev = [
+    "pytest>=7.0",
+    "fakeredis>=2.0",
+    "colorlog>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["jarvishep2*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
