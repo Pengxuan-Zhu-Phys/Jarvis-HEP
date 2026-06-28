@@ -24,6 +24,7 @@ class SamplingVirtial:
         self.runtime_mode = "auto"
         self._execution_plan_template: list[dict[str, Any]] = []
         self._opera_modules: list[dict[str, Any]] = []
+        self._calculator_modules: list[dict[str, Any]] = []
         self._sample_artifacts = "auto"
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -37,13 +38,16 @@ class SamplingVirtial:
 
     def set_execution_plan_template(
         self,
-        opera_modules: list[dict[str, Any]],
+        opera_modules: list[dict[str, Any]] | None = None,
         *,
+        calculator_modules: list[dict[str, Any]] | None = None,
         include_likelihood: bool = True,
     ) -> None:
-        self._opera_modules = list(opera_modules)
+        self._opera_modules = list(opera_modules or [])
+        self._calculator_modules = list(calculator_modules or [])
         self._execution_plan_template = execution_plan_template(
-            self._opera_modules,
+            opera_modules=self._opera_modules,
+            calculator_modules=self._calculator_modules,
             include_likelihood=include_likelihood,
         )
 

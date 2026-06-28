@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jarvishep2.likelihood import LogLikelihoodEvaluator
+from jarvishep2.Module.calculator import CalculatorModule, mint_pack_id
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.mapper import build_mapper
 from jarvishep2.mp_context import get_spawn_context
@@ -42,6 +43,7 @@ class Worker(Process):
         self._redis: RedisQueue | None = None
         self._mapper = None
         self._operas: dict[str, Any] = {}
+        self._calculators: dict[str, CalculatorModule] = {}
         self._likelihood: LogLikelihoodEvaluator | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
@@ -68,6 +70,10 @@ class Worker(Process):
                 for index, item in enumerate(opera_configs)
             }
         self._operas = preload_operas(opera_configs)
+        calculator_configs = self.worker_config.get("calculator_modules") or []
+        if isinstance(calculator_configs, dict):
+            calculator_configs = list(calculator_configs.values())
+        self._calculators = CalculatorModule.from_config_list(calculator_configs)
         likelihood_exprs = self.worker_config.get("likelihood_expressions") or []
         self._likelihood = LogLikelihoodEvaluator(likelihood_exprs)
 
@@ -81,6 +87,19 @@ class Worker(Process):
             current_sample=self._current_sample_uuid,
             ts=time.time(),
         )
+
+    def _run_calculator_step(self, step_name: str, sample: Sample) -> None:
+        module = self._calculators.get(step_name)
+        if module is None:
+            raise KeyError(f"unknown calculator module '{step_name}'")
+        pack_id = mint_pack_id()
+        if isinstance(sample.info, dict):
+            sample.info["pack_id"] = pack_id
+        module.acquire_pack_id(pack_id)
+        updated = module.execute(sample.info)
+        sample.observables.update(updated)
+        if isinstance(sample.info, dict):
+            sample.info["observables"] = dict(sample.observables)
 
     def _run_opera_step(self, step_name: str, sample: Sample) -> None:
         module = self._operas.get(step_name)
@@ -124,7 +143,9 @@ class Worker(Process):
             sample.materialize(worker_id=str(self.worker_id))
             for layer in group_by_layer(sample.execution_plan):
                 for step in layer:
-                    if step.type == "opera":
+                    if step.type == "calculator":
+                        self._run_calculator_step(step.name, sample)
+                    elif step.type == "opera":
                         self._run_opera_step(step.name, sample)
                     elif step.type == "likelihood":
                         self._run_likelihood(sample)

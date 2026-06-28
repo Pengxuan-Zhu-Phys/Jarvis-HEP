@@ -10,6 +10,8 @@ import numpy as np
 import sympy as sp
 from sympy.utilities.lambdify import lambdify
 
+from jarvishep2.inner_func import NUMERIC_MODULES
+
 
 class LogLikelihoodEvaluator:
     """Compile and evaluate configured LogLikelihood expressions."""
@@ -18,9 +20,9 @@ class LogLikelihoodEvaluator:
         self._compiled: list[tuple[str, list[str], Any]] = []
         parse_locals = {
             name: sp.Symbol(name)
-            for name in ("x", "y", "z", "shift", "LogL", "LogL_Z")
+            for name in ("x", "y", "z", "shift", "calc_z", "LogL", "LogL_Z")
         }
-        numeric_modules = {"sin": np.sin, "cos": np.cos, "exp": np.exp, "log": np.log}
+        numeric_modules = dict(NUMERIC_MODULES)
         for item in expressions or []:
             if not isinstance(item, Mapping):
                 continue
