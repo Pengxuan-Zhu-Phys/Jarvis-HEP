@@ -10,10 +10,11 @@ from uuid import UUID, uuid4
 
 import numpy as np
 
-# --- Key namespace (DESIGN §7) ---
+# --- Key namespace (DESIGN §7, redis_queue.md §2) ---
 
 TASK_QUEUE = "hep:task_queue"
 CALC_FREE = "calc:free:{name}"
+CALC_BUSY_PACKS = "calc:busy:{name}"
 RESULTS = "hep:results:{uuid}"
 ARCHIVE_QUEUE = "hep:archive_queue"
 WORKER_STATUS = "hep:worker:status:{id}"
@@ -27,6 +28,30 @@ _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 
 class CodecError(RuntimeError):
     """Raised when payload encoding or decoding fails."""
+
+
+class TaskValidationError(ValueError):
+    """Raised when a task or result payload fails schema validation."""
+
+
+def calc_free_list_key(name: str) -> str:
+    """Redis list key for calculator free slots."""
+    return CALC_FREE.format(name=name)
+
+
+def calc_busy_packs_key(name: str) -> str:
+    """Redis hash key tracking active pack_id owners per calculator."""
+    return CALC_BUSY_PACKS.format(name=name)
+
+
+def calc_status_free_field(name: str) -> str:
+    """Hash field inside CALC_STATUS for free-slot count."""
+    return f"{name}:free"
+
+
+def calc_status_busy_field(name: str) -> str:
+    """Hash field inside CALC_STATUS for busy-slot count."""
+    return f"{name}:busy"
 
 
 def _json_default(obj: Any) -> Any:
@@ -71,6 +96,34 @@ def decode_payload(raw: str | bytes | None, *, codec: str = "json") -> Any:
     raise CodecError(f"unsupported codec: {codec}")
 
 
+def _encode_heartbeat_value(value: Any) -> str | int | float:
+    if isinstance(value, (str, int, float)):
+        return value
+    if isinstance(value, bool):
+        return int(value)
+    return json.dumps(value, default=_json_default, separators=(",", ":"))
+
+
+def _validate_task_payload(task: Mapping[str, Any]) -> None:
+    if not isinstance(task, Mapping):
+        raise TaskValidationError("task payload must be a mapping")
+    uuid = task.get("uuid")
+    if not uuid or not str(uuid).strip():
+        raise TaskValidationError("task payload requires non-empty 'uuid'")
+    has_coords = "u_coords" in task and task.get("u_coords") is not None
+    has_plan = bool(task.get("execution_plan"))
+    if not has_coords and not has_plan:
+        raise TaskValidationError("task payload requires 'u_coords' and/or 'execution_plan'")
+
+
+def _validate_result_payload(info: Mapping[str, Any]) -> None:
+    if not isinstance(info, Mapping):
+        raise TaskValidationError("result payload must be a mapping")
+    uuid = info.get("uuid")
+    if not uuid or not str(uuid).strip():
+        raise TaskValidationError("result payload requires non-empty 'uuid'")
+
+
 class RedisQueue:
     """Redis broker for tasks, calculator pools, results, and monitor counters."""
 
@@ -102,6 +155,7 @@ class RedisQueue:
 
     def push_task(self, task: Mapping[str, Any]) -> None:
         self._require_client()
+        _validate_task_payload(task)
         encoded = encode_payload(dict(task), codec=self._codec)
         pipe = self.r.pipeline(transaction=True)
         pipe.rpush(TASK_QUEUE, encoded)
@@ -123,6 +177,8 @@ class RedisQueue:
         if not tasks:
             return
         self._require_client()
+        for task in tasks:
+            _validate_task_payload(task)
         encoded = [encode_payload(dict(task), codec=self._codec) for task in tasks]
         pipe = self.r.pipeline(transaction=True)
         for item in encoded:
@@ -134,40 +190,59 @@ class RedisQueue:
         self._require_client()
         if n <= 0:
             return
-        key = CALC_FREE.format(name=name)
+        pool_key = calc_free_list_key(name)
+        busy_key = calc_busy_packs_key(name)
         pipe = self.r.pipeline(transaction=True)
-        pipe.delete(key)
+        pipe.delete(pool_key)
+        pipe.delete(busy_key)
         for _ in range(n):
-            pipe.rpush(key, _CALC_SLOT_TOKEN)
-        self._set_calc_counts(pipe, name, free=n, busy=0)
+            pipe.rpush(pool_key, _CALC_SLOT_TOKEN)
+        pipe.hset(
+            CALC_STATUS,
+            mapping={
+                calc_status_free_field(name): n,
+                calc_status_busy_field(name): 0,
+            },
+        )
         pipe.execute()
 
     def acquire_calc(self, name: str, timeout: int = 30) -> str | None:
         self._require_client()
-        key = CALC_FREE.format(name=name)
-        raw = self.r.blpop(key, timeout=timeout)
+        pool_key = calc_free_list_key(name)
+        raw = self.r.blpop(pool_key, timeout=timeout)
         if raw is None:
             return None
 
         pack_id = str(uuid4())
+        busy_key = calc_busy_packs_key(name)
         pipe = self.r.pipeline(transaction=True)
-        self._adjust_calc_counts(pipe, name, free_delta=-1, busy_delta=1)
+        pipe.hset(busy_key, pack_id, "active")
+        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
+        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
         pipe.incr(OP_COUNT.format(kind="calculator"))
         pipe.execute()
         return pack_id
 
-    def release_calc(self, name: str, pack_id: str | None = None) -> None:
-        del pack_id  # pack_id is traceability-only; slots are fungible
+    def release_calc(self, name: str, pack_id: str) -> None:
+        if not pack_id or not str(pack_id).strip():
+            raise ValueError("pack_id is required for release_calc")
         self._require_client()
-        key = CALC_FREE.format(name=name)
+        busy_key = calc_busy_packs_key(name)
+        if not self.r.hexists(busy_key, pack_id):
+            raise ValueError(f"unknown pack_id '{pack_id}' for calculator '{name}'")
+
+        pool_key = calc_free_list_key(name)
         pipe = self.r.pipeline(transaction=True)
-        pipe.rpush(key, _CALC_SLOT_TOKEN)
-        self._adjust_calc_counts(pipe, name, free_delta=1, busy_delta=-1)
+        pipe.hdel(busy_key, pack_id)
+        pipe.rpush(pool_key, _CALC_SLOT_TOKEN)
+        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
+        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
         pipe.incr(OP_COUNT.format(kind="calculator"))
         pipe.execute()
 
     def submit_result(self, info: Mapping[str, Any]) -> None:
         self._require_client()
+        _validate_result_payload(info)
         encoded = encode_payload(dict(info), codec=self._codec)
         status = str(info.get("status", "Completed"))
         pipe = self.r.pipeline(transaction=True)
@@ -195,7 +270,7 @@ class RedisQueue:
     def heartbeat(self, worker_id: str, **fields: Any) -> None:
         self._require_client()
         key = WORKER_STATUS.format(id=worker_id)
-        mapping = {k: str(v) for k, v in fields.items()}
+        mapping = {k: _encode_heartbeat_value(v) for k, v in fields.items()}
         pipe = self.r.pipeline(transaction=True)
         if mapping:
             pipe.hset(key, mapping=mapping)
@@ -222,14 +297,15 @@ class RedisQueue:
         return {
             "task_queue_length": int(self.r.llen(TASK_QUEUE)),
             "archive_queue_length": int(self.r.llen(ARCHIVE_QUEUE)),
-            "calculator_status": dict(calc_status),
-            "sample_stats": dict(sample_stats),
+            "calculator_status": {k: _coerce_numeric(v) for k, v in calc_status.items()},
+            "sample_stats": {k: _coerce_numeric(v) for k, v in sample_stats.items()},
             "op_counts": {kind: self.get_op_count(kind) for kind in sorted(_VALID_OP_KINDS)},
         }
 
     def store_result_hash(self, uuid: str, info: Mapping[str, Any]) -> None:
         """Optional per-uuid result hash for debug/sync handoff."""
         self._require_client()
+        _validate_result_payload(info)
         key = RESULTS.format(uuid=uuid)
         encoded = encode_payload(dict(info), codec=self._codec)
         self.r.hset(key, mapping={"payload": encoded})
@@ -238,33 +314,17 @@ class RedisQueue:
         if self.r is None:
             raise RuntimeError("Redis client is not connected; call connect() or inject client")
 
-    def _calc_free_key(self, name: str) -> str:
-        return f"{name}:free"
 
-    def _calc_busy_key(self, name: str) -> str:
-        return f"{name}:busy"
-
-    def _set_calc_counts(self, pipe: Any, name: str, *, free: int, busy: int) -> None:
-        pipe.hset(
-            CALC_STATUS,
-            mapping={
-                self._calc_free_key(name): max(0, int(free)),
-                self._calc_busy_key(name): max(0, int(busy)),
-            },
-        )
-
-    def _adjust_calc_counts(
-        self,
-        pipe: Any,
-        name: str,
-        *,
-        free_delta: int,
-        busy_delta: int,
-    ) -> None:
-        current = self.r.hgetall(CALC_STATUS) or {}
-        free = int(current.get(self._calc_free_key(name), 0)) + free_delta
-        busy = int(current.get(self._calc_busy_key(name), 0)) + busy_delta
-        self._set_calc_counts(pipe, name, free=free, busy=busy)
+def _coerce_numeric(value: Any) -> int | float | str:
+    if isinstance(value, (int, float)):
+        return value
+    text = str(value)
+    try:
+        if "." in text:
+            return float(text)
+        return int(text)
+    except ValueError:
+        return text
 
 
 def make_fakeredis_queue(**config: Any) -> RedisQueue:

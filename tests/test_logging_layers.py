@@ -100,6 +100,22 @@ class TopLevelLoggingTests(unittest.TestCase):
 
 
 class SampleLoggingReplayTests(unittest.TestCase):
+    def test_child_logger_binds_via_logger_name_without_materialization(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Sample.from_params({"x": 1.0})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "auto",
+                    "workflow_has_calculator": False,
+                    "workflow_references_sdir": False,
+                }
+            )
+            child = sample.child_logger(module=f"{sample.info['logger_name']} (Likelihood)")
+            assert child is not None
+            child.info("bound without materialize")
+            self.assertFalse(sample.info["_materialized"])
     def test_replay_preserves_structured_and_raw_format(self):
         fixed_dt = datetime(2026, 1, 2, 3, 4, 5, 678000)
         with tempfile.TemporaryDirectory() as tmpdir:

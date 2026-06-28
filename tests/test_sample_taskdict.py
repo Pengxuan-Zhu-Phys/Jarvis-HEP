@@ -15,6 +15,7 @@ from jarvishep2.runtime_config import should_eager_materialize
 from jarvishep2.sample import (
     ExecutionStep,
     Sample,
+    VALID_EXECUTION_STEP_TYPES,
     ensure_sample_materialized,
     materialize_failure_artifacts,
 )
@@ -183,6 +184,46 @@ class SampleTaskDictTests(unittest.TestCase):
                 }
             )
         )
+
+    def test_execution_step_rejects_invalid_type(self):
+        with self.assertRaises(ValueError):
+            ExecutionStep.from_dict({"type": "", "name": "X", "layer": 0})
+        with self.assertRaises(ValueError):
+            ExecutionStep.from_dict({"type": "unknown", "name": "X", "layer": 0})
+        step = ExecutionStep.from_dict({"type": "opera", "name": "L", "layer": 1})
+        self.assertEqual(step.type, "opera")
+        self.assertEqual(VALID_EXECUTION_STEP_TYPES, frozenset(
+            {"calculator", "opera", "likelihood", "nuisance_optimize"}
+        ))
+
+    def test_logger_name_available_without_materialization(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sample = Sample.from_params({"x": 1.0})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "auto",
+                    "workflow_has_calculator": False,
+                    "workflow_references_sdir": False,
+                }
+            )
+            self.assertIn("logger_name", sample.info)
+            child = sample.child_logger(module=f"{sample.info['logger_name']} (Likelihood)")
+            self.assertIsNotNone(child)
+            child.info("lazy child log")
+            self.assertFalse(sample.info["_materialized"])
+            self.assertIsNone(sample.info["save_dir"])
+
+    def test_bind_params_placeholder_accepts_mapper(self):
+        class _StubMapper:
+            def map(self, u_coords):
+                return {"x": float(u_coords[0]), "uuid": "mapped"}
+
+        sample = Sample(uuid="u-1", u_coords=np.array([2.5]))
+        sample.bind_params(_StubMapper())
+        self.assertEqual(sample.params["x"], 2.5)
+        sample.bind_params(None)
 
     def test_ensure_sample_materialized_from_info_dict(self):
         with tempfile.TemporaryDirectory() as tmpdir:

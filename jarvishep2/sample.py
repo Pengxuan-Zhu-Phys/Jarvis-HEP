@@ -30,6 +30,19 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+VALID_EXECUTION_STEP_TYPES = frozenset(
+    {"calculator", "opera", "likelihood", "nuisance_optimize"}
+)
+
+
+def _validate_execution_step_type(step_type: str) -> str:
+    normalized = str(step_type).strip()
+    if normalized not in VALID_EXECUTION_STEP_TYPES:
+        allowed = ", ".join(sorted(VALID_EXECUTION_STEP_TYPES))
+        raise ValueError(f"invalid execution step type '{step_type}'; allowed: {allowed}")
+    return normalized
+
+
 def _as_float64_array(value: Any) -> np.ndarray:
     if value is None:
         return np.array([], dtype=np.float64)
@@ -60,7 +73,7 @@ class ExecutionStep:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> ExecutionStep:
         return cls(
-            type=str(data.get("type", "")),
+            type=_validate_execution_step_type(data.get("type", "")),
             name=str(data.get("name", "")),
             layer=int(data.get("layer", 0)),
             params=dict(data.get("params") or {}),
@@ -179,7 +192,7 @@ class Sample:
         return projection
 
     def bind_params(self, mapper: Any) -> None:
-        """Worker-side u → x mapping via a UMapper-like object."""
+        """Worker-side u → x mapping via a UMapper-like object (placeholder until UMapper lands)."""
         if mapper is None:
             return
         mapped = mapper.map(self.u_coords)
@@ -270,6 +283,14 @@ class Sample:
         self._logger = logger
         if isinstance(self.info, dict):
             self.info["logger"] = logger
+
+    def child_logger(self, *, module: str | None = None) -> SampleLogger | BufferedSampleLogger | None:
+        """Bind a child logger via logger_name without forcing materialization."""
+        base = self._active_logger()
+        if base is None:
+            return None
+        child_module = module or self.info.get("logger_name", f"Sample@{self.uuid}")
+        return base.bind(module=child_module)
 
     def materialize(
         self,
