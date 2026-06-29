@@ -104,6 +104,19 @@ def should_eager_materialize(sample_cfg: Mapping[str, Any] | None) -> bool:
     return False
 
 
+def parse_registered_executables(config: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Return raw ``LibDeps.registered_executables`` entries from a task config."""
+    if not isinstance(config, Mapping):
+        return []
+    libdeps = config.get("LibDeps") or {}
+    if not isinstance(libdeps, Mapping):
+        return []
+    entries = libdeps.get("registered_executables") or []
+    if not isinstance(entries, list):
+        return []
+    return [dict(item) for item in entries if isinstance(item, Mapping)]
+
+
 def should_materialize_on_failure(sample_cfg: Mapping[str, Any] | None) -> bool:
     if not isinstance(sample_cfg, Mapping):
         return True

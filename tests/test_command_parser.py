@@ -10,7 +10,9 @@ import unittest
 
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.Sampling.sampler import SamplingVirtial
-from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
+from jarvishep2.command_parser import CommandParser, SAMPLE_TOKENS, prepare_calculator_modules
+from jarvishep2.library import LibraryManager
+from jarvishep2.runtime_config import parse_registered_executables
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context
@@ -103,6 +105,34 @@ class CommandParserUnitTests(unittest.TestCase):
             self.assertNotIn("${LibDeps:", text)
         self.assertIn(EGGBOX_SCRIPT, resolved["execution"]["commands"][0]["cmd"])
         self.assertIn("@Sdir", resolved["execution"]["commands"][0]["cmd"])
+
+    def test_parse_registered_executables_from_config(self) -> None:
+        specs = parse_registered_executables(self.config)
+        self.assertEqual(len(specs), 2)
+        self.assertEqual(specs[0]["name"], "eggboxlk")
+
+    def test_resolve_static_expands_j_and_scan_tokens(self) -> None:
+        resolved = self.parser.resolve_static("&J/deps/tool ${Scan:name}")
+        self.assertIn(self.project_root, resolved)
+        self.assertIn("eggbox-scan", resolved)
+        self.assertNotIn("&J", resolved)
+        self.assertNotIn("${Scan:", resolved)
+
+    def test_phase1_leaves_sample_tokens_for_phase2(self) -> None:
+        raw = {
+            "execution": {
+                "commands": [{"cmd": "tool @Sdir/out @SampleID @PackID", "cwd": "@Sdir"}],
+            }
+        }
+        resolved = self.parser.resolve_static_config(raw)
+        cmd = resolved["execution"]["commands"][0]["cmd"]
+        for token in SAMPLE_TOKENS:
+            self.assertIn(token, cmd)
+
+    def test_library_resolve_registered_returns_parser_map(self) -> None:
+        registered = LibraryManager().resolve_registered(self.parser)
+        self.assertIn("eggboxlk", registered)
+        self.assertEqual(registered["eggboxlk"].path, self.parser.registered["eggboxlk"].path)
 
     def test_registered_executable_direct_path_and_symlink(self) -> None:
         direct = self.parser.registered["eggboxlk"]

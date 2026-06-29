@@ -282,13 +282,9 @@ class CommandParser:
 
 
 def _registered_specs(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    libdeps = config.get("LibDeps") or {}
-    if not isinstance(libdeps, Mapping):
-        return []
-    entries = libdeps.get("registered_executables") or []
-    if not isinstance(entries, Sequence):
-        return []
-    return [dict(item) for item in entries if isinstance(item, Mapping)]
+    from jarvishep2.runtime_config import parse_registered_executables
+
+    return parse_registered_executables(config)
 
 
 def _build_libdeps_paths(config: Mapping[str, Any], *, project_root: str) -> dict[str, str]:
