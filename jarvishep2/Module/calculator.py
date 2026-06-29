@@ -37,6 +37,8 @@ class CalculatorModule:
         self.basepath = str(config.get("path", execution.get("path", ".")))
         self.source = str(config.get("source", "")).strip()
         self.symlink_name = str(config.get("symlink_name", self.name)).strip() or self.name
+        self.env_setup = list(config.get("env_setup") or [])
+        self._subprocess_env: dict[str, str] | None = None
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
         self._templates_loaded = False
@@ -80,6 +82,19 @@ class CalculatorModule:
     def attach_command_parser(self, parser: CommandParser | None) -> None:
         """Bind the per-Worker Phase-2 command resolver (WP-D3.1)."""
         self._command_parser = parser
+
+    def bind_env(self, env: Mapping[str, str]) -> None:
+        """Attach cached ``env_setup`` variables for subprocess execution."""
+        self._subprocess_env = {str(key): str(value) for key, value in env.items()}
+
+    def env_setup_sources(self) -> list[str]:
+        sources: list[str] = []
+        for item in self.env_setup:
+            if isinstance(item, Mapping):
+                source = str(item.get("source", "")).strip()
+                if source:
+                    sources.append(source)
+        return sources
 
     def acquire_pack_id(self, pack_id: str) -> None:
         """Tag the current run for traceability."""
@@ -262,6 +277,7 @@ class CalculatorModule:
             SubprocessJob(
                 cmd=cmd_text,
                 cwd=cwd,
+                env=self._subprocess_env,
                 timeout_sec=timeout_sec,
                 log_policy="quiet",
                 meta=meta,

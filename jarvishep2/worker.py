@@ -14,6 +14,7 @@ from typing import Any
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
+from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -103,6 +104,12 @@ class Worker(Process):
         for module in self._calculators.values():
             module.attach_scheduler(self._scheduler)
             module.attach_command_parser(self._command_parser)
+            sources = resolve_env_setup_sources(
+                module.env_setup,
+                command_parser=self._command_parser,
+            )
+            if sources:
+                module.bind_env(EnvCapture.merged_env(sources))
         likelihood_exprs = self.worker_config.get("likelihood_expressions") or []
         self._likelihood = LogLikelihoodEvaluator(likelihood_exprs)
 
