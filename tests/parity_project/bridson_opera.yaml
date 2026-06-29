@@ -1,0 +1,49 @@
+# WP-Bridson: Poisson-disk (blue-noise) sampler smoke via TrivialEggbox opera.
+project_name: parity-bridson
+Scan:
+  name: bridson-opera
+Runtime:
+  mode: redis
+  workers: 2
+  batch_size: 4
+  sample_artifacts: auto
+  Watchdog:
+    enabled: false
+Sampling:
+  Method: Bridson
+  Radius: 0.35
+  MaxAttempt: 30
+  Seed: 42
+  Variables:
+    - name: x
+      description: flat x
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 1.0
+          length: 1.0
+    - name: y
+      description: flat y
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 1.0
+          length: 1.0
+  LogLikelihood:
+    - name: LogL_Z
+      expression: z
+Operas:
+  Modules:
+    - name: TrivialEggbox
+      operator: jarvishep2.testing.eggbox.eggbox2d_numpy
+      call_mode: call
+      input:
+        - name: x
+          expression: x
+        - name: y
+          expression: y
+      output:
+        - name: z
+          entry: z

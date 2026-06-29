@@ -7,7 +7,41 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from jarvishep2.Sampling.variables import Variable
 from jarvishep2.sample import UMapperProtocol
+
+
+class DistributionUMapper:
+    """Map u_coords in [0, 1] using V1-compatible variable distributions."""
+
+    def __init__(self, variables: Sequence[Mapping[str, Any]]) -> None:
+        self._variables: list[Variable] = []
+        for var in variables:
+            if not isinstance(var, Mapping):
+                continue
+            name = str(var.get("name", "")).strip()
+            if not name:
+                continue
+            dist_block = dict(var.get("distribution") or {})
+            self._variables.append(
+                Variable(
+                    name=name,
+                    description=str(var.get("description", "")),
+                    distribution=str(dist_block.get("type", "Flat")).strip(),
+                    parameters=dict(dist_block.get("parameters") or {}),
+                )
+            )
+
+    def map(self, u_coords: np.ndarray) -> dict[str, float]:
+        coords = np.asarray(u_coords, dtype=np.float64).reshape(-1)
+        if len(coords) < len(self._variables):
+            raise ValueError(
+                f"u_coords length {len(coords)} is smaller than variable count {len(self._variables)}"
+            )
+        mapped: dict[str, float] = {}
+        for index, var in enumerate(self._variables):
+            mapped[var.name] = var.map_standard_random_to_distribution(float(coords[index]))
+        return mapped
 
 
 class FlatUMapper:
@@ -66,10 +100,15 @@ def build_mapper(config: Mapping[str, Any] | None) -> UMapperProtocol | None:
         return None
     if mapper_type == "identity":
         return IdentityParamMapper(config.get("keys") or ())
+    if mapper_type == "distribution":
+        variables = config.get("variables") or []
+        if variables:
+            return DistributionUMapper(variables)
+        return None
     variables = config.get("variables") or []
     if not variables:
         return None
     return FlatUMapper(variables)
 
 
-__all__ = ["FlatUMapper", "IdentityParamMapper", "build_mapper"]
+__all__ = ["DistributionUMapper", "FlatUMapper", "IdentityParamMapper", "build_mapper"]

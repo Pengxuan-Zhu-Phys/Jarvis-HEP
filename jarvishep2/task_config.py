@@ -43,6 +43,11 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     return config
 
 
+def sampling_method(config: Mapping[str, Any]) -> str:
+    sampling = dict(config.get("Sampling") or {})
+    return str(sampling.get("Method") or "").strip()
+
+
 def is_check_modules_task(config: Mapping[str, Any]) -> bool:
     sampling = dict(config.get("Sampling") or {})
     mode = str(sampling.get("mode") or "").strip().lower()
@@ -66,4 +71,9 @@ def check_modules_points_path(config: Mapping[str, Any]) -> str:
     return os.path.abspath(os.path.join(anchor, raw))
 
 
-__all__ = ["check_modules_points_path", "is_check_modules_task", "load_task_yaml"]
+__all__ = [
+    "check_modules_points_path",
+    "is_check_modules_task",
+    "load_task_yaml",
+    "sampling_method",
+]

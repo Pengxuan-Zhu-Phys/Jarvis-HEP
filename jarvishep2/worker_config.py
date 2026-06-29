@@ -18,6 +18,16 @@ from jarvishep2.runtime_config import (
 )
 
 
+def _default_mapper(cfg: Mapping[str, Any]) -> dict[str, Any]:
+    mapper = cfg.get("Mapper")
+    if isinstance(mapper, Mapping):
+        return dict(mapper)
+    variables = (cfg.get("Sampling") or {}).get("Variables") if isinstance(cfg.get("Sampling"), Mapping) else None
+    if variables:
+        return {"type": "distribution", "variables": list(variables)}
+    return {"type": "identity", "keys": ["x", "y"]}
+
+
 def _config_references_sdir(modules: list[dict[str, Any]]) -> bool:
     import json
 
@@ -79,15 +89,13 @@ def build_worker_config(
     )
     worker_config: dict[str, Any] = {
         "sample_config": sample_config,
-        "mapper": extra_payload.pop(
-            "mapper",
-            cfg.get("Mapper") or {"type": "identity", "keys": ["x", "y"]},
-        ),
+        "mapper": extra_payload.pop("mapper", _default_mapper(cfg)),
         "opera_modules": opera,
         "calculator_modules": resolved_calculators,
         "likelihood_expressions": list(
             likelihood_expressions
             or (cfg.get("Likelihood") or {}).get("expressions")
+            or (cfg.get("Sampling") or {}).get("LogLikelihood")
             or []
         ),
         "pull_timeout": 1,

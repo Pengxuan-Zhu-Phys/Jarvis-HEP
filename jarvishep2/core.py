@@ -42,10 +42,12 @@ from jarvishep2.Sampling.runtime_checkpoint import (
 from jarvishep2.sample import Sample
 from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.task_config import (
     check_modules_points_path,
     is_check_modules_task,
     load_task_yaml,
+    sampling_method,
 )
 
 
@@ -93,18 +95,30 @@ class Jarvis2Core:
         self._resume_checkpoint_preloaded = True
 
     def init_sampler_from_config(self) -> SamplingVirtial:
-        sampler = SamplingVirtial()
+        method = sampling_method(self.config)
+        if method:
+            sampler = Distributor.set_method(method)
+        else:
+            sampler = SamplingVirtial()
         sampler.set_config(self.config)
         calc_modules = list(
             (self.config.get("Calculators") or {}).get("Modules") or []
         )
         opera_modules = list((self.config.get("Operas") or {}).get("Modules") or [])
+        likelihood_block = self.config.get("Likelihood") or {}
+        sampling_block = self.config.get("Sampling") or {}
+        likelihood_exprs = list(
+            likelihood_block.get("expressions")
+            or sampling_block.get("LogLikelihood")
+            or []
+        )
         sampler.set_execution_plan_template(
             calculator_modules=calc_modules,
             opera_modules=opera_modules,
-            include_likelihood=bool((self.config.get("Likelihood") or {}).get("expressions")),
+            include_likelihood=bool(likelihood_exprs),
         )
         self.set_sampler(sampler)
+        self.info["sampler_name"] = str(getattr(sampler, "method", type(sampler).__name__))
         return sampler
 
     def bootstrap_distributed_runtime(self) -> None:
@@ -143,6 +157,27 @@ class Jarvis2Core:
             sample.uuid = str(row["uuid"])
             samples.append(sample)
         return samples
+
+    def run_distributed_scan(self, *, timeout: float = 3600.0) -> int:
+        """Drive a stateless sampler through propose → Redis → Archiver."""
+        if self.sampler is None:
+            raise RuntimeError("sampler is not configured")
+        start_records = self._archiver_records_written()
+        requeued = 0
+        if self._resume_policy == "resume" and hasattr(self.sampler, "repropose_unfinished"):
+            requeued = len(self.sampler.repropose_unfinished())
+        if hasattr(self.sampler, "run_distributed"):
+            pushed = int(self.sampler.run_distributed())
+        elif hasattr(self.sampler, "submit_all_remaining"):
+            pushed = len(self.sampler.submit_all_remaining())
+        else:
+            raise RuntimeError(
+                f"Sampler {type(self.sampler).__name__} does not implement a distributed run API"
+            )
+        expected_records = start_records + requeued + pushed
+        if expected_records > start_records:
+            self.wait_for_results(expected_records, timeout=timeout)
+        return requeued + pushed
 
     def run_check_modules(
         self,
@@ -220,10 +255,12 @@ class Jarvis2Core:
             self.bootstrap_distributed_runtime()
             if check_modules or is_check_modules_task(self.config):
                 count = self.run_check_modules(verify_golden=verify_golden)
+            elif sampling_method(self.config) in STATELESS_METHODS:
+                count = self.run_distributed_scan()
             else:
                 raise NotImplementedError(
-                    "Only check-modules / fixed-point tasks are implemented in this milestone; "
-                    "configure Sampling.mode: check_modules or pass --check-modules."
+                    "Unsupported task: configure Sampling.mode: check_modules, "
+                    "Sampling.Method: Bridson, or pass --check-modules."
                 )
             return count
         finally:
