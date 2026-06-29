@@ -13,6 +13,7 @@ from typing import Any
 from uuid import uuid4
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.io_json import read_json_output, write_json_input
 from jarvishep2.library import LibraryManager
 from jarvishep2.sample import ensure_sample_materialized
@@ -39,8 +40,10 @@ class CalculatorModule:
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
         self._templates_loaded = False
+        self._template_parse_count = 0
         self._command_counter = 0
         self._scheduler: AsyncSubprocessScheduler | None = None
+        self._command_parser: CommandParser | None = None
         self._installed_shadows: set[str] = set()
         self._library = LibraryManager()
 
@@ -63,11 +66,20 @@ class CalculatorModule:
         """Parse and cache command/input templates once per Worker."""
         if self._templates_loaded:
             return
+        # One-time structural read of cached template specs (no per-Sample work).
+        _ = list(self.commands_template)
+        _ = list(self.input_specs)
+        _ = list(self.output_specs)
+        self._template_parse_count += 1
         self._templates_loaded = True
 
     def attach_scheduler(self, scheduler: AsyncSubprocessScheduler | None) -> None:
         """Bind the per-Worker subprocess scheduler used for command execution."""
         self._scheduler = scheduler
+
+    def attach_command_parser(self, parser: CommandParser | None) -> None:
+        """Bind the per-Worker Phase-2 command resolver (WP-D3.1)."""
+        self._command_parser = parser
 
     def acquire_pack_id(self, pack_id: str) -> None:
         """Tag the current run for traceability."""
@@ -166,6 +178,14 @@ class CalculatorModule:
         return None
 
     def _resolve_runtime_tokens(self, text: str, *, stage: str, field: str) -> str:
+        if self._command_parser is not None:
+            return self._command_parser.resolve_sample(
+                text,
+                sample_info=self.sample_info,
+                pack_id=self.PackID,
+                stage=stage,
+                field=field,
+            )
         if text is None:
             return ""
         raw = str(text)

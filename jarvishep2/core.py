@@ -9,7 +9,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jarvishep2.archiver import SimpleArchiver
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.factory import TaskFactory
+from jarvishep2.command_parser import prepare_calculator_modules
+from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
 from jarvishep2.runtime_config import get_runtime_block
@@ -27,6 +30,7 @@ class Jarvis2Core:
         self.factory: TaskFactory | None = None
         self.archiver: SimpleArchiver | None = None
         self.sampler: Any = None
+        self.command_parser: CommandParser | None = None
         self._logger = get_jarvis_logger("core")
 
     def init_logger(self) -> None:
@@ -47,6 +51,60 @@ class Jarvis2Core:
         self.redis.connect()
         return self.redis
 
+    def init_command_parser(self) -> CommandParser:
+        """Run Phase-1 static command resolution for the loaded task config."""
+        self.command_parser = build_command_parser(self.config)
+        return self.command_parser
+
+    @staticmethod
+    def _command_parser_payload(parser: CommandParser) -> dict[str, Any]:
+        return {
+            "project_root": parser.project_root,
+            "scan_name": parser.scan_name,
+            "libdeps_paths": dict(parser.libdeps_paths),
+            "registered": {
+                name: {
+                    "name": item.name,
+                    "path": item.path,
+                    "resolution": item.resolution,
+                }
+                for name, item in parser.registered.items()
+            },
+            "registered_symlink_root": parser.registered_symlink_root,
+        }
+
+    def _apply_command_parser_to_worker_config(self, worker_config: dict[str, Any]) -> dict[str, Any]:
+        if self.command_parser is None:
+            self.init_command_parser()
+        merged = dict(worker_config)
+        calculator_modules = merged.get("calculator_modules")
+        if calculator_modules:
+            merged["calculator_modules"] = prepare_calculator_modules(
+                calculator_modules,
+                self.command_parser,
+            )
+        merged["command_parser"] = self._command_parser_payload(self.command_parser)
+        return merged
+
+    def build_worker_config(self, **overrides: Any) -> dict[str, Any]:
+        """Build a picklable Worker blueprint with Phase-1 command resolution applied."""
+        task_result_dir = str(
+            overrides.pop("task_result_dir", None)
+            or self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        return build_worker_config(
+            self.config,
+            task_result_dir=task_result_dir,
+            parser=self.command_parser,
+            calculator_modules=overrides.pop("calculator_modules", None),
+            likelihood_expressions=overrides.pop("likelihood_expressions", None),
+            opera_modules=overrides.pop("opera_modules", None),
+            sample_dirs=overrides.pop("sample_dirs", None),
+            extra=overrides or None,
+        )
+
     def init_factory(self, worker_config: Mapping[str, Any] | None = None) -> TaskFactory | None:
         if not self.is_redis_runtime():
             self._logger.info("Runtime.mode != redis; skipping TaskFactory bring-up")
@@ -63,7 +121,14 @@ class Jarvis2Core:
         if workers <= 0:
             workers = 1
 
-        merged_config = dict(worker_config or {})
+        if worker_config is None:
+            if self.command_parser is None:
+                self.init_command_parser()
+            merged_config = self.build_worker_config()
+        else:
+            merged_config = dict(worker_config)
+            if "command_parser" not in merged_config:
+                merged_config = self._apply_command_parser_to_worker_config(merged_config)
         self.factory.start_workers(workers, **merged_config)
         self.factory.start_monitor(update_hz=120.0)
         self._logger.info("TaskFactory started with %d worker(s)", workers)

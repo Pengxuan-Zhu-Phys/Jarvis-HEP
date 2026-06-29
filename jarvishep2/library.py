@@ -7,6 +7,8 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
+from jarvishep2.command_parser import CommandParser, ResolvedExecutable
+
 
 class LibraryManager:
     """Minimal LibDeps helper: symlink safe tools into Sample dirs."""
@@ -31,6 +33,10 @@ class LibraryManager:
             return link_path
         os.symlink(source, link_path)
         return link_path
+
+    def resolve_registered(self, parser: CommandParser) -> dict[str, ResolvedExecutable]:
+        """Return the Phase-1 registered executable map from a CommandParser."""
+        return dict(parser.registered)
 
 
 __all__ = ["LibraryManager"]

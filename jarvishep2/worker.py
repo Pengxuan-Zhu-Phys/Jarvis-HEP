@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -52,6 +53,7 @@ class Worker(Process):
         self._calculators: dict[str, CalculatorModule] = {}
         self._likelihood: LogLikelihoodEvaluator | None = None
         self._scheduler: AsyncSubprocessScheduler | None = None
+        self._command_parser: CommandParser | None = None
         self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
@@ -97,8 +99,10 @@ class Worker(Process):
             logger=get_jarvis_logger("worker").bind(worker_id=self.worker_id),
         )
         self._scheduler.start()
+        self._command_parser = CommandParser.from_picklable(self.worker_config.get("command_parser"))
         for module in self._calculators.values():
             module.attach_scheduler(self._scheduler)
+            module.attach_command_parser(self._command_parser)
         likelihood_exprs = self.worker_config.get("likelihood_expressions") or []
         self._likelihood = LogLikelihoodEvaluator(likelihood_exprs)
 
