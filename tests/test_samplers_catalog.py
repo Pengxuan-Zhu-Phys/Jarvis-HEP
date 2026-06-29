@@ -10,6 +10,8 @@ import unittest
 import numpy as np
 
 from jarvishep2.Sampling.bridson import Bridson, Bridson_sampling, hypersphere_surface_sample
+from jarvishep2.Sampling.grid import Grid, grid_sampling
+from jarvishep2.Sampling.randoms import RandomS
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.distributor import Distributor
@@ -34,6 +36,9 @@ def _normalize_bridson_records(records: list[dict]) -> list[dict[str, float]]:
 
 TESTS_ROOT = os.path.dirname(__file__)
 BRIDSON_YAML = os.path.join(TESTS_ROOT, "parity_project", "bridson_opera.yaml")
+RANDOM_YAML = os.path.join(TESTS_ROOT, "parity_project", "random_opera.yaml")
+GRID_YAML = os.path.join(TESTS_ROOT, "parity_project", "grid_opera.yaml")
+CSV_YAML = os.path.join(TESTS_ROOT, "parity_project", "csv_opera.yaml")
 
 
 def _stop_factory_workers() -> None:
@@ -77,10 +82,21 @@ class BridsonAlgorithmTests(unittest.TestCase):
         self.assertGreater(points.shape[0], 0)
 
 
+class DistributorDispatchTests(unittest.TestCase):
+    def test_distributor_resolves_stateless_samplers(self) -> None:
+        self.assertEqual(Distributor.set_method("Bridson").method, "Bridson")
+        self.assertEqual(Distributor.set_method("Random").method, "Random")
+        self.assertEqual(Distributor.set_method("Grid").method, "Grid")
+        self.assertEqual(Distributor.set_method("CSV").method, "CSV")
+
+
+class GridAlgorithmTests(unittest.TestCase):
+    def test_grid_sampling_cartesian_product_size(self) -> None:
+        points = grid_sampling(np.array([2, 3], dtype=np.int64))
+        self.assertEqual(points.shape, (6, 2))
+
+
 class BridsonSamplerUnitTests(unittest.TestCase):
-    def test_distributor_resolves_bridson(self) -> None:
-        sampler = Distributor.set_method("Bridson")
-        self.assertEqual(sampler.method, "Bridson")
 
     def test_checkpoint_roundtrip_restores_grid_cursor(self) -> None:
         sampler = Bridson()
@@ -124,19 +140,19 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
 
 
-class BridsonDistributedRunTests(unittest.TestCase):
+class StatelessDistributedRunTests(unittest.TestCase):
     def setUp(self) -> None:
         _stop_factory_workers()
 
     def tearDown(self) -> None:
         _stop_factory_workers()
 
-    def test_bridson_yaml_end_to_end_via_core_run(self) -> None:
+    def _run_task_yaml(self, yaml_path: str, *, expected_count: int | None = None) -> int:
         server, redis_config = _start_tcp_fakeredis()
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 core = Jarvis2Core()
-                core.load_task_yaml(BRIDSON_YAML)
+                core.load_task_yaml(yaml_path)
                 core.config["task_result_dir"] = tmpdir
                 core.config["Runtime"]["redis"] = redis_config
                 core.config["Runtime"]["Watchdog"] = {"enabled": False}
@@ -145,6 +161,8 @@ class BridsonDistributedRunTests(unittest.TestCase):
 
                 count = core.run(write_run_summary=False)
                 self.assertGreater(count, 0)
+                if expected_count is not None:
+                    self.assertEqual(count, expected_count)
 
                 db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
                 records = _normalize_bridson_records(SimpleHDF5Writer(db_path).read_records())
@@ -153,9 +171,55 @@ class BridsonDistributedRunTests(unittest.TestCase):
                     self.assertIn("x", row)
                     self.assertIn("y", row)
                     self.assertIn("LogL_Z", row)
+                return count
         finally:
             server.shutdown()
             server.server_close()
+
+    def test_bridson_yaml_end_to_end_via_core_run(self) -> None:
+        self._run_task_yaml(BRIDSON_YAML)
+
+    def test_random_yaml_end_to_end_via_core_run(self) -> None:
+        self._run_task_yaml(RANDOM_YAML, expected_count=6)
+
+    def test_grid_yaml_end_to_end_via_core_run(self) -> None:
+        self._run_task_yaml(GRID_YAML, expected_count=9)
+
+    def test_csv_yaml_end_to_end_via_core_run(self) -> None:
+        self._run_task_yaml(CSV_YAML, expected_count=10)
+
+    def test_random_seeded_proposals_are_reproducible(self) -> None:
+        cfg = {
+            "Runtime": {"mode": "redis", "workers": 1},
+            "Sampling": {
+                "Method": "Random",
+                "Point number": 4,
+                "Seed": 99,
+                "Variables": [
+                    {
+                        "name": "x",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1, "length": 1},
+                        },
+                    },
+                    {
+                        "name": "y",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1, "length": 1},
+                        },
+                    },
+                ],
+            },
+        }
+        first = RandomS()
+        first.set_config(cfg)
+        coords_a = [first.propose_next().u_coords.tolist() for _ in range(4)]
+        second = RandomS()
+        second.set_config(cfg)
+        coords_b = [second.propose_next().u_coords.tolist() for _ in range(4)]
+        self.assertEqual(coords_a, coords_b)
 
 
 if __name__ == "__main__":

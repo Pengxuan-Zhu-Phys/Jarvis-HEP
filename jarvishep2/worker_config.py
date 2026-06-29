@@ -22,7 +22,11 @@ def _default_mapper(cfg: Mapping[str, Any]) -> dict[str, Any]:
     mapper = cfg.get("Mapper")
     if isinstance(mapper, Mapping):
         return dict(mapper)
-    variables = (cfg.get("Sampling") or {}).get("Variables") if isinstance(cfg.get("Sampling"), Mapping) else None
+    sampling = cfg.get("Sampling") if isinstance(cfg.get("Sampling"), Mapping) else {}
+    method = str(sampling.get("Method") or "").strip()
+    if method == "CSV":
+        return {"type": "none"}
+    variables = sampling.get("Variables")
     if variables:
         return {"type": "distribution", "variables": list(variables)}
     return {"type": "identity", "keys": ["x", "y"]}

@@ -1,0 +1,31 @@
+project_name: parity-csv
+Scan:
+  name: csv-opera
+Runtime:
+  mode: redis
+  workers: 2
+  batch_size: 4
+  sample_artifacts: auto
+  Watchdog:
+    enabled: false
+Sampling:
+  Method: CSV
+  CSV:
+    path: "&J/data/check_modules_points.csv"
+    variables: [x, y]
+  LogLikelihood:
+    - name: LogL_Z
+      expression: z
+Operas:
+  Modules:
+    - name: TrivialEggbox
+      operator: jarvishep2.testing.eggbox.eggbox2d_numpy
+      call_mode: call
+      input:
+        - name: x
+          expression: x
+        - name: y
+          expression: y
+      output:
+        - name: z
+          entry: z

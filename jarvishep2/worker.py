@@ -297,6 +297,15 @@ class Worker(Process):
         try:
             if self._mapper is not None:
                 sample.bind_params(self._mapper)
+            elif sample.opera_params:
+                sample.params = dict(sample.opera_params)
+                sample.observables = dict(sample.opera_params)
+                sample.observables["uuid"] = sample.uuid
+                if not isinstance(sample.info, dict):
+                    sample.info = {}
+                sample.info["params"] = dict(sample.params)
+                sample.info["observables"] = dict(sample.observables)
+                sample.info["uuid"] = sample.uuid
             sample.materialize(worker_id=str(self.worker_id))
             delay_sec = float(self.worker_config.get("test_process_delay_sec", 0) or 0)
             if delay_sec > 0:

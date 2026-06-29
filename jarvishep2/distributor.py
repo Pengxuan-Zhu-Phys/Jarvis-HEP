@@ -13,6 +13,7 @@ class Distributor:
         "Bridson": "implemented",
         "Random": "implemented",
         "Grid": "implemented",
+        "CSV": "implemented",
     }
 
     @classmethod
@@ -26,6 +27,18 @@ class Distributor:
                 from jarvishep2.Sampling.bridson import Bridson
 
                 return Bridson()
+            case "Random":
+                from jarvishep2.Sampling.randoms import RandomS
+
+                return RandomS()
+            case "Grid":
+                from jarvishep2.Sampling.grid import Grid
+
+                return Grid()
+            case "CSV":
+                from jarvishep2.Sampling.csv_sampler import CSVSampler
+
+                return CSVSampler()
             case _:
                 raise NotImplementedError(
                     f"Sampling.Method '{method}' is not implemented in Jarvis-HEP V2 yet"

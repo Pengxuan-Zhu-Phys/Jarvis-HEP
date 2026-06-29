@@ -31,6 +31,16 @@ def evaluate_selection(expression: str | None, variables: Mapping[str, Any]) -> 
         ) from exc
 
 
+def map_u_to_physical(u_coords, variables: list[Variable]) -> dict[str, float]:
+    import numpy as np
+
+    coords = np.asarray(u_coords, dtype=np.float64).reshape(-1)
+    mapped: dict[str, float] = {}
+    for index, var in enumerate(variables):
+        mapped[var.name] = var.map_standard_random_to_distribution(float(coords[index]))
+    return mapped
+
+
 def map_row_to_physical(row, variables: list[Variable]) -> dict[str, float]:
     mapped: dict[str, float] = {}
     for index, var in enumerate(variables):
@@ -54,5 +64,6 @@ __all__ = [
     "BoolConversionError",
     "evaluate_selection",
     "map_row_to_physical",
+    "map_u_to_physical",
     "row_to_u_coords",
 ]

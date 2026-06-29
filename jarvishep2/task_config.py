@@ -54,11 +54,7 @@ def is_check_modules_task(config: Mapping[str, Any]) -> bool:
     return mode in {"check_modules", "check-modules"}
 
 
-def check_modules_points_path(config: Mapping[str, Any]) -> str:
-    sampling = dict(config.get("Sampling") or {})
-    raw = str(sampling.get("data") or sampling.get("points_csv") or "").strip()
-    if not raw:
-        raise ValueError("check-modules task requires Sampling.data pointing to a CSV file")
+def resolve_sampling_path(config: Mapping[str, Any], raw: str) -> str:
     project_root = str(config.get("project_root") or config.get("task_root") or os.getcwd())
     if raw.startswith("&J/") or raw.startswith("&J"):
         from jarvishep2.base import expand_j
@@ -71,9 +67,18 @@ def check_modules_points_path(config: Mapping[str, Any]) -> str:
     return os.path.abspath(os.path.join(anchor, raw))
 
 
+def check_modules_points_path(config: Mapping[str, Any]) -> str:
+    sampling = dict(config.get("Sampling") or {})
+    raw = str(sampling.get("data") or sampling.get("points_csv") or "").strip()
+    if not raw:
+        raise ValueError("check-modules task requires Sampling.data pointing to a CSV file")
+    return resolve_sampling_path(config, raw)
+
+
 __all__ = [
     "check_modules_points_path",
     "is_check_modules_task",
     "load_task_yaml",
+    "resolve_sampling_path",
     "sampling_method",
 ]
