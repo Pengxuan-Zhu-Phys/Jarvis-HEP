@@ -1,0 +1,54 @@
+{
+  "gates": {
+    "archive_backlog": {
+      "max_allowed": 12,
+      "peak_staging_entries": 5,
+      "samples_submitted": 6
+    },
+    "chaos": {
+      "parity": "ok",
+      "respawn_count": 1,
+      "samples": 10
+    },
+    "high_worker_stability": {
+      "cpu_count": 14,
+      "elapsed_sec": 2.1255000410601497,
+      "sample_count": 8,
+      "samples_per_sec": 3.763820204872726,
+      "workers": 4
+    },
+    "monitor": {
+      "min_required_hz": 60,
+      "snapshot_hz": 141791,
+      "workload_elapsed_sec": 1.0507800410268828
+    },
+    "parity": {
+      "csv_rows": 10,
+      "database_rows": 10,
+      "sample_dirs": 10
+    },
+    "worker_scaling": {
+      "min_required_ratio": 1.25,
+      "speedup_ratio": 1.3355249670556126,
+      "workers_1": {
+        "elapsed_sec": 2.880266207968816,
+        "sample_count": 4,
+        "samples_per_sec": 1.3887605211397553,
+        "workers": 1
+      },
+      "workers_2": {
+        "elapsed_sec": 2.1566547080874443,
+        "sample_count": 4,
+        "samples_per_sec": 1.8547243492433072,
+        "workers": 2
+      }
+    }
+  },
+  "machine": {
+    "cpu_count": 14,
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "python": "3.13.13"
+  },
+  "milestone": "D7.1",
+  "recorded_at_utc": "2026-06-29T06:22:44.514202+00:00"
+}
