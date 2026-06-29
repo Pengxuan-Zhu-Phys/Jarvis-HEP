@@ -105,6 +105,7 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
         modules: list[dict],
         *,
         serial_layers: bool,
+        force_serial_layers: bool = False,
     ) -> tuple[dict[str, object], float]:
         server, redis_config = _start_tcp_fakeredis()
         try:
@@ -135,6 +136,7 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
                 worker_config["calculator_modules"] = modules
                 worker_config["calculator_pools"] = {"SlowA": 2, "SlowB": 2}
                 worker_config["likelihood_expressions"] = []
+                worker_config["force_serial_layers"] = force_serial_layers
                 core.init_factory(worker_config)
                 core.init_archiver(os.path.join(tmpdir, "DATABASE", "samples.hdf5"))
 
@@ -187,6 +189,29 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
         self.assertGreater(serial_elapsed, parallel_elapsed)
         self.assertGreater(serial_elapsed - parallel_elapsed, SLEEP_SEC * 0.45)
         self.assertLess(parallel_elapsed, serial_elapsed * 0.9)
+
+    def test_force_serial_layers_matches_explicit_serial_layers(self) -> None:
+        modules = [SLOW_A_MODULE, SLOW_B_MODULE]
+        forced_payload, forced_elapsed = self._run_dual_calculator_sample(
+            modules,
+            serial_layers=False,
+            force_serial_layers=True,
+        )
+        explicit_payload, explicit_elapsed = self._run_dual_calculator_sample(
+            modules,
+            serial_layers=True,
+        )
+
+        def _calc_observables(payload: dict[str, object]) -> dict[str, object]:
+            obs = dict(payload.get("observables") or {})
+            obs.pop("uuid", None)
+            return obs
+
+        self.assertEqual(
+            _calc_observables(forced_payload),
+            _calc_observables(explicit_payload),
+        )
+        self.assertLess(abs(forced_elapsed - explicit_elapsed), SLEEP_SEC * 0.8)
 
 
 if __name__ == "__main__":

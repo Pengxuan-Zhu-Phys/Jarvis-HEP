@@ -151,11 +151,12 @@ class Worker(Process):
             sample.info["pack_id"] = pack_id
             sample.info["observables"] = dict(sample.observables)
 
-    def _run_layer(self, layer: list[ExecutionStep], sample: Sample) -> None:
-        """Run one execution-plan layer; fan out same-layer calculators concurrently."""
-        calc_steps = [step for step in layer if step.type == "calculator"]
-        inline_steps = [step for step in layer if step.type != "calculator"]
-        if len(calc_steps) > 1:
+    def _force_serial_layers(self) -> bool:
+        """Rollback switch: run same-layer calculators one after another."""
+        return bool(self.worker_config.get("force_serial_layers", False))
+
+    def _run_calculator_steps(self, calc_steps: list[ExecutionStep], sample: Sample) -> None:
+        if len(calc_steps) > 1 and not self._force_serial_layers():
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(calc_steps)) as pool:
                 futures = [
                     pool.submit(self._run_calculator_step, step.name, sample)
@@ -163,8 +164,15 @@ class Worker(Process):
                 ]
                 for future in concurrent.futures.as_completed(futures):
                     future.result()
-        elif len(calc_steps) == 1:
-            self._run_calculator_step(calc_steps[0].name, sample)
+            return
+        for step in calc_steps:
+            self._run_calculator_step(step.name, sample)
+
+    def _run_layer(self, layer: list[ExecutionStep], sample: Sample) -> None:
+        """Run one execution-plan layer; fan out same-layer calculators concurrently."""
+        calc_steps = [step for step in layer if step.type == "calculator"]
+        inline_steps = [step for step in layer if step.type != "calculator"]
+        self._run_calculator_steps(calc_steps, sample)
 
         for step in inline_steps:
             if step.type == "opera":
