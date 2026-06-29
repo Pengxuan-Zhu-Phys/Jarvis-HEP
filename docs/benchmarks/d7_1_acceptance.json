@@ -12,15 +12,15 @@
     },
     "high_worker_stability": {
       "cpu_count": 14,
-      "elapsed_sec": 2.1255000410601497,
+      "elapsed_sec": 2.6424674169393256,
       "sample_count": 8,
-      "samples_per_sec": 3.763820204872726,
+      "samples_per_sec": 3.027473469953363,
       "workers": 4
     },
     "monitor": {
       "min_required_hz": 60,
-      "snapshot_hz": 141791,
-      "workload_elapsed_sec": 1.0507800410268828
+      "snapshot_hz": 142287,
+      "workload_elapsed_sec": 1.0291447089985013
     },
     "parity": {
       "csv_rows": 10,
@@ -29,17 +29,17 @@
     },
     "worker_scaling": {
       "min_required_ratio": 1.25,
-      "speedup_ratio": 1.3355249670556126,
+      "speedup_ratio": 1.396919670911835,
       "workers_1": {
-        "elapsed_sec": 2.880266207968816,
+        "elapsed_sec": 2.902123083011247,
         "sample_count": 4,
-        "samples_per_sec": 1.3887605211397553,
+        "samples_per_sec": 1.3783012937720043,
         "workers": 1
       },
       "workers_2": {
-        "elapsed_sec": 2.1566547080874443,
+        "elapsed_sec": 2.077516083023511,
         "sample_count": 4,
-        "samples_per_sec": 1.8547243492433072,
+        "samples_per_sec": 1.9253761897133446,
         "workers": 2
       }
     }
@@ -50,5 +50,5 @@
     "python": "3.13.13"
   },
   "milestone": "D7.1",
-  "recorded_at_utc": "2026-06-29T06:22:44.514202+00:00"
+  "recorded_at_utc": "2026-06-29T08:16:02.138022+00:00"
 }
