@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
+
 
 RUNTIME_DEFAULTS: dict[str, Any] = {
     "mode": "auto",
@@ -52,7 +54,29 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if isinstance(subprocess, Mapping):
         runtime["Subprocess"] = dict(subprocess)
 
+    file_operation = raw.get("FileOperation")
+    if isinstance(file_operation, Mapping):
+        runtime["FileOperation"] = normalize_file_operation(file_operation)
+
     return runtime
+
+
+def normalize_file_operation(raw: Mapping[str, Any] | None) -> dict[str, str]:
+    """Normalize ``Runtime.FileOperation`` settings."""
+    if not isinstance(raw, Mapping):
+        return {"delete_method": DEFAULT_DELETE_METHOD}
+    return {
+        "delete_method": normalize_delete_method(raw.get("delete_method")),
+    }
+
+
+def get_delete_method(config: Mapping[str, Any] | None) -> str:
+    """Return the configured delete backend (default ``shutil``)."""
+    runtime = get_runtime_block(config)
+    file_operation = runtime.get("FileOperation") or {}
+    if isinstance(file_operation, Mapping):
+        return normalize_delete_method(file_operation.get("delete_method"))
+    return DEFAULT_DELETE_METHOD
 
 
 def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:

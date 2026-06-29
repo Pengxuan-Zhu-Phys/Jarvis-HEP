@@ -15,7 +15,7 @@ from jarvishep2.command_parser import prepare_calculator_modules
 from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_delete_method, get_runtime_block
 from jarvishep2.sample import Sample
 
 
@@ -145,7 +145,11 @@ class Jarvis2Core:
         database_dir = os.path.join(task_result_dir, "DATABASE")
         os.makedirs(database_dir, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
-        self.archiver = SimpleArchiver(self.redis, resolved_db_path)
+        self.archiver = SimpleArchiver(
+            self.redis,
+            resolved_db_path,
+            delete_method=get_delete_method(self.config),
+        )
         self.archiver.start()
         return self.archiver
 

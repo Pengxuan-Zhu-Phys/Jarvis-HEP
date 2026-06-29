@@ -15,6 +15,7 @@ from typing import Any
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
+from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -55,6 +56,7 @@ class Worker(Process):
         self._likelihood: LogLikelihoodEvaluator | None = None
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
+        self._delete_method = DEFAULT_DELETE_METHOD
         self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
@@ -74,6 +76,9 @@ class Worker(Process):
 
     def _init_runtime(self) -> None:
         self._observables_lock = threading.Lock()
+        self._delete_method = normalize_delete_method(
+            self.worker_config.get("delete_method", DEFAULT_DELETE_METHOD)
+        )
         self._mapper = build_mapper(self.worker_config.get("mapper"))
         opera_configs = self.worker_config.get("opera_modules") or {}
         if isinstance(opera_configs, list):
@@ -210,6 +215,23 @@ class Worker(Process):
         sample.observables = dict(sample.info.get("observables", sample.observables))
         sample._likelihood = value
 
+    def _collect_cleanup_paths(self, sample: Sample) -> list[str]:
+        if not isinstance(sample.info, dict):
+            return []
+        paths: list[str] = []
+        for key in ("cleanup_paths", "staging_paths", "staging_path"):
+            raw = sample.info.get(key)
+            if isinstance(raw, str) and raw.strip():
+                paths.append(raw.strip())
+            elif isinstance(raw, list):
+                paths.extend(str(item).strip() for item in raw if str(item).strip())
+        return paths
+
+    def _cleanup_transient_paths(self, sample: Sample) -> None:
+        paths = self._collect_cleanup_paths(sample)
+        if paths:
+            delete_paths(paths, method=self._delete_method, missing_ok=True)
+
     def _stage_and_submit(self, sample: Sample) -> None:
         if self._redis is None:
             return
@@ -273,6 +295,7 @@ class Worker(Process):
             top.error("sample failed; see sample log -> %s", exc)
         finally:
             self._stage_and_submit(sample)
+            self._cleanup_transient_paths(sample)
             sample.close()
             self._current_sample_uuid = None
 

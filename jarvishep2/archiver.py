@@ -8,6 +8,7 @@ import time
 from typing import Any
 
 from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.redis_queue import RedisQueue
 
 
@@ -20,10 +21,12 @@ class SimpleArchiver:
         db_path: str,
         *,
         poll_timeout: float = 1.0,
+        delete_method: str = DEFAULT_DELETE_METHOD,
     ) -> None:
         self.redis = redis_queue
         self.writer = SimpleHDF5Writer(db_path)
         self.poll_timeout = max(0.05, float(poll_timeout))
+        self.delete_method = normalize_delete_method(delete_method)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self.records_written = 0
@@ -66,6 +69,10 @@ class SimpleArchiver:
                 self.records_written += 1
                 drained += 1
         return drained
+
+    def cleanup_staging(self, paths: list[str] | tuple[str, ...]) -> None:
+        """Delete archived staging directories using the configured backend."""
+        delete_paths(list(paths), method=self.delete_method, missing_ok=True)
 
     def stop(self, *, wait: bool = True, drain: bool = True) -> None:
         if drain:
