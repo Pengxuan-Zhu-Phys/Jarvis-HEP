@@ -16,6 +16,8 @@ from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
 from jarvishep2.runtime_config import get_archiver_config, get_delete_method, get_runtime_block
+from jarvishep2.dashboard import SnapshotReader, format_monitor_view
+from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
 from jarvishep2.sample import Sample
 
 
@@ -213,13 +215,53 @@ class Jarvis2Core:
             f"got {self._archiver_records_written()}"
         )
 
-    def shutdown(self, *, wait: bool = True) -> None:
+    def get_monitor_snapshot(self) -> dict[str, Any]:
+        if self.factory is None:
+            return {}
+        return self.factory.get_monitor_snapshot()
+
+    def monitor_once(self) -> str:
+        if self.factory is None:
+            return ""
+        view = SnapshotReader(self.factory).read()
+        return format_monitor_view(view)
+
+    def write_run_summary(self, output_dir: str | None = None) -> dict[str, str]:
+        if self.factory is None:
+            raise RuntimeError("factory is not configured")
+        task_result_dir = str(
+            output_dir
+            or self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        metrics = dict(self.factory.get_run_metrics())
+        started = metrics.pop("run_started_at", None)
+        scan = self.config.get("Scan") or {}
+        scan_name = scan.get("name") if isinstance(scan, Mapping) else None
+        sampler_name = type(self.sampler).__name__ if self.sampler is not None else None
+        summary = build_run_summary(
+            factory_metrics=metrics,
+            project_name=str(self.config.get("project_name") or scan_name or ""),
+            sampler_name=sampler_name,
+            run_id=str(self.info.get("run_id") or metrics.get("run_id") or "jarvis2-run"),
+            start_epoch=float(started) if started is not None else None,
+            configured_workers=int(self.runtime.get("workers", 0) or len(self.factory.workers)),
+        )
+        return RunSummaryRenderer().write_outputs(summary, task_result_dir)
+
+    def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
         if self.archiver is not None:
             if isinstance(self.archiver, ArchiverProcess):
                 self.archiver.stop(wait=wait)
             else:
                 self.archiver.stop(wait=wait, drain=True)
             self.archiver = None
+        if write_run_summary and self.factory is not None:
+            try:
+                self.write_run_summary()
+            except Exception as exc:
+                self._logger.warning("run_summary write failed -> %s", exc)
         if self.factory is not None:
             self.factory.shutdown(wait=wait)
             self.factory = None

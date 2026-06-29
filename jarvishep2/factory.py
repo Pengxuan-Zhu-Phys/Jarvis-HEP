@@ -35,6 +35,8 @@ class TaskFactory:
         self._last_op_counts: dict[str, int] = {}
         self._updater_thread: threading.Thread | None = None
         self._running = False
+        self._run_started_at: float | None = None
+        self._peak_workers_alive = 0
         self._logger = get_jarvis_logger("factory")
 
     @classmethod
@@ -94,8 +96,41 @@ class TaskFactory:
             worker.start()
             started.append(worker)
         self.workers.extend(started)
+        if self._run_started_at is None:
+            self._run_started_at = time.time()
+        self._peak_workers_alive = max(self._peak_workers_alive, len(self._alive_workers()))
         self._logger.info("started %d worker process(es)", len(started))
         return started
+
+    def get_run_metrics(self) -> dict[str, Any]:
+        """Project run counters for run_summary (WP-D5.2)."""
+        submitted = 0
+        ok = 0
+        failed = 0
+        if self.redis is not None:
+            stats = self.redis.fetch_sample_stats()
+            lengths = self.redis.get_queue_lengths()
+            ok = int(stats.get("completed", 0) or 0)
+            failed = int(stats.get("failed", 0) or 0)
+            running = int(stats.get("running", 0) or 0)
+            queued = int(lengths.get("task_queue_length", 0) or 0)
+            submitted = max(
+                int(self.redis.get_op_count("task")),
+                ok + failed + running + queued,
+            )
+        alive = sum(1 for worker in self.workers if worker.is_alive())
+        return {
+            "submitted": submitted,
+            "ok": ok,
+            "failed": failed,
+            "configured_workers": len(self.workers),
+            "peak_active_workers": max(self._peak_workers_alive, alive),
+            "mean_active_workers": float(alive),
+            "total_point_eval_sec": 0.0,
+            "completed_durations_sec": [],
+            "retry_count": None,
+            "run_started_at": self._run_started_at,
+        }
 
     def stop_all_workers(self, *, graceful: bool = True, join_timeout: float = 30.0) -> None:
         """Stop all tracked Workers; SIGTERM first, then force-terminate."""
@@ -176,10 +211,12 @@ class TaskFactory:
 
     def _collect_latest_status(self) -> dict[str, Any]:
         """Collect queue/stats snapshot from Redis with op_count gating."""
+        workers_alive = sum(1 for worker in self.workers if worker.is_alive())
+        self._peak_workers_alive = max(self._peak_workers_alive, workers_alive)
         snap: dict[str, Any] = {
             "timestamp": time.time(),
             "workers": self._worker_status(),
-            "workers_alive": sum(1 for worker in self.workers if worker.is_alive()),
+            "workers_alive": workers_alive,
             "workers_total": len(self.workers),
         }
         if self.redis is None:
@@ -263,6 +300,8 @@ class TaskFactory:
             self.redis.close()
             self.redis = None
         self._last_op_counts.clear()
+        self._run_started_at = None
+        self._peak_workers_alive = 0
         with self._snapshot_lock:
             self._snapshot = {}
         self._logger.info("TaskFactory shutdown complete")
