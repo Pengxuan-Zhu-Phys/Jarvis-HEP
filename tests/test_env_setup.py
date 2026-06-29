@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
 from jarvishep2.worker import Worker
 
@@ -82,6 +83,26 @@ class EnvCaptureTests(unittest.TestCase):
             [{"source": EXPORT_FOO}, {"source": ""}, {"other": "x"}]
         )
         self.assertEqual(sources, [EXPORT_FOO])
+
+    def test_resolve_env_setup_sources_expands_j_tokens(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_dir = os.path.join(tmpdir, "env")
+            os.makedirs(env_dir, exist_ok=True)
+            script_name = "export_foo.sh"
+            script_path = os.path.join(env_dir, script_name)
+            with open(EXPORT_FOO, encoding="utf-8") as src:
+                with open(script_path, "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+
+            parser = CommandParser(project_root=tmpdir)
+            sources = resolve_env_setup_sources(
+                [{"source": "&J/env/export_foo.sh"}],
+                command_parser=parser,
+            )
+            self.assertEqual(len(sources), 1)
+            self.assertEqual(sources[0], script_path)
+            captured = EnvCapture.capture_from_source(sources[0])
+            self.assertEqual(captured.get("JARVIS_ENV_FOO"), "layer-concurrent")
 
 
 class CalculatorEnvSetupTests(unittest.TestCase):
@@ -191,6 +212,49 @@ class WorkerEnvSetupTests(unittest.TestCase):
                 module = worker._calculators["EnvCalc"]
                 self.assertEqual(len(merge_calls), 1)
                 self.assertEqual(merge_calls[0], [EXPORT_FOO])
+                self.assertEqual(
+                    module._subprocess_env.get("JARVIS_ENV_FOO"),
+                    "layer-concurrent",
+                )
+            finally:
+                if worker._scheduler is not None:
+                    worker._scheduler.shutdown(wait=True)
+
+    def test_worker_resolves_j_token_env_setup_at_init_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_dir = os.path.join(tmpdir, "env")
+            os.makedirs(env_dir, exist_ok=True)
+            script_path = os.path.join(env_dir, "export_foo.sh")
+            with open(EXPORT_FOO, encoding="utf-8") as src:
+                with open(script_path, "w", encoding="utf-8") as dst:
+                    dst.write(src.read())
+
+            worker_config = {
+                "command_parser": {
+                    "project_root": tmpdir,
+                    "scan_name": "default",
+                    "libdeps_paths": {},
+                    "registered": {},
+                    "registered_symlink_root": os.path.join(tmpdir, "deps", "registered"),
+                },
+                "calculator_modules": [
+                    {
+                        "name": "EnvCalc",
+                        "env_setup": [{"source": "&J/env/export_foo.sh"}],
+                        "execution": {
+                            "path": ".",
+                            "commands": [{"cmd": "true", "cwd": "."}],
+                            "input": [],
+                            "output": [],
+                        },
+                    }
+                ],
+                "likelihood_expressions": [],
+            }
+            worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, worker_config)
+            try:
+                worker._init_runtime()
+                module = worker._calculators["EnvCalc"]
                 self.assertEqual(
                     module._subprocess_env.get("JARVIS_ENV_FOO"),
                     "layer-concurrent",

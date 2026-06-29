@@ -7,6 +7,8 @@ import os
 import tempfile
 import unittest
 
+import numpy as np
+
 from jarvishep2.archiver import SimpleArchiver
 from jarvishep2.file_ops import (
     DEFAULT_DELETE_METHOD,
@@ -132,6 +134,49 @@ class WorkerCleanupTests(unittest.TestCase):
             sample = Sample(uuid="u1", observables={}, info={"cleanup_paths": [target]})
             worker._cleanup_transient_paths(sample)
             self.assertFalse(os.path.lexists(target))
+
+    def test_process_task_deletes_cleanup_paths_from_sample_config(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            staging = os.path.join(tmpdir, "staging", "sample-uuid")
+            os.makedirs(staging)
+            marker = os.path.join(staging, "done.txt")
+            with open(marker, "w", encoding="utf-8") as handle:
+                handle.write("staged")
+
+            worker = Worker(
+                0,
+                {"host": "127.0.0.1", "port": 6379, "db": 0},
+                {
+                    "delete_method": "shutil",
+                    "sample_config": {
+                        "task_result_dir": tmpdir,
+                        "sample_dirs": os.path.join(tmpdir, "SAMPLE"),
+                        "sample_artifacts": "never",
+                        "workflow_has_calculator": False,
+                        "workflow_references_sdir": False,
+                        "cleanup_paths": [staging],
+                    },
+                    "mapper": {"type": "identity", "keys": []},
+                    "opera_modules": {},
+                    "calculator_modules": [],
+                    "likelihood_expressions": [],
+                },
+            )
+            worker._init_runtime()
+            try:
+                worker.process_task(
+                    {
+                        "uuid": "sample-uuid",
+                        "u_coords": np.array([], dtype=np.float64),
+                        "execution_plan": [],
+                        "opera_params": {},
+                        "sample_artifacts": "never",
+                    }
+                )
+                self.assertFalse(os.path.lexists(staging))
+            finally:
+                if worker._scheduler is not None:
+                    worker._scheduler.shutdown(wait=True)
 
 
 class ArchiverCleanupTests(unittest.TestCase):
