@@ -1,0 +1,58 @@
+# WP-CLI: EggBox check-modules smoke task (10 fixed points, V1 golden parity).
+project_name: parity-check-modules
+Scan:
+  name: check-modules
+Runtime:
+  mode: redis
+  workers: 1
+  sample_artifacts: always
+Mapper:
+  type: identity
+  keys: [x, y]
+Sampling:
+  mode: check_modules
+  data: "&J/data/check_modules_points.csv"
+LibDeps:
+  registered_executables:
+    - name: eggboxlk
+      source: "&J/calculators/runtime/program/eggbox/001/eggbox.py"
+      resolution: direct_path
+Calculators:
+  Pools:
+    EggBox: 1
+  Modules:
+    - name: EggBox
+      required_modules: []
+      clone_shadow: false
+      path: "&J/calculators/runtime/program/eggbox/001"
+      installation: []
+      initialization: []
+      execution:
+        path: "&J/calculators/runtime/program/eggbox/001"
+        commands:
+          - cmd: python3 eggboxlk
+            cwd: "@Sdir"
+        input:
+          - name: inpjson
+            path: "@Sdir/input.json"
+            type: JSON
+            save: false
+            actions:
+              - type: Dump
+                variables:
+                  - name: xx
+                    expression: x * Pi
+                  - name: yy
+                    expression: y * Pi
+        output:
+          - name: oupjson
+            path: "@Sdir/output.json"
+            type: JSON
+            save: false
+            variables:
+              - name: z
+                entry: z
+Likelihood:
+  expressions:
+    - name: LogL
+      expression: LogGauss(z, z, 1.0)

@@ -27,8 +27,8 @@ def _config_references_sdir(modules: list[dict[str, Any]]) -> bool:
 def build_command_parser(config: Mapping[str, Any] | None) -> CommandParser:
     """Build a CommandParser from a task config mapping."""
     cfg = dict(config or {})
-    task_root = str(cfg.get("task_result_dir") or cfg.get("project_root") or "")
-    return CommandParser.from_config(cfg, task_root=task_root or None)
+    project_root = str(cfg.get("project_root") or cfg.get("task_root") or "")
+    return CommandParser.from_config(cfg, project_root=project_root or None)
 
 
 def build_worker_config(
@@ -111,6 +111,15 @@ def build_worker_config(
             "registered_symlink_root": command_parser.registered_symlink_root,
         },
     }
+    calc_block = cfg.get("Calculators") if isinstance(cfg.get("Calculators"), Mapping) else {}
+    pools = None
+    if isinstance(calc_block, Mapping):
+        pools = calc_block.get("Pools") or calc_block.get("pools")
+    if isinstance(pools, Mapping) and pools and "calculator_pools" not in extra_payload:
+        worker_config["calculator_pools"] = {
+            str(name): max(1, int(count or 1)) for name, count in pools.items()
+        }
+
     if extra_payload:
         worker_config.update(extra_payload)
     return worker_config

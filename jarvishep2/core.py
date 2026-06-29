@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+import csv
+import glob
 import os
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+import numpy as np
 
 from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser
@@ -35,6 +40,13 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     save_checkpoint,
 )
 from jarvishep2.sample import Sample
+from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.task_config import (
+    check_modules_points_path,
+    is_check_modules_task,
+    load_task_yaml,
+)
 
 
 class Jarvis2Core:
@@ -44,6 +56,8 @@ class Jarvis2Core:
         self.config = dict(config or {})
         self.runtime = get_runtime_block(self.config)
         self.info: dict[str, Any] = {}
+        if self.config:
+            self._populate_info_from_config()
         self.redis: RedisQueue | None = None
         self.factory: TaskFactory | None = None
         self.archiver: SimpleArchiver | ArchiverProcess | None = None
@@ -55,6 +69,169 @@ class Jarvis2Core:
 
     def init_logger(self) -> None:
         setup_jarvis_logging(role="core")
+
+    def load_task_yaml(self, path: str) -> dict[str, Any]:
+        """Load task YAML and merge normalized layout into ``self.config``."""
+        self.config = load_task_yaml(path)
+        self.runtime = get_runtime_block(self.config)
+        self._populate_info_from_config()
+        return self.config
+
+    def _populate_info_from_config(self) -> None:
+        self.info = {
+            "task_root": str(self.config.get("task_root") or os.getcwd()),
+            "task_result_dir": str(self.config.get("task_result_dir") or os.getcwd()),
+            "scan_name": str(self.config.get("scan_name") or "scan"),
+            "sampler_name": "SamplingVirtial",
+            "run_id": str(self.config.get("run_id") or uuid.uuid4()),
+            "task_yaml": self.config.get("task_yaml"),
+        }
+
+    def prepare_resume(self, *, resume: bool = False, fresh: bool = False) -> None:
+        """Preload checkpoint state before sampler bring-up (CLI ``--resume``)."""
+        self._preload_resume_checkpoint(resume=resume, fresh=fresh)
+        self._resume_checkpoint_preloaded = True
+
+    def init_sampler_from_config(self) -> SamplingVirtial:
+        sampler = SamplingVirtial()
+        sampler.set_config(self.config)
+        calc_modules = list(
+            (self.config.get("Calculators") or {}).get("Modules") or []
+        )
+        opera_modules = list((self.config.get("Operas") or {}).get("Modules") or [])
+        sampler.set_execution_plan_template(
+            calculator_modules=calc_modules,
+            opera_modules=opera_modules,
+            include_likelihood=bool((self.config.get("Likelihood") or {}).get("expressions")),
+        )
+        self.set_sampler(sampler)
+        return sampler
+
+    def bootstrap_distributed_runtime(self) -> None:
+        """Bring up Redis, Workers, and Archiver for a distributed run."""
+        if not self.is_redis_runtime():
+            raise RuntimeError(
+                "distributed runtime requires Runtime.mode == 'redis' in the task YAML"
+            )
+        self.init_logger()
+        self.init_command_parser()
+        self.init_redis()
+        self.init_sampler_from_config()
+        self.init_factory()
+        db_path = os.path.join(
+            str(self.info.get("task_result_dir") or os.getcwd()),
+            "DATABASE",
+            "samples.hdf5",
+        )
+        self.init_archiver(db_path)
+        self.start_runtime_checkpoint()
+
+    @staticmethod
+    def _load_check_module_rows(csv_path: str) -> list[dict[str, str]]:
+        with open(csv_path, "r", encoding="utf-8") as handle:
+            return list(csv.DictReader(handle))
+
+    def _build_check_module_samples(self) -> list[Sample]:
+        if self.sampler is None:
+            raise RuntimeError("sampler is not configured")
+        csv_path = check_modules_points_path(self.config)
+        samples: list[Sample] = []
+        for row in self._load_check_module_rows(csv_path):
+            sample = self.sampler._build_sample(
+                np.array([float(row["x"]), float(row["y"])], dtype=np.float64)
+            )
+            sample.uuid = str(row["uuid"])
+            samples.append(sample)
+        return samples
+
+    def run_check_modules(
+        self,
+        *,
+        timeout: float = 120.0,
+        verify_golden: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Run the fixed-point calculator smoke path and return archived row count."""
+        samples = self._build_check_module_samples()
+        self.submit_samples(samples)
+        self.wait_for_results(len(samples), timeout=timeout)
+        if verify_golden is not None:
+            self._verify_check_modules_golden(verify_golden)
+        return len(samples)
+
+    def _verify_check_modules_golden(self, golden: Mapping[str, Any]) -> None:
+        task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
+        db_path = os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
+        records = SimpleHDF5Writer(db_path).read_records()
+        expected_records = list(golden.get("records") or [])
+        expected_files = golden.get("sample_files")
+        if expected_records:
+            normalized = self._normalize_check_module_records(records)
+            expected_normalized = self._normalize_check_module_records(expected_records)
+            if normalized != expected_normalized:
+                raise RuntimeError("check-modules DATABASE parity mismatch")
+        if expected_files:
+            tree = self._sample_tree_file_sets(os.path.join(task_result_dir, "SAMPLE"))
+            for files in tree:
+                if list(files) != list(expected_files):
+                    raise RuntimeError("check-modules SAMPLE parity mismatch")
+
+    @staticmethod
+    def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
+        manifests: list[list[str]] = []
+        if not os.path.isdir(sample_root):
+            return manifests
+        for child in sorted(os.listdir(sample_root)):
+            child_path = os.path.join(sample_root, child)
+            if not os.path.isdir(child_path):
+                continue
+            files = sorted(
+                os.path.relpath(path, child_path)
+                for path in glob.glob(os.path.join(child_path, "**", "*"), recursive=True)
+                if os.path.isfile(path)
+            )
+            manifests.append(files)
+        return sorted(manifests)
+
+    @staticmethod
+    def _normalize_check_module_records(records: list[dict[str, Any]]) -> list[dict[str, float]]:
+        normalized: list[dict[str, float]] = []
+        for row in records:
+            normalized.append(
+                {
+                    "x": round(float(row["x"]), 12),
+                    "y": round(float(row["y"]), 12),
+                    "z": round(float(row["z"]), 12),
+                    "LogL": round(float(row["LogL"]), 12),
+                }
+            )
+        return sorted(normalized, key=lambda item: (item["x"], item["y"]))
+
+    def run(
+        self,
+        *,
+        resume: bool = False,
+        check_modules: bool = False,
+        verify_golden: Mapping[str, Any] | None = None,
+        write_run_summary: bool = True,
+    ) -> int:
+        """Execute a distributed scan from the loaded task config."""
+        self.prepare_resume(resume=resume, fresh=False)
+        try:
+            self.bootstrap_distributed_runtime()
+            if check_modules or is_check_modules_task(self.config):
+                count = self.run_check_modules(verify_golden=verify_golden)
+            else:
+                raise NotImplementedError(
+                    "Only check-modules / fixed-point tasks are implemented in this milestone; "
+                    "configure Sampling.mode: check_modules or pass --check-modules."
+                )
+            return count
+        finally:
+            self.shutdown(wait=True, write_run_summary=write_run_summary)
+
+    def check_modules(self, *, verify_golden: Mapping[str, Any] | None = None) -> int:
+        """CLI entry for ``Jarvis2 <task>.yaml --check-modules``."""
+        return self.run(check_modules=True, verify_golden=verify_golden)
 
     def is_redis_runtime(self) -> bool:
         """Return True when the distributed Redis path should be used."""

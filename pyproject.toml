@@ -13,7 +13,11 @@ dependencies = [
     "h5py>=3.8",
     "numpy>=1.24",
     "sympy>=1.12",
+    "PyYAML>=6.0",
 ]
+
+[project.scripts]
+Jarvis2 = "jarvishep2.client:main"
 
 [project.optional-dependencies]
 distributed = [
