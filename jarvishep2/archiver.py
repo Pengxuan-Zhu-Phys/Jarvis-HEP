@@ -45,6 +45,7 @@ class ArchiveProcessor:
         self.batch_size = max(1, int(batch_size))
         self.flush_interval_sec = max(0.05, float(flush_interval_sec))
         self.records_written = 0
+        self.acked_uuids: set[str] = set()
         self._batch: list[dict[str, Any]] = []
         self._last_flush = time.monotonic()
         self._lock = threading.Lock()
@@ -85,6 +86,19 @@ class ArchiveProcessor:
         staging_path = str(result.get("staging_path") or "").strip()
         save_dir = str(result.get("save_dir") or "").strip()
         destination = os.path.join(self.sample_root, uuid)
+        if os.path.isdir(destination):
+            if uuid in self.acked_uuids:
+                return True
+            observables = result.get("observables", {})
+            if isinstance(observables, Mapping) and observables:
+                record = dict(observables)
+                record.setdefault("product_list", list_product_names(destination))
+                self.writer.add_record(record)
+                self.records_written += 1
+                self.acked_uuids.add(uuid)
+                return True
+            self.acked_uuids.add(uuid)
+            return True
         if staging_path and os.path.isdir(staging_path):
             destination = archive_staging_to_sample(
                 staging_path,
@@ -111,8 +125,17 @@ class ArchiveProcessor:
                 record.setdefault("product_list", list_product_names(destination))
             self.writer.add_record(record)
             self.records_written += 1
+            self.acked_uuids.add(uuid)
             return True
         return False
+
+    def persistence_state(self) -> dict[str, Any]:
+        acked = sorted(self.acked_uuids)
+        return {
+            "acked_uuids": acked,
+            "acked_uuids_highwater": len(acked),
+            "next_sample_index": len(acked),
+        }
 
 
 class SimpleArchiver:
@@ -148,6 +171,9 @@ class SimpleArchiver:
     @property
     def records_written(self) -> int:
         return self.processor.records_written
+
+    def persistence_state(self) -> dict[str, Any]:
+        return self.processor.persistence_state()
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():

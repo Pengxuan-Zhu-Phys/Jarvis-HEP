@@ -226,6 +226,17 @@ class RedisQueue:
             raise CodecError("task payload must decode to a dict")
         return decoded
 
+    def drain_task_queue(self) -> int:
+        """Discard all queued tasks (resume path — WP-D6.2)."""
+        self._require_client()
+        drained = 0
+        while int(self.r.llen(TASK_QUEUE)) > 0:
+            task = self.pull_task(timeout=1)
+            if task is None:
+                break
+            drained += 1
+        return drained
+
     def push_many_tasks(self, tasks: list[Mapping[str, Any]]) -> None:
         if not tasks:
             return

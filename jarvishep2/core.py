@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import sys
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -23,6 +25,15 @@ from jarvishep2.runtime_config import (
 )
 from jarvishep2.dashboard import SnapshotReader, format_monitor_view
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
+from jarvishep2.Sampling.runtime_checkpoint import (
+    RESUME_PROMPT,
+    build_payload,
+    build_run_spec,
+    checkpoint_path,
+    load_checkpoint,
+    prepare_resume,
+    save_checkpoint,
+)
 from jarvishep2.sample import Sample
 
 
@@ -38,6 +49,8 @@ class Jarvis2Core:
         self.archiver: SimpleArchiver | ArchiverProcess | None = None
         self.sampler: Any = None
         self.command_parser: CommandParser | None = None
+        self._resume_checkpoint_payload: dict[str, Any] | None = None
+        self._resume_policy: str = "auto"
         self._logger = get_jarvis_logger("core")
 
     def init_logger(self) -> None:
@@ -46,6 +59,137 @@ class Jarvis2Core:
     def is_redis_runtime(self) -> bool:
         """Return True when the distributed Redis path should be used."""
         return str(self.runtime.get("mode", "auto")).strip().lower() == "redis"
+
+    def checkpoint_file(self) -> str:
+        task_root = str(
+            self.info.get("task_root")
+            or self.config.get("task_root")
+            or os.getcwd()
+        )
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        sampler_name = str(
+            self.info.get("sampler_name")
+            or (type(self.sampler).__name__ if self.sampler is not None else "sampler")
+        )
+        return checkpoint_path(
+            task_root=task_root,
+            scan_name=scan_name,
+            sampler_name=sampler_name,
+        )
+
+    @staticmethod
+    def prompt_resume_from_checkpoint(
+        checkpoint_file: str,
+        *,
+        timeout_seconds: float = 30.0,
+    ) -> bool:
+        if not getattr(sys.stdin, "isatty", lambda: False)():
+            return True
+        response: dict[str, str | None] = {"text": None}
+
+        def _read() -> None:
+            try:
+                response["text"] = sys.stdin.readline()
+            except Exception:
+                response["text"] = ""
+
+        print(RESUME_PROMPT, end="", flush=True)
+        reader = threading.Thread(target=_read, daemon=True)
+        reader.start()
+        reader.join(timeout_seconds)
+        if reader.is_alive():
+            return True
+        answer = str(response["text"] or "").strip().lower()
+        return answer not in {"y", "yes"}
+
+    def _preload_resume_checkpoint(
+        self,
+        *,
+        resume: bool = False,
+        fresh: bool = False,
+    ) -> None:
+        if fresh:
+            self._resume_policy = "fresh"
+            self._resume_checkpoint_payload = None
+            return
+
+        path = self.checkpoint_file()
+        if not os.path.exists(path):
+            self._resume_policy = "fresh"
+            self._resume_checkpoint_payload = None
+            return
+
+        if not resume:
+            if not self.prompt_resume_from_checkpoint(path):
+                self._resume_policy = "fresh"
+                self._resume_checkpoint_payload = None
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                self._logger.warning(
+                    "Starting a fresh run from user confirmation; existing checkpoint was discarded."
+                )
+                return
+        self._resume_policy = "resume"
+        try:
+            payload = load_checkpoint(path)
+        except ValueError as exc:
+            self._logger.warning("Checkpoint rejected -> %s", exc)
+            self._resume_checkpoint_payload = None
+            self._resume_policy = "fresh"
+            return
+        self._resume_checkpoint_payload = payload
+
+    def apply_resume_checkpoint(self, worker_config: Mapping[str, Any] | None = None) -> int:
+        if self._resume_policy != "resume" or self._resume_checkpoint_payload is None:
+            return 0
+        if self.redis is None:
+            raise RuntimeError("init_redis() must run before apply_resume_checkpoint()")
+        drained = prepare_resume(self.redis, worker_config=worker_config)
+        sampler_state = dict(self._resume_checkpoint_payload.get("sampler_state") or {})
+        if self.sampler is not None and hasattr(self.sampler, "import_runtime_state"):
+            self.sampler.import_runtime_state(sampler_state)
+        if self.sampler is not None and hasattr(self.sampler, "set_resume_repropose_hint"):
+            self.sampler.set_resume_repropose_hint(True)
+        self._logger.info(
+            "Resumed from checkpoint; drained %d stale task(s) from hep:task_queue",
+            drained,
+        )
+        return drained
+
+    def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
+        if self.sampler is None or not hasattr(self.sampler, "export_runtime_state"):
+            return None
+        persistence: dict[str, Any] = {}
+        if self.archiver is not None and hasattr(self.archiver, "persistence_state"):
+            persistence = dict(self.archiver.persistence_state())
+        task_root = str(self.info.get("task_root") or self.config.get("task_root") or os.getcwd())
+        task_result_dir = str(
+            self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or task_root
+        )
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        sampler_name = str(self.info.get("sampler_name") or type(self.sampler).__name__)
+        run_spec = build_run_spec(
+            config=self.config,
+            scan_name=scan_name,
+            task_root=task_root,
+            task_result_dir=task_result_dir,
+            sampler_name=sampler_name,
+            worker_parallel=int(self.runtime.get("workers", 0) or 0),
+        )
+        payload = build_payload(
+            run_spec=run_spec,
+            sampler_state=self.sampler.export_runtime_state(),
+            persistence=persistence,
+            reason=reason,
+            safe_barrier_confirmed=True,
+        )
+        path = self.checkpoint_file()
+        save_checkpoint(path, payload)
+        return path
 
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         redis_config = dict(self.runtime.get("redis") or {})
@@ -136,6 +280,8 @@ class Jarvis2Core:
             merged_config = dict(worker_config)
             if "command_parser" not in merged_config:
                 merged_config = self._apply_command_parser_to_worker_config(merged_config)
+        if self._resume_policy == "resume":
+            prepare_resume(self.redis, worker_config=merged_config)
         self.factory.start_workers(workers, **merged_config)
         self.factory.start_monitor(update_hz=120.0)
         watchdog = get_watchdog_config(self.config)
@@ -178,7 +324,19 @@ class Jarvis2Core:
                 archiver_config=archiver_config,
             )
             self.archiver.start()
+        self._restore_archiver_persistence()
         return self.archiver
+
+    def _restore_archiver_persistence(self) -> None:
+        if self._resume_policy != "resume" or self._resume_checkpoint_payload is None:
+            return
+        if self.archiver is None:
+            return
+        persistence = dict(self._resume_checkpoint_payload.get("persistence") or {})
+        acked = persistence.get("acked_uuids") or []
+        processor = getattr(self.archiver, "processor", None)
+        if processor is not None:
+            processor.acked_uuids.update(str(item) for item in acked)
 
     def _archiver_records_written(self) -> int:
         archiver = self.archiver
@@ -191,8 +349,30 @@ class Jarvis2Core:
 
     def set_sampler(self, sampler: Any) -> None:
         self.sampler = sampler
+        if self._resume_policy == "auto" and not getattr(self, "_resume_checkpoint_preloaded", False):
+            self._preload_resume_checkpoint()
+            self._resume_checkpoint_preloaded = True
         if self.redis is not None and hasattr(sampler, "set_redis"):
             sampler.set_redis(self.redis)
+        if (
+            self._resume_policy == "resume"
+            and self._resume_checkpoint_payload is not None
+            and hasattr(sampler, "import_runtime_state")
+        ):
+            sampler.import_runtime_state(
+                self._resume_checkpoint_payload.get("sampler_state") or {}
+            )
+            if hasattr(sampler, "set_resume_repropose_hint"):
+                sampler.set_resume_repropose_hint(True)
+
+    def start_runtime_checkpoint(self) -> None:
+        """Enable the 30 s checkpoint heartbeat once sampler + archiver exist."""
+        if self.sampler is None or not hasattr(self.sampler, "configure_checkpoint"):
+            return
+        self.sampler.configure_checkpoint(
+            checkpoint_file=self.checkpoint_file(),
+            save_callback=lambda reason="": self.save_runtime_checkpoint(reason=reason),
+        )
 
     def submit_samples(self, samples: Sequence[Sample]) -> None:
         if self.sampler is None:
@@ -258,6 +438,8 @@ class Jarvis2Core:
         return RunSummaryRenderer().write_outputs(summary, task_result_dir)
 
     def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
+        if self.sampler is not None and hasattr(self.sampler, "shutdown_checkpointing"):
+            self.sampler.shutdown_checkpointing()
         if self.archiver is not None:
             if isinstance(self.archiver, ArchiverProcess):
                 self.archiver.stop(wait=wait)
