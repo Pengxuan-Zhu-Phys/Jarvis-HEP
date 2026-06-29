@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import copy
+import os
+import signal
 import threading
 import time
 from collections.abc import Callable
@@ -37,6 +39,16 @@ class TaskFactory:
         self._running = False
         self._run_started_at: float | None = None
         self._peak_workers_alive = 0
+        self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_running = False
+        self._watchdog_stale_sec = 30.0
+        self._watchdog_poll_interval_sec = 1.0
+        self._max_sample_retries = 3
+        self._worker_spawn_template: dict[str, Any] = {}
+        self._redis_connection_config: dict[str, Any] = {}
+        self._recovery_lock = threading.Lock()
+        self._last_recovered_pid: dict[int, int | None] = {}
+        self._respawn_count = 0
         self._logger = get_jarvis_logger("factory")
 
     @classmethod
@@ -88,6 +100,8 @@ class TaskFactory:
 
         redis_config = self.redis.connection_config()
         shared_config = dict(worker_kwargs)
+        self._redis_connection_config = dict(redis_config)
+        self._worker_spawn_template = copy.deepcopy(shared_config)
         register_calculator_pools(self.redis, shared_config)
         started: list[Worker] = []
         for worker_id in range(n):
@@ -286,8 +300,152 @@ class TaskFactory:
         """Launch the background snapshot updater thread."""
         self._start_snapshot_updater(update_hz=update_hz)
 
+    def start_watchdog(
+        self,
+        *,
+        enabled: bool = True,
+        stale_sec: float = 30.0,
+        poll_interval_sec: float = 1.0,
+        max_sample_retries: int = 3,
+    ) -> None:
+        """Launch the Worker watchdog (WP-D6.1)."""
+        if not enabled:
+            return
+        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+            return
+        self._watchdog_stale_sec = max(1.0, float(stale_sec))
+        self._watchdog_poll_interval_sec = max(0.1, float(poll_interval_sec))
+        self._max_sample_retries = max(0, int(max_sample_retries))
+        self._watchdog_running = True
+
+        def _loop() -> None:
+            while self._watchdog_running:
+                try:
+                    self._inspect_workers()
+                except Exception as exc:
+                    self._logger.warning("watchdog inspection failed -> %s", exc)
+                time.sleep(self._watchdog_poll_interval_sec)
+
+        self._watchdog_thread = threading.Thread(
+            target=_loop,
+            name="Jarvis2-FactoryWatchdog",
+            daemon=True,
+        )
+        self._watchdog_thread.start()
+
+    @staticmethod
+    def _heartbeat_timestamp(heartbeat: dict[str, Any]) -> float:
+        for key in ("last_heartbeat", "ts"):
+            raw = heartbeat.get(key)
+            if raw is None or raw == "":
+                continue
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    def _worker_heartbeat(self, worker_id: int) -> dict[str, Any]:
+        if self.redis is None:
+            return {}
+        rows = self.redis.fetch_worker_status([str(worker_id)])
+        return dict(rows.get(str(worker_id)) or {})
+
+    def _inspect_workers(self) -> None:
+        for worker in list(self.workers):
+            if not worker.is_alive():
+                self._handle_worker_failure(worker, reason="process_exit")
+                continue
+            heartbeat = self._worker_heartbeat(worker.worker_id)
+            status = str(heartbeat.get("status") or "").strip().lower()
+            if status not in {"busy", "starting"}:
+                continue
+            last_seen = self._heartbeat_timestamp(heartbeat)
+            if last_seen <= 0:
+                continue
+            if (time.time() - last_seen) <= self._watchdog_stale_sec:
+                continue
+            self._handle_worker_failure(worker, reason="stale_heartbeat")
+
+    def _force_stop_worker(self, worker: Worker) -> None:
+        if not worker.is_alive():
+            return
+        if worker.pid is not None:
+            try:
+                os.kill(worker.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        worker.join(timeout=2.0)
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=2.0)
+
+    def _requeue_in_flight_task(self, heartbeat: dict[str, Any]) -> bool:
+        if self.redis is None:
+            return False
+        task = self.redis.decode_heartbeat_task(heartbeat)
+        if task is None:
+            return False
+        retry_count = int(task.get("_retry_count", 0) or 0)
+        if retry_count >= self._max_sample_retries:
+            sample_uuid = str(task.get("uuid") or heartbeat.get("current_sample") or "")
+            if sample_uuid:
+                self.redis.submit_result(
+                    {
+                        "uuid": sample_uuid,
+                        "status": "Failed",
+                        "observables": {},
+                        "error": "worker_failure_retries_exhausted",
+                    }
+                )
+            return False
+        task["_retry_count"] = retry_count + 1
+        self.redis.push_task(task)
+        return True
+
+    def _handle_worker_failure(self, worker: Worker, *, reason: str) -> None:
+        worker_id = int(worker.worker_id)
+        dead_pid = worker.pid
+        with self._recovery_lock:
+            if self._last_recovered_pid.get(worker_id) == dead_pid:
+                return
+            if self.redis is None:
+                return
+
+            heartbeat = self._worker_heartbeat(worker_id)
+            held_packs = self.redis.decode_heartbeat_held_packs(heartbeat)
+            released = self.redis.sweep_held_calc_slots(held_packs)
+            requeued = self._requeue_in_flight_task(heartbeat)
+
+            self._force_stop_worker(worker)
+            self.workers = [item for item in self.workers if item.worker_id != worker_id]
+            replacement = Worker(
+                worker_id,
+                self._redis_connection_config,
+                copy.deepcopy(self._worker_spawn_template),
+            )
+            replacement.start()
+            self.workers.append(replacement)
+            self._last_recovered_pid[worker_id] = dead_pid
+            self._respawn_count += 1
+            self._peak_workers_alive = max(self._peak_workers_alive, len(self._alive_workers()))
+            self._logger.warning(
+                "recovered dead worker %d (reason=%s, released_slots=%d, requeued=%s, new_pid=%s)",
+                worker_id,
+                reason,
+                released,
+                requeued,
+                replacement.pid,
+            )
+
     def shutdown(self, *, wait: bool = True) -> None:
         """Stop monitor, signal Workers, join, and close the Redis connection."""
+        self._watchdog_running = False
+        if self._watchdog_thread is not None:
+            self._watchdog_thread.join(timeout=2.0)
+            if self._watchdog_thread.is_alive():
+                self._logger.warning("watchdog thread did not stop within timeout")
+            self._watchdog_thread = None
         self._running = False
         if self._updater_thread is not None:
             self._updater_thread.join(timeout=2.0)
@@ -302,6 +460,10 @@ class TaskFactory:
         self._last_op_counts.clear()
         self._run_started_at = None
         self._peak_workers_alive = 0
+        self._worker_spawn_template.clear()
+        self._redis_connection_config.clear()
+        self._last_recovered_pid.clear()
+        self._respawn_count = 0
         with self._snapshot_lock:
             self._snapshot = {}
         self._logger.info("TaskFactory shutdown complete")

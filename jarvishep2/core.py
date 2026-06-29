@@ -15,7 +15,12 @@ from jarvishep2.command_parser import prepare_calculator_modules
 from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
-from jarvishep2.runtime_config import get_archiver_config, get_delete_method, get_runtime_block
+from jarvishep2.runtime_config import (
+    get_archiver_config,
+    get_delete_method,
+    get_runtime_block,
+    get_watchdog_config,
+)
 from jarvishep2.dashboard import SnapshotReader, format_monitor_view
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
 from jarvishep2.sample import Sample
@@ -133,6 +138,8 @@ class Jarvis2Core:
                 merged_config = self._apply_command_parser_to_worker_config(merged_config)
         self.factory.start_workers(workers, **merged_config)
         self.factory.start_monitor(update_hz=120.0)
+        watchdog = get_watchdog_config(self.config)
+        self.factory.start_watchdog(**watchdog)
         self._logger.info("TaskFactory started with %d worker(s)", workers)
         return self.factory
 

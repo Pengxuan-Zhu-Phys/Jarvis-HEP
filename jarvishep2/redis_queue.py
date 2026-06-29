@@ -322,6 +322,8 @@ class RedisQueue:
 
     def heartbeat(self, worker_id: str, **fields: Any) -> None:
         self._require_client()
+        if "last_heartbeat" not in fields and "ts" in fields:
+            fields["last_heartbeat"] = fields["ts"]
         key = WORKER_STATUS.format(id=worker_id)
         mapping = {k: _encode_heartbeat_value(v) for k, v in fields.items()}
         pipe = self.r.pipeline(transaction=True)
@@ -384,6 +386,48 @@ class RedisQueue:
             str(worker_id): dict(row or {})
             for worker_id, row in zip(worker_ids, rows)
         }
+
+    def sweep_held_calc_slots(self, held_packs: Mapping[str, Any]) -> int:
+        """Release calculator slots recorded for a dead Worker (WP-D6.1)."""
+        released = 0
+        for name, pack_id in dict(held_packs or {}).items():
+            if not pack_id or not str(pack_id).strip():
+                continue
+            try:
+                self.release_calc(str(name), str(pack_id))
+            except ValueError:
+                continue
+            released += 1
+        return released
+
+    def encode_task_for_heartbeat(self, task: Mapping[str, Any]) -> str:
+        """Serialize an in-flight task for the Worker heartbeat hash."""
+        return encode_payload(dict(task), codec=self._codec)
+
+    def decode_heartbeat_task(self, heartbeat: Mapping[str, Any]) -> dict[str, Any] | None:
+        """Decode a Worker heartbeat's serialized in-flight task payload."""
+        raw = heartbeat.get("current_task")
+        if raw is None or raw == "":
+            return None
+        if isinstance(raw, Mapping):
+            return dict(raw)
+        decoded = decode_payload(str(raw), codec=self._codec)
+        return dict(decoded) if isinstance(decoded, dict) else None
+
+    def decode_heartbeat_held_packs(self, heartbeat: Mapping[str, Any]) -> dict[str, str]:
+        """Decode held calculator slots from a Worker heartbeat hash."""
+        raw = heartbeat.get("held_calc_packs")
+        if raw is None or raw == "":
+            return {}
+        if isinstance(raw, Mapping):
+            return {str(key): str(value) for key, value in raw.items() if value}
+        try:
+            decoded = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        if not isinstance(decoded, dict):
+            return {}
+        return {str(key): str(value) for key, value in decoded.items() if value}
 
     def incr_op(self, kind: str, amount: int = 1) -> int:
         self._require_client()

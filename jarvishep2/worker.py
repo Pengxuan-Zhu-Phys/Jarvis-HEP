@@ -63,6 +63,8 @@ class Worker(Process):
         self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
+        self._current_task: dict[str, Any] | None = None
+        self._held_calc_packs: dict[str, str] = {}
 
     def _handle_signal(self, signum: int, _frame: Any) -> None:
         self._is_running = False
@@ -136,12 +138,19 @@ class Worker(Process):
     def _heartbeat(self, status: str) -> None:
         if self._redis is None:
             return
+        now = time.time()
+        current_task = ""
+        if self._current_task is not None:
+            current_task = self._redis.encode_task_for_heartbeat(self._current_task)
         self._redis.heartbeat(
             str(self.worker_id),
             status=status,
             pid=self.pid,
             current_sample=self._current_sample_uuid,
-            ts=time.time(),
+            last_heartbeat=now,
+            ts=now,
+            held_calc_packs=json.dumps(self._held_calc_packs),
+            current_task=current_task,
         )
 
     def _run_calculator_step(self, step_name: str, sample: Sample) -> None:
@@ -155,6 +164,8 @@ class Worker(Process):
         pack_id = self._redis.acquire_calc(step_name, timeout=timeout)
         if pack_id is None:
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
+        self._held_calc_packs[step_name] = pack_id
+        self._heartbeat("busy")
         try:
             module.acquire_pack_id(pack_id)
             module.prepare_runtime(sample.info)
@@ -167,6 +178,8 @@ class Worker(Process):
                 self._merge_calculator_observables(sample, step_name, pack_id, updated)
         finally:
             self._redis.release_calc(step_name, pack_id)
+            self._held_calc_packs.pop(step_name, None)
+            self._heartbeat("busy")
 
     def _merge_calculator_observables(
         self,
@@ -270,8 +283,10 @@ class Worker(Process):
 
     def process_task(self, task: Mapping[str, Any]) -> None:
         """Core pipeline: rebuild Sample, execute workflow, submit result."""
+        self._current_task = dict(task)
         sample = Sample.from_task_dict(task)
         self._current_sample_uuid = sample.uuid
+        self._heartbeat("busy")
         top = get_jarvis_logger("worker").bind(
             worker_id=self.worker_id,
             sample_uuid=sample.uuid,
@@ -283,6 +298,9 @@ class Worker(Process):
             if self._mapper is not None:
                 sample.bind_params(self._mapper)
             sample.materialize(worker_id=str(self.worker_id))
+            delay_sec = float(self.worker_config.get("test_process_delay_sec", 0) or 0)
+            if delay_sec > 0:
+                time.sleep(delay_sec)
             layers = group_by_layer(sample.execution_plan)
             _profile_path = os.environ.get("JARVIS2_WORKER_PROFILE")
             _profile_started = time.monotonic()
@@ -330,6 +348,8 @@ class Worker(Process):
             self._cleanup_transient_paths(sample)
             sample.close()
             self._current_sample_uuid = None
+            self._current_task = None
+            self._held_calc_packs.clear()
 
     def _main_loop(self) -> None:
         assert self._redis is not None

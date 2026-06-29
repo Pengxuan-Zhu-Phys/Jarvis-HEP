@@ -32,6 +32,12 @@ CLEANUP_DEFAULTS: dict[str, Any] = {
     "strategy": "mv_to_staging",
     "staging_dir": None,
 }
+WATCHDOG_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "stale_sec": 30.0,
+    "poll_interval_sec": 1.0,
+    "max_sample_retries": 3,
+}
 
 
 def _coerce_positive_int(value: Any, *, default: int) -> int:
@@ -160,6 +166,38 @@ def get_delete_method(config: Mapping[str, Any] | None) -> str:
     if isinstance(file_operation, Mapping):
         return normalize_delete_method(file_operation.get("delete_method"))
     return DEFAULT_DELETE_METHOD
+
+
+def normalize_watchdog_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``Runtime.Watchdog`` settings (WP-D6.1)."""
+    watchdog = dict(WATCHDOG_DEFAULTS)
+    if not isinstance(raw, Mapping):
+        return watchdog
+    watchdog["enabled"] = bool(raw.get("enabled", watchdog["enabled"]))
+    stale_sec = raw.get("stale_sec", watchdog["stale_sec"])
+    try:
+        watchdog["stale_sec"] = max(1.0, float(stale_sec))
+    except (TypeError, ValueError):
+        watchdog["stale_sec"] = WATCHDOG_DEFAULTS["stale_sec"]
+    poll_interval = raw.get("poll_interval_sec", watchdog["poll_interval_sec"])
+    try:
+        watchdog["poll_interval_sec"] = max(0.1, float(poll_interval))
+    except (TypeError, ValueError):
+        watchdog["poll_interval_sec"] = WATCHDOG_DEFAULTS["poll_interval_sec"]
+    max_retries = raw.get("max_sample_retries", watchdog["max_sample_retries"])
+    try:
+        watchdog["max_sample_retries"] = max(0, int(max_retries))
+    except (TypeError, ValueError):
+        watchdog["max_sample_retries"] = WATCHDOG_DEFAULTS["max_sample_retries"]
+    return watchdog
+
+
+def get_watchdog_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    runtime = get_runtime_block(config)
+    watchdog = runtime.get("Watchdog")
+    if isinstance(watchdog, Mapping):
+        return normalize_watchdog_block(watchdog)
+    return dict(WATCHDOG_DEFAULTS)
 
 
 def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
