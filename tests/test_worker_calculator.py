@@ -171,6 +171,66 @@ class CalculatorModuleUnitTests(unittest.TestCase):
         module.preload_templates()
         self.assertTrue(module._templates_loaded)
 
+    def test_preload_templates_parses_once_across_many_executes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
+            module.preload_templates()
+            self.assertEqual(module._template_parse_count, 1)
+
+            for index, coords in enumerate(((0.1, 0.2), (0.3, 0.4), (0.5, 0.6))):
+                sample = Sample.from_params(
+                    {"x": coords[0], "y": coords[1], "uuid": f"preload-{index}"}
+                )
+                sample.set_config(
+                    {
+                        "sample_dirs": tmpdir,
+                        "task_result_dir": tmpdir,
+                        "sample_artifacts": "always",
+                        "workflow_has_calculator": True,
+                        "workflow_references_sdir": True,
+                    }
+                )
+                sample.materialize()
+                module.acquire_pack_id(f"pack-{index}")
+                module.execute(sample.info)
+
+            module.preload_templates()
+            self.assertEqual(module._template_parse_count, 1)
+
+    def test_instance_reuse_statelessness_across_samples(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
+            module.preload_templates()
+            sample_config = {
+                "sample_dirs": tmpdir,
+                "task_result_dir": tmpdir,
+                "sample_artifacts": "always",
+                "workflow_has_calculator": True,
+                "workflow_references_sdir": True,
+            }
+            cases = (
+                ("reuse-a", 0.1, 0.2),
+                ("reuse-b", 0.7, 0.3),
+            )
+            results: list[tuple[str, float]] = []
+            for uuid, x_val, y_val in cases:
+                sample = Sample.from_params({"x": x_val, "y": y_val, "uuid": uuid})
+                sample.set_config(sample_config)
+                sample.materialize()
+                module.acquire_pack_id(f"pack-{uuid}")
+                result = module.execute(sample.info)
+                self.assertEqual(module.sample_info, {})
+                results.append((uuid, float(result["z"])))
+
+            from math import pi
+            from numpy import sin, cos
+
+            for uuid, x_val, y_val in cases:
+                expected = float((sin(x_val * pi) * cos(y_val * pi) + 2) ** 5)
+                actual = next(value for key, value in results if key == uuid)
+                self.assertAlmostEqual(actual, expected, places=6)
+            self.assertNotEqual(results[0][1], results[1][1])
+
     def test_execute_produces_expected_observables(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Sample.from_params({"x": 0.25, "y": 0.25, "uuid": "unit-sample"})

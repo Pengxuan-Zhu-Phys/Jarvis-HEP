@@ -14,7 +14,6 @@ from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
-from jarvishep2.library import LibraryManager
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.workflow import build_execution_plan
 
@@ -91,19 +90,6 @@ def _safe_calc_module() -> dict:
             ],
         },
     }
-
-
-class LibraryManagerTests(unittest.TestCase):
-    def test_requires_shadow_flag(self) -> None:
-        self.assertTrue(LibraryManager.requires_shadow(True))
-        self.assertFalse(LibraryManager.requires_shadow(False))
-
-    def test_link_into_sample_creates_symlink(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            sample_dir = os.path.join(tmpdir, "SAMPLE", "000001")
-            link_path = LibraryManager().link_into_sample(SAFE_SOURCE, sample_dir, "SafeCalc")
-            self.assertTrue(os.path.islink(link_path))
-            self.assertEqual(os.path.realpath(link_path), os.path.realpath(SAFE_SOURCE))
 
 
 class CalculatorShadowUnitTests(unittest.TestCase):

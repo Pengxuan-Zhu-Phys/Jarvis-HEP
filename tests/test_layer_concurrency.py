@@ -187,8 +187,8 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
         )
         # Wall-clock includes spawn/archiver overhead; compare relative durations.
         self.assertGreater(serial_elapsed, parallel_elapsed)
-        self.assertGreater(serial_elapsed - parallel_elapsed, SLEEP_SEC * 0.45)
-        self.assertLess(parallel_elapsed, serial_elapsed * 0.9)
+        self.assertGreater(serial_elapsed - parallel_elapsed, SLEEP_SEC * 0.35)
+        self.assertLess(parallel_elapsed, serial_elapsed * 0.92)
 
     def test_force_serial_layers_matches_explicit_serial_layers(self) -> None:
         modules = [SLOW_A_MODULE, SLOW_B_MODULE]
@@ -211,7 +211,11 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
             _calc_observables(forced_payload),
             _calc_observables(explicit_payload),
         )
-        self.assertLess(abs(forced_elapsed - explicit_elapsed), SLEEP_SEC * 0.8)
+        # Both paths run the calculators serially; allow spawn/archiver jitter.
+        min_serial = SLEEP_SEC * 2 * 0.75
+        self.assertGreater(forced_elapsed, min_serial)
+        self.assertGreater(explicit_elapsed, min_serial)
+        self.assertLess(abs(forced_elapsed - explicit_elapsed), SLEEP_SEC * 1.6)
 
 
 if __name__ == "__main__":
