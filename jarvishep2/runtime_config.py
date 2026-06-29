@@ -79,6 +79,10 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if isinstance(file_operation, Mapping):
         runtime["FileOperation"] = normalize_file_operation(file_operation)
 
+    watchdog = raw.get("Watchdog")
+    if isinstance(watchdog, Mapping):
+        runtime["Watchdog"] = normalize_watchdog_block(watchdog)
+
     return runtime
 
 
