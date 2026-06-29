@@ -15,6 +15,7 @@ from typing import Any
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
+from jarvishep2.archive_handoff import list_product_names, resolve_staging_dir, stage_sample_dir
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
@@ -57,6 +58,8 @@ class Worker(Process):
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
         self._delete_method = DEFAULT_DELETE_METHOD
+        self._staging_dir = ""
+        self._handoff_to_staging = True
         self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
@@ -79,6 +82,18 @@ class Worker(Process):
         self._delete_method = normalize_delete_method(
             self.worker_config.get("delete_method", DEFAULT_DELETE_METHOD)
         )
+        self._staging_dir = str(self.worker_config.get("staging_dir") or "").strip()
+        if not self._staging_dir:
+            sample_config = self.worker_config.get("sample_config") or {}
+            task_result_dir = str(sample_config.get("task_result_dir") or "").strip()
+            if task_result_dir:
+                self._staging_dir = resolve_staging_dir(task_result_dir)
+        if "handoff_to_staging" in self.worker_config:
+            self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
+        else:
+            cleanup = self.worker_config.get("cleanup_config") or {}
+            strategy = str(cleanup.get("strategy", "mv_to_staging")).strip().lower()
+            self._handoff_to_staging = strategy == "mv_to_staging"
         self._mapper = build_mapper(self.worker_config.get("mapper"))
         opera_configs = self.worker_config.get("opera_modules") or {}
         if isinstance(opera_configs, list):
@@ -219,7 +234,7 @@ class Worker(Process):
         if not isinstance(sample.info, dict):
             return []
         paths: list[str] = []
-        for key in ("cleanup_paths", "staging_paths", "staging_path"):
+        for key in ("cleanup_paths", "staging_paths"):
             raw = sample.info.get(key)
             if isinstance(raw, str) and raw.strip():
                 paths.append(raw.strip())
@@ -231,6 +246,22 @@ class Worker(Process):
         paths = self._collect_cleanup_paths(sample)
         if paths:
             delete_paths(paths, method=self._delete_method, missing_ok=True)
+
+    def _handoff_sample_to_staging(self, sample: Sample) -> None:
+        """Fast metadata-only move of materialized work dirs into staging (WP-D4.1)."""
+        if not self._handoff_to_staging or not self._staging_dir:
+            return
+        if not isinstance(sample.info, dict):
+            return
+        save_dir = str(sample.info.get("save_dir") or "").strip()
+        if not save_dir or not os.path.isdir(save_dir):
+            return
+
+        sample.close_logger()
+        staging_path = stage_sample_dir(save_dir, self._staging_dir, sample.uuid)
+        sample.info["staging_path"] = staging_path
+        sample.info["product_list"] = list_product_names(staging_path)
+        sample.info["save_dir"] = None
 
     def _stage_and_submit(self, sample: Sample) -> None:
         if self._redis is None:
@@ -294,6 +325,7 @@ class Worker(Process):
             materialize_failure_artifacts(sample.info, error=exc)
             top.error("sample failed; see sample log -> %s", exc)
         finally:
+            self._handoff_sample_to_staging(sample)
             self._stage_and_submit(sample)
             self._cleanup_transient_paths(sample)
             sample.close()

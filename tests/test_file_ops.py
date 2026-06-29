@@ -115,7 +115,8 @@ class WorkerCleanupTests(unittest.TestCase):
         worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
         sample = Sample(uuid="u1", observables={}, info={})
         sample.info["cleanup_paths"] = ["/tmp/a", "/tmp/b"]
-        sample.info["staging_path"] = "/tmp/c"
+        sample.info["staging_paths"] = ["/tmp/c"]
+        sample.info["staging_path"] = "/tmp/archiver-owned"
         self.assertEqual(
             worker._collect_cleanup_paths(sample),
             ["/tmp/a", "/tmp/b", "/tmp/c"],
@@ -185,7 +186,12 @@ class ArchiverCleanupTests(unittest.TestCase):
             target = os.path.join(tmpdir, "staging")
             os.makedirs(target)
             queue = make_fakeredis_queue()
-            archiver = SimpleArchiver(queue, os.path.join(tmpdir, "samples.hdf5"), delete_method="rm")
+            archiver = SimpleArchiver(
+                queue,
+                os.path.join(tmpdir, "samples.hdf5"),
+                sample_root=tmpdir,
+                delete_method="rm",
+            )
             archiver.cleanup_staging([target])
             self.assertFalse(os.path.lexists(target))
 

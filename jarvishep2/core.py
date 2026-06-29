@@ -8,14 +8,14 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from jarvishep2.archiver import SimpleArchiver
+from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.factory import TaskFactory
 from jarvishep2.command_parser import prepare_calculator_modules
 from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
-from jarvishep2.runtime_config import get_delete_method, get_runtime_block
+from jarvishep2.runtime_config import get_archiver_config, get_delete_method, get_runtime_block
 from jarvishep2.sample import Sample
 
 
@@ -28,7 +28,7 @@ class Jarvis2Core:
         self.info: dict[str, Any] = {}
         self.redis: RedisQueue | None = None
         self.factory: TaskFactory | None = None
-        self.archiver: SimpleArchiver | None = None
+        self.archiver: SimpleArchiver | ArchiverProcess | None = None
         self.sampler: Any = None
         self.command_parser: CommandParser | None = None
         self._logger = get_jarvis_logger("core")
@@ -134,7 +134,7 @@ class Jarvis2Core:
         self._logger.info("TaskFactory started with %d worker(s)", workers)
         return self.factory
 
-    def init_archiver(self, db_path: str | None = None) -> SimpleArchiver:
+    def init_archiver(self, db_path: str | None = None) -> SimpleArchiver | ArchiverProcess:
         if self.redis is None:
             raise RuntimeError("init_redis() must run before init_archiver()")
         task_result_dir = str(
@@ -143,15 +143,42 @@ class Jarvis2Core:
             or os.getcwd()
         )
         database_dir = os.path.join(task_result_dir, "DATABASE")
+        sample_root = os.path.join(task_result_dir, "SAMPLE")
         os.makedirs(database_dir, exist_ok=True)
+        os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
-        self.archiver = SimpleArchiver(
-            self.redis,
-            resolved_db_path,
-            delete_method=get_delete_method(self.config),
-        )
-        self.archiver.start()
+        archiver_config = get_archiver_config(self.config)
+        delete_method = get_delete_method(self.config)
+        redis_config = dict(self.runtime.get("redis") or self.redis.connection_config())
+
+        if str(archiver_config.get("mode", "thread")).strip().lower() == "process":
+            self.archiver = ArchiverProcess(
+                redis_config,
+                db_path=resolved_db_path,
+                sample_root=sample_root,
+                delete_method=delete_method,
+                archiver_config=archiver_config,
+            )
+            self.archiver.start()
+        else:
+            self.archiver = SimpleArchiver(
+                self.redis,
+                resolved_db_path,
+                sample_root=sample_root,
+                delete_method=delete_method,
+                archiver_config=archiver_config,
+            )
+            self.archiver.start()
         return self.archiver
+
+    def _archiver_records_written(self) -> int:
+        archiver = self.archiver
+        if archiver is None:
+            return 0
+        counter = getattr(archiver, "records_written", 0)
+        if hasattr(counter, "value"):
+            return int(counter.value)
+        return int(counter)
 
     def set_sampler(self, sampler: Any) -> None:
         self.sampler = sampler
@@ -178,17 +205,20 @@ class Jarvis2Core:
             raise RuntimeError("archiver is not configured")
         deadline = time.monotonic() + max(0.1, float(timeout))
         while time.monotonic() < deadline:
-            self.archiver.drain(idle_timeout=poll_interval)
-            if self.archiver.records_written >= expected:
+            if self._archiver_records_written() >= expected:
                 return
             time.sleep(poll_interval)
         raise TimeoutError(
-            f"timed out waiting for {expected} archived results; got {self.archiver.records_written}"
+            f"timed out waiting for {expected} archived results; "
+            f"got {self._archiver_records_written()}"
         )
 
     def shutdown(self, *, wait: bool = True) -> None:
         if self.archiver is not None:
-            self.archiver.stop(wait=wait, drain=True)
+            if isinstance(self.archiver, ArchiverProcess):
+                self.archiver.stop(wait=wait)
+            else:
+                self.archiver.stop(wait=wait, drain=True)
             self.archiver = None
         if self.factory is not None:
             self.factory.shutdown(wait=wait)

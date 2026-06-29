@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from jarvishep2.archive_handoff import normalize_move_strategy, resolve_staging_dir
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
 
 
@@ -17,6 +18,20 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
 
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
+_VALID_CLEANUP_STRATEGIES = frozenset({"mv_to_staging", "direct"})
+_VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
+
+ARCHIVER_DEFAULTS: dict[str, Any] = {
+    "mode": "thread",
+    "batch_size": 200,
+    "flush_interval_sec": 1.0,
+    "strategy": "move",
+    "delete_after_archive": True,
+}
+CLEANUP_DEFAULTS: dict[str, Any] = {
+    "strategy": "mv_to_staging",
+    "staging_dir": None,
+}
 
 
 def _coerce_positive_int(value: Any, *, default: int) -> int:
@@ -68,6 +83,74 @@ def normalize_file_operation(raw: Mapping[str, Any] | None) -> dict[str, str]:
     return {
         "delete_method": normalize_delete_method(raw.get("delete_method")),
     }
+
+
+def normalize_cleanup_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``Calculators.Cleanup`` settings."""
+    cleanup = dict(CLEANUP_DEFAULTS)
+    if not isinstance(raw, Mapping):
+        return cleanup
+    strategy = str(raw.get("strategy", cleanup["strategy"])).strip().lower()
+    cleanup["strategy"] = (
+        strategy if strategy in _VALID_CLEANUP_STRATEGIES else CLEANUP_DEFAULTS["strategy"]
+    )
+    staging_dir = raw.get("staging_dir")
+    cleanup["staging_dir"] = str(staging_dir).strip() if staging_dir else None
+    return cleanup
+
+
+def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``Calculators.Archiver`` settings."""
+    archiver = dict(ARCHIVER_DEFAULTS)
+    if not isinstance(raw, Mapping):
+        return archiver
+    mode = str(raw.get("mode", archiver["mode"])).strip().lower()
+    archiver["mode"] = mode if mode in _VALID_ARCHIVER_MODES else ARCHIVER_DEFAULTS["mode"]
+    batch_size = _coerce_positive_int(raw.get("batch_size", archiver["batch_size"]), default=200)
+    archiver["batch_size"] = batch_size if batch_size > 0 else ARCHIVER_DEFAULTS["batch_size"]
+    flush_interval = raw.get("flush_interval_sec", archiver["flush_interval_sec"])
+    try:
+        archiver["flush_interval_sec"] = max(0.05, float(flush_interval))
+    except (TypeError, ValueError):
+        archiver["flush_interval_sec"] = ARCHIVER_DEFAULTS["flush_interval_sec"]
+    archiver["strategy"] = normalize_move_strategy(raw.get("strategy", archiver["strategy"]))
+    archiver["delete_after_archive"] = bool(
+        raw.get("delete_after_archive", archiver["delete_after_archive"])
+    )
+    return archiver
+
+
+def get_calculators_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(config, Mapping):
+        return {}
+    calculators = config.get("Calculators") or {}
+    return dict(calculators) if isinstance(calculators, Mapping) else {}
+
+
+def get_cleanup_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    calculators = get_calculators_block(config)
+    return normalize_cleanup_block(calculators.get("Cleanup"))
+
+
+def get_archiver_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    calculators = get_calculators_block(config)
+    return normalize_archiver_block(calculators.get("Archiver"))
+
+
+def get_staging_dir(
+    config: Mapping[str, Any] | None,
+    *,
+    task_result_dir: str,
+) -> str:
+    cleanup = get_cleanup_config(config)
+    return resolve_staging_dir(
+        task_result_dir,
+        configured=cleanup.get("staging_dir"),
+    )
+
+
+def handoff_to_staging_enabled(config: Mapping[str, Any] | None) -> bool:
+    return get_cleanup_config(config)["strategy"] == "mv_to_staging"
 
 
 def get_delete_method(config: Mapping[str, Any] | None) -> str:

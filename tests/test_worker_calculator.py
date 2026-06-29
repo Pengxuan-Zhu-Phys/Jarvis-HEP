@@ -328,7 +328,9 @@ class WorkerCalculatorIntegrationTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmpdir:
                 factory = TaskFactory.get_instance(redis_config)
                 factory.init_redis()
-                factory.start_workers(1, **_worker_config(tmpdir))
+                worker_cfg = _worker_config(tmpdir)
+                worker_cfg["handoff_to_staging"] = False
+                factory.start_workers(1, **worker_cfg)
                 assert factory.redis is not None
 
                 plan = build_execution_plan(

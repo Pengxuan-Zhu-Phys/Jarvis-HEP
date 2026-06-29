@@ -41,6 +41,8 @@ _INFO_PROJECTION_KEYS = (
     "pack_id",
     "NAttempt",
     "worker_id",
+    "staging_path",
+    "product_list",
 )
 _TIMING_KEYS = ("elapsed_s", "started_at", "finished_at")
 

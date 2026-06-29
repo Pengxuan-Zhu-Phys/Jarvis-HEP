@@ -137,8 +137,8 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
                 worker_config["calculator_pools"] = {"SlowA": 2, "SlowB": 2}
                 worker_config["likelihood_expressions"] = []
                 worker_config["force_serial_layers"] = force_serial_layers
+                worker_config["handoff_to_staging"] = False
                 core.init_factory(worker_config)
-                core.init_archiver(os.path.join(tmpdir, "DATABASE", "samples.hdf5"))
 
                 sampler = SamplingVirtial()
                 sampler.set_config(core.config)
@@ -149,15 +149,21 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
                 sample = sampler._build_sample([0.0, 0.0])
                 started = time.monotonic()
                 core.submit_samples([sample])
-                core.wait_for_results(1, timeout=30.0)
+                assert core.redis is not None
+                deadline = time.monotonic() + 30.0
+                result = None
+                while time.monotonic() < deadline:
+                    result = core.redis.pull_result(timeout=1)
+                    if result is not None:
+                        break
                 elapsed = time.monotonic() - started
-                from jarvishep2.database import SimpleHDF5Writer
-
-                db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
-                records = SimpleHDF5Writer(db_path).read_records()
                 core.shutdown()
-                self.assertEqual(len(records), 1)
-                return {"status": "Completed", "observables": records[0]}, elapsed
+                self.assertIsNotNone(result)
+                assert result is not None
+                return {
+                    "status": str(result.get("status", "")),
+                    "observables": dict(result.get("observables") or {}),
+                }, elapsed
         finally:
             server.shutdown()
             server.server_close()
@@ -185,7 +191,7 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
             _calc_observables(parallel_payload),
             _calc_observables(serial_payload),
         )
-        # Wall-clock includes spawn/archiver overhead; compare relative durations.
+        # Wall-clock includes spawn overhead; compare relative durations.
         self.assertGreater(serial_elapsed, parallel_elapsed)
         self.assertGreater(serial_elapsed - parallel_elapsed, SLEEP_SEC * 0.35)
         self.assertLess(parallel_elapsed, serial_elapsed * 0.92)

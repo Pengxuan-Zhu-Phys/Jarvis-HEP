@@ -7,7 +7,15 @@ from collections.abc import Mapping
 from typing import Any
 
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
-from jarvishep2.runtime_config import get_delete_method, workflow_has_calculator, workflow_references_sdir
+from jarvishep2.runtime_config import (
+    get_archiver_config,
+    get_cleanup_config,
+    get_delete_method,
+    get_staging_dir,
+    handoff_to_staging_enabled,
+    workflow_has_calculator,
+    workflow_references_sdir,
+)
 
 
 def _config_references_sdir(modules: list[dict[str, Any]]) -> bool:
@@ -84,6 +92,10 @@ def build_worker_config(
         ),
         "pull_timeout": 1,
         "delete_method": get_delete_method(cfg),
+        "staging_dir": get_staging_dir(cfg, task_result_dir=task_result_dir),
+        "handoff_to_staging": handoff_to_staging_enabled(cfg),
+        "cleanup_config": get_cleanup_config(cfg),
+        "archiver_config": get_archiver_config(cfg),
         "command_parser": {
             "project_root": command_parser.project_root,
             "scan_name": command_parser.scan_name,
