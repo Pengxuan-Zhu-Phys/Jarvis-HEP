@@ -16,6 +16,7 @@ from jarvishep2.core import Jarvis2Core
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.distributor import Distributor
 from jarvishep2.factory import TaskFactory
+from jarvishep2.redis_queue import make_fakeredis_queue
 
 from test_worker_mvp import _start_tcp_fakeredis
 
@@ -94,6 +95,101 @@ class GridAlgorithmTests(unittest.TestCase):
     def test_grid_sampling_cartesian_product_size(self) -> None:
         points = grid_sampling(np.array([2, 3], dtype=np.int64))
         self.assertEqual(points.shape, (6, 2))
+
+    def test_grid_sampling_clips_endpoints_for_transforms(self) -> None:
+        points = grid_sampling(np.array([3], dtype=np.int64))
+        eps = np.finfo(np.float64).eps
+        self.assertGreater(float(points[0, 0]), 0.0)
+        self.assertLessEqual(float(points[-1, 0]), 1.0 - eps)
+
+
+def _grid_test_config(**overrides: object) -> dict:
+    cfg = {
+        "Runtime": {"mode": "redis", "workers": 1},
+        "Sampling": {
+            "Method": "Grid",
+            "Seed": 0,
+            "Variables": [
+                {
+                    "name": "x",
+                    "distribution": {
+                        "type": "Flat",
+                        "parameters": {"min": 0, "max": 1, "num": 2},
+                    },
+                },
+                {
+                    "name": "y",
+                    "distribution": {
+                        "type": "Flat",
+                        "parameters": {"min": 0, "max": 1, "num": 2},
+                    },
+                },
+            ],
+        },
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+class GridSamplerUnitTests(unittest.TestCase):
+    def test_grid_requires_num_per_variable(self) -> None:
+        sampler = Grid()
+        sampler.set_config(
+            {
+                "Runtime": {"mode": "redis"},
+                "Sampling": {
+                    "Method": "Grid",
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "parameters.num"):
+            sampler.initialize()
+
+    def test_checkpoint_roundtrip_restores_grid_cursor(self) -> None:
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        sampler.initialize()
+        state = sampler.export_runtime_state()
+        expected = sampler.propose_next()
+        self.assertIsNotNone(expected)
+        restored = Grid()
+        restored.set_config(sampler.config)
+        restored.import_runtime_state(state)
+        actual = restored.propose_next()
+        self.assertIsNotNone(actual)
+        self.assertEqual(actual.uuid, expected.uuid)
+        np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
+
+    def test_repropose_unfinished_requeues_pending_uuids(self) -> None:
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        queue = make_fakeredis_queue()
+        queue.connect()
+        sampler.set_redis(queue)
+        sampler.set_execution_plan_template(include_likelihood=False)
+        sampler.initialize()
+        first = sampler.propose_next()
+        second = sampler.propose_next()
+        assert first is not None and second is not None
+        sampler._submit(first)
+        sampler._submit(second)
+        sampler._submitted_uuids.extend([first.uuid, second.uuid])
+        queue.drain_task_queue()
+        sampler.mark_completed(first.uuid)
+        sampler.set_resume_repropose_hint(True)
+
+        requeued = sampler.repropose_unfinished()
+        self.assertEqual(requeued, [second.uuid])
+        self.assertEqual(int(queue.r.llen("hep:task_queue")), 1)
 
 
 class BridsonSamplerUnitTests(unittest.TestCase):
