@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 import time
 from collections.abc import Mapping
@@ -13,6 +14,7 @@ from uuid import uuid4
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.io_json import read_json_output, write_json_input
+from jarvishep2.library import LibraryManager
 from jarvishep2.sample import ensure_sample_materialized
 
 
@@ -32,11 +34,15 @@ class CalculatorModule:
         self.output_specs = list(execution.get("output") or [])
         self.timeout = self._normalize_timeout(config.get("timeout"))
         self.basepath = str(config.get("path", execution.get("path", ".")))
+        self.source = str(config.get("source", "")).strip()
+        self.symlink_name = str(config.get("symlink_name", self.name)).strip() or self.name
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
         self._templates_loaded = False
         self._command_counter = 0
         self._scheduler: AsyncSubprocessScheduler | None = None
+        self._installed_shadows: set[str] = set()
+        self._library = LibraryManager()
 
     @staticmethod
     def _normalize_timeout(value: Any) -> float | None:
@@ -66,6 +72,93 @@ class CalculatorModule:
     def acquire_pack_id(self, pack_id: str) -> None:
         """Tag the current run for traceability."""
         self.PackID = str(pack_id)
+
+    def decode_shadow_path(self, path: str) -> str:
+        """Resolve ``@PackID`` in calculator runtime paths."""
+        if path is None:
+            return ""
+        resolved = str(path)
+        if "@PackID" in resolved:
+            if not self.PackID:
+                raise RuntimeError("@PackID path requires pack_id before shadow decode")
+            resolved = resolved.replace("@PackID", str(self.PackID))
+        return os.path.abspath(resolved)
+
+    def decode_shadow_commands(self, command: Mapping[str, Any]) -> dict[str, str]:
+        """Resolve ``@PackID`` in install/init/execution command templates."""
+        pack_id = str(self.PackID or "")
+        if not pack_id:
+            raise RuntimeError("@PackID command decode requires pack_id")
+        return {
+            "cmd": str(command.get("cmd", "")).replace("@PackID", pack_id),
+            "cwd": str(command.get("cwd", ".")).replace("@PackID", pack_id),
+        }
+
+    def shadow_runtime_path(self) -> str:
+        return self.decode_shadow_path(self.basepath)
+
+    def _expand_install_tokens(self, text: str) -> str:
+        runtime = self.shadow_runtime_path()
+        source = os.path.abspath(self.source) if self.source else ""
+        return str(text).replace("${source}", source).replace("${path}", runtime)
+
+    def _stage_command(self, command: Mapping[str, Any], *, stage: str) -> dict[str, str]:
+        raw = dict(command)
+        if self.clone_shadow:
+            raw = self.decode_shadow_commands(raw)
+        if stage in {"install", "initialize"}:
+            raw["cmd"] = self._expand_install_tokens(str(raw.get("cmd", "")))
+            raw["cwd"] = self._expand_install_tokens(str(raw.get("cwd", ".")))
+        return {"cmd": str(raw.get("cmd", "")), "cwd": str(raw.get("cwd", "."))}
+
+    def _run_stage_commands_sync(self, commands: list[Mapping[str, Any]], *, stage: str) -> None:
+        for command in commands:
+            command_index = self._next_command_index()
+            self._run_command_sync(
+                self._stage_command(command, stage=stage),
+                stage=stage,
+                command_index=command_index,
+            )
+
+    def ensure_shadow_installed(self) -> None:
+        """Physical per-pack install for ``clone_shadow`` calculators."""
+        if not self.clone_shadow:
+            return
+        pack_id = str(self.PackID or "")
+        if not pack_id:
+            raise RuntimeError("clone_shadow install requires pack_id")
+        if pack_id in self._installed_shadows:
+            return
+        runtime = self.shadow_runtime_path()
+        os.makedirs(runtime, exist_ok=True)
+        if self.installation:
+            self._run_stage_commands_sync(self.installation, stage="install")
+        elif self.source:
+            shutil.copytree(os.path.abspath(self.source), runtime, dirs_exist_ok=True)
+        else:
+            raise RuntimeError(
+                f"clone_shadow calculator '{self.name}' requires a source path or installation commands"
+            )
+        if self.initialization:
+            self._run_stage_commands_sync(self.initialization, stage="initialize")
+        self._installed_shadows.add(pack_id)
+
+    def ensure_symlink_runtime(self, sample_info: Mapping[str, Any]) -> str | None:
+        """Symlink a safe tool into the Sample dir when ``clone_shadow`` is false."""
+        if self.clone_shadow or not self.source:
+            return None
+        save_dir = ensure_sample_materialized(dict(sample_info))
+        if save_dir is None:
+            raise RuntimeError(f"symlink runtime requires materialized save_dir for '{self.name}'")
+        return self._library.link_into_sample(self.source, str(save_dir), self.symlink_name)
+
+    def prepare_runtime(self, sample_info: Mapping[str, Any]) -> None:
+        """Prepare per-run isolation before ``execute``."""
+        self.sample_info = dict(sample_info)
+        if self.clone_shadow:
+            self.ensure_shadow_installed()
+        else:
+            self.ensure_symlink_runtime(sample_info)
 
     def _logger(self):
         if isinstance(self.sample_info, dict):
@@ -237,8 +330,9 @@ class CalculatorModule:
                         f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
                     )
                 timeout_sec = remaining
+            staged = self._stage_command(command, stage="execution")
             self._run_command_sync(
-                command,
+                staged,
                 stage="execution",
                 command_index=command_index,
                 timeout_sec=timeout_sec,
@@ -258,8 +352,9 @@ class CalculatorModule:
                         f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
                     )
                 timeout_sec = remaining
+            staged = self._stage_command(command, stage="execution")
             await self.run_command(
-                command,
+                staged,
                 stage="execution",
                 command_index=command_index,
                 timeout_sec=timeout_sec,
@@ -320,10 +415,12 @@ class CalculatorModule:
             result.update(output_obs)
         return result
 
-    def execute(self, sample_info: Mapping[str, Any]) -> dict[str, Any]:
+    def execute(self, sample_info: Mapping[str, Any], *, runtime_prepared: bool = False) -> dict[str, Any]:
         """Sync convenience entry: load_input → run commands → read_output."""
         self.sample_info = dict(sample_info)
         self._command_counter = 0
+        if not runtime_prepared:
+            self.prepare_runtime(sample_info)
         input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})
         try:
             if self._scheduler is not None:

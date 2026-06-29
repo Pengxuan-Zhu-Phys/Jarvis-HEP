@@ -126,7 +126,8 @@ class Worker(Process):
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
         try:
             module.acquire_pack_id(pack_id)
-            updated = module.execute(sample.info)
+            module.prepare_runtime(sample.info)
+            updated = module.execute(sample.info, runtime_prepared=True)
             lock = self._observables_lock
             if lock is not None:
                 with lock:
