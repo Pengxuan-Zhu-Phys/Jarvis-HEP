@@ -63,37 +63,43 @@ def _wrap_operas_registry_operator(registry: Any, operator: str, *, call_mode: s
 
 
 def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[..., Any]:
-    """Resolve an operator name via Jarvis-Operas, then importlib.
+    """Resolve an operator name via importlib, then Jarvis-Operas.
 
     Resolution order:
-    1. Jarvis-Operas global registry (if installed and name is registered)
-    2. importlib dotted path ``package.module.callable``
+    1. importlib dotted path ``package.module.callable`` (fast; no Operas bootstrap)
+    2. Jarvis-Operas global registry (if installed and name is registered)
+
+    Importlib is tried first so Worker preload of local test operators does not
+    pay the cost of bootstrapping the full Operas catalog.
     """
     name = str(operator).strip()
     if not name:
         raise ValueError("Operas operator name must not be empty")
+
+    import_error: Exception | None = None
+    try:
+        return _resolve_dotted_callable(name)
+    except Exception as exc:
+        import_error = exc
 
     registry = _try_jarvis_operas_registry(name)
     if registry is not None:
         return _wrap_operas_registry_operator(registry, name, call_mode=call_mode)
 
     try:
-        return _resolve_dotted_callable(name)
-    except Exception as import_exc:
-        try:
-            import jarvis_operas  # noqa: F401
-            operas_hint = (
-                f"Not found in Jarvis-Operas registry either. "
-                f"Use a registered name (e.g. helper.eggbox2d) or a Python dotted path."
-            )
-        except ImportError:
-            operas_hint = (
-                "Jarvis-Operas is not installed; registry names are unavailable. "
-                "Install with `pip install 'jarvishep2[operas]'` or use a Python dotted path."
-            )
-        raise ValueError(
-            f"Cannot resolve Operas operator {name!r}: {import_exc}. {operas_hint}"
-        ) from import_exc
+        import jarvis_operas  # noqa: F401
+        operas_hint = (
+            "Not found in Jarvis-Operas registry either. "
+            "Use a registered name (e.g. helper.eggbox2d) or a Python dotted path."
+        )
+    except ImportError:
+        operas_hint = (
+            "Jarvis-Operas is not installed; registry names are unavailable. "
+            "Install with `pip install 'jarvishep2[operas]'` or use a Python dotted path."
+        )
+    raise ValueError(
+        f"Cannot resolve Operas operator {name!r}: {import_error}. {operas_hint}"
+    ) from import_error
 
 
 def _resolve_entry(data: Mapping[str, Any], entry: str) -> Any:
