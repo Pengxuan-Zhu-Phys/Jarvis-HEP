@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import threading
+from abc import ABC, abstractmethod
 from typing import Any, Mapping
 
 from jarvishep2.Sampling.runtime_checkpoint import (
@@ -13,7 +14,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
 from jarvishep2.Sampling.sampler import SamplingVirtial
 
 
-class CheckpointedSampler(SamplingVirtial):
+class CheckpointedSampler(SamplingVirtial, ABC):
     """Adds WP-D6.2 checkpoint heartbeat + resume repropose to samplers."""
 
     def __init__(self) -> None:
@@ -90,8 +91,9 @@ class CheckpointedSampler(SamplingVirtial):
         with self._runtime_checkpoint_save_lock:
             return bool(self._save_checkpoint_callback(reason=reason))
 
+    @abstractmethod
     def at_safe_barrier(self) -> bool:
-        raise NotImplementedError
+        """Return True when the sampler may safely write a resume checkpoint."""
 
 
 __all__ = ["CheckpointedSampler"]

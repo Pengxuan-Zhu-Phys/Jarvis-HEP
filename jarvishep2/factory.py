@@ -165,9 +165,6 @@ class TaskFactory:
         """Signal live Workers to stop after the current Sample."""
         for worker in self.workers:
             if worker.is_alive() and worker.pid is not None:
-                import os
-                import signal
-
                 try:
                     os.kill(worker.pid, signal.SIGTERM)
                 except ProcessLookupError:

@@ -12,7 +12,7 @@ from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.command_parser import CommandParser, SAMPLE_TOKENS, prepare_calculator_modules
 from jarvishep2.library import LibraryManager
-from jarvishep2.runtime_config import parse_registered_executables
+from jarvishep2.command_parser import parse_registered_executables
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context

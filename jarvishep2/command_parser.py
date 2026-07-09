@@ -281,9 +281,20 @@ class CommandParser:
         return resolved
 
 
-def _registered_specs(config: Mapping[str, Any]) -> list[dict[str, Any]]:
-    from jarvishep2.runtime_config import parse_registered_executables
+def parse_registered_executables(config: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """Return raw ``LibDeps.registered_executables`` entries from a task config."""
+    if not isinstance(config, Mapping):
+        return []
+    libdeps = config.get("LibDeps") or {}
+    if not isinstance(libdeps, Mapping):
+        return []
+    entries = libdeps.get("registered_executables") or []
+    if not isinstance(entries, list):
+        return []
+    return [dict(item) for item in entries if isinstance(item, Mapping)]
 
+
+def _registered_specs(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     return parse_registered_executables(config)
 
 
@@ -330,5 +341,6 @@ __all__ = [
     "CommandParser",
     "ResolvedExecutable",
     "SAMPLE_TOKENS",
+    "parse_registered_executables",
     "prepare_calculator_modules",
 ]

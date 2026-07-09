@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any
 
@@ -75,7 +76,7 @@ def build_worker_config(
             opera = [dict(item) for item in operas if isinstance(item, Mapping)]
 
     resolved_calculators = prepare_calculator_modules(calc_modules, command_parser)
-    sample_root = sample_dirs or __import__("os").path.join(task_result_dir, "SAMPLE")
+    sample_root = sample_dirs or os.path.join(task_result_dir, "SAMPLE")
     sample_config = dict(extra_payload.pop("sample_config", {}) or {})
     sample_config.setdefault("task_result_dir", task_result_dir)
     sample_config.setdefault("sample_dirs", sample_root)

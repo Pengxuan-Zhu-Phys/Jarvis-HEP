@@ -51,6 +51,34 @@ class ArchiveProcessor:
         self._lock = threading.Lock()
         os.makedirs(self.sample_root, exist_ok=True)
 
+    @classmethod
+    def from_config(
+        cls,
+        writer: SimpleHDF5Writer,
+        *,
+        sample_root: str,
+        delete_method: str = DEFAULT_DELETE_METHOD,
+        archiver_config: Mapping[str, Any] | None = None,
+    ) -> ArchiveProcessor:
+        """Build a processor from the Runtime.Archiver-style config map."""
+        cfg = dict(ARCHIVER_DEFAULTS)
+        if isinstance(archiver_config, Mapping):
+            cfg.update(archiver_config)
+        return cls(
+            writer,
+            sample_root=sample_root,
+            delete_method=delete_method,
+            strategy=str(cfg.get("strategy", "move")),
+            delete_after_archive=bool(cfg.get("delete_after_archive", True)),
+            batch_size=int(cfg.get("batch_size", 1)),
+            flush_interval_sec=float(cfg.get("flush_interval_sec", 1.0)),
+        )
+
+    def has_pending(self) -> bool:
+        """Return True when a partial batch is waiting to flush."""
+        with self._lock:
+            return bool(self._batch)
+
     def ingest(self, result: Mapping[str, Any]) -> int:
         """Queue one archive payload; flush when batch/interval thresholds are met."""
         with self._lock:
@@ -151,19 +179,13 @@ class SimpleArchiver:
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
     ) -> None:
-        cfg = dict(ARCHIVER_DEFAULTS)
-        if isinstance(archiver_config, Mapping):
-            cfg.update(archiver_config)
         self.redis = redis_queue
         self.poll_timeout = max(0.05, float(poll_timeout))
-        self.processor = ArchiveProcessor(
+        self.processor = ArchiveProcessor.from_config(
             SimpleHDF5Writer(db_path),
             sample_root=sample_root,
             delete_method=delete_method,
-            strategy=str(cfg.get("strategy", "move")),
-            delete_after_archive=bool(cfg.get("delete_after_archive", True)),
-            batch_size=int(cfg.get("batch_size", 1)),
-            flush_interval_sec=float(cfg.get("flush_interval_sec", 1.0)),
+            archiver_config=archiver_config,
         )
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -191,7 +213,7 @@ class SimpleArchiver:
         while not self._stop_event.is_set():
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
-                if self.processor._batch:
+                if self.processor.has_pending():
                     self.processor.flush_batch()
                 continue
             self.processor.ingest(result)
@@ -253,14 +275,11 @@ class ArchiverProcess(Process):
     def run(self) -> None:
         redis = RedisQueue(self.redis_config)
         redis.connect()
-        processor = ArchiveProcessor(
+        processor = ArchiveProcessor.from_config(
             SimpleHDF5Writer(self.db_path),
             sample_root=self.sample_root,
             delete_method=self.delete_method,
-            strategy=str(self.archiver_config.get("strategy", "move")),
-            delete_after_archive=bool(self.archiver_config.get("delete_after_archive", True)),
-            batch_size=int(self.archiver_config.get("batch_size", 1)),
-            flush_interval_sec=float(self.archiver_config.get("flush_interval_sec", 1.0)),
+            archiver_config=self.archiver_config,
         )
         timeout = max(1, int(round(self.poll_timeout)))
         while not self._stop_event.is_set():
