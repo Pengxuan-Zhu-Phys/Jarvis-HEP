@@ -8,7 +8,12 @@ Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + s
 - Portal IO design: `Jarvis-Books/Jarvis-HEP V2/DESIGN_PORTAL_IO_2.0.md`
 - Agent bridge (machine-readable API for Jarvis-Agent): `Jarvis-Books/Jarvis-HEP V2/DESIGN_AGENT_BRIDGE_2.0.md`
 
-Calculator file formats are provided by **Jarvis-HEP-Portal** (`jarvishep2/io_portal.py`).
-Upgrading Portal can add new IO types without changing this package.
+**Plugin packages** (upgrade them to extend HEP without a HEP release):
+
+| Package | HEP bridge | Extra |
+|---------|------------|--------|
+| Jarvis-HEP-Portal | `io_portal.py` calculator formats | core dependency |
+| Jarvis-Operas | `operas.py` operator registry | `[operas]` |
+| JarvisPLOT | `plot_bridge.py` / `Jarvis2 --plot` | `[plot]` |
 
 V1 (`jarvishep`) is frozen and must not be imported from this package.

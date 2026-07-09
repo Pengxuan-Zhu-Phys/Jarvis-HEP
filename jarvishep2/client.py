@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jarvis2 CLI surface: run dispatch, monitor attach, and check-modules smoke."""
+"""Jarvis2 CLI surface: run dispatch, monitor attach, plot bridge, check-modules smoke."""
 
 from __future__ import annotations
 
@@ -10,13 +10,23 @@ from typing import Any
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
+from jarvishep2.plot_bridge import PlotBridgeError, run_plot
 from jarvishep2.redis_queue import RedisQueue
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="Jarvis2", description="Jarvis-HEP V2 CLI")
-    parser.add_argument("task_yaml", nargs="?", help="Task YAML for distributed runs")
+    parser.add_argument(
+        "task_yaml",
+        nargs="?",
+        help="Task YAML for distributed runs, or plot YAML when --plot is set",
+    )
     parser.add_argument("--monitor", action="store_true", help="Print one monitor snapshot and exit")
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="Run Jarvis-PLOT on the given YAML (delegates to the JarvisPLOT package)",
+    )
     parser.add_argument("--check-modules", action="store_true", help="Run fixed-point calculator smoke")
     parser.add_argument("--resume", action="store_true", help="Resume from an existing checkpoint")
     parser.add_argument("--pid", type=int, default=None, help="Attach to a running scan by control PID")
@@ -85,6 +95,20 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         redis.close()
 
 
+def dispatch_plot(args: argparse.Namespace) -> int:
+    if not args.task_yaml:
+        print("Plot YAML is required with --plot (usage: Jarvis2 --plot scene.yaml).", file=sys.stderr)
+        return 2
+    try:
+        return int(run_plot(args.task_yaml))
+    except ImportError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    except PlotBridgeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+
 def dispatch_run(args: argparse.Namespace) -> int:
     if not args.task_yaml:
         print("Task YAML is required for distributed runs.", file=sys.stderr)
@@ -120,9 +144,11 @@ def dispatch_run(args: argparse.Namespace) -> int:
 def dispatch(args: argparse.Namespace) -> int:
     if args.monitor:
         return dispatch_monitor(args)
+    if args.plot:
+        return dispatch_plot(args)
     if args.check_modules or args.resume or args.task_yaml:
         return dispatch_run(args)
-    print("Provide a task YAML or use --monitor.", file=sys.stderr)
+    print("Provide a task YAML, or use --monitor / --plot.", file=sys.stderr)
     return 2
 
 
