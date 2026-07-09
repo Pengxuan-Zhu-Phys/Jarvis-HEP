@@ -90,6 +90,41 @@ class DistributorDispatchTests(unittest.TestCase):
         self.assertEqual(Distributor.set_method("Grid").method, "Grid")
         self.assertEqual(Distributor.set_method("CSV").method, "CSV")
 
+    def test_unknown_method_lists_available(self) -> None:
+        with self.assertRaises(NotImplementedError) as raised:
+            Distributor.set_method("Dynesty")
+        message = str(raised.exception)
+        self.assertIn("Dynesty", message)
+        self.assertIn("Available:", message)
+        self.assertIn("Bridson", message)
+
+    def test_register_new_sampler_without_editing_set_method(self) -> None:
+        from jarvishep2.Sampling.sampler import SamplingVirtial
+        from jarvishep2.distributor import STATELESS_METHODS
+
+        class _UnitDummy(SamplingVirtial):
+            def __init__(self) -> None:
+                super().__init__()
+                self.method = "UnitDummy"
+
+        Distributor.register(
+            "UnitDummy",
+            lambda: _UnitDummy(),
+            stateless=True,
+            resume="implemented",
+            override=True,
+        )
+        try:
+            sampler = Distributor.set_method("UnitDummy")
+            self.assertEqual(sampler.method, "UnitDummy")
+            self.assertIn("UnitDummy", STATELESS_METHODS)
+            self.assertEqual(Distributor.get_resume_status("UnitDummy"), "implemented")
+        finally:
+            Distributor.unregister("UnitDummy")
+        self.assertNotIn("UnitDummy", STATELESS_METHODS)
+        with self.assertRaises(NotImplementedError):
+            Distributor.set_method("UnitDummy")
+
 
 class GridAlgorithmTests(unittest.TestCase):
     def test_grid_sampling_cartesian_product_size(self) -> None:
