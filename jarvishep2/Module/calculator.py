@@ -14,7 +14,13 @@ from uuid import uuid4
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.command_parser import CommandParser
-from jarvishep2.io_json import read_json_output, write_json_input
+from jarvishep2.io_portal import (
+    build_io_context,
+    read_io_output,
+    read_io_output_sync,
+    write_io_input,
+    write_io_input_sync,
+)
 from jarvishep2.library import LibraryManager
 from jarvishep2.sample import ensure_sample_materialized
 
@@ -334,25 +340,38 @@ class CalculatorModule:
                 f"Command failed [{stage}#{command_index:05}] rc={rc} timeout={timed_out} cmd={cmd_text}"
             )
 
+    def _io_context(self, input_data: Mapping[str, Any] | None = None):
+        return build_io_context(
+            sample_info=self.sample_info if isinstance(self.sample_info, dict) else {},
+            pack_id=self.PackID,
+            module=self.name,
+            runtime_values=input_data or {},
+            logger=self._logger(),
+        )
+
     async def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        merged: dict[str, Any] = {}
+        # HEP policy: keep input params/observables, then overlay Portal write observables.
+        merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
+        if not self.input_specs:
+            return merged
+        context = self._io_context(input_data)
         for spec in self.input_specs:
-            if str(spec.get("type", "")).strip() != "JSON":
-                continue
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            actions = list(spec.get("actions") or [])
-            write_json_input(path, actions=actions, param_values=input_data)
-            merged.update({key: input_data.get(key) for key in input_data})
+            portal_obs = await write_io_input(spec, input_data, context=context, path=path)
+            if isinstance(portal_obs, dict):
+                merged.update(portal_obs)
         return merged
 
     async def read_output(self) -> dict[str, Any]:
         merged: dict[str, Any] = {}
+        if not self.output_specs:
+            return merged
+        context = self._io_context()
         for spec in self.output_specs:
-            if str(spec.get("type", "")).strip() != "JSON":
-                continue
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            variables = list(spec.get("variables") or [])
-            merged.update(read_json_output(path, variables=variables))
+            portal_obs = await read_io_output(spec, context=context, path=path)
+            if isinstance(portal_obs, dict):
+                merged.update(portal_obs)
         return merged
 
     def _execute_commands_sync(self, *, deadline: float | None = None) -> None:
@@ -397,24 +416,28 @@ class CalculatorModule:
             )
 
     def _load_input_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        merged: dict[str, Any] = {}
+        # HEP policy: keep input params/observables, then overlay Portal write observables.
+        merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
+        if not self.input_specs:
+            return merged
+        context = self._io_context(input_data)
         for spec in self.input_specs:
-            if str(spec.get("type", "")).strip() != "JSON":
-                continue
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            actions = list(spec.get("actions") or [])
-            write_json_input(path, actions=actions, param_values=input_data)
-            merged.update({key: input_data.get(key) for key in input_data})
+            portal_obs = write_io_input_sync(spec, input_data, context=context, path=path)
+            if isinstance(portal_obs, dict):
+                merged.update(portal_obs)
         return merged
 
     def _read_output_sync(self) -> dict[str, Any]:
         merged: dict[str, Any] = {}
+        if not self.output_specs:
+            return merged
+        context = self._io_context()
         for spec in self.output_specs:
-            if str(spec.get("type", "")).strip() != "JSON":
-                continue
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            variables = list(spec.get("variables") or [])
-            merged.update(read_json_output(path, variables=variables))
+            portal_obs = read_io_output_sync(spec, context=context, path=path)
+            if isinstance(portal_obs, dict):
+                merged.update(portal_obs)
         return merged
 
     def _execute_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
