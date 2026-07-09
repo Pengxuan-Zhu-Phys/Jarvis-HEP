@@ -10,7 +10,7 @@ TestScan/
 WorkShop/
 trash/
 DemoModule/
-
+jhrel
 
 # Legacy runtime paths (pre-PyPI layout)
 Jarvis
@@ -62,7 +62,6 @@ github CI/
 WARP.md 
 
 # PyPI/release workflow local ignores
-jhrel
 .pypirc
 .pytest_cache/
 .mypy_cache/

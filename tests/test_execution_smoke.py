@@ -15,6 +15,7 @@ from jarvishep.core import Core  # noqa: E402
 from jarvishep.factory import WorkerFactory  # noqa: E402
 from jarvishep.Module.module import Module  # noqa: E402
 from jarvishep.moduleManager import ModuleManager  # noqa: E402
+from jarvishep.sample import Sample  # noqa: E402
 from jarvishep.workflow import Workflow  # noqa: E402
 
 
@@ -74,6 +75,14 @@ class _FakeSampler:
 
     def set_max_workers(self, nworkers):
         self.max_workers = nworkers
+
+
+class _ImmediateFuture:
+    def __init__(self, result):
+        self._result = result
+
+    def result(self):
+        return self._result
 
 
 class _FakeOperasModule(Module):
@@ -231,6 +240,117 @@ class ExecutionPathSmokeTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_check_modules_uses_sampler_sample_config_with_nuisance(self):
+        self.core = Core()
+        self.core.info = {"sample": {"task_result_dir": "/tmp/core-sample-root"}}
+        self.core.sampler = _FakeSampler()
+        self.core.sampler.info = {
+            "sample": {
+                "task_result_dir": "/tmp/sampler-sample-root",
+                "nuisance": {
+                    "vname": "ratio",
+                    "active": {
+                        "param": {"ratio": -2.381966011250105},
+                        "limits": [-3.0, -2.0],
+                        "LogLikelihoods": {},
+                        "current": "left",
+                        "pass": False,
+                        "PassConditions": {},
+                    },
+                    "status": "Init",
+                    "NAttempt": 1,
+                    "LogLikelihoods": [],
+                    "PassConditions": [],
+                    "history": {
+                        "param": [],
+                        "LogLs": [],
+                        "PassConditions": {},
+                        "LogLikelihoods": {},
+                    },
+                    "probes": [-2.381966011250105, -2.618033988749895],
+                    "probes_logL": [None, None],
+                },
+            }
+        }
+
+        sample = Sample({"Mu": 120.0, "Tb": 2.0})
+        sample.set_config(self.core._sample_config_for_check_modules())
+
+        self.assertEqual(sample.info["task_result_dir"], "/tmp/sampler-sample-root")
+        self.assertEqual(sample.info["params"]["ratio"], -2.381966011250105)
+        self.assertEqual(sample.info["observables"]["ratio"], -2.381966011250105)
+        self.assertEqual(sample.info["NAttempt"], 1)
+
+    def test_check_modules_retries_nuisance_until_accept(self):
+        class _FakeNuisanceSampler:
+            def renew_sample_info(self, sample_info):
+                nuisance = sample_info["nuisance"]
+                if nuisance["active"]["pass"]:
+                    sample_info["status"] = "Accept"
+                    nuisance["status"] = "Accept"
+                    return
+                nuisance["NAttempt"] += 1
+                nuisance["active"]["param"]["ratio"] = -2.618033988749895
+
+        class _FakeFactory:
+            def __init__(self):
+                self.attempts = []
+
+            def submit_task(self, sample_info):
+                attempt = int(sample_info["nuisance"]["NAttempt"])
+                ratio = sample_info["params"]["ratio"]
+                self.attempts.append((attempt, ratio))
+                sample_info["observables"] = dict(sample_info["params"])
+                sample_info["observables"]["LogLNP_wN2"] = float(attempt)
+                sample_info["observables"]["N1LSP"] = True
+                sample_info["nuisance"]["active"]["pass"] = attempt >= 2
+                return _ImmediateFuture(float(attempt))
+
+        self.core = Core()
+        self.core.factory = _FakeFactory()
+        self.core.module_manager = mock.Mock()
+        self.core.sampler = _FakeSampler()
+        self.core.sampler._with_nuisance = True
+        self.core.sampler.nuisance_sampler = _FakeNuisanceSampler()
+
+        sample = Sample({"Mu": 120.0, "Tb": 2.0})
+        sample.set_config(
+            {
+                "task_result_dir": "/tmp/check-modules",
+                "nuisance": {
+                    "vname": "ratio",
+                    "active": {
+                        "param": {"ratio": -2.381966011250105},
+                        "limits": [-3.0, -2.0],
+                        "LogLikelihoods": {},
+                        "current": "left",
+                        "pass": False,
+                        "PassConditions": {},
+                    },
+                    "status": "Init",
+                    "NAttempt": 1,
+                    "LogLikelihoods": [],
+                    "PassConditions": [],
+                    "history": {
+                        "param": [],
+                        "LogLs": [],
+                        "PassConditions": {},
+                        "LogLikelihoods": {},
+                    },
+                },
+            }
+        )
+
+        self.core._run_check_modules_sample(sample)
+
+        self.assertEqual(
+            self.core.factory.attempts,
+            [(1, -2.381966011250105), (2, -2.618033988749895)],
+        )
+        self.assertEqual(sample.info["status"], "Accept")
+        self.assertEqual(sample.info["nuisance"]["status"], "Accept")
+        self.core.module_manager.database.add_data.assert_not_called()
 
     def test_module_selection_false_skips_remaining_modules_and_runs_likelihood(self):
         manager = ModuleManager()

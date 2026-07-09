@@ -1110,6 +1110,41 @@ class Core(Base):
         else:
             self.run_until_finished()
 
+    def _sample_config_for_check_modules(self):
+        sampler_info = getattr(self.sampler, "info", None)
+        if isinstance(sampler_info, dict):
+            sampler_sample = sampler_info.get("sample")
+            if isinstance(sampler_sample, dict):
+                return deepcopy(sampler_sample)
+        return deepcopy(self.info['sample'])
+
+    def _check_modules_uses_nuisance(self, sample):
+        return bool(
+            getattr(self.sampler, "_with_nuisance", False)
+            and getattr(sample, "_with_nuisance", False)
+        )
+
+    def _run_check_modules_sample(self, sample):
+        if not self._check_modules_uses_nuisance(sample):
+            future = self.factory.submit_task(sample.info)
+            output = future.result()
+            self.module_manager.database.add_data(output)
+            return output
+
+        nuisance_sampler = getattr(self.sampler, "nuisance_sampler", None)
+        if nuisance_sampler is None:
+            raise RuntimeError("check-modules nuisance workflow requires sampler.nuisance_sampler")
+
+        while True:
+            sample.start()
+            future = self.factory.submit_task(sample.info)
+            output = future.result()
+            nuisance_sampler.renew_sample_info(sample.info)
+            if sample.info.get("status") == "Accept":
+                return output
+            sample.record()
+            sample.combine_nuisance_card()
+
     def test_assembly_line(self):
         self.logger.warning("Start testing assembly line")
         self._start_run_summary()
@@ -1117,12 +1152,10 @@ class Core(Base):
             for ii in range(10):
                 param = next(self.sampler)
                 sample = Sample(param)
-                sample.set_config(deepcopy(self.info['sample']))
+                sample.set_config(self._sample_config_for_check_modules())
                 self.logger.warning(f"Run test assembly line for sample -> {sample.info['uuid']}\n")
                 try:
-                    future = self.factory.submit_task(sample.info)
-                    output = future.result()
-                    self.module_manager.database.add_data(output)
+                    self._run_check_modules_sample(sample)
                 finally:
                     sample.close()
         except Exception as e:
