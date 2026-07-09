@@ -20,6 +20,10 @@ def deterministic_sampler_uuid(*, prefix: str, seed: int, sample_index: int) -> 
 
 
 def flush_batch(sampler: Any, batch: list[Sample]) -> int:
+    """Delegate to ``FixedSetSampler.flush_batch`` when available."""
+    method = getattr(sampler, "flush_batch", None)
+    if callable(method):
+        return int(method(batch))
     if not batch:
         return 0
     if len(batch) == 1:
@@ -33,8 +37,13 @@ def flush_batch(sampler: Any, batch: list[Sample]) -> int:
 def run_stateless_distributed(
     sampler: Any,
     *,
-    propose_next: Callable[[], Sample | None],
+    propose_next: Callable[[], Sample | None] | None = None,
 ) -> int:
+    """Prefer ``sampler.run_distributed()``; fall back to propose loop."""
+    if propose_next is None and hasattr(sampler, "run_distributed"):
+        return int(sampler.run_distributed())
+    if propose_next is None:
+        raise TypeError("run_stateless_distributed requires propose_next or sampler.run_distributed")
     pushed = 0
     batch: list[Sample] = []
     batch_size = max(1, int(getattr(sampler, "_batch_size", 1) or 1))

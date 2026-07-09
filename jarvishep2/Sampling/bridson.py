@@ -11,15 +11,13 @@ from typing import Any, Mapping
 import numpy as np
 from scipy.special import gammainc
 
-from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
+from jarvishep2.Sampling.fixed_set_sampler import FixedSetSampler
 from jarvishep2.Sampling.sampling_utils import (
     evaluate_selection,
     map_row_to_physical,
     row_to_u_coords,
 )
-from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 
@@ -105,39 +103,32 @@ def deterministic_bridson_uuid(*, seed: int, sample_index: int) -> str:
     )
 
 
-class Bridson(CheckpointedSampler):
+class Bridson(FixedSetSampler):
     """Stateless batch proposer: precompute Poisson-disk set, submit via Redis."""
 
     method = "Bridson"
+    uuid_prefix = "bridson"
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.bridson")
-        self.vars: list = []
         self._P: np.ndarray | None = None
-        self._index = 0
-        self._accepted_index = 0
         self._radius = 0.0
         self._k = 30
-        self._selectionexp: str | None = None
-        self._seed = 0
-        self._batch_size = 16
         self._max_inflight = 1
         self.barinfo: dict[str, Any] = {}
-        self._uuid_by_accepted_index: dict[int, str] = {}
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
         sampling = dict(self.config.get("Sampling") or {})
-        runtime = get_runtime_block(self.config)
-        self.vars = load_variables(self.config)
+        workers = int((self.config.get("Runtime") or {}).get("workers", 1) or 1)
+        # Prefer MaxWorker when present (historical Bridson knob).
         self._radius = float(sampling["Radius"])
         self._k = int(sampling["MaxAttempt"])
-        self._selectionexp = sampling.get("selection")
-        self._seed = int(sampling.get("Seed", sampling.get("seed", 0)) or 0)
-        workers = int(runtime.get("workers", 1) or 1)
         self._max_inflight = max(1, int(sampling.get("MaxWorker", workers) or workers))
-        self._batch_size = max(1, int(runtime.get("batch_size", self._max_inflight) or self._max_inflight))
+        self._batch_size = max(
+            1, int((self.config.get("Runtime") or {}).get("batch_size", self._max_inflight) or self._max_inflight)
+        )
 
     def initialize(self) -> None:
         ndim = len(self.vars)
@@ -168,6 +159,7 @@ class Bridson(CheckpointedSampler):
             self.initialize()
 
     def _uuid_for_accepted_index(self, accepted_index: int) -> str:
+        # Keep historical Bridson UUID formula (prefix "bridson:").
         if accepted_index in self._uuid_by_accepted_index:
             return self._uuid_by_accepted_index[accepted_index]
         uuid = deterministic_bridson_uuid(seed=self._seed, sample_index=accepted_index)
@@ -190,6 +182,9 @@ class Bridson(CheckpointedSampler):
             self._emit_progress()
             return sample
         return None
+
+    def _stream_exhausted(self) -> bool:
+        return self._P is not None and self._index >= len(self._P)
 
     def _emit_progress(self) -> None:
         if not self.barinfo:
@@ -236,71 +231,23 @@ class Bridson(CheckpointedSampler):
             accepted += 1
         return None
 
-    def run_distributed(self) -> int:
-        """Submit all accepted Bridson points in Redis pipeline batches."""
-        self._ensure_grid()
-        pushed = 0
-        batch: list[Sample] = []
-        while True:
-            sample = self.propose_next()
-            if sample is None:
-                break
-            batch.append(sample)
-            if len(batch) >= self._batch_size:
-                pushed += self._flush_batch(batch)
-                batch = []
-        if batch:
-            pushed += self._flush_batch(batch)
-        return pushed
-
-    def _flush_batch(self, batch: list[Sample]) -> int:
-        if not batch:
-            return 0
-        if len(batch) == 1:
-            self._submit(batch[0])
-        else:
-            self._submit_group(batch)
-        self._submitted_uuids.extend(sample.uuid for sample in batch)
-        return len(batch)
-
-    def at_safe_barrier(self) -> bool:
-        if self._P is None:
-            return False
-        if self._index < len(self._P):
-            return False
-        if not self._submitted_uuids:
-            return True
-        return set(self._submitted_uuids) <= self._completed_uuids
-
     def export_runtime_state(self) -> dict[str, Any]:
-        return {
-            "grid_points": self._P,
-            "index": int(self._index),
-            "accepted_index": int(self._accepted_index),
-            "selectionexp": self._selectionexp,
-            "seed": int(self._seed),
-            "barinfo": deepcopy(self.barinfo),
-            "uuid_by_accepted_index": dict(self._uuid_by_accepted_index),
-            "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
-            "chains": [],
-            "ready_queue": [],
-            "control_state": self._checkpoint_control_state(),
-            "numpy_random_state": None,
-        }
+        payload = self._common_export_fields()
+        payload.update(
+            {
+                "grid_points": self._P,
+                "barinfo": deepcopy(self.barinfo),
+                "numpy_random_state": None,
+            }
+        )
+        return payload
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
         grid = state.get("grid_points")
         if grid is not None:
             self._P = np.asarray(grid)
-        self._index = int(state.get("index", self._index) or 0)
-        self._accepted_index = int(state.get("accepted_index", self._accepted_index) or 0)
-        self._selectionexp = state.get("selectionexp", self._selectionexp)
-        self._seed = int(state.get("seed", self._seed) or self._seed)
+        self._import_common_fields(state)
         self.barinfo = deepcopy(state.get("barinfo", self.barinfo))
-        raw_uuid_map = state.get("uuid_by_accepted_index") or {}
-        self._uuid_by_accepted_index = {int(k): str(v) for k, v in raw_uuid_map.items()}
-        self._import_checkpoint_control_state(state)
         if self._P is not None:
             self.info["NSamples"] = int(self._P.shape[0])
 
