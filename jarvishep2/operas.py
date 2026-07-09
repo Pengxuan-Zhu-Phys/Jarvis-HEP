@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""In-process Operas backend for Jarvis-HEP V2 Workers."""
+"""In-process Operas backend for Jarvis-HEP V2 Workers.
+
+Operator resolution prefers the Jarvis-Operas registry when the name is
+registered there, then falls back to an importlib dotted callable so local
+test operators keep working without the Operas package.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +30,70 @@ def _resolve_dotted_callable(path: str) -> Callable[..., Any]:
     if not callable(target):
         raise TypeError(f"operator '{path}' is not callable")
     return target
+
+
+def _try_jarvis_operas_registry(operator: str) -> Any | None:
+    """Return the global Operas registry if *operator* resolves; else None."""
+    try:
+        from jarvis_operas import get_global_operas_registry
+    except ImportError:
+        return None
+    registry = get_global_operas_registry()
+    try:
+        registry.resolve_name(operator)
+    except Exception:
+        return None
+    return registry
+
+
+def _wrap_operas_registry_operator(registry: Any, operator: str, *, call_mode: str) -> Callable[..., Any]:
+    """Build a kwargs-callable that delegates to Jarvis-Operas call/acall."""
+    mode = str(call_mode).strip().lower()
+    if mode == "acall":
+
+        async def _acall(**kwargs: Any) -> Any:
+            return await registry.acall(operator, **kwargs)
+
+        return _acall
+
+    def _call(**kwargs: Any) -> Any:
+        return registry.call(operator, **kwargs)
+
+    return _call
+
+
+def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[..., Any]:
+    """Resolve an operator name via Jarvis-Operas, then importlib.
+
+    Resolution order:
+    1. Jarvis-Operas global registry (if installed and name is registered)
+    2. importlib dotted path ``package.module.callable``
+    """
+    name = str(operator).strip()
+    if not name:
+        raise ValueError("Operas operator name must not be empty")
+
+    registry = _try_jarvis_operas_registry(name)
+    if registry is not None:
+        return _wrap_operas_registry_operator(registry, name, call_mode=call_mode)
+
+    try:
+        return _resolve_dotted_callable(name)
+    except Exception as import_exc:
+        try:
+            import jarvis_operas  # noqa: F401
+            operas_hint = (
+                f"Not found in Jarvis-Operas registry either. "
+                f"Use a registered name (e.g. helper.eggbox2d) or a Python dotted path."
+            )
+        except ImportError:
+            operas_hint = (
+                "Jarvis-Operas is not installed; registry names are unavailable. "
+                "Install with `pip install 'jarvishep2[operas]'` or use a Python dotted path."
+            )
+        raise ValueError(
+            f"Cannot resolve Operas operator {name!r}: {import_exc}. {operas_hint}"
+        ) from import_exc
 
 
 def _resolve_entry(data: Mapping[str, Any], entry: str) -> Any:
@@ -76,10 +145,10 @@ class OperasModule:
         return parse_locals, numeric_modules
 
     def preload(self) -> None:
-        """Import and cache the operator once per Worker."""
+        """Resolve and cache the operator once per Worker (Operas registry or importlib)."""
         if self._func is not None:
             return
-        self._func = _resolve_dotted_callable(self.operator)
+        self._func = resolve_operator(self.operator, call_mode=self.call_mode)
 
     def _build_input_observables(self, observables: Mapping[str, Any]) -> dict[str, Any]:
         payload = dict(observables)
@@ -196,4 +265,4 @@ def preload_operas(modules: Mapping[str, Mapping[str, Any]]) -> dict[str, Operas
     return loaded
 
 
-__all__ = ["OperasModule", "preload_operas"]
+__all__ = ["OperasModule", "preload_operas", "resolve_operator"]

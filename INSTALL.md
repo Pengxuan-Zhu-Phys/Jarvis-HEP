@@ -30,7 +30,16 @@ python3 -m pip install -e ../Jarvis-Portal
 python3 -m pip install -e '.[distributed,dev]'
 ```
 
-Extras: `distributed` = `redis`, `msgpack`, `aiofiles`; `dev` = `pytest`, `fakeredis`, `colorlog`.
+Extras:
+
+- `distributed` = `redis`, `msgpack`, `aiofiles`
+- `operas` = `Jarvis-Operas` (catalog operators such as `helper.eggbox2d`)
+- `plot` = `JarvisPLOT` (YAML-driven plotting; CLI bridge)
+- `dev` = `pytest`, `fakeredis`, `colorlog`
+
+```bash
+python3 -m pip install -e '.[distributed,operas,plot,dev]'
+```
 
 **Side-by-side with V1.** V2 uses a distinct distribution (`jarvishep2`) and CLI entry
 (`Jarvis2`), so it installs alongside the frozen V1 line (`Jarvis-HEP` / `Jarvis` 1.7.4)
