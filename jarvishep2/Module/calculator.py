@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Calculator backend held long-term by Workers (V2 delta over V1)."""
+"""Calculator backend held long-term by Workers (sync scheduler path only)."""
 
 from __future__ import annotations
 
-import asyncio
 import os
-import shutil
-import signal
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -16,34 +13,32 @@ from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.io_portal import (
     build_io_context,
-    read_io_output,
     read_io_output_sync,
-    write_io_input,
     write_io_input_sync,
 )
-from jarvishep2.library import LibraryManager
-from jarvishep2.sample import ensure_sample_materialized
+from jarvishep2.Module.calculator_spec import CalculatorSpec
+from jarvishep2.Module.runtime_preparer import RuntimePreparer
 
 
 class CalculatorModule:
-    """External calculator runner with template preload and sync ``execute``."""
+    """External calculator runner: Spec + RuntimePreparer + sync execute."""
 
     def __init__(self, name: str, config: Mapping[str, Any]) -> None:
-        self.name = str(name)
-        self.config = dict(config)
-        self.clone_shadow = bool(config.get("clone_shadow", False))
-        self.installation = list(config.get("installation") or [])
-        self.initialization = list(config.get("initialization") or [])
-        execution = dict(config.get("execution") or {})
-        self.execution = execution
-        self.commands_template = list(execution.get("commands") or [])
-        self.input_specs = list(execution.get("input") or [])
-        self.output_specs = list(execution.get("output") or [])
-        self.timeout = self._normalize_timeout(config.get("timeout"))
-        self.basepath = str(config.get("path", execution.get("path", ".")))
-        self.source = str(config.get("source", "")).strip()
-        self.symlink_name = str(config.get("symlink_name", self.name)).strip() or self.name
-        self.env_setup = list(config.get("env_setup") or [])
+        self.spec = CalculatorSpec.from_config(name, config)
+        self.name = self.spec.name
+        self.config = dict(self.spec.raw)
+        self.clone_shadow = self.spec.clone_shadow
+        self.installation = list(self.spec.installation)
+        self.initialization = list(self.spec.initialization)
+        self.execution = dict(self.config.get("execution") or {})
+        self.commands_template = list(self.spec.commands)
+        self.input_specs = list(self.spec.input_specs)
+        self.output_specs = list(self.spec.output_specs)
+        self.timeout = self.spec.timeout
+        self.basepath = self.spec.basepath
+        self.source = self.spec.source
+        self.symlink_name = self.spec.symlink_name
+        self.env_setup = list(self.spec.env_setup)
         self._subprocess_env: dict[str, str] | None = None
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
@@ -52,29 +47,18 @@ class CalculatorModule:
         self._command_counter = 0
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
-        self._installed_shadows: set[str] = set()
-        self._library = LibraryManager()
-
-    @staticmethod
-    def _normalize_timeout(value: Any) -> float | None:
-        if value is None:
-            return None
-        timeout = float(value)
-        return timeout if timeout > 0 else None
+        self._preparer = RuntimePreparer(self.spec)
 
     @staticmethod
     def custom_format(record: Mapping[str, Any]) -> str:
-        """V1-compatible log format hook (invariant #14 fix: accepts record)."""
         module = record.get("extra", {}).get("module", "No module")
         if "raw" in record.get("extra", {}):
             return "{message}\n"
         return f"{module} | {record.get('message', '')}"
 
     def preload_templates(self) -> None:
-        """Parse and cache command/input templates once per Worker."""
         if self._templates_loaded:
             return
-        # One-time structural read of cached template specs (no per-Sample work).
         _ = list(self.commands_template)
         _ = list(self.input_specs)
         _ = list(self.output_specs)
@@ -82,15 +66,12 @@ class CalculatorModule:
         self._templates_loaded = True
 
     def attach_scheduler(self, scheduler: AsyncSubprocessScheduler | None) -> None:
-        """Bind the per-Worker subprocess scheduler used for command execution."""
         self._scheduler = scheduler
 
     def attach_command_parser(self, parser: CommandParser | None) -> None:
-        """Bind the per-Worker Phase-2 command resolver (WP-D3.1)."""
         self._command_parser = parser
 
     def bind_env(self, env: Mapping[str, str]) -> None:
-        """Attach cached ``env_setup`` variables for subprocess execution."""
         self._subprocess_env = {str(key): str(value) for key, value in env.items()}
 
     def env_setup_sources(self) -> list[str]:
@@ -103,95 +84,27 @@ class CalculatorModule:
         return sources
 
     def acquire_pack_id(self, pack_id: str) -> None:
-        """Tag the current run for traceability."""
         self.PackID = str(pack_id)
+        self._preparer.acquire_pack_id(pack_id)
 
     def decode_shadow_path(self, path: str) -> str:
-        """Resolve ``@PackID`` in calculator runtime paths."""
-        if path is None:
-            return ""
-        resolved = str(path)
-        if "@PackID" in resolved:
-            if not self.PackID:
-                raise RuntimeError("@PackID path requires pack_id before shadow decode")
-            resolved = resolved.replace("@PackID", str(self.PackID))
-        return os.path.abspath(resolved)
+        return self._preparer.decode_shadow_path(path)
 
     def decode_shadow_commands(self, command: Mapping[str, Any]) -> dict[str, str]:
-        """Resolve ``@PackID`` in install/init/execution command templates."""
-        pack_id = str(self.PackID or "")
-        if not pack_id:
-            raise RuntimeError("@PackID command decode requires pack_id")
-        return {
-            "cmd": str(command.get("cmd", "")).replace("@PackID", pack_id),
-            "cwd": str(command.get("cwd", ".")).replace("@PackID", pack_id),
-        }
+        return self._preparer.decode_shadow_commands(command)
 
     def shadow_runtime_path(self) -> str:
-        return self.decode_shadow_path(self.basepath)
-
-    def _expand_install_tokens(self, text: str) -> str:
-        runtime = self.shadow_runtime_path()
-        source = os.path.abspath(self.source) if self.source else ""
-        return str(text).replace("${source}", source).replace("${path}", runtime)
-
-    def _stage_command(self, command: Mapping[str, Any], *, stage: str) -> dict[str, str]:
-        raw = dict(command)
-        if self.clone_shadow:
-            raw = self.decode_shadow_commands(raw)
-        if stage in {"install", "initialize"}:
-            raw["cmd"] = self._expand_install_tokens(str(raw.get("cmd", "")))
-            raw["cwd"] = self._expand_install_tokens(str(raw.get("cwd", ".")))
-        return {"cmd": str(raw.get("cmd", "")), "cwd": str(raw.get("cwd", "."))}
-
-    def _run_stage_commands_sync(self, commands: list[Mapping[str, Any]], *, stage: str) -> None:
-        for command in commands:
-            command_index = self._next_command_index()
-            self._run_command_sync(
-                self._stage_command(command, stage=stage),
-                stage=stage,
-                command_index=command_index,
-            )
+        return self._preparer.shadow_runtime_path()
 
     def ensure_shadow_installed(self) -> None:
-        """Physical per-pack install for ``clone_shadow`` calculators."""
-        if not self.clone_shadow:
-            return
-        pack_id = str(self.PackID or "")
-        if not pack_id:
-            raise RuntimeError("clone_shadow install requires pack_id")
-        if pack_id in self._installed_shadows:
-            return
-        runtime = self.shadow_runtime_path()
-        os.makedirs(runtime, exist_ok=True)
-        if self.installation:
-            self._run_stage_commands_sync(self.installation, stage="install")
-        elif self.source:
-            shutil.copytree(os.path.abspath(self.source), runtime, dirs_exist_ok=True)
-        else:
-            raise RuntimeError(
-                f"clone_shadow calculator '{self.name}' requires a source path or installation commands"
-            )
-        if self.initialization:
-            self._run_stage_commands_sync(self.initialization, stage="initialize")
-        self._installed_shadows.add(pack_id)
+        self._preparer.ensure_shadow_installed(run_stage=self._run_stage_commands)
 
     def ensure_symlink_runtime(self, sample_info: Mapping[str, Any]) -> str | None:
-        """Symlink a safe tool into the Sample dir when ``clone_shadow`` is false."""
-        if self.clone_shadow or not self.source:
-            return None
-        save_dir = ensure_sample_materialized(dict(sample_info))
-        if save_dir is None:
-            raise RuntimeError(f"symlink runtime requires materialized save_dir for '{self.name}'")
-        return self._library.link_into_sample(self.source, str(save_dir), self.symlink_name)
+        return self._preparer.ensure_symlink_runtime(sample_info)
 
     def prepare_runtime(self, sample_info: Mapping[str, Any]) -> None:
-        """Prepare per-run isolation before ``execute``."""
         self.sample_info = dict(sample_info)
-        if self.clone_shadow:
-            self.ensure_shadow_installed()
-        else:
-            self.ensure_symlink_runtime(sample_info)
+        self._preparer.prepare(sample_info, run_stage=self._run_stage_commands)
 
     def _logger(self):
         if isinstance(self.sample_info, dict):
@@ -221,28 +134,12 @@ class CalculatorModule:
         self._command_counter += 1
         return self._command_counter
 
-    @staticmethod
-    async def _terminate_process(process: asyncio.subprocess.Process, grace_sec: float = 5.0) -> None:
-        pid = int(getattr(process, "pid", 0) or 0)
-        try:
-            if pid > 0:
-                os.killpg(pid, signal.SIGTERM)
-            else:
-                process.terminate()
-        except Exception:
-            process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=max(0.1, grace_sec))
-        except Exception:
-            try:
-                if pid > 0:
-                    os.killpg(pid, signal.SIGKILL)
-                else:
-                    process.kill()
-            except Exception:
-                process.kill()
+    def _require_scheduler(self) -> AsyncSubprocessScheduler:
+        if self._scheduler is None:
+            raise RuntimeError("calculator subprocess scheduler is not attached")
+        return self._scheduler
 
-    def _run_command_sync(
+    def _run_command(
         self,
         command: Mapping[str, Any],
         *,
@@ -250,27 +147,24 @@ class CalculatorModule:
         command_index: int = 0,
         timeout_sec: float | None = None,
     ) -> None:
+        scheduler = self._require_scheduler()
         cmd_text = self._resolve_runtime_tokens(str(command.get("cmd", "")), stage=stage, field="cmd")
         cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
         cwd = os.path.abspath(cwd_text or ".")
         os.makedirs(cwd, exist_ok=True)
-        if self._scheduler is None:
-            raise RuntimeError("calculator subprocess scheduler is not attached")
-
-        meta = {
-            "module": self.name,
-            "pack_id": self.PackID,
-            "stage": stage,
-            "command_index": command_index,
-        }
-        result = self._scheduler.run(
+        result = scheduler.run(
             SubprocessJob(
                 cmd=cmd_text,
                 cwd=cwd,
                 env=self._subprocess_env,
                 timeout_sec=timeout_sec,
                 log_policy="quiet",
-                meta=meta,
+                meta={
+                    "module": self.name,
+                    "pack_id": self.PackID,
+                    "stage": stage,
+                    "command_index": command_index,
+                },
             ),
             timeout=(float(timeout_sec) + 5.0) if timeout_sec is not None else None,
         )
@@ -280,48 +174,13 @@ class CalculatorModule:
                 f"timeout={result.timed_out} cmd={cmd_text}"
             )
 
-    async def run_command(
-        self,
-        command: Mapping[str, Any],
-        *,
-        stage: str = "execution",
-        command_index: int = 0,
-        timeout_sec: float | None = None,
-    ) -> None:
-        if self._scheduler is not None:
-            self._run_command_sync(
-                command,
+    def _run_stage_commands(self, commands: list[Mapping[str, Any]], stage: str) -> None:
+        for command in commands:
+            command_index = self._next_command_index()
+            self._run_command(
+                self._preparer.stage_command(command, stage=stage),
                 stage=stage,
                 command_index=command_index,
-                timeout_sec=timeout_sec,
-            )
-            return
-
-        cmd_text = self._resolve_runtime_tokens(str(command.get("cmd", "")), stage=stage, field="cmd")
-        cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
-        cwd = os.path.abspath(cwd_text or ".")
-        os.makedirs(cwd, exist_ok=True)
-
-        process = await asyncio.create_subprocess_shell(
-            cmd_text,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-            start_new_session=True,
-        )
-        timed_out = False
-        try:
-            if timeout_sec is None:
-                rc = await process.wait()
-            else:
-                rc = await asyncio.wait_for(process.wait(), timeout=float(timeout_sec))
-        except asyncio.TimeoutError:
-            timed_out = True
-            await self._terminate_process(process)
-            rc = await process.wait()
-        if int(rc) != 0 or timed_out:
-            raise RuntimeError(
-                f"Command failed [{stage}#{command_index:05}] rc={rc} timeout={timed_out} cmd={cmd_text}"
             )
 
     def _io_context(self, input_data: Mapping[str, Any] | None = None):
@@ -333,74 +192,7 @@ class CalculatorModule:
             logger=self._logger(),
         )
 
-    async def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        # HEP policy: keep input params/observables, then overlay Portal write observables.
-        merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
-        if not self.input_specs:
-            return merged
-        context = self._io_context(input_data)
-        for spec in self.input_specs:
-            path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            portal_obs = await write_io_input(spec, input_data, context=context, path=path)
-            if isinstance(portal_obs, dict):
-                merged.update(portal_obs)
-        return merged
-
-    async def read_output(self) -> dict[str, Any]:
-        merged: dict[str, Any] = {}
-        if not self.output_specs:
-            return merged
-        context = self._io_context()
-        for spec in self.output_specs:
-            path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
-            portal_obs = await read_io_output(spec, context=context, path=path)
-            if isinstance(portal_obs, dict):
-                merged.update(portal_obs)
-        return merged
-
-    def _execute_commands_sync(self, *, deadline: float | None = None) -> None:
-        for command in self.commands_template:
-            command_index = self._next_command_index()
-            timeout_sec = None
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError(
-                        f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
-                    )
-                timeout_sec = remaining
-            staged = self._stage_command(command, stage="execution")
-            self._run_command_sync(
-                staged,
-                stage="execution",
-                command_index=command_index,
-                timeout_sec=timeout_sec,
-            )
-
-    async def execute_commands(self, *, deadline: float | None = None) -> None:
-        if self._scheduler is not None:
-            self._execute_commands_sync(deadline=deadline)
-            return
-        for command in self.commands_template:
-            command_index = self._next_command_index()
-            timeout_sec = None
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError(
-                        f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
-                    )
-                timeout_sec = remaining
-            staged = self._stage_command(command, stage="execution")
-            await self.run_command(
-                staged,
-                stage="execution",
-                command_index=command_index,
-                timeout_sec=timeout_sec,
-            )
-
-    def _load_input_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        # HEP policy: keep input params/observables, then overlay Portal write observables.
+    def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
         merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
         if not self.input_specs:
             return merged
@@ -412,7 +204,7 @@ class CalculatorModule:
                 merged.update(portal_obs)
         return merged
 
-    def _read_output_sync(self) -> dict[str, Any]:
+    def read_output(self) -> dict[str, Any]:
         merged: dict[str, Any] = {}
         if not self.output_specs:
             return merged
@@ -424,51 +216,42 @@ class CalculatorModule:
                 merged.update(portal_obs)
         return merged
 
-    def _execute_sync(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        deadline = None
-        if self.timeout is not None:
-            deadline = time.monotonic() + float(self.timeout)
-
-        input_obs = self._load_input_sync(input_data)
-        if isinstance(input_obs, dict):
-            result.update(input_obs)
-
-        self._execute_commands_sync(deadline=deadline)
-
-        output_obs = self._read_output_sync()
-        if isinstance(output_obs, dict):
-            result.update(output_obs)
-        return result
-
-    async def _execute_async(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        deadline = None
-        if self.timeout is not None:
-            deadline = time.monotonic() + float(self.timeout)
-
-        input_obs = await self.load_input(input_data)
-        if isinstance(input_obs, dict):
-            result.update(input_obs)
-
-        await self.execute_commands(deadline=deadline)
-
-        output_obs = await self.read_output()
-        if isinstance(output_obs, dict):
-            result.update(output_obs)
-        return result
+    def execute_commands(self, *, deadline: float | None = None) -> None:
+        for command in self.commands_template:
+            command_index = self._next_command_index()
+            timeout_sec = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError(
+                        f"Calculator execution timed out after {self.timeout:g}s for {self.name}"
+                    )
+                timeout_sec = remaining
+            staged = self._preparer.stage_command(command, stage="execution")
+            self._run_command(
+                staged,
+                stage="execution",
+                command_index=command_index,
+                timeout_sec=timeout_sec,
+            )
 
     def execute(self, sample_info: Mapping[str, Any], *, runtime_prepared: bool = False) -> dict[str, Any]:
-        """Sync convenience entry: load_input → run commands → read_output."""
+        """load_input → run commands → read_output (scheduler required)."""
+        self._require_scheduler()
         self.sample_info = dict(sample_info)
         self._command_counter = 0
         if not runtime_prepared:
             self.prepare_runtime(sample_info)
         input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})
         try:
-            if self._scheduler is not None:
-                return self._execute_sync(input_data)
-            return asyncio.run(self._execute_async(input_data))
+            result: dict[str, Any] = {}
+            deadline = None
+            if self.timeout is not None:
+                deadline = time.monotonic() + float(self.timeout)
+            result.update(self.load_input(input_data))
+            self.execute_commands(deadline=deadline)
+            result.update(self.read_output())
+            return result
         finally:
             self.sample_info = {}
 
@@ -490,4 +273,4 @@ def mint_pack_id() -> str:
     return str(uuid4())
 
 
-__all__ = ["CalculatorModule", "mint_pack_id"]
+__all__ = ["CalculatorModule", "CalculatorSpec", "RuntimePreparer", "mint_pack_id"]

@@ -18,16 +18,34 @@ from fakeredis import TcpFakeServer
 
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.workflow import build_execution_plan
 
+_TEST_SCHEDULERS: list[AsyncSubprocessScheduler] = []
 
-def _attach_parser(module: CalculatorModule, project_root: str | None = None) -> CalculatorModule:
+
+def _attach_runtime(module: CalculatorModule, project_root: str | None = None) -> CalculatorModule:
+    scheduler = AsyncSubprocessScheduler(
+        SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")
+    )
+    scheduler.start()
+    _TEST_SCHEDULERS.append(scheduler)
+    module.attach_scheduler(scheduler)
     module.attach_command_parser(CommandParser(project_root=project_root or ".", scan_name="test"))
     return module
+
+
+def tearDownModule() -> None:
+    for scheduler in _TEST_SCHEDULERS:
+        try:
+            scheduler.shutdown(wait=True)
+        except Exception:
+            pass
+    _TEST_SCHEDULERS.clear()
 
 
 TESTS_ROOT = os.path.dirname(__file__)
@@ -180,7 +198,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
 
     def test_preload_templates_parses_once_across_many_executes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
+            module = _attach_runtime(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             self.assertEqual(module._template_parse_count, 1)
 
@@ -206,7 +224,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
 
     def test_instance_reuse_statelessness_across_samples(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
+            module = _attach_runtime(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             sample_config = {
                 "sample_dirs": tmpdir,
@@ -251,7 +269,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
                 }
             )
             sample.materialize()
-            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
+            module = _attach_runtime(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             module.acquire_pack_id("pack-test")
             result = module.execute(sample.info)

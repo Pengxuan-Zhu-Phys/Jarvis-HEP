@@ -23,8 +23,19 @@ from jarvishep2.io_portal import (
     write_io_input_sync,
 )
 from jarvishep2.Module.calculator import CalculatorModule
+from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.sample import Sample
+
+
+def _attach_calc_runtime(module: CalculatorModule, project_root: str) -> AsyncSubprocessScheduler:
+    scheduler = AsyncSubprocessScheduler(
+        SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")
+    )
+    scheduler.start()
+    module.attach_scheduler(scheduler)
+    module.attach_command_parser(CommandParser(project_root=project_root, scan_name="t"))
+    return scheduler
 
 
 class PortalRegistryTests(unittest.TestCase):
@@ -249,11 +260,14 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
                 }
             )
             sample.materialize()
-            module.attach_command_parser(CommandParser(project_root=tmpdir, scan_name="t"))
-            module.preload_templates()
-            module.acquire_pack_id("pack-1")
-            with self.assertRaises(UnsupportedIOTypeError):
-                module.execute(sample.info)
+            scheduler = _attach_calc_runtime(module, tmpdir)
+            try:
+                module.preload_templates()
+                module.acquire_pack_id("pack-1")
+                with self.assertRaises(UnsupportedIOTypeError):
+                    module.execute(sample.info)
+            finally:
+                scheduler.shutdown(wait=True)
 
     def test_calculator_json_still_works_through_portal(self) -> None:
         eggbox_dir = os.path.join(
@@ -313,10 +327,13 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
                 }
             )
             sample.materialize()
-            module.attach_command_parser(CommandParser(project_root=tmpdir, scan_name="t"))
-            module.preload_templates()
-            module.acquire_pack_id("pack-egg")
-            result = module.execute(sample.info)
+            scheduler = _attach_calc_runtime(module, tmpdir)
+            try:
+                module.preload_templates()
+                module.acquire_pack_id("pack-egg")
+                result = module.execute(sample.info)
+            finally:
+                scheduler.shutdown(wait=True)
             from numpy import cos, sin
 
             expected_z = float((sin(0.25 * math.pi) * cos(0.25 * math.pi) + 2) ** 5)
