@@ -188,13 +188,8 @@ class Worker(Process):
         pack_id: str,
         updated: Mapping[str, Any],
     ) -> None:
-        sample.observables.update(updated)
-        if isinstance(sample.info, dict):
-            pack_ids = dict(sample.info.get("pack_ids") or {})
-            pack_ids[step_name] = pack_id
-            sample.info["pack_ids"] = pack_ids
-            sample.info["pack_id"] = pack_id
-            sample.info["observables"] = dict(sample.observables)
+        sample.merge_observables(updated)
+        sample.record_pack_id(step_name, pack_id)
 
     def _force_serial_layers(self) -> bool:
         """Rollback switch: run same-layer calculators one after another."""
@@ -230,9 +225,7 @@ class Worker(Process):
         if module is None:
             raise KeyError(f"unknown opera module '{step_name}'")
         updated = module.execute(sample.observables, sample.info)
-        sample.observables.update(updated)
-        if isinstance(sample.info, dict):
-            sample.info["observables"] = dict(sample.observables)
+        sample.merge_observables(updated)
 
     def _run_likelihood(self, sample: Sample) -> None:
         if self._likelihood is None:

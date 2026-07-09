@@ -73,17 +73,21 @@ def run_monitor(
 
 
 def dispatch_monitor(args: argparse.Namespace) -> int:
-    factory = TaskFactory.get_instance()
-    if factory.redis is not None and factory.get_monitor_snapshot():
-        return run_monitor(factory=factory)
+    # Prefer a fresh factory bound to CLI Redis settings (D9.4).
+    redis_config = {
+        "host": args.redis_host,
+        "port": args.redis_port,
+        "db": args.redis_db,
+    }
+    factory = TaskFactory(redis_config)
+    try:
+        factory.init_redis()
+        if factory.get_monitor_snapshot():
+            return run_monitor(factory=factory)
+    except Exception:
+        pass
 
-    redis = RedisQueue(
-        {
-            "host": args.redis_host,
-            "port": args.redis_port,
-            "db": args.redis_db,
-        }
-    )
+    redis = RedisQueue(redis_config)
     try:
         redis.connect()
     except Exception as exc:

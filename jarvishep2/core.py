@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import csv
-import glob
 import os
 import sys
 import threading
@@ -16,11 +15,13 @@ from typing import Any
 import numpy as np
 
 from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
-from jarvishep2.command_parser import CommandParser
+from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
+from jarvishep2.dashboard import SnapshotReader, format_monitor_view
+from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
-from jarvishep2.command_parser import prepare_calculator_modules
-from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
+from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
 from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
 from jarvishep2.runtime_config import (
     get_archiver_config,
@@ -28,8 +29,7 @@ from jarvishep2.runtime_config import (
     get_runtime_block,
     get_watchdog_config,
 )
-from jarvishep2.dashboard import SnapshotReader, format_monitor_view
-from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
+from jarvishep2.sample import Sample
 from jarvishep2.Sampling.runtime_checkpoint import (
     RESUME_PROMPT,
     build_payload,
@@ -39,10 +39,12 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     prepare_resume,
     save_checkpoint,
 )
-from jarvishep2.sample import Sample
 from jarvishep2.Sampling.sampler import SamplingVirtial
-from jarvishep2.database import SimpleHDF5Writer
-from jarvishep2.distributor import Distributor, STATELESS_METHODS
+from jarvishep2.testing.check_modules import (
+    build_check_module_samples,
+    verify_check_modules_golden,
+)
+from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.task_config import (
     check_modules_points_path,
     is_check_modules_task,
@@ -141,22 +143,23 @@ class Jarvis2Core:
         self.start_runtime_checkpoint()
 
     @staticmethod
-    def _load_check_module_rows(csv_path: str) -> list[dict[str, str]]:
+    def _load_check_module_rows(csv_path: str) -> tuple[list[dict[str, str]], list[str]]:
         with open(csv_path, "r", encoding="utf-8") as handle:
-            return list(csv.DictReader(handle))
+            reader = csv.DictReader(handle)
+            fieldnames = list(reader.fieldnames or [])
+            return list(reader), fieldnames
 
     def _build_check_module_samples(self) -> list[Sample]:
         if self.sampler is None:
             raise RuntimeError("sampler is not configured")
         csv_path = check_modules_points_path(self.config)
-        samples: list[Sample] = []
-        for row in self._load_check_module_rows(csv_path):
-            sample = self.sampler._build_sample(
-                np.array([float(row["x"]), float(row["y"])], dtype=np.float64)
-            )
-            sample.uuid = str(row["uuid"])
-            samples.append(sample)
-        return samples
+        rows, fieldnames = self._load_check_module_rows(csv_path)
+        return build_check_module_samples(
+            sampler=self.sampler,
+            config=self.config,
+            rows=rows,
+            csv_fieldnames=fieldnames,
+        )
 
     def run_distributed_scan(self, *, timeout: float = 3600.0) -> int:
         """Drive a stateless sampler through propose → Redis → Archiver."""
@@ -190,56 +193,9 @@ class Jarvis2Core:
         self.submit_samples(samples)
         self.wait_for_results(len(samples), timeout=timeout)
         if verify_golden is not None:
-            self._verify_check_modules_golden(verify_golden)
+            task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
+            verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
         return len(samples)
-
-    def _verify_check_modules_golden(self, golden: Mapping[str, Any]) -> None:
-        task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
-        db_path = os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
-        records = SimpleHDF5Writer(db_path).read_records()
-        expected_records = list(golden.get("records") or [])
-        expected_files = golden.get("sample_files")
-        if expected_records:
-            normalized = self._normalize_check_module_records(records)
-            expected_normalized = self._normalize_check_module_records(expected_records)
-            if normalized != expected_normalized:
-                raise RuntimeError("check-modules DATABASE parity mismatch")
-        if expected_files:
-            tree = self._sample_tree_file_sets(os.path.join(task_result_dir, "SAMPLE"))
-            for files in tree:
-                if list(files) != list(expected_files):
-                    raise RuntimeError("check-modules SAMPLE parity mismatch")
-
-    @staticmethod
-    def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
-        manifests: list[list[str]] = []
-        if not os.path.isdir(sample_root):
-            return manifests
-        for child in sorted(os.listdir(sample_root)):
-            child_path = os.path.join(sample_root, child)
-            if not os.path.isdir(child_path):
-                continue
-            files = sorted(
-                os.path.relpath(path, child_path)
-                for path in glob.glob(os.path.join(child_path, "**", "*"), recursive=True)
-                if os.path.isfile(path)
-            )
-            manifests.append(files)
-        return sorted(manifests)
-
-    @staticmethod
-    def _normalize_check_module_records(records: list[dict[str, Any]]) -> list[dict[str, float]]:
-        normalized: list[dict[str, float]] = []
-        for row in records:
-            normalized.append(
-                {
-                    "x": round(float(row["x"]), 12),
-                    "y": round(float(row["y"]), 12),
-                    "z": round(float(row["z"]), 12),
-                    "LogL": round(float(row["LogL"]), 12),
-                }
-            )
-        return sorted(normalized, key=lambda item: (item["x"], item["y"]))
 
     def run(
         self,
@@ -460,7 +416,11 @@ class Jarvis2Core:
             return None
 
         redis_config = dict(self.runtime.get("redis") or {})
-        self.factory = TaskFactory.get_instance(redis_config)
+        # Explicit instance ownership (D9.4) — not the deprecated singleton shell.
+        if self.factory is None:
+            self.factory = TaskFactory(redis_config)
+        elif redis_config and not self.factory.redis_config:
+            self.factory.redis_config.update(redis_config)
         if self.redis is not None:
             self.factory.redis = self.redis
         else:

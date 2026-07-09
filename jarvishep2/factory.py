@@ -18,7 +18,11 @@ from jarvishep2.worker import Worker
 
 
 class TaskFactory:
-    """Process-local singleton that spawns and monitors Workers.
+    """Worker lifecycle + monitor + watchdog for Jarvis-HEP V2.
+
+    Prefer constructing an instance and holding it on ``Jarvis2Core.factory``.
+    ``get_instance`` remains as a deprecated compatibility shell for older tests
+    and monitor attach.
 
     The Factory does **not** execute tasks, hold calculators, or own Sample
     objects. During a normal run it only manages Worker processes and serves
@@ -53,17 +57,21 @@ class TaskFactory:
 
     @classmethod
     def get_instance(cls, redis_config: dict[str, Any] | None = None) -> TaskFactory:
-        """Return the process-local TaskFactory singleton."""
+        """Deprecated process-local singleton shell.
+
+        Prefer ``TaskFactory(redis_config)`` held by the caller (e.g. Jarvis2Core).
+        """
         with cls._lock:
             if cls._instance is None:
                 cls._instance = cls(redis_config)
-            elif redis_config:
+            elif redis_config and not cls._instance.redis_config:
+                # Only fill empty config; never silently overwrite an active factory.
                 cls._instance.redis_config.update(redis_config)
             return cls._instance
 
     @classmethod
     def reset_instance(cls) -> None:
-        """Reset the singleton (test helper)."""
+        """Reset the deprecated singleton shell (tests / monitor attach)."""
         with cls._lock:
             cls._instance = None
 
@@ -139,9 +147,10 @@ class TaskFactory:
             "failed": failed,
             "configured_workers": len(self.workers),
             "peak_active_workers": max(self._peak_workers_alive, alive),
-            "mean_active_workers": float(alive),
-            "total_point_eval_sec": 0.0,
-            "completed_durations_sec": [],
+            # Instantaneous alive count is not a true mean; leave unset until tracked.
+            "mean_active_workers": None,
+            "total_point_eval_sec": None,
+            "completed_durations_sec": None,
             "retry_count": None,
             "run_started_at": self._run_started_at,
         }

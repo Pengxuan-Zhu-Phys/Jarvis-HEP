@@ -113,18 +113,26 @@ def build_run_summary(
     total_points_submitted = _coerce_int(metrics.get("submitted")) or 0
     total_points_finished = _coerce_int(metrics.get("ok")) or 0
     total_points_failed = _coerce_int(metrics.get("failed")) or 0
-    completed_durations_sec = [
-        float(item)
-        for item in (metrics.get("completed_durations_sec") or [])
-        if _coerce_float(item) is not None
-    ]
-    total_point_eval_sec = _coerce_float(metrics.get("total_point_eval_sec")) or 0.0
+    raw_durations = metrics.get("completed_durations_sec")
+    if raw_durations is None:
+        completed_durations_sec: list[float] = []
+    else:
+        completed_durations_sec = [
+            float(item)
+            for item in (raw_durations or [])
+            if _coerce_float(item) is not None
+        ]
+    total_point_eval_sec = _coerce_float(metrics.get("total_point_eval_sec"))
     external_tool_time_sec = max(0.0, float(external_tool_time_sec))
-    time_in_framework_sec = max(0.0, float(total_point_eval_sec - external_tool_time_sec))
-    framework_overhead_fraction = _safe_div(
-        time_in_framework_sec,
-        time_in_framework_sec + external_tool_time_sec,
-    )
+    if total_point_eval_sec is None:
+        time_in_framework_sec = None
+        framework_overhead_fraction = None
+    else:
+        time_in_framework_sec = max(0.0, float(total_point_eval_sec - external_tool_time_sec))
+        framework_overhead_fraction = _safe_div(
+            time_in_framework_sec,
+            time_in_framework_sec + external_tool_time_sec,
+        )
 
     retry_count = metrics.get("retry_count")
     if retry_count is not None:

@@ -407,14 +407,40 @@ class Sample:
             message = f"Sample failed -> {error}"
         return self.materialize(failure_message=message)
 
+    def merge_observables(self, updates: Mapping[str, Any]) -> None:
+        """Merge calculator/opera outputs into observables (single write entry)."""
+        if not isinstance(updates, Mapping):
+            raise TypeError("merge_observables requires a mapping")
+        self.observables.update(dict(updates))
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["observables"] = dict(self.observables)
+
+    def set_status(self, status: str) -> None:
+        """Update status on both the field and the info projection."""
+        self.status = str(status)
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["status"] = self.status
+
+    def record_pack_id(self, step_name: str, pack_id: str) -> None:
+        """Record a calculator pack_id for the given execution-plan step."""
+        if not isinstance(self.info, dict):
+            self.info = {}
+        pack_ids = dict(self.info.get("pack_ids") or {})
+        pack_ids[str(step_name)] = str(pack_id)
+        self.info["pack_ids"] = pack_ids
+        self.info["pack_id"] = str(pack_id)
+
     def start(self) -> None:
         logger = self._active_logger()
         if logger is not None:
             logger.info("Sample -> {} is ready for submittion".format(self.uuid))
-        self.status = "Running"
-        self.info["status"] = "Running"
-        if self._with_nuisance:
-            self.info["nuisance"]["status"] = "Running"
+        self.set_status("Running")
+        if self._with_nuisance and isinstance(self.info, dict):
+            self.info.setdefault("nuisance", {})
+            if isinstance(self.info["nuisance"], dict):
+                self.info["nuisance"]["status"] = "Running"
             if logger is not None:
                 logger.info(
                     "{}\nSample start {}-th nuisance attempt".format(
