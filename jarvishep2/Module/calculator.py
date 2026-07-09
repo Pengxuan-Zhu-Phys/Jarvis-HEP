@@ -199,39 +199,23 @@ class CalculatorModule:
         return None
 
     def _resolve_runtime_tokens(self, text: str, *, stage: str, field: str) -> str:
-        if self._command_parser is not None:
-            return self._command_parser.resolve_sample(
-                text,
-                sample_info=self.sample_info,
-                pack_id=self.PackID,
-                stage=stage,
-                field=field,
-            )
         if text is None:
             return ""
         raw = str(text)
-        if stage == "install" or ("@SampleID" not in raw and "@Sdir" not in raw and "@PackID" not in raw):
+        if self._command_parser is None:
+            if any(token in raw for token in ("@SampleID", "@Sdir", "@PackID")):
+                raise RuntimeError(
+                    f"CommandParser is required for sample token resolution "
+                    f"(stage '{stage}', field '{field}')"
+                )
             return raw
-        if not isinstance(self.sample_info, dict):
-            raise RuntimeError(
-                f"Runtime token requires sample_info during stage '{stage}' for field '{field}'"
-            )
-        resolved = raw
-        if "@PackID" in resolved:
-            if not self.PackID:
-                raise RuntimeError(f"@PackID requires pack_id during stage '{stage}' for field '{field}'")
-            resolved = resolved.replace("@PackID", str(self.PackID))
-        if "@SampleID" in resolved:
-            sample_uuid = self.sample_info.get("uuid")
-            if not sample_uuid:
-                raise RuntimeError(f"@SampleID requires uuid during stage '{stage}' for field '{field}'")
-            resolved = resolved.replace("@SampleID", str(sample_uuid))
-        if "@Sdir" in resolved:
-            save_dir = ensure_sample_materialized(self.sample_info)
-            if save_dir is None:
-                raise RuntimeError(f"@Sdir requires save_dir during stage '{stage}' for field '{field}'")
-            resolved = resolved.replace("@Sdir", str(save_dir))
-        return resolved
+        return self._command_parser.resolve_sample(
+            text,
+            sample_info=self.sample_info,
+            pack_id=self.PackID,
+            stage=stage,
+            field=field,
+        )
 
     def _next_command_index(self) -> int:
         self._command_counter += 1

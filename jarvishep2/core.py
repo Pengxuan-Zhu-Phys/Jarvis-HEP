@@ -421,26 +421,10 @@ class Jarvis2Core:
         self.command_parser = build_command_parser(self.config)
         return self.command_parser
 
-    @staticmethod
-    def _command_parser_payload(parser: CommandParser) -> dict[str, Any]:
-        return {
-            "project_root": parser.project_root,
-            "scan_name": parser.scan_name,
-            "libdeps_paths": dict(parser.libdeps_paths),
-            "registered": {
-                name: {
-                    "name": item.name,
-                    "path": item.path,
-                    "resolution": item.resolution,
-                }
-                for name, item in parser.registered.items()
-            },
-            "registered_symlink_root": parser.registered_symlink_root,
-        }
-
     def _apply_command_parser_to_worker_config(self, worker_config: dict[str, Any]) -> dict[str, Any]:
         if self.command_parser is None:
             self.init_command_parser()
+        assert self.command_parser is not None
         merged = dict(worker_config)
         calculator_modules = merged.get("calculator_modules")
         if calculator_modules:
@@ -448,7 +432,7 @@ class Jarvis2Core:
                 calculator_modules,
                 self.command_parser,
             )
-        merged["command_parser"] = self._command_parser_payload(self.command_parser)
+        merged["command_parser"] = self.command_parser.to_picklable()
         return merged
 
     def build_worker_config(self, **overrides: Any) -> dict[str, Any]:

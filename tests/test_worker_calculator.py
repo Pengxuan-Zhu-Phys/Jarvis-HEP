@@ -18,10 +18,16 @@ from fakeredis import TcpFakeServer
 
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.workflow import build_execution_plan
+
+
+def _attach_parser(module: CalculatorModule, project_root: str | None = None) -> CalculatorModule:
+    module.attach_command_parser(CommandParser(project_root=project_root or ".", scan_name="test"))
+    return module
 
 
 TESTS_ROOT = os.path.dirname(__file__)
@@ -106,6 +112,7 @@ def _worker_config(tmpdir: str) -> dict[str, Any]:
         "calculator_modules": [EGGBOX_CALC_MODULE],
         "likelihood_expressions": LIKELIHOOD_EXPRESSIONS,
         "pull_timeout": 1,
+        "command_parser": CommandParser(project_root=tmpdir, scan_name="test").to_picklable(),
     }
 
 
@@ -173,7 +180,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
 
     def test_preload_templates_parses_once_across_many_executes(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
+            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             self.assertEqual(module._template_parse_count, 1)
 
@@ -199,7 +206,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
 
     def test_instance_reuse_statelessness_across_samples(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
+            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             sample_config = {
                 "sample_dirs": tmpdir,
@@ -244,7 +251,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
                 }
             )
             sample.materialize()
-            module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
+            module = _attach_parser(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
             module.acquire_pack_id("pack-test")
             result = module.execute(sample.info)

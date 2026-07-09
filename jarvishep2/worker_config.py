@@ -109,20 +109,7 @@ def build_worker_config(
         "handoff_to_staging": handoff_to_staging_enabled(cfg),
         "cleanup_config": get_cleanup_config(cfg),
         "archiver_config": get_archiver_config(cfg),
-        "command_parser": {
-            "project_root": command_parser.project_root,
-            "scan_name": command_parser.scan_name,
-            "libdeps_paths": dict(command_parser.libdeps_paths),
-            "registered": {
-                name: {
-                    "name": item.name,
-                    "path": item.path,
-                    "resolution": item.resolution,
-                }
-                for name, item in command_parser.registered.items()
-            },
-            "registered_symlink_root": command_parser.registered_symlink_root,
-        },
+        "command_parser": command_parser.to_picklable(),
     }
     calc_block = cfg.get("Calculators") if isinstance(cfg.get("Calculators"), Mapping) else {}
     pools = None

@@ -138,25 +138,42 @@ class SampleTaskDictTests(unittest.TestCase):
                 self.assertIn("Sample failed -> boom", handle.read())
 
     def test_sdir_resolution_triggers_materialization(self):
+        from jarvishep2.command_parser import CommandParser
+
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = Sample.from_params({"x": 1.0})
             sample.set_config(
                 {
                     "sample_dirs": tmpdir,
                     "task_result_dir": tmpdir,
-                    "sample_artifacts": "auto",
-                    "workflow_has_calculator": False,
-                    "workflow_references_sdir": False,
+                    "sample_artifacts": "always",
+                    "workflow_has_calculator": True,
+                    "workflow_references_sdir": True,
                 }
             )
-            resolved = sample.resolve_token("echo @Sdir/out.txt", stage="runtime", field="cmd")
+            save_dir = sample.materialize()
+            parser = CommandParser(project_root=tmpdir, scan_name="t")
+            resolved = parser.resolve_sample(
+                "echo @Sdir/out.txt",
+                sample_info=sample.info,
+                stage="runtime",
+                field="cmd",
+            )
             self.assertTrue(resolved.endswith("/out.txt"))
-            self.assertTrue(os.path.isdir(sample.info["save_dir"]))
+            self.assertIn(str(save_dir), resolved)
+            self.assertTrue(os.path.isdir(str(save_dir)))
 
     def test_resolve_pack_and_sample_tokens(self):
+        from jarvishep2.command_parser import CommandParser
+
         sample = Sample(uuid="abc-123", u_coords=np.array([0.5]))
         sample.info = {"uuid": "abc-123", "pack_id": "pack-9"}
-        resolved = sample.resolve_token("@SampleID/@PackID/log.txt")
+        parser = CommandParser(project_root=".", scan_name="t")
+        resolved = parser.resolve_sample(
+            "@SampleID/@PackID/log.txt",
+            sample_info=sample.info,
+            pack_id="pack-9",
+        )
         self.assertEqual(resolved, "abc-123/pack-9/log.txt")
 
     def test_status_transitions(self):

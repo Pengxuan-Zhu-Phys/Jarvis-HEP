@@ -67,6 +67,23 @@ class CommandParser:
             str(registered_symlink_root or os.path.join(self.project_root, "deps", "registered"))
         )
 
+    def to_picklable(self) -> dict[str, Any]:
+        """Serialize for spawn Worker blueprints (pair with ``from_picklable``)."""
+        return {
+            "project_root": self.project_root,
+            "scan_name": self.scan_name,
+            "libdeps_paths": dict(self.libdeps_paths),
+            "registered": {
+                name: {
+                    "name": item.name,
+                    "path": item.path,
+                    "resolution": item.resolution,
+                }
+                for name, item in self.registered.items()
+            },
+            "registered_symlink_root": self.registered_symlink_root,
+        }
+
     @classmethod
     def from_picklable(cls, payload: Mapping[str, Any] | None) -> CommandParser | None:
         if not isinstance(payload, Mapping) or not payload:

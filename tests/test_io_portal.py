@@ -23,6 +23,7 @@ from jarvishep2.io_portal import (
     write_io_input_sync,
 )
 from jarvishep2.Module.calculator import CalculatorModule
+from jarvishep2.command_parser import CommandParser
 from jarvishep2.sample import Sample
 
 
@@ -248,6 +249,7 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
                 }
             )
             sample.materialize()
+            module.attach_command_parser(CommandParser(project_root=tmpdir, scan_name="t"))
             module.preload_templates()
             module.acquire_pack_id("pack-1")
             with self.assertRaises(UnsupportedIOTypeError):
@@ -311,6 +313,7 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
                 }
             )
             sample.materialize()
+            module.attach_command_parser(CommandParser(project_root=tmpdir, scan_name="t"))
             module.preload_templates()
             module.acquire_pack_id("pack-egg")
             result = module.execute(sample.info)

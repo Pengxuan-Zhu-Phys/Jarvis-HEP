@@ -407,46 +407,6 @@ class Sample:
             message = f"Sample failed -> {error}"
         return self.materialize(failure_message=message)
 
-    def resolve_token(
-        self,
-        text: str,
-        *,
-        stage: str = "runtime",
-        field: str = "",
-    ) -> str:
-        """Resolve @SampleID/@Sdir/@PackID tokens (V1-compatible semantics)."""
-        resolved = str(text)
-        if stage == "install" or (
-            "@SampleID" not in resolved and "@Sdir" not in resolved and "@PackID" not in resolved
-        ):
-            return resolved
-
-        if "@PackID" in resolved:
-            pack_id = self.info.get("pack_id")
-            if not pack_id:
-                raise ValueError(
-                    f"@PackID requires sample_info['pack_id'] during runtime stage '{stage}' "
-                    f"for field '{field}'"
-                )
-            resolved = resolved.replace("@PackID", str(pack_id))
-
-        if "@SampleID" in resolved:
-            sample_uuid = self.info.get("uuid", self.uuid)
-            if not sample_uuid:
-                raise ValueError(
-                    f"@SampleID requires sample_info['uuid'] during runtime stage '{stage}' "
-                    f"for field '{field}'"
-                )
-            resolved = resolved.replace("@SampleID", str(sample_uuid))
-
-        if "@Sdir" in resolved:
-            sample_save_dir = self.info.get("save_dir")
-            if not sample_save_dir:
-                sample_save_dir = self.materialize()
-            resolved = resolved.replace("@Sdir", str(sample_save_dir))
-
-        return resolved
-
     def start(self) -> None:
         logger = self._active_logger()
         if logger is not None:

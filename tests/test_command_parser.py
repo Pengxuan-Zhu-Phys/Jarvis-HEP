@@ -187,21 +187,24 @@ class CommandParserUnitTests(unittest.TestCase):
         )
         sample.materialize()
         module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
-        module.sample_info = dict(sample.info)
-        module.acquire_pack_id("pack-parity")
-        legacy = module._resolve_runtime_tokens(
-            "@Sdir/input.json @SampleID",
-            stage="execution",
-            field="path",
-        )
         module.attach_command_parser(self.parser)
         module.sample_info = dict(sample.info)
+        module.acquire_pack_id("pack-parity")
         modern = module._resolve_runtime_tokens(
             "@Sdir/input.json @SampleID",
             stage="execution",
             field="path",
         )
-        self.assertEqual(modern, legacy)
+        via_parser = self.parser.resolve_sample(
+            "@Sdir/input.json @SampleID",
+            sample_info=dict(sample.info),
+            pack_id="pack-parity",
+            stage="execution",
+            field="path",
+        )
+        self.assertEqual(modern, via_parser)
+        self.assertIn(str(sample.save_dir), modern)
+        self.assertIn(sample.uuid, modern)
 
     def test_phase1_config_pickles_under_spawn(self) -> None:
         resolved = prepare_calculator_modules([EGGBOX_CALC_MODULE], self.parser)
