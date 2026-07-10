@@ -17,6 +17,7 @@ CALC_FREE = "calc:free:{name}"
 CALC_BUSY_PACKS = "calc:busy:{name}"
 RESULTS = "hep:results:{uuid}"
 ARCHIVE_QUEUE = "hep:archive_queue"
+FEEDBACK_QUEUE = "hep:feedback"
 WORKER_STATUS = "hep:worker:status:{id}"
 CALC_STATUS = "hep:calculator:status"
 SAMPLE_STATS = "hep:sample:stats"
@@ -320,6 +321,42 @@ class RedisQueue:
         pipe.incr(OP_COUNT.format(kind="sample"))
         pipe.execute()
 
+    def publish_feedback(self, info: Mapping[str, Any]) -> None:
+        """Push a light result record for adaptive sampler barriers (D10.1)."""
+        self._require_client()
+        payload = {
+            "uuid": str(info.get("uuid", "")),
+            "status": str(info.get("status", "Completed")),
+            "observables": dict(info.get("observables") or {}),
+        }
+        if not payload["uuid"]:
+            raise TaskValidationError("feedback payload requires uuid")
+        encoded = encode_payload(payload, codec=self._codec)
+        self.r.rpush(FEEDBACK_QUEUE, encoded)
+
+    def pull_feedback(self, timeout: int = 1) -> dict[str, Any] | None:
+        """Blocking pop from hep:feedback."""
+        self._require_client()
+        raw = self.r.blpop(FEEDBACK_QUEUE, timeout=timeout)
+        if raw is None:
+            return None
+        _, payload = raw
+        decoded = decode_payload(payload, codec=self._codec)
+        if not isinstance(decoded, dict):
+            raise CodecError("feedback payload must decode to a dict")
+        return decoded
+
+    def drain_feedback_queue(self) -> int:
+        """Discard all queued feedback records (resume path)."""
+        self._require_client()
+        drained = 0
+        while int(self.r.llen(FEEDBACK_QUEUE)) > 0:
+            item = self.pull_feedback(timeout=1)
+            if item is None:
+                break
+            drained += 1
+        return drained
+
     def pull_result(self, timeout: int = 1) -> dict[str, Any] | None:
         self._require_client()
         raw = self.r.blpop(ARCHIVE_QUEUE, timeout=timeout)
@@ -361,15 +398,17 @@ class RedisQueue:
         return {kind: int(value or 0) for kind, value in zip(kinds, values)}
 
     def get_queue_lengths(self) -> dict[str, int]:
-        """Return task and archive queue lengths in one pipeline round-trip."""
+        """Return task, archive, and feedback queue lengths in one pipeline."""
         self._require_client()
         pipe = self.r.pipeline(transaction=False)
         pipe.llen(TASK_QUEUE)
         pipe.llen(ARCHIVE_QUEUE)
-        task_len, archive_len = pipe.execute()
+        pipe.llen(FEEDBACK_QUEUE)
+        task_len, archive_len, feedback_len = pipe.execute()
         return {
             "task_queue_length": int(task_len),
             "archive_queue_length": int(archive_len),
+            "feedback_queue_length": int(feedback_len),
         }
 
     def fetch_calculator_status(self) -> dict[str, int | float | str]:

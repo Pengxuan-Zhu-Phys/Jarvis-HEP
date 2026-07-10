@@ -157,6 +157,12 @@ def _factory_csv() -> SamplingVirtial:
     return CSVSampler()
 
 
+def _factory_adaptive_level_set() -> SamplingVirtial:
+    from jarvishep2.Sampling.adaptive_level_set import AdaptiveLevelSetSampler
+
+    return AdaptiveLevelSetSampler()
+
+
 def register_builtin_samplers(*, override: bool = True) -> None:
     """Install the built-in V2 sampler set."""
     Distributor.register(
@@ -170,6 +176,13 @@ def register_builtin_samplers(*, override: bool = True) -> None:
     )
     Distributor.register(
         "CSV", _factory_csv, stateless=True, resume="implemented", override=override
+    )
+    Distributor.register(
+        "AdaptiveLevelSet",
+        _factory_adaptive_level_set,
+        stateless=False,
+        resume="implemented",
+        override=override,
     )
 
 

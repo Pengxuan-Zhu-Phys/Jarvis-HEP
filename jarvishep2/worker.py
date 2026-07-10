@@ -272,7 +272,16 @@ class Worker(Process):
     def _stage_and_submit(self, sample: Sample) -> None:
         if self._redis is None:
             return
-        self._redis.submit_result(sample.to_info_dict())
+        info = sample.to_info_dict()
+        self._redis.submit_result(info)
+        if bool(self.worker_config.get("publish_feedback", False)):
+            self._redis.publish_feedback(
+                {
+                    "uuid": sample.uuid,
+                    "status": sample.status,
+                    "observables": dict(sample.observables),
+                }
+            )
 
     def process_task(self, task: Mapping[str, Any]) -> None:
         """Core pipeline: rebuild Sample, execute workflow, submit result."""

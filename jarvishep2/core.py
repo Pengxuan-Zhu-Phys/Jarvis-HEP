@@ -182,6 +182,40 @@ class Jarvis2Core:
             self.wait_for_results(expected_records, timeout=timeout)
         return requeued + pushed
 
+    def run_adaptive_scan(self, *, timeout: float = 3600.0) -> int:
+        """Drive a feedback sampler (AdaptiveLevelSet) through generation barriers."""
+        if self.sampler is None:
+            raise RuntimeError("sampler is not configured")
+        if self.redis is None:
+            raise RuntimeError("adaptive scan requires redis")
+        if hasattr(self.sampler, "set_redis"):
+            self.sampler.set_redis(self.redis)
+        # Stale feedback from a prior run must not poison barriers.
+        drained_fb = int(self.redis.drain_feedback_queue())
+        if drained_fb:
+            self._logger.info("drained %d stale feedback record(s)", drained_fb)
+        requeued = 0
+        if self._resume_policy == "resume" and hasattr(self.sampler, "repropose_unfinished"):
+            requeued = len(self.sampler.repropose_unfinished())
+        if hasattr(self.sampler, "run_adaptive"):
+            pushed = int(self.sampler.run_adaptive(timeout=timeout))
+        elif hasattr(self.sampler, "run_distributed"):
+            pushed = int(self.sampler.run_distributed())
+        else:
+            raise RuntimeError(
+                f"Sampler {type(self.sampler).__name__} does not implement run_adaptive"
+            )
+        # Archiver still drains the archive queue independently; wait for persisted rows.
+        expected = self._archiver_records_written()
+        # Best-effort: wait until archiver has caught up to total submitted.
+        # Adaptive samplers already barriered on feedback; a short drain is enough.
+        if self.archiver is not None:
+            try:
+                self.archiver.drain(idle_timeout=2.0)
+            except Exception:
+                pass
+        return requeued + pushed
+
     def run_check_modules(
         self,
         *,
@@ -209,14 +243,18 @@ class Jarvis2Core:
         self.prepare_resume(resume=resume, fresh=False)
         try:
             self.bootstrap_distributed_runtime()
+            method = sampling_method(self.config)
             if check_modules or is_check_modules_task(self.config):
                 count = self.run_check_modules(verify_golden=verify_golden)
-            elif sampling_method(self.config) in STATELESS_METHODS:
+            elif method in STATELESS_METHODS:
                 count = self.run_distributed_scan()
+            elif method:
+                # Stateful / feedback-driven methods (e.g. AdaptiveLevelSet).
+                count = self.run_adaptive_scan()
             else:
                 raise NotImplementedError(
                     "Unsupported task: configure Sampling.mode: check_modules, "
-                    "Sampling.Method: Bridson, or pass --check-modules."
+                    "Sampling.Method: Bridson|AdaptiveLevelSet, or pass --check-modules."
                 )
             return count
         finally:

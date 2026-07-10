@@ -92,6 +92,11 @@ def build_worker_config(
         "workflow_references_sdir",
         workflow_references_sdir(cfg) or _config_references_sdir(resolved_calculators),
     )
+    sampling_method = str((cfg.get("Sampling") or {}).get("Method", "")).strip()
+    publish_feedback = bool(extra_payload.pop("publish_feedback", False))
+    if sampling_method == "AdaptiveLevelSet":
+        publish_feedback = True
+
     worker_config: dict[str, Any] = {
         "sample_config": sample_config,
         "mapper": extra_payload.pop("mapper", _default_mapper(cfg)),
@@ -110,6 +115,7 @@ def build_worker_config(
         "cleanup_config": get_cleanup_config(cfg),
         "archiver_config": get_archiver_config(cfg),
         "command_parser": command_parser.to_picklable(),
+        "publish_feedback": publish_feedback,
     }
     calc_block = cfg.get("Calculators") if isinstance(cfg.get("Calculators"), Mapping) else {}
     pools = None
