@@ -18,6 +18,7 @@ from jarvishep2.Sampling.sampling_utils import (
     row_to_u_coords,
 )
 from jarvishep2.logging import get_jarvis_logger
+from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 
@@ -120,15 +121,15 @@ class Bridson(FixedSetSampler):
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
+        # FixedSetSampler already set _batch_size from get_runtime_block (default 256).
+        # Do not re-read raw Runtime here — missing batch_size would wrongly fall back
+        # to MaxWorker/workers and change Redis pipeline sizing vs Random/Grid.
         sampling = dict(self.config.get("Sampling") or {})
-        workers = int((self.config.get("Runtime") or {}).get("workers", 1) or 1)
-        # Prefer MaxWorker when present (historical Bridson knob).
+        runtime = get_runtime_block(self.config)
+        workers = int(runtime.get("workers", 1) or 1)
         self._radius = float(sampling["Radius"])
         self._k = int(sampling["MaxAttempt"])
         self._max_inflight = max(1, int(sampling.get("MaxWorker", workers) or workers))
-        self._batch_size = max(
-            1, int((self.config.get("Runtime") or {}).get("batch_size", self._max_inflight) or self._max_inflight)
-        )
 
     def initialize(self) -> None:
         ndim = len(self.vars)

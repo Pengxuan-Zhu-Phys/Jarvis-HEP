@@ -193,15 +193,28 @@ class CalculatorModule:
         )
 
     def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
+        """Write calculator inputs via Portal; return observables for the Sample.
+
+        Merge policy (HEP-owned):
+        1. Start with the sample input params/observables (authoritative for their names).
+        2. Overlay Portal write observables only for **new** keys (expression dumps,
+           save paths, etc.). Never clobber an existing param name with a Dump value
+           (e.g. Dump ``x = x * Pi`` must not replace physical ``x``).
+        """
         merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
         if not self.input_specs:
             return merged
+        protected = set(merged)
         context = self._io_context(input_data)
         for spec in self.input_specs:
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
             portal_obs = write_io_input_sync(spec, input_data, context=context, path=path)
-            if isinstance(portal_obs, dict):
-                merged.update(portal_obs)
+            if not isinstance(portal_obs, dict):
+                continue
+            for key, value in portal_obs.items():
+                if key in protected:
+                    continue
+                merged[key] = value
         return merged
 
     def read_output(self) -> dict[str, Any]:

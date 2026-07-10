@@ -228,6 +228,39 @@ class GridSamplerUnitTests(unittest.TestCase):
 
 
 class BridsonSamplerUnitTests(unittest.TestCase):
+    def test_batch_size_uses_normalized_runtime_default(self) -> None:
+        """Missing Runtime.batch_size must keep FixedSetSampler/runtime default (256), not MaxWorker."""
+        sampler = Bridson()
+        sampler.set_config(
+            {
+                "Runtime": {"mode": "redis", "workers": 2},
+                "Sampling": {
+                    "Method": "Bridson",
+                    "Radius": 0.35,
+                    "MaxAttempt": 30,
+                    "MaxWorker": 2,
+                    "Seed": 1,
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        self.assertEqual(sampler._batch_size, 256)
+        self.assertEqual(sampler._max_inflight, 2)
 
     def test_checkpoint_roundtrip_restores_grid_cursor(self) -> None:
         sampler = Bridson()

@@ -229,6 +229,59 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_io_registry_for_tests()
 
+    def test_load_input_does_not_clobber_params_with_dump_observables(self) -> None:
+        """Dump expression observables must not overwrite physical params of the same name."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = CalculatorModule(
+                "ClobberGuard",
+                {
+                    "name": "ClobberGuard",
+                    "execution": {
+                        "commands": [],
+                        "input": [
+                            {
+                                "name": "inp",
+                                "path": "@Sdir/input.json",
+                                "type": "JSON",
+                                "actions": [
+                                    {
+                                        "type": "Dump",
+                                        "variables": [
+                                            {"name": "x", "expression": "x * Pi"},
+                                            {"name": "xx", "expression": "x * Pi"},
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                        "output": [],
+                    },
+                },
+            )
+            sample = Sample.from_params({"x": 0.5, "y": 0.1, "uuid": "clobber"})
+            sample.set_config(
+                {
+                    "sample_dirs": tmpdir,
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "always",
+                    "workflow_has_calculator": True,
+                    "workflow_references_sdir": True,
+                }
+            )
+            sample.materialize()
+            scheduler = _attach_calc_runtime(module, tmpdir)
+            try:
+                module.preload_templates()
+                module.acquire_pack_id("pack-clobber")
+                result = module.execute(sample.info)
+            finally:
+                scheduler.shutdown(wait=True)
+
+            self.assertAlmostEqual(float(result["x"]), 0.5, places=12)
+            self.assertAlmostEqual(float(result["xx"]), 0.5 * math.pi, places=12)
+            payload = json.loads(open(os.path.join(sample.save_dir, "input.json"), encoding="utf-8").read())
+            self.assertAlmostEqual(float(payload["x"]), 0.5 * math.pi, places=12)
+
     def test_calculator_rejects_unknown_io_type(self) -> None:
         module = CalculatorModule(
             "BadIO",
