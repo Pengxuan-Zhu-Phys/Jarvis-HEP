@@ -1,13 +1,16 @@
 # Jarvis-HEP V2 — Installation
 
 Quick install guide for the V2 distributed runtime (`jarvishep2`, CLI `Jarvis2`).
-For the architecture see `~/Jarvis-Workshop/Jarvis-Books/Docs/DESIGN_2.0_DISTRIBUTED.md`;
-for the task-YAML schema see `Jarvis-Books/Docs/YAML_REFERENCE_2.0.md`.
+For the architecture see
+`~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/DESIGN_2.0_DISTRIBUTED.md`;
+for the task-YAML schema see
+`~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/YAML_REFERENCE_2.0.md`.
 
 ## Requirements
 
 - **Python ≥ 3.10** (Workers use the `spawn` multiprocessing context; macOS and Linux supported)
-- **Redis server** for distributed runs (`Runtime.mode: redis`). Tests do *not* need one — the
+- **Redis server** for distributed runs. V2 connects internally to the local
+  `127.0.0.1:6379` service; it is not configured in task YAML. Tests do *not* need one — the
   suite runs on `fakeredis`.
 
 ## Install
@@ -56,14 +59,13 @@ docker run -d --name jarvis-redis -p 6379:6379 redis:7
 redis-cli ping        # → PONG
 ```
 
-> **Always set `Runtime.redis` explicitly in the task YAML.** If the block is omitted, the
-> control process silently falls back to an in-process fakeredis while spawned Workers connect
-> to `localhost:6379` — the run will hang (see `YAML_REFERENCE_2.0.md`, Appendix A.1).
+> Redis connection details are intentionally internal to V2. Ensure the local service above is
+> running before launching a scan; V2 fails early with a focused connection error if it is not.
 
 ## Verify
 
 ```bash
-python3 -m pytest -q          # full suite, no Redis server needed (~4 min, 207 tests)
+python3 -m pytest -q          # full suite; fakeredis opens a local test socket
 python3 -m pytest -q tests/test_d0_integration.py tests/test_worker_mvp.py   # quick subset
 ```
 
@@ -75,13 +77,10 @@ Save as `quickstart.yaml` (any directory; outputs land in `<project-root>/output
 project_name: quickstart
 Scan:
   name: quickstart
-Runtime:
-  mode: redis
-  workers: 2
-  redis:
-    host: 127.0.0.1
-    port: 6379
-    db: 0
+EnvReqs:
+  V2:
+    workers: 2
+    batch_size: 256
 Sampling:
   Method: Random
   "Point number": 20
@@ -112,7 +111,13 @@ Run and inspect:
 Jarvis2 quickstart.yaml               # run the scan
 Jarvis2 --monitor                     # one read-only status snapshot (separate terminal)
 Jarvis2 quickstart.yaml --resume      # resume from checkpoint without the 30 s prompt
+Jarvis2 path/to/plot.yaml --plot      # render an existing JarvisPLOT scene (plot extra)
 ```
+
+`--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML. Scan-to-plot generation
+and post-run plotting are planned follow-ups. Portal and Operas discovery currently use their
+package CLIs (`jportal`, `jopera`) until native `Jarvis2 portal …` / `Jarvis2 operas …`
+subcommands land.
 
 Outputs under `outputs/quickstart/`:
 

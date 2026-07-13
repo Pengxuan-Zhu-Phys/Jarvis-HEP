@@ -8,15 +8,20 @@ caching, context construction, and HEP-facing error messages.
 from __future__ import annotations
 
 import asyncio
-import math
 from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-import sympy as sp
+
+from jarvishep2.expression import (
+    ExpressionContext,
+    MissingExpressionVariablesError,
+)
 
 _REGISTRY = None
 _PORTAL_IMPORT_ERROR: Exception | None = None
+_IO_EXPRESSIONS: ExpressionContext | None = None
+_IO_OPERAS_LOADED = False
 
 
 class UnsupportedIOTypeError(ValueError):
@@ -62,27 +67,47 @@ def available_io_formats(direction: str | None = None) -> list[str]:
     return get_io_registry().available_formats(direction)
 
 
-def evaluate_io_expression(expression: str, values: Mapping[str, Any]) -> Any:
-    """Evaluate a Dump expression with HEP-owned sympy semantics (``Pi`` / ``pi``)."""
+def evaluate_io_expression(
+    expression: str,
+    values: Mapping[str, Any],
+    *,
+    context: ExpressionContext | None = None,
+) -> Any:
+    """Evaluate a cached Dump expression with the shared HEP expression semantics."""
     text = str(expression).strip()
     if not text:
         raise ValueError("IO expression must not be empty.")
-    expr = sp.sympify(text, locals={"Pi": sp.pi, "pi": sp.pi})
-    substitutions: dict[Any, float] = {}
+    global _IO_EXPRESSIONS, _IO_OPERAS_LOADED
+    if context is None:
+        if _IO_EXPRESSIONS is None:
+            _IO_EXPRESSIONS = ExpressionContext()
+        if not _IO_OPERAS_LOADED:
+            from jarvishep2.operas_functions import (
+                build_operas_expression_context,
+                expression_uses_operas_function,
+            )
+
+            if expression_uses_operas_function(text):
+                _IO_EXPRESSIONS = build_operas_expression_context(required=True)
+                _IO_OPERAS_LOADED = True
+        context = _IO_EXPRESSIONS
+    compiled = context.compile(text)
+    numeric_values: dict[str, float] = {}
     missing: list[str] = []
-    for symbol in expr.free_symbols:
-        name = str(symbol)
-        if name in {"Pi", "pi"}:
-            substitutions[symbol] = math.pi
-            continue
+    for name in compiled.variable_names:
         numeric = _coerce_numeric_param(values.get(name))
         if numeric is None:
             missing.append(name)
             continue
-        substitutions[symbol] = numeric
+        numeric_values[name] = numeric
     if missing:
         raise ValueError(f"Dump expression '{text}' misses parameters: {sorted(missing)}")
-    return float(expr.evalf(subs=substitutions))
+    try:
+        return float(compiled.evaluate(numeric_values))
+    except MissingExpressionVariablesError as exc:
+        raise ValueError(
+            f"Dump expression '{text}' misses parameters: {list(exc.missing)}"
+        ) from exc
 
 
 def _coerce_numeric_param(value: Any) -> float | None:

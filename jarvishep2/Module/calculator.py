@@ -11,8 +11,10 @@ from uuid import uuid4
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.command_parser import CommandParser
+from jarvishep2.expression import ExpressionContext
 from jarvishep2.io_portal import (
     build_io_context,
+    evaluate_io_expression,
     read_io_output_sync,
     write_io_input_sync,
 )
@@ -47,6 +49,7 @@ class CalculatorModule:
         self._command_counter = 0
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
+        self._expression_context: ExpressionContext | None = None
         self._preparer = RuntimePreparer(self.spec)
 
     @staticmethod
@@ -70,6 +73,16 @@ class CalculatorModule:
 
     def attach_command_parser(self, parser: CommandParser | None) -> None:
         self._command_parser = parser
+
+    def attach_expression_context(self, context: ExpressionContext | None) -> None:
+        self._expression_context = context
+
+    def _evaluate_io_expression(self, expression: str, values: Mapping[str, Any]) -> Any:
+        return evaluate_io_expression(
+            expression,
+            values,
+            context=self._expression_context,
+        )
 
     def bind_env(self, env: Mapping[str, str]) -> None:
         self._subprocess_env = {str(key): str(value) for key, value in env.items()}
@@ -190,6 +203,7 @@ class CalculatorModule:
             module=self.name,
             runtime_values=input_data or {},
             logger=self._logger(),
+            evaluate_expression=self._evaluate_io_expression,
         )
 
     def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:

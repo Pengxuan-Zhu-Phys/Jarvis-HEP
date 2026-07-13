@@ -12,15 +12,15 @@
     },
     "high_worker_stability": {
       "cpu_count": 14,
-      "elapsed_sec": 2.6424674169393256,
+      "elapsed_sec": 2.3799947499937844,
       "sample_count": 8,
-      "samples_per_sec": 3.027473469953363,
+      "samples_per_sec": 3.3613519525708586,
       "workers": 4
     },
     "monitor": {
       "min_required_hz": 60,
-      "snapshot_hz": 142287,
-      "workload_elapsed_sec": 1.0291447089985013
+      "snapshot_hz": 144470,
+      "workload_elapsed_sec": 1.0424917090276722
     },
     "parity": {
       "csv_rows": 10,
@@ -29,26 +29,26 @@
     },
     "worker_scaling": {
       "min_required_ratio": 1.25,
-      "speedup_ratio": 1.396919670911835,
+      "speedup_ratio": 1.3185248356246433,
       "workers_1": {
-        "elapsed_sec": 2.902123083011247,
+        "elapsed_sec": 3.0069291249965318,
         "sample_count": 4,
-        "samples_per_sec": 1.3783012937720043,
+        "samples_per_sec": 1.3302608188360987,
         "workers": 1
       },
       "workers_2": {
-        "elapsed_sec": 2.077516083023511,
+        "elapsed_sec": 2.2805252079851925,
         "sample_count": 4,
-        "samples_per_sec": 1.9253761897133446,
+        "samples_per_sec": 1.7539819274937705,
         "workers": 2
       }
     }
   },
   "machine": {
     "cpu_count": 14,
-    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
     "python": "3.13.13"
   },
   "milestone": "D7.1",
-  "recorded_at_utc": "2026-06-29T08:16:02.138022+00:00"
+  "recorded_at_utc": "2026-07-13T15:28:45.372090+00:00"
 }

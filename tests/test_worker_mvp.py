@@ -163,6 +163,51 @@ class WorkerMVPTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_spawn_worker_discovers_qualified_operas_likelihood_function(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                worker_config = _worker_config(tmpdir)
+                worker_config.update(
+                    {
+                        "mapper": {"type": "identity", "keys": ["x"]},
+                        "opera_modules": [],
+                        "likelihood_expressions": [
+                            {"name": "qualified_sum", "expression": "math.add(x, 2)"},
+                            {"name": "LogL", "expression": "math.add(qualified_sum, 1)"},
+                        ],
+                    }
+                )
+                factory.start_workers(1, **worker_config)
+                assert factory.redis is not None
+                sample = Sample(
+                    uuid="dynamic-operas-expression",
+                    u_coords=np.array([3.0], dtype=np.float64),
+                    execution_plan=[
+                        ExecutionStep(type="likelihood", name="LogLikelihood", layer=0)
+                    ],
+                )
+                factory.redis.push_task(sample.to_task_dict())
+
+                deadline = time.monotonic() + 20.0
+                result = None
+                while time.monotonic() < deadline:
+                    result = factory.redis.pull_result(timeout=1)
+                    if result is not None:
+                        break
+                factory.shutdown()
+
+                self.assertIsNotNone(result)
+                assert result is not None
+                self.assertEqual(result["status"], "Completed")
+                self.assertEqual(result["observables"]["qualified_sum"], 5.0)
+                self.assertEqual(result["observables"]["LogL"], 6.0)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_task_factory_starts_worker_and_monitor_snapshot(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
         try:

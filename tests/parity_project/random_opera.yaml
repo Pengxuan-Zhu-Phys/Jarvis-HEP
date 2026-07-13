@@ -1,13 +1,10 @@
 project_name: parity-random
 Scan:
   name: random-opera
-Runtime:
-  mode: redis
-  workers: 2
-  batch_size: 2
-  sample_artifacts: auto
-  Watchdog:
-    enabled: false
+EnvReqs:
+  V2:
+    workers: 2
+    batch_size: 2
 Sampling:
   Method: Random
   Point number: 6

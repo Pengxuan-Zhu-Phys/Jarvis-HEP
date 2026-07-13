@@ -2,10 +2,9 @@
 project_name: parity-check-modules
 Scan:
   name: check-modules
-Runtime:
-  mode: redis
-  workers: 1
-  sample_artifacts: always
+EnvReqs:
+  V2:
+    workers: 1
 Mapper:
   type: identity
   keys: [x, y]

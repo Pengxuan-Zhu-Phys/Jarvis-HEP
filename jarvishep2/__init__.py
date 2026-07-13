@@ -1,5 +1,10 @@
 """Jarvis-HEP V2 — distributed runtime package (independent from jarvishep V1)."""
 
+from jarvishep2.expression import (
+    CompiledExpression,
+    ExpressionContext,
+    MissingExpressionVariablesError,
+)
 from jarvishep2.logging import (
     BufferedSampleLogger,
     SampleLogger,
@@ -26,8 +31,11 @@ from jarvishep2.worker import Worker
 
 __all__ = [
     "BufferedSampleLogger",
+    "CompiledExpression",
     "ExecutionStep",
+    "ExpressionContext",
     "Jarvis2Core",
+    "MissingExpressionVariablesError",
     "RedisQueue",
     "Sample",
     "SampleLogger",

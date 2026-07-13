@@ -151,7 +151,11 @@ class CSVSampler(CheckpointedSampler):
                 for key, col_idx in selected_idx:
                     raw_value = row[col_idx] if col_idx < len(row) else ""
                     params[key] = self._coerce_cell(raw_value)
-                if self._selectionexp and not evaluate_selection(self._selectionexp, params):
+                if self._selectionexp and not evaluate_selection(
+                    self._selectionexp,
+                    params,
+                    context=self._expression_context,
+                ):
                     continue
                 source_uuid = None
                 if uuid_idx is not None and uuid_idx < len(row):

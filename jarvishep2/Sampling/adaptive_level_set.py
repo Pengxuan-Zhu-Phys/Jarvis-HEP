@@ -18,15 +18,13 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 import numpy as np
-import sympy as sp
-from sympy.utilities.lambdify import lambdify
 
 from jarvishep2.Sampling.bridson import Bridson_sampling, hypersphere_surface_sample
 from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
 from jarvishep2.Sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.Sampling.variables import load_variables
-from jarvishep2.inner_func import NUMERIC_MODULES
+from jarvishep2.expression import CompiledExpression
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
@@ -167,7 +165,7 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         self._seed_seq: np.random.SeedSequence | None = None
         self._converged = False
         self._levelset: dict[str, Any] | None = None
-        self._target_fn = None
+        self._target_fn: CompiledExpression | None = None
         self._failed_regions: list[dict[str, Any]] = []
         self._uuid_to_index: dict[str, int] = {}
         self._stop_reason = ""
@@ -234,9 +232,9 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             )
 
     def _compile_target(self) -> None:
-        parse_locals = {
-            name: sp.Symbol(name)
-            for name in (
+        self._target_fn = self._expression_context.compile(
+            self._target_expression,
+            symbols=(
                 "x",
                 "y",
                 "z",
@@ -245,12 +243,8 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
                 "LogL",
                 "LogL_Z",
                 *[str(v.name) for v in self.vars],
-            )
-        }
-        expr = sp.sympify(self._target_expression, locals=parse_locals)
-        var_names = [str(sym) for sym in expr.free_symbols]
-        num_expr = lambdify(var_names, expr, modules=[dict(NUMERIC_MODULES), "numpy"])
-        self._target_fn = (var_names, num_expr)
+            ),
+        )
 
     def _make_graph(self) -> NeighborGraph:
         mode = self._neighbor_graph_mode
@@ -266,13 +260,8 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         if self._target_fn is None:
             self._compile_target()
         assert self._target_fn is not None
-        var_names, num_expr = self._target_fn
         try:
-            kwargs = {name: observables[name] for name in var_names if name in observables}
-            missing = [name for name in var_names if name not in kwargs]
-            if missing:
-                return None
-            value = num_expr(**kwargs)
+            value = self._target_fn.evaluate(observables)
             if isinstance(value, np.generic):
                 value = value.item()
             return float(value)
@@ -321,7 +310,11 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         accepted: list[np.ndarray] = []
         for u in us:
             physical = map_u_to_physical(u, self.vars)
-            if self._selectionexp and not evaluate_selection(self._selectionexp, physical):
+            if self._selectionexp and not evaluate_selection(
+                self._selectionexp,
+                physical,
+                context=self._expression_context,
+            ):
                 continue
             accepted.append(u)
         return accepted
@@ -377,7 +370,11 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
                     break
                 cand = clip_unit_cube(sample_ball(mid, ball_r, rng, self._dim))
                 physical = map_u_to_physical(cand, self.vars)
-                if self._selectionexp and not evaluate_selection(self._selectionexp, physical):
+                if self._selectionexp and not evaluate_selection(
+                    self._selectionexp,
+                    physical,
+                    context=self._expression_context,
+                ):
                     continue
                 # spacing reject
                 if tree is not None:

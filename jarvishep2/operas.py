@@ -11,14 +11,17 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import time
 import queue
 import threading
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import numpy as np
-import sympy as sp
-from sympy.utilities.lambdify import lambdify
+from jarvishep2.expression import (
+    CompiledExpression,
+    ExpressionContext,
+    MissingExpressionVariablesError,
+)
 
 
 def _resolve_dotted_callable(path: str) -> Callable[..., Any]:
@@ -35,10 +38,10 @@ def _resolve_dotted_callable(path: str) -> Callable[..., Any]:
 def _try_jarvis_operas_registry(operator: str) -> Any | None:
     """Return the global Operas registry if *operator* resolves; else None."""
     try:
-        from jarvis_operas import get_global_operas_registry
+        from jarvishep2.operas_functions import ensure_operas_registry_discovered
     except ImportError:
         return None
-    registry = get_global_operas_registry()
+    registry = ensure_operas_registry_discovered()
     try:
         registry.resolve_name(operator)
     except Exception:
@@ -46,20 +49,29 @@ def _try_jarvis_operas_registry(operator: str) -> Any | None:
     return registry
 
 
-def _wrap_operas_registry_operator(registry: Any, operator: str, *, call_mode: str) -> Callable[..., Any]:
-    """Build a kwargs-callable that delegates to Jarvis-Operas call/acall."""
-    mode = str(call_mode).strip().lower()
-    if mode == "acall":
+def _snapshot_operas_registry_operator(
+    registry: Any,
+    operator: str,
+    *,
+    call_mode: str,
+) -> Callable[..., Any]:
+    """Resolve the NumPy implementation once, for direct Worker-side reuse."""
+    declaration = registry.get(operator)
+    func = getattr(declaration, "numpy_impl", None)
+    if not callable(func):
+        raise TypeError(
+            f"Jarvis-Operas operator {operator!r} has no callable NumPy implementation"
+        )
+    if str(call_mode).strip().lower() != "acall":
+        return func
 
-        async def _acall(**kwargs: Any) -> Any:
-            return await registry.acall(operator, **kwargs)
+    async def _acall(**kwargs: Any) -> Any:
+        result = func(**kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
-        return _acall
-
-    def _call(**kwargs: Any) -> Any:
-        return registry.call(operator, **kwargs)
-
-    return _call
+    return _acall
 
 
 def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[..., Any]:
@@ -84,7 +96,7 @@ def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[...,
 
     registry = _try_jarvis_operas_registry(name)
     if registry is not None:
-        return _wrap_operas_registry_operator(registry, name, call_mode=call_mode)
+        return _snapshot_operas_registry_operator(registry, name, call_mode=call_mode)
 
     try:
         import jarvis_operas  # noqa: F401
@@ -114,7 +126,13 @@ def _resolve_entry(data: Mapping[str, Any], entry: str) -> Any:
 class OperasModule:
     """Lightweight Operas executor with Worker-side preload."""
 
-    def __init__(self, name: str, config: Mapping[str, Any]) -> None:
+    def __init__(
+        self,
+        name: str,
+        config: Mapping[str, Any],
+        *,
+        expression_context: ExpressionContext | None = None,
+    ) -> None:
         self.name = str(name)
         self.config = dict(config)
         self.operator = str(config["operator"])
@@ -126,7 +144,20 @@ class OperasModule:
             config.get("timeout_sec", config.get("timeout"))
         )
         self._func: Callable[..., Any] | None = None
-        self._parse_locals, self._numeric_modules = self._build_expression_context()
+        if expression_context is None:
+            from jarvishep2.operas_functions import (
+                build_operas_expression_context,
+                expression_uses_operas_function,
+            )
+
+            expression_context = (
+                build_operas_expression_context(required=True)
+                if expression_uses_operas_function(self.input)
+                else ExpressionContext()
+            )
+        self._expression_context = expression_context
+        self._compiled_input_expressions: dict[int, CompiledExpression] = {}
+        self._input_expressions_compiled = False
 
     @staticmethod
     def _normalize_timeout(value: Any) -> float | None:
@@ -135,32 +166,72 @@ class OperasModule:
         timeout = float(value)
         return timeout if timeout > 0 else None
 
-    @staticmethod
-    def _build_expression_context() -> tuple[dict[str, Any], dict[str, Any]]:
-        parse_locals = {
-            name: sp.Symbol(name)
-            for name in (
-                "x",
-                "y",
-                "z",
-                "shift",
-                "LogL",
-            )
-        }
-        numeric_modules = {"sin": np.sin, "cos": np.cos, "exp": np.exp, "log": np.log}
-        return parse_locals, numeric_modules
-
     def preload(self) -> None:
-        """Resolve and cache the operator once per Worker (Operas registry or importlib)."""
-        if self._func is not None:
-            return
-        self._func = resolve_operator(self.operator, call_mode=self.call_mode)
+        """Compile input expressions and resolve the operator once per Worker."""
+        self._compile_input_expressions()
+        if self._func is None:
+            self._func = resolve_operator(self.operator, call_mode=self.call_mode)
 
-    def _build_input_observables(self, observables: Mapping[str, Any]) -> dict[str, Any]:
+    def _compile_input_expressions(self) -> None:
+        if self._input_expressions_compiled:
+            return
+        compiled: dict[int, CompiledExpression] = {}
+        for index, item in enumerate(self.input):
+            if not isinstance(item, Mapping):
+                continue
+            expression = item.get("expression")
+            if not isinstance(expression, str):
+                continue
+            compiled[index] = self._expression_context.compile(
+                expression,
+                symbols=("x", "y", "z", "shift", "LogL"),
+            )
+        self._compiled_input_expressions = compiled
+        self._input_expressions_compiled = True
+
+    @staticmethod
+    def _normalize_log_value(value: Any) -> Any:
+        """Convert NumPy containers/scalars into readable sample-log values."""
+        try:
+            import numpy as np
+        except ImportError:  # pragma: no cover - NumPy is a runtime dependency
+            np = None
+        if np is not None and isinstance(value, np.generic):
+            return value.item()
+        if np is not None and isinstance(value, np.ndarray):
+            return [OperasModule._normalize_log_value(item) for item in value.tolist()]
+        if isinstance(value, Mapping):
+            return {str(key): OperasModule._normalize_log_value(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [OperasModule._normalize_log_value(item) for item in value]
+        return value
+
+    @classmethod
+    def _format_inline_pairs(cls, values: Mapping[str, Any]) -> str:
+        return "[" + ", ".join(
+            f"{key} : {cls._normalize_log_value(value)}" for key, value in values.items()
+        ) + "]"
+
+    def _sample_logger(self, sample_info: Mapping[str, Any]) -> Any | None:
+        logger = sample_info.get("logger") if isinstance(sample_info, Mapping) else None
+        if logger is None:
+            return None
+        bind = getattr(logger, "bind", None)
+        if callable(bind):
+            logger_name = str(sample_info.get("logger_name") or "Sample")
+            return bind(module=f"{logger_name} (Operas:{self.name})")
+        return logger
+
+    def _build_input_observables(
+        self,
+        observables: Mapping[str, Any],
+        *,
+        logger: Any | None = None,
+    ) -> dict[str, Any]:
         payload = dict(observables)
         if not self.input:
             return payload
-        for item in self.input:
+        for index, item in enumerate(self.input):
             if isinstance(item, str):
                 payload[item] = observables.get(item)
                 continue
@@ -168,16 +239,34 @@ class OperasModule:
                 continue
             target_name = str(item["name"])
             if "expression" in item and isinstance(item["expression"], str):
-                expr = sp.sympify(item["expression"], locals=self._parse_locals)
-                free_symbols = [str(sym) for sym in expr.free_symbols]
-                num_expr = lambdify(free_symbols, expr, modules=[self._numeric_modules, "numpy"])
-                symbol_values = {name: payload[name] for name in free_symbols if name in payload}
-                missing = [name for name in free_symbols if name not in symbol_values]
-                if missing:
-                    raise KeyError(
-                        f"Operas input expression for '{target_name}' misses observables: {missing}"
+                compiled = self._compiled_input_expressions.get(index)
+                if compiled is None:
+                    raise RuntimeError(
+                        f"Operas input expression for '{target_name}' was not precompiled"
                     )
-                payload[target_name] = num_expr(**symbol_values)
+                try:
+                    payload[target_name] = compiled.evaluate(payload)
+                except MissingExpressionVariablesError as exc:
+                    raise KeyError(
+                        f"Operas input expression for '{target_name}' misses observables: "
+                        f"{list(exc.missing)}"
+                    ) from exc
+                if logger is not None:
+                    expression_inputs = {
+                        name: payload[name]
+                        for name in compiled.variable_names
+                        if name in payload
+                    }
+                    logger.info(
+                        "Evaluating   {}:\n"
+                        "   expression \t-> {}\n"
+                        "   with input \t-> {}\n"
+                        "   Output \t\t-> {}",
+                        target_name,
+                        item["expression"],
+                        self._format_inline_pairs(expression_inputs),
+                        self._normalize_log_value(payload[target_name]),
+                    )
             else:
                 src_key = str(item.get("entry", target_name))
                 payload[target_name] = _resolve_entry(payload, src_key)
@@ -222,50 +311,116 @@ class OperasModule:
             return value
         raise value
 
-    def execute(self, observables: Mapping[str, Any], sample_info: Mapping[str, Any]) -> dict[str, Any]:
-        """Evaluate the operator and return mapped output observables."""
+    def execute(
+        self,
+        observables: Mapping[str, Any],
+        sample_info: Mapping[str, Any],
+        *,
+        sample_logger: Any | None = None,
+    ) -> dict[str, Any]:
+        """Evaluate the operator with the Worker-provided Sample logger.
+
+        ``sample_logger`` is an explicit execution dependency, rather than a
+        module-global logger.  It is forwarded to Jarvis-Operas NumPy
+        implementations under their established ``logger`` keyword.
+        """
         if self._func is None:
             self.preload()
         assert self._func is not None
 
-        input_observables = self._build_input_observables(observables)
-        call_kwargs = dict(self.kwargs)
-        call_kwargs["observables"] = input_observables
-        for key, value in input_observables.items():
-            call_kwargs.setdefault(str(key), value)
+        logger = sample_logger if sample_logger is not None else self._sample_logger(sample_info)
+        started_at = time.monotonic()
+        try:
+            input_observables = self._build_input_observables(observables, logger=logger)
+            call_kwargs = dict(self.kwargs)
+            call_kwargs["observables"] = input_observables
+            if logger is not None:
+                call_kwargs.setdefault("logger", logger)
+            for key, value in input_observables.items():
+                call_kwargs.setdefault(str(key), value)
 
-        if self.call_mode == "acall":
-            result = self._run_with_timeout(
-                lambda: self._run_coro(self._func(**call_kwargs)),
-                self.operator,
-            )
-        else:
-            result = self._run_with_timeout(
-                lambda: self._func(**call_kwargs),
-                self.operator,
-            )
+            if logger is not None:
+                logger.info(
+                    "Operas input dispatch:\n"
+                    "   module \t-> {}\n"
+                    "   operator \t-> {}\n"
+                    "   call_mode \t-> {}",
+                    self.name,
+                    self.operator,
+                    self.call_mode,
+                )
+                logger.info(
+                    "Operas input observables:\n"
+                    "   with input \t-> {}",
+                    self._format_inline_pairs(input_observables),
+                )
+                if self.kwargs:
+                    logger.info(
+                        "Operas static kwargs:\n"
+                        "   with kwargs \t-> {}",
+                        self._format_inline_pairs(self.kwargs),
+                    )
 
-        if not isinstance(result, Mapping):
-            raise TypeError(
-                f"Operas module '{self.name}' requires dict output, got {type(result)}"
-            )
+            if self.call_mode == "acall":
+                result = self._run_with_timeout(
+                    lambda: self._run_coro(self._func(**call_kwargs)),
+                    self.operator,
+                )
+            else:
+                result = self._run_with_timeout(
+                    lambda: self._func(**call_kwargs),
+                    self.operator,
+                )
 
-        mapped: dict[str, Any] = {}
-        output_specs = [
-            spec for spec in self.output if isinstance(spec, Mapping) and "name" in spec
-        ]
-        for spec in output_specs:
-            out_name = str(spec["name"])
-            src_entry = str(spec.get("entry", out_name))
-            mapped[out_name] = _resolve_entry(result, src_entry)
-        return mapped
+            if not isinstance(result, Mapping):
+                raise TypeError(
+                    f"Operas module '{self.name}' requires dict output, got {type(result)}"
+                )
+
+            mapped: dict[str, Any] = {}
+            output_specs = [
+                spec for spec in self.output if isinstance(spec, Mapping) and "name" in spec
+            ]
+            for spec in output_specs:
+                out_name = str(spec["name"])
+                src_entry = str(spec.get("entry", out_name))
+                mapped[out_name] = _resolve_entry(result, src_entry)
+            if logger is not None:
+                elapsed_ms = (time.monotonic() - started_at) * 1000.0
+                logger.info(
+                    "Operas output:\n"
+                    "   result \t-> {}\n"
+                    "   mapped \t-> {}\n"
+                    "   elapsed \t-> {:.3f} ms",
+                    self._normalize_log_value(result),
+                    self._format_inline_pairs(mapped),
+                    elapsed_ms,
+                )
+            return mapped
+        except Exception as exc:
+            if logger is not None:
+                logger.error(
+                    "Operas call failed:\n"
+                    "   module \t-> {}\n"
+                    "   operator \t-> {}\n"
+                    "   error \t-> {}: {}",
+                    self.name,
+                    self.operator,
+                    type(exc).__name__,
+                    exc,
+                )
+            raise
 
 
-def preload_operas(modules: Mapping[str, Mapping[str, Any]]) -> dict[str, OperasModule]:
+def preload_operas(
+    modules: Mapping[str, Mapping[str, Any]],
+    *,
+    expression_context: ExpressionContext | None = None,
+) -> dict[str, OperasModule]:
     """Build and preload all configured Operas modules."""
     loaded: dict[str, OperasModule] = {}
     for name, config in modules.items():
-        module = OperasModule(name, config)
+        module = OperasModule(name, config, expression_context=expression_context)
         module.preload()
         loaded[name] = module
     return loaded

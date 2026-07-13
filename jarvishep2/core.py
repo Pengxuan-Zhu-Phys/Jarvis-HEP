@@ -22,7 +22,7 @@ from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
-from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
+from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
@@ -126,9 +126,7 @@ class Jarvis2Core:
     def bootstrap_distributed_runtime(self) -> None:
         """Bring up Redis, Workers, and Archiver for a distributed run."""
         if not self.is_redis_runtime():
-            raise RuntimeError(
-                "distributed runtime requires Runtime.mode == 'redis' in the task YAML"
-            )
+            raise RuntimeError("distributed runtime requires the internal Redis runtime")
         self.init_logger()
         self.init_command_parser()
         self.init_redis()
@@ -404,10 +402,16 @@ class Jarvis2Core:
         if client is not None:
             self.redis = RedisQueue(redis_config, client=client)
         elif not redis_config:
-            self.redis = make_fakeredis_queue()
+            self.redis = RedisQueue(INTERNAL_REDIS_CONFIG)
         else:
             self.redis = RedisQueue(redis_config)
         self.redis.connect()
+        try:
+            self.redis.ping()
+        except Exception as exc:
+            raise RuntimeError(
+                "internal Redis is unavailable at 127.0.0.1:6379; start the local Redis service"
+            ) from exc
         return self.redis
 
     def init_command_parser(self) -> CommandParser:

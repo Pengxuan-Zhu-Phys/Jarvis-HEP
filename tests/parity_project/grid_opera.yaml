@@ -1,13 +1,10 @@
 project_name: parity-grid
 Scan:
   name: grid-opera
-Runtime:
-  mode: redis
-  workers: 2
-  batch_size: 3
-  sample_artifacts: auto
-  Watchdog:
-    enabled: false
+EnvReqs:
+  V2:
+    workers: 2
+    batch_size: 3
 Sampling:
   Method: Grid
   Seed: 0

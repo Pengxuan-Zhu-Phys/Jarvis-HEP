@@ -30,6 +30,8 @@ _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "
 _VALID_EXECUTION_STEP_TYPES = frozenset(
     {"calculator", "opera", "likelihood", "nuisance_optimize"}
 )
+# The distributed broker is a V2 implementation detail, not task-YAML input.
+INTERNAL_REDIS_CONFIG = {"host": "127.0.0.1", "port": 6379, "db": 0}
 
 
 class CodecError(RuntimeError):
@@ -509,6 +511,11 @@ class RedisQueue:
         """Return picklable connection settings for spawn child processes."""
         return dict(self.config)
 
+    def ping(self) -> bool:
+        """Verify that the configured Redis server is reachable."""
+        self._require_client()
+        return bool(self.r.ping())
+
     @staticmethod
     def extract_connection_config(
         source: RedisQueue | Mapping[str, Any],
@@ -567,6 +574,7 @@ __all__ = [
     "calc_status_free_field",
     "decode_payload",
     "encode_payload",
+    "INTERNAL_REDIS_CONFIG",
     "make_fakeredis_queue",
 ]
 

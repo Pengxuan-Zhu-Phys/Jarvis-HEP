@@ -20,7 +20,10 @@ def env_task_root() -> str | None:
 
 
 def infer_project_root(start: str | None = None) -> str:
-    """Walk up from *start* to find a Jarvis project anchor."""
+    """Use the configured task root or walk up to a Jarvis project anchor."""
+    configured_root = env_task_root()
+    if configured_root is not None:
+        return configured_root
     path = Path(start or os.getcwd()).expanduser().resolve()
     for candidate in [path, *path.parents]:
         for marker in _PROJECT_MARKERS:

@@ -5,26 +5,51 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-import sympy as sp
-
 from jarvishep2.Sampling.variables import Variable
+from jarvishep2.expression import ExpressionContext
 
 
 class BoolConversionError(ValueError):
     pass
 
 
-def evaluate_selection(expression: str | None, variables: Mapping[str, Any]) -> bool:
+_SELECTION_EXPRESSIONS = ExpressionContext()
+_SELECTION_OPERAS_LOADED = False
+
+
+def evaluate_selection(
+    expression: str | None,
+    variables: Mapping[str, Any],
+    *,
+    context: ExpressionContext | None = None,
+) -> bool:
     if expression is None:
         return True
     if not isinstance(variables, Mapping):
         raise BoolConversionError("Selection variables must be a mapping.")
 
-    symbols = {name: sp.symbols(name) for name in variables.keys()}
     try:
-        expr = sp.sympify(expression, locals=symbols)
-        evaluated = expr.subs(variables)
-        return bool(evaluated)
+        normalized_variables = {str(name): value for name, value in variables.items()}
+        available_names = tuple(sorted(normalized_variables))
+        global _SELECTION_EXPRESSIONS, _SELECTION_OPERAS_LOADED
+        if context is None:
+            from jarvishep2.operas_functions import (
+                build_operas_expression_context,
+                expression_uses_operas_function,
+            )
+
+            if (
+                not _SELECTION_OPERAS_LOADED
+                and expression_uses_operas_function(expression)
+            ):
+                _SELECTION_EXPRESSIONS = build_operas_expression_context(required=True)
+                _SELECTION_OPERAS_LOADED = True
+            context = _SELECTION_EXPRESSIONS
+        compiled = context.compile(
+            str(expression),
+            symbols=available_names,
+        )
+        return bool(compiled.evaluate(normalized_variables))
     except Exception as exc:
         raise BoolConversionError(
             f"Cannot evaluate selection expression '{expression}' as boolean."

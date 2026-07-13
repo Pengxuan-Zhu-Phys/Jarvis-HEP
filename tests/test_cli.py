@@ -27,14 +27,9 @@ class CliParseTests(unittest.TestCase):
         args = build_parser().parse_args([CHECK_MODULES_YAML, "--check-modules"])
         self.assertTrue(args.check_modules)
 
-    def test_parse_monitor_with_redis_overrides(self) -> None:
-        args = build_parser().parse_args(
-            ["task.yaml", "--monitor", "--redis-host", "10.0.0.2", "--redis-port", "6380", "--redis-db", "3"]
-        )
+    def test_parse_monitor_uses_internal_redis(self) -> None:
+        args = build_parser().parse_args(["task.yaml", "--monitor"])
         self.assertTrue(args.monitor)
-        self.assertEqual(args.redis_host, "10.0.0.2")
-        self.assertEqual(args.redis_port, 6380)
-        self.assertEqual(args.redis_db, 3)
 
 
 class CliDispatchTests(unittest.TestCase):

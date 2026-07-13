@@ -46,7 +46,11 @@ class RandomS(FixedSetSampler):
         if self._selectionexp:
             probe = map_u_to_physical(np.random.rand(self._dimensions), self.vars)
             try:
-                evaluate_selection(self._selectionexp, probe)
+                evaluate_selection(
+                    self._selectionexp,
+                    probe,
+                    context=self._expression_context,
+                )
             except BoolConversionError as exc:
                 raise ValueError(f"Invalid selection expression: {self._selectionexp}") from exc
         self._generator_ready = True
@@ -61,7 +65,11 @@ class RandomS(FixedSetSampler):
             u_coords = np.random.random(self._dimensions).astype(np.float64)
             self._index += 1
             physical = map_u_to_physical(u_coords, self.vars)
-            if self._selectionexp and not evaluate_selection(self._selectionexp, physical):
+            if self._selectionexp and not evaluate_selection(
+                self._selectionexp,
+                physical,
+                context=self._expression_context,
+            ):
                 continue
             accepted_index = self._accepted_index
             self._accepted_index += 1

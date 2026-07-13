@@ -15,6 +15,7 @@ from typing import Any
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
+from jarvishep2.expression import ExpressionContext
 from jarvishep2.archive_handoff import list_product_names, resolve_staging_dir, stage_sample_dir
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.likelihood import LogLikelihoodEvaluator
@@ -23,6 +24,10 @@ from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.mapper import build_mapper
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.operas import preload_operas
+from jarvishep2.operas_functions import (
+    build_operas_expression_context,
+    operas_expression_functions_required,
+)
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.sample import Sample, materialize_failure_artifacts
 from jarvishep2.sample import ExecutionStep
@@ -97,13 +102,25 @@ class Worker(Process):
             strategy = str(cleanup.get("strategy", "mv_to_staging")).strip().lower()
             self._handoff_to_staging = strategy == "mv_to_staging"
         self._mapper = build_mapper(self.worker_config.get("mapper"))
+        expression_payload = {
+            "opera_modules": self.worker_config.get("opera_modules"),
+            "calculator_modules": self.worker_config.get("calculator_modules"),
+            "likelihood_expressions": self.worker_config.get("likelihood_expressions"),
+        }
+        if operas_expression_functions_required(expression_payload):
+            expression_context = build_operas_expression_context(required=True)
+        else:
+            expression_context = ExpressionContext()
         opera_configs = self.worker_config.get("opera_modules") or {}
         if isinstance(opera_configs, list):
             opera_configs = {
                 str(item.get("name", f"Operas{index}")): item
                 for index, item in enumerate(opera_configs)
             }
-        self._operas = preload_operas(opera_configs)
+        self._operas = preload_operas(
+            opera_configs,
+            expression_context=expression_context,
+        )
         calculator_configs = self.worker_config.get("calculator_modules") or []
         if isinstance(calculator_configs, dict):
             calculator_configs = list(calculator_configs.values())
@@ -126,6 +143,7 @@ class Worker(Process):
         for module in self._calculators.values():
             module.attach_scheduler(self._scheduler)
             module.attach_command_parser(self._command_parser)
+            module.attach_expression_context(expression_context)
             sources = resolve_env_setup_sources(
                 module.env_setup,
                 command_parser=self._command_parser,
@@ -133,7 +151,10 @@ class Worker(Process):
             if sources:
                 module.bind_env(EnvCapture.merged_env(sources))
         likelihood_exprs = self.worker_config.get("likelihood_expressions") or []
-        self._likelihood = LogLikelihoodEvaluator(likelihood_exprs)
+        self._likelihood = LogLikelihoodEvaluator(
+            likelihood_exprs,
+            expression_context=expression_context,
+        )
 
     def _heartbeat(self, status: str) -> None:
         if self._redis is None:
@@ -224,7 +245,14 @@ class Worker(Process):
         module = self._operas.get(step_name)
         if module is None:
             raise KeyError(f"unknown opera module '{step_name}'")
-        updated = module.execute(sample.observables, sample.info)
+        updated = module.execute(
+            sample.observables,
+            sample.info,
+            sample_logger=sample.child_logger(
+                module=f"{sample.info.get('logger_name', f'Sample@{sample.uuid}')} "
+                f"(Operas:{step_name})"
+            ),
+        )
         sample.merge_observables(updated)
 
     def _run_likelihood(self, sample: Sample) -> None:

@@ -9,6 +9,11 @@ from uuid import uuid4
 import numpy as np
 
 from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.expression import ExpressionContext
+from jarvishep2.operas_functions import (
+    build_operas_expression_context,
+    operas_expression_functions_required,
+)
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 from jarvishep2.workflow import execution_plan_template
@@ -26,12 +31,17 @@ class SamplingVirtial:
         self._opera_modules: list[dict[str, Any]] = []
         self._calculator_modules: list[dict[str, Any]] = []
         self._sample_artifacts = "auto"
+        self._expression_context = ExpressionContext()
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         self.config = dict(config_info)
         runtime = get_runtime_block(self.config)
         self.runtime_mode = str(runtime.get("mode", "auto"))
         self._sample_artifacts = str(runtime.get("sample_artifacts", "auto"))
+        if operas_expression_functions_required(self.config):
+            self._expression_context = build_operas_expression_context(required=True)
+        else:
+            self._expression_context = ExpressionContext()
 
     def set_redis(self, redis: RedisQueue) -> None:
         self.redis = redis

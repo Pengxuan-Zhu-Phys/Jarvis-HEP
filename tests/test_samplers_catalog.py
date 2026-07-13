@@ -9,6 +9,7 @@ import unittest
 
 import numpy as np
 
+from jarvishep2.Sampling import sampling_utils
 from jarvishep2.Sampling.bridson import Bridson, Bridson_sampling, hypersphere_surface_sample
 from jarvishep2.Sampling.grid import Grid, grid_sampling
 from jarvishep2.Sampling.randoms import RandomS
@@ -40,6 +41,11 @@ BRIDSON_YAML = os.path.join(TESTS_ROOT, "parity_project", "bridson_opera.yaml")
 RANDOM_YAML = os.path.join(TESTS_ROOT, "parity_project", "random_opera.yaml")
 GRID_YAML = os.path.join(TESTS_ROOT, "parity_project", "grid_opera.yaml")
 CSV_YAML = os.path.join(TESTS_ROOT, "parity_project", "csv_opera.yaml")
+V1_BRIDSON_OPERAS_YAML = os.path.join(
+    TESTS_ROOT,
+    "parity_project",
+    "bridson_operas_v1.yaml",
+)
 
 
 def _stop_factory_workers() -> None:
@@ -81,6 +87,21 @@ class BridsonAlgorithmTests(unittest.TestCase):
             hypersphere_sample=hypersphere_surface_sample,
         )
         self.assertGreater(points.shape[0], 0)
+
+
+class SelectionExpressionCacheTests(unittest.TestCase):
+    def test_selection_expression_compiles_once_for_repeated_points(self) -> None:
+        sampling_utils._SELECTION_EXPRESSIONS.clear_cache()
+        for index in range(100):
+            accepted = sampling_utils.evaluate_selection(
+                "x + y < 2",
+                {"x": index / 100.0, "y": 0.25},
+            )
+            self.assertIsInstance(accepted, bool)
+
+        cache = sampling_utils._SELECTION_EXPRESSIONS.cache_info()
+        self.assertEqual(cache.misses, 1)
+        self.assertEqual(cache.hits, 99)
 
 
 class DistributorDispatchTests(unittest.TestCase):
@@ -342,6 +363,37 @@ class StatelessDistributedRunTests(unittest.TestCase):
 
     def test_bridson_yaml_end_to_end_via_core_run(self) -> None:
         self._run_task_yaml(BRIDSON_YAML)
+
+    def test_v1_shaped_bridson_operas_yaml_end_to_end(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                core = Jarvis2Core()
+                core.load_task_yaml(V1_BRIDSON_OPERAS_YAML)
+                self.assertEqual(core.config["Runtime"]["mode"], "redis")
+                core.config["task_root"] = tmpdir
+                core.config["project_root"] = tmpdir
+                core.config["task_result_dir"] = tmpdir
+                core.config["Runtime"]["redis"] = redis_config
+                core.config["Runtime"]["Watchdog"] = {"enabled": False}
+                core.runtime = core.config["Runtime"]
+                core._populate_info_from_config()
+
+                count = core.run(write_run_summary=False)
+                self.assertGreater(count, 0)
+
+                db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+                records = SimpleHDF5Writer(db_path).read_records()
+                self.assertEqual(len(records), count)
+                for row in records:
+                    self.assertIn("xx", row)
+                    self.assertIn("yy", row)
+                    self.assertIn("z", row)
+                    self.assertIn("LogL_Z", row)
+                    self.assertIn("LogL", row)
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_random_yaml_end_to_end_via_core_run(self) -> None:
         self._run_task_yaml(RANDOM_YAML, expected_count=6)

@@ -174,7 +174,11 @@ class Bridson(FixedSetSampler):
             row = self._P[self._index]
             self._index += 1
             physical = map_row_to_physical(row, self.vars)
-            if self._selectionexp and not evaluate_selection(self._selectionexp, physical):
+            if self._selectionexp and not evaluate_selection(
+                self._selectionexp,
+                physical,
+                context=self._expression_context,
+            ):
                 continue
             accepted_index = self._accepted_index
             self._accepted_index += 1
@@ -225,7 +229,11 @@ class Bridson(FixedSetSampler):
             row = self._P[scan_index]
             scan_index += 1
             physical = map_row_to_physical(row, self.vars)
-            if self._selectionexp and not evaluate_selection(self._selectionexp, physical):
+            if self._selectionexp and not evaluate_selection(
+                self._selectionexp,
+                physical,
+                context=self._expression_context,
+            ):
                 continue
             if accepted == target:
                 return row

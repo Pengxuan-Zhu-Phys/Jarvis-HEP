@@ -86,6 +86,10 @@ class ExpressionAndJsonBridgeTests(unittest.TestCase):
         value = evaluate_io_expression("x * Pi", {"x": 0.5})
         self.assertAlmostEqual(float(value), 0.5 * math.pi, places=12)
 
+    def test_evaluate_io_expression_keeps_numeric_string_coercion(self) -> None:
+        value = evaluate_io_expression("x * Pi", {"x": "0.5"})
+        self.assertAlmostEqual(float(value), 0.5 * math.pi, places=12)
+
     def test_json_write_read_roundtrip_sync(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             in_path = os.path.join(tmpdir, "input.json")

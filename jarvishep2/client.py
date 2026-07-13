@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Any
 
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
 from jarvishep2.plot_bridge import PlotBridgeError, run_plot
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,32 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-modules", action="store_true", help="Run fixed-point calculator smoke")
     parser.add_argument("--resume", action="store_true", help="Resume from an existing checkpoint")
     parser.add_argument("--pid", type=int, default=None, help="Attach to a running scan by control PID")
-    parser.add_argument("--redis-host", default="127.0.0.1")
-    parser.add_argument("--redis-port", type=int, default=6379)
-    parser.add_argument("--redis-db", type=int, default=0)
     return parser
-
-
-def _redis_cli_overrides(args: argparse.Namespace) -> dict[str, Any] | None:
-    if args.redis_host == "127.0.0.1" and args.redis_port == 6379 and args.redis_db == 0:
-        return None
-    return {
-        "host": args.redis_host,
-        "port": args.redis_port,
-        "db": args.redis_db,
-    }
-
-
-def _apply_redis_overrides(core: Jarvis2Core, args: argparse.Namespace) -> None:
-    overrides = _redis_cli_overrides(args)
-    if overrides is None:
-        return
-    runtime = dict(core.config.get("Runtime") or {})
-    redis_cfg = dict(runtime.get("redis") or {})
-    redis_cfg.update(overrides)
-    runtime["redis"] = redis_cfg
-    core.config["Runtime"] = runtime
-    core.runtime = runtime
 
 
 def run_monitor(
@@ -73,12 +47,8 @@ def run_monitor(
 
 
 def dispatch_monitor(args: argparse.Namespace) -> int:
-    # Prefer a fresh factory bound to CLI Redis settings (D9.4).
-    redis_config = {
-        "host": args.redis_host,
-        "port": args.redis_port,
-        "db": args.redis_db,
-    }
+    # The V2 broker is internal and always uses the local service.
+    redis_config = dict(INTERNAL_REDIS_CONFIG)
     factory = TaskFactory(redis_config)
     try:
         factory.init_redis()
@@ -127,8 +97,6 @@ def dispatch_run(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
-
-    _apply_redis_overrides(core, args)
 
     try:
         if args.check_modules:
