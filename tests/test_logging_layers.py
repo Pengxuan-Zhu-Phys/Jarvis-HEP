@@ -55,11 +55,47 @@ class TopLevelLoggingTests(unittest.TestCase):
                 text = handle.read()
 
             self.assertIn("INFO", text)
-            self.assertIn("jarvis_hep.worker", text)
+            self.assertIn("·•·", text)
+            self.assertIn("worker", text)
             self.assertIn("start sample", text)
             self.assertIn("worker_id=w-1", text)
             self.assertIn("sample_uuid=abc-123", text)
-            self.assertRegex(text, r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
+            # V1-style timestamp: MM-DD HH:mm:ss.SSS
+            self.assertRegex(text, r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}")
+
+    def test_v1_style_formatter_raw_and_module_bind(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = setup_jarvis_logging(
+                log_dir=tmpdir,
+                role="core",
+                console=False,
+                use_queue=False,
+            )
+            logger = get_jarvis_logger("core").bind(module="Jarvis-HEP")
+            logger.warning("structured line")
+            logger.bind(raw=True).warning("RAW BANNER\nline2")
+            shutdown_jarvis_logging()
+
+            with open(log_path, "r", encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertIn("·•· Jarvis-HEP", text)
+            self.assertIn("[WARNING]", text)
+            self.assertIn("structured line", text)
+            self.assertIn("RAW BANNER\nline2", text)
+            self.assertNotIn("·•·", text.split("RAW BANNER", 1)[1][:20])
+
+    def test_scan_log_path_layout(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            scan_log = os.path.join(tmpdir, "logs", "myscan", "myscan.log")
+            path = setup_jarvis_logging(
+                log_path=scan_log,
+                role="core",
+                console=False,
+                use_queue=False,
+            )
+            self.assertEqual(path, os.path.abspath(scan_log))
+            self.assertTrue(os.path.isfile(path))
+            shutdown_jarvis_logging()
 
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -95,8 +131,13 @@ class TopLevelLoggingTests(unittest.TestCase):
         parent = get_jarvis_logger("factory")
         child = parent.bind(worker_id="w-2")
         self.assertIsNot(child, parent)
-        self.assertEqual(parent.extra, {})
-        self.assertEqual(child.extra, {"worker_id": "w-2"})
+        self.assertEqual(parent.extra, {"jarvis_module": "factory"})
+        self.assertEqual(child.extra, {"jarvis_module": "factory", "worker_id": "w-2"})
+        # V1-style module= is remapped onto jarvis_module (LogRecord-safe).
+        labeled = parent.bind(module="Jarvis-HEP")
+        self.assertEqual(labeled.extra.get("jarvis_module"), "Jarvis-HEP")
+        self.assertNotIn("module", labeled.extra)
+        self.assertEqual(parent.extra.get("jarvis_module"), "factory")
 
 
 class SampleLoggingReplayTests(unittest.TestCase):

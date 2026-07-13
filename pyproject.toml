@@ -46,5 +46,8 @@ dev = [
 where = ["."]
 include = ["jarvishep2*"]
 
+[tool.setuptools.package-data]
+jarvishep2 = ["card/logo"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

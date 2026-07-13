@@ -7,6 +7,7 @@ from jarvishep2.logging.sample import (
     replay_sample_log_events,
 )
 from jarvishep2.logging.toplevel import (
+    JARVIS_HEP_LOG_DOMAIN,
     JarvisContextFormatter,
     JarvisLoggerAdapter,
     format_record_context,
@@ -17,6 +18,7 @@ from jarvishep2.logging.toplevel import (
 
 __all__ = [
     "BufferedSampleLogger",
+    "JARVIS_HEP_LOG_DOMAIN",
     "JarvisContextFormatter",
     "JarvisLoggerAdapter",
     "SampleLogEvent",

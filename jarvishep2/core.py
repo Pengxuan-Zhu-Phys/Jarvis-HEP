@@ -22,6 +22,7 @@ from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
+from jarvishep2.versioning import render_logo_with_version
 from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.runtime_config import (
     get_archiver_config,
@@ -72,7 +73,29 @@ class Jarvis2Core:
         self._logger = get_jarvis_logger("core")
 
     def init_logger(self) -> None:
-        setup_jarvis_logging(role="core")
+        """Configure top-level logging with V1 visual format and scan-scoped file path."""
+        scan_name = str(self.info.get("scan_name") or "scan")
+        task_root = str(self.info.get("task_root") or os.getcwd())
+        logs_dir = os.path.join(task_root, "logs", scan_name)
+        jarvis_log = os.path.join(logs_dir, f"{scan_name}.log")
+        self.info["logs_dir"] = logs_dir
+        self.info["jarvis_log"] = jarvis_log
+        setup_jarvis_logging(
+            role="core",
+            log_dir=logs_dir,
+            log_path=jarvis_log,
+            level="INFO",
+            console=True,
+            use_queue=True,
+        )
+        self._logger = get_jarvis_logger("core").bind(module="Jarvis-HEP")
+        try:
+            self._logger.warning("\n" + render_logo_with_version())
+            self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
+            self._logger.info(f"Jarvis-HEP write into main log file -> {jarvis_log}")
+        except Exception:
+            # Logging must never block bootstrap; banner is best-effort.
+            pass
 
     def load_task_yaml(self, path: str) -> dict[str, Any]:
         """Load task YAML and merge normalized layout into ``self.config``."""
@@ -82,13 +105,18 @@ class Jarvis2Core:
         return self.config
 
     def _populate_info_from_config(self) -> None:
+        task_root = str(self.config.get("task_root") or os.getcwd())
+        scan_name = str(self.config.get("scan_name") or "scan")
+        logs_dir = os.path.join(task_root, "logs", scan_name)
         self.info = {
-            "task_root": str(self.config.get("task_root") or os.getcwd()),
+            "task_root": task_root,
             "task_result_dir": str(self.config.get("task_result_dir") or os.getcwd()),
-            "scan_name": str(self.config.get("scan_name") or "scan"),
+            "scan_name": scan_name,
             "sampler_name": "SamplingVirtial",
             "run_id": str(self.config.get("run_id") or uuid.uuid4()),
             "task_yaml": self.config.get("task_yaml"),
+            "logs_dir": logs_dir,
+            "jarvis_log": os.path.join(logs_dir, f"{scan_name}.log"),
         }
 
     def prepare_resume(self, *, resume: bool = False, fresh: bool = False) -> None:
