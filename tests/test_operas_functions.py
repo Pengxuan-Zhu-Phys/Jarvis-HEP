@@ -177,6 +177,88 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
             operas_expression_functions_required({"expression": "user.external(x)"})
         )
 
+    def test_startup_gate_ignores_calculator_cmd_and_path_strings(self) -> None:
+        """Qualified calls in shell/cmd must not force Operas expression discovery."""
+        calculator_payload = {
+            "calculator_modules": [
+                {
+                    "name": "EggBox",
+                    "source": "&J/deps/assets/inertial/EggBox",
+                    "path": "&J/calculators/runtime/program/EggBox/@PackID",
+                    "installation": ["cp -r ${source}/* ${path}"],
+                    "execution": {
+                        "commands": [
+                            {"cmd": './eggbox.py --out numpy.savetxt("z.npy")'},
+                            "python3 -c \"import numpy; numpy.savetxt('a', [])\"",
+                        ],
+                        "input": [
+                            {
+                                "type": "JSON",
+                                "actions": [
+                                    {
+                                        "type": "Dump",
+                                        "variables": [
+                                            {"name": "xx", "expression": "x * Pi"},
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+            "likelihood_expressions": [{"name": "LogL", "expression": "LogGauss(z, 1, 0.1)"}],
+        }
+        self.assertFalse(operas_expression_functions_required(calculator_payload))
+
+        with_qualified_dump = {
+            "calculator_modules": [
+                {
+                    "execution": {
+                        "commands": ['python3 -c "numpy.savetxt(x)"'],
+                        "input": [
+                            {
+                                "actions": [
+                                    {
+                                        "variables": [
+                                            {
+                                                "name": "xx",
+                                                "expression": "user.external(x)",
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ],
+                    }
+                }
+            ]
+        }
+        self.assertTrue(operas_expression_functions_required(with_qualified_dump))
+
+    def test_startup_gate_reads_selection_and_target_expression_keys(self) -> None:
+        self.assertTrue(
+            operas_expression_functions_required(
+                {"Sampling": {"selection": "helper.eggbox2d(x) > 0"}}
+            )
+        )
+        self.assertTrue(
+            operas_expression_functions_required(
+                {
+                    "Sampling": {
+                        "AdaptiveLevelSet": {
+                            "target_expression": "ns.level(f)",
+                        }
+                    }
+                }
+            )
+        )
+        self.assertFalse(
+            operas_expression_functions_required(
+                {"Sampling": {"selection": "x + y < 1.5", "Radius": 0.3}}
+            )
+        )
+
     def test_v1_operas_modules_shape_is_forwarded_without_new_functions_block(self) -> None:
         module = {
             "name": "EggBox",

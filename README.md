@@ -12,11 +12,11 @@ Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + s
 
 **Plugin packages** (upgrade them to extend HEP without a HEP release):
 
-| Package | HEP bridge | Extra |
+| Package | HEP bridge | Install |
 |---------|------------|--------|
-| Jarvis-HEP-Portal | `io_portal.py` calculator formats | core dependency |
-| Jarvis-Operas | `operas.py` operator registry | `[operas]` |
-| JarvisPLOT | `plot_bridge.py` / `Jarvis2 --plot` | `[plot]` |
+| Jarvis-HEP-Portal | `io_portal.py` calculator formats | **core dependency** |
+| Jarvis-Operas | `operas.py` operator registry + expression functions | **core dependency** (D12.0) |
+| JarvisPLOT | `plot_bridge.py` / `Jarvis2 --plot` | optional extra `[plot]` |
 
 Current integration depth:
 

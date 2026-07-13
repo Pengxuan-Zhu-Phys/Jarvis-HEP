@@ -25,23 +25,28 @@ python3 -m pip install -e '.[distributed]'
 python3 -m pip install -e '.[distributed,dev]'
 ```
 
-Core runtime depends on **`Jarvis-HEP-Portal`** for calculator input/output formats
-(JSON, CSV, TSV, DAT, Wolfram, …). Local editable install of Portal is fine during development:
+Core runtime depends on:
+
+- **`Jarvis-HEP-Portal`** — calculator I/O formats (JSON, CSV, TSV, DAT, Wolfram, …)
+- **`Jarvis-Operas`** — operator registry and qualified expression functions (e.g. `helper.eggbox2d`)
+
+Local editable installs of those packages are fine during development:
 
 ```bash
 python3 -m pip install -e ../Jarvis-Portal
+python3 -m pip install -e ../Jarvis-Operas
 python3 -m pip install -e '.[distributed,dev]'
 ```
 
 Extras:
 
 - `distributed` = `redis`, `msgpack`, `aiofiles`
-- `operas` = `Jarvis-Operas` (catalog operators such as `helper.eggbox2d`)
 - `plot` = `JarvisPLOT` (YAML-driven plotting; CLI bridge)
 - `dev` = `pytest`, `fakeredis`, `colorlog`
+- `operas` = **deprecated no-op alias** (Operas is core since D12.0; kept for old install scripts)
 
 ```bash
-python3 -m pip install -e '.[distributed,operas,plot,dev]'
+python3 -m pip install -e '.[distributed,plot,dev]'
 ```
 
 **Side-by-side with V1.** V2 uses a distinct distribution (`jarvishep2`) and CLI entry

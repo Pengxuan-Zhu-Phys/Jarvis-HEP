@@ -38,20 +38,59 @@ _DISCOVERY_LOCK = threading.RLock()
 _DISCOVERED_REGISTRIES: set[int] = set()
 _QUALIFIED_FUNCTION_CALL = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\s*\(")
 
+# Only these mapping keys hold YAML expression text. Command/path strings such as
+# calculator ``cmd`` / ``installation`` must never trigger Operas discovery.
+_EXPRESSION_TEXT_KEYS = frozenset(
+    {
+        "expression",
+        "selection",
+        "target_expression",
+    }
+)
 
-def expression_uses_operas_function(value: Any) -> bool:
-    """Return whether a config payload contains a qualified function call."""
+
+def _string_uses_operas_function(text: str) -> bool:
+    return bool(_QUALIFIED_FUNCTION_CALL.search(text))
+
+
+def expression_uses_operas_function(
+    value: Any,
+    *,
+    _as_expression_text: bool = True,
+) -> bool:
+    """Return whether *expression text* contains a qualified Operas function call.
+
+    A bare string is treated as expression text only when the caller already holds
+    a single formula (``_as_expression_text=True``, the default) — e.g.
+    ``evaluate_selection`` / Dump. Nested config walks set the flag to ``False``
+    except under expression-bearing keys (``expression`` / ``selection`` /
+    ``target_expression``), so calculator ``cmd`` / ``path`` / install strings
+    never force Operas discovery.
+    """
     if isinstance(value, str):
-        return bool(_QUALIFIED_FUNCTION_CALL.search(value))
+        return bool(_as_expression_text and _string_uses_operas_function(value))
     if isinstance(value, Mapping):
-        return any(expression_uses_operas_function(item) for item in value.values())
+        for key, item in value.items():
+            key_name = str(key)
+            if key_name in _EXPRESSION_TEXT_KEYS:
+                if expression_uses_operas_function(item, _as_expression_text=True):
+                    return True
+            elif isinstance(item, (Mapping, list, tuple)):
+                if expression_uses_operas_function(item, _as_expression_text=False):
+                    return True
+        return False
     if isinstance(value, (list, tuple)):
-        return any(expression_uses_operas_function(item) for item in value)
+        return any(
+            expression_uses_operas_function(
+                item, _as_expression_text=_as_expression_text
+            )
+            for item in value
+        )
     return False
 
 
 def operas_expression_functions_required(expressions: Any) -> bool:
-    """Avoid bootstrapping Operas for expressions using only the internal core."""
+    """Avoid bootstrapping Operas for payloads that only use the internal core."""
     return expression_uses_operas_function(expressions)
 
 
@@ -85,8 +124,8 @@ def discover_operas_expression_functions(
     except ImportError as exc:
         if required:
             raise ImportError(
-                "A qualified Jarvis-Operas expression requires Jarvis-Operas; "
-                "install the Operas extra."
+                "A qualified Jarvis-Operas expression requires Jarvis-Operas, "
+                "which is a core dependency of jarvishep2."
             ) from exc
         return OperasExpressionSnapshot()
 
@@ -124,8 +163,8 @@ def ensure_operas_registry_discovered(registry: Any | None = None) -> Any:
         from jarvis_operas import discover_entrypoints, get_global_operas_registry
     except ImportError as exc:
         raise ImportError(
-            "Jarvis-Operas is required for a registered Operas operator; "
-            "install the Operas extra."
+            "Jarvis-Operas is required for a registered Operas operator "
+            "(core dependency of jarvishep2)."
         ) from exc
     target_registry = registry or get_global_operas_registry()
     _discover_entrypoints_once(target_registry, discover_entrypoints)
