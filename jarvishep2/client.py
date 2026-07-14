@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 check TASK.yaml\n"
             "  Jarvis2 monitor\n"
             "  Jarvis2 plot PLOT.yaml\n"
-            "  Jarvis2 portal formats\n"
+            "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas list|info NAME\n"
             "\n"
             "Legacy aliases (still accepted):\n"
@@ -89,9 +89,13 @@ def build_parser() -> argparse.ArgumentParser:
     plot_p = sub.add_parser("plot", help="Render a JarvisPLOT scene YAML")
     plot_p.add_argument("plot_yaml", help="Path to plot scene YAML")
 
-    portal_p = sub.add_parser("portal", help="Jarvis-Portal discovery helpers")
-    portal_sub = portal_p.add_subparsers(dest="portal_command", required=False)
-    portal_sub.add_parser("formats", help="List registered Portal I/O formats")
+    # ``portal`` is handled by argv passthrough in main() so that
+    # ``Jarvis2 portal man|file|-h|-v`` matches the standalone jportal CLI.
+    sub.add_parser(
+        "portal",
+        help="Jarvis-Portal CLI (same as jportal; uses V2 format registry)",
+        add_help=False,
+    )
 
     operas_p = sub.add_parser("operas", help="Jarvis-Operas discovery helpers")
     operas_sub = operas_p.add_subparsers(dest="operas_command", required=False)
@@ -234,24 +238,45 @@ def dispatch_plot(plot_yaml: str, *, legacy: bool = False) -> int:
         return EXIT_RUN_FAILED
 
 
-def dispatch_portal(args: argparse.Namespace) -> int:
-    cmd = getattr(args, "portal_command", None) or "formats"
-    if cmd != "formats":
-        print(f"Unknown portal subcommand: {cmd}", file=sys.stderr)
+def dispatch_portal(portal_argv: list[str] | None = None) -> int:
+    """Forward to Jarvis-Portal's CLI with the **V2** registry surface.
+
+    Interface matches standalone ``jportal``::
+
+        Jarvis2 portal man
+        Jarvis2 portal man json
+        Jarvis2 portal man slha
+        Jarvis2 portal file.yaml
+        Jarvis2 portal -h
+        Jarvis2 portal -v
+
+    Convenience alias: ``Jarvis2 portal formats`` → ``man`` (list formats).
+    """
+    argv = list(portal_argv or [])
+    if argv == ["formats"]:
+        argv = ["man"]
+    try:
+        from jarvis_portal.cli import main as portal_main
+        from jarvis_portal.v2 import create_default_registry as v2_registry
+    except ImportError as exc:
+        print(
+            "Jarvis-Portal is required for `Jarvis2 portal`. "
+            "Install with `pip install -U Jarvis-HEP-Portal` "
+            f"(or `pip install -e ../Jarvis-Portal`). Detail: {exc}",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
     try:
-        from jarvishep2.io_portal import available_io_formats
-
-        formats = available_io_formats()
+        return int(
+            portal_main(
+                argv,
+                registry_factory=v2_registry,
+                prog="Jarvis2 portal",
+            )
+        )
     except Exception as exc:
-        print(f"Unable to list Portal formats: {exc}", file=sys.stderr)
+        print(f"Jarvis2 portal failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
-    if not formats:
-        print("(no formats registered)", file=sys.stderr)
-        return EXIT_RUN_FAILED
-    for name in formats:
-        print(name)
-    return EXIT_OK
 
 
 def dispatch_operas(args: argparse.Namespace) -> int:
@@ -388,7 +413,8 @@ def dispatch(args: argparse.Namespace) -> int:
         legacy = getattr(args, "command", None) is None
         return dispatch_plot(str(plot_yaml or ""), legacy=legacy)
     if intent == "portal":
-        return dispatch_portal(args)
+        # Prefer argv passthrough via main(); this path is a thin fallback.
+        return dispatch_portal([])
     if intent == "operas":
         return dispatch_operas(args)
     if intent == "check":
@@ -415,7 +441,11 @@ def main(argv: list[str] | None = None) -> int:
     from jarvishep2.proc_title import control_title, set_process_title
 
     set_process_title(control_title())
-    normalized = normalize_argv(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    normalized = normalize_argv(raw)
+    # Full jportal-compatible surface: do not let argparse eat portal args.
+    if normalized and normalized[0] == "portal":
+        return dispatch_portal(normalized[1:])
     return dispatch(build_parser().parse_args(normalized))
 
 

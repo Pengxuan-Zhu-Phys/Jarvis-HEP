@@ -158,6 +158,18 @@ class CliDispatchTests(unittest.TestCase):
             {name.split(".")[0] for name in sys.modules if name.startswith("jarvishep")},
         )
 
+    def test_portal_passthrough_lists_v2_formats(self) -> None:
+        from jarvishep2.client import dispatch_portal
+
+        # Same surface as jportal man; V2 registry includes SLHA.
+        code = dispatch_portal(["man"])
+        self.assertEqual(code, EXIT_OK)
+
+    def test_portal_formats_alias(self) -> None:
+        from jarvishep2.client import dispatch_portal
+
+        self.assertEqual(dispatch_portal(["formats"]), EXIT_OK)
+
 
 if __name__ == "__main__":
     unittest.main()

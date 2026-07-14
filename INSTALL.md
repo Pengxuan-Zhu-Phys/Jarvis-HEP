@@ -118,7 +118,9 @@ Jarvis2 quickstart.yaml               # legacy alias → run
 Jarvis2 check path/to/check.yaml      # fixed-point calculator smoke
 Jarvis2 monitor                       # one read-only status snapshot
 Jarvis2 plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
-Jarvis2 portal formats                # list Portal I/O formats
+Jarvis2 portal man                    # list Portal formats (same as jportal man)
+Jarvis2 portal man slha               # format manual
+Jarvis2 portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
 Jarvis2 operas list                   # list Operas operators
 
 # legacy (still work):
