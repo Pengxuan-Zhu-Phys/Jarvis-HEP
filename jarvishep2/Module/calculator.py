@@ -20,6 +20,7 @@ from jarvishep2.io_portal import (
 )
 from jarvishep2.Module.calculator_spec import CalculatorSpec
 from jarvishep2.Module.runtime_preparer import RuntimePreparer
+from jarvishep2.Sampling.sampling_utils import BoolConversionError, evaluate_selection
 
 
 class CalculatorModule:
@@ -41,6 +42,7 @@ class CalculatorModule:
         self.source = self.spec.source
         self.symlink_name = self.spec.symlink_name
         self.env_setup = list(self.spec.env_setup)
+        self.selection = self.spec.selection
         self._subprocess_env: dict[str, str] | None = None
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
@@ -262,11 +264,40 @@ class CalculatorModule:
                 timeout_sec=timeout_sec,
             )
 
+    def _selection_values(self, sample_info: Mapping[str, Any]) -> dict[str, Any]:
+        values: dict[str, Any] = {}
+        params = sample_info.get("params")
+        if isinstance(params, Mapping):
+            values.update({str(key): value for key, value in params.items()})
+        observables = sample_info.get("observables")
+        if isinstance(observables, Mapping):
+            values.update({str(key): value for key, value in observables.items()})
+        return values
+
+    def _should_run(self, sample_info: Mapping[str, Any]) -> bool:
+        """V1 module-level selection: skip this calculator when the cut is false."""
+        if not self.selection:
+            return True
+        try:
+            return bool(
+                evaluate_selection(
+                    self.selection,
+                    self._selection_values(sample_info),
+                    context=self._expression_context,
+                )
+            )
+        except BoolConversionError as exc:
+            raise BoolConversionError(
+                f"Calculator selection for '{self.name}' failed: {exc}"
+            ) from exc
+
     def execute(self, sample_info: Mapping[str, Any], *, runtime_prepared: bool = False) -> dict[str, Any]:
-        """load_input → run commands → read_output (scheduler required)."""
-        self._require_scheduler()
+        """load_input → run commands → read_output (scheduler required when selected)."""
         self.sample_info = dict(sample_info)
         self._command_counter = 0
+        if not self._should_run(sample_info):
+            return {}
+        self._require_scheduler()
         if not runtime_prepared:
             self.prepare_runtime(sample_info)
         input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})

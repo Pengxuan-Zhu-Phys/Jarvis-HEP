@@ -121,6 +121,23 @@ def build_worker_config(
     pools = None
     if isinstance(calc_block, Mapping):
         pools = calc_block.get("Pools") or calc_block.get("pools")
+        # V1 invariant 12: keep the make_paraller spelling; consume for pool sizing.
+        if "calculator_make_paraller" not in worker_config and "make_paraller" in calc_block:
+            try:
+                worker_config["calculator_make_paraller"] = max(
+                    1, int(calc_block.get("make_paraller") or 1)
+                )
+            except (TypeError, ValueError):
+                worker_config["calculator_make_paraller"] = 1
+        # Top-level Calculators.path is V1 layout metadata; modules carry their own path.
+        # Tolerate it (do not error); stamp resolved path for diagnostics only.
+        calc_root = calc_block.get("path")
+        if isinstance(calc_root, str) and calc_root.strip():
+            try:
+                resolved_root = command_parser.resolve_static(calc_root.strip())
+            except (ValueError, KeyError):
+                resolved_root = calc_root.strip()
+            sample_config.setdefault("calculators_path", resolved_root)
     if isinstance(pools, Mapping) and pools and "calculator_pools" not in extra_payload:
         worker_config["calculator_pools"] = {
             str(name): max(1, int(count or 1)) for name, count in pools.items()
