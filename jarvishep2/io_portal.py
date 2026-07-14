@@ -29,25 +29,39 @@ class UnsupportedIOTypeError(ValueError):
 
 
 def _import_portal():
+    """Import the **V2** Portal product surface (not V1 top-level factories)."""
     global _PORTAL_IMPORT_ERROR
     try:
-        from jarvis_portal import (  # type: ignore import-not-found
-            IOContext,
+        # Prefer explicit V2 interface package so V1/V2 surfaces never share factories.
+        from jarvis_portal.context import IOContext  # type: ignore import-not-found
+        from jarvis_portal.core.registry import (  # type: ignore import-not-found
             MissingAdapterError,
+        )
+        from jarvis_portal.v2 import (  # type: ignore import-not-found
             create_entry_point_registry,
         )
     except ImportError as exc:
+        # Older Portal without v2 package: fall back to top-level (V1 surface).
+        try:
+            from jarvis_portal import (  # type: ignore import-not-found
+                IOContext,
+                MissingAdapterError,
+                create_entry_point_registry,
+            )
+        except ImportError as inner:
+            _PORTAL_IMPORT_ERROR = inner
+            raise ImportError(
+                "Calculator I/O requires Jarvis-HEP-Portal>=1.4.0 (V2 surface). "
+                "Install it with `pip install 'Jarvis-HEP-Portal[slha,xslha]'` "
+                "(or `pip install -e ../Jarvis-Portal` for local development)."
+            ) from inner
         _PORTAL_IMPORT_ERROR = exc
-        raise ImportError(
-            "Calculator I/O requires Jarvis-HEP-Portal. "
-            "Install it with `pip install Jarvis-HEP-Portal` "
-            "(or `pip install -e ../Jarvis-Portal` for local development)."
-        ) from exc
+        return IOContext, MissingAdapterError, create_entry_point_registry
     return IOContext, MissingAdapterError, create_entry_point_registry
 
 
 def get_io_registry():
-    """Return the process-local Portal registry (builtins + entry points)."""
+    """Return the process-local **V2** Portal registry (builtins + entry points)."""
     global _REGISTRY
     if _REGISTRY is not None:
         return _REGISTRY
