@@ -46,6 +46,9 @@ _INFO_PROJECTION_KEYS = (
     "bucket_id",
     "bucket_dir",
     "bucket_name",
+    "error",
+    "error_type",
+    "failed_module",
 )
 _TIMING_KEYS = ("elapsed_s", "started_at", "finished_at")
 

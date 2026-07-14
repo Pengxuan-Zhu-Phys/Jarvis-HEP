@@ -160,20 +160,9 @@ def _normalize_database_records(records: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _sample_tree_file_sets(sample_root: str) -> list[list[str]]:
-    manifests: list[list[str]] = []
-    if not os.path.isdir(sample_root):
-        return manifests
-    for child in sorted(os.listdir(sample_root)):
-        child_path = os.path.join(sample_root, child)
-        if not os.path.isdir(child_path):
-            continue
-        files = sorted(
-            os.path.relpath(path, child_path)
-            for path in glob.glob(os.path.join(child_path, "**", "*"), recursive=True)
-            if os.path.isfile(path)
-        )
-        manifests.append(files)
-    return sorted(manifests)
+    from jarvishep2.testing.check_modules import sample_tree_file_sets
+
+    return sample_tree_file_sets(sample_root)
 
 
 class WorkflowCalculatorTests(unittest.TestCase):

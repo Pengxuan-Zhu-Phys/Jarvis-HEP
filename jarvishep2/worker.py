@@ -508,6 +508,15 @@ class Worker(Process):
             sample.status = "Failed"
             if isinstance(sample.info, dict):
                 sample.info["status"] = "Failed"
+                # Stable machine-readable failure fields (D11.1).
+                sample.info["error"] = str(exc)
+                sample.info["error_type"] = type(exc).__name__
+                failed_module = sample.info.get("failed_module")
+                if not failed_module:
+                    # Best-effort: last calculator/opera name from execution plan.
+                    plan = sample.execution_plan or []
+                    if plan:
+                        sample.info["failed_module"] = str(getattr(plan[-1], "name", "") or "")
             materialize_failure_artifacts(sample.info, error=exc)
             top.error("sample failed; see sample log -> %s", exc)
         finally:

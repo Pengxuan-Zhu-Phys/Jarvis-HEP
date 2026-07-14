@@ -113,15 +113,25 @@ Operas:
 Run and inspect:
 
 ```bash
-Jarvis2 quickstart.yaml               # run the scan
-Jarvis2 --monitor                     # one read-only status snapshot (separate terminal)
-Jarvis2 quickstart.yaml --resume      # resume from checkpoint without the 30 s prompt
-Jarvis2 path/to/plot.yaml --plot      # render an existing JarvisPLOT scene (plot extra)
+Jarvis2 run quickstart.yaml           # preferred
+Jarvis2 quickstart.yaml               # legacy alias → run
+Jarvis2 check path/to/check.yaml      # fixed-point calculator smoke
+Jarvis2 monitor                       # one read-only status snapshot
+Jarvis2 plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
+Jarvis2 portal formats                # list Portal I/O formats
+Jarvis2 operas list                   # list Operas operators
+
+# legacy (still work):
+Jarvis2 quickstart.yaml --resume
+Jarvis2 path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis2 plot`
 ```
 
 Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Archiver,
 and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
 leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
+
+Exit codes: **0** all samples succeeded; **1** any sample failed (including partial) or runtime
+error; **2** usage/config; **130** interrupted.
 
 `--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML. Scan-to-plot generation
 and post-run plotting are planned follow-ups. Portal and Operas discovery currently use their

@@ -55,6 +55,7 @@ from jarvishep2.testing.check_modules import (
     build_check_module_samples,
     verify_check_modules_golden,
 )
+from jarvishep2.run_outcome import RunOutcome
 from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.task_config import (
     check_modules_points_path,
@@ -282,7 +283,7 @@ class Jarvis2Core:
         timeout: float = 120.0,
         verify_golden: Mapping[str, Any] | None = None,
     ) -> int:
-        """Run the fixed-point calculator smoke path and return archived row count."""
+        """Run the fixed-point calculator smoke path and return submitted sample count."""
         samples = self._build_check_module_samples()
         self.submit_samples(samples)
         self.wait_for_results(len(samples), timeout=timeout)
@@ -292,6 +293,37 @@ class Jarvis2Core:
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
         return len(samples)
 
+    def _capture_run_outcome(
+        self,
+        *,
+        submitted: int,
+        interrupted: bool = False,
+        error: str | None = None,
+        error_type: str | None = None,
+    ) -> RunOutcome:
+        counters = self._live_sample_counters()
+        archived = 0
+        try:
+            archived = int(self._archiver_records_written())
+        except Exception:
+            archived = 0
+        run_id = str(self.info.get("run_id") or "")
+        return RunOutcome.from_counters(
+            submitted=int(submitted or 0),
+            completed=int(counters.get("ok") or 0),
+            failed=int(counters.get("failed") or 0),
+            archived=archived,
+            run_id=run_id,
+            interrupted=interrupted,
+            error=error,
+            error_type=error_type,
+            extras={
+                "queued": int(counters.get("queued") or 0),
+                "running": int(counters.get("running") or 0),
+                "archive_q": int(counters.get("archive_q") or 0),
+            },
+        )
+
     def run(
         self,
         *,
@@ -299,26 +331,29 @@ class Jarvis2Core:
         check_modules: bool = False,
         verify_golden: Mapping[str, Any] | None = None,
         write_run_summary: bool = True,
-    ) -> int:
-        """Execute a distributed scan from the loaded task config."""
+    ) -> RunOutcome:
+        """Execute a distributed scan; return a truthful :class:`RunOutcome` (D11.1)."""
         self.prepare_resume(resume=resume, fresh=False)
         self._install_control_signal_handlers()
+        submitted = 0
+        outcome: RunOutcome | None = None
         try:
             self.bootstrap_distributed_runtime()
             method = sampling_method(self.config)
             if check_modules or is_check_modules_task(self.config):
-                count = self.run_check_modules(verify_golden=verify_golden)
+                submitted = self.run_check_modules(verify_golden=verify_golden)
             elif method in STATELESS_METHODS:
-                count = self.run_distributed_scan()
+                submitted = self.run_distributed_scan()
             elif method:
                 # Stateful / feedback-driven methods (e.g. AdaptiveLevelSet).
-                count = self.run_adaptive_scan()
+                submitted = self.run_adaptive_scan()
             else:
                 raise NotImplementedError(
                     "Unsupported task: configure Sampling.mode: check_modules, "
                     "Sampling.Method: Bridson|AdaptiveLevelSet, or pass --check-modules."
                 )
-            return count
+            outcome = self._capture_run_outcome(submitted=submitted)
+            return outcome
         except KeyboardInterrupt:
             self._interrupt_requested = True
             try:
@@ -328,7 +363,13 @@ class Jarvis2Core:
                 )
             except Exception:
                 pass
-            raise
+            outcome = self._capture_run_outcome(
+                submitted=submitted,
+                interrupted=True,
+                error="interrupted",
+                error_type="KeyboardInterrupt",
+            )
+            return outcome
         finally:
             try:
                 self.shutdown(
@@ -338,8 +379,8 @@ class Jarvis2Core:
             finally:
                 self._restore_control_signal_handlers()
 
-    def check_modules(self, *, verify_golden: Mapping[str, Any] | None = None) -> int:
-        """CLI entry for ``Jarvis2 <task>.yaml --check-modules``."""
+    def check_modules(self, *, verify_golden: Mapping[str, Any] | None = None) -> RunOutcome:
+        """CLI entry for ``Jarvis2 check <task>.yaml`` / ``--check-modules``."""
         return self.run(check_modules=True, verify_golden=verify_golden)
 
     def is_redis_runtime(self) -> bool:

@@ -13,20 +13,66 @@ from jarvishep2.sample import Sample
 from jarvishep2.Sampling.variables import load_variables
 
 
+def _files_under(root: str) -> list[str]:
+    files = sorted(
+        os.path.relpath(path, root)
+        for path in glob.glob(os.path.join(root, "**", "*"), recursive=True)
+        if os.path.isfile(path)
+    )
+    # Portal may leave `.temp/` copies when save:false; ignore for golden parity.
+    return [path for path in files if not path.startswith(".temp" + os.sep) and path != ".temp"]
+
+
 def sample_tree_file_sets(sample_root: str) -> list[list[str]]:
+    """Collect per-sample relative file lists under SAMPLE/.
+
+    Supports as-built layouts:
+    - flat ``SAMPLE/<uuid>/…`` (legacy)
+    - bucketed ``SAMPLE/000001/<uuid>/…``
+    - packed ``SAMPLE/000001.tar.gz`` containing ``000001/<uuid>/…``
+    """
+    import tarfile
+    from collections import defaultdict
+
     manifests: list[list[str]] = []
     if not os.path.isdir(sample_root):
         return manifests
     for child in sorted(os.listdir(sample_root)):
         child_path = os.path.join(sample_root, child)
+        if child.endswith(".tar.gz") and os.path.isfile(child_path):
+            by_uuid: dict[str, list[str]] = defaultdict(list)
+            with tarfile.open(child_path, "r:gz") as tar:
+                for member in tar.getmembers():
+                    if not member.isfile():
+                        continue
+                    parts = member.name.split("/")
+                    # <bucket>/<uuid>/rel...
+                    if len(parts) >= 3:
+                        by_uuid[parts[1]].append("/".join(parts[2:]))
+                    elif len(parts) == 2:
+                        by_uuid[parts[0]].append(parts[1])
+            for files in by_uuid.values():
+                cleaned = sorted(
+                    path
+                    for path in files
+                    if not path.startswith(".temp/") and path != ".temp"
+                )
+                manifests.append(cleaned)
+            continue
         if not os.path.isdir(child_path):
             continue
-        files = sorted(
-            os.path.relpath(path, child_path)
-            for path in glob.glob(os.path.join(child_path, "**", "*"), recursive=True)
-            if os.path.isfile(path)
-        )
-        manifests.append(files)
+        subdirs = [
+            os.path.join(child_path, name)
+            for name in sorted(os.listdir(child_path))
+            if os.path.isdir(os.path.join(child_path, name))
+        ]
+        # Bucket directory: SAMPLE/000001/<uuid>/...
+        if child.isdigit() and subdirs:
+            for sample_dir in subdirs:
+                manifests.append(_files_under(sample_dir))
+            continue
+        # Flat legacy SAMPLE/<uuid>/...
+        manifests.append(_files_under(child_path))
     return sorted(manifests)
 
 

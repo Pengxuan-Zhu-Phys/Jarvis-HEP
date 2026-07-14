@@ -401,6 +401,15 @@ class ArchiverProcess(Process):
             self.records_written.value = int(archiver.records_written)
         redis.close()
 
+    def drain(self, *, idle_timeout: float = 2.0) -> int:
+        """Best-effort: process mode drains on stop; expose no-op for core finalize."""
+        # Active draining happens inside the child SimpleArchiver before exit.
+        _ = idle_timeout
+        try:
+            return int(self.records_written.value)  # type: ignore[attr-defined]
+        except Exception:
+            return 0
+
     def stop(self, *, wait: bool = True, timeout: float = 5.0) -> None:
         self._stop_event.set()
         if wait:
