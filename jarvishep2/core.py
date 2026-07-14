@@ -194,6 +194,7 @@ class Jarvis2Core:
         )
         self.init_archiver(db_path)
         self.start_runtime_checkpoint()
+        self._export_workflow_flowchart()
 
     @staticmethod
     def _load_check_module_rows(csv_path: str) -> tuple[list[dict[str, str]], list[str]]:
@@ -293,6 +294,67 @@ class Jarvis2Core:
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
         return len(samples)
 
+    def _export_workflow_flowchart(self) -> None:
+        """Write flowchart.json (+ optional PNG) under images/ (D11.5)."""
+        if bool(self.config.get("skip_draw_flowchart")) or bool(
+            self.info.get("skip_draw_flowchart")
+        ):
+            return
+        try:
+            from jarvishep2.flowchart import (
+                build_flowchart_scene_from_config,
+                export_flowchart_semantics,
+                render_flowchart_png,
+            )
+        except Exception:
+            return
+        task_result_dir = str(
+            self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
+        )
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        images_dir = os.path.join(task_result_dir, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        json_path = os.path.join(images_dir, "flowchart.json")
+        png_path = os.path.join(images_dir, "flowchart.png")
+        try:
+            scene = build_flowchart_scene_from_config(self.config)
+            export_flowchart_semantics(scene, json_path)
+            self.info["flowchart_semantic_path"] = json_path
+            rendered = render_flowchart_png(scene, png_path)
+            if rendered:
+                self.info["flowchart_path"] = rendered
+                self._logger.info("workflow flowchart rendered → %s", rendered)
+            else:
+                self._logger.info("workflow flowchart scene written → %s", json_path)
+        except Exception as exc:
+            self._logger.warning("workflow flowchart export failed -> %s", exc)
+
+    def _emit_plot_scenes(self) -> None:
+        """Emit scan/levelset plot scene YAMLs under images/ after a successful run."""
+        if bool(self.config.get("skip_emit_plot_scenes")):
+            return
+        try:
+            from jarvishep2.plot_scene import emit_plot_scenes_from_run
+        except Exception:
+            return
+        task_result_dir = str(
+            self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
+        )
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        try:
+            written = emit_plot_scenes_from_run(
+                task_result_dir,
+                scan_name=scan_name,
+            )
+            if written:
+                self.info["plot_scenes"] = written
+                self._logger.info(
+                    "plot scenes emitted → %s",
+                    ", ".join(f"{key}={path}" for key, path in written.items()),
+                )
+        except Exception as exc:
+            self._logger.warning("plot scene emit failed -> %s", exc)
+
     def _capture_run_outcome(
         self,
         *,
@@ -353,6 +415,8 @@ class Jarvis2Core:
                     "Sampling.Method: Bridson|AdaptiveLevelSet, or pass --check-modules."
                 )
             outcome = self._capture_run_outcome(submitted=submitted)
+            if outcome.ok and not self._interrupt_requested:
+                self._emit_plot_scenes()
             return outcome
         except KeyboardInterrupt:
             self._interrupt_requested = True

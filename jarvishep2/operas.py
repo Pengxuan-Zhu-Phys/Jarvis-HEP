@@ -74,6 +74,74 @@ def _snapshot_operas_registry_operator(
     return _acall
 
 
+_VALID_CALL_MODES = frozenset({"call", "acall"})
+
+
+def normalize_call_mode(value: Any) -> str:
+    """Strict ``call`` / ``acall`` validation (D11.4)."""
+    mode = str(value if value is not None else "call").strip().lower()
+    if mode not in _VALID_CALL_MODES:
+        raise ValueError(
+            f"Operas call_mode must be one of {sorted(_VALID_CALL_MODES)}, got {value!r}"
+        )
+    return mode
+
+
+def filter_operator_kwargs(
+    func: Callable[..., Any],
+    kwargs: Mapping[str, Any],
+    *,
+    operator_name: str = "",
+) -> dict[str, Any]:
+    """Pass only parameters accepted by *func* (unless it has ``**kwargs``).
+
+    Declared parameters missing from *kwargs* raise a friendly error instead of
+    a bare TypeError from the call site.
+    """
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return dict(kwargs)
+
+    params = signature.parameters
+    accepts_var_keyword = any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values()
+    )
+    if accepts_var_keyword:
+        return dict(kwargs)
+
+    allowed = {
+        name
+        for name, param in params.items()
+        if param.kind
+        in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        )
+    }
+    filtered = {key: value for key, value in kwargs.items() if key in allowed}
+
+    missing: list[str] = []
+    for name, param in params.items():
+        if param.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        ):
+            continue
+        if param.default is not inspect.Parameter.empty:
+            continue
+        if name in filtered:
+            continue
+        missing.append(name)
+    if missing:
+        label = f" '{operator_name}'" if operator_name else ""
+        raise TypeError(
+            f"Operas operator{label} missing required parameter(s): {missing}. "
+            f"Available inputs: {sorted(kwargs)}"
+        )
+    return filtered
+
+
 def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[..., Any]:
     """Resolve an operator name via importlib, then Jarvis-Operas.
 
@@ -87,16 +155,26 @@ def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[...,
     name = str(operator).strip()
     if not name:
         raise ValueError("Operas operator name must not be empty")
+    mode = normalize_call_mode(call_mode)
 
     import_error: Exception | None = None
     try:
-        return _resolve_dotted_callable(name)
+        func = _resolve_dotted_callable(name)
+        if mode == "acall":
+            async def _acall(**kwargs: Any) -> Any:
+                result = func(**kwargs)
+                if inspect.isawaitable(result):
+                    return await result
+                return result
+
+            return _acall
+        return func
     except Exception as exc:
         import_error = exc
 
     registry = _try_jarvis_operas_registry(name)
     if registry is not None:
-        return _snapshot_operas_registry_operator(registry, name, call_mode=call_mode)
+        return _snapshot_operas_registry_operator(registry, name, call_mode=mode)
 
     try:
         import jarvis_operas  # noqa: F401
@@ -139,11 +217,12 @@ class OperasModule:
         self.input = list(config.get("input", []) or [])
         self.output = list(config.get("output", []) or [])
         self.kwargs = dict(config.get("kwargs", {}) or {})
-        self.call_mode = str(config.get("call_mode", "call")).strip().lower()
+        self.call_mode = normalize_call_mode(config.get("call_mode", "call"))
         self.timeout_sec = self._normalize_timeout(
             config.get("timeout_sec", config.get("timeout"))
         )
         self._func: Callable[..., Any] | None = None
+        self._bound_signature: inspect.Signature | None = None
         if expression_context is None:
             from jarvishep2.operas_functions import (
                 build_operas_expression_context,
@@ -168,9 +247,15 @@ class OperasModule:
 
     def preload(self) -> None:
         """Compile input expressions and resolve the operator once per Worker."""
+        # Re-validate in case config was mutated after construction.
+        self.call_mode = normalize_call_mode(self.call_mode)
         self._compile_input_expressions()
         if self._func is None:
             self._func = resolve_operator(self.operator, call_mode=self.call_mode)
+            try:
+                self._bound_signature = inspect.signature(self._func)
+            except (TypeError, ValueError):
+                self._bound_signature = None
 
     def _compile_input_expressions(self) -> None:
         if self._input_expressions_compiled:
@@ -332,12 +417,17 @@ class OperasModule:
         started_at = time.monotonic()
         try:
             input_observables = self._build_input_observables(observables, logger=logger)
-            call_kwargs = dict(self.kwargs)
-            call_kwargs["observables"] = input_observables
+            raw_kwargs: dict[str, Any] = dict(self.kwargs)
+            raw_kwargs["observables"] = input_observables
             if logger is not None:
-                call_kwargs.setdefault("logger", logger)
+                raw_kwargs.setdefault("logger", logger)
             for key, value in input_observables.items():
-                call_kwargs.setdefault(str(key), value)
+                raw_kwargs.setdefault(str(key), value)
+            call_kwargs = filter_operator_kwargs(
+                self._func,
+                raw_kwargs,
+                operator_name=self.operator,
+            )
 
             if logger is not None:
                 logger.info(
@@ -426,4 +516,10 @@ def preload_operas(
     return loaded
 
 
-__all__ = ["OperasModule", "preload_operas", "resolve_operator"]
+__all__ = [
+    "OperasModule",
+    "filter_operator_kwargs",
+    "normalize_call_mode",
+    "preload_operas",
+    "resolve_operator",
+]

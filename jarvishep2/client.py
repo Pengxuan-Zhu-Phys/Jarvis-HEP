@@ -75,6 +75,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_p = sub.add_parser("run", help="Run a distributed scan task YAML")
     run_p.add_argument("task_yaml", help="Path to scan task YAML")
     run_p.add_argument("--resume", action="store_true", help="Resume from checkpoint")
+    run_p.add_argument(
+        "--skip-draw-flowchart",
+        action="store_true",
+        help="Skip workflow flowchart.json / flowchart.png export",
+    )
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
     check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
@@ -114,6 +119,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--resume",
         action="store_true",
         help="(legacy with bare TASK.yaml via normalize) Resume from checkpoint",
+    )
+    parser.add_argument(
+        "--skip-draw-flowchart",
+        action="store_true",
+        help="(legacy) Skip flowchart export",
     )
     parser.add_argument(
         "--pid",
@@ -320,6 +330,7 @@ def dispatch_run(
     *,
     resume: bool = False,
     check_modules: bool = False,
+    skip_draw_flowchart: bool = False,
 ) -> int:
     if not task_yaml:
         print("Task YAML is required.", file=sys.stderr)
@@ -334,6 +345,10 @@ def dispatch_run(
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+
+    if skip_draw_flowchart:
+        core.config["skip_draw_flowchart"] = True
+        core.info["skip_draw_flowchart"] = True
 
     try:
         if check_modules:
@@ -378,10 +393,19 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_operas(args)
     if intent == "check":
         task = getattr(args, "task_yaml", None)
-        return dispatch_run(str(task or ""), check_modules=True)
+        return dispatch_run(
+            str(task or ""),
+            check_modules=True,
+            skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
+        )
     if intent == "run":
         task = getattr(args, "task_yaml", None)
-        return dispatch_run(str(task or ""), resume=bool(args.resume), check_modules=False)
+        return dispatch_run(
+            str(task or ""),
+            resume=bool(args.resume),
+            check_modules=False,
+            skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
+        )
 
     print(f"Unknown intent: {intent}", file=sys.stderr)
     return EXIT_USAGE

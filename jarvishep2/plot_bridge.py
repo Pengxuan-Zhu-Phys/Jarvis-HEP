@@ -68,4 +68,24 @@ def run_plot(
         sys.argv = previous_argv
 
 
-__all__ = ["PlotBridgeError", "require_jarvisplot", "run_plot"]
+def render_flowchart_scene(scene: dict, output_path: str) -> str:
+    """Render a flowchart scene mapping via JarvisPLOT (optional dependency)."""
+    try:
+        from jarvisplot import render_flowchart
+    except ImportError as exc:
+        raise ImportError(
+            "Flowchart rendering requires JarvisPLOT. "
+            "Install with `pip install 'jarvishep2[plot]'`."
+        ) from exc
+    path = str(output_path or "").strip()
+    if not path:
+        raise PlotBridgeError("flowchart output path must not be empty")
+    return str(render_flowchart(dict(scene), output_path=path) or path)
+
+
+__all__ = [
+    "PlotBridgeError",
+    "render_flowchart_scene",
+    "require_jarvisplot",
+    "run_plot",
+]

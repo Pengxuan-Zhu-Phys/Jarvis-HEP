@@ -83,9 +83,23 @@ class WorkflowExecutionPlanTests(unittest.TestCase):
         self.assertEqual(restored, template)
         self.assertEqual(get_spawn_context().get_start_method(), "spawn")
 
-    @unittest.skip("flowchart export not implemented in jarvishep2 yet (V1 parity deferred)")
-    def test_flowchart_parity_golden(self) -> None:
-        raise NotImplementedError
+    def test_flowchart_export_from_execution_plan(self) -> None:
+        from jarvishep2.flowchart import build_flowchart_scene
+
+        plan = build_execution_plan(
+            calculator_modules=[{"name": "EggBox"}],
+            opera_modules=[{"name": "Prep"}],
+            include_likelihood=True,
+        )
+        scene = build_flowchart_scene(plan, scan_name="unit", project_name="t")
+        self.assertEqual(scene["schema"], "jarvisplot.scene/v1")
+        self.assertEqual(scene["scene_type"], "flowchart")
+        ids = {node["id"] for node in scene["nodes"]}
+        self.assertIn("Parameters", ids)
+        self.assertIn("EggBox", ids)
+        self.assertIn("Prep", ids)
+        self.assertIn("LogLikelihood", ids)
+        self.assertTrue(scene["edges"])
 
 
 if __name__ == "__main__":

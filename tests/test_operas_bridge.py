@@ -184,3 +184,41 @@ class OperasModuleBridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperasCallModeAndSignatureTests(unittest.TestCase):
+    def test_invalid_call_mode_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            OperasModule(
+                "Bad",
+                {
+                    "operator": "jarvishep2.testing.eggbox.eggbox2d_numpy",
+                    "call_mode": "sync",
+                    "input": [],
+                    "output": [],
+                },
+            )
+
+    def test_signature_filter_drops_unknown_kwargs_without_var_keyword(self) -> None:
+        from jarvishep2.operas import filter_operator_kwargs
+
+        def only_xy(x, y):
+            return {"z": float(x) + float(y)}
+
+        filtered = filter_operator_kwargs(
+            only_xy,
+            {"x": 1.0, "y": 2.0, "logger": object(), "observables": {}, "extra": 9},
+            operator_name="only_xy",
+        )
+        self.assertEqual(set(filtered), {"x", "y"})
+
+    def test_signature_filter_missing_required_is_friendly(self) -> None:
+        from jarvishep2.operas import filter_operator_kwargs
+
+        def needs_x(x):
+            return {"z": x}
+
+        with self.assertRaises(TypeError) as raised:
+            filter_operator_kwargs(needs_x, {"y": 1.0}, operator_name="needs_x")
+        self.assertIn("missing required", str(raised.exception))
+        self.assertIn("needs_x", str(raised.exception))
