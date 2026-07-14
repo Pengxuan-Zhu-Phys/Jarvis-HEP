@@ -51,8 +51,9 @@ def _import_portal():
         except ImportError as inner:
             _PORTAL_IMPORT_ERROR = inner
             raise ImportError(
-                "Calculator I/O requires Jarvis-HEP-Portal>=1.4.0 (V2 surface). "
-                "Install it with `pip install 'Jarvis-HEP-Portal[slha,xslha]'` "
+                "Calculator I/O requires Jarvis-HEP-Portal>=1.4.1 (V2 surface; "
+                "pyslha/xslha are core deps). "
+                "Install it with `pip install -U Jarvis-HEP-Portal` "
                 "(or `pip install -e ../Jarvis-Portal` for local development)."
             ) from inner
         _PORTAL_IMPORT_ERROR = exc
