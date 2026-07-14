@@ -196,6 +196,30 @@ class AsyncSubprocessScheduler:
         self._peak_running = 0
         self._timed_out = 0
 
+        # PIDs of in-flight children. They run in their own sessions
+        # (start_new_session=True), so if this Worker process is SIGKILLed
+        # they become orphans; the watchdog reads these PIDs from the Worker
+        # heartbeat and reaps the process groups before reusing PackID slots.
+        self._active_pids: set[int] = set()
+        self._active_pids_lock = threading.Lock()
+
+    def active_subprocess_pids(self) -> list[int]:
+        """PIDs (== process-group ids) of children currently executing."""
+        with self._active_pids_lock:
+            return sorted(self._active_pids)
+
+    def _register_active_pid(self, pid: int | None) -> None:
+        if pid is None:
+            return
+        with self._active_pids_lock:
+            self._active_pids.add(int(pid))
+
+    def _unregister_active_pid(self, pid: int | None) -> None:
+        if pid is None:
+            return
+        with self._active_pids_lock:
+            self._active_pids.discard(int(pid))
+
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
@@ -548,6 +572,7 @@ class AsyncSubprocessScheduler:
         drain_out = asyncio.create_task(_drain_stream(process.stdout, stdout_fh, "stdout"))
         drain_err = asyncio.create_task(_drain_stream(process.stderr, stderr_fh, "stderr"))
 
+        self._register_active_pid(process.pid)
         try:
             if timeout is None:
                 rc = await process.wait()
@@ -558,6 +583,7 @@ class AsyncSubprocessScheduler:
             await self._terminate_with_fallback(process)
             rc = await process.wait()
         finally:
+            self._unregister_active_pid(process.pid)
             try:
                 stdout_bytes, stderr_bytes = await asyncio.gather(
                     drain_out, drain_err, return_exceptions=False

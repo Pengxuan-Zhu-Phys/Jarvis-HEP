@@ -409,6 +409,27 @@ class TaskFactory:
         self.redis.push_task(task)
         return True
 
+    @staticmethod
+    def _kill_orphan_process_groups(pids: list[int]) -> int:
+        """SIGKILL calculator process groups orphaned by a dead Worker.
+
+        Children run with ``start_new_session=True``, so killing the Worker
+        does not kill them; left alone they would keep writing into a PackID
+        shadow directory that is about to be handed to a new owner. Only
+        session leaders are targeted (``getpgid(pid) == pid``) so a recycled
+        OS pid can never match an unrelated process.
+        """
+        killed = 0
+        for pid in pids:
+            try:
+                if os.getpgid(pid) != pid:
+                    continue
+                os.killpg(pid, signal.SIGKILL)
+                killed += 1
+            except (ProcessLookupError, PermissionError, OSError):
+                continue
+        return killed
+
     def _handle_worker_failure(self, worker: Worker, *, reason: str) -> None:
         worker_id = int(worker.worker_id)
         dead_pid = worker.pid
@@ -425,6 +446,8 @@ class TaskFactory:
             self._force_stop_worker(worker)
 
             heartbeat = self._worker_heartbeat(worker_id)
+            orphan_pids = self.redis.decode_heartbeat_subprocess_pids(heartbeat)
+            orphans_killed = self._kill_orphan_process_groups(orphan_pids)
             held_packs = self.redis.decode_heartbeat_held_packs(heartbeat)
             released = self.redis.sweep_held_calc_slots(held_packs)
             requeued = self._requeue_in_flight_task(heartbeat)
@@ -440,9 +463,10 @@ class TaskFactory:
             self._respawn_count += 1
             self._peak_workers_alive = max(self._peak_workers_alive, len(self._alive_workers()))
             self._logger.warning(
-                "recovered dead worker %d (reason=%s, released_slots=%d, requeued=%s, new_pid=%s)",
+                "recovered dead worker %d (reason=%s, orphans_killed=%d, released_slots=%d, requeued=%s, new_pid=%s)",
                 worker_id,
                 reason,
+                orphans_killed,
                 released,
                 requeued,
                 replacement.pid,

@@ -276,7 +276,7 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
             scheduler = _attach_calc_runtime(module, tmpdir)
             try:
                 module.preload_templates()
-                module.acquire_pack_id("pack-clobber")
+                module.acquire_pack_id("001")
                 result = module.execute(sample.info)
             finally:
                 scheduler.shutdown(wait=True)
@@ -320,7 +320,7 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
             scheduler = _attach_calc_runtime(module, tmpdir)
             try:
                 module.preload_templates()
-                module.acquire_pack_id("pack-1")
+                module.acquire_pack_id("001")
                 with self.assertRaises(UnsupportedIOTypeError):
                     module.execute(sample.info)
             finally:
@@ -387,7 +387,7 @@ class CalculatorPortalIntegrationTests(unittest.TestCase):
             scheduler = _attach_calc_runtime(module, tmpdir)
             try:
                 module.preload_templates()
-                module.acquire_pack_id("pack-egg")
+                module.acquire_pack_id("001")
                 result = module.execute(sample.info)
             finally:
                 scheduler.shutdown(wait=True)

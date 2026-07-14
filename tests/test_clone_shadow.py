@@ -99,9 +99,9 @@ class CalculatorShadowUnitTests(unittest.TestCase):
                 "ShadowCalc",
                 _shadow_calc_module(os.path.join(tmpdir, "runtime")),
             )
-            module.acquire_pack_id("pack-abc")
+            module.acquire_pack_id("001")
             decoded = module.decode_shadow_path(module.basepath)
-            self.assertIn("pack-abc", decoded)
+            self.assertIn("001", decoded)
             self.assertNotIn("@PackID", decoded)
 
     def test_decode_shadow_commands_replaces_pack_id(self) -> None:
@@ -110,10 +110,10 @@ class CalculatorShadowUnitTests(unittest.TestCase):
                 "ShadowCalc",
                 _shadow_calc_module(os.path.join(tmpdir, "runtime")),
             )
-            module.acquire_pack_id("pack-xyz")
+            module.acquire_pack_id("002")
             decoded = module.decode_shadow_commands({"cmd": "cd @PackID", "cwd": "@PackID"})
-            self.assertEqual(decoded["cmd"], "cd pack-xyz")
-            self.assertEqual(decoded["cwd"], "pack-xyz")
+            self.assertEqual(decoded["cmd"], "cd 002")
+            self.assertEqual(decoded["cwd"], "002")
 
 
 class CloneShadowIntegrationTests(unittest.TestCase):
@@ -233,7 +233,7 @@ class CloneShadowIntegrationTests(unittest.TestCase):
                 sample.materialize(worker_id="0")
 
                 module = CalculatorModule("SafeCalc", safe_module)
-                module.acquire_pack_id("pack-safe")
+                module.acquire_pack_id("001")
                 link_path = module.ensure_symlink_runtime(sample.info)
                 assert link_path is not None
                 self.assertTrue(os.path.islink(link_path))

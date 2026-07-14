@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 import json
+import time
 from typing import Any, Mapping
 from uuid import UUID, uuid4
 
@@ -22,6 +23,9 @@ WORKER_STATUS = "hep:worker:status:{id}"
 CALC_STATUS = "hep:calculator:status"
 SAMPLE_STATS = "hep:sample:stats"
 OP_COUNT = "hep:{kind}:op_count"
+# Single control-process lease for one Redis DB (hard guard against stacked Jarvis2 runs).
+CONTROL_LOCK = "hep:control:lock"
+CONTROL_LOCK_TTL_SEC = 120
 
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
@@ -60,6 +64,18 @@ def format_calc_pack_id(index: int, *, slots: int) -> str:
     n = max(1, int(index))
     width = max(3, len(str(max(1, int(slots)))))
     return f"{n:0{width}d}"
+
+
+def is_stable_calc_pack_id(pack_id: str | None) -> bool:
+    """Return True for Redis-registered numeric PackIDs (``001``, ``16``, …).
+
+    Rejects legacy free-list junk such as the pre-migration token ``ready``,
+    empty strings, and UUID-shaped ids minted by older ``acquire_calc``.
+    """
+    text = str(pack_id or "").strip()
+    if not text or not text.isdigit():
+        return False
+    return int(text) >= 1
 
 
 def calc_status_free_field(name: str) -> str:
@@ -237,9 +253,11 @@ class RedisQueue:
         decoded = decode_payload(payload, codec=self._codec)
         if not isinstance(decoded, dict):
             raise CodecError("task payload must decode to a dict")
-        # Sample left the queue and is now in-flight on a Worker.
+        # Sample left the queue and is now in-flight on a Worker. Only the
+        # stats hash moves here: the D1.1 contract is a single sample
+        # op_count increment per sample, in submit_result. Backpressure
+        # reads fetch_sample_stats() directly, so it needs no op bump.
         self.r.hincrby(SAMPLE_STATS, "running", 1)
-        self.r.incr(OP_COUNT.format(kind="sample"))
         return decoded
 
     def drain_task_queue(self) -> int:
@@ -268,13 +286,16 @@ class RedisQueue:
         pipe.execute()
 
     def register_calc_pool(self, name: str, n: int) -> None:
-        """Register *n* stable PackID slots for a calculator module.
+        """Register *n* exclusive PackID slots owned by Redis.
 
-        Redis free-list entries are the PackIDs themselves (``001`` … ``N``),
-        managed entirely in Redis: Workers ``BLPOP`` a free slot, run the
-        sample, then ``RPUSH`` the same PackID back.  This matches V1's
-        reusable ``EggBox/001`` runtime directories and the user's design
-        (pool in Redis, pull/return from Workers).
+        Lifecycle (one sample / one worker per slot at a time)::
+
+            free list  calc:free:<name>  = [001, 002, …, N]
+            acquire    BLPOP free → busy[pack]=running   (exclusive)
+            release    HDEL busy  → RPUSH free           (reuse same PackID)
+
+        Always rebuilds the pool from scratch so leftover ``ready`` / UUID
+        tokens from older builds cannot re-enter the free list.
         """
         self._require_client()
         if n <= 0:
@@ -284,6 +305,7 @@ class RedisQueue:
         busy_key = calc_busy_packs_key(name)
         pack_ids = [format_calc_pack_id(i, slots=slots) for i in range(1, slots + 1)]
         pipe = self.r.pipeline(transaction=True)
+        # Hard reset: wipe free + busy so no UUID/ready residue survives.
         pipe.delete(pool_key)
         pipe.delete(busy_key)
         for pack_id in pack_ids:
@@ -297,56 +319,210 @@ class RedisQueue:
         )
         pipe.execute()
 
-    def acquire_calc(self, name: str, timeout: int = 30) -> str | None:
-        """Claim one free PackID slot from Redis (blocks up to *timeout* seconds).
+    def _discard_stale_free_token(self, name: str, token: str) -> None:
+        """Drop a non-PackID free-list entry (e.g. legacy ``ready``/UUID) permanently."""
+        free_field = calc_status_free_field(name)
+        try:
+            current = int(self.r.hget(CALC_STATUS, free_field) or 0)
+        except (TypeError, ValueError):
+            current = 0
+        if current > 0:
+            self.r.hincrby(CALC_STATUS, free_field, -1)
+        # Never RPUSH: stale tokens must not re-enter the pool.
 
-        Returns the stable PackID string (e.g. ``006``), or ``None`` on timeout.
+    def acquire_calc(self, name: str, timeout: int = 30) -> str | None:
+        """Claim one free PackID exclusively (blocks until a slot or timeout).
+
+        Only stable numeric PackIDs (``001`` …) are returned. Junk free-list
+        values (``ready``, UUIDs, empty) are discarded and the wait continues.
+        Returns ``None`` only when *timeout* elapses with no valid free slot.
         """
         self._require_client()
         pool_key = calc_free_list_key(name)
-        raw = self.r.blpop(pool_key, timeout=timeout)
-        if raw is None:
-            return None
-
-        # Free-list values are the PackIDs registered at pool seed time.
-        pack_id = str(raw[1]).strip()
-        if not pack_id:
-            # A consumed-but-empty entry means the pool data itself is corrupt;
-            # returning None here would silently lose a slot and skew counters.
-            raise RuntimeError(
-                f"corrupted calculator free list for '{name}': empty PackID entry"
-            )
         busy_key = calc_busy_packs_key(name)
-        pipe = self.r.pipeline(transaction=True)
-        pipe.hset(busy_key, pack_id, "active")
-        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
-        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
-        pipe.incr(OP_COUNT.format(kind="calculator"))
-        pipe.execute()
-        return pack_id
+        deadline = time.monotonic() + max(0.0, float(timeout))
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            # redis-py BLPOP timeout is whole seconds; keep waiting in chunks.
+            wait_sec = max(1, int(remaining) if remaining >= 1 else 1)
+            raw = self.r.blpop(pool_key, timeout=wait_sec)
+            if raw is None:
+                if time.monotonic() >= deadline:
+                    return None
+                continue
+
+            pack_id = str(raw[1]).strip()
+            if not is_stable_calc_pack_id(pack_id):
+                # Legacy free-list pollution — drop and wait for a real slot.
+                self._discard_stale_free_token(name, pack_id)
+                continue
+
+            # free → running (exclusive ownership for this worker/sample).
+            pipe = self.r.pipeline(transaction=True)
+            pipe.hset(busy_key, pack_id, "running")
+            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
+            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
+            pipe.incr(OP_COUNT.format(kind="calculator"))
+            pipe.execute()
+            return pack_id
 
     def release_calc(self, name: str, pack_id: str) -> None:
-        """Return a PackID slot to the Redis free list for reuse."""
+        """Return a PackID to free after the sample finishes (running → free)."""
         if not pack_id or not str(pack_id).strip():
             raise ValueError("pack_id is required for release_calc")
         pack_id = str(pack_id).strip()
         self._require_client()
+
+        # Never put non-stable ids back into the free list (closes the UUID loop).
+        if not is_stable_calc_pack_id(pack_id):
+            busy_key = calc_busy_packs_key(name)
+            # Best-effort cleanup if an old worker still held a UUID slot.
+            self.r.hdel(busy_key, pack_id)
+            return
+
         busy_key = calc_busy_packs_key(name)
         # Atomic guard: HDEL's return value decides the single winner when a
         # Worker's finally-release races the watchdog sweep for the same slot.
-        # A check-then-write (HEXISTS + pipeline) window would let both callers
-        # RPUSH, duplicating the PackID and aliasing its shadow directory.
         if not self.r.hdel(busy_key, pack_id):
             raise ValueError(f"unknown pack_id '{pack_id}' for calculator '{name}'")
 
         pool_key = calc_free_list_key(name)
         pipe = self.r.pipeline(transaction=True)
-        # Push the same PackID back so the next acquire reuses EggBox/00N.
+        # running → free: same PackID re-enters the pool for the next sample.
         pipe.rpush(pool_key, pack_id)
         pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
         pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
         pipe.incr(OP_COUNT.format(kind="calculator"))
         pipe.execute()
+
+    def force_release_calc(self, name: str, pack_id: str) -> bool:
+        """Best-effort PackID return for failure/cleanup paths (never raises).
+
+        Returns True when this call transitioned the slot from busy → free.
+        Safe under double-release races (second caller gets False).
+        """
+        try:
+            if not pack_id or not str(pack_id).strip():
+                return False
+            pack_id = str(pack_id).strip()
+            name = str(name or "").strip()
+            if not name:
+                return False
+            self._require_client()
+            busy_key = calc_busy_packs_key(name)
+            if not is_stable_calc_pack_id(pack_id):
+                self.r.hdel(busy_key, pack_id)
+                return True
+            if not self.r.hdel(busy_key, pack_id):
+                return False
+            pool_key = calc_free_list_key(name)
+            pipe = self.r.pipeline(transaction=True)
+            pipe.rpush(pool_key, pack_id)
+            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
+            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
+            pipe.incr(OP_COUNT.format(kind="calculator"))
+            pipe.execute()
+            return True
+        except Exception:
+            return False
+
+    def claim_control_lock(
+        self,
+        owner: str,
+        *,
+        ttl_sec: int = CONTROL_LOCK_TTL_SEC,
+    ) -> bool:
+        """Acquire exclusive control lease (SET NX EX). False if another owner holds it."""
+        self._require_client()
+        owner_text = str(owner or "").strip()
+        if not owner_text:
+            raise ValueError("control lock owner is required")
+        ttl = max(5, int(ttl_sec))
+        return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
+
+    def refresh_control_lock(
+        self,
+        owner: str,
+        *,
+        ttl_sec: int = CONTROL_LOCK_TTL_SEC,
+    ) -> bool:
+        """Extend the lease only if *owner* still holds it."""
+        self._require_client()
+        owner_text = str(owner or "").strip()
+        current = self.r.get(CONTROL_LOCK)
+        if current is None:
+            return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=max(5, int(ttl_sec))))
+        if str(current) != owner_text:
+            return False
+        self.r.expire(CONTROL_LOCK, max(5, int(ttl_sec)))
+        return True
+
+    def release_control_lock(self, owner: str) -> None:
+        """Drop the control lease if we still own it."""
+        self._require_client()
+        owner_text = str(owner or "").strip()
+        current = self.r.get(CONTROL_LOCK)
+        if current is not None and str(current) == owner_text:
+            self.r.delete(CONTROL_LOCK)
+
+    def get_control_lock_owner(self) -> str | None:
+        self._require_client()
+        value = self.r.get(CONTROL_LOCK)
+        return None if value is None else str(value)
+
+    def reset_run_ephemeral_keys(
+        self,
+        *,
+        calculator_names: list[str] | None = None,
+        worker_ids: list[str] | int | None = None,
+    ) -> dict[str, int]:
+        """Hard-reset queues/stats/calc pools for a fresh run (not a full FLUSHDB).
+
+        Calculator free/busy keys are deleted here; the caller must
+        ``register_calc_pool`` again before Workers start.
+        """
+        self._require_client()
+        keys: list[str] = [
+            TASK_QUEUE,
+            ARCHIVE_QUEUE,
+            FEEDBACK_QUEUE,
+            SAMPLE_STATS,
+            CALC_STATUS,
+        ]
+        for kind in sorted(_VALID_OP_KINDS):
+            keys.append(OP_COUNT.format(kind=kind))
+        for name in calculator_names or []:
+            text = str(name or "").strip()
+            if not text:
+                continue
+            keys.append(calc_free_list_key(text))
+            keys.append(calc_busy_packs_key(text))
+        if worker_ids is None:
+            # Best-effort: clear a reasonable worker status range.
+            worker_ids = list(range(0, 64))
+        elif isinstance(worker_ids, int):
+            worker_ids = list(range(0, max(0, int(worker_ids))))
+        for worker_id in worker_ids:
+            keys.append(WORKER_STATUS.format(id=str(worker_id)))
+        # Deduplicate while preserving order.
+        seen: set[str] = set()
+        unique_keys = []
+        for key in keys:
+            if key not in seen:
+                seen.add(key)
+                unique_keys.append(key)
+        deleted = 0
+        if unique_keys:
+            deleted = int(self.r.delete(*unique_keys) or 0)
+        # Explicit zeroed sample stats so readers never see missing keys as stale.
+        self.r.hset(
+            SAMPLE_STATS,
+            mapping={"completed": 0, "failed": 0, "running": 0},
+        )
+        return {"deleted_keys": deleted, "sample_stats_reset": 1}
 
     def submit_result(self, info: Mapping[str, Any]) -> None:
         self._require_client()
@@ -514,6 +690,30 @@ class RedisQueue:
         decoded = decode_payload(str(raw), codec=self._codec)
         return dict(decoded) if isinstance(decoded, dict) else None
 
+    def decode_heartbeat_subprocess_pids(self, heartbeat: Mapping[str, Any]) -> list[int]:
+        """Decode active calculator subprocess PIDs from a Worker heartbeat."""
+        raw = heartbeat.get("active_subprocess_pids")
+        if raw is None or raw == "":
+            return []
+        if isinstance(raw, (list, tuple)):
+            decoded: Any = list(raw)
+        else:
+            try:
+                decoded = json.loads(str(raw))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return []
+        if not isinstance(decoded, list):
+            return []
+        pids: list[int] = []
+        for item in decoded:
+            try:
+                pid = int(item)
+            except (TypeError, ValueError):
+                continue
+            if pid > 0:
+                pids.append(pid)
+        return pids
+
     def decode_heartbeat_held_packs(self, heartbeat: Mapping[str, Any]) -> dict[str, str]:
         """Decode held calculator slots from a Worker heartbeat hash."""
         raw = heartbeat.get("held_calc_packs")
@@ -608,6 +808,8 @@ __all__ = [
     "CALC_BUSY_PACKS",
     "CALC_FREE",
     "CALC_STATUS",
+    "CONTROL_LOCK",
+    "CONTROL_LOCK_TTL_SEC",
     "CodecError",
     "OP_COUNT",
     "RESULTS",
@@ -623,6 +825,7 @@ __all__ = [
     "decode_payload",
     "encode_payload",
     "format_calc_pack_id",
+    "is_stable_calc_pack_id",
     "INTERNAL_REDIS_CONFIG",
     "make_fakeredis_queue",
 ]

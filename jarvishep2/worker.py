@@ -70,12 +70,31 @@ class Worker(Process):
         self._current_sample_uuid: str | None = None
         self._current_task: dict[str, Any] | None = None
         self._held_calc_packs: dict[str, str] = {}
+        # Created child-side in _init_redis: locks/events are not spawn-picklable.
+        self._heartbeat_lock: threading.Lock | None = None
+        self._last_status = "starting"
+        self._heartbeat_stop: threading.Event | None = None
+        self._heartbeat_thread: threading.Thread | None = None
 
     def _handle_signal(self, signum: int, _frame: Any) -> None:
         self._is_running = False
 
+    def _hb_lock(self) -> threading.Lock:
+        """Heartbeat-state lock, created lazily child-side (not spawn-picklable).
+
+        First touch happens single-threaded (``_init_redis`` in the child, or
+        the test harness driving Worker methods in-process), so lazy creation
+        is race-free.
+        """
+        lock = self._heartbeat_lock
+        if lock is None:
+            lock = threading.Lock()
+            self._heartbeat_lock = lock
+        return lock
+
     def _init_redis(self) -> None:
         """Connect to Redis in the child process (spawn-safe)."""
+        self._hb_lock()
         self._redis = RedisQueue(self.redis_config)
         self._redis.connect()
         self._redis.heartbeat(
@@ -160,9 +179,19 @@ class Worker(Process):
         if self._redis is None:
             return
         now = time.time()
+        # Snapshot mutable fields under a lock: layer threads mutate
+        # _held_calc_packs concurrently and the periodic heartbeat thread
+        # reads them.
+        with self._hb_lock():
+            self._last_status = status
+            held_packs = dict(self._held_calc_packs)
+            current_task_ref = self._current_task
         current_task = ""
-        if self._current_task is not None:
-            current_task = self._redis.encode_task_for_heartbeat(self._current_task)
+        if current_task_ref is not None:
+            current_task = self._redis.encode_task_for_heartbeat(current_task_ref)
+        active_pids: list[int] = []
+        if self._scheduler is not None:
+            active_pids = self._scheduler.active_subprocess_pids()
         self._redis.heartbeat(
             str(self.worker_id),
             status=status,
@@ -170,9 +199,44 @@ class Worker(Process):
             current_sample=self._current_sample_uuid,
             last_heartbeat=now,
             ts=now,
-            held_calc_packs=json.dumps(self._held_calc_packs),
+            held_calc_packs=json.dumps(held_packs),
+            active_subprocess_pids=json.dumps(active_pids),
             current_task=current_task,
         )
+
+    def _heartbeat_loop(self, stop: threading.Event, interval_sec: float) -> None:
+        """Refresh the heartbeat while long calculator commands run.
+
+        Without this, a Worker only beats at acquire/release/pull, so any
+        ``module.execute()`` longer than ``Watchdog.stale_sec`` is falsely
+        recovered — fatal now that PackID slots alias shadow directories.
+        """
+        while not stop.wait(interval_sec):
+            try:
+                self._heartbeat(self._last_status)
+            except Exception:  # pragma: no cover - heartbeat must never kill the Worker
+                continue
+
+    def _start_heartbeat_thread(self) -> None:
+        interval = float(self.worker_config.get("heartbeat_interval_sec", 5.0) or 5.0)
+        if interval <= 0:
+            return
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(self._heartbeat_stop, max(0.1, interval)),
+            name="JarvisWorkerHeartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def _stop_heartbeat_thread(self) -> None:
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=2.0)
+        self._heartbeat_stop = None
+        self._heartbeat_thread = None
 
     def _run_calculator_step(self, step_name: str, sample: Sample) -> None:
         module = self._calculators.get(step_name)
@@ -185,7 +249,8 @@ class Worker(Process):
         pack_id = self._redis.acquire_calc(step_name, timeout=timeout)
         if pack_id is None:
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
-        self._held_calc_packs[step_name] = pack_id
+        with self._hb_lock():
+            self._held_calc_packs[step_name] = pack_id
         self._heartbeat("busy")
         try:
             module.acquire_pack_id(pack_id)
@@ -198,9 +263,47 @@ class Worker(Process):
             else:
                 self._merge_calculator_observables(sample, step_name, pack_id, updated)
         finally:
-            self._redis.release_calc(step_name, pack_id)
-            self._held_calc_packs.pop(step_name, None)
+            # Hard release: Redis socket errors must not leave the slot busy.
+            self._force_release_pack(step_name, pack_id)
             self._heartbeat("busy")
+
+    def _force_release_pack(self, step_name: str, pack_id: str | None = None) -> None:
+        """Return a calculator PackID to Redis free (best-effort, never raises)."""
+        if self._redis is None:
+            return
+        held_pack = pack_id
+        with self._hb_lock():
+            if held_pack is None:
+                held_pack = self._held_calc_packs.pop(step_name, None)
+            else:
+                self._held_calc_packs.pop(step_name, None)
+        if not held_pack:
+            return
+        # Prefer force_release so double-release / socket blips do not crash the sample.
+        if not self._redis.force_release_calc(step_name, str(held_pack)):
+            try:
+                self._redis.release_calc(step_name, str(held_pack))
+            except Exception:
+                pass
+
+    def _force_release_all_held_packs(self, logger: Any | None = None) -> None:
+        """Safety net for process_task finally — release every slot this worker holds."""
+        if self._redis is None:
+            return
+        with self._hb_lock():
+            held = dict(self._held_calc_packs)
+            self._held_calc_packs.clear()
+        for step_name, pack_id in held.items():
+            ok = self._redis.force_release_calc(str(step_name), str(pack_id))
+            if not ok and logger is not None:
+                try:
+                    logger.warning(
+                        "force_release_calc did not own slot %s/%s (already free?)",
+                        step_name,
+                        pack_id,
+                    )
+                except Exception:
+                    pass
 
     def _merge_calculator_observables(
         self,
@@ -383,14 +486,19 @@ class Worker(Process):
             materialize_failure_artifacts(sample.info, error=exc)
             top.error("sample failed; see sample log -> %s", exc)
         finally:
-            # Write Sample SUMMARY while the file logger is still open, then stage.
-            sample.close()
-            self._handoff_sample_to_staging(sample)
-            self._stage_and_submit(sample)
-            self._cleanup_transient_paths(sample)
+            # Always return calculator PackIDs first — even if handoff/archive fails.
+            self._force_release_all_held_packs(logger=top)
+            try:
+                # Write Sample SUMMARY while the file logger is still open, then stage.
+                sample.close()
+                self._handoff_sample_to_staging(sample)
+                self._stage_and_submit(sample)
+                self._cleanup_transient_paths(sample)
+            except Exception as cleanup_exc:
+                top.error("sample cleanup failed after release -> %s", cleanup_exc)
             self._current_sample_uuid = None
-            self._current_task = None
-            self._held_calc_packs.clear()
+            with self._hb_lock():
+                self._current_task = None
 
     def _main_loop(self) -> None:
         assert self._redis is not None
@@ -411,9 +519,11 @@ class Worker(Process):
         self._init_redis()
         self._init_runtime()
         self._heartbeat("starting")
+        self._start_heartbeat_thread()
         try:
             self._main_loop()
         finally:
+            self._stop_heartbeat_thread()
             self._heartbeat("stopped")
             if self._scheduler is not None:
                 self._scheduler.shutdown(wait=True)

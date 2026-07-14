@@ -15,6 +15,7 @@ from jarvishep2.redis_queue import (
     CALC_BUSY_PACKS,
     CALC_FREE,
     CALC_STATUS,
+    CONTROL_LOCK,
     OP_COUNT,
     RESULTS,
     SAMPLE_STATS,
@@ -145,12 +146,99 @@ class RedisQueueTests(unittest.TestCase):
         self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 0)
         self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 2)
 
+    def test_acquire_discards_legacy_ready_token_and_returns_stable_id(self):
+        """Stale free-list junk like ``ready`` must never become a PackID."""
+        from jarvishep2.redis_queue import is_stable_calc_pack_id
+
+        self.assertFalse(is_stable_calc_pack_id("ready"))
+        self.assertFalse(is_stable_calc_pack_id("74a44b33-430e-4e98-afb4-04db82ac0876"))
+        self.assertTrue(is_stable_calc_pack_id("001"))
+
+        # Simulate a half-migrated Redis free list: legacy tokens then real slots.
+        key = calc_free_list_key("EggBox")
+        self.queue.r.delete(key)
+        self.queue.r.rpush(
+            key,
+            "ready",
+            "74a44b33-430e-4e98-afb4-04db82ac0876",
+            "001",
+        )
+        self.queue.r.hset(
+            CALC_STATUS,
+            mapping={
+                calc_status_free_field("EggBox"): 3,
+                calc_status_busy_field("EggBox"): 0,
+            },
+        )
+
+        pack = self.queue.acquire_calc("EggBox", timeout=2)
+        self.assertEqual(pack, "001")
+        free = list(self.queue.r.lrange(key, 0, -1))
+        self.assertNotIn("ready", free)
+        self.assertTrue(all(str(item).isdigit() for item in free) or free == [])
+        # Slot is exclusively running.
+        busy = self.queue.r.hgetall(calc_busy_packs_key("EggBox"))
+        self.assertEqual(busy.get("001") or busy.get(b"001"), "running")
+
+    def test_release_never_requeues_uuid_pack_id(self):
+        """UUID PackIDs must not re-enter the free list (closes the pollution loop)."""
+        self.queue.register_calc_pool("EggBox", 2)
+        # Inject a busy UUID as if an old worker still held it.
+        uuid_pack = "74a44b33-430e-4e98-afb4-04db82ac0876"
+        self.queue.r.hset(calc_busy_packs_key("EggBox"), uuid_pack, "running")
+        self.queue.release_calc("EggBox", uuid_pack)
+        free = list(self.queue.r.lrange(calc_free_list_key("EggBox"), 0, -1))
+        self.assertNotIn(uuid_pack, free)
+        self.assertEqual(set(free), {"001", "002"})
+
+    def test_force_release_calc_is_idempotent(self):
+        self.queue.register_calc_pool("EggBox", 1)
+        pack = self.queue.acquire_calc("EggBox", timeout=1)
+        self.assertEqual(pack, "001")
+        self.assertTrue(self.queue.force_release_calc("EggBox", "001"))
+        # Second force is a no-op (slot already free).
+        self.assertFalse(self.queue.force_release_calc("EggBox", "001"))
+        free = list(self.queue.r.lrange(calc_free_list_key("EggBox"), 0, -1))
+        self.assertEqual(free, ["001"])
+
+    def test_control_lock_is_exclusive(self):
+        self.assertTrue(self.queue.claim_control_lock("owner-a", ttl_sec=30))
+        self.assertFalse(self.queue.claim_control_lock("owner-b", ttl_sec=30))
+        self.assertEqual(self.queue.get_control_lock_owner(), "owner-a")
+        self.assertTrue(self.queue.refresh_control_lock("owner-a", ttl_sec=30))
+        self.assertFalse(self.queue.refresh_control_lock("owner-b", ttl_sec=30))
+        self.queue.release_control_lock("owner-a")
+        self.assertIsNone(self.queue.get_control_lock_owner())
+        self.assertTrue(self.queue.claim_control_lock("owner-b", ttl_sec=30))
+        self.queue.release_control_lock("owner-b")
+
+    def test_reset_run_ephemeral_keys_clears_queues_and_stats(self):
+        self.queue.push_task(_minimal_task(uuid="t1"))
+        self.queue.register_calc_pool("EggBox", 2)
+        pack = self.queue.acquire_calc("EggBox", timeout=1)
+        self.assertEqual(pack, "001")
+        self.queue.r.hset(SAMPLE_STATS, mapping={"completed": 9, "failed": 2, "running": 3})
+        result = self.queue.reset_run_ephemeral_keys(
+            calculator_names=["EggBox"],
+            worker_ids=[0, 1],
+        )
+        self.assertGreaterEqual(int(result["deleted_keys"]), 1)
+        self.assertEqual(self.queue.r.llen(TASK_QUEUE), 0)
+        self.assertEqual(self.queue.r.llen(calc_free_list_key("EggBox")), 0)
+        stats = self.queue.fetch_sample_stats()
+        self.assertEqual(int(stats.get("completed", -1)), 0)
+        self.assertEqual(int(stats.get("failed", -1)), 0)
+        self.assertEqual(int(stats.get("running", -1)), 0)
+
     def test_release_calc_requires_known_pack_id(self):
         self.queue.register_calc_pool("DemoCalc", 1)
         pack = self.queue.acquire_calc("DemoCalc", timeout=1)
         assert pack is not None
+        # Stable-looking PackID that was never acquired → still an error.
         with self.assertRaises(ValueError):
-            self.queue.release_calc("DemoCalc", "not-a-real-pack")
+            self.queue.release_calc("DemoCalc", "999")
+        # Legacy junk (e.g. ready) is ignored rather than crashing the sample.
+        self.queue.release_calc("DemoCalc", "ready")
         self.queue.release_calc("DemoCalc", pack)
 
     def test_double_release_never_duplicates_pack_id(self):
@@ -171,12 +259,12 @@ class RedisQueueTests(unittest.TestCase):
         self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 1)
         self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
 
-    def test_acquire_calc_raises_on_corrupted_free_list(self):
-        """An empty free-list entry is pool corruption, not a timeout."""
+    def test_acquire_skips_empty_free_list_entries_and_uses_valid_slot(self):
+        """Empty / junk free-list entries are discarded; valid PackIDs still work."""
         self.queue.register_calc_pool("DemoCalc", 1)
-        self.queue.r.lpush(calc_free_list_key("DemoCalc"), "")
-        with self.assertRaises(RuntimeError):
-            self.queue.acquire_calc("DemoCalc", timeout=1)
+        self.queue.r.lpush(calc_free_list_key("DemoCalc"), "", "ready")
+        pack = self.queue.acquire_calc("DemoCalc", timeout=2)
+        self.assertEqual(pack, "001")
 
     def test_concurrent_acquire_release_keeps_counts_consistent(self):
         self.queue.register_calc_pool("DemoCalc", 2)

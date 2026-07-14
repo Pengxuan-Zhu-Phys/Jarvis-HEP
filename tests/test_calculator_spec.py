@@ -264,7 +264,7 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
 
             module = _attach_runtime(CalculatorModule("EggBox", prepared), tmpdir)
             module.preload_templates()
-            module.acquire_pack_id("pack-v1")
+            module.acquire_pack_id("001")
 
             sample = Sample.from_params({"x": 0.25, "y": 0.25, "uuid": "v1-string"})
             sample.set_config(
@@ -282,7 +282,7 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
             expected_z = float((np.sin(0.25 * pi) * np.cos(0.25 * pi) + 2) ** 5)
             self.assertAlmostEqual(float(result["z"]), expected_z, places=6)
 
-            pack_dir = os.path.join(runtime_root, "EggBox", "pack-v1")
+            pack_dir = os.path.join(runtime_root, "EggBox", "001")
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "eggbox.py")))
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "output.json")))
 

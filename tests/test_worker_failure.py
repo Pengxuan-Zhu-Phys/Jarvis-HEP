@@ -6,6 +6,8 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -222,6 +224,69 @@ class WorkerFailureTests(unittest.TestCase):
             server.server_close()
 
 
+class LongCalculatorHeartbeatTests(unittest.TestCase):
+    def setUp(self) -> None:
+        TaskFactory.reset_instance()
+
+    def tearDown(self) -> None:
+        TaskFactory.reset_instance()
+
+    def test_long_calculator_survives_short_stale_threshold(self) -> None:
+        """The periodic heartbeat thread must keep a Worker alive while
+        module.execute() runs longer than Watchdog.stale_sec; a false
+        recovery would hand its PackID directory to a second owner."""
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                script = os.path.join(tmpdir, "very_slow.py")
+                with open(script, "w", encoding="utf-8") as handle:
+                    handle.write(
+                        "#!/usr/bin/env python3\n"
+                        "import json, sys, time\n"
+                        "time.sleep(3.0)\n"
+                        "open(sys.argv[1], 'w').write(json.dumps({'a': 1}))\n"
+                    )
+                slow_module = _slow_calc_module("VerySlow", script, "a")
+                worker_cfg = _worker_config(tmpdir)
+                worker_cfg["calculator_modules"] = [slow_module]
+                worker_cfg["calculator_pools"] = {"VerySlow": 1}
+                worker_cfg["likelihood_expressions"] = []
+                worker_cfg["handoff_to_staging"] = False
+                worker_cfg["pull_timeout"] = 1
+                worker_cfg["heartbeat_interval_sec"] = 0.25
+
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                factory.start_workers(1, **worker_cfg)
+                factory.start_watchdog(
+                    stale_sec=1.0,
+                    poll_interval_sec=0.2,
+                    max_sample_retries=2,
+                )
+                assert factory.redis is not None
+                factory.redis.push_task(
+                    {
+                        "uuid": "long-calc-1",
+                        "u_coords": [0.1, 0.2, 0.3],
+                        "execution_plan": [
+                            {"name": "VerySlow", "type": "calculator", "layer": 0},
+                        ],
+                    }
+                )
+
+                completed = _drain_archive_uuids(factory.redis, 1, timeout=30.0)
+                self.assertEqual(completed, ["long-calc-1"])
+                self.assertEqual(
+                    factory._respawn_count,
+                    0,
+                    "watchdog must not falsely recover a heartbeating Worker",
+                )
+                factory.shutdown()
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
 class WorkerFailureOrderingTests(unittest.TestCase):
     def test_kill_precedes_slot_sweep(self) -> None:
         """Stable PackIDs alias shadow directories, so a stale-heartbeat Worker
@@ -241,6 +306,7 @@ class WorkerFailureOrderingTests(unittest.TestCase):
 
         dead_worker = SimpleNamespace(worker_id=7, pid=1234)
         redis_stub = SimpleNamespace(
+            decode_heartbeat_subprocess_pids=lambda heartbeat: [999999],
             decode_heartbeat_held_packs=lambda heartbeat: {"SlowA": "001"},
             sweep_held_calc_slots=lambda held: (order.append("sweep"), 1)[1],
         )
@@ -249,6 +315,7 @@ class WorkerFailureOrderingTests(unittest.TestCase):
             _last_recovered_pid={},
             redis=redis_stub,
             _force_stop_worker=lambda worker: order.append("stop"),
+            _kill_orphan_process_groups=lambda pids: (order.append("killpg"), 0)[1],
             _worker_heartbeat=lambda worker_id: {},
             _requeue_in_flight_task=lambda heartbeat: False,
             workers=[dead_worker],
@@ -265,7 +332,35 @@ class WorkerFailureOrderingTests(unittest.TestCase):
                 fake_factory, dead_worker, reason="stale_heartbeat"
             )
 
-        self.assertEqual(order, ["stop", "sweep", "respawn"])
+        self.assertEqual(order, ["stop", "killpg", "sweep", "respawn"])
+
+    def test_kill_orphan_process_groups_reaps_setsid_child(self) -> None:
+        """A child in its own session survives its parent's SIGKILL; the
+        watchdog must be able to reap it via the heartbeat-recorded PID."""
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            start_new_session=True,
+        )
+        try:
+            killed = TaskFactory._kill_orphan_process_groups([child.pid])
+            self.assertEqual(killed, 1)
+            self.assertIsNotNone(child.wait(timeout=5.0))
+        finally:
+            if child.poll() is None:  # pragma: no cover - cleanup on failure
+                child.kill()
+
+    def test_kill_orphan_process_groups_skips_non_leaders_and_dead_pids(self) -> None:
+        # A child WITHOUT start_new_session shares our process group, so its
+        # pid is not a group id and must be skipped (pid-recycling guard).
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+        try:
+            self.assertEqual(TaskFactory._kill_orphan_process_groups([child.pid]), 0)
+            self.assertIsNone(child.poll())
+        finally:
+            child.kill()
+            child.wait(timeout=5.0)
+        self.assertEqual(TaskFactory._kill_orphan_process_groups([999999999]), 0)
+        self.assertEqual(TaskFactory._kill_orphan_process_groups([]), 0)
 
 
 if __name__ == "__main__":

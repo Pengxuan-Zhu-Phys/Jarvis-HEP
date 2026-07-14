@@ -24,7 +24,11 @@ from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
 from jarvishep2.versioning import render_logo_with_version
-from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
+from jarvishep2.redis_queue import (
+    CONTROL_LOCK_TTL_SEC,
+    INTERNAL_REDIS_CONFIG,
+    RedisQueue,
+)
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
@@ -71,6 +75,7 @@ class Jarvis2Core:
         self.command_parser: CommandParser | None = None
         self._resume_checkpoint_payload: dict[str, Any] | None = None
         self._resume_policy: str = "auto"
+        self._control_lock_owner: str | None = None
         self._logger = get_jarvis_logger("core")
 
     def init_logger(self) -> None:
@@ -159,6 +164,9 @@ class Jarvis2Core:
         self.init_logger()
         self.init_command_parser()
         self.init_redis()
+        self._claim_redis_control_lock()
+        if self._resume_policy != "resume":
+            self._reset_redis_for_fresh_run()
         self.init_sampler_from_config()
         self.init_factory()
         db_path = os.path.join(
@@ -448,6 +456,64 @@ class Jarvis2Core:
                 "internal Redis is unavailable at 127.0.0.1:6379; start the local Redis service"
             ) from exc
         return self.redis
+
+    def _control_lock_owner_id(self) -> str:
+        run_id = str(self.info.get("run_id") or "jarvis2-run")
+        return f"{os.uname().nodename}:{os.getpid()}:{run_id}"
+
+    def _calculator_module_names(self) -> list[str]:
+        modules = (self.config.get("Calculators") or {}).get("Modules") or []
+        names: list[str] = []
+        if isinstance(modules, list):
+            for item in modules:
+                if isinstance(item, Mapping):
+                    name = str(item.get("name") or "").strip()
+                    if name:
+                        names.append(name)
+        return names
+
+    def _claim_redis_control_lock(self) -> None:
+        """Refuse to start if another Jarvis2 still holds the Redis control lease."""
+        if self.redis is None:
+            raise RuntimeError("init_redis() must run before claiming the control lock")
+        owner = self._control_lock_owner_id()
+        if self.redis.claim_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
+            self._control_lock_owner = owner
+            self._logger.info("claimed Redis control lock (%s)", owner)
+            return
+        current = self.redis.get_control_lock_owner()
+        raise RuntimeError(
+            "another Jarvis2 instance already holds the Redis control lock "
+            f"({current!r}). Stop residual Jarvis2/HEP2-Worker processes "
+            "(do not leave runs suspended with ^Z), then retry. "
+            "Emergency: redis-cli DEL hep:control:lock"
+        )
+
+    def _reset_redis_for_fresh_run(self) -> None:
+        """Drop ephemeral queues/stats/calc pools before Workers are spawned."""
+        if self.redis is None:
+            return
+        workers = int(self.runtime.get("workers", 0) or 0)
+        result = self.redis.reset_run_ephemeral_keys(
+            calculator_names=self._calculator_module_names(),
+            worker_ids=max(workers, 32),
+        )
+        self._logger.info(
+            "reset Redis run keys (deleted=%s sample_stats_reset=%s)",
+            result.get("deleted_keys"),
+            result.get("sample_stats_reset"),
+        )
+
+    def _release_redis_control_lock(self) -> None:
+        owner = getattr(self, "_control_lock_owner", None)
+        if not owner or self.redis is None:
+            return
+        try:
+            self.redis.release_control_lock(str(owner))
+            self._logger.info("released Redis control lock (%s)", owner)
+        except Exception as exc:
+            self._logger.warning("failed to release Redis control lock -> %s", exc)
+        self._control_lock_owner = None
 
     def init_command_parser(self) -> CommandParser:
         """Run Phase-1 static command resolution for the loaded task config."""
@@ -750,6 +816,10 @@ class Jarvis2Core:
                 self.write_run_summary()
             except Exception as exc:
                 self._logger.warning("run_summary write failed -> %s", exc)
+        try:
+            self._release_redis_control_lock()
+        except Exception:
+            pass
         if self.factory is not None:
             self.factory.shutdown(wait=wait)
             self.factory = None

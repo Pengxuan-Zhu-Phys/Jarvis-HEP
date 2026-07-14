@@ -144,7 +144,7 @@ class CalculatorEnvSetupTests(unittest.TestCase):
             )
             module.attach_scheduler(self._scheduler)
             module.bind_env(EnvCapture.merged_env([EXPORT_FOO]))
-            module.acquire_pack_id("env-pack")
+            module.acquire_pack_id("001")
             module.execute({"observables": {}, "params": {}})
             with open(marker, encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), "layer-concurrent")
@@ -170,7 +170,7 @@ class CalculatorEnvSetupTests(unittest.TestCase):
                 },
             )
             module.attach_scheduler(self._scheduler)
-            module.acquire_pack_id("plain-pack")
+            module.acquire_pack_id("001")
             module.execute({"observables": {}, "params": {}})
             self.assertTrue(os.path.exists(output_path))
 

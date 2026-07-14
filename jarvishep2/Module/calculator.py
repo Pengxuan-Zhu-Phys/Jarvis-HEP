@@ -101,8 +101,17 @@ class CalculatorModule:
         return sources
 
     def acquire_pack_id(self, pack_id: str) -> None:
-        self.PackID = str(pack_id)
-        self._preparer.acquire_pack_id(pack_id)
+        """Bind a Redis-owned exclusive PackID (must be stable ``001``…, never a UUID)."""
+        from jarvishep2.redis_queue import is_stable_calc_pack_id
+
+        text = str(pack_id or "").strip()
+        if not is_stable_calc_pack_id(text):
+            raise ValueError(
+                f"calculator '{self.name}' refused non-stable PackID {pack_id!r}; "
+                f"expected Redis free-list slots like '001' (not 'ready' or UUIDs)"
+            )
+        self.PackID = text
+        self._preparer.acquire_pack_id(text)
 
     def decode_shadow_path(self, path: str) -> str:
         return self._preparer.decode_shadow_path(path)
@@ -398,8 +407,12 @@ class CalculatorModule:
 
 
 def mint_pack_id() -> str:
-    """Generate a fresh pack_id for a calculator run (D1.2 local; D2 uses Redis pool)."""
-    return str(uuid4())
+    """Deprecated local helper — distributed runs must use Redis ``acquire_calc``.
+
+    Kept for unit tests that do not stand up a free-list. Prefer stable ids
+    like ``001`` when exercising clone_shadow paths.
+    """
+    return "001"
 
 
 __all__ = ["CalculatorModule", "CalculatorSpec", "RuntimePreparer", "mint_pack_id"]

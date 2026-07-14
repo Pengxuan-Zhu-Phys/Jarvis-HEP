@@ -189,7 +189,7 @@ class CommandParserUnitTests(unittest.TestCase):
         module = CalculatorModule("EggBox", EGGBOX_CALC_MODULE)
         module.attach_command_parser(self.parser)
         module.sample_info = dict(sample.info)
-        module.acquire_pack_id("pack-parity")
+        module.acquire_pack_id("001")
         modern = module._resolve_runtime_tokens(
             "@Sdir/input.json @SampleID",
             stage="execution",
@@ -198,7 +198,7 @@ class CommandParserUnitTests(unittest.TestCase):
         via_parser = self.parser.resolve_sample(
             "@Sdir/input.json @SampleID",
             sample_info=dict(sample.info),
-            pack_id="pack-parity",
+            pack_id="001",
             stage="execution",
             field="path",
         )

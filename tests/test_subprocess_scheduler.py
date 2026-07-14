@@ -39,6 +39,26 @@ class AsyncSubprocessSchedulerTests(unittest.TestCase):
         snap = self._scheduler.snapshot()
         self.assertGreaterEqual(int(snap["peak_running"]), 2)
 
+    def test_active_subprocess_pids_track_running_children(self) -> None:
+        self._scheduler = AsyncSubprocessScheduler(
+            SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")
+        )
+        self.assertEqual(self._scheduler.active_subprocess_pids(), [])
+        future = self._scheduler.submit(
+            SubprocessJob(cmd="python3 -c 'import time; time.sleep(0.8)'")
+        )
+        deadline = time.monotonic() + 5.0
+        seen: list[int] = []
+        while time.monotonic() < deadline:
+            seen = self._scheduler.active_subprocess_pids()
+            if seen:
+                break
+            time.sleep(0.02)
+        self.assertEqual(len(seen), 1, "running child PID must be registered")
+        result = future.result(timeout=5.0)
+        self.assertTrue(result.ok)
+        self.assertEqual(self._scheduler.active_subprocess_pids(), [])
+
     def test_timeout_marks_result_not_ok(self) -> None:
         self._scheduler = AsyncSubprocessScheduler(
             SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")

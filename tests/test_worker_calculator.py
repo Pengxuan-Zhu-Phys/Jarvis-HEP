@@ -216,7 +216,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
                     }
                 )
                 sample.materialize()
-                module.acquire_pack_id(f"pack-{index}")
+                module.acquire_pack_id(f"{index+1:03d}")
                 module.execute(sample.info)
 
             module.preload_templates()
@@ -242,7 +242,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
                 sample = Sample.from_params({"x": x_val, "y": y_val, "uuid": uuid})
                 sample.set_config(sample_config)
                 sample.materialize()
-                module.acquire_pack_id(f"pack-{uuid}")
+                module.acquire_pack_id("001" if uuid.endswith("a") else "002")
                 result = module.execute(sample.info)
                 self.assertEqual(module.sample_info, {})
                 results.append((uuid, float(result["z"])))
@@ -271,7 +271,7 @@ class CalculatorModuleUnitTests(unittest.TestCase):
             sample.materialize()
             module = _attach_runtime(CalculatorModule("EggBox", EGGBOX_CALC_MODULE), tmpdir)
             module.preload_templates()
-            module.acquire_pack_id("pack-test")
+            module.acquire_pack_id("001")
             result = module.execute(sample.info)
             from math import pi
             from numpy import sin, cos
