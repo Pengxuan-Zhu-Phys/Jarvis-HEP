@@ -3,15 +3,20 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import tempfile
+import threading
 import time
 import unittest
+from types import SimpleNamespace
 from typing import Any
+from unittest import mock
 
 from fakeredis import TcpFakeServer
 
+import jarvishep2.factory as factory_module
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import (
     RedisQueue,
@@ -215,6 +220,52 @@ class WorkerFailureTests(unittest.TestCase):
         finally:
             server.shutdown()
             server.server_close()
+
+
+class WorkerFailureOrderingTests(unittest.TestCase):
+    def test_kill_precedes_slot_sweep(self) -> None:
+        """Stable PackIDs alias shadow directories, so a stale-heartbeat Worker
+        must be force-stopped BEFORE its held slots return to the free list."""
+        order: list[str] = []
+
+        class _StubWorker:
+            def __init__(self, worker_id: int, *_args: Any, **_kwargs: Any) -> None:
+                self.worker_id = worker_id
+                self.pid = 4242
+
+            def start(self) -> None:
+                order.append("respawn")
+
+            def is_alive(self) -> bool:
+                return False
+
+        dead_worker = SimpleNamespace(worker_id=7, pid=1234)
+        redis_stub = SimpleNamespace(
+            decode_heartbeat_held_packs=lambda heartbeat: {"SlowA": "001"},
+            sweep_held_calc_slots=lambda held: (order.append("sweep"), 1)[1],
+        )
+        fake_factory = SimpleNamespace(
+            _recovery_lock=threading.Lock(),
+            _last_recovered_pid={},
+            redis=redis_stub,
+            _force_stop_worker=lambda worker: order.append("stop"),
+            _worker_heartbeat=lambda worker_id: {},
+            _requeue_in_flight_task=lambda heartbeat: False,
+            workers=[dead_worker],
+            _redis_connection_config={},
+            _worker_spawn_template={},
+            _respawn_count=0,
+            _peak_workers_alive=0,
+            _alive_workers=lambda: [],
+            _logger=logging.getLogger("test.worker_failure"),
+        )
+
+        with mock.patch.object(factory_module, "Worker", _StubWorker):
+            TaskFactory._handle_worker_failure(
+                fake_factory, dead_worker, reason="stale_heartbeat"
+            )
+
+        self.assertEqual(order, ["stop", "sweep", "respawn"])
 
 
 if __name__ == "__main__":

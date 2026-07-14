@@ -418,12 +418,16 @@ class TaskFactory:
             if self.redis is None:
                 return
 
+            # Kill first, sweep after: with stable PackIDs a slot IS its shadow
+            # directory, so returning a stale-heartbeat Worker's slot while the
+            # Worker is still alive would let a new owner write into the same
+            # directory concurrently.
+            self._force_stop_worker(worker)
+
             heartbeat = self._worker_heartbeat(worker_id)
             held_packs = self.redis.decode_heartbeat_held_packs(heartbeat)
             released = self.redis.sweep_held_calc_slots(held_packs)
             requeued = self._requeue_in_flight_task(heartbeat)
-
-            self._force_stop_worker(worker)
             self.workers = [item for item in self.workers if item.worker_id != worker_id]
             replacement = Worker(
                 worker_id,

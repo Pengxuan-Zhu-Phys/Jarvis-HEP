@@ -23,7 +23,6 @@ CALC_STATUS = "hep:calculator:status"
 SAMPLE_STATS = "hep:sample:stats"
 OP_COUNT = "hep:{kind}:op_count"
 
-_CALC_SLOT_TOKEN = "ready"
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
@@ -50,6 +49,17 @@ def calc_free_list_key(name: str) -> str:
 def calc_busy_packs_key(name: str) -> str:
     """Redis hash key tracking active pack_id owners per calculator."""
     return CALC_BUSY_PACKS.format(name=name)
+
+
+def format_calc_pack_id(index: int, *, slots: int) -> str:
+    """V1-style zero-padded PackID (``001`` …) for a 1-based slot index.
+
+    Width is at least 3, and grows with ``slots`` so pools larger than 999 stay
+    sortable (``0001`` … ``1000``).
+    """
+    n = max(1, int(index))
+    width = max(3, len(str(max(1, int(slots)))))
+    return f"{n:0{width}d}"
 
 
 def calc_status_free_field(name: str) -> str:
@@ -258,33 +268,54 @@ class RedisQueue:
         pipe.execute()
 
     def register_calc_pool(self, name: str, n: int) -> None:
+        """Register *n* stable PackID slots for a calculator module.
+
+        Redis free-list entries are the PackIDs themselves (``001`` … ``N``),
+        managed entirely in Redis: Workers ``BLPOP`` a free slot, run the
+        sample, then ``RPUSH`` the same PackID back.  This matches V1's
+        reusable ``EggBox/001`` runtime directories and the user's design
+        (pool in Redis, pull/return from Workers).
+        """
         self._require_client()
         if n <= 0:
             return
+        slots = int(n)
         pool_key = calc_free_list_key(name)
         busy_key = calc_busy_packs_key(name)
+        pack_ids = [format_calc_pack_id(i, slots=slots) for i in range(1, slots + 1)]
         pipe = self.r.pipeline(transaction=True)
         pipe.delete(pool_key)
         pipe.delete(busy_key)
-        for _ in range(n):
-            pipe.rpush(pool_key, _CALC_SLOT_TOKEN)
+        for pack_id in pack_ids:
+            pipe.rpush(pool_key, pack_id)
         pipe.hset(
             CALC_STATUS,
             mapping={
-                calc_status_free_field(name): n,
+                calc_status_free_field(name): slots,
                 calc_status_busy_field(name): 0,
             },
         )
         pipe.execute()
 
     def acquire_calc(self, name: str, timeout: int = 30) -> str | None:
+        """Claim one free PackID slot from Redis (blocks up to *timeout* seconds).
+
+        Returns the stable PackID string (e.g. ``006``), or ``None`` on timeout.
+        """
         self._require_client()
         pool_key = calc_free_list_key(name)
         raw = self.r.blpop(pool_key, timeout=timeout)
         if raw is None:
             return None
 
-        pack_id = str(uuid4())
+        # Free-list values are the PackIDs registered at pool seed time.
+        pack_id = str(raw[1]).strip()
+        if not pack_id:
+            # A consumed-but-empty entry means the pool data itself is corrupt;
+            # returning None here would silently lose a slot and skew counters.
+            raise RuntimeError(
+                f"corrupted calculator free list for '{name}': empty PackID entry"
+            )
         busy_key = calc_busy_packs_key(name)
         pipe = self.r.pipeline(transaction=True)
         pipe.hset(busy_key, pack_id, "active")
@@ -295,17 +326,23 @@ class RedisQueue:
         return pack_id
 
     def release_calc(self, name: str, pack_id: str) -> None:
+        """Return a PackID slot to the Redis free list for reuse."""
         if not pack_id or not str(pack_id).strip():
             raise ValueError("pack_id is required for release_calc")
+        pack_id = str(pack_id).strip()
         self._require_client()
         busy_key = calc_busy_packs_key(name)
-        if not self.r.hexists(busy_key, pack_id):
+        # Atomic guard: HDEL's return value decides the single winner when a
+        # Worker's finally-release races the watchdog sweep for the same slot.
+        # A check-then-write (HEXISTS + pipeline) window would let both callers
+        # RPUSH, duplicating the PackID and aliasing its shadow directory.
+        if not self.r.hdel(busy_key, pack_id):
             raise ValueError(f"unknown pack_id '{pack_id}' for calculator '{name}'")
 
         pool_key = calc_free_list_key(name)
         pipe = self.r.pipeline(transaction=True)
-        pipe.hdel(busy_key, pack_id)
-        pipe.rpush(pool_key, _CALC_SLOT_TOKEN)
+        # Push the same PackID back so the next acquire reuses EggBox/00N.
+        pipe.rpush(pool_key, pack_id)
         pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
         pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
         pipe.incr(OP_COUNT.format(kind="calculator"))
@@ -585,6 +622,7 @@ __all__ = [
     "calc_status_free_field",
     "decode_payload",
     "encode_payload",
+    "format_calc_pack_id",
     "INTERNAL_REDIS_CONFIG",
     "make_fakeredis_queue",
 ]

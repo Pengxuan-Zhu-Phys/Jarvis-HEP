@@ -40,7 +40,14 @@ def resolve_calculator_pools(worker_config: Mapping[str, Any] | None) -> dict[st
 
 
 def register_calculator_pools(redis: RedisQueue, worker_config: Mapping[str, Any] | None) -> None:
-    """Seed ``calc:free:<name>`` lists and ``hep:calculator:status`` counters."""
+    """Seed Redis free-lists with stable PackIDs (``001`` … ``N``) and status counters.
+
+    Pool lifecycle (Redis-owned, Worker pull/return)::
+
+        register  →  calc:free:<name> = [001, 002, …, N]
+        acquire   →  Worker BLPOP one PackID, mark busy
+        release   →  Worker RPUSH same PackID, free again
+    """
     for name, slots in resolve_calculator_pools(worker_config).items():
         redis.register_calc_pool(name, slots)
 

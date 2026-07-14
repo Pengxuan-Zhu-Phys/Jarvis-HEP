@@ -28,6 +28,7 @@ from jarvishep2.redis_queue import (
     calc_status_free_field,
     decode_payload,
     encode_payload,
+    format_calc_pack_id,
     make_fakeredis_queue,
 )
 
@@ -108,21 +109,27 @@ class RedisQueueTests(unittest.TestCase):
         self.queue.push_task(_minimal_task(uuid="b"))
         self.assertEqual(self.queue.get_op_count("task"), 2)
 
-    def test_calc_pool_cap_and_distinct_pack_ids(self):
+    def test_format_calc_pack_id_is_v1_style(self):
+        self.assertEqual(format_calc_pack_id(1, slots=16), "001")
+        self.assertEqual(format_calc_pack_id(16, slots=16), "016")
+        self.assertEqual(format_calc_pack_id(1000, slots=1000), "1000")
+
+    def test_calc_pool_cap_and_stable_pack_id_reuse(self):
+        """Redis free-list holds PackIDs 001…N; release returns the same id."""
         self.queue.register_calc_pool("DemoCalc", 2)
         status = self.queue.r.hgetall(CALC_STATUS)
         self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 2)
         self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
-        self.assertEqual(self.queue.r.llen(calc_free_list_key("DemoCalc")), 2)
+        free = self.queue.r.lrange(calc_free_list_key("DemoCalc"), 0, -1)
+        self.assertEqual(list(free), ["001", "002"])
 
         pack_a = self.queue.acquire_calc("DemoCalc", timeout=1)
         pack_b = self.queue.acquire_calc("DemoCalc", timeout=1)
         pack_c = self.queue.acquire_calc("DemoCalc", timeout=1)
 
-        self.assertIsNotNone(pack_a)
-        self.assertIsNotNone(pack_b)
+        self.assertEqual(pack_a, "001")
+        self.assertEqual(pack_b, "002")
         self.assertIsNone(pack_c)
-        self.assertNotEqual(pack_a, pack_b)
 
         status = self.queue.r.hgetall(CALC_STATUS)
         self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 0)
@@ -131,7 +138,8 @@ class RedisQueueTests(unittest.TestCase):
 
         self.queue.release_calc("DemoCalc", pack_a)
         pack_d = self.queue.acquire_calc("DemoCalc", timeout=1)
-        self.assertIsNotNone(pack_d)
+        # Same PackID returned to the free list and reclaimed.
+        self.assertEqual(pack_d, "001")
 
         status = self.queue.r.hgetall(CALC_STATUS)
         self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 0)
@@ -144,6 +152,31 @@ class RedisQueueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.queue.release_calc("DemoCalc", "not-a-real-pack")
         self.queue.release_calc("DemoCalc", pack)
+
+    def test_double_release_never_duplicates_pack_id(self):
+        """The HDEL guard must let exactly one releaser win a race; a second
+        release (e.g. Worker finally-block after a watchdog sweep) raises and
+        must NOT push a duplicate PackID into the free list."""
+        self.queue.register_calc_pool("DemoCalc", 1)
+        pack = self.queue.acquire_calc("DemoCalc", timeout=1)
+        self.assertEqual(pack, "001")
+
+        self.queue.release_calc("DemoCalc", pack)
+        with self.assertRaises(ValueError):
+            self.queue.release_calc("DemoCalc", pack)
+
+        free = self.queue.r.lrange(calc_free_list_key("DemoCalc"), 0, -1)
+        self.assertEqual(list(free), ["001"])
+        status = self.queue.r.hgetall(CALC_STATUS)
+        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 1)
+        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
+
+    def test_acquire_calc_raises_on_corrupted_free_list(self):
+        """An empty free-list entry is pool corruption, not a timeout."""
+        self.queue.register_calc_pool("DemoCalc", 1)
+        self.queue.r.lpush(calc_free_list_key("DemoCalc"), "")
+        with self.assertRaises(RuntimeError):
+            self.queue.acquire_calc("DemoCalc", timeout=1)
 
     def test_concurrent_acquire_release_keeps_counts_consistent(self):
         self.queue.register_calc_pool("DemoCalc", 2)
