@@ -19,6 +19,7 @@ from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_d
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime_config import ARCHIVER_DEFAULTS
+from jarvishep2.sample_bucket import pack_bucket_dir
 
 Process = get_spawn_context().Process
 
@@ -47,6 +48,7 @@ class ArchiveProcessor:
         self.records_written = 0
         self.acked_uuids: set[str] = set()
         self._batch: list[dict[str, Any]] = []
+        self._last_flushed: list[dict[str, Any]] = []
         self._last_flush = time.monotonic()
         self._lock = threading.Lock()
         os.makedirs(self.sample_root, exist_ok=True)
@@ -94,7 +96,15 @@ class ArchiveProcessor:
         with self._lock:
             return self._flush_batch_locked()
 
+    def take_last_flushed(self) -> list[dict[str, Any]]:
+        """Return and clear payloads successfully written by the last flush."""
+        with self._lock:
+            items = list(self._last_flushed)
+            self._last_flushed.clear()
+            return items
+
     def _flush_batch_locked(self) -> int:
+        self._last_flushed = []
         if not self._batch:
             self._last_flush = time.monotonic()
             return 0
@@ -102,6 +112,7 @@ class ArchiveProcessor:
         for result in self._batch:
             if self._archive_one(result):
                 written += 1
+                self._last_flushed.append(dict(result))
         self._batch.clear()
         self._last_flush = time.monotonic()
         return written
@@ -110,52 +121,70 @@ class ArchiveProcessor:
         uuid = str(result.get("uuid", "")).strip()
         if not uuid:
             return False
+        if uuid in self.acked_uuids:
+            return True
 
         staging_path = str(result.get("staging_path") or "").strip()
         save_dir = str(result.get("save_dir") or "").strip()
-        destination = os.path.join(self.sample_root, uuid)
-        if os.path.isdir(destination):
-            if uuid in self.acked_uuids:
-                return True
-            observables = result.get("observables", {})
-            if isinstance(observables, Mapping) and observables:
-                record = dict(observables)
-                record.setdefault("product_list", list_product_names(destination))
-                self.writer.add_record(record)
-                self.records_written += 1
-                self.acked_uuids.add(uuid)
-                return True
-            self.acked_uuids.add(uuid)
-            return True
-        if staging_path and os.path.isdir(staging_path):
-            destination = archive_staging_to_sample(
-                staging_path,
-                self.sample_root,
-                uuid,
-                strategy=self.strategy,
-            )
+        bucket_dir = str(result.get("bucket_dir") or "").strip()
+        # Prefer the Worker-final path (SAMPLE/<bucket>/<uuid> under direct handoff).
+        destination = ""
+        if save_dir and os.path.isdir(save_dir):
+            destination = save_dir
+        elif bucket_dir:
+            candidate = os.path.join(bucket_dir, uuid)
+            if os.path.isdir(candidate):
+                destination = candidate
+        if not destination:
+            destination = os.path.join(self.sample_root, uuid)
+
+        if staging_path and os.path.isdir(staging_path) and not os.path.isdir(destination):
+            # Legacy staging hop: move into SAMPLE/<uuid>/ (or keep under bucket if set).
+            if bucket_dir:
+                os.makedirs(bucket_dir, exist_ok=True)
+                destination = archive_staging_to_sample(
+                    staging_path,
+                    bucket_dir,
+                    uuid,
+                    strategy=self.strategy,
+                )
+            else:
+                destination = archive_staging_to_sample(
+                    staging_path,
+                    self.sample_root,
+                    uuid,
+                    strategy=self.strategy,
+                )
             if self.delete_after_archive and os.path.lexists(staging_path):
                 delete_paths([staging_path], method=self.delete_method, missing_ok=True)
-        elif save_dir and os.path.isdir(save_dir):
-            destination = archive_staging_to_sample(
-                save_dir,
-                self.sample_root,
-                uuid,
-                strategy=self.strategy,
-            )
-        elif not os.path.isdir(destination):
-            return False
 
         observables = result.get("observables", {})
+        # Always persist observables when present — even if the on-disk sample
+        # tree was already packed/pruned — so wait_for_results can complete.
         if isinstance(observables, Mapping) and observables:
             record = dict(observables)
-            if os.path.isdir(destination):
+            if destination and os.path.isdir(destination):
                 record.setdefault("product_list", list_product_names(destination))
+            if bucket_dir:
+                record.setdefault("bucket_dir", bucket_dir)
+            if result.get("bucket_id") is not None:
+                record.setdefault("bucket_id", result.get("bucket_id"))
             self.writer.add_record(record)
             self.records_written += 1
             self.acked_uuids.add(uuid)
             return True
-        return False
+
+        # No observables: still ack if the sample dir exists (artifact-only sample).
+        if destination and os.path.isdir(destination):
+            self.acked_uuids.add(uuid)
+            self.records_written += 1
+            return True
+        # Nothing to write and no dir — count as archived failure for the queue
+        # item (already popped). Prefer writing a minimal stub so drains finish.
+        self.writer.add_record({"uuid": uuid, "status": str(result.get("status") or "Completed")})
+        self.records_written += 1
+        self.acked_uuids.add(uuid)
+        return True
 
     def persistence_state(self) -> dict[str, Any]:
         acked = sorted(self.acked_uuids)
@@ -167,7 +196,7 @@ class ArchiveProcessor:
 
 
 class SimpleArchiver:
-    """Background thread that drains ``hep:archive_queue``."""
+    """Background thread that drains ``hep:archive_queue`` + ready SAMPLE buckets."""
 
     def __init__(
         self,
@@ -180,7 +209,13 @@ class SimpleArchiver:
         archiver_config: Mapping[str, Any] | None = None,
     ) -> None:
         self.redis = redis_queue
+        self.sample_root = os.path.abspath(str(sample_root))
         self.poll_timeout = max(0.05, float(poll_timeout))
+        cfg = dict(ARCHIVER_DEFAULTS)
+        if isinstance(archiver_config, Mapping):
+            cfg.update(archiver_config)
+        self.pack_buckets = bool(cfg.get("pack_buckets", True))
+        self.buckets_packed = 0
         self.processor = ArchiveProcessor.from_config(
             SimpleHDF5Writer(db_path),
             sample_root=sample_root,
@@ -189,13 +224,17 @@ class SimpleArchiver:
         )
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        parent = os.path.dirname(self.sample_root)
+        self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
 
     @property
     def records_written(self) -> int:
         return self.processor.records_written
 
     def persistence_state(self) -> dict[str, Any]:
-        return self.processor.persistence_state()
+        state = self.processor.persistence_state()
+        state["buckets_packed"] = int(self.buckets_packed)
+        return state
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -208,15 +247,75 @@ class SimpleArchiver:
         )
         self._thread.start()
 
+    def _note_last_flushed(self) -> None:
+        """Tell Redis each freshly written sample is archived (may enqueue pack)."""
+        for item in self.processor.take_last_flushed():
+            bucket_id = item.get("bucket_id")
+            if bucket_id is None:
+                continue
+            try:
+                self.redis.note_sample_archived(bucket_id)
+            except Exception:
+                pass
+
+    def _ingest_result(self, result: Mapping[str, Any]) -> int:
+        written = self.processor.ingest(result)
+        if written:
+            self._note_last_flushed()
+        return written
+
+    def _flush_and_note(self) -> int:
+        written = self.processor.flush_batch()
+        if written:
+            self._note_last_flushed()
+        return written
+
+    def _pack_ready_buckets(self) -> int:
+        """Tar sealed buckets that Redis marked ready (archived == assigned)."""
+        if not self.pack_buckets:
+            return 0
+        packed = 0
+        while True:
+            ready = self.redis.pull_ready_bucket(timeout=0)
+            if ready is None:
+                break
+            if not ready.get("pack", True):
+                continue
+            bucket_dir = str(ready.get("bucket_dir") or "")
+            bucket_id = ready.get("bucket_id")
+            sample_root = str(ready.get("sample_root") or self.sample_root)
+            if not bucket_dir:
+                continue
+            try:
+                pack_bucket_dir(
+                    bucket_dir,
+                    sample_root=sample_root,
+                    manifest_jsonl_path=self._manifest_jsonl,
+                    prune=True,
+                )
+                if bucket_id is not None:
+                    self.redis.mark_bucket_packed(bucket_id)
+                packed += 1
+                self.buckets_packed += 1
+            except Exception:
+                # Leave packing flag set; operator can inspect / re-seal later.
+                continue
+        return packed
+
     def _run_loop(self) -> None:
+        # Thread shares the control process title; only Process-mode Archiver
+        # renames the OS process. Keep this loop name for debugger visibility.
         timeout = max(1, int(round(self.poll_timeout)))
         while not self._stop_event.is_set():
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
                 if self.processor.has_pending():
-                    self.processor.flush_batch()
+                    self._flush_and_note()
+                self._pack_ready_buckets()
                 continue
-            self.processor.ingest(result)
+            self._ingest_result(result)
+            # Pack only after any flush from this ingest has noted archived counts.
+            self._pack_ready_buckets()
 
     def drain(self, *, idle_timeout: float = 2.0) -> int:
         """Drain remaining archive-queue items synchronously."""
@@ -226,12 +325,15 @@ class SimpleArchiver:
         while time.monotonic() < idle_deadline:
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
-                flushed = self.processor.flush_batch()
+                flushed = self._flush_and_note()
                 drained += flushed
+                drained += self._pack_ready_buckets()
                 continue
             idle_deadline = time.monotonic() + max(0.1, float(idle_timeout))
-            drained += self.processor.ingest(result)
-        drained += self.processor.flush_batch()
+            drained += self._ingest_result(result)
+            drained += self._pack_ready_buckets()
+        drained += self._flush_and_note()
+        drained += self._pack_ready_buckets()
         return drained
 
     def cleanup_staging(self, paths: list[str] | tuple[str, ...]) -> None:
@@ -260,7 +362,8 @@ class ArchiverProcess(Process):
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
         poll_timeout: float = 1.0,
-        name: str = "HEP2-Archiver",
+        name: str = "Jarvis2-Archiver",
+        scan_name: str | None = None,
     ) -> None:
         super().__init__(name=name, daemon=False)
         self.redis_config = dict(redis_config)
@@ -269,32 +372,33 @@ class ArchiverProcess(Process):
         self.delete_method = str(delete_method)
         self.archiver_config = dict(archiver_config or {})
         self.poll_timeout = max(0.05, float(poll_timeout))
+        self.scan_name = str(scan_name or "").strip()
         self._stop_event = get_spawn_context().Event()
         self.records_written = get_spawn_context().Value("i", 0)
 
     def run(self) -> None:
+        from jarvishep2.proc_title import archiver_title, set_process_title
+
+        set_process_title(archiver_title(scan_name=self.scan_name or None))
         redis = RedisQueue(self.redis_config)
         redis.connect()
-        processor = ArchiveProcessor.from_config(
-            SimpleHDF5Writer(self.db_path),
+        # Reuse SimpleArchiver loop so process mode also packs sealed buckets.
+        archiver = SimpleArchiver(
+            redis,
+            self.db_path,
             sample_root=self.sample_root,
+            poll_timeout=self.poll_timeout,
             delete_method=self.delete_method,
             archiver_config=self.archiver_config,
         )
-        timeout = max(1, int(round(self.poll_timeout)))
+        archiver.start()
         while not self._stop_event.is_set():
-            result = redis.pull_result(timeout=timeout)
-            if result is None:
-                flushed = processor.flush_batch()
-                with self.records_written.get_lock():
-                    self.records_written.value += flushed
-                continue
-            written = processor.ingest(result)
+            time.sleep(0.1)
             with self.records_written.get_lock():
-                self.records_written.value += written
-        processor.flush_batch()
+                self.records_written.value = int(archiver.records_written)
+        archiver.stop(wait=True, drain=True)
         with self.records_written.get_lock():
-            self.records_written.value = processor.records_written
+            self.records_written.value = int(archiver.records_written)
         redis.close()
 
     def stop(self, *, wait: bool = True, timeout: float = 5.0) -> None:

@@ -7,6 +7,10 @@ from typing import Any, Mapping
 
 from jarvishep2.archive_handoff import normalize_move_strategy, resolve_staging_dir
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
+from jarvishep2.sample_bucket import (
+    SAMPLE_DIRECTORY_DEFAULTS,
+    normalize_sample_directory,
+)
 
 
 RUNTIME_DEFAULTS: dict[str, Any] = {
@@ -20,16 +24,22 @@ _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
 _VALID_CLEANUP_STRATEGIES = frozenset({"mv_to_staging", "direct"})
 _VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
+_VALID_HANDOFF_MODES = frozenset({"direct", "staging"})
 
 ARCHIVER_DEFAULTS: dict[str, Any] = {
-    "mode": "thread",
+    "mode": "process",
     "batch_size": 200,
     "flush_interval_sec": 1.0,
     "strategy": "move",
     "delete_after_archive": True,
+    # Default: no staging hop — Worker lands products under SAMPLE/<bucket>/<uuid>.
+    "handoff": "direct",
+    # Default: pack sealed SAMPLE buckets into <bucket>.tar.gz (V1 parity).
+    "pack_buckets": True,
 }
 CLEANUP_DEFAULTS: dict[str, Any] = {
-    "strategy": "mv_to_staging",
+    # Default: skip staging; optional mv_to_staging retained for heavy-archive paths.
+    "strategy": "direct",
     "staging_dir": None,
 }
 WATCHDOG_DEFAULTS: dict[str, Any] = {
@@ -101,6 +111,11 @@ def normalize_cleanup_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         return cleanup
     strategy = str(raw.get("strategy", cleanup["strategy"])).strip().lower()
+    # Accept legacy handoff alias from Archiver.handoff when cleanup uses it.
+    if strategy in {"staging", "mv_to_staging"}:
+        strategy = "mv_to_staging"
+    elif strategy in {"direct", "none", "off"}:
+        strategy = "direct"
     cleanup["strategy"] = (
         strategy if strategy in _VALID_CLEANUP_STRATEGIES else CLEANUP_DEFAULTS["strategy"]
     )
@@ -127,6 +142,14 @@ def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     archiver["delete_after_archive"] = bool(
         raw.get("delete_after_archive", archiver["delete_after_archive"])
     )
+    handoff = str(raw.get("handoff", archiver["handoff"])).strip().lower()
+    if handoff in {"staging", "mv_to_staging"}:
+        handoff = "staging"
+    elif handoff in {"direct", "none", "off"}:
+        handoff = "direct"
+    archiver["handoff"] = handoff if handoff in _VALID_HANDOFF_MODES else ARCHIVER_DEFAULTS["handoff"]
+    if "pack_buckets" in raw:
+        archiver["pack_buckets"] = bool(raw.get("pack_buckets"))
     return archiver
 
 
@@ -160,7 +183,39 @@ def get_staging_dir(
 
 
 def handoff_to_staging_enabled(config: Mapping[str, Any] | None) -> bool:
-    return get_cleanup_config(config)["strategy"] == "mv_to_staging"
+    """True only when Cleanup/Archiver explicitly request the staging hop."""
+    cleanup = get_cleanup_config(config)
+    if cleanup.get("strategy") == "mv_to_staging":
+        return True
+    archiver = get_archiver_config(config)
+    return str(archiver.get("handoff", "direct")).strip().lower() == "staging"
+
+
+def get_sample_directory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return normalized SAMPLE bucket settings (Scan or EnvReqs.V2)."""
+    if not isinstance(config, Mapping):
+        return normalize_sample_directory(None)
+    scan = config.get("Scan") if isinstance(config.get("Scan"), Mapping) else {}
+    if isinstance(scan, Mapping) and isinstance(scan.get("sample_directory"), Mapping):
+        return normalize_sample_directory(scan.get("sample_directory"))
+    runtime = config.get("Runtime") if isinstance(config.get("Runtime"), Mapping) else {}
+    if isinstance(runtime, Mapping) and isinstance(runtime.get("sample_directory"), Mapping):
+        return normalize_sample_directory(runtime.get("sample_directory"))
+    envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
+    v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
+    if isinstance(v2, Mapping) and isinstance(v2.get("sample_directory"), Mapping):
+        return normalize_sample_directory(v2.get("sample_directory"))
+    return normalize_sample_directory(dict(SAMPLE_DIRECTORY_DEFAULTS))
+
+
+def pack_buckets_enabled(config: Mapping[str, Any] | None) -> bool:
+    sample_dir = get_sample_directory_config(config)
+    if not bool(sample_dir.get("enabled", True)):
+        return False
+    archiver = get_archiver_config(config)
+    if "pack_buckets" in archiver:
+        return bool(archiver.get("pack_buckets"))
+    return bool(sample_dir.get("pack", True))
 
 
 def get_delete_method(config: Mapping[str, Any] | None) -> str:

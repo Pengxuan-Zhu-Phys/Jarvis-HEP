@@ -12,6 +12,7 @@ from jarvishep2.runtime_config import (
     get_archiver_config,
     get_cleanup_config,
     get_delete_method,
+    get_sample_directory_config,
     get_staging_dir,
     handoff_to_staging_enabled,
     workflow_has_calculator,
@@ -80,6 +81,10 @@ def build_worker_config(
     sample_config = dict(extra_payload.pop("sample_config", {}) or {})
     sample_config.setdefault("task_result_dir", task_result_dir)
     sample_config.setdefault("sample_dirs", sample_root)
+    # Used by Worker OS process title (Jarvis2-Worker-N:scan).
+    scan_name = str(cfg.get("scan_name") or sample_config.get("scan_name") or "").strip()
+    if scan_name:
+        sample_config.setdefault("scan_name", scan_name)
     sample_config.setdefault(
         "sample_artifacts",
         str((cfg.get("Runtime") or {}).get("sample_artifacts", "auto")),
@@ -114,9 +119,12 @@ def build_worker_config(
         "handoff_to_staging": handoff_to_staging_enabled(cfg),
         "cleanup_config": get_cleanup_config(cfg),
         "archiver_config": get_archiver_config(cfg),
+        "sample_directory": get_sample_directory_config(cfg),
         "command_parser": command_parser.to_picklable(),
         "publish_feedback": publish_feedback,
     }
+    if scan_name:
+        worker_config.setdefault("scan_name", scan_name)
     calc_block = cfg.get("Calculators") if isinstance(cfg.get("Calculators"), Mapping) else {}
     pools = None
     if isinstance(calc_block, Mapping):

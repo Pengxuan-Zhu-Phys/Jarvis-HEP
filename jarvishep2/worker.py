@@ -51,7 +51,7 @@ class Worker(Process):
         redis: RedisQueue | Mapping[str, Any],
         worker_config: Mapping[str, Any],
     ) -> None:
-        super().__init__(name=f"HEP2-Worker-{worker_id}", daemon=False)
+        super().__init__(name=f"Jarvis2-Worker-{worker_id}", daemon=False)
         self.worker_id = int(worker_id)
         self.redis_config = RedisQueue.extract_connection_config(redis)
         self.worker_config = dict(worker_config)
@@ -64,7 +64,8 @@ class Worker(Process):
         self._command_parser: CommandParser | None = None
         self._delete_method = DEFAULT_DELETE_METHOD
         self._staging_dir = ""
-        self._handoff_to_staging = True
+        self._handoff_to_staging = False
+        self._sample_buckets_enabled = True
         self._observables_lock: threading.Lock | None = None
         self._is_running = True
         self._current_sample_uuid: str | None = None
@@ -118,8 +119,14 @@ class Worker(Process):
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
         else:
             cleanup = self.worker_config.get("cleanup_config") or {}
-            strategy = str(cleanup.get("strategy", "mv_to_staging")).strip().lower()
+            strategy = str(cleanup.get("strategy", "direct")).strip().lower()
             self._handoff_to_staging = strategy == "mv_to_staging"
+            archiver_cfg = self.worker_config.get("archiver_config") or {}
+            if str(archiver_cfg.get("handoff", "direct")).strip().lower() == "staging":
+                self._handoff_to_staging = True
+        sample_dir_cfg = self.worker_config.get("sample_directory") or {}
+        if isinstance(sample_dir_cfg, dict):
+            self._sample_buckets_enabled = bool(sample_dir_cfg.get("enabled", True))
         self._mapper = build_mapper(self.worker_config.get("mapper"))
         expression_payload = {
             "opera_modules": self.worker_config.get("opera_modules"),
@@ -417,8 +424,18 @@ class Worker(Process):
 
     def process_task(self, task: Mapping[str, Any]) -> None:
         """Core pipeline: rebuild Sample, execute workflow, submit result."""
-        self._current_task = dict(task)
-        sample = Sample.from_task_dict(task)
+        payload = dict(task)
+        # Assign SAMPLE/<bucket>/<uuid> before materialize (Redis-owned numbering).
+        if self._sample_buckets_enabled and self._redis is not None and not payload.get("bucket_dir"):
+            allocation = self._redis.allocate_sample_bucket()
+            if allocation is not None:
+                payload["bucket_id"] = allocation["bucket_id"]
+                payload["bucket_dir"] = allocation["bucket_dir"]
+                payload["bucket_name"] = allocation["bucket_name"]
+                payload["_bucket_parent"] = allocation["bucket_dir"]
+
+        self._current_task = payload
+        sample = Sample.from_task_dict(payload)
         self._current_sample_uuid = sample.uuid
         self._heartbeat("busy")
         top = get_jarvis_logger("worker").bind(
@@ -426,6 +443,14 @@ class Worker(Process):
             sample_uuid=sample.uuid,
         )
         sample_config = dict(self.worker_config.get("sample_config") or {})
+        # Stamp bucket parent before set_config so materialize lands under SAMPLE/<bucket>/<uuid>.
+        if payload.get("bucket_dir"):
+            sample_config["_bucket_parent"] = payload["bucket_dir"]
+            sample_config["bucket_dir"] = payload["bucket_dir"]
+        if payload.get("bucket_id") is not None:
+            sample_config["bucket_id"] = payload["bucket_id"]
+        if payload.get("bucket_name"):
+            sample_config["bucket_name"] = payload["bucket_name"]
         sample.set_config(sample_config)
         sample.start()
         try:
@@ -493,6 +518,18 @@ class Worker(Process):
                 sample.close()
                 self._handoff_sample_to_staging(sample)
                 self._stage_and_submit(sample)
+                # Last Redis lifecycle touch for this sample's bucket (active→completed).
+                # When sealed + idle, Redis enqueues the bucket for Archiver tar packing.
+                bucket_id = None
+                if isinstance(sample.info, dict):
+                    bucket_id = sample.info.get("bucket_id")
+                if bucket_id is None and isinstance(self._current_task, dict):
+                    bucket_id = self._current_task.get("bucket_id")
+                if self._redis is not None and bucket_id is not None:
+                    try:
+                        self._redis.finish_sample_bucket(bucket_id)
+                    except Exception as bucket_exc:
+                        top.error("bucket finish failed for %s -> %s", bucket_id, bucket_exc)
                 self._cleanup_transient_paths(sample)
             except Exception as cleanup_exc:
                 top.error("sample cleanup failed after release -> %s", cleanup_exc)
@@ -513,6 +550,15 @@ class Worker(Process):
             self._heartbeat("idle")
 
     def run(self) -> None:
+        from jarvishep2.proc_title import set_process_title, worker_title
+
+        # Prefer explicit worker_config.scan_name; fall back to sample_config.
+        scan_name = str(self.worker_config.get("scan_name") or "").strip()
+        if not scan_name:
+            sample_config = self.worker_config.get("sample_config") or {}
+            if isinstance(sample_config, dict):
+                scan_name = str(sample_config.get("scan_name") or "").strip()
+        set_process_title(worker_title(self.worker_id, scan_name=scan_name or None))
         setup_jarvis_logging(role="worker")
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)

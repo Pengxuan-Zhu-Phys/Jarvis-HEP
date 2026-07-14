@@ -43,6 +43,9 @@ _INFO_PROJECTION_KEYS = (
     "worker_id",
     "staging_path",
     "product_list",
+    "bucket_id",
+    "bucket_dir",
+    "bucket_name",
 )
 _TIMING_KEYS = ("elapsed_s", "started_at", "finished_at")
 
@@ -260,7 +263,10 @@ class Sample:
             self.materialize()
 
     def create_info(self) -> None:
-        bucket_parent = self.info.get("save_dir")
+        # Prefer an already-assigned SAMPLE/<bucket> parent (Worker Redis allocator).
+        bucket_parent = self.info.get("_bucket_parent") or self.info.get("bucket_dir")
+        if not bucket_parent:
+            bucket_parent = self.info.get("save_dir")
         if not bucket_parent:
             bucket_parent = self.info.get("sample_dirs")
         sample_root = self._resolve_sample_root(self.info)

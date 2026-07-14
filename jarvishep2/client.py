@@ -103,6 +103,13 @@ def dispatch_run(args: argparse.Namespace) -> int:
             count = core.check_modules()
         else:
             count = core.run(resume=args.resume)
+    except KeyboardInterrupt:
+        print(
+            "Interrupted — Jarvis2 shutdown requested "
+            "(Workers / Archiver / managed Redis). Prefer Ctrl+C over Ctrl+Z.",
+            file=sys.stderr,
+        )
+        return 130
     except NotImplementedError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -125,6 +132,10 @@ def dispatch(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from jarvishep2.proc_title import control_title, set_process_title
+
+    # Visible name in Activity Monitor / ps (not python3.x).
+    set_process_title(control_title())
     return dispatch(build_parser().parse_args(argv))
 
 

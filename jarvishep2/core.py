@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import atexit
 import csv
 import os
+import signal
 import sys
 import threading
 import time
@@ -29,11 +31,14 @@ from jarvishep2.redis_queue import (
     INTERNAL_REDIS_CONFIG,
     RedisQueue,
 )
+from jarvishep2.redis_server import ManagedRedisServer
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
     get_runtime_block,
+    get_sample_directory_config,
     get_watchdog_config,
+    pack_buckets_enabled,
 )
 from jarvishep2.sample import Sample
 from jarvishep2.Sampling.runtime_checkpoint import (
@@ -76,11 +81,22 @@ class Jarvis2Core:
         self._resume_checkpoint_payload: dict[str, Any] | None = None
         self._resume_policy: str = "auto"
         self._control_lock_owner: str | None = None
+        self._managed_redis: ManagedRedisServer | None = None
+        self._shutdown_done = False
+        self._interrupt_requested = False
+        self._signal_handlers_installed = False
+        self._previous_signal_handlers: dict[int, Any] = {}
         self._logger = get_jarvis_logger("core")
+        # Last-resort cleanup if the process exits without an orderly finally.
+        atexit.register(self._atexit_cleanup)
 
     def init_logger(self) -> None:
         """Configure top-level logging with V1 visual format and scan-scoped file path."""
+        from jarvishep2.proc_title import control_title, set_process_title
+
         scan_name = str(self.info.get("scan_name") or "scan")
+        # Refresh process title once the scan name is known.
+        set_process_title(control_title(scan_name=scan_name))
         task_root = str(self.info.get("task_root") or os.getcwd())
         logs_dir = os.path.join(task_root, "logs", scan_name)
         jarvis_log = os.path.join(logs_dir, f"{scan_name}.log")
@@ -168,6 +184,7 @@ class Jarvis2Core:
         if self._resume_policy != "resume":
             self._reset_redis_for_fresh_run()
         self.init_sampler_from_config()
+        self._init_sample_buckets()
         self.init_factory()
         db_path = os.path.join(
             str(self.info.get("task_result_dir") or os.getcwd()),
@@ -221,6 +238,7 @@ class Jarvis2Core:
                 progress_total=total_work,
                 progress_base=start_records,
             )
+        self._finalize_sample_buckets()
         return requeued + pushed
 
     def run_adaptive_scan(self, *, timeout: float = 3600.0) -> int:
@@ -255,6 +273,7 @@ class Jarvis2Core:
                 self.archiver.drain(idle_timeout=2.0)
             except Exception:
                 pass
+        self._finalize_sample_buckets()
         return requeued + pushed
 
     def run_check_modules(
@@ -267,6 +286,7 @@ class Jarvis2Core:
         samples = self._build_check_module_samples()
         self.submit_samples(samples)
         self.wait_for_results(len(samples), timeout=timeout)
+        self._finalize_sample_buckets()
         if verify_golden is not None:
             task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
@@ -282,6 +302,7 @@ class Jarvis2Core:
     ) -> int:
         """Execute a distributed scan from the loaded task config."""
         self.prepare_resume(resume=resume, fresh=False)
+        self._install_control_signal_handlers()
         try:
             self.bootstrap_distributed_runtime()
             method = sampling_method(self.config)
@@ -298,8 +319,24 @@ class Jarvis2Core:
                     "Sampling.Method: Bridson|AdaptiveLevelSet, or pass --check-modules."
                 )
             return count
+        except KeyboardInterrupt:
+            self._interrupt_requested = True
+            try:
+                self._logger.warning(
+                    "KeyboardInterrupt / stop signal — shutting down Workers, "
+                    "Archiver, and managed Redis (prefer Ctrl+C over Ctrl+Z)"
+                )
+            except Exception:
+                pass
+            raise
         finally:
-            self.shutdown(wait=True, write_run_summary=write_run_summary)
+            try:
+                self.shutdown(
+                    wait=True,
+                    write_run_summary=write_run_summary and not self._interrupt_requested,
+                )
+            finally:
+                self._restore_control_signal_handlers()
 
     def check_modules(self, *, verify_golden: Mapping[str, Any] | None = None) -> int:
         """CLI entry for ``Jarvis2 <task>.yaml --check-modules``."""
@@ -442,20 +479,67 @@ class Jarvis2Core:
 
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         redis_config = dict(self.runtime.get("redis") or {})
+        if not redis_config:
+            redis_config = dict(INTERNAL_REDIS_CONFIG)
+        # Prefer a Jarvis-managed redis-server so `ps` shows Jarvis-Redis:<scan>.
+        # If something is already listening, we connect and leave its title alone.
+        if client is None:
+            self._ensure_managed_redis(redis_config)
         if client is not None:
             self.redis = RedisQueue(redis_config, client=client)
-        elif not redis_config:
-            self.redis = RedisQueue(INTERNAL_REDIS_CONFIG)
         else:
             self.redis = RedisQueue(redis_config)
         self.redis.connect()
         try:
             self.redis.ping()
         except Exception as exc:
+            host = redis_config.get("host", "127.0.0.1")
+            port = redis_config.get("port", 6379)
             raise RuntimeError(
-                "internal Redis is unavailable at 127.0.0.1:6379; start the local Redis service"
+                f"internal Redis is unavailable at {host}:{port}; "
+                "install redis-server or start a local Redis service"
             ) from exc
         return self.redis
+
+    def _ensure_managed_redis(self, redis_config: Mapping[str, Any]) -> None:
+        """Start redis-server as Jarvis-Redis:<scan> when the port is free."""
+        if self._managed_redis is not None and self._managed_redis.started_by_us:
+            return
+        scan_name = str(
+            self.info.get("scan_name") or self.config.get("scan_name") or "scan"
+        ).strip()
+        task_result_dir = str(
+            self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        work_dir = os.path.join(task_result_dir, ".redis")
+        managed = ManagedRedisServer.from_redis_config(
+            redis_config,
+            scan_name=scan_name,
+            work_dir=work_dir,
+        )
+        try:
+            started = managed.ensure(scan_name=scan_name, work_dir=work_dir)
+        except Exception as exc:
+            # Fall through to connect attempt; init_redis will raise a clear error.
+            self._logger.warning("managed redis-server ensure failed -> %s", exc)
+            return
+        self._managed_redis = managed
+        if started:
+            self._logger.info(
+                "started managed redis-server as %s on %s:%s",
+                managed.title,
+                managed.host,
+                managed.port,
+            )
+        else:
+            self._logger.info(
+                "using existing Redis at %s:%s "
+                "(process title is only set when Jarvis starts redis-server)",
+                managed.host,
+                managed.port,
+            )
 
     def _control_lock_owner_id(self) -> str:
         run_id = str(self.info.get("run_id") or "jarvis2-run")
@@ -607,13 +691,15 @@ class Jarvis2Core:
         delete_method = get_delete_method(self.config)
         redis_config = dict(self.runtime.get("redis") or self.redis.connection_config())
 
-        if str(archiver_config.get("mode", "thread")).strip().lower() == "process":
+        scan_name = str(self.info.get("scan_name") or "").strip() or None
+        if str(archiver_config.get("mode", "process")).strip().lower() == "process":
             self.archiver = ArchiverProcess(
                 redis_config,
                 db_path=resolved_db_path,
                 sample_root=sample_root,
                 delete_method=delete_method,
                 archiver_config=archiver_config,
+                scan_name=scan_name,
             )
             self.archiver.start()
         else:
@@ -686,7 +772,7 @@ class Jarvis2Core:
 
     def _live_sample_counters(self) -> dict[str, int]:
         """Snapshot Redis sample/queue counters for completion progress lines."""
-        ok = failed = running = queued = 0
+        ok = failed = running = queued = archive_q = 0
         if self.redis is not None:
             try:
                 stats = self.redis.fetch_sample_stats()
@@ -695,6 +781,7 @@ class Jarvis2Core:
                 failed = int(stats.get("failed", 0) or 0)
                 running = max(0, int(stats.get("running", 0) or 0))
                 queued = int(lengths.get("task_queue_length", 0) or 0)
+                archive_q = int(lengths.get("archive_queue_length", 0) or 0)
             except Exception:
                 pass
         return {
@@ -702,6 +789,7 @@ class Jarvis2Core:
             "failed": failed,
             "running": running,
             "queued": queued,
+            "archive_q": archive_q,
         }
 
     def wait_for_results(
@@ -728,29 +816,36 @@ class Jarvis2Core:
             progress = PermilleProgress(
                 self._logger,
                 total=total,
-                label="samples finished",
+                label="samples archived",
             )
-            progress.update(0, extra="ok=0 failed=0 queued=? running=?", force=True)
+            progress.update(
+                0,
+                extra="ok=? failed=? queued=? running=? archive_q=? archived=0/?",
+                force=True,
+            )
 
+        last_written = -1
+        stall_since: float | None = None
         while time.monotonic() < deadline:
             written = self._archiver_records_written()
+            counters = self._live_sample_counters()
             if progress is not None:
                 done = max(0, written - base)
-                counters = self._live_sample_counters()
                 extra = (
                     f"ok={counters['ok']} failed={counters['failed']} "
                     f"queued={counters['queued']} running={counters['running']} "
+                    f"archive_q={counters['archive_q']} "
                     f"archived={written}/{expected}"
                 )
                 progress.update(done, extra=extra)
             if written >= expected:
                 if progress is not None:
-                    counters = self._live_sample_counters()
                     progress.update(
                         total,
                         extra=(
                             f"ok={counters['ok']} failed={counters['failed']} "
-                            f"queued={counters['queued']} running={counters['running']}"
+                            f"queued={counters['queued']} running={counters['running']} "
+                            f"archive_q={counters['archive_q']}"
                         ),
                         force=True,
                     )
@@ -761,6 +856,26 @@ class Jarvis2Core:
                         format_duration(time.time() - progress.t0),
                     )
                 return
+            # Detect permanent stall: workers done, archive queue empty, count frozen.
+            workers_done = (
+                counters["running"] == 0
+                and counters["queued"] == 0
+                and (counters["ok"] + counters["failed"]) >= total
+            )
+            if workers_done and counters["archive_q"] == 0 and written == last_written:
+                if stall_since is None:
+                    stall_since = time.monotonic()
+                elif time.monotonic() - stall_since >= 5.0:
+                    raise TimeoutError(
+                        f"archive drain stalled: workers finished "
+                        f"(ok={counters['ok']} failed={counters['failed']}) but only "
+                        f"{written}/{expected} DATABASE rows written and archive_q=0. "
+                        f"Likely early SAMPLE bucket pack pruned dirs before Archiver "
+                        f"wrote rows (fixed by packing only after archived==assigned)."
+                    )
+            else:
+                stall_since = None
+            last_written = written
             time.sleep(poll_interval)
         raise TimeoutError(
             f"timed out waiting for {expected} archived results; "
@@ -802,30 +917,195 @@ class Jarvis2Core:
         )
         return RunSummaryRenderer().write_outputs(summary, task_result_dir)
 
-    def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
-        if self.sampler is not None and hasattr(self.sampler, "shutdown_checkpointing"):
-            self.sampler.shutdown_checkpointing()
-        if self.archiver is not None:
-            if isinstance(self.archiver, ArchiverProcess):
-                self.archiver.stop(wait=wait)
-            else:
-                self.archiver.stop(wait=wait, drain=True)
-            self.archiver = None
-        if write_run_summary and self.factory is not None:
-            try:
-                self.write_run_summary()
-            except Exception as exc:
-                self._logger.warning("run_summary write failed -> %s", exc)
+    def _init_sample_buckets(self) -> None:
+        """Register Redis SAMPLE bucket meta (numbering + active/completed state)."""
+        if self.redis is None:
+            return
+        sample_dir = get_sample_directory_config(self.config)
+        task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
+        sample_root = os.path.join(task_result_dir, "SAMPLE")
+        os.makedirs(sample_root, exist_ok=True)
+        meta = self.redis.init_sample_buckets(
+            sample_root=sample_root,
+            limit=int(sample_dir.get("limit", 200)),
+            width=int(sample_dir.get("width", 6)),
+            start_bucket=int(sample_dir.get("start_bucket", 1)),
+            pack=pack_buckets_enabled(self.config),
+            enabled=bool(sample_dir.get("enabled", True)),
+        )
+        self.info["sample_root"] = sample_root
+        self.info["sample_directory"] = dict(sample_dir)
+        self._logger.info(
+            "SAMPLE buckets ready -> root=%s limit=%s width=%s pack=%s",
+            sample_root,
+            meta.get("limit"),
+            meta.get("width"),
+            bool(int(meta.get("pack", 0))),
+        )
+
+    def _finalize_sample_buckets(self) -> None:
+        """Seal the open bucket after all samples finish; Archiver packs when idle."""
+        if self.redis is None:
+            return
         try:
-            self._release_redis_control_lock()
+            self.redis.seal_current_sample_bucket()
+        except Exception as exc:
+            self._logger.warning("seal current SAMPLE bucket failed -> %s", exc)
+        if self.archiver is not None:
+            try:
+                self.archiver.drain(idle_timeout=2.0)
+            except Exception as exc:
+                self._logger.warning("archiver bucket drain failed -> %s", exc)
+
+    def _install_control_signal_handlers(self) -> None:
+        """SIGINT/SIGTERM → clean shutdown; refuse Ctrl+Z suspend."""
+        if self._signal_handlers_installed:
+            return
+
+        def _stop_handler(signum: int, _frame: Any) -> None:
+            try:
+                sig_name = signal.Signals(signum).name
+            except Exception:
+                sig_name = str(signum)
+            self._interrupt_requested = True
+            try:
+                self._logger.warning(
+                    "received %s — initiating clean shutdown "
+                    "(Workers / Archiver / managed Redis)",
+                    sig_name,
+                )
+            except Exception:
+                pass
+            # Unwind the main thread so run()'s finally → shutdown() always runs.
+            raise KeyboardInterrupt(f"interrupted by {sig_name}")
+
+        def _refuse_suspend(signum: int, _frame: Any) -> None:
+            try:
+                self._logger.warning(
+                    "Ctrl+Z / SIGTSTP ignored — process suspend leaves Workers and "
+                    "Redis half-alive. Use Ctrl+C to stop the scan cleanly."
+                )
+            except Exception:
+                pass
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                self._previous_signal_handlers[sig] = signal.getsignal(sig)
+                signal.signal(sig, _stop_handler)
+            except (ValueError, OSError):
+                # Not in main thread or signal unsupported.
+                pass
+        if hasattr(signal, "SIGTSTP"):
+            try:
+                self._previous_signal_handlers[signal.SIGTSTP] = signal.getsignal(
+                    signal.SIGTSTP
+                )
+                signal.signal(signal.SIGTSTP, _refuse_suspend)
+            except (ValueError, OSError):
+                pass
+        self._signal_handlers_installed = True
+
+    def _restore_control_signal_handlers(self) -> None:
+        if not self._signal_handlers_installed:
+            return
+        for sig, previous in list(self._previous_signal_handlers.items()):
+            try:
+                signal.signal(sig, previous)
+            except (ValueError, OSError):
+                pass
+        self._previous_signal_handlers.clear()
+        self._signal_handlers_installed = False
+
+    def _stop_managed_redis(self) -> None:
+        managed = self._managed_redis
+        if managed is None:
+            return
+        self._managed_redis = None
+        try:
+            if managed.started_by_us:
+                try:
+                    self._logger.info(
+                        "stopping managed redis-server (%s)",
+                        managed.title or "Jarvis-Redis",
+                    )
+                except Exception:
+                    pass
+            managed.stop()
+        except Exception as exc:
+            try:
+                self._logger.warning("managed redis stop failed -> %s", exc)
+            except Exception:
+                pass
+
+    def _atexit_cleanup(self) -> None:
+        """Best-effort stop of managed Redis if the process dies unexpectedly."""
+        if self._shutdown_done:
+            return
+        try:
+            self._stop_managed_redis()
         except Exception:
             pass
-        if self.factory is not None:
-            self.factory.shutdown(wait=wait)
-            self.factory = None
-        elif self.redis is not None:
-            self.redis.close()
-        self.redis = None
+
+    def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
+        """Stop Archiver, Workers, release the control lock, and managed Redis.
+
+        Idempotent: safe to call from ``finally``, signal paths, and atexit.
+        Managed Redis is always stopped last in an inner ``finally`` so a failure
+        earlier in the chain cannot leave ``Jarvis-Redis:*`` orphaned.
+        """
+        if self._shutdown_done:
+            # Still try Redis in case a previous partial shutdown left it.
+            self._stop_managed_redis()
+            return
+        self._shutdown_done = True
+        try:
+            if self.sampler is not None and hasattr(self.sampler, "shutdown_checkpointing"):
+                try:
+                    self.sampler.shutdown_checkpointing()
+                except Exception as exc:
+                    self._logger.warning("sampler checkpoint shutdown failed -> %s", exc)
+            if not self._interrupt_requested:
+                try:
+                    self._finalize_sample_buckets()
+                except Exception:
+                    pass
+            if self.archiver is not None:
+                try:
+                    if isinstance(self.archiver, ArchiverProcess):
+                        # Interrupt path: don't hang forever on tar packing.
+                        timeout = 5.0 if self._interrupt_requested else 30.0
+                        self.archiver.stop(wait=wait, timeout=timeout)
+                    else:
+                        self.archiver.stop(
+                            wait=wait,
+                            drain=not self._interrupt_requested,
+                        )
+                except Exception as exc:
+                    self._logger.warning("archiver stop failed -> %s", exc)
+                self.archiver = None
+            if write_run_summary and self.factory is not None:
+                try:
+                    self.write_run_summary()
+                except Exception as exc:
+                    self._logger.warning("run_summary write failed -> %s", exc)
+            try:
+                self._release_redis_control_lock()
+            except Exception:
+                pass
+            if self.factory is not None:
+                try:
+                    self.factory.shutdown(wait=wait)
+                except Exception as exc:
+                    self._logger.warning("factory shutdown failed -> %s", exc)
+                self.factory = None
+            elif self.redis is not None:
+                try:
+                    self.redis.close()
+                except Exception:
+                    pass
+            self.redis = None
+        finally:
+            self._stop_managed_redis()
 
 
 __all__ = ["Jarvis2Core"]

@@ -1,0 +1,28 @@
+# Jarvis-HEP V2 default runtime policy (EnvReqs.Check_default_dependencies.default_yaml_path).
+# Only EnvReqs.V2 is merged by the V2 loader; task YAML overrides take precedence.
+EnvReqs:
+  V2:
+    workers: 4
+    batch_size: 256
+
+    # SAMPLE layout: SAMPLE/<bucket_id>/<uuid>/  (default ON, V1 sample_directory parity)
+    sample_directory:
+      enabled: true
+      limit: 200
+      width: 6
+      pack: true
+      start_bucket: 1
+
+    # Handoff: default direct — no staging/ intermediate hop.
+    # Set strategy: mv_to_staging only when a heavy/out-of-process Archiver needs it.
+    cleanup:
+      strategy: direct
+
+    # Layer-2 archive: DATABASE writes + sealed-bucket tar.gz packing.
+    archiver:
+      mode: process
+      handoff: direct
+      pack_buckets: true
+      batch_size: 200
+      flush_interval_sec: 1.0
+      delete_after_archive: true

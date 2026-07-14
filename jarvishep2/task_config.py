@@ -158,12 +158,21 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     )
     task_v2_settings = _canonicalize_v2_settings(task_v2) if isinstance(task_v2, Mapping) else {}
     v2_settings = _deep_merge(_deep_merge(v2_defaults, runtime_defaults), task_v2_settings)
-    unsupported_v2_settings = set(v2_settings) - {"workers", "batch_size"}
+    # Scheduling knobs + SAMPLE archive policy (EnvReqs.V2 / default_yaml).
+    _SUPPORTED_V2 = {
+        "workers",
+        "batch_size",
+        "sample_directory",
+        "cleanup",
+        "archiver",
+    }
+    unsupported_v2_settings = set(v2_settings) - _SUPPORTED_V2
     if unsupported_v2_settings:
         unsupported = ", ".join(sorted(str(key) for key in unsupported_v2_settings))
         raise ValueError(
             "unsupported EnvReqs.V2 setting(s): "
-            f"{unsupported}; supported settings are workers and batch_size"
+            f"{unsupported}; supported settings are "
+            + ", ".join(sorted(_SUPPORTED_V2))
         )
 
     config = deepcopy(loaded)
@@ -173,15 +182,53 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     if resolved_envreqs:
         config["EnvReqs"] = resolved_envreqs
     scan_block = config.get("Scan") if isinstance(config.get("Scan"), Mapping) else {}
+    scan_block = dict(scan_block)
+    # Apply EnvReqs.V2 sample_directory defaults unless Scan already defines them.
+    sample_directory = v2_settings.get("sample_directory")
+    if isinstance(sample_directory, Mapping):
+        existing = scan_block.get("sample_directory")
+        if isinstance(existing, Mapping):
+            scan_block["sample_directory"] = _deep_merge(sample_directory, existing)
+        else:
+            scan_block["sample_directory"] = deepcopy(sample_directory)
+        config["Scan"] = scan_block
+    # Map Cleanup / Archiver defaults into Calculators.* (task YAML wins).
+    calculators = config.get("Calculators")
+    calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
+    cleanup_defaults = v2_settings.get("cleanup")
+    if isinstance(cleanup_defaults, Mapping):
+        existing_cleanup = calculators.get("Cleanup")
+        if isinstance(existing_cleanup, Mapping):
+            calculators["Cleanup"] = _deep_merge(cleanup_defaults, existing_cleanup)
+        else:
+            calculators["Cleanup"] = deepcopy(cleanup_defaults)
+    archiver_defaults = v2_settings.get("archiver")
+    if isinstance(archiver_defaults, Mapping):
+        existing_archiver = calculators.get("Archiver")
+        if isinstance(existing_archiver, Mapping):
+            calculators["Archiver"] = _deep_merge(archiver_defaults, existing_archiver)
+        else:
+            calculators["Archiver"] = deepcopy(archiver_defaults)
+    if calculators:
+        config["Calculators"] = calculators
+
     scan_name = str(scan_block.get("name") or config.get("scan_name") or "default").strip() or "default"
     task_result_dir = str(
         config.get("task_result_dir")
         or scan_output_root(project_root=project_root, scan_name=scan_name)
     )
-    # Redis, sample-artifact policy, and worker recovery are internal runtime
-    # concerns.  YAML exposes only the scheduling knobs in EnvReqs.V2; the
-    # normalized Runtime dict below is an internal adapter for the executor.
-    runtime = normalize_runtime_block({"mode": "redis", **v2_settings})
+    # Runtime adapter keeps only scheduling scalars; nested archive policy lives
+    # on Scan / Calculators (and EnvReqs.V2 for inspection).
+    runtime_scalars = {
+        key: value
+        for key, value in v2_settings.items()
+        if key in {"workers", "batch_size"}
+    }
+    runtime = normalize_runtime_block({"mode": "redis", **runtime_scalars})
+    if isinstance(sample_directory, Mapping):
+        runtime["sample_directory"] = deepcopy(
+            scan_block.get("sample_directory") or sample_directory
+        )
     config["Runtime"] = runtime
     config["task_yaml"] = task_path
     config["task_root"] = project_root

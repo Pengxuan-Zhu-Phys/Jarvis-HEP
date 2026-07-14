@@ -119,6 +119,10 @@ Jarvis2 quickstart.yaml --resume      # resume from checkpoint without the 30 s 
 Jarvis2 path/to/plot.yaml --plot      # render an existing JarvisPLOT scene (plot extra)
 ```
 
+Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Archiver,
+and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
+leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
+
 `--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML. Scan-to-plot generation
 and post-run plotting are planned follow-ups. Portal and Operas discovery currently use their
 package CLIs (`jportal`, `jopera`) until native `Jarvis2 portal …` / `Jarvis2 operas …`
