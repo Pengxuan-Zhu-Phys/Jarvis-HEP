@@ -15,6 +15,7 @@ from jarvishep2.Module.calculator_spec import CalculatorSpec, normalize_command_
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.calculator_pools import resolve_calculator_pools
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
+from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.sample import Sample
 from jarvishep2.worker_config import build_worker_config
 
@@ -284,6 +285,60 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
             pack_dir = os.path.join(runtime_root, "EggBox", "pack-v1")
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "eggbox.py")))
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "output.json")))
+
+    def test_sample_running_log_matches_v1_shape(self) -> None:
+        """Calculator + Portal + Likelihood must stream into Sample_running.log."""
+        assert EGGBOX_SOURCE is not None
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = os.path.join(tmpdir, "runtime")
+            raw_module = _v1_eggbox_module(runtime_root, EGGBOX_SOURCE)
+            # Nested Dump entry like the Eggbox process card.
+            raw_module["execution"]["input"][0]["actions"][0]["variables"].append(
+                {"name": "cx", "expression": "(x + y) * Pi", "entry": "test.config.x"}
+            )
+            parser = CommandParser(project_root=tmpdir, scan_name="test")
+            prepared = prepare_calculator_modules([raw_module], parser)[0]
+            module = _attach_runtime(CalculatorModule("EggBox", prepared), tmpdir)
+            module.acquire_pack_id("006")
+
+            sample = Sample.from_params(
+                {"x": 0.10026936915321401, "y": 3.557910680770874, "uuid": "log-shape"}
+            )
+            sample.set_config(
+                {
+                    "sample_dirs": os.path.join(tmpdir, "SAMPLE"),
+                    "task_result_dir": tmpdir,
+                    "sample_artifacts": "always",
+                    "workflow_has_calculator": True,
+                    "workflow_references_sdir": False,
+                }
+            )
+            sample.materialize()
+            result = module.execute(sample.info)
+            sample.merge_observables(result)
+            sample.info["observables"] = dict(sample.observables)
+            LogLikelihoodEvaluator(
+                [{"name": "LogL_Z", "expression": "LogGauss(z, 100, 10)"}]
+            ).calculate(sample.info)
+            sample.observables = dict(sample.info["observables"])
+            sample.close()
+
+            run_log = str(sample.info.get("run_log") or "")
+            self.assertTrue(os.path.isfile(run_log), run_log)
+            text = open(run_log, encoding="utf-8").read()
+            self.assertIn("Module load instance and logger is correctly set!", text)
+            self.assertIn("(EggBox-No.006)", text)
+            self.assertIn("Run initialize command", text)
+            self.assertIn("Command Summary -> [initialize#", text)
+            self.assertIn("Adding the file inpjson as 'Portal:JSON' type", text)
+            self.assertIn("Evaluating: expression", text)
+            self.assertIn("Run execution command", text)
+            self.assertIn("Command Summary -> [execution#", text)
+            self.assertIn("Loading the file oupjson as 'Portal:JSON' type", text)
+            self.assertIn("Evaluating   LogL_Z", text)
+            self.assertIn("(Likelihood)", text)
+            self.assertIn("Sample SUMMARY", text)
+            self.assertIn("Sample closed", text)
 
 
 @unittest.skipUnless(EGGBOX_SOURCE, "Jarvis-Examples Eggbox assets not available")

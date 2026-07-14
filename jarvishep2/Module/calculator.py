@@ -46,6 +46,7 @@ class CalculatorModule:
         self._subprocess_env: dict[str, str] | None = None
         self.sample_info: dict[str, Any] = {}
         self.PackID: str | None = None
+        self.logger: Any | None = None
         self._templates_loaded = False
         self._template_parse_count = 0
         self._command_counter = 0
@@ -84,6 +85,7 @@ class CalculatorModule:
             expression,
             values,
             context=self._expression_context,
+            logger=self._logger(),
         )
 
     def bind_env(self, env: Mapping[str, str]) -> None:
@@ -119,12 +121,48 @@ class CalculatorModule:
 
     def prepare_runtime(self, sample_info: Mapping[str, Any]) -> None:
         self.sample_info = dict(sample_info)
+        # Fresh command index sequence for install/init/execution of this sample.
+        self._command_counter = 0
+        if self.logger is None:
+            self.update_sample_logger(sample_info)
         self._preparer.prepare(sample_info, run_stage=self._run_stage_commands)
 
     def _logger(self):
+        if self.logger is not None:
+            return self.logger
         if isinstance(self.sample_info, dict):
             return self.sample_info.get("logger")
         return None
+
+    def update_sample_logger(self, sample_info: Mapping[str, Any]) -> None:
+        """Bind the per-Sample logger as ``Sample@… (Module-No.pack)`` (V1 contract)."""
+        parent = None
+        if isinstance(sample_info, Mapping):
+            parent = sample_info.get("logger")
+        if parent is None:
+            self.logger = None
+            return
+        base_name = ""
+        if isinstance(sample_info, Mapping):
+            base_name = str(sample_info.get("logger_name") or "").strip()
+        if not base_name:
+            uuid = ""
+            if isinstance(sample_info, Mapping):
+                uuid = str(sample_info.get("uuid") or "").strip()
+            base_name = f"Sample@{uuid or 'UNKNOWN'}"
+        pack = str(self.PackID or "NA")
+        module_label = f"{base_name} ({self.name}-No.{pack})"
+        binder = getattr(parent, "bind", None)
+        if callable(binder):
+            self.logger = binder(module=module_label)
+        else:
+            self.logger = parent
+        if self.logger is not None:
+            self.logger.info("Module load instance and logger is correctly set!")
+
+    def close_sample_logger(self) -> None:
+        """Detach the sample-local logger after the calculator step finishes."""
+        self.logger = None
 
     def _resolve_runtime_tokens(self, text: str, *, stage: str, field: str) -> str:
         if text is None:
@@ -167,18 +205,31 @@ class CalculatorModule:
         cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
         cwd = os.path.abspath(cwd_text or ".")
         os.makedirs(cwd, exist_ok=True)
+        sample_logger = self._logger()
+        # When a sample logger is bound, stream command header/stdout/summary into
+        # Sample_running.log (V1 contract). Otherwise stay quiet on the worker log.
+        use_sample_log = sample_logger is not None
         result = scheduler.run(
             SubprocessJob(
                 cmd=cmd_text,
                 cwd=cwd,
                 env=self._subprocess_env,
                 timeout_sec=timeout_sec,
-                log_policy="quiet",
+                log_policy="logger" if use_sample_log else "quiet",
+                stream_logger=sample_logger if use_sample_log else None,
                 meta={
                     "module": self.name,
                     "pack_id": self.PackID,
                     "stage": stage,
-                    "command_index": command_index,
+                    "command_index": int(command_index),
+                    "sample_uuid": (
+                        self.sample_info.get("uuid")
+                        if isinstance(self.sample_info, dict)
+                        else None
+                    ),
+                    "cwd": cwd,
+                    "command_log_to_stream": use_sample_log,
+                    "emit_command_summary": use_sample_log,
                 },
             ),
             timeout=(float(timeout_sec) + 5.0) if timeout_sec is not None else None,
@@ -208,6 +259,10 @@ class CalculatorModule:
             evaluate_expression=self._evaluate_io_expression,
         )
 
+    def _portal_type_label(self, spec: Mapping[str, Any]) -> str:
+        raw = str(spec.get("type", "")).strip() or "UNKNOWN"
+        return f"Portal:{raw}"
+
     def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
         """Write calculator inputs via Portal; return observables for the Sample.
 
@@ -222,7 +277,11 @@ class CalculatorModule:
             return merged
         protected = set(merged)
         context = self._io_context(input_data)
+        logger = self._logger()
         for spec in self.input_specs:
+            if logger is not None:
+                name = str(spec.get("name") or "").strip() or "input"
+                logger.debug(f"Adding the file {name} as '{self._portal_type_label(spec)}' type")
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
             portal_obs = write_io_input_sync(spec, input_data, context=context, path=path)
             if not isinstance(portal_obs, dict):
@@ -238,7 +297,11 @@ class CalculatorModule:
         if not self.output_specs:
             return merged
         context = self._io_context()
+        logger = self._logger()
         for spec in self.output_specs:
+            if logger is not None:
+                name = str(spec.get("name") or "").strip() or "output"
+                logger.debug(f"Loading the file {name} as '{self._portal_type_label(spec)}' type")
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
             portal_obs = read_io_output_sync(spec, context=context, path=path)
             if isinstance(portal_obs, dict):
@@ -294,14 +357,16 @@ class CalculatorModule:
     def execute(self, sample_info: Mapping[str, Any], *, runtime_prepared: bool = False) -> dict[str, Any]:
         """load_input → run commands → read_output (scheduler required when selected)."""
         self.sample_info = dict(sample_info)
-        self._command_counter = 0
         if not self._should_run(sample_info):
             return {}
+        # Prefer a single bind for prepare+execute (Worker may prepare first).
+        if self.logger is None:
+            self.update_sample_logger(sample_info)
         self._require_scheduler()
-        if not runtime_prepared:
-            self.prepare_runtime(sample_info)
-        input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})
         try:
+            if not runtime_prepared:
+                self.prepare_runtime(sample_info)
+            input_data = dict(sample_info.get("observables") or sample_info.get("params") or {})
             result: dict[str, Any] = {}
             deadline = None
             if self.timeout is not None:
@@ -310,7 +375,13 @@ class CalculatorModule:
             self.execute_commands(deadline=deadline)
             result.update(self.read_output())
             return result
+        except Exception as exc:
+            logger = self._logger()
+            if logger is not None:
+                logger.error(f"Error during execution: {exc}")
+            raise
         finally:
+            self.close_sample_logger()
             self.sample_info = {}
 
     @classmethod

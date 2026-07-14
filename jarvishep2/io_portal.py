@@ -67,11 +67,18 @@ def available_io_formats(direction: str | None = None) -> list[str]:
     return get_io_registry().available_formats(direction)
 
 
+def _format_expression_input_pairs(values: Mapping[str, Any]) -> str:
+    """Render ``[x : 1.0, y : 2.0]`` like V1 sample-log Dump lines."""
+    parts = [f"{key} : {value}" for key, value in values.items()]
+    return ", ".join(parts)
+
+
 def evaluate_io_expression(
     expression: str,
     values: Mapping[str, Any],
     *,
     context: ExpressionContext | None = None,
+    logger: Any = None,
 ) -> Any:
     """Evaluate a cached Dump expression with the shared HEP expression semantics."""
     text = str(expression).strip()
@@ -103,11 +110,22 @@ def evaluate_io_expression(
     if missing:
         raise ValueError(f"Dump expression '{text}' misses parameters: {sorted(missing)}")
     try:
-        return float(compiled.evaluate(numeric_values))
+        value = float(compiled.evaluate(numeric_values))
     except MissingExpressionVariablesError as exc:
         raise ValueError(
             f"Dump expression '{text}' misses parameters: {list(exc.missing)}"
         ) from exc
+    if logger is not None:
+        # V1 sample-log shape for Portal Dump evaluations.
+        logger.info(
+            "Evaluating: expression \n\t-> {} \n    with input \t -> [{}] "
+            "\n    Output \t\t-> {}".format(
+                text,
+                _format_expression_input_pairs(numeric_values),
+                value,
+            )
+        )
+    return value
 
 
 def _coerce_numeric_param(value: Any) -> float | None:
@@ -142,7 +160,13 @@ def build_io_context(
         sample_save_dir = str(sample_save_dir)
     if logger is None and "logger" in info:
         logger = info.get("logger")
-    evaluator = evaluate_expression if evaluate_expression is not None else evaluate_io_expression
+    if evaluate_expression is not None:
+        evaluator = evaluate_expression
+    else:
+        # Close over sample logger so Portal Dump lines land in Sample_running.log.
+        def evaluator(expression: str, values: Mapping[str, Any], _logger=logger) -> Any:
+            return evaluate_io_expression(expression, values, logger=_logger)
+
     return IOContext(
         logger=logger,
         sample_uuid=str(sample_uuid) if sample_uuid is not None else None,

@@ -176,12 +176,26 @@ class RedisQueueTests(unittest.TestCase):
     def test_submit_result_updates_archive_queue_and_stats(self):
         info = {"uuid": "done-1", "status": "Completed", "LogL": -1.5}
         self.queue.submit_result(info)
+        # sample op_count: pull_task also increments; bare submit_result → 1
         self.assertEqual(self.queue.get_op_count("sample"), 1)
         self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "completed")), 1)
 
         pulled = self.queue.pull_result(timeout=1)
         self.assertEqual(pulled, info)
         self.assertEqual(self.queue.r.llen(ARCHIVE_QUEUE), 0)
+
+    def test_pull_task_marks_sample_running_then_submit_clears(self):
+        """Worker lifecycle: pull → running+1; submit_result → completed+1, running-1."""
+        self.queue.push_task(_minimal_task(uuid="run-1"))
+        task = self.queue.pull_task(timeout=1)
+        self.assertIsNotNone(task)
+        stats = self.queue.fetch_sample_stats()
+        self.assertEqual(int(stats.get("running", 0)), 1)
+
+        self.queue.submit_result({"uuid": "run-1", "status": "Completed", "observables": {}})
+        stats = self.queue.fetch_sample_stats()
+        self.assertEqual(int(stats.get("completed", 0)), 1)
+        self.assertEqual(int(stats.get("running", 0)), 0)
 
     def test_submit_result_rejects_missing_uuid(self):
         with self.assertRaises(TaskValidationError):

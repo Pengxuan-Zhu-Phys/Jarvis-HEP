@@ -291,6 +291,7 @@ class Worker(Process):
         if not save_dir or not os.path.isdir(save_dir):
             return
 
+        # Logger must already be closed (sample.close writes SUMMARY first).
         sample.close_logger()
         staging_path = stage_sample_dir(save_dir, self._staging_dir, sample.uuid)
         sample.info["staging_path"] = staging_path
@@ -382,10 +383,11 @@ class Worker(Process):
             materialize_failure_artifacts(sample.info, error=exc)
             top.error("sample failed; see sample log -> %s", exc)
         finally:
+            # Write Sample SUMMARY while the file logger is still open, then stage.
+            sample.close()
             self._handoff_sample_to_staging(sample)
             self._stage_and_submit(sample)
             self._cleanup_transient_paths(sample)
-            sample.close()
             self._current_sample_uuid = None
             self._current_task = None
             self._held_calc_packs.clear()

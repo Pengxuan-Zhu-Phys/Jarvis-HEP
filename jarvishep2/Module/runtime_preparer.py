@@ -71,6 +71,7 @@ class RuntimePreparer:
         *,
         run_stage: Callable[[list[Mapping[str, Any]], str], None],
     ) -> None:
+        """One-time physical install of a shadow pack (installation only)."""
         if not self.spec.clone_shadow:
             return
         pack_id = str(self.pack_id or "")
@@ -88,9 +89,21 @@ class RuntimePreparer:
             raise RuntimeError(
                 f"clone_shadow calculator '{self.spec.name}' requires a source path or installation commands"
             )
-        if self.spec.initialization:
-            run_stage(list(self.spec.initialization), "initialize")
         self._installed_shadows.add(pack_id)
+
+    def run_initialization(
+        self,
+        *,
+        run_stage: Callable[[list[Mapping[str, Any]], str], None],
+    ) -> None:
+        """V1 contract: re-run initialization for every sample on a pack."""
+        if not self.spec.initialization:
+            return
+        if self.spec.clone_shadow:
+            pack_id = str(self.pack_id or "")
+            if not pack_id:
+                raise RuntimeError("clone_shadow initialization requires pack_id")
+        run_stage(list(self.spec.initialization), "initialize")
 
     def ensure_symlink_runtime(self, sample_info: Mapping[str, Any]) -> str | None:
         if self.spec.clone_shadow or not self.spec.source:
@@ -112,8 +125,10 @@ class RuntimePreparer:
     ) -> None:
         if self.spec.clone_shadow:
             self.ensure_shadow_installed(run_stage=run_stage)
+            self.run_initialization(run_stage=run_stage)
         else:
             self.ensure_symlink_runtime(sample_info)
+            self.run_initialization(run_stage=run_stage)
 
 
 __all__ = ["RuntimePreparer"]

@@ -17,6 +17,7 @@ from jarvishep2.Sampling.sampling_utils import (
     map_row_to_physical,
     row_to_u_coords,
 )
+from jarvishep2.log_kv import format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
@@ -129,12 +130,14 @@ class Bridson(FixedSetSampler):
         workers = int(runtime.get("workers", 1) or 1)
         self._radius = float(sampling["Radius"])
         self._k = int(sampling["MaxAttempt"])
+        # V1-like backpressure: at most MaxWorker (default = Runtime.workers) in flight.
         self._max_inflight = max(1, int(sampling.get("MaxWorker", workers) or workers))
 
     def initialize(self) -> None:
         ndim = len(self.vars)
         if ndim < 2 or ndim >= 5:
             raise ValueError("Bridson supports 2d to 4d parameter spaces only")
+        self._logger.warning("Initializing the Bridson Sampling")
         if self._seed:
             np.random.seed(self._seed)
         t0 = time.time()
@@ -149,8 +152,10 @@ class Bridson(FixedSetSampler):
         self.info["t0"] = time.time() - t0
         self._index = 0
         self._accepted_index = 0
+        # Fresh submit-progress bar for this grid generation.
+        self.barinfo = {}
         self._logger.info(
-            "Bridson generated %d accepted grid cells in %.2f s",
+            "Bridson Sampler obtains %d samples in %.2f sec",
             self.info["NSamples"],
             self.info["t0"],
         )
@@ -173,6 +178,8 @@ class Bridson(FixedSetSampler):
         while self._index < len(self._P):
             row = self._P[self._index]
             self._index += 1
+            # V1 progress heartbeat: advance on every grid step (even if selection rejects).
+            self._emit_progress()
             physical = map_row_to_physical(row, self.vars)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
@@ -184,7 +191,6 @@ class Bridson(FixedSetSampler):
             self._accepted_index += 1
             sample = self._build_sample(row_to_u_coords(row, self.vars))
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            self._emit_progress()
             return sample
         return None
 
@@ -192,13 +198,42 @@ class Bridson(FixedSetSampler):
         return self._P is not None and self._index >= len(self._P)
 
     def _emit_progress(self) -> None:
-        if not self.barinfo:
-            self.barinfo = {"total": int(self.info.get("NSamples", 0)), "permille": 0}
-        if self.barinfo["total"] <= 0:
+        """V1 Bridson submit heartbeat: one log line per new ‰ of the grid."""
+        total = int(self.info.get("NSamples", 0) or 0)
+        if self._P is not None:
+            total = max(total, int(len(self._P)))
+        if total <= 0:
             return
-        permille = int(self._index / self.barinfo["total"] * 1000)
-        if permille != self.barinfo.get("permille"):
+
+        def _log_progress(permille: int) -> None:
+            # Keep V1 wording (including the historical "submited" spelling).
+            msg = "{}‰ of {}/{} samples submited in {}".format(
+                permille,
+                int(self._index),
+                total,
+                format_duration(time.time() - float(self.barinfo["t0"])),
+            )
+            # INFO for 1‰ steps; WARNING only for exact 1%, 2%, … milestones.
+            if permille > 0 and permille % 10 == 0:
+                self._logger.warning(msg)
+            else:
+                self._logger.info(msg)
+
+        if not self.barinfo:
+            self.barinfo = {
+                "total": total,
+                "t0": time.time(),
+                "permille": 0,
+            }
+            _log_progress(0)
+            return
+
+        self.barinfo.setdefault("total", total)
+        self.barinfo.setdefault("t0", time.time())
+        permille = int(self._index / float(self.barinfo["total"]) * 1000)
+        if permille != int(self.barinfo.get("permille", -1)):
             self.barinfo["permille"] = permille
+            _log_progress(permille)
 
     def repropose_unfinished(self) -> list[str]:
         if not self._repropose_after_resume:

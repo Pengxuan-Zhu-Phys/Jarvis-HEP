@@ -4,7 +4,70 @@
 from __future__ import annotations
 
 import textwrap
+import time
 from typing import Any, Iterable
+
+
+def format_duration(seconds: float) -> str:
+    """V1-compatible ``HH:MM:SS.msc`` duration for progress heartbeats."""
+    total = max(0.0, float(seconds))
+    hours = int(total // 3600)
+    minutes = int((total % 3600) // 60)
+    secs = total % 60
+    millisec = secs % 1
+    # Match V1: fractional part of seconds as three-digit milliseconds.
+    frac = str(millisec)
+    ms = frac[2:5] if "." in frac else "000"
+    ms = (ms + "000")[:3]
+    return f"{hours:02d}:{minutes:02d}:{int(secs):02d}.{ms}"
+
+
+class PermilleProgress:
+    """Emit V1-style ‰ progress lines; WARNING at exact 1% milestones."""
+
+    def __init__(
+        self,
+        logger: Any,
+        *,
+        total: int,
+        label: str = "samples finished",
+        t0: float | None = None,
+    ) -> None:
+        self._logger = logger
+        self.total = max(0, int(total))
+        self.label = str(label)
+        self.t0 = float(time.time() if t0 is None else t0)
+        self._permille = -1
+
+    def update(
+        self,
+        done: int,
+        *,
+        extra: str | None = None,
+        force: bool = False,
+    ) -> bool:
+        """Log when the ‰ changes (or ``force``). Return True if a line was emitted."""
+        if self.total <= 0:
+            return False
+        done_n = max(0, int(done))
+        permille = min(1000, int(done_n / float(self.total) * 1000))
+        if not force and permille == self._permille:
+            return False
+        self._permille = permille
+        msg = "{}‰ of {}/{} {} in {}".format(
+            permille,
+            done_n,
+            self.total,
+            self.label,
+            format_duration(time.time() - self.t0),
+        )
+        if extra:
+            msg = f"{msg} ({extra})"
+        if permille > 0 and permille % 10 == 0:
+            self._logger.warning(msg)
+        else:
+            self._logger.info(msg)
+        return True
 
 
 def _wrap_cell(text: str, width: int) -> list[str]:

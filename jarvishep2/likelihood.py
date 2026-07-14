@@ -74,12 +74,63 @@ class LogLikelihoodEvaluator:
         values["LogL"] = float(total_loglikelihood)
         return values
 
+    def _sample_logger(self, sample_info: Mapping[str, Any]) -> Any | None:
+        parent = sample_info.get("logger") if isinstance(sample_info, Mapping) else None
+        if parent is None:
+            return None
+        base_name = ""
+        if isinstance(sample_info, Mapping):
+            base_name = str(sample_info.get("logger_name") or "").strip()
+        if not base_name:
+            uuid = str(sample_info.get("uuid") or "UNKNOWN") if isinstance(sample_info, Mapping) else "UNKNOWN"
+            base_name = f"Sample@{uuid}"
+        binder = getattr(parent, "bind", None)
+        if callable(binder):
+            return binder(module=f"{base_name} (Likelihood)")
+        return parent
+
     def calculate(self, sample_info: dict[str, Any]) -> float:
         """Worker-facing evaluation that writes into sample_info."""
         observables = sample_info.get("observables", {})
         if not isinstance(observables, dict):
             raise TypeError("sample_info['observables'] must be a dict")
-        values = self.evaluate(observables)
+        slogger = self._sample_logger(sample_info)
+        # Evaluate term-by-term so each expression can be sample-logged like V1.
+        payload = dict(observables)
+        eval_values = dict(payload)
+        explicit_total = any(name == "LogL" for name, _ in self._compiled)
+        total_loglikelihood = 0.0
+        values: dict[str, float] = {}
+        for name, compiled in self._compiled:
+            try:
+                result = compiled.evaluate(eval_values)
+            except MissingExpressionVariablesError as exc:
+                raise KeyError(
+                    f"LogLikelihood expression '{name}' misses observables: {list(exc.missing)}"
+                ) from exc
+            if isinstance(result, np.generic):
+                result = result.item()
+            likelihood = float(result)
+            values[name] = likelihood
+            eval_values[name] = likelihood
+            if name == "LogL":
+                total_loglikelihood = likelihood
+            elif not explicit_total:
+                total_loglikelihood += likelihood
+            if slogger is not None:
+                used = {
+                    key: eval_values[key]
+                    for key in compiled.variable_names
+                    if key in eval_values
+                }
+                input_text = ", ".join(f"{key} : {val}" for key, val in used.items())
+                slogger.info(
+                    f"Evaluating   {name}: \n"
+                    f"   expression \t-> {compiled.expression}\n"
+                    f"   with input \t-> [{input_text}] \n"
+                    f"   Output \t\t-> {likelihood}"
+                )
+        values["LogL"] = float(total_loglikelihood)
         observables.update(values)
         sample_info["observables"] = observables
         likelihood = values.get("LogL")

@@ -227,6 +227,9 @@ class RedisQueue:
         decoded = decode_payload(payload, codec=self._codec)
         if not isinstance(decoded, dict):
             raise CodecError("task payload must decode to a dict")
+        # Sample left the queue and is now in-flight on a Worker.
+        self.r.hincrby(SAMPLE_STATS, "running", 1)
+        self.r.incr(OP_COUNT.format(kind="sample"))
         return decoded
 
     def drain_task_queue(self) -> int:
@@ -234,8 +237,9 @@ class RedisQueue:
         self._require_client()
         drained = 0
         while int(self.r.llen(TASK_QUEUE)) > 0:
-            task = self.pull_task(timeout=1)
-            if task is None:
+            # Bypass pull_task so we do not bump SAMPLE_STATS.running for discarded work.
+            raw = self.r.blpop(TASK_QUEUE, timeout=1)
+            if raw is None:
                 break
             drained += 1
         return drained
@@ -423,7 +427,14 @@ class RedisQueue:
         """Read the sample stats hash (monitor subsystem fetch)."""
         self._require_client()
         sample_stats = self.r.hgetall(SAMPLE_STATS) or {}
-        return {key: _coerce_numeric(value) for key, value in sample_stats.items()}
+        result = {key: _coerce_numeric(value) for key, value in sample_stats.items()}
+        # Clamp: submit_result may outpace pull_task in unit tests / crash paths.
+        if "running" in result:
+            try:
+                result["running"] = max(0, int(result["running"] or 0))
+            except (TypeError, ValueError):
+                result["running"] = 0
+        return result
 
     def fetch_worker_status(self, worker_ids: list[str]) -> dict[str, dict[str, Any]]:
         """Read heartbeat hashes for the given Worker ids."""

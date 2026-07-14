@@ -442,10 +442,28 @@ class AsyncSubprocessScheduler:
                     job_logger = binder(module=module_name)
                 except Exception:
                     job_logger = self.logger
-            if mode in {"logger", "tee-limited"}:
-                job_logger.info(
-                    f" Run command -> \n\t{cmd_display} \n in path -> \n\t{job.cwd or '.'} \n Screen output -> "
-                )
+        # Prefer the calculator sample logger when requested (header/stdout/summary).
+        if bool(run_meta.get("command_log_to_stream")) and stream_logger is not None:
+            command_logger = stream_logger
+        elif job_logger is not None:
+            command_logger = job_logger
+        else:
+            command_logger = stream_logger
+        if (
+            command_logger is not None
+            and mode in {"logger", "tee-limited"}
+            and not bool(run_meta.get("suppress_command_header"))
+        ):
+            stage = str(run_meta.get("stage") or "").strip()
+            stage_label = {
+                "install": "installation",
+                "initialize": "initialize",
+                "execution": "execution",
+            }.get(stage)
+            command_title = f"{stage_label} command" if stage_label else "command"
+            command_logger.info(
+                f" Run {command_title} -> \n\t{cmd_display} \n in path -> \n\t{job.cwd or '.'} \n Screen output -> \n"
+            )
 
         env = None
         if isinstance(job.env, Mapping):
@@ -482,15 +500,23 @@ class AsyncSubprocessScheduler:
                 f"Failed to spawn subprocess: {exc}. {fd_hint}".strip()
             ) from exc
 
+        def _emit_command_raw(text: str) -> None:
+            if command_logger is not None:
+                _emit_log_line(command_logger, text, raw=True)
+            if (
+                stream_logger is not None
+                and stream_logger is not command_logger
+                and not bool(run_meta.get("command_log_to_stream"))
+            ):
+                _emit_log_line(stream_logger, text, raw=True)
+
         async def _drain_stream(stream, sink_fh, stream_name: str) -> int:
             total = 0
             emitted = 0
             text_buffer = ""
 
             def _emit_text(text: str) -> None:
-                _emit_log_line(job_logger, text, raw=True)
-                if stream_logger is not None and stream_logger is not job_logger:
-                    _emit_log_line(stream_logger, text, raw=True)
+                _emit_command_raw(text)
 
             while True:
                 chunk = await stream.read(self.config.chunk_size)
@@ -499,19 +525,19 @@ class AsyncSubprocessScheduler:
                 total += len(chunk)
                 if sink_fh is not None:
                     sink_fh.write(chunk)
-                if mode == "logger" and job_logger is not None:
+                if mode == "logger" and command_logger is not None:
                     text_buffer += chunk.decode(errors="replace")
                     while "\n" in text_buffer:
                         line, text_buffer = text_buffer.split("\n", 1)
                         line = line.rstrip("\r")
                         if line:
                             _emit_text(line)
-                if mode == "tee-limited" and job_logger is not None and emitted < 3:
+                if mode == "tee-limited" and command_logger is not None and emitted < 3:
                     text = chunk.decode(errors="ignore")
                     if text.strip():
                         emitted += 1
                         _emit_text(text.strip()[:200])
-            if mode == "logger" and job_logger is not None:
+            if mode == "logger" and command_logger is not None:
                 tail = text_buffer.rstrip("\r")
                 if tail:
                     _emit_text(tail)
@@ -557,6 +583,26 @@ class AsyncSubprocessScheduler:
             stderr_bytes=int(stderr_bytes),
             cmd_display=cmd_display,
         )
+
+        if bool(run_meta.get("emit_command_summary")):
+            stage = str(run_meta.get("stage") or "command").strip() or "command"
+            try:
+                command_index = int(run_meta.get("command_index", 0))
+            except (TypeError, ValueError):
+                command_index = 0
+            timeout_tag = " \t timeout -> 1" if bool(result.timed_out) else ""
+            _emit_command_raw(
+                " Command Summary -> [{}#{:05}] \n"
+                "\t rc -> {} \t dur -> {:.3f}s \tout -> {}B \terr -> {}B{}".format(
+                    stage,
+                    command_index,
+                    int(result.returncode),
+                    float(result.duration_sec),
+                    int(result.stdout_bytes),
+                    int(result.stderr_bytes),
+                    timeout_tag,
+                )
+            )
 
         if job.log_dir:
             meta_path = str(Path(job.log_dir).expanduser().resolve() / "meta.json")

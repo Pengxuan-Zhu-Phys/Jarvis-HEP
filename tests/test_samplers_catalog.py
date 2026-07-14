@@ -10,7 +10,12 @@ import unittest
 import numpy as np
 
 from jarvishep2.Sampling import sampling_utils
-from jarvishep2.Sampling.bridson import Bridson, Bridson_sampling, hypersphere_surface_sample
+from jarvishep2.Sampling.bridson import (
+    Bridson,
+    Bridson_sampling,
+    hypersphere_surface_sample,
+)
+from jarvishep2.log_kv import format_duration
 from jarvishep2.Sampling.grid import Grid, grid_sampling
 from jarvishep2.Sampling.randoms import RandomS
 from jarvishep2.core import Jarvis2Core
@@ -249,6 +254,10 @@ class GridSamplerUnitTests(unittest.TestCase):
 
 
 class BridsonSamplerUnitTests(unittest.TestCase):
+    def test_format_duration_matches_v1_shape(self) -> None:
+        self.assertRegex(format_duration(0.192), r"^\d{2}:\d{2}:\d{2}\.\d{3}$")
+        self.assertEqual(format_duration(0.0)[:8], "00:00:00")
+
     def test_batch_size_uses_normalized_runtime_default(self) -> None:
         """Missing Runtime.batch_size must keep FixedSetSampler/runtime default (256), not MaxWorker."""
         sampler = Bridson()
@@ -282,6 +291,148 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         )
         self.assertEqual(sampler._batch_size, 256)
         self.assertEqual(sampler._max_inflight, 2)
+
+    def test_max_inflight_backpressure_limits_outstanding_tasks(self) -> None:
+        """run_distributed must not exceed max_inflight without worker completions."""
+        sampler = Bridson()
+        sampler.set_config(
+            {
+                "Runtime": {"mode": "redis", "workers": 2, "batch_size": 8},
+                "Sampling": {
+                    "Method": "Bridson",
+                    "Radius": 0.12,
+                    "MaxAttempt": 30,
+                    "MaxWorker": 2,
+                    "Seed": 3,
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        self.assertEqual(sampler._max_inflight, 2)
+
+        pushed_events: list[int] = []
+        finish_after = {"n": 0}
+
+        class _FakeRedis:
+            def fetch_sample_stats(self):
+                # Finish one sample whenever more than max_inflight would block forever.
+                finished = max(0, finish_after["n"])
+                return {"completed": finished, "failed": 0, "running": 0}
+
+            def get_queue_lengths(self):
+                return {"task_queue_length": 0}
+
+        def _submit(sample):  # noqa: ANN001
+            pushed_events.append(1)
+            # Simulate a slow worker: allow progress only after 2 are outstanding.
+            if len(pushed_events) - finish_after["n"] >= sampler._max_inflight:
+                finish_after["n"] += 1
+
+        def _submit_group(samples):  # noqa: ANN001
+            for sample in samples:
+                _submit(sample)
+
+        sampler.redis = _FakeRedis()  # type: ignore[assignment]
+        sampler.runtime_mode = "redis"
+        sampler._submit = _submit  # type: ignore[method-assign]
+        sampler._submit_group = _submit_group  # type: ignore[method-assign]
+
+        # Track peak outstanding = submitted - finished_at_that_time
+        peaks: list[int] = []
+        original_wait = sampler._wait_for_inflight_room
+
+        def _wait(pushed, *, base_finished, max_inflight):  # noqa: ANN001
+            peaks.append(sampler._inflight(pushed, base_finished=base_finished))
+            original_wait(pushed, base_finished=base_finished, max_inflight=max_inflight)
+
+        sampler._wait_for_inflight_room = _wait  # type: ignore[method-assign]
+        total = sampler.run_distributed()
+        self.assertGreater(total, 0)
+        self.assertEqual(total, len(pushed_events))
+        # Never wait while already above the cap (inflight recorded before wait).
+        self.assertTrue(all(p <= sampler._max_inflight for p in peaks))
+
+    def test_submit_progress_heartbeat_logs_permille(self) -> None:
+        """V1-style ``N‰ of i/N samples submited`` heartbeat while proposing."""
+        sampler = Bridson()
+        sampler.set_config(
+            {
+                "Runtime": {"mode": "redis", "workers": 1},
+                "Sampling": {
+                    "Method": "Bridson",
+                    # Smaller radius → denser grid → multiple ‰ heartbeats.
+                    "Radius": 0.08,
+                    "MaxAttempt": 30,
+                    "Seed": 7,
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        },
+                    ],
+                },
+            }
+        )
+        info_messages: list[str] = []
+        warning_messages: list[str] = []
+
+        class _Capture:
+            def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                text = str(msg) % args if args else str(msg)
+                info_messages.append(text)
+
+            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                text = str(msg) % args if args else str(msg)
+                warning_messages.append(text)
+
+        sampler._logger = _Capture()  # type: ignore[assignment]
+        sampler.initialize()
+        total = int(sampler.info["NSamples"])
+        self.assertGreaterEqual(total, 20)
+        # Drain enough of the grid so several ‰ milestones fire.
+        for _ in range(max(1, total // 2)):
+            if sampler.propose_next() is None:
+                break
+
+        progress_lines = [
+            line
+            for line in info_messages + warning_messages
+            if "‰ of" in line and "samples submited" in line
+        ]
+        self.assertTrue(progress_lines, "expected Bridson submit progress heartbeats")
+        self.assertTrue(any(line.startswith("0‰ of") for line in progress_lines))
+        self.assertGreaterEqual(len(progress_lines), 2)
+        # 1% milestones use warning level when they appear.
+        warning_progress = [line for line in warning_messages if "‰ of" in line]
+        for line in warning_progress:
+            permille = int(line.split("‰", 1)[0])
+            self.assertEqual(permille % 10, 0)
+            self.assertGreater(permille, 0)
 
     def test_checkpoint_roundtrip_restores_grid_cursor(self) -> None:
         sampler = Bridson()

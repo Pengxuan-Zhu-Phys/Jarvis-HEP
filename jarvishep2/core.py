@@ -20,6 +20,7 @@ from jarvishep2.dashboard import SnapshotReader, format_monitor_view
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
+from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
 from jarvishep2.versioning import render_logo_with_version
@@ -204,8 +205,14 @@ class Jarvis2Core:
                 f"Sampler {type(self.sampler).__name__} does not implement a distributed run API"
             )
         expected_records = start_records + requeued + pushed
+        total_work = requeued + pushed
         if expected_records > start_records:
-            self.wait_for_results(expected_records, timeout=timeout)
+            self.wait_for_results(
+                expected_records,
+                timeout=timeout,
+                progress_total=total_work,
+                progress_base=start_records,
+            )
         return requeued + pushed
 
     def run_adaptive_scan(self, *, timeout: float = 3600.0) -> int:
@@ -611,18 +618,82 @@ class Jarvis2Core:
             for sample in samples:
                 self.sampler._submit(sample)
 
+    def _live_sample_counters(self) -> dict[str, int]:
+        """Snapshot Redis sample/queue counters for completion progress lines."""
+        ok = failed = running = queued = 0
+        if self.redis is not None:
+            try:
+                stats = self.redis.fetch_sample_stats()
+                lengths = self.redis.get_queue_lengths()
+                ok = int(stats.get("completed", 0) or 0)
+                failed = int(stats.get("failed", 0) or 0)
+                running = max(0, int(stats.get("running", 0) or 0))
+                queued = int(lengths.get("task_queue_length", 0) or 0)
+            except Exception:
+                pass
+        return {
+            "ok": ok,
+            "failed": failed,
+            "running": running,
+            "queued": queued,
+        }
+
     def wait_for_results(
         self,
         expected: int,
         *,
         timeout: float = 30.0,
         poll_interval: float = 0.1,
+        progress_total: int | None = None,
+        progress_base: int | None = None,
     ) -> None:
+        """Block until Archiver has written ``expected`` records.
+
+        When ``progress_total`` is set, emit V1-style ‰ completion heartbeats
+        using archived count relative to ``progress_base`` (default 0).
+        """
         if self.archiver is None:
             raise RuntimeError("archiver is not configured")
         deadline = time.monotonic() + max(0.1, float(timeout))
+        base = int(progress_base or 0)
+        total = int(progress_total) if progress_total is not None else max(0, int(expected) - base)
+        progress: PermilleProgress | None = None
+        if total > 0:
+            progress = PermilleProgress(
+                self._logger,
+                total=total,
+                label="samples finished",
+            )
+            progress.update(0, extra="ok=0 failed=0 queued=? running=?", force=True)
+
         while time.monotonic() < deadline:
-            if self._archiver_records_written() >= expected:
+            written = self._archiver_records_written()
+            if progress is not None:
+                done = max(0, written - base)
+                counters = self._live_sample_counters()
+                extra = (
+                    f"ok={counters['ok']} failed={counters['failed']} "
+                    f"queued={counters['queued']} running={counters['running']} "
+                    f"archived={written}/{expected}"
+                )
+                progress.update(done, extra=extra)
+            if written >= expected:
+                if progress is not None:
+                    counters = self._live_sample_counters()
+                    progress.update(
+                        total,
+                        extra=(
+                            f"ok={counters['ok']} failed={counters['failed']} "
+                            f"queued={counters['queued']} running={counters['running']}"
+                        ),
+                        force=True,
+                    )
+                    self._logger.info(
+                        "sample drain complete: %d/%d archived in %s",
+                        total,
+                        total,
+                        format_duration(time.time() - progress.t0),
+                    )
                 return
             time.sleep(poll_interval)
         raise TimeoutError(
