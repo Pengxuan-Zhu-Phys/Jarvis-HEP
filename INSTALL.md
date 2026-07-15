@@ -213,12 +213,16 @@ error; **2** usage/config; **130** interrupted.
 `--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML (scan-driven plot
 scenes are partial). Portal / Operas / project tools are native `Jarvis2` subcommands.
 
-Outputs under `outputs/quickstart/`:
+Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 
-- `DATABASE/samples.hdf5` — archived records (params, observables, `LogL`)
-- `SAMPLE/<uuid>/` — per-sample artifacts (empty for opera-only successes)
-- `run_summary.json` / `.csv` / `.txt` — end-of-run summary
-- top-level process logs in `./logs/`; checkpoints in `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
+- `DATABASE/samples.hdf5` — full **observables** JSON rows (params + module outputs + `LogL` + optional paths)
+- `DATABASE/samples.csv` — full-column CSV export of the same records (post-run plot emit)
+- `SAMPLE/<bucket>/<uuid>/` or `SAMPLE/<bucket>.tar.gz` — per-sample artifacts (`save: true` files, logs)
+- `run_summary.json` / `.csv` / `.txt` — end-of-run counters + throughput
+- Console / main log ends with a **`[Scan Performance]`** block (`samples / sec`, `avg sample (sec)`, …)
+- Logs: `logs/<scan>/<scan>.log` (control), `logs/<scan>/jarvis_archiver.log` (Archiver process),
+  `logs/jarvis_worker_<pid>.log` (Workers)
+- Checkpoints: `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
 
 ## Uninstall
 
