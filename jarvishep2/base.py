@@ -79,10 +79,31 @@ def scan_output_root(*, project_root: str, scan_name: str) -> str:
     return os.path.join(project_root, "outputs", str(scan_name).strip() or "default")
 
 
+def project_images_dir(*, project_root: str, scan_name: str) -> str:
+    """Project-level plot/flowchart root: ``<project>/images/<scan>/`` (not under outputs/)."""
+    return os.path.join(
+        os.path.abspath(str(project_root)),
+        "images",
+        str(scan_name).strip() or "default",
+    )
+
+
+def infer_project_root_from_task_result_dir(task_result_dir: str) -> str:
+    """Best-effort project root when only ``outputs/<scan>`` is known."""
+    path = os.path.abspath(str(task_result_dir or os.getcwd()))
+    parent = os.path.dirname(path)
+    if os.path.basename(parent) == "outputs":
+        return os.path.dirname(parent)
+    # Fall back to marker walk from the scan dir.
+    return infer_project_root(path)
+
+
 __all__ = [
     "decode_path",
     "env_task_root",
     "expand_j",
     "infer_project_root",
+    "infer_project_root_from_task_result_dir",
+    "project_images_dir",
     "scan_output_root",
 ]

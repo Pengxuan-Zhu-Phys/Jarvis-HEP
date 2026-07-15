@@ -109,12 +109,6 @@ class Worker(Process):
         self._delete_method = normalize_delete_method(
             self.worker_config.get("delete_method", DEFAULT_DELETE_METHOD)
         )
-        self._staging_dir = str(self.worker_config.get("staging_dir") or "").strip()
-        if not self._staging_dir:
-            sample_config = self.worker_config.get("sample_config") or {}
-            task_result_dir = str(sample_config.get("task_result_dir") or "").strip()
-            if task_result_dir:
-                self._staging_dir = resolve_staging_dir(task_result_dir)
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
         else:
@@ -124,6 +118,13 @@ class Worker(Process):
             archiver_cfg = self.worker_config.get("archiver_config") or {}
             if str(archiver_cfg.get("handoff", "direct")).strip().lower() == "staging":
                 self._handoff_to_staging = True
+        # Never mkdir staging/ for direct handoff (default).
+        self._staging_dir = str(self.worker_config.get("staging_dir") or "").strip()
+        if self._handoff_to_staging and not self._staging_dir:
+            sample_config = self.worker_config.get("sample_config") or {}
+            task_result_dir = str(sample_config.get("task_result_dir") or "").strip()
+            if task_result_dir:
+                self._staging_dir = resolve_staging_dir(task_result_dir, create=True)
         sample_dir_cfg = self.worker_config.get("sample_directory") or {}
         if isinstance(sample_dir_cfg, dict):
             self._sample_buckets_enabled = bool(sample_dir_cfg.get("enabled", True))

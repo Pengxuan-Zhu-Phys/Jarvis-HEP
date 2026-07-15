@@ -19,13 +19,20 @@ def resolve_staging_dir(
     task_result_dir: str,
     *,
     configured: str | None = None,
+    create: bool = False,
 ) -> str:
-    """Return the absolute staging root for finished Samples."""
+    """Return the absolute staging root for finished Samples.
+
+    Does **not** create the directory by default. Callers that actually hand off
+    to staging should pass ``create=True`` (or create on first write). Direct
+    handoff must never create an empty ``staging/`` tree.
+    """
     if configured and str(configured).strip():
         path = os.path.abspath(os.path.expanduser(str(configured)))
     else:
         path = os.path.join(os.path.abspath(task_result_dir), "staging")
-    os.makedirs(path, exist_ok=True)
+    if create:
+        os.makedirs(path, exist_ok=True)
     return path
 
 

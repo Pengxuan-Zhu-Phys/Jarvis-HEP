@@ -277,11 +277,20 @@ def get_staging_dir(
     config: Mapping[str, Any] | None,
     *,
     task_result_dir: str,
+    create: bool | None = None,
 ) -> str:
+    """Resolve staging root path.
+
+    When ``create`` is None, create only if staging handoff is enabled for this
+    config (never mkdir for default direct handoff).
+    """
     cleanup = get_cleanup_config(config)
+    if create is None:
+        create = handoff_to_staging_enabled(config)
     return resolve_staging_dir(
         task_result_dir,
         configured=cleanup.get("staging_dir"),
+        create=bool(create),
     )
 
 

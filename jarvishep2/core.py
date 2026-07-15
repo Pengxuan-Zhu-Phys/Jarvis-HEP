@@ -317,8 +317,21 @@ class Jarvis2Core:
         task_result_dir = str(
             self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
         )
-        # V1 layout: <scan_root>/images/flowchart.{json,png}
-        images_dir = os.path.join(task_result_dir, "images")
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        project_root = str(
+            self.config.get("project_root")
+            or self.config.get("task_root")
+            or self.info.get("project_root")
+            or ""
+        ).strip()
+        if not project_root:
+            from jarvishep2.base import infer_project_root_from_task_result_dir
+
+            project_root = infer_project_root_from_task_result_dir(task_result_dir)
+        # Project layout: <project>/images/<scan>/flowchart.{json,png}
+        from jarvishep2.base import project_images_dir
+
+        images_dir = project_images_dir(project_root=project_root, scan_name=scan_name)
         os.makedirs(images_dir, exist_ok=True)
         json_path = os.path.join(images_dir, "flowchart.json")
         png_path = os.path.join(images_dir, "flowchart.png")
@@ -348,7 +361,7 @@ class Jarvis2Core:
             self._logger.warning("workflow flowchart export failed -> %s", exc)
 
     def _emit_plot_scenes(self) -> None:
-        """Emit scan/levelset jplot YAML (+ optional PNG) under images/ (D10.3 / D11.5)."""
+        """Emit scan/levelset jplot YAML under ``<project>/images/<scan>/``."""
         if bool(self.config.get("skip_emit_plot_scenes")):
             return
         try:
@@ -359,6 +372,16 @@ class Jarvis2Core:
             self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
         )
         scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        project_root = str(
+            self.config.get("project_root")
+            or self.config.get("task_root")
+            or self.info.get("project_root")
+            or ""
+        ).strip()
+        if not project_root:
+            from jarvishep2.base import infer_project_root_from_task_result_dir
+
+            project_root = infer_project_root_from_task_result_dir(task_result_dir)
         # Auto-render when JarvisPLOT is available unless explicitly disabled.
         auto_render = not bool(
             self.config.get("skip_render_plots") or self.info.get("skip_render_plots")
@@ -367,6 +390,7 @@ class Jarvis2Core:
             written = emit_plot_scenes_from_run(
                 task_result_dir,
                 scan_name=scan_name,
+                project_root=project_root,
                 auto_render=auto_render,
             )
             if written:

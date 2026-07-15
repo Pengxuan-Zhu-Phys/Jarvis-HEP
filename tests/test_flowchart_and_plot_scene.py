@@ -223,17 +223,18 @@ class PlotSceneEmitTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(str(out)))
 
     def test_jplot_levelset_overlay_hook(self) -> None:
-        """D10.3: stock jplot YAML with scatter + level-set polylines."""
+        """D10.3: stock jplot YAML; CSV beside HDF5; images under project/images/scan."""
         from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml, emit_plot_scenes_from_run
 
-        with tempfile.TemporaryDirectory() as tmp:
-            db_dir = os.path.join(tmp, "DATABASE")
+        with tempfile.TemporaryDirectory() as project:
+            # Layout: project/outputs/scan/DATABASE + project/images/scan
+            scan_dir = os.path.join(project, "outputs", "als_demo")
+            db_dir = os.path.join(scan_dir, "DATABASE")
             os.makedirs(db_dir)
             db = os.path.join(db_dir, "samples.hdf5")
             writer = SimpleHDF5Writer(db)
             writer.add_record({"x": 0.1, "y": 0.2, "LogL": -1.0})
             writer.add_record({"x": 0.9, "y": 0.8, "LogL": -2.0})
-            writer.close() if hasattr(writer, "close") else None
 
             levelset = {
                 "dim": 2,
@@ -243,12 +244,21 @@ class PlotSceneEmitTests(unittest.TestCase):
                     [[0.0, 0.5], [0.5, 0.0], [1.0, 0.5], [0.5, 1.0], [0.0, 0.5]]
                 ],
             }
-            with open(os.path.join(tmp, "levelset.json"), "w", encoding="utf-8") as handle:
+            with open(os.path.join(scan_dir, "levelset.json"), "w", encoding="utf-8") as handle:
                 json.dump(levelset, handle)
 
-            jplot_path = emit_jplot_scan_levelset_yaml(tmp, scan_name="als_demo")
+            jplot_path = emit_jplot_scan_levelset_yaml(
+                scan_dir, scan_name="als_demo", project_root=project
+            )
             self.assertIsNotNone(jplot_path)
             self.assertTrue(os.path.isfile(str(jplot_path)))
+            # Plot YAML lives under project/images/<scan>/
+            self.assertTrue(
+                str(jplot_path).startswith(os.path.join(project, "images", "als_demo"))
+            )
+            # CSV sits next to HDF5
+            self.assertTrue(os.path.isfile(os.path.join(db_dir, "samples.csv")))
+
             with open(str(jplot_path), encoding="utf-8") as handle:
                 doc = yaml.safe_load(handle)
             self.assertIn("DataSet", doc)
@@ -257,14 +267,20 @@ class PlotSceneEmitTests(unittest.TestCase):
             methods = {layer.get("method") for layer in layers}
             self.assertIn("scatter", methods)
             self.assertIn("plot", methods)
-            self.assertTrue(
-                os.path.isfile(os.path.join(tmp, "images", "als_demo_samples.csv"))
-            )
 
-            written = emit_plot_scenes_from_run(tmp, scan_name="als_demo", auto_render=False)
+            written = emit_plot_scenes_from_run(
+                scan_dir,
+                scan_name="als_demo",
+                project_root=project,
+                auto_render=False,
+            )
             self.assertIn("jplot_levelset", written)
             self.assertIn("levelset_overlay", written)
             self.assertIn("scatter", written)
+            self.assertIn("samples_csv", written)
+            self.assertEqual(
+                written["samples_csv"], os.path.join(db_dir, "samples.csv")
+            )
 
 
 if __name__ == "__main__":

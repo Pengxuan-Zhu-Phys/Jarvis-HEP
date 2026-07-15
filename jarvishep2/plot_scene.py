@@ -244,6 +244,7 @@ def emit_jplot_scan_levelset_yaml(
     *,
     scan_name: str = "scan",
     images_dir: str | None = None,
+    project_root: str | None = None,
     x_key: str = "x",
     y_key: str = "y",
     color_key: str = "LogL",
@@ -251,15 +252,28 @@ def emit_jplot_scan_levelset_yaml(
 ) -> str | None:
     """Emit a **stock jplot** YAML: sample scatter + level-set polyline overlay.
 
-    Output is consumable by ``Jarvis2 plot path.yaml`` / ``jplot`` without any
-    V2-specific adapter. Returns the YAML path or None if nothing useful exists.
+    - Plot YAML → ``<project>/images/<scan>/``
+    - Samples CSV → next to HDF5 under ``DATABASE/samples.csv``
+
+    Consumable by ``Jarvis2 plot path.yaml`` / ``jplot`` without a V2 adapter.
     """
+    from jarvishep2.base import (
+        infer_project_root_from_task_result_dir,
+        project_images_dir,
+    )
+
     root = os.path.abspath(str(task_result_dir))
-    out_dir = os.path.abspath(images_dir or os.path.join(root, "images"))
+    proj = os.path.abspath(
+        str(project_root or infer_project_root_from_task_result_dir(root))
+    )
+    out_dir = os.path.abspath(
+        images_dir or project_images_dir(project_root=proj, scan_name=scan_name)
+    )
     os.makedirs(out_dir, exist_ok=True)
 
     db_path = os.path.join(root, "DATABASE", "samples.hdf5")
-    samples_csv = os.path.join(out_dir, f"{scan_name}_samples.csv")
+    # CSV sits beside the HDF5 (same DATABASE directory).
+    samples_csv = os.path.join(root, "DATABASE", "samples.csv")
     csv_path = export_samples_csv_from_hdf5(
         db_path,
         output_csv=samples_csv,
@@ -280,12 +294,11 @@ def emit_jplot_scan_levelset_yaml(
     layers: list[dict[str, Any]] = []
 
     if csv_path:
-        # Paths relative to the YAML location (images/) for portable jplot runs.
-        rel_csv = os.path.basename(csv_path)
+        # Absolute path so jplot works from images/<scan>/ regardless of cwd.
         datasets.append(
             {
                 "name": "samples",
-                "path": rel_csv,
+                "path": os.path.abspath(csv_path),
                 "type": "csv",
             }
         )
@@ -385,22 +398,33 @@ def emit_plot_scenes_from_run(
     *,
     scan_name: str = "scan",
     images_dir: str | None = None,
+    project_root: str | None = None,
     x_key: str = "x",
     y_key: str = "y",
     color_key: str = "LogL",
     auto_render: bool = False,
 ) -> dict[str, str]:
-    """Emit available plot inputs under ``images/`` for a finished run.
+    """Emit plot inputs for a finished run.
 
-    Always tries:
-    - intermediate scene YAMLs (debug / non-jplot consumers)
-    - stock **jplot** YAML with scatter + level-set overlay (D10.3 hook)
+    Layout:
+    - ``<project>/images/<scan>/`` — jplot YAML + intermediate scene YAML / PNG
+    - ``<scan>/DATABASE/samples.csv`` — CSV next to ``samples.hdf5``
 
     When ``auto_render`` is true and JarvisPLOT is installed, also render the
     jplot YAML to PNG via the stock plot bridge.
     """
+    from jarvishep2.base import (
+        infer_project_root_from_task_result_dir,
+        project_images_dir,
+    )
+
     root = os.path.abspath(str(task_result_dir))
-    out_dir = os.path.abspath(images_dir or os.path.join(root, "images"))
+    proj = os.path.abspath(
+        str(project_root or infer_project_root_from_task_result_dir(root))
+    )
+    out_dir = os.path.abspath(
+        images_dir or project_images_dir(project_root=proj, scan_name=scan_name)
+    )
     os.makedirs(out_dir, exist_ok=True)
     written: dict[str, str] = {}
 
@@ -429,12 +453,17 @@ def emit_plot_scenes_from_run(
         root,
         scan_name=scan_name,
         images_dir=out_dir,
+        project_root=proj,
         x_key=x_key,
         y_key=y_key,
         color_key=color_key,
     )
     if jplot_yaml:
         written["jplot_levelset"] = jplot_yaml
+        # Also record the DATABASE CSV if it was written.
+        samples_csv = os.path.join(root, "DATABASE", "samples.csv")
+        if os.path.isfile(samples_csv):
+            written["samples_csv"] = samples_csv
         if auto_render:
             png = _try_render_jplot(jplot_yaml)
             if png:

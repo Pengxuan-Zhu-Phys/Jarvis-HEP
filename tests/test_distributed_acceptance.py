@@ -73,7 +73,7 @@ def _slow_worker_config(tmpdir: str, *, workers: int) -> dict[str, Any]:
 
 
 def _count_staging_entries(task_result_dir: str) -> int:
-    staging_root = resolve_staging_dir(task_result_dir)
+    staging_root = resolve_staging_dir(task_result_dir, create=False)
     if not os.path.isdir(staging_root):
         return 0
     return sum(

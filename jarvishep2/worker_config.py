@@ -116,14 +116,21 @@ def build_worker_config(
         ),
         "pull_timeout": 1,
         "delete_method": get_delete_method(cfg),
-        "staging_dir": get_staging_dir(cfg, task_result_dir=task_result_dir),
-        "handoff_to_staging": handoff_to_staging_enabled(cfg),
         "cleanup_config": get_cleanup_config(cfg),
         "archiver_config": get_archiver_config(cfg),
         "sample_directory": get_sample_directory_config(cfg),
         "command_parser": command_parser.to_picklable(),
         "publish_feedback": publish_feedback,
     }
+    # Only resolve/create staging when the staging hop is actually enabled.
+    handoff = handoff_to_staging_enabled(cfg)
+    worker_config["handoff_to_staging"] = handoff
+    if handoff:
+        worker_config["staging_dir"] = get_staging_dir(
+            cfg, task_result_dir=task_result_dir, create=True
+        )
+    else:
+        worker_config["staging_dir"] = ""
     if scan_name:
         worker_config.setdefault("scan_name", scan_name)
     # EnvReqs.V2.worker.force_serial_layers → Runtime → Worker blueprint.
