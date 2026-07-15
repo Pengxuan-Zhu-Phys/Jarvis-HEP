@@ -23,10 +23,16 @@ RUN_SUMMARY_FIELD_ORDER: tuple[str, ...] = (
     "total_points_finished",
     "total_points_failed",
     "success_rate",
-    "throughput_points_per_min",
+    # Throughput (samples == points in V2 run_summary naming).
+    "samples_per_sec",
+    "samples_per_min",
+    "throughput_points_per_min",  # alias of samples_per_min (compat)
     "configured_workers",
     "peak_active_workers",
     "mean_active_workers",
+    # Amortized wall time per finished sample (wall_time / finished).
+    "avg_sample_sec",
+    # Optional true per-sample timers when Workers report durations; else = avg_sample_sec.
     "avg_point_eval_sec",
     "median_point_eval_sec",
     "time_in_external_tools_sec",
@@ -139,6 +145,17 @@ def build_run_summary(
         retry_count = _coerce_int(retry_count)
 
     resource = dict(resource_summary or {})
+    samples_per_sec = _safe_div(total_points_finished, wall_time_sec)
+    samples_per_min = _safe_div(total_points_finished * 60.0, wall_time_sec)
+    avg_sample_sec = _safe_div(wall_time_sec, total_points_finished)
+    avg_from_timers = _mean(completed_durations_sec)
+    median_from_timers = _median(completed_durations_sec)
+    # Prefer real per-sample timers; otherwise fall back to amortized wall time.
+    avg_point_eval_sec = avg_from_timers if avg_from_timers is not None else avg_sample_sec
+    median_point_eval_sec = (
+        median_from_timers if median_from_timers is not None else avg_sample_sec
+    )
+
     summary = {
         "run_id": str(run_id or metrics.get("run_id") or "jarvis2-run"),
         "project_name": project_name,
@@ -150,7 +167,9 @@ def build_run_summary(
         "total_points_finished": total_points_finished,
         "total_points_failed": total_points_failed,
         "success_rate": _safe_div(total_points_finished, total_points_submitted),
-        "throughput_points_per_min": _safe_div(total_points_finished * 60.0, wall_time_sec),
+        "samples_per_sec": samples_per_sec,
+        "samples_per_min": samples_per_min,
+        "throughput_points_per_min": samples_per_min,
         "configured_workers": (
             configured_workers
             if configured_workers is not None
@@ -158,8 +177,9 @@ def build_run_summary(
         ),
         "peak_active_workers": _coerce_int(metrics.get("peak_active_workers")),
         "mean_active_workers": _coerce_float(metrics.get("mean_active_workers")),
-        "avg_point_eval_sec": _mean(completed_durations_sec),
-        "median_point_eval_sec": _median(completed_durations_sec),
+        "avg_sample_sec": avg_sample_sec,
+        "avg_point_eval_sec": avg_point_eval_sec,
+        "median_point_eval_sec": median_point_eval_sec,
         "time_in_external_tools_sec": external_tool_time_sec,
         "time_in_framework_sec": time_in_framework_sec,
         "framework_overhead_fraction": framework_overhead_fraction,
@@ -174,6 +194,47 @@ def build_run_summary(
     return summary
 
 
+def format_scan_performance_log(summary: Mapping[str, Any]) -> str:
+    """Human-facing performance block for end-of-scan console / main log."""
+
+    def _fmt(value: Any, *, digits: int = 4) -> str:
+        if value is None:
+            return "n/a"
+        if isinstance(value, bool):
+            return str(value)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return str(value)
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        if abs(number) >= 1000 or (0 < abs(number) < 0.001):
+            return f"{number:.4g}"
+        return f"{number:.{digits}f}".rstrip("0").rstrip(".")
+
+    submitted = summary.get("total_points_submitted")
+    finished = summary.get("total_points_finished")
+    failed = summary.get("total_points_failed")
+    rows: list[tuple[str, Any]] = [
+        ("scan", summary.get("project_name") or "?"),
+        ("sampler", summary.get("sampler_name") or "?"),
+        ("workers (configured / peak)", f"{summary.get('configured_workers')} / {summary.get('peak_active_workers')}"),
+        ("samples submitted", submitted),
+        ("samples finished", finished),
+        ("samples failed", failed),
+        ("success rate", _fmt(summary.get("success_rate"), digits=4)),
+        ("wall time (sec)", _fmt(summary.get("wall_time_sec"), digits=3)),
+        ("samples / sec", _fmt(summary.get("samples_per_sec"), digits=4)),
+        ("samples / min", _fmt(summary.get("samples_per_min"), digits=2)),
+        ("avg sample (sec)", _fmt(summary.get("avg_sample_sec"), digits=4)),
+        ("avg eval (sec)", _fmt(summary.get("avg_point_eval_sec"), digits=4)),
+        ("median eval (sec)", _fmt(summary.get("median_point_eval_sec"), digits=4)),
+    ]
+    from jarvishep2.log_kv import format_two_column_log
+
+    return format_two_column_log("[Scan Performance]", rows)
+
+
 class RunSummaryRenderer:
     """Write run_summary.{json,csv,txt} using the frozen field order."""
 
@@ -182,6 +243,9 @@ class RunSummaryRenderer:
         for key in RUN_SUMMARY_FIELD_ORDER:
             value = summary.get(key)
             lines.append(f"{key}: {value}")
+        # Append the human performance block for txt consumers.
+        lines.append("")
+        lines.append(format_scan_performance_log(summary).rstrip("\n"))
         return "\n".join(lines) + "\n"
 
     def write_outputs(
@@ -223,5 +287,6 @@ __all__ = [
     "RUN_SUMMARY_FIELD_ORDER",
     "RunSummaryRenderer",
     "build_run_summary",
+    "format_scan_performance_log",
     "validate_run_summary",
 ]

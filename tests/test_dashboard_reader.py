@@ -80,11 +80,20 @@ class DashboardReaderTests(unittest.TestCase):
             end_epoch=160.0,
             configured_workers=2,
         )
+        # 3 finished / 60s wall → 0.05 samples/sec, 20 sec amortized / sample
+        self.assertAlmostEqual(float(summary["samples_per_sec"]), 0.05)
+        self.assertAlmostEqual(float(summary["samples_per_min"]), 3.0)
+        self.assertAlmostEqual(float(summary["avg_sample_sec"]), 20.0)
+        self.assertAlmostEqual(float(summary["avg_point_eval_sec"]), 20.0)
         with tempfile.TemporaryDirectory() as tmpdir:
             paths = RunSummaryRenderer().write_outputs(summary, tmpdir)
             self.assertTrue(os.path.exists(paths["json"]))
             self.assertTrue(os.path.exists(paths["csv"]))
             self.assertTrue(os.path.exists(paths["txt"]))
+            with open(paths["txt"], encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertIn("[Scan Performance]", text)
+            self.assertIn("samples / sec", text)
 
 
 class ClientMonitorTests(unittest.TestCase):

@@ -24,7 +24,11 @@ from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
-from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summary
+from jarvishep2.monitoring.run_summary import (
+    RunSummaryRenderer,
+    build_run_summary,
+    format_scan_performance_log,
+)
 from jarvishep2.versioning import render_logo_with_version
 from jarvishep2.redis_queue import (
     CONTROL_LOCK_TTL_SEC,
@@ -1091,7 +1095,19 @@ class Jarvis2Core:
             start_epoch=float(started) if started is not None else None,
             configured_workers=int(self.runtime.get("workers", 0) or len(self.factory.workers)),
         )
-        return RunSummaryRenderer().write_outputs(summary, task_result_dir)
+        paths = RunSummaryRenderer().write_outputs(summary, task_result_dir)
+        try:
+            # End-of-scan performance block in the main Jarvis-HEP log / console.
+            self._logger.warning("\n" + format_scan_performance_log(summary).rstrip())
+            self._logger.info(
+                "run_summary written -> json=%s csv=%s txt=%s",
+                paths.get("json"),
+                paths.get("csv"),
+                paths.get("txt"),
+            )
+        except Exception:
+            pass
+        return paths
 
     def _init_sample_buckets(self) -> None:
         """Register Redis SAMPLE bucket meta (numbering + active/completed state)."""
