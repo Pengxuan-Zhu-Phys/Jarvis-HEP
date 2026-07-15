@@ -72,7 +72,7 @@ class WaitForResultsProgressTests(unittest.TestCase):
             progress_base=0,
         )
         joined = "\n".join(messages)
-        self.assertIn("samples finished", joined)
+        self.assertIn("samples archived", joined)
         self.assertIn("sample drain complete", joined)
 
 

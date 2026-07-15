@@ -16,6 +16,7 @@ from jarvishep2.archive_handoff import (
 )
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
+from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime_config import ARCHIVER_DEFAULTS
@@ -195,6 +196,7 @@ class ArchiveProcessor:
         }
 
 
+
 class SimpleArchiver:
     """Background thread that drains ``hep:archive_queue`` + ready SAMPLE buckets."""
 
@@ -207,6 +209,7 @@ class SimpleArchiver:
         poll_timeout: float = 1.0,
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
+        logger: Any | None = None,
     ) -> None:
         self.redis = redis_queue
         self.sample_root = os.path.abspath(str(sample_root))
@@ -226,6 +229,10 @@ class SimpleArchiver:
         self._thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
+        # Own logger identity: ``·•· Archiver`` (not the control ``Jarvis-HEP`` prefix).
+        self._logger = logger or get_jarvis_logger("archiver").bind(module="Archiver")
+        self._last_progress_written = -1
+        self._progress_interval = 50  # log every N DATABASE rows (and pack events)
 
     @property
     def records_written(self) -> int:
@@ -246,6 +253,14 @@ class SimpleArchiver:
             daemon=True,
         )
         self._thread.start()
+        try:
+            self._logger.info(
+                "Archiver loop started -> sample_root=%s pack_buckets=%s",
+                self.sample_root,
+                self.pack_buckets,
+            )
+        except Exception:
+            pass
 
     def _note_last_flushed(self) -> None:
         """Tell Redis each freshly written sample is archived (may enqueue pack)."""
@@ -255,19 +270,48 @@ class SimpleArchiver:
                 continue
             try:
                 self.redis.note_sample_archived(bucket_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                try:
+                    self._logger.warning(
+                        "note_sample_archived failed for bucket %s -> %s",
+                        bucket_id,
+                        exc,
+                    )
+                except Exception:
+                    pass
+
+    def _maybe_log_progress(self, *, force: bool = False) -> None:
+        written = int(self.records_written)
+        if not force and written == self._last_progress_written:
+            return
+        if (
+            not force
+            and written > 0
+            and written - self._last_progress_written < self._progress_interval
+        ):
+            return
+        self._last_progress_written = written
+        try:
+            self._logger.info(
+                "DATABASE rows written=%d buckets_packed=%d",
+                written,
+                int(self.buckets_packed),
+            )
+        except Exception:
+            pass
 
     def _ingest_result(self, result: Mapping[str, Any]) -> int:
         written = self.processor.ingest(result)
         if written:
             self._note_last_flushed()
+            self._maybe_log_progress()
         return written
 
     def _flush_and_note(self) -> int:
         written = self.processor.flush_batch()
         if written:
             self._note_last_flushed()
+            self._maybe_log_progress()
         return written
 
     def _pack_ready_buckets(self) -> int:
@@ -297,8 +341,26 @@ class SimpleArchiver:
                     self.redis.mark_bucket_packed(bucket_id)
                 packed += 1
                 self.buckets_packed += 1
-            except Exception:
+                try:
+                    self._logger.info(
+                        "packed SAMPLE bucket -> id=%s dir=%s total_packed=%d",
+                        bucket_id,
+                        bucket_dir,
+                        self.buckets_packed,
+                    )
+                except Exception:
+                    pass
+            except Exception as exc:
                 # Leave packing flag set; operator can inspect / re-seal later.
+                try:
+                    self._logger.warning(
+                        "pack SAMPLE bucket failed -> id=%s dir=%s err=%s",
+                        bucket_id,
+                        bucket_dir,
+                        exc,
+                    )
+                except Exception:
+                    pass
                 continue
         return packed
 
@@ -334,6 +396,16 @@ class SimpleArchiver:
             drained += self._pack_ready_buckets()
         drained += self._flush_and_note()
         drained += self._pack_ready_buckets()
+        self._maybe_log_progress(force=True)
+        try:
+            self._logger.info(
+                "drain complete -> flushed=%d records_written=%d buckets_packed=%d",
+                drained,
+                int(self.records_written),
+                int(self.buckets_packed),
+            )
+        except Exception:
+            pass
         return drained
 
     def cleanup_staging(self, paths: list[str] | tuple[str, ...]) -> None:
@@ -348,6 +420,14 @@ class SimpleArchiver:
         if thread is not None and wait:
             thread.join(timeout=5.0)
         self._thread = None
+        try:
+            self._logger.info(
+                "Archiver stopped -> records_written=%d buckets_packed=%d",
+                int(self.records_written),
+                int(self.buckets_packed),
+            )
+        except Exception:
+            pass
 
 
 class ArchiverProcess(Process):
@@ -364,6 +444,8 @@ class ArchiverProcess(Process):
         poll_timeout: float = 1.0,
         name: str = "Jarvis2-Archiver",
         scan_name: str | None = None,
+        log_dir: str | None = None,
+        log_path: str | None = None,
     ) -> None:
         super().__init__(name=name, daemon=False)
         self.redis_config = dict(redis_config)
@@ -373,13 +455,40 @@ class ArchiverProcess(Process):
         self.archiver_config = dict(archiver_config or {})
         self.poll_timeout = max(0.05, float(poll_timeout))
         self.scan_name = str(scan_name or "").strip()
+        self.log_dir = str(log_dir or "").strip() or None
+        self.log_path = str(log_path or "").strip() or None
         self._stop_event = get_spawn_context().Event()
         self.records_written = get_spawn_context().Value("i", 0)
 
     def run(self) -> None:
+        from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
         from jarvishep2.proc_title import archiver_title, set_process_title
 
         set_process_title(archiver_title(scan_name=self.scan_name or None))
+        # Child process: own logging sinks (do not share control QueueListener).
+        setup_kwargs: dict[str, Any] = {
+            "role": "archiver",
+            "level": "INFO",
+            "console": True,
+            "use_queue": True,
+        }
+        if self.log_path:
+            setup_kwargs["log_path"] = self.log_path
+        elif self.log_dir:
+            setup_kwargs["log_dir"] = self.log_dir
+        setup_jarvis_logging(**setup_kwargs)
+        logger = get_jarvis_logger("archiver").bind(module="Archiver")
+        try:
+            logger.info(
+                "Archiver process started pid=%s scan=%s sample_root=%s db=%s",
+                os.getpid(),
+                self.scan_name or "?",
+                self.sample_root,
+                self.db_path,
+            )
+        except Exception:
+            pass
+
         redis = RedisQueue(self.redis_config)
         redis.connect()
         # Reuse SimpleArchiver loop so process mode also packs sealed buckets.
@@ -390,6 +499,7 @@ class ArchiverProcess(Process):
             poll_timeout=self.poll_timeout,
             delete_method=self.delete_method,
             archiver_config=self.archiver_config,
+            logger=logger,
         )
         archiver.start()
         while not self._stop_event.is_set():
@@ -399,6 +509,14 @@ class ArchiverProcess(Process):
         archiver.stop(wait=True, drain=True)
         with self.records_written.get_lock():
             self.records_written.value = int(archiver.records_written)
+        try:
+            logger.info(
+                "Archiver process exiting pid=%s records_written=%s",
+                os.getpid(),
+                int(self.records_written.value),
+            )
+        except Exception:
+            pass
         redis.close()
 
     def drain(self, *, idle_timeout: float = 2.0) -> int:

@@ -855,7 +855,11 @@ class Jarvis2Core:
                 pass
 
         scan_name = str(self.info.get("scan_name") or "").strip() or None
+        logs_dir = str(self.info.get("logs_dir") or "").strip() or None
         if str(archiver_config.get("mode", "process")).strip().lower() == "process":
+            archiver_log = None
+            if logs_dir:
+                archiver_log = os.path.join(logs_dir, "jarvis_archiver.log")
             self.archiver = ArchiverProcess(
                 redis_config,
                 db_path=resolved_db_path,
@@ -863,17 +867,26 @@ class Jarvis2Core:
                 delete_method=delete_method,
                 archiver_config=archiver_config,
                 scan_name=scan_name,
+                log_dir=logs_dir,
+                log_path=archiver_log,
             )
             self.archiver.start()
+            self._logger.info(
+                "Archiver process started (own logger → %s)",
+                archiver_log or "logs/jarvis_archiver_<pid>.log",
+            )
         else:
+            # Thread mode: same process as control; still bind module="Archiver".
             self.archiver = SimpleArchiver(
                 self.redis,
                 resolved_db_path,
                 sample_root=sample_root,
                 delete_method=delete_method,
                 archiver_config=archiver_config,
+                logger=get_jarvis_logger("archiver").bind(module="Archiver"),
             )
             self.archiver.start()
+            self._logger.info("Archiver thread started (module=Archiver)")
         self._restore_archiver_persistence()
         return self.archiver
 
