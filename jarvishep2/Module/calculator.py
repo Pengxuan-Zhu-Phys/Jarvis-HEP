@@ -272,6 +272,30 @@ class CalculatorModule:
         raw = str(spec.get("type", "")).strip() or "UNKNOWN"
         return f"Portal:{raw}"
 
+    def _ensure_sample_dir_for_io(self) -> None:
+        """Materialize SAMPLE/<uuid> when any IO needs a save/temp copy (V1 parity).
+
+        Portal ``save: true`` writes into ``context.sample_save_dir``; without it
+        copies are silently skipped. Force materialization when needed.
+        """
+        info = self.sample_info if isinstance(self.sample_info, dict) else {}
+        if info.get("save_dir"):
+            return
+        needs = False
+        for spec in (*self.input_specs, *self.output_specs):
+            if bool(spec.get("save", False)):
+                needs = True
+                break
+        # V1 always lands outputs under SAMPLE/.temp even when save is false.
+        if self.output_specs:
+            needs = True
+        if not needs:
+            return
+        from jarvishep2.sample import ensure_sample_materialized
+
+        ensure_sample_materialized(info)
+        self.sample_info = info
+
     def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
         """Write calculator inputs via Portal; return observables for the Sample.
 
@@ -284,6 +308,7 @@ class CalculatorModule:
         merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
         if not self.input_specs:
             return merged
+        self._ensure_sample_dir_for_io()
         protected = set(merged)
         context = self._io_context(input_data)
         logger = self._logger()
@@ -305,6 +330,7 @@ class CalculatorModule:
         merged: dict[str, Any] = {}
         if not self.output_specs:
             return merged
+        self._ensure_sample_dir_for_io()
         context = self._io_context()
         logger = self._logger()
         for spec in self.output_specs:
