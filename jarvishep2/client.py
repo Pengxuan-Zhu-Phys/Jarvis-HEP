@@ -24,7 +24,7 @@ from jarvishep2.run_outcome import (
 
 
 _SUBCOMMANDS = frozenset({"run", "check", "monitor", "plot", "portal", "operas", "project"})
-_PROJECT_COMMANDS = frozenset({"create", "pack", "browse", "fetch", "info"})
+_PROJECT_COMMANDS = frozenset({"create", "pack", "browse", "list", "fetch", "info"})
 _PACK_MODE_FLAGS = {
     "--share": "share",
     "--repro": "repro",
@@ -71,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas list|info NAME\n"
-            "  Jarvis2 project create|pack|browse|fetch|info …\n"
+            "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -320,16 +320,19 @@ def _print_project_help() -> None:
         "usage: Jarvis2 project <command> [arguments]\n\n"
         "Manage Jarvis standalone projects.\n\n"
         "commands:\n"
-        "  create <name>      Create a new local project scaffold\n"
-        "  pack [path]        Pack a local project (--share|--repro|--full, optional --man)\n"
-        "  browse             List verified projects in the official library\n"
-        "  fetch <name>       Fetch an official project into a local directory\n"
-        "  info <name>        Show details for an official project\n\n"
+        "  create <name>           Create a new local project scaffold\n"
+        "  pack [path]             Pack a local project (--share|--repro|--full, optional --man)\n"
+        "  list | browse           List official library (shows public vs key-required)\n"
+        "  fetch <name> [--key K]  Fetch an official project (restricted needs key)\n"
+        "  info <name>             Show details for an official project\n\n"
+        "catalog: GitHub JSON in Jarvis-Examples (override JARVIS_OFFICIAL_LIBRARY_INDEX_URL).\n"
+        "restricted keys: --key or JARVIS_PROJECT_FETCH_KEY.\n\n"
         "examples:\n"
         "  Jarvis2 project create MyProject\n"
         "  Jarvis2 project pack . --share\n"
-        "  Jarvis2 project browse\n"
+        "  Jarvis2 project list\n"
         "  Jarvis2 project fetch Eggbox\n"
+        "  Jarvis2 project fetch SecretProj --key …\n"
     )
 
 
@@ -434,7 +437,11 @@ def _run_project_pack_from_manifest(manifest_path: str) -> int:
 
 
 def _run_project_browse() -> int:
-    from jarvishep2.official_project_library import OfficialLibraryError, list_official_projects
+    from jarvishep2.official_project_library import (
+        OfficialLibraryError,
+        format_project_list_table,
+        list_official_projects,
+    )
 
     try:
         projects = list_official_projects()
@@ -446,12 +453,8 @@ def _run_project_browse() -> int:
         print("[Jarvis2] No verified projects are listed in the official library.")
         return EXIT_OK
 
-    print("[Jarvis2] Verified projects in the official library:")
-    for project in projects:
-        name = project.get("name") or "<unnamed>"
-        category = project.get("category") or "general"
-        summary = project.get("summary") or "No summary available."
-        print(f"[Jarvis2] - {name} | {category} | {summary}")
+    print("[Jarvis2] Official library (catalog: Jarvis-Examples GitHub JSON)")
+    print(format_project_list_table(projects))
     return EXIT_OK
 
 
@@ -471,15 +474,22 @@ def _run_project_info(project_name: str) -> int:
         print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
+    needs_key = bool(project.get("requires_key"))
     print(f"[Jarvis2] Official project: {project['name']}")
     print(f"[Jarvis2] Summary: {project.get('summary') or 'N/A'}")
     print(f"[Jarvis2] Category: {project.get('category') or 'N/A'}")
+    print(f"[Jarvis2] Access: {project.get('access') or 'public'}")
+    print(f"[Jarvis2] Key required: {'yes' if needs_key else 'no'}")
+    if needs_key and project.get("encryption_hint"):
+        print(f"[Jarvis2] Key hint: {project.get('encryption_hint')}")
+    if needs_key:
+        print(f"[Jarvis2] Encryption: {project.get('encryption_scheme') or 'openssl-aes-256-cbc'}")
     print(f"[Jarvis2] Entrypoint: {project.get('entrypoint') or 'N/A'}")
     print(f"[Jarvis2] Compatibility notes: {project.get('compatibility_notes') or 'None'}")
     return EXIT_OK
 
 
-def _run_project_fetch(project_name: str) -> int:
+def _run_project_fetch(project_name: str, *, key: str | None = None) -> int:
     from jarvishep2.official_project_library import (
         OfficialLibraryError,
         OfficialProjectFetchError,
@@ -488,7 +498,7 @@ def _run_project_fetch(project_name: str) -> int:
     )
 
     try:
-        report = fetch_official_project(project_name)
+        report = fetch_official_project(project_name, key=key)
     except OfficialProjectNotFoundError as exc:
         print(f"[Jarvis2] {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -502,8 +512,50 @@ def _run_project_fetch(project_name: str) -> int:
     print(
         f"[Jarvis2] Official project '{report.project_name}' fetched to: {report.target_dir}"
     )
+    print(f"[Jarvis2] Access: {report.access}")
     print(f"[Jarvis2] Entrypoint: {report.entrypoint or 'N/A'}")
     return EXIT_OK
+
+
+def _parse_fetch_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
+    """Parse ``fetch <name> [--key KEY]``."""
+    if not tokens or (len(tokens) == 1 and tokens[0] in _HELP_FLAGS):
+        print(
+            "usage: Jarvis2 project fetch <name> [--key KEY]\n"
+            "  restricted projects need --key or JARVIS_PROJECT_FETCH_KEY\n"
+        )
+        return 0 if tokens and tokens[0] in _HELP_FLAGS else EXIT_USAGE
+
+    name: str | None = None
+    key: str | None = None
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in {"--key", "-k"}:
+            if i + 1 >= len(tokens):
+                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                return EXIT_USAGE
+            key = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--key="):
+            key = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok.startswith("-"):
+            print(f"[Jarvis2] Unsupported option for project fetch: {tok}", file=sys.stderr)
+            return EXIT_USAGE
+        if name is None:
+            name = tok
+            i += 1
+            continue
+        print(f"[Jarvis2] Unexpected argument for project fetch: {tok}", file=sys.stderr)
+        return EXIT_USAGE
+
+    if not name:
+        print("[Jarvis2] Usage: Jarvis2 project fetch <name> [--key KEY]", file=sys.stderr)
+        return EXIT_USAGE
+    return name, key
 
 
 def _looks_like_yaml_path(path: str | None) -> bool:
@@ -599,23 +651,21 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
             return _run_project_pack_from_manifest(str(path))
         return _run_project_pack(path, profile)
 
-    if command == "browse":
+    if command in {"browse", "list"}:
         if rest:
             if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-                print("usage: Jarvis2 project browse\n")
+                print("usage: Jarvis2 project list|browse\n")
                 return EXIT_OK
-            print("[Jarvis2] Usage: Jarvis2 project browse", file=sys.stderr)
+            print("[Jarvis2] Usage: Jarvis2 project list|browse", file=sys.stderr)
             return EXIT_USAGE
         return _run_project_browse()
 
     if command == "fetch":
-        if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-            print("usage: Jarvis2 project fetch <name>\n")
-            return EXIT_OK
-        if len(rest) != 1 or rest[0].startswith("-"):
-            print("[Jarvis2] Usage: Jarvis2 project fetch <name>", file=sys.stderr)
-            return EXIT_USAGE
-        return _run_project_fetch(rest[0])
+        parsed = _parse_fetch_arguments(rest)
+        if isinstance(parsed, int):
+            return parsed
+        name, key = parsed
+        return _run_project_fetch(name, key=key)
 
     if command == "info":
         if len(rest) == 1 and rest[0] in _HELP_FLAGS:

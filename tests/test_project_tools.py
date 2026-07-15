@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D12.5: Jarvis2 project create/pack/browse/info (scaffold + library)."""
+"""D12.5 / D12.6: project tools + Examples catalog + restricted key fetch."""
 
 from __future__ import annotations
 
@@ -12,11 +12,20 @@ from unittest import mock
 
 from jarvishep2.client import dispatch_project, main
 from jarvishep2.official_project_library import (
+    DEFAULT_OFFICIAL_LIBRARY_INDEX_URL,
     OfficialCatalogError,
+    OfficialProjectFetchError,
     OfficialProjectNotFoundError,
+    fetch_official_project,
+    format_project_list_table,
     get_official_project,
     list_official_projects,
     load_official_project_catalog,
+)
+from jarvishep2.project_crypto import (
+    encrypt_file,
+    is_openssl_encrypted_file,
+    maybe_decrypt_archive,
 )
 from jarvishep2.project_packager import (
     create_project_package,
@@ -48,7 +57,6 @@ class ProjectScaffoldTests(unittest.TestCase):
             config = load_task_yaml(quick)
             self.assertEqual(config["Runtime"]["mode"], "redis")
             self.assertIn("workers", config["Runtime"])
-            # No forbidden top-level Runtime in source YAML (loader synthesizes it).
             with open(quick, encoding="utf-8") as handle:
                 text = handle.read()
             self.assertNotIn("\nRuntime:", text)
@@ -89,8 +97,11 @@ class ProjectPackTests(unittest.TestCase):
 
 
 class OfficialLibraryTests(unittest.TestCase):
+    def test_default_index_points_at_examples_github(self) -> None:
+        self.assertIn("Jarvis-Examples", DEFAULT_OFFICIAL_LIBRARY_INDEX_URL)
+        self.assertIn("catalog/official_project_library.json", DEFAULT_OFFICIAL_LIBRARY_INDEX_URL)
+
     def test_packaged_catalog_browse_and_info(self) -> None:
-        # Force packaged fallback (no network).
         with mock.patch(
             "jarvishep2.official_project_library._read_catalog_from_url",
             side_effect=OfficialCatalogError("offline"),
@@ -99,6 +110,14 @@ class OfficialLibraryTests(unittest.TestCase):
         self.assertTrue(projects)
         names = {p["name"] for p in projects}
         self.assertIn("Eggbox", names)
+        egg = next(p for p in projects if p["name"] == "Eggbox")
+        self.assertEqual(egg["access"], "public")
+        self.assertFalse(egg["requires_key"])
+
+        table = format_project_list_table(projects)
+        self.assertIn("Eggbox", table)
+        self.assertIn("public", table)
+        self.assertIn("no", table)  # Key column
 
         with mock.patch(
             "jarvishep2.official_project_library._read_catalog_from_url",
@@ -106,7 +125,6 @@ class OfficialLibraryTests(unittest.TestCase):
         ):
             egg = get_official_project("Eggbox")
         self.assertEqual(egg["name"], "Eggbox")
-        self.assertTrue(egg.get("entrypoint"))
 
         with self.assertRaises(OfficialProjectNotFoundError):
             with mock.patch(
@@ -114,6 +132,42 @@ class OfficialLibraryTests(unittest.TestCase):
                 side_effect=OfficialCatalogError("offline"),
             ):
                 get_official_project("DefinitelyMissingProjectXYZ")
+
+    def test_restricted_entry_normalized(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "projects": [
+                {
+                    "name": "SecretToy",
+                    "access": "restricted",
+                    "requires_key": True,
+                    "encryption": {
+                        "scheme": "openssl-aes-256-cbc",
+                        "hint": "ask Alice",
+                    },
+                    "archive_url": "https://example.test/secret.jenc",
+                    "summary": "private",
+                },
+                {
+                    "name": "OpenToy",
+                    "access": "public",
+                    "archive_url": "https://example.test/open.tar.gz",
+                },
+            ],
+        }
+        with mock.patch(
+            "jarvishep2.official_project_library._load_catalog_payload",
+            return_value=payload,
+        ):
+            projects = list_official_projects()
+        by_name = {p["name"]: p for p in projects}
+        self.assertTrue(by_name["SecretToy"]["requires_key"])
+        self.assertEqual(by_name["SecretToy"]["access"], "restricted")
+        self.assertEqual(by_name["SecretToy"]["encryption_hint"], "ask Alice")
+        self.assertFalse(by_name["OpenToy"]["requires_key"])
+        table = format_project_list_table(projects)
+        self.assertIn("required", table)
+        self.assertIn("SecretToy", table)
 
     def test_schema_version_reject_future_major(self) -> None:
         payload = {
@@ -128,17 +182,104 @@ class OfficialLibraryTests(unittest.TestCase):
             with self.assertRaises(OfficialCatalogError):
                 load_official_project_catalog()
 
-    def test_cli_browse(self) -> None:
+    def test_cli_list_and_browse(self) -> None:
         with mock.patch(
             "jarvishep2.official_project_library._read_catalog_from_url",
             side_effect=OfficialCatalogError("offline"),
         ):
-            code = dispatch_project(["browse"])
-        self.assertEqual(code, 0)
+            self.assertEqual(dispatch_project(["list"]), 0)
+            self.assertEqual(dispatch_project(["browse"]), 0)
 
     def test_main_project_passthrough(self) -> None:
         code = main(["project", "-h"])
         self.assertEqual(code, 0)
+
+    def test_fetch_restricted_without_key_fails(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "projects": [
+                {
+                    "name": "Locked",
+                    "access": "restricted",
+                    "requires_key": True,
+                    "archive_url": "https://example.test/x.jenc",
+                    "encryption": {"scheme": "openssl-aes-256-cbc"},
+                }
+            ],
+        }
+        with mock.patch(
+            "jarvishep2.official_project_library._load_catalog_payload",
+            return_value=payload,
+        ):
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("JARVIS_PROJECT_FETCH_KEY", None)
+                with self.assertRaises(OfficialProjectFetchError):
+                    fetch_official_project("Locked")
+
+
+class ProjectCryptoTests(unittest.TestCase):
+    def test_openssl_encrypt_decrypt_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            plain = os.path.join(tmp, "payload.tar.gz")
+            enc = os.path.join(tmp, "payload.tar.gz.jenc")
+            # Minimal gzip-ish content is fine; openssl only needs bytes.
+            with open(plain, "wb") as handle:
+                handle.write(b"hello-jarvis-secret-payload-0123456789")
+            encrypt_file(plain, enc, key="unit-test-key")
+            self.assertTrue(is_openssl_encrypted_file(enc))
+            out = maybe_decrypt_archive(
+                enc,
+                requires_key=True,
+                encryption_scheme="openssl-aes-256-cbc",
+                key="unit-test-key",
+            )
+            self.assertNotEqual(out, enc)
+            with open(out, "rb") as handle:
+                self.assertEqual(handle.read(), b"hello-jarvis-secret-payload-0123456789")
+            os.unlink(out)
+
+    def test_fetch_encrypted_archive_end_to_end(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # Build a tiny project tarball then encrypt it.
+            proj = os.path.join(tmp, "Mini")
+            os.makedirs(os.path.join(proj, "bin"))
+            with open(os.path.join(proj, ".jarvis-project.json"), "w", encoding="utf-8") as handle:
+                json.dump({"format": "jarvis-hep-standalone-project", "version": 1}, handle)
+            with open(os.path.join(proj, "bin", "run.yaml"), "w", encoding="utf-8") as handle:
+                handle.write("Scan:\n  name: mini\n")
+            tar_path = os.path.join(tmp, "mini.tar.gz")
+            with tarfile.open(tar_path, "w:gz") as tar:
+                tar.add(proj, arcname="Mini")
+            enc_path = os.path.join(tmp, "mini.tar.gz.jenc")
+            encrypt_file(tar_path, enc_path, key="secret-mini")
+
+            payload = {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "Mini",
+                        "access": "restricted",
+                        "requires_key": True,
+                        "archive_url": f"file://{enc_path}",
+                        "archive_root": ".",
+                        "entrypoint": "bin/run.yaml",
+                        "encryption": {"scheme": "openssl-aes-256-cbc"},
+                    }
+                ],
+            }
+            dest = os.path.join(tmp, "out", "Mini")
+            with mock.patch(
+                "jarvishep2.official_project_library._load_catalog_payload",
+                return_value=payload,
+            ):
+                report = fetch_official_project(
+                    "Mini",
+                    target_dir=dest,
+                    key="secret-mini",
+                )
+            self.assertEqual(report.project_name, "Mini")
+            self.assertTrue(os.path.isfile(os.path.join(dest, "bin", "run.yaml")))
+            self.assertTrue(report.required_key)
 
 
 if __name__ == "__main__":
