@@ -126,7 +126,7 @@ def emit_levelset_overlay_scene(
     return _write_yaml(output_yaml, scene)
 
 
-def _read_hdf5_records(db_path: str, *, limit: int) -> list[dict[str, Any]]:
+def _read_hdf5_records(db_path: str, *, limit: int | None = None) -> list[dict[str, Any]]:
     path = os.path.abspath(str(db_path))
     if not os.path.isfile(path):
         return []
@@ -139,10 +139,33 @@ def _read_hdf5_records(db_path: str, *, limit: int) -> list[dict[str, Any]]:
     except Exception:
         return []
     out: list[dict[str, Any]] = []
-    for row in records[: max(1, int(limit))]:
+    if limit is None:
+        selected = records
+    else:
+        selected = records[: max(1, int(limit))]
+    for row in selected:
         if isinstance(row, Mapping):
             out.append(dict(row))
     return out
+
+
+def _csv_cell(value: Any) -> Any:
+    """Flatten a record value for CSV (scalars as-is; nested → JSON text)."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (str, int, float)):
+        return value
+    if hasattr(value, "item") and callable(value.item):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return str(value)
 
 
 def emit_scan_scatter_scene_from_hdf5(
@@ -213,30 +236,42 @@ def export_samples_csv_from_hdf5(
     x_key: str = "x",
     y_key: str = "y",
     color_key: str = "LogL",
-    limit: int = 5000,
+    limit: int | None = None,
 ) -> str | None:
-    """Export a thin samples CSV for jplot DataSet loading."""
+    """Export DATABASE records to CSV — **full** observables by default.
+
+    Every key present in any HDF5 record becomes a column. Nested values
+    (lists/dicts) are JSON-encoded as cell text. Preferred columns
+    ``x`` / ``y`` / ``LogL`` / ``uuid`` are ordered first when present for
+    jplot convenience; no row is dropped for missing plot keys.
+
+    ``limit=None`` (default) exports all rows; pass a positive int to cap.
+    """
     records = _read_hdf5_records(db_path, limit=limit)
     if not records:
         return None
+
+    preferred = [x_key, y_key, color_key, "uuid"]
+    fieldnames: list[str] = []
+    seen: set[str] = set()
+    for key in preferred:
+        if any(key in row for row in records):
+            fieldnames.append(key)
+            seen.add(key)
+    # Stable: first-seen order across records, then any late keys.
+    for row in records:
+        for key in row.keys():
+            text = str(key)
+            if text not in seen:
+                seen.add(text)
+                fieldnames.append(text)
+    if not fieldnames:
+        return None
+
     rows: list[dict[str, Any]] = []
     for row in records:
-        if x_key not in row or y_key not in row:
-            continue
-        try:
-            item = {
-                x_key: float(row[x_key]),
-                y_key: float(row[y_key]),
-            }
-            if color_key in row:
-                item[color_key] = float(row[color_key])
-            rows.append(item)
-        except (TypeError, ValueError):
-            continue
-    if not rows:
-        return None
-    fields = [x_key, y_key] + ([color_key] if color_key in rows[0] else [])
-    return _write_csv(output_csv, rows, fields)
+        rows.append({key: _csv_cell(row.get(key)) for key in fieldnames})
+    return _write_csv(output_csv, rows, fieldnames)
 
 
 def emit_jplot_scan_levelset_yaml(
@@ -253,7 +288,7 @@ def emit_jplot_scan_levelset_yaml(
     """Emit a **stock jplot** YAML: sample scatter + level-set polyline overlay.
 
     - Plot YAML → ``<project>/images/<scan>/``
-    - Samples CSV → next to HDF5 under ``DATABASE/samples.csv``
+    - Samples CSV → next to HDF5 under ``DATABASE/samples.csv`` (full columns)
 
     Consumable by ``Jarvis2 plot path.yaml`` / ``jplot`` without a V2 adapter.
     """
@@ -272,7 +307,7 @@ def emit_jplot_scan_levelset_yaml(
     os.makedirs(out_dir, exist_ok=True)
 
     db_path = os.path.join(root, "DATABASE", "samples.hdf5")
-    # CSV sits beside the HDF5 (same DATABASE directory).
+    # CSV sits beside the HDF5 (same DATABASE directory); full record export.
     samples_csv = os.path.join(root, "DATABASE", "samples.csv")
     csv_path = export_samples_csv_from_hdf5(
         db_path,
@@ -280,7 +315,7 @@ def emit_jplot_scan_levelset_yaml(
         x_key=x_key,
         y_key=y_key,
         color_key=color_key,
-        limit=limit,
+        limit=None,
     )
 
     levelset_path = os.path.join(root, "levelset.json")
@@ -408,7 +443,7 @@ def emit_plot_scenes_from_run(
 
     Layout:
     - ``<project>/images/<scan>/`` — jplot YAML + intermediate scene YAML / PNG
-    - ``<scan>/DATABASE/samples.csv`` — CSV next to ``samples.hdf5``
+    - ``<scan>/DATABASE/samples.csv`` — full observables CSV next to ``samples.hdf5``
 
     When ``auto_render`` is true and JarvisPLOT is installed, also render the
     jplot YAML to PNG via the stock plot bridge.

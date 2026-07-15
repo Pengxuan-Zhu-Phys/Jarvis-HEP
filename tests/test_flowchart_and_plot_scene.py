@@ -288,8 +288,26 @@ class PlotSceneEmitTests(unittest.TestCase):
             os.makedirs(db_dir)
             db = os.path.join(db_dir, "samples.hdf5")
             writer = SimpleHDF5Writer(db)
-            writer.add_record({"x": 0.1, "y": 0.2, "LogL": -1.0})
-            writer.add_record({"x": 0.9, "y": 0.8, "LogL": -2.0})
+            writer.add_record(
+                {
+                    "x": 0.1,
+                    "y": 0.2,
+                    "LogL": -1.0,
+                    "z": 3.5,
+                    "uuid": "u1",
+                    "product_list": ["a.log", "b.json"],
+                }
+            )
+            writer.add_record(
+                {
+                    "x": 0.9,
+                    "y": 0.8,
+                    "LogL": -2.0,
+                    "z": 4.0,
+                    "uuid": "u2",
+                    "extra": 1,
+                }
+            )
 
             levelset = {
                 "dim": 2,
@@ -311,8 +329,13 @@ class PlotSceneEmitTests(unittest.TestCase):
             self.assertTrue(
                 str(jplot_path).startswith(os.path.join(project, "images", "als_demo"))
             )
-            # CSV sits next to HDF5
-            self.assertTrue(os.path.isfile(os.path.join(db_dir, "samples.csv")))
+            # CSV sits next to HDF5 and carries full HDF5 columns
+            csv_path = os.path.join(db_dir, "samples.csv")
+            self.assertTrue(os.path.isfile(csv_path))
+            with open(csv_path, encoding="utf-8") as handle:
+                header = handle.readline().strip().split(",")
+            for col in ("x", "y", "LogL", "uuid", "z", "product_list", "extra"):
+                self.assertIn(col, header)
 
             with open(str(jplot_path), encoding="utf-8") as handle:
                 doc = yaml.safe_load(handle)
