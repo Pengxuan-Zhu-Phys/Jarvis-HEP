@@ -47,3 +47,27 @@ Jarvis2 project pack . --repro
 Jarvis2 project pack . --full
 Jarvis2 project pack . --man    # write a pack manifest only
 ```
+
+### Restricted (encrypted) release — CLI only
+
+Do **not** run `openssl` by hand. Use:
+
+```bash
+# Pack + encrypt → *.tar.gz.jenc
+Jarvis2 project pack . --repro --encrypt --key 'YOUR_KEY'
+
+# Or encrypt an existing tarball
+Jarvis2 project encrypt path/to/archive.tar.gz --key 'YOUR_KEY'
+```
+
+Collaborators fetch with:
+
+```bash
+Jarvis2 project list
+Jarvis2 project fetch YourProjectName --key 'YOUR_KEY'
+# or: export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
+```
+
+Official catalog (public list + restricted entries) lives in
+**Jarvis-Examples** `catalog/official_project_library.json` — not a PyPI package.
+See `Jarvis-Books/Jarvis-HEP V2/components/project_tools.md` and `INSTALL.md`.

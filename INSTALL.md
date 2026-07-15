@@ -128,6 +128,81 @@ Jarvis2 quickstart.yaml --resume
 Jarvis2 path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis2 plot`
 ```
 
+## Project tools (scaffold, catalog, public / restricted packs)
+
+All packing and **encrypt/decrypt** go through the CLI. End users do **not** run `openssl`
+by hand. Design notes:
+`Jarvis-Books/Jarvis-HEP V2/components/project_tools.md` and
+`Jarvis-Examples/catalog/README.md`.
+
+### Local project
+
+```bash
+Jarvis2 project create MyScan
+cd MyScan
+Jarvis2 run bin/quickstart_bridson_operas.yaml
+
+Jarvis2 project pack . --share          # plain tarball
+Jarvis2 project pack . --repro
+Jarvis2 project pack . --full
+Jarvis2 project pack . --man            # write pack manifest only
+```
+
+### Official library (GitHub JSON catalog — no PyPI package)
+
+Default index:
+
+```text
+https://raw.githubusercontent.com/Pengxuan-Zhu-Phys/Jarvis-Examples/main/catalog/official_project_library.json
+```
+
+```bash
+# List projects; columns include Access (public|restricted) and Key (no|required)
+Jarvis2 project list
+
+Jarvis2 project info Eggbox
+Jarvis2 project fetch Eggbox            # public — no key
+```
+
+### Restricted (encrypted) projects — fetch
+
+```bash
+# See Key: required in the list
+Jarvis2 project list
+
+# Decrypt + unpack (preferred)
+Jarvis2 project fetch SecretName --key 'YOUR_KEY'
+
+# Or set the key once
+export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
+Jarvis2 project fetch SecretName
+```
+
+Backend: OpenSSL-compatible AES-256-CBC (PBKDF2). Jarvis2 uses system `openssl` if
+available, otherwise optional `pip install cryptography`. **You still only call
+`Jarvis2 project fetch`.**
+
+### Restricted projects — maintainers (encrypt)
+
+```bash
+# Pack then encrypt → *.tar.gz.jenc
+Jarvis2 project pack MyPrivate --repro --encrypt --key 'YOUR_KEY'
+
+# Or encrypt an existing archive
+Jarvis2 project encrypt MyPrivate_repro_….tar.gz --key 'YOUR_KEY'
+```
+
+Upload the `.jenc`, register it in `Jarvis-Examples/catalog/official_project_library.json`
+with `access: restricted` and `requires_key: true`. Do **not** publish the plaintext tree
+to the public Examples repo. Share the key out-of-band.
+
+Optional overrides:
+
+```bash
+export JARVIS_OFFICIAL_LIBRARY_INDEX_URL=file:///path/to/catalog.json   # local test
+export JARVIS_OFFICIAL_LIBRARY_TIMEOUT_SEC=30
+```
+
 Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Archiver,
 and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
 leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
@@ -135,10 +210,8 @@ leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
 Exit codes: **0** all samples succeeded; **1** any sample failed (including partial) or runtime
 error; **2** usage/config; **130** interrupted.
 
-`--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML. Scan-to-plot generation
-and post-run plotting are planned follow-ups. Portal and Operas discovery currently use their
-package CLIs (`jportal`, `jopera`) until native `Jarvis2 portal …` / `Jarvis2 operas …`
-subcommands land.
+`--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML (scan-driven plot
+scenes are partial). Portal / Operas / project tools are native `Jarvis2` subcommands.
 
 Outputs under `outputs/quickstart/`:
 
