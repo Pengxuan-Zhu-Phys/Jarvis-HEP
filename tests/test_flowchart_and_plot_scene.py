@@ -40,8 +40,8 @@ class FlowchartExportTests(unittest.TestCase):
         self.assertEqual(scene["scene_type"], "flowchart")
         self.assertTrue(any(n["id"] == "Parameters" for n in scene["nodes"]))
         self.assertTrue(any(n["id"] == "TrivialEggbox" for n in scene["nodes"]))
-        self.assertTrue(any(n["id"] == "LogLikelihood" for n in scene["nodes"]))
-        self.assertGreaterEqual(len(scene["edges"]), 1)
+        # Likelihood is not drawn on the flowchart by default.
+        self.assertFalse(any(n["id"] == "LogLikelihood" for n in scene["nodes"]))
 
     def test_export_writes_json(self) -> None:
         config = {
@@ -113,7 +113,7 @@ class FlowchartExportTests(unittest.TestCase):
         self.assertIn("file::EggBox::input::inpjson", ids)
         self.assertIn("file::EggBox::output::oupjson", ids)
         self.assertIn("var::z", ids)
-        self.assertIn("LogLikelihood", ids)
+        self.assertNotIn("LogLikelihood", ids)
 
         egg = ids["EggBox"]
         self.assertEqual(egg["kind"], "module")

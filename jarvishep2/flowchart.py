@@ -597,37 +597,34 @@ def _collect_modules_and_layers(
         specs[name] = _module_specs_from_yaml(module, module_type="Operas")
         layer_map.setdefault(layer_id, []).append(name)
 
-    if include_likelihood:
+    # Likelihood is optional on the flowchart (off by default).
+    if include_likelihood and (calc_list or opera_list):
         likelihood = _likelihood_module_from_config(config)
-        # Always emit LogLikelihood node when calculators/operas present (plan parity),
-        # even if Sampling.LogLikelihood is empty — empty inputs then.
-        if calc_list or opera_list:
-            if likelihood is None:
-                likelihood = {
-                    "name": "LogLikelihood",
-                    "type": "Likelihood",
-                    "kind": "module",
-                    "role": "likelihood",
-                    "inputs": [],
-                    "outputs": [
-                        {
-                            "id": "LogL",
-                            "label": "LogL",
-                            "kind": "variable",
-                            "produced_names": ["LogL"],
-                            "metadata": {},
-                        }
-                    ],
-                    "selection": None,
-                    "required_modules": ["Parameters"],
-                    "operator": None,
-                    "call_mode": None,
-                }
-            # Place after last module layer (match build_execution_plan).
-            last_module_layer = max(layer_map.keys()) if layer_map else 1
-            ll_layer = last_module_layer + 1
-            specs["LogLikelihood"] = likelihood
-            layer_map.setdefault(ll_layer, []).append("LogLikelihood")
+        if likelihood is None:
+            likelihood = {
+                "name": "LogLikelihood",
+                "type": "Likelihood",
+                "kind": "module",
+                "role": "likelihood",
+                "inputs": [],
+                "outputs": [
+                    {
+                        "id": "LogL",
+                        "label": "LogL",
+                        "kind": "variable",
+                        "produced_names": ["LogL"],
+                        "metadata": {},
+                    }
+                ],
+                "selection": None,
+                "required_modules": ["Parameters"],
+                "operator": None,
+                "call_mode": None,
+            }
+        last_module_layer = max(layer_map.keys()) if layer_map else 1
+        ll_layer = last_module_layer + 1
+        specs["LogLikelihood"] = likelihood
+        layer_map.setdefault(ll_layer, []).append("LogLikelihood")
 
     return specs, layer_map
 
@@ -640,9 +637,13 @@ def _collect_modules_and_layers(
 def build_flowchart_scene_from_config(
     config: Mapping[str, Any],
     *,
-    include_likelihood: bool = True,
+    include_likelihood: bool = False,
 ) -> dict[str, Any]:
-    """Build a full V1-compatible flowchart scene from a task config mapping."""
+    """Build a full V1-compatible flowchart scene from a task config mapping.
+
+    Likelihood is **not** drawn by default (``include_likelihood=False``): it is
+    a scoring step, not a workflow module users usually want on the flowchart.
+    """
     module_specs, module_layers = _collect_modules_and_layers(
         config, include_likelihood=include_likelihood
     )
@@ -1082,8 +1083,9 @@ def build_flowchart_scene(
             "Calculators": {"Modules": calc} if calc else {},
             "Operas": {"Modules": opera} if opera else {},
         }
+        # Plan-only fallback also omits Likelihood nodes by default.
         scene = build_flowchart_scene_from_config(
-            synthetic, include_likelihood=any(s.type == "likelihood" for s in normalized)
+            synthetic, include_likelihood=False
         )
         scene.setdefault("metadata", {})["producer"] = producer
         return scene

@@ -99,11 +99,11 @@ class WorkflowExecutionPlanTests(unittest.TestCase):
         self.assertIn("Parameters", ids)
         self.assertIn("EggBox", ids)
         self.assertIn("Prep", ids)
-        self.assertIn("LogLikelihood", ids)
+        # Likelihood is not drawn on the flowchart by default.
+        self.assertNotIn("LogLikelihood", ids)
         # Layer indices are 1-based like V1 (Parameters = layer_1).
         param = next(n for n in scene["nodes"] if n["id"] == "Parameters")
         self.assertEqual(param["layer"], "layer_1")
-        self.assertTrue(scene["edges"])
 
 
 if __name__ == "__main__":
