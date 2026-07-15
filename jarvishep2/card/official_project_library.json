@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "library_name": "official Jarvis library",
+  "library_source": {
+    "provider": "Jarvis-HEP",
+    "index_url": "https://raw.githubusercontent.com/Pengxuan-Zhu-Phys/Jarvis-HEP/main/jarvishep/card/official_project_library.json",
+    "notes": "Local packaged fallback for Jarvis2. Override with JARVIS_OFFICIAL_LIBRARY_INDEX_URL (D12.6 will point at Jarvis-Examples)."
+  },
+  "projects": [
+    {
+      "name": "Eggbox",
+      "category": "sampling",
+      "summary": "Bridson + Jarvis-Operas standalone example with a ready-to-run YAML card.",
+      "entrypoint": "bin/Example_Bridson_Operas.yaml",
+      "archive_url": "https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples/releases/download/latest/Eggbox_repro_pack_20260508_001.tar.gz",
+      "archive_root": ".",
+      "compatibility_notes": "Standalone project layout; run with Jarvis2 after fetch."
+    }
+  ]
+}

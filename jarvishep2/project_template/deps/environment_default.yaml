@@ -1,0 +1,30 @@
+# Jarvis-HEP V2 default runtime policy for scaffolded projects.
+# Loaded via EnvReqs.Check_default_dependencies.default_yaml_path.
+EnvReqs:
+  V2:
+    workers: 4
+    batch_size: 256
+
+    sample_directory:
+      enabled: true
+      limit: 200
+      width: 6
+      pack: true
+      start_bucket: 1
+
+    cleanup:
+      strategy: direct
+
+    archiver:
+      mode: process
+      handoff: direct
+      pack_buckets: true
+      batch_size: 200
+      flush_interval_sec: 1.0
+      delete_after_archive: true
+
+    # Optional redis/factory/worker groups — see EnvReqs.V2 docs (D12.4).
+    # redis:
+    #   host: 127.0.0.1
+    #   port: 6379
+    #   db: 0

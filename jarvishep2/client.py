@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import warnings
 from typing import Any
@@ -22,7 +23,15 @@ from jarvishep2.run_outcome import (
 )
 
 
-_SUBCOMMANDS = frozenset({"run", "check", "monitor", "plot", "portal", "operas"})
+_SUBCOMMANDS = frozenset({"run", "check", "monitor", "plot", "portal", "operas", "project"})
+_PROJECT_COMMANDS = frozenset({"create", "pack", "browse", "fetch", "info"})
+_PACK_MODE_FLAGS = {
+    "--share": "share",
+    "--repro": "repro",
+    "--full": "full",
+}
+_PACK_MANIFEST_FLAG = "--man"
+_HELP_FLAGS = frozenset({"-h", "--help"})
 
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
@@ -62,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas list|info NAME\n"
+            "  Jarvis2 project create|pack|browse|fetch|info …\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -103,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
     operas_info = operas_sub.add_parser("info", help="Show one Operas operator")
     operas_info.add_argument("name", help="Operator name or dotted path")
 
+    # ``project`` uses argv passthrough (pack has many optional flags).
+    sub.add_parser(
+        "project",
+        help="Standalone project tools (create/pack/browse/fetch/info)",
+        add_help=False,
+    )
+
     # ---- legacy top-level flags (paths go through normalize_argv → subcommands) ----
     parser.add_argument(
         "--monitor",
@@ -142,7 +159,7 @@ def _mode_conflict_message(modes: list[str]) -> str:
     return (
         "conflicting CLI intents: "
         + ", ".join(modes)
-        + "; use a single subcommand (run|check|monitor|plot|portal|operas)"
+        + "; use a single subcommand (run|check|monitor|plot|portal|operas|project)"
     )
 
 
@@ -179,7 +196,7 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         return legacy_modes[0], args
     raise ValueError(
         "Provide a task YAML or a subcommand "
-        "(run|check|monitor|plot|portal|operas). See Jarvis2 -h."
+        "(run|check|monitor|plot|portal|operas|project). See Jarvis2 -h."
     )
 
 
@@ -277,6 +294,339 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"Jarvis2 portal failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
+
+
+def _human_bytes(value: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    amount = float(max(0, int(value)))
+    idx = 0
+    while amount >= 1024.0 and idx < len(units) - 1:
+        amount /= 1024.0
+        idx += 1
+    if idx == 0:
+        return f"{int(amount)} {units[idx]}"
+    return f"{amount:.2f} {units[idx]}"
+
+
+def _print_kv_block(title: str, rows: list[tuple[str, object]]) -> None:
+    print(title)
+    width = max((len(str(key)) for key, _ in rows), default=8)
+    for key, value in rows:
+        print(f"  {str(key):<{width}}  {value}")
+
+
+def _print_project_help() -> None:
+    print(
+        "usage: Jarvis2 project <command> [arguments]\n\n"
+        "Manage Jarvis standalone projects.\n\n"
+        "commands:\n"
+        "  create <name>      Create a new local project scaffold\n"
+        "  pack [path]        Pack a local project (--share|--repro|--full, optional --man)\n"
+        "  browse             List verified projects in the official library\n"
+        "  fetch <name>       Fetch an official project into a local directory\n"
+        "  info <name>        Show details for an official project\n\n"
+        "examples:\n"
+        "  Jarvis2 project create MyProject\n"
+        "  Jarvis2 project pack . --share\n"
+        "  Jarvis2 project browse\n"
+        "  Jarvis2 project fetch Eggbox\n"
+    )
+
+
+def _run_project_create(project_name: str) -> int:
+    from jarvishep2.project_scaffold import PROJECT_SUBDIRS, create_project_scaffold
+
+    try:
+        project_root = create_project_scaffold(project_name, cwd=os.getcwd())
+    except ValueError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except FileExistsError as exc:
+        print(f"[Jarvis2] Project directory already exists: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    print(f"[Jarvis2] Project scaffold created at: {project_root}")
+    print(f"[Jarvis2] Created folders: {', '.join(PROJECT_SUBDIRS)}")
+    print("[Jarvis2] Try: Jarvis2 run bin/quickstart_bridson_operas.yaml")
+    return EXIT_OK
+
+
+def _run_project_pack(project_path: str | None, profile: str) -> int:
+    from jarvishep2.project_packager import ProjectPackError, create_project_package
+
+    try:
+        report = create_project_package(project_root=project_path, profile=profile)
+    except ProjectPackError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as exc:
+        print(f"[Jarvis2] Failed to package project: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    _print_kv_block(
+        "Jarvis2 project package created",
+        [
+            ("Project root", report.project_root),
+            ("Archive", report.archive_path),
+            ("Mode", report.profile),
+            ("Packed files", report.included_files),
+            ("Skipped files", report.excluded_files),
+            ("Payload size", _human_bytes(report.total_bytes)),
+        ],
+    )
+    return EXIT_OK
+
+
+def _run_project_pack_manifest(project_path: str | None, profile: str) -> int:
+    from jarvishep2.project_packager import ProjectPackError, create_project_pack_manifest
+
+    try:
+        report = create_project_pack_manifest(project_root=project_path, profile=profile)
+    except ProjectPackError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as exc:
+        print(f"[Jarvis2] Failed to write project pack manifest: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    _print_kv_block(
+        "Jarvis2 project pack manifest created",
+        [
+            ("Project root", report.project_root),
+            ("Manifest", report.manifest_path),
+            ("Pack ID", report.pack_id),
+            ("Mode", report.profile),
+            ("Manifest files", report.included_files),
+            ("Manifest excludes", report.excluded_files),
+            ("Output", report.output),
+        ],
+    )
+    return EXIT_OK
+
+
+def _run_project_pack_from_manifest(manifest_path: str) -> int:
+    from jarvishep2.project_packager import (
+        ProjectPackError,
+        create_project_package_from_manifest,
+    )
+
+    try:
+        report = create_project_package_from_manifest(manifest_path)
+    except ProjectPackError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except Exception as exc:
+        print(f"[Jarvis2] Failed to package project from manifest: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    _print_kv_block(
+        "Jarvis2 project package created from manifest",
+        [
+            ("Project root", report.project_root),
+            ("Archive", report.archive_path),
+            ("Mode", report.profile),
+            ("Packed files", report.included_files),
+            ("Skipped files", report.excluded_files),
+            ("Payload size", _human_bytes(report.total_bytes)),
+        ],
+    )
+    return EXIT_OK
+
+
+def _run_project_browse() -> int:
+    from jarvishep2.official_project_library import OfficialLibraryError, list_official_projects
+
+    try:
+        projects = list_official_projects()
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    if not projects:
+        print("[Jarvis2] No verified projects are listed in the official library.")
+        return EXIT_OK
+
+    print("[Jarvis2] Verified projects in the official library:")
+    for project in projects:
+        name = project.get("name") or "<unnamed>"
+        category = project.get("category") or "general"
+        summary = project.get("summary") or "No summary available."
+        print(f"[Jarvis2] - {name} | {category} | {summary}")
+    return EXIT_OK
+
+
+def _run_project_info(project_name: str) -> int:
+    from jarvishep2.official_project_library import (
+        OfficialLibraryError,
+        OfficialProjectNotFoundError,
+        get_official_project,
+    )
+
+    try:
+        project = get_official_project(project_name)
+    except OfficialProjectNotFoundError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    print(f"[Jarvis2] Official project: {project['name']}")
+    print(f"[Jarvis2] Summary: {project.get('summary') or 'N/A'}")
+    print(f"[Jarvis2] Category: {project.get('category') or 'N/A'}")
+    print(f"[Jarvis2] Entrypoint: {project.get('entrypoint') or 'N/A'}")
+    print(f"[Jarvis2] Compatibility notes: {project.get('compatibility_notes') or 'None'}")
+    return EXIT_OK
+
+
+def _run_project_fetch(project_name: str) -> int:
+    from jarvishep2.official_project_library import (
+        OfficialLibraryError,
+        OfficialProjectFetchError,
+        OfficialProjectNotFoundError,
+        fetch_official_project,
+    )
+
+    try:
+        report = fetch_official_project(project_name)
+    except OfficialProjectNotFoundError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    except OfficialProjectFetchError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    except OfficialLibraryError as exc:
+        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
+
+    print(
+        f"[Jarvis2] Official project '{report.project_name}' fetched to: {report.target_dir}"
+    )
+    print(f"[Jarvis2] Entrypoint: {report.entrypoint or 'N/A'}")
+    return EXIT_OK
+
+
+def _looks_like_yaml_path(path: str | None) -> bool:
+    if path is None:
+        return False
+    return path.lower().endswith((".yaml", ".yml"))
+
+
+def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str, bool, bool] | int:
+    path: str | None = None
+    mode_flag: str | None = None
+    manifest_only = False
+
+    for tok in tokens:
+        if tok in _HELP_FLAGS:
+            print(
+                "usage: Jarvis2 project pack [path] [--share|--repro|--full] [--man]\n"
+                "       Jarvis2 project pack <pack_manifest.yaml>\n"
+            )
+            return 0
+        if tok == _PACK_MANIFEST_FLAG:
+            manifest_only = True
+            continue
+        if tok in _PACK_MODE_FLAGS:
+            if mode_flag is not None:
+                print(
+                    "[Jarvis2] project pack modes are mutually exclusive: "
+                    "--share, --repro, --full",
+                    file=sys.stderr,
+                )
+                return EXIT_USAGE
+            mode_flag = tok
+            continue
+        if tok.startswith("-"):
+            print(f"[Jarvis2] Unsupported option for project pack: {tok}", file=sys.stderr)
+            return EXIT_USAGE
+        if path is None:
+            path = tok
+            continue
+        print(f"[Jarvis2] Unexpected argument for project pack: {tok}", file=sys.stderr)
+        return EXIT_USAGE
+
+    if manifest_only and _looks_like_yaml_path(path):
+        print(
+            "[Jarvis2] --man writes a new manifest from a project path, not from a manifest file",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    is_manifest_input = _looks_like_yaml_path(path)
+    if is_manifest_input and mode_flag is not None:
+        print(
+            "[Jarvis2] Manifest packing does not accept --share, --repro, or --full",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    profile = _PACK_MODE_FLAGS.get(mode_flag or "", "share")
+    return path, profile, manifest_only, is_manifest_input
+
+
+def dispatch_project(project_argv: list[str] | None = None) -> int:
+    """Handle ``Jarvis2 project create|pack|browse|fetch|info`` (D12.5)."""
+    args = list(project_argv or [])
+    if not args or args[0] in _HELP_FLAGS:
+        _print_project_help()
+        return EXIT_OK
+
+    command = args[0]
+    rest = args[1:]
+    if command not in _PROJECT_COMMANDS:
+        print(f"[Jarvis2] Unknown project command: {command}", file=sys.stderr)
+        _print_project_help()
+        return EXIT_USAGE
+
+    if command == "create":
+        if len(rest) == 1 and rest[0] in _HELP_FLAGS:
+            print("usage: Jarvis2 project create <name>\n")
+            return EXIT_OK
+        if len(rest) != 1 or rest[0].startswith("-"):
+            print("[Jarvis2] Usage: Jarvis2 project create <name>", file=sys.stderr)
+            return EXIT_USAGE
+        return _run_project_create(rest[0])
+
+    if command == "pack":
+        parsed = _parse_pack_arguments(rest)
+        if isinstance(parsed, int):
+            return parsed
+        path, profile, manifest_only, is_manifest_input = parsed
+        if manifest_only:
+            return _run_project_pack_manifest(path, profile)
+        if is_manifest_input:
+            return _run_project_pack_from_manifest(str(path))
+        return _run_project_pack(path, profile)
+
+    if command == "browse":
+        if rest:
+            if len(rest) == 1 and rest[0] in _HELP_FLAGS:
+                print("usage: Jarvis2 project browse\n")
+                return EXIT_OK
+            print("[Jarvis2] Usage: Jarvis2 project browse", file=sys.stderr)
+            return EXIT_USAGE
+        return _run_project_browse()
+
+    if command == "fetch":
+        if len(rest) == 1 and rest[0] in _HELP_FLAGS:
+            print("usage: Jarvis2 project fetch <name>\n")
+            return EXIT_OK
+        if len(rest) != 1 or rest[0].startswith("-"):
+            print("[Jarvis2] Usage: Jarvis2 project fetch <name>", file=sys.stderr)
+            return EXIT_USAGE
+        return _run_project_fetch(rest[0])
+
+    if command == "info":
+        if len(rest) == 1 and rest[0] in _HELP_FLAGS:
+            print("usage: Jarvis2 project info <name>\n")
+            return EXIT_OK
+        if len(rest) != 1 or rest[0].startswith("-"):
+            print("[Jarvis2] Usage: Jarvis2 project info <name>", file=sys.stderr)
+            return EXIT_USAGE
+        return _run_project_info(rest[0])
+
+    return EXIT_USAGE
 
 
 def dispatch_operas(args: argparse.Namespace) -> int:
@@ -417,6 +767,8 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_portal([])
     if intent == "operas":
         return dispatch_operas(args)
+    if intent == "project":
+        return dispatch_project([])
     if intent == "check":
         task = getattr(args, "task_yaml", None)
         return dispatch_run(
@@ -446,6 +798,9 @@ def main(argv: list[str] | None = None) -> int:
     # Full jportal-compatible surface: do not let argparse eat portal args.
     if normalized and normalized[0] == "portal":
         return dispatch_portal(normalized[1:])
+    # Project pack flags are free-form; pass through like portal.
+    if normalized and normalized[0] == "project":
+        return dispatch_project(normalized[1:])
     return dispatch(build_parser().parse_args(normalized))
 
 

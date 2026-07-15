@@ -5,7 +5,8 @@ Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + s
 **Where we are (2026-07-14, `jarvis2` / `64d7486`):** D0–D7 runtime core + D10 AdaptiveLevelSet
 core + D12.0–D12.2 + **D12.8** (SAMPLE buckets, process Archiver, direct handoff, process titles,
 managed Redis, clean SIGINT) are in. **Agent bridge (D8) is parked.** Next focus: **D11**
-UI/integration and remaining **D12** (flowchart / project tools / catalog). Authoritative ledger:
+UI/integration done through D12.5 (`Jarvis2 project …`); remaining **D12.6** catalog move.
+Authoritative ledger:
 `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 
 - Installation: [INSTALL.md](INSTALL.md)

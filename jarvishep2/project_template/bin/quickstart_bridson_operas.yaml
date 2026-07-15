@@ -1,0 +1,55 @@
+# Scaffold quickstart: Bridson + Jarvis-Operas (no external calculator).
+# Run: Jarvis2 run bin/quickstart_bridson_operas.yaml
+Scan:
+  name: "quickstart_bridson_operas"
+  save_dir: "&J/outputs"
+
+Sampling:
+  Method: "Bridson"
+  Variables:
+    - name: x
+      description: "Toy variable x"
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 5.0
+          length: 40
+    - name: y
+      description: "Toy variable y"
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 5.0
+          length: 40
+  Radius: 2.0
+  MaxAttempt: 20
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  OS:
+    - name: linux
+      version: ">=3.10.0"
+    - name: Darwin
+      version: ">=10.14"
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+  # Optional task-local overrides (merged over defaults):
+  # V2:
+  #   workers: 2
+
+Operas:
+  make_paraller: 4
+  Modules:
+    - name: EggBox
+      operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"
+      call_mode: call
+      required_modules: []
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}

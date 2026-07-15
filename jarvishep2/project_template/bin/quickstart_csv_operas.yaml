@@ -1,0 +1,30 @@
+# Scaffold CSV sampling + Operas card.
+# Run: Jarvis2 run bin/quickstart_csv_operas.yaml
+Scan:
+  name: "quickstart_csv_operas"
+  save_dir: "&J/outputs"
+
+Sampling:
+  Method: "CSV"
+  CSV:
+    path: "&J/data/points.csv"
+    uuid_column: uuid
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+
+Operas:
+  Modules:
+    - name: EggBox
+      operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"
+      call_mode: call
+      required_modules: []
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}
