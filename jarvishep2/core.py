@@ -28,13 +28,14 @@ from jarvishep2.monitoring.run_summary import RunSummaryRenderer, build_run_summ
 from jarvishep2.versioning import render_logo_with_version
 from jarvishep2.redis_queue import (
     CONTROL_LOCK_TTL_SEC,
-    INTERNAL_REDIS_CONFIG,
     RedisQueue,
 )
 from jarvishep2.redis_server import ManagedRedisServer
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
+    get_factory_config,
+    get_redis_config,
     get_runtime_block,
     get_sample_directory_config,
     get_watchdog_config,
@@ -583,9 +584,8 @@ class Jarvis2Core:
         return path
 
     def init_redis(self, *, client: Any = None) -> RedisQueue:
-        redis_config = dict(self.runtime.get("redis") or {})
-        if not redis_config:
-            redis_config = dict(INTERNAL_REDIS_CONFIG)
+        # EnvReqs.V2.redis (optional) overlays INTERNAL_REDIS_CONFIG defaults.
+        redis_config = get_redis_config(self.config)
         # Prefer a Jarvis-managed redis-server so `ps` shows Jarvis-Redis:<scan>.
         # If something is already listening, we connect and leave its title alone.
         if client is None:
@@ -747,7 +747,7 @@ class Jarvis2Core:
             self._logger.info("Runtime.mode != redis; skipping TaskFactory bring-up")
             return None
 
-        redis_config = dict(self.runtime.get("redis") or {})
+        redis_config = get_redis_config(self.config)
         # Explicit instance ownership (D9.4) — not the deprecated singleton shell.
         if self.factory is None:
             self.factory = TaskFactory(redis_config)
@@ -773,7 +773,8 @@ class Jarvis2Core:
         if self._resume_policy == "resume":
             prepare_resume(self.redis, worker_config=merged_config)
         self.factory.start_workers(workers, **merged_config)
-        self.factory.start_monitor(update_hz=120.0)
+        factory_cfg = get_factory_config(self.config)
+        self.factory.start_monitor(update_hz=float(factory_cfg.get("monitor_hz", 120.0)))
         watchdog = get_watchdog_config(self.config)
         self.factory.start_watchdog(**watchdog)
         self._logger.info("TaskFactory started with %d worker(s)", workers)
@@ -794,7 +795,13 @@ class Jarvis2Core:
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = get_archiver_config(self.config)
         delete_method = get_delete_method(self.config)
-        redis_config = dict(self.runtime.get("redis") or self.redis.connection_config())
+        redis_config = get_redis_config(self.config)
+        if self.redis is not None:
+            # Prefer the live connection if init_redis already bound a client.
+            try:
+                redis_config = dict(self.redis.connection_config())
+            except Exception:
+                pass
 
         scan_name = str(self.info.get("scan_name") or "").strip() or None
         if str(archiver_config.get("mode", "process")).strip().lower() == "process":

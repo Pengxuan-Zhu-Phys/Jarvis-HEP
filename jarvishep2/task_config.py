@@ -11,7 +11,13 @@ from typing import Any
 import yaml
 
 from jarvishep2.base import decode_path, infer_project_root, scan_output_root
-from jarvishep2.runtime_config import normalize_runtime_block
+from jarvishep2.runtime_config import (
+    SUPPORTED_ENVREQS_V2_KEYS,
+    normalize_factory_block,
+    normalize_redis_config,
+    normalize_runtime_block,
+    normalize_worker_block,
+)
 
 
 def _deep_merge(defaults: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
@@ -34,14 +40,30 @@ def _is_enabled(value: Any) -> bool:
 
 
 def _canonicalize_v2_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize the singular ``worker`` compatibility spelling before merging."""
+    """Normalize the singular ``worker`` count spelling before merging.
+
+    ``EnvReqs.V2.worker`` is dual-purpose (D12.4):
+
+    * **scalar** (``worker: 4``) — compatibility alias for ``workers``
+    * **mapping** (``worker: {force_serial_layers: …}``) — Worker policy group
+
+    A scalar ``worker`` cannot coexist with ``workers``. A mapping ``worker``
+    group may sit alongside ``workers``.
+    """
     normalized = deepcopy(dict(settings))
     if "worker" in normalized:
-        if "workers" in normalized:
-            raise ValueError("EnvReqs.V2 accepts either workers or worker, not both")
-        normalized["workers"] = normalized.pop("worker")
+        worker_value = normalized["worker"]
+        if isinstance(worker_value, Mapping):
+            # Keep the Worker policy group under EnvReqs.V2.worker.
+            pass
+        else:
+            if "workers" in normalized:
+                raise ValueError(
+                    "EnvReqs.V2 accepts either workers or worker (count), not both; "
+                    "use workers: N plus worker: {…} for the policy group"
+                )
+            normalized["workers"] = normalized.pop("worker")
     return normalized
-
 
 def _v2_defaults_from_envreqs(
     config: Mapping[str, Any], *, project_root: str, yaml_dir: str
@@ -153,27 +175,32 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     v2_defaults = _v2_defaults_from_envreqs(
         loaded, project_root=project_root, yaml_dir=yaml_dir
     )
-    runtime_defaults = _runtime_defaults_from_envreqs(
+    # Legacy EnvReqs.Runtime defaults may include V1 Runtime keys (mode, …);
+    # only V2 knobs are retained so old defaults files do not hard-fail.
+    runtime_defaults_raw = _runtime_defaults_from_envreqs(
         loaded, project_root=project_root, yaml_dir=yaml_dir
     )
-    task_v2_settings = _canonicalize_v2_settings(task_v2) if isinstance(task_v2, Mapping) else {}
-    v2_settings = _deep_merge(_deep_merge(v2_defaults, runtime_defaults), task_v2_settings)
-    # Scheduling knobs + SAMPLE archive policy (EnvReqs.V2 / default_yaml).
-    _SUPPORTED_V2 = {
-        "workers",
-        "batch_size",
-        "sample_directory",
-        "cleanup",
-        "archiver",
+    runtime_defaults = {
+        key: value
+        for key, value in runtime_defaults_raw.items()
+        if key in SUPPORTED_ENVREQS_V2_KEYS
     }
-    unsupported_v2_settings = set(v2_settings) - _SUPPORTED_V2
-    if unsupported_v2_settings:
-        unsupported = ", ".join(sorted(str(key) for key in unsupported_v2_settings))
-        raise ValueError(
-            "unsupported EnvReqs.V2 setting(s): "
-            f"{unsupported}; supported settings are "
-            + ", ".join(sorted(_SUPPORTED_V2))
-        )
+    task_v2_settings = _canonicalize_v2_settings(task_v2) if isinstance(task_v2, Mapping) else {}
+
+    for source_name, source in (
+        ("default environment YAML EnvReqs.V2", v2_defaults),
+        ("task EnvReqs.V2", task_v2_settings),
+    ):
+        unsupported = set(source) - SUPPORTED_ENVREQS_V2_KEYS
+        if unsupported:
+            keys = ", ".join(sorted(str(key) for key in unsupported))
+            supported = ", ".join(sorted(SUPPORTED_ENVREQS_V2_KEYS))
+            raise ValueError(
+                f"unsupported {source_name} setting(s): {keys}; "
+                f"supported settings are {supported}"
+            )
+
+    v2_settings = _deep_merge(_deep_merge(v2_defaults, runtime_defaults), task_v2_settings)
 
     config = deepcopy(loaded)
     resolved_envreqs = deepcopy(dict(task_envreqs))
@@ -217,14 +244,33 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         config.get("task_result_dir")
         or scan_output_root(project_root=project_root, scan_name=scan_name)
     )
-    # Runtime adapter keeps only scheduling scalars; nested archive policy lives
-    # on Scan / Calculators (and EnvReqs.V2 for inspection).
-    runtime_scalars = {
-        key: value
-        for key, value in v2_settings.items()
-        if key in {"workers", "batch_size"}
+    # Runtime adapter: scheduling scalars + optional redis/factory/worker groups.
+    runtime_payload: dict[str, Any] = {
+        "mode": "redis",
+        **{
+            key: value
+            for key, value in v2_settings.items()
+            if key in {"workers", "batch_size"}
+        },
     }
-    runtime = normalize_runtime_block({"mode": "redis", **runtime_scalars})
+    if isinstance(v2_settings.get("redis"), Mapping):
+        runtime_payload["redis"] = normalize_redis_config(v2_settings["redis"])
+
+    factory_settings = v2_settings.get("factory")
+    if isinstance(factory_settings, Mapping):
+        factory_norm = normalize_factory_block(factory_settings)
+        runtime_payload["Factory"] = factory_norm
+        watchdog = factory_norm.get("watchdog")
+        if isinstance(watchdog, Mapping):
+            runtime_payload["Watchdog"] = deepcopy(watchdog)
+
+    worker_settings = v2_settings.get("worker")
+    if isinstance(worker_settings, Mapping):
+        worker_norm = normalize_worker_block(worker_settings)
+        runtime_payload["sample_artifacts"] = worker_norm["sample_artifacts"]
+        runtime_payload["force_serial_layers"] = worker_norm["force_serial_layers"]
+
+    runtime = normalize_runtime_block(runtime_payload)
     if isinstance(sample_directory, Mapping):
         runtime["sample_directory"] = deepcopy(
             scan_block.get("sample_directory") or sample_directory

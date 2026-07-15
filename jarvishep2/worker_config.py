@@ -85,9 +85,10 @@ def build_worker_config(
     scan_name = str(cfg.get("scan_name") or sample_config.get("scan_name") or "").strip()
     if scan_name:
         sample_config.setdefault("scan_name", scan_name)
+    runtime_block = cfg.get("Runtime") if isinstance(cfg.get("Runtime"), Mapping) else {}
     sample_config.setdefault(
         "sample_artifacts",
-        str((cfg.get("Runtime") or {}).get("sample_artifacts", "auto")),
+        str((runtime_block or {}).get("sample_artifacts", "auto")),
     )
     sample_config.setdefault(
         "workflow_has_calculator",
@@ -125,6 +126,9 @@ def build_worker_config(
     }
     if scan_name:
         worker_config.setdefault("scan_name", scan_name)
+    # EnvReqs.V2.worker.force_serial_layers → Runtime → Worker blueprint.
+    if isinstance(runtime_block, Mapping) and "force_serial_layers" in runtime_block:
+        worker_config["force_serial_layers"] = bool(runtime_block.get("force_serial_layers"))
     calc_block = cfg.get("Calculators") if isinstance(cfg.get("Calculators"), Mapping) else {}
     pools = None
     if isinstance(calc_block, Mapping):

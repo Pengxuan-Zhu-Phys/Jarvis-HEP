@@ -48,6 +48,22 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "poll_interval_sec": 1.0,
     "max_sample_retries": 3,
 }
+FACTORY_DEFAULTS: dict[str, Any] = {
+    "monitor_hz": 120.0,
+}
+# EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
+SUPPORTED_ENVREQS_V2_KEYS = frozenset(
+    {
+        "workers",
+        "batch_size",
+        "sample_directory",
+        "cleanup",
+        "archiver",
+        "redis",
+        "factory",
+        "worker",
+    }
+)
 
 
 def _coerce_positive_int(value: Any, *, default: int) -> int:
@@ -56,6 +72,84 @@ def _coerce_positive_int(value: Any, *, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed >= 0 else default
+
+
+def normalize_redis_config(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Merge optional ``EnvReqs.V2.redis`` over the internal broker defaults.
+
+    Defaults remain local zero-config (``127.0.0.1:6379`` / db ``0``). Only
+    ``host``, ``port``, and ``db`` are consumed; other keys are ignored.
+    """
+    from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG
+
+    config = dict(INTERNAL_REDIS_CONFIG)
+    if not isinstance(raw, Mapping):
+        return config
+
+    host = raw.get("host")
+    if host is not None and str(host).strip():
+        config["host"] = str(host).strip()
+
+    if "port" in raw and raw.get("port") is not None:
+        try:
+            port = int(raw["port"])
+        except (TypeError, ValueError):
+            port = int(INTERNAL_REDIS_CONFIG["port"])
+        if 1 <= port <= 65535:
+            config["port"] = port
+
+    if "db" in raw and raw.get("db") is not None:
+        try:
+            db = int(raw["db"])
+        except (TypeError, ValueError):
+            db = int(INTERNAL_REDIS_CONFIG["db"])
+        if db >= 0:
+            config["db"] = db
+    return config
+
+
+def normalize_factory_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``EnvReqs.V2.factory`` (monitor + watchdog knobs)."""
+    factory = dict(FACTORY_DEFAULTS)
+    if not isinstance(raw, Mapping):
+        return factory
+
+    monitor = raw.get("monitor")
+    hz_raw = raw.get("monitor_hz")
+    if hz_raw is None and isinstance(monitor, Mapping):
+        hz_raw = monitor.get("hz", monitor.get("update_hz"))
+    if hz_raw is not None:
+        try:
+            factory["monitor_hz"] = max(1.0, float(hz_raw))
+        except (TypeError, ValueError):
+            factory["monitor_hz"] = FACTORY_DEFAULTS["monitor_hz"]
+
+    watchdog = raw.get("watchdog")
+    if watchdog is None:
+        watchdog = raw.get("Watchdog")
+    if isinstance(watchdog, Mapping):
+        factory["watchdog"] = normalize_watchdog_block(watchdog)
+    return factory
+
+
+def normalize_worker_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``EnvReqs.V2.worker`` (per-Worker execution policy)."""
+    worker: dict[str, Any] = {
+        "force_serial_layers": False,
+        "sample_artifacts": RUNTIME_DEFAULTS["sample_artifacts"],
+    }
+    if not isinstance(raw, Mapping):
+        return worker
+
+    if "force_serial_layers" in raw:
+        worker["force_serial_layers"] = bool(raw.get("force_serial_layers"))
+
+    sample_artifacts = str(
+        raw.get("sample_artifacts", worker["sample_artifacts"])
+    ).strip().lower()
+    if sample_artifacts in _VALID_SAMPLE_ARTIFACTS:
+        worker["sample_artifacts"] = sample_artifacts
+    return worker
 
 
 def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -79,7 +173,16 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
 
     redis_block = raw.get("redis")
     if isinstance(redis_block, Mapping):
-        runtime["redis"] = dict(redis_block)
+        runtime["redis"] = normalize_redis_config(redis_block)
+
+    if "force_serial_layers" in raw:
+        runtime["force_serial_layers"] = bool(raw.get("force_serial_layers"))
+
+    factory_block = raw.get("Factory")
+    if factory_block is None:
+        factory_block = raw.get("factory")
+    if isinstance(factory_block, Mapping):
+        runtime["Factory"] = normalize_factory_block(factory_block)
 
     subprocess = raw.get("Subprocess")
     if isinstance(subprocess, Mapping):
@@ -256,7 +359,28 @@ def get_watchdog_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     watchdog = runtime.get("Watchdog")
     if isinstance(watchdog, Mapping):
         return normalize_watchdog_block(watchdog)
+    factory = runtime.get("Factory")
+    if isinstance(factory, Mapping) and isinstance(factory.get("watchdog"), Mapping):
+        return normalize_watchdog_block(factory.get("watchdog"))
     return dict(WATCHDOG_DEFAULTS)
+
+
+def get_factory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return monitor/watchdog factory knobs (``Runtime.Factory`` / EnvReqs.V2.factory)."""
+    runtime = get_runtime_block(config)
+    factory = runtime.get("Factory")
+    if isinstance(factory, Mapping):
+        return normalize_factory_block(factory)
+    return dict(FACTORY_DEFAULTS)
+
+
+def get_redis_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return the broker connection (``Runtime.redis`` / EnvReqs.V2.redis / internal)."""
+    runtime = get_runtime_block(config)
+    redis_block = runtime.get("redis")
+    if isinstance(redis_block, Mapping):
+        return normalize_redis_config(redis_block)
+    return normalize_redis_config(None)
 
 
 def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:

@@ -26,3 +26,22 @@ EnvReqs:
       batch_size: 200
       flush_interval_sec: 1.0
       delete_after_archive: true
+
+    # Optional Redis broker override (default: 127.0.0.1:6379 / db 0).
+    # Uncomment for multi-host or non-default port deployments.
+    # redis:
+    #   host: 127.0.0.1
+    #   port: 6379
+    #   db: 0
+
+    # Optional factory / worker policy (defaults match code).
+    # factory:
+    #   monitor_hz: 120
+    #   watchdog:
+    #     enabled: true
+    #     stale_sec: 30
+    #     poll_interval_sec: 1.0
+    #     max_sample_retries: 3
+    # worker:
+    #   force_serial_layers: false
+    #   sample_artifacts: auto
