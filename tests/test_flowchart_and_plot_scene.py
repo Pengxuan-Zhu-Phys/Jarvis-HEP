@@ -8,6 +8,8 @@ import os
 import tempfile
 import unittest
 
+import yaml
+
 from jarvishep2.flowchart import (
     build_flowchart_scene_from_config,
     export_flowchart_semantics,
@@ -219,6 +221,50 @@ class PlotSceneEmitTests(unittest.TestCase):
             )
             self.assertIsNotNone(out)
             self.assertTrue(os.path.isfile(str(out)))
+
+    def test_jplot_levelset_overlay_hook(self) -> None:
+        """D10.3: stock jplot YAML with scatter + level-set polylines."""
+        from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml, emit_plot_scenes_from_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db_dir = os.path.join(tmp, "DATABASE")
+            os.makedirs(db_dir)
+            db = os.path.join(db_dir, "samples.hdf5")
+            writer = SimpleHDF5Writer(db)
+            writer.add_record({"x": 0.1, "y": 0.2, "LogL": -1.0})
+            writer.add_record({"x": 0.9, "y": 0.8, "LogL": -2.0})
+            writer.close() if hasattr(writer, "close") else None
+
+            levelset = {
+                "dim": 2,
+                "target_expression": "r2",
+                "target_value": 0.25,
+                "polylines_x": [
+                    [[0.0, 0.5], [0.5, 0.0], [1.0, 0.5], [0.5, 1.0], [0.0, 0.5]]
+                ],
+            }
+            with open(os.path.join(tmp, "levelset.json"), "w", encoding="utf-8") as handle:
+                json.dump(levelset, handle)
+
+            jplot_path = emit_jplot_scan_levelset_yaml(tmp, scan_name="als_demo")
+            self.assertIsNotNone(jplot_path)
+            self.assertTrue(os.path.isfile(str(jplot_path)))
+            with open(str(jplot_path), encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            self.assertIn("DataSet", doc)
+            self.assertIn("Figures", doc)
+            layers = doc["Figures"][0]["layers"]
+            methods = {layer.get("method") for layer in layers}
+            self.assertIn("scatter", methods)
+            self.assertIn("plot", methods)
+            self.assertTrue(
+                os.path.isfile(os.path.join(tmp, "images", "als_demo_samples.csv"))
+            )
+
+            written = emit_plot_scenes_from_run(tmp, scan_name="als_demo", auto_render=False)
+            self.assertIn("jplot_levelset", written)
+            self.assertIn("levelset_overlay", written)
+            self.assertIn("scatter", written)
 
 
 if __name__ == "__main__":

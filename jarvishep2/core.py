@@ -348,7 +348,7 @@ class Jarvis2Core:
             self._logger.warning("workflow flowchart export failed -> %s", exc)
 
     def _emit_plot_scenes(self) -> None:
-        """Emit scan/levelset plot scene YAMLs under images/ after a successful run."""
+        """Emit scan/levelset jplot YAML (+ optional PNG) under images/ (D10.3 / D11.5)."""
         if bool(self.config.get("skip_emit_plot_scenes")):
             return
         try:
@@ -359,10 +359,15 @@ class Jarvis2Core:
             self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
         )
         scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        # Auto-render when JarvisPLOT is available unless explicitly disabled.
+        auto_render = not bool(
+            self.config.get("skip_render_plots") or self.info.get("skip_render_plots")
+        )
         try:
             written = emit_plot_scenes_from_run(
                 task_result_dir,
                 scan_name=scan_name,
+                auto_render=auto_render,
             )
             if written:
                 self.info["plot_scenes"] = written
@@ -370,6 +375,11 @@ class Jarvis2Core:
                     "plot scenes emitted → %s",
                     ", ".join(f"{key}={path}" for key, path in written.items()),
                 )
+                jplot = written.get("jplot_levelset")
+                if jplot and "jplot_levelset_png" not in written:
+                    self._logger.info(
+                        "jplot YAML ready (render with: Jarvis2 plot %s)", jplot
+                    )
         except Exception as exc:
             self._logger.warning("plot scene emit failed -> %s", exc)
 
