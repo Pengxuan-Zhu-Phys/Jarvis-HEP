@@ -24,13 +24,16 @@ from jarvishep2.run_outcome import (
 
 
 _SUBCOMMANDS = frozenset({"run", "check", "monitor", "plot", "portal", "operas", "project"})
-_PROJECT_COMMANDS = frozenset({"create", "pack", "browse", "list", "fetch", "info"})
+_PROJECT_COMMANDS = frozenset(
+    {"create", "pack", "browse", "list", "fetch", "info", "encrypt"}
+)
 _PACK_MODE_FLAGS = {
     "--share": "share",
     "--repro": "repro",
     "--full": "full",
 }
 _PACK_MANIFEST_FLAG = "--man"
+_PACK_ENCRYPT_FLAGS = frozenset({"--encrypt", "--encrypted"})
 _HELP_FLAGS = frozenset({"-h", "--help"})
 
 
@@ -318,21 +321,24 @@ def _print_kv_block(title: str, rows: list[tuple[str, object]]) -> None:
 def _print_project_help() -> None:
     print(
         "usage: Jarvis2 project <command> [arguments]\n\n"
-        "Manage Jarvis standalone projects.\n\n"
+        "Manage Jarvis standalone projects (all crypto goes through this CLI).\n\n"
         "commands:\n"
-        "  create <name>           Create a new local project scaffold\n"
-        "  pack [path]             Pack a local project (--share|--repro|--full, optional --man)\n"
-        "  list | browse           List official library (shows public vs key-required)\n"
-        "  fetch <name> [--key K]  Fetch an official project (restricted needs key)\n"
-        "  info <name>             Show details for an official project\n\n"
-        "catalog: GitHub JSON in Jarvis-Examples (override JARVIS_OFFICIAL_LIBRARY_INDEX_URL).\n"
-        "restricted keys: --key or JARVIS_PROJECT_FETCH_KEY.\n\n"
-        "examples:\n"
-        "  Jarvis2 project create MyProject\n"
-        "  Jarvis2 project pack . --share\n"
+        "  create <name>                      Scaffold a local project\n"
+        "  pack [path] [modes] [--encrypt --key K]\n"
+        "                                     Pack; optional encrypt for restricted release\n"
+        "  list | browse                      Official library (Access + Key columns)\n"
+        "  fetch <name> [--key K]             Download (+ decrypt if restricted)\n"
+        "  info <name>                        Project details including key requirement\n"
+        "  encrypt <archive.tar.gz> --key K   Encrypt an existing pack to *.jenc\n\n"
+        "restricted projects (end users):\n"
         "  Jarvis2 project list\n"
+        "  Jarvis2 project fetch SecretName --key YOUR_KEY\n"
+        "  # or: export JARVIS_PROJECT_FETCH_KEY=YOUR_KEY\n\n"
+        "restricted projects (maintainers):\n"
+        "  Jarvis2 project pack . --repro --encrypt --key YOUR_KEY\n"
+        "  # upload the *.jenc URL into Examples catalog JSON\n\n"
+        "public examples:\n"
         "  Jarvis2 project fetch Eggbox\n"
-        "  Jarvis2 project fetch SecretProj --key …\n"
     )
 
 
@@ -354,8 +360,22 @@ def _run_project_create(project_name: str) -> int:
     return EXIT_OK
 
 
-def _run_project_pack(project_path: str | None, profile: str) -> int:
+def _run_project_pack(
+    project_path: str | None,
+    profile: str,
+    *,
+    encrypt: bool = False,
+    key: str | None = None,
+) -> int:
+    from jarvishep2.project_crypto import ProjectCryptoError, encrypt_file, resolve_fetch_key
     from jarvishep2.project_packager import ProjectPackError, create_project_package
+
+    if encrypt and not resolve_fetch_key(key):
+        print(
+            "[Jarvis2] --encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     try:
         report = create_project_package(project_root=project_path, profile=profile)
@@ -366,15 +386,65 @@ def _run_project_pack(project_path: str | None, profile: str) -> int:
         print(f"[Jarvis2] Failed to package project: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
+    archive_path = report.archive_path
+    encrypted_path = None
+    if encrypt:
+        try:
+            encrypted_path = archive_path + ".jenc"
+            if archive_path.endswith(".tar.gz"):
+                encrypted_path = archive_path[: -len(".tar.gz")] + ".tar.gz.jenc"
+            encrypt_file(archive_path, encrypted_path, key=str(resolve_fetch_key(key)))
+        except ProjectCryptoError as exc:
+            print(f"[Jarvis2] {exc}", file=sys.stderr)
+            return EXIT_RUN_FAILED
+
+    rows = [
+        ("Project root", report.project_root),
+        ("Archive", report.archive_path),
+        ("Mode", report.profile),
+        ("Packed files", report.included_files),
+        ("Skipped files", report.excluded_files),
+        ("Payload size", _human_bytes(report.total_bytes)),
+    ]
+    if encrypted_path:
+        rows.append(("Encrypted", encrypted_path))
+        rows.append(("Fetch with", f"Jarvis2 project fetch <name> --key <key>"))
+    _print_kv_block("Jarvis2 project package created", rows)
+    return EXIT_OK
+
+
+def _run_project_encrypt(archive_path: str, *, key: str | None) -> int:
+    from jarvishep2.project_crypto import ProjectCryptoError, encrypt_file, resolve_fetch_key
+
+    resolved = resolve_fetch_key(key)
+    if not resolved:
+        print(
+            "[Jarvis2] encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    path = os.path.abspath(os.path.expanduser(archive_path))
+    if not os.path.isfile(path):
+        print(f"[Jarvis2] Archive not found: {path}", file=sys.stderr)
+        return EXIT_USAGE
+    if path.endswith(".jenc"):
+        print("[Jarvis2] File already looks encrypted (.jenc)", file=sys.stderr)
+        return EXIT_USAGE
+    out = path + ".jenc"
+    if path.endswith(".tar.gz"):
+        out = path[: -len(".tar.gz")] + ".tar.gz.jenc"
+    try:
+        encrypt_file(path, out, key=resolved)
+    except ProjectCryptoError as exc:
+        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
     _print_kv_block(
-        "Jarvis2 project package created",
+        "Jarvis2 project archive encrypted",
         [
-            ("Project root", report.project_root),
-            ("Archive", report.archive_path),
-            ("Mode", report.profile),
-            ("Packed files", report.included_files),
-            ("Skipped files", report.excluded_files),
-            ("Payload size", _human_bytes(report.total_bytes)),
+            ("Input", path),
+            ("Encrypted", out),
+            ("Scheme", "openssl-aes-256-cbc"),
+            ("Users fetch with", "Jarvis2 project fetch NAME --key …"),
         ],
     )
     return EXIT_OK
@@ -564,20 +634,42 @@ def _looks_like_yaml_path(path: str | None) -> bool:
     return path.lower().endswith((".yaml", ".yml"))
 
 
-def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str, bool, bool] | int:
+def _parse_pack_arguments(
+    tokens: list[str],
+) -> tuple[str | None, str, bool, bool, bool, str | None] | int:
     path: str | None = None
     mode_flag: str | None = None
     manifest_only = False
-
-    for tok in tokens:
+    encrypt = False
+    key: str | None = None
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
         if tok in _HELP_FLAGS:
             print(
                 "usage: Jarvis2 project pack [path] [--share|--repro|--full] [--man]\n"
+                "       Jarvis2 project pack [path] --encrypt --key KEY\n"
                 "       Jarvis2 project pack <pack_manifest.yaml>\n"
             )
             return 0
         if tok == _PACK_MANIFEST_FLAG:
             manifest_only = True
+            i += 1
+            continue
+        if tok in _PACK_ENCRYPT_FLAGS:
+            encrypt = True
+            i += 1
+            continue
+        if tok in {"--key", "-k"}:
+            if i + 1 >= len(tokens):
+                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                return EXIT_USAGE
+            key = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--key="):
+            key = tok.split("=", 1)[1]
+            i += 1
             continue
         if tok in _PACK_MODE_FLAGS:
             if mode_flag is not None:
@@ -588,12 +680,14 @@ def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str, bool, boo
                 )
                 return EXIT_USAGE
             mode_flag = tok
+            i += 1
             continue
         if tok.startswith("-"):
             print(f"[Jarvis2] Unsupported option for project pack: {tok}", file=sys.stderr)
             return EXIT_USAGE
         if path is None:
             path = tok
+            i += 1
             continue
         print(f"[Jarvis2] Unexpected argument for project pack: {tok}", file=sys.stderr)
         return EXIT_USAGE
@@ -612,9 +706,54 @@ def _parse_pack_arguments(tokens: list[str]) -> tuple[str | None, str, bool, boo
             file=sys.stderr,
         )
         return EXIT_USAGE
+    if is_manifest_input and encrypt:
+        print(
+            "[Jarvis2] --encrypt is for packing a project path; "
+            "encrypt a finished archive with: Jarvis2 project encrypt FILE --key K",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
 
     profile = _PACK_MODE_FLAGS.get(mode_flag or "", "share")
-    return path, profile, manifest_only, is_manifest_input
+    return path, profile, manifest_only, is_manifest_input, encrypt, key
+
+
+def _parse_encrypt_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
+    if not tokens or (len(tokens) == 1 and tokens[0] in _HELP_FLAGS):
+        print("usage: Jarvis2 project encrypt <archive.tar.gz> --key KEY\n")
+        return 0 if tokens and tokens[0] in _HELP_FLAGS else EXIT_USAGE
+    path: str | None = None
+    key: str | None = None
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in {"--key", "-k"}:
+            if i + 1 >= len(tokens):
+                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                return EXIT_USAGE
+            key = tokens[i + 1]
+            i += 2
+            continue
+        if tok.startswith("--key="):
+            key = tok.split("=", 1)[1]
+            i += 1
+            continue
+        if tok.startswith("-"):
+            print(f"[Jarvis2] Unsupported option for project encrypt: {tok}", file=sys.stderr)
+            return EXIT_USAGE
+        if path is None:
+            path = tok
+            i += 1
+            continue
+        print(f"[Jarvis2] Unexpected argument: {tok}", file=sys.stderr)
+        return EXIT_USAGE
+    if not path:
+        print(
+            "[Jarvis2] Usage: Jarvis2 project encrypt <archive.tar.gz> --key KEY",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+    return path, key
 
 
 def dispatch_project(project_argv: list[str] | None = None) -> int:
@@ -644,12 +783,19 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
         parsed = _parse_pack_arguments(rest)
         if isinstance(parsed, int):
             return parsed
-        path, profile, manifest_only, is_manifest_input = parsed
+        path, profile, manifest_only, is_manifest_input, encrypt, key = parsed
         if manifest_only:
             return _run_project_pack_manifest(path, profile)
         if is_manifest_input:
             return _run_project_pack_from_manifest(str(path))
-        return _run_project_pack(path, profile)
+        return _run_project_pack(path, profile, encrypt=encrypt, key=key)
+
+    if command == "encrypt":
+        parsed = _parse_encrypt_arguments(rest)
+        if isinstance(parsed, int):
+            return parsed
+        archive, key = parsed
+        return _run_project_encrypt(archive, key=key)
 
     if command in {"browse", "list"}:
         if rest:

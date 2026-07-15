@@ -476,11 +476,12 @@ def fetch_official_project(
         if not resolve_fetch_key(key):
             hint = project.get("encryption_hint") or ""
             msg = (
-                f"Project '{project['name']}' is restricted and requires a fetch key. "
-                f"Pass --key or set {PROJECT_FETCH_KEY_ENV}."
+                f"Project '{project['name']}' is restricted. Fetch with:\n"
+                f"  Jarvis2 project fetch {project['name']} --key YOUR_KEY\n"
+                f"or set {PROJECT_FETCH_KEY_ENV}."
             )
             if hint:
-                msg += f" Hint: {hint}"
+                msg += f"\nKey hint: {hint}"
             raise OfficialProjectFetchError(msg)
 
     resolved_target = (

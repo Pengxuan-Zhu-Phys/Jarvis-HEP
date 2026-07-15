@@ -218,6 +218,34 @@ class OfficialLibraryTests(unittest.TestCase):
 
 
 class ProjectCryptoTests(unittest.TestCase):
+    def test_cli_encrypt_and_pack_encrypt(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("EncMe", cwd=tmp)
+            cwd = os.getcwd()
+            try:
+                os.chdir(tmp)
+                code = dispatch_project(
+                    ["pack", "EncMe", "--share", "--encrypt", "--key", "cli-secret"]
+                )
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(code, 0)
+            jencs = [
+                os.path.join(tmp, name)
+                for name in os.listdir(tmp)
+                if name.endswith(".jenc")
+            ]
+            self.assertTrue(jencs, "expected encrypted pack next to project parent")
+            self.assertTrue(is_openssl_encrypted_file(jencs[0]))
+
+            # encrypt subcommand on a plain file
+            plain = os.path.join(tmp, "manual.bin")
+            with open(plain, "wb") as handle:
+                handle.write(b"payload-for-encrypt-cmd")
+            code = dispatch_project(["encrypt", plain, "--key", "cli-secret"])
+            self.assertEqual(code, 0)
+            self.assertTrue(os.path.isfile(plain + ".jenc"))
+
     def test_openssl_encrypt_decrypt_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             plain = os.path.join(tmp, "payload.tar.gz")

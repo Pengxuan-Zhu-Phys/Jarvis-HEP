@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
-"""OpenSSL-compatible AES-256-CBC (PBKDF2) helpers for restricted project packs.
+"""Crypto helpers for restricted project packs (used only via Jarvis2 project CLI).
 
-Scheme id: ``openssl-aes-256-cbc`` — same on-disk format as::
+End users should **not** run openssl by hand. Supported UX:
 
-    openssl enc -aes-256-cbc -pbkdf2 -salt -in plain.tar.gz -out pack.jenc -pass pass:KEY
+- ``Jarvis2 project fetch NAME --key …``  (decrypt + unpack)
+- ``Jarvis2 project pack PATH --encrypt --key …``  (pack then encrypt)
+- ``Jarvis2 project encrypt FILE --key …``  (encrypt an existing tarball)
 
-Uses the system ``openssl`` binary so no extra PyPI crypto package is required.
+On-disk format matches OpenSSL ``enc -aes-256-cbc -pbkdf2 -salt`` so archives
+stay interoperable. Backend order: system ``openssl`` if present, else the
+optional ``cryptography`` package (same file format).
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import subprocess
 import tempfile
-from typing import BinaryIO
 
 # OpenSSL salted ciphertext magic (Salted__)
 OPENSSL_SALTED_MAGIC = b"Salted__"
 ENCRYPTION_SCHEME_OPENSSL = "openssl-aes-256-cbc"
 ENCRYPTION_SCHEME_NONE = "none"
 PROJECT_FETCH_KEY_ENV = "JARVIS_PROJECT_FETCH_KEY"
+# OpenSSL 1.1.1+ / 3.x default for ``enc -pbkdf2`` without -iter
+_OPENSSL_PBKDF2_ITERS = 10000
 
 
 class ProjectCryptoError(RuntimeError):
@@ -45,32 +51,22 @@ def is_openssl_encrypted_file(path: str) -> bool:
         return False
 
 
-def _require_openssl() -> str:
-    path = shutil.which("openssl")
-    if not path:
-        raise ProjectCryptoError(
-            "openssl is required to encrypt/decrypt restricted project archives; "
-            "install OpenSSL and ensure it is on PATH"
-        )
-    return path
+def _openssl_bin() -> str | None:
+    return shutil.which("openssl")
 
 
-def encrypt_file(
-    plain_path: str,
-    encrypted_path: str,
-    *,
-    key: str,
-) -> str:
-    """Encrypt ``plain_path`` → ``encrypted_path`` (OpenSSL salted AES-256-CBC)."""
-    passphrase = str(key or "").strip()
-    if not passphrase:
-        raise ProjectCryptoError("encryption key must not be empty")
-    openssl = _require_openssl()
-    plain = os.path.abspath(plain_path)
-    out = os.path.abspath(encrypted_path)
-    parent = os.path.dirname(out)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+def _crypto_backend_hint() -> str:
+    return (
+        "Restricted project crypto needs either `openssl` on PATH "
+        "(usual on macOS/Linux) or `pip install cryptography`. "
+        "You still only use: Jarvis2 project fetch|pack|encrypt — not raw openssl."
+    )
+
+
+def _encrypt_with_openssl(plain: str, out: str, passphrase: str) -> None:
+    openssl = _openssl_bin()
+    if not openssl:
+        raise ProjectCryptoError("openssl not found")
     try:
         subprocess.run(
             [
@@ -91,26 +87,13 @@ def encrypt_file(
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
-        raise ProjectCryptoError(f"openssl encrypt failed: {detail or exc}") from exc
-    return out
+        raise ProjectCryptoError(f"encrypt failed: {detail or exc}") from exc
 
 
-def decrypt_file(
-    encrypted_path: str,
-    plain_path: str,
-    *,
-    key: str,
-) -> str:
-    """Decrypt OpenSSL salted AES-256-CBC blob to ``plain_path``."""
-    passphrase = str(key or "").strip()
-    if not passphrase:
-        raise ProjectCryptoError("decryption key must not be empty")
-    openssl = _require_openssl()
-    enc = os.path.abspath(encrypted_path)
-    out = os.path.abspath(plain_path)
-    parent = os.path.dirname(out)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+def _decrypt_with_openssl(enc: str, out: str, passphrase: str) -> None:
+    openssl = _openssl_bin()
+    if not openssl:
+        raise ProjectCryptoError("openssl not found")
     try:
         subprocess.run(
             [
@@ -132,10 +115,143 @@ def decrypt_file(
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
         raise ProjectCryptoError(
-            "openssl decrypt failed (wrong key or corrupt archive)"
+            "decrypt failed (wrong key or corrupt archive)"
             + (f": {detail}" if detail else "")
         ) from exc
-    return out
+
+
+def _encrypt_with_cryptography(plain: str, out: str, passphrase: str) -> None:
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.primitives import hashes, padding
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    except ImportError as exc:
+        raise ProjectCryptoError("cryptography package not installed") from exc
+
+    salt = secrets.token_bytes(8)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=48,  # 32 key + 16 iv
+        salt=salt,
+        iterations=_OPENSSL_PBKDF2_ITERS,
+        backend=default_backend(),
+    )
+    key_iv = kdf.derive(passphrase.encode("utf-8"))
+    key, iv = key_iv[:32], key_iv[32:48]
+    with open(plain, "rb") as handle:
+        data = handle.read()
+    padder = padding.PKCS7(128).padder()
+    padded = padder.update(data) + padder.finalize()
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend()).encryptor()
+    ciphertext = encryptor.update(padded) + encryptor.finalize()
+    with open(out, "wb") as handle:
+        handle.write(OPENSSL_SALTED_MAGIC + salt + ciphertext)
+
+
+def _decrypt_with_cryptography(enc: str, out: str, passphrase: str) -> None:
+    try:
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+        from cryptography.hazmat.primitives import hashes, padding
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    except ImportError as exc:
+        raise ProjectCryptoError("cryptography package not installed") from exc
+
+    with open(enc, "rb") as handle:
+        blob = handle.read()
+    if len(blob) < 16 or blob[:8] != OPENSSL_SALTED_MAGIC:
+        raise ProjectCryptoError("not an OpenSSL salted encrypted archive")
+    salt = blob[8:16]
+    ciphertext = blob[16:]
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=48,
+        salt=salt,
+        iterations=_OPENSSL_PBKDF2_ITERS,
+        backend=default_backend(),
+    )
+    key_iv = kdf.derive(passphrase.encode("utf-8"))
+    key, iv = key_iv[:32], key_iv[32:48]
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend()).decryptor()
+    try:
+        padded = decryptor.update(ciphertext) + decryptor.finalize()
+        unpadder = padding.PKCS7(128).unpadder()
+        data = unpadder.update(padded) + unpadder.finalize()
+    except Exception as exc:
+        raise ProjectCryptoError("decrypt failed (wrong key or corrupt archive)") from exc
+    with open(out, "wb") as handle:
+        handle.write(data)
+
+
+def encrypt_file(
+    plain_path: str,
+    encrypted_path: str,
+    *,
+    key: str,
+) -> str:
+    """Encrypt ``plain_path`` → ``encrypted_path`` (OpenSSL salted AES-256-CBC)."""
+    passphrase = str(key or "").strip()
+    if not passphrase:
+        raise ProjectCryptoError("encryption key must not be empty")
+    plain = os.path.abspath(plain_path)
+    out = os.path.abspath(encrypted_path)
+    parent = os.path.dirname(out)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    errors: list[str] = []
+    if _openssl_bin():
+        try:
+            _encrypt_with_openssl(plain, out, passphrase)
+            return out
+        except ProjectCryptoError as exc:
+            errors.append(str(exc))
+    try:
+        _encrypt_with_cryptography(plain, out, passphrase)
+        return out
+    except ProjectCryptoError as exc:
+        errors.append(str(exc))
+    raise ProjectCryptoError(
+        "Could not encrypt project archive. " + _crypto_backend_hint()
+        + (f" Details: {'; '.join(errors)}" if errors else "")
+    )
+
+
+def decrypt_file(
+    encrypted_path: str,
+    plain_path: str,
+    *,
+    key: str,
+) -> str:
+    """Decrypt OpenSSL salted AES-256-CBC blob to ``plain_path``."""
+    passphrase = str(key or "").strip()
+    if not passphrase:
+        raise ProjectCryptoError("decryption key must not be empty")
+    enc = os.path.abspath(encrypted_path)
+    out = os.path.abspath(plain_path)
+    parent = os.path.dirname(out)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    errors: list[str] = []
+    if _openssl_bin():
+        try:
+            _decrypt_with_openssl(enc, out, passphrase)
+            return out
+        except ProjectCryptoError as exc:
+            errors.append(str(exc))
+    try:
+        _decrypt_with_cryptography(enc, out, passphrase)
+        return out
+    except ProjectCryptoError as exc:
+        errors.append(str(exc))
+    raise ProjectCryptoError(
+        "Could not decrypt project archive (wrong key, or missing crypto backend). "
+        "Use: Jarvis2 project fetch NAME --key YOUR_KEY. "
+        + _crypto_backend_hint()
+        + (f" Details: {'; '.join(errors)}" if errors else "")
+    )
 
 
 def maybe_decrypt_archive(
@@ -179,8 +295,9 @@ def maybe_decrypt_archive(
     resolved = resolve_fetch_key(key)
     if not resolved:
         raise ProjectCryptoError(
-            "this project archive is encrypted; provide --key or set "
-            f"{PROJECT_FETCH_KEY_ENV}"
+            "this project is restricted. Fetch with a key:\n"
+            "  Jarvis2 project fetch NAME --key YOUR_KEY\n"
+            f"or set {PROJECT_FETCH_KEY_ENV}."
         )
 
     fd, plain_path = tempfile.mkstemp(suffix=".tar.gz", prefix="jarvis-decrypt-")
