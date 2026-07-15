@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Configurable file deletion helpers (WP-D3.3)."""
+"""HEP-owned file operations (delete + SAMPLE save/copy).
+
+Per DESIGN_PORTAL_IO_2.0: Portal owns format serialization only; **save/copy/delete
+policy lives in V2**. YAML ``save: true`` is unchanged — execution is here (and
+optionally on a dedicated FileOperation process — see ``file_operation_service``).
+"""
 
 from __future__ import annotations
 
 import os
 import shutil
 import subprocess
+from pathlib import Path
+from typing import Any
 
 DEFAULT_DELETE_METHOD = "shutil"
 _VALID_DELETE_METHODS = frozenset({"shutil", "rm"})
@@ -74,9 +81,107 @@ def _delete_with_shutil(target: str) -> None:
         os.remove(target)
 
 
+def sample_artifact_filename(source_path: str, *, module: str | None = None) -> str:
+    """V1 naming: ``basename`` or ``basename@Module``."""
+    base = os.path.basename(str(source_path))
+    mod = str(module or "").strip()
+    return f"{base}@{mod}" if mod else base
+
+
+def save_io_copy(
+    source_path: str,
+    sample_save_dir: str,
+    *,
+    module: str | None = None,
+    save: bool = False,
+    as_temp: bool = False,
+    content: str | bytes | None = None,
+) -> str | None:
+    """Copy a calculator IO file into SAMPLE (V1 ``save`` / ``.temp`` policy).
+
+    Parameters
+    ----------
+    source_path:
+        Runtime file just written/read by Portal.
+    sample_save_dir:
+        ``SAMPLE/<bucket>/<uuid>`` (or equivalent).
+    save:
+        YAML ``save: true`` — land under sample_save_dir.
+    as_temp:
+        V1 output default: when not ``save``, still copy under ``.temp/``.
+    content:
+        Optional pre-read text/bytes; if None, read from ``source_path``.
+
+    Returns
+    -------
+    Absolute path of the SAMPLE copy, or None if neither save nor as_temp.
+    """
+    do_save = bool(save)
+    do_temp = bool(as_temp) and not do_save
+    if not do_save and not do_temp:
+        return None
+    root = str(sample_save_dir or "").strip()
+    if not root:
+        return None
+
+    base_dir = Path(root)
+    if do_temp:
+        base_dir = base_dir / ".temp"
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = sample_artifact_filename(source_path, module=module)
+    target = base_dir / filename
+    src = os.path.abspath(str(source_path))
+
+    if content is not None:
+        if isinstance(content, bytes):
+            target.write_bytes(content)
+        else:
+            target.write_text(str(content), encoding="utf-8")
+    else:
+        if not os.path.isfile(src):
+            return None
+        shutil.copy2(src, target)
+    return str(target.resolve())
+
+
+def apply_io_save_policy(
+    *,
+    source_path: str,
+    sample_save_dir: str | None,
+    module: str | None,
+    spec: dict[str, Any],
+    direction: str,
+    content: str | bytes | None = None,
+) -> str | None:
+    """Apply YAML ``save`` policy after Portal format R/W.
+
+    - input: copy only when ``save: true``
+    - output: copy when ``save: true`` else under ``.temp`` (V1)
+    """
+    save = bool(spec.get("save", False))
+    direction_l = str(direction or "").strip().lower()
+    as_temp = direction_l == "output" and not save
+    if not save and not as_temp:
+        return None
+    if not sample_save_dir:
+        return None
+    return save_io_copy(
+        source_path,
+        str(sample_save_dir),
+        module=module,
+        save=save,
+        as_temp=as_temp,
+        content=content,
+    )
+
+
 __all__ = [
     "DEFAULT_DELETE_METHOD",
+    "apply_io_save_policy",
     "delete_path",
     "delete_paths",
     "normalize_delete_method",
+    "sample_artifact_filename",
+    "save_io_copy",
 ]

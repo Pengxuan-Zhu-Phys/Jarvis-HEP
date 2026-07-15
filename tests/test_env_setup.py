@@ -191,6 +191,7 @@ class WorkerEnvSetupTests(unittest.TestCase):
             return original(scripts, base_env=base_env)
 
         worker_config = {
+            "file_operation_mode": "inline",
             "calculator_modules": [
                 {
                     "name": "EnvCalc",
@@ -217,6 +218,9 @@ class WorkerEnvSetupTests(unittest.TestCase):
                     "layer-concurrent",
                 )
             finally:
+                if worker._file_ops is not None:
+                    worker._file_ops.shutdown()
+                    worker._file_ops = None
                 if worker._scheduler is not None:
                     worker._scheduler.shutdown(wait=True)
 
@@ -230,6 +234,7 @@ class WorkerEnvSetupTests(unittest.TestCase):
                     dst.write(src.read())
 
             worker_config = {
+                "file_operation_mode": "inline",
                 "command_parser": {
                     "project_root": tmpdir,
                     "scan_name": "default",
@@ -260,6 +265,9 @@ class WorkerEnvSetupTests(unittest.TestCase):
                     "layer-concurrent",
                 )
             finally:
+                if worker._file_ops is not None:
+                    worker._file_ops.shutdown()
+                    worker._file_ops = None
                 if worker._scheduler is not None:
                     worker._scheduler.shutdown(wait=True)
 

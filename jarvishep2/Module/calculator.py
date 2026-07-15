@@ -13,6 +13,7 @@ from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.expression import ExpressionContext
 from jarvishep2.io_portal import (
+    apply_hep_io_save,
     build_io_context,
     evaluate_io_expression,
     read_io_output_sync,
@@ -53,6 +54,7 @@ class CalculatorModule:
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
         self._expression_context: ExpressionContext | None = None
+        self._file_ops: Any | None = None
         self._preparer = RuntimePreparer(self.spec)
 
     @staticmethod
@@ -79,6 +81,10 @@ class CalculatorModule:
 
     def attach_expression_context(self, context: ExpressionContext | None) -> None:
         self._expression_context = context
+
+    def attach_file_ops(self, file_ops: Any | None) -> None:
+        """HEP FileOperation service (save/copy/delete) — not Portal."""
+        self._file_ops = file_ops
 
     def _evaluate_io_expression(self, expression: str, values: Mapping[str, Any]) -> Any:
         return evaluate_io_expression(
@@ -273,11 +279,7 @@ class CalculatorModule:
         return f"Portal:{raw}"
 
     def _ensure_sample_dir_for_io(self) -> None:
-        """Materialize SAMPLE/<uuid> when any IO needs a save/temp copy (V1 parity).
-
-        Portal ``save: true`` writes into ``context.sample_save_dir``; without it
-        copies are silently skipped. Force materialization when needed.
-        """
+        """Materialize SAMPLE/<uuid> when FileOperation needs a save/temp copy."""
         info = self.sample_info if isinstance(self.sample_info, dict) else {}
         if info.get("save_dir"):
             return
@@ -297,13 +299,12 @@ class CalculatorModule:
         self.sample_info = info
 
     def load_input(self, input_data: Mapping[str, Any]) -> dict[str, Any]:
-        """Write calculator inputs via Portal; return observables for the Sample.
+        """Write calculator inputs via Portal; SAMPLE save via HEP FileOperation.
 
         Merge policy (HEP-owned):
         1. Start with the sample input params/observables (authoritative for their names).
-        2. Overlay Portal write observables only for **new** keys (expression dumps,
-           save paths, etc.). Never clobber an existing param name with a Dump value
-           (e.g. Dump ``x = x * Pi`` must not replace physical ``x``).
+        2. Overlay Portal write observables only for **new** keys (expression dumps).
+        3. Apply ``save: true`` copy through FileOperation (not Portal).
         """
         merged: dict[str, Any] = {key: input_data.get(key) for key in input_data}
         if not self.input_specs:
@@ -318,12 +319,24 @@ class CalculatorModule:
                 logger.debug(f"Adding the file {name} as '{self._portal_type_label(spec)}' type")
             path = self._resolve_runtime_tokens(str(spec.get("path", "")), stage="execution", field="path")
             portal_obs = write_io_input_sync(spec, input_data, context=context, path=path)
-            if not isinstance(portal_obs, dict):
-                continue
-            for key, value in portal_obs.items():
-                if key in protected:
-                    continue
-                merged[key] = value
+            if isinstance(portal_obs, dict):
+                for key, value in portal_obs.items():
+                    if key in protected:
+                        continue
+                    merged[key] = value
+            # HEP FileOperation: SAMPLE copy when save:true
+            saved = apply_hep_io_save(
+                source_path=path,
+                sample_info=self.sample_info,
+                module=self.name,
+                spec=spec,
+                direction="input",
+                file_ops=self._file_ops,
+            )
+            if saved and "name" in spec and bool(spec.get("save", False)):
+                name = str(spec["name"])
+                if name not in protected:
+                    merged[name] = saved
         return merged
 
     def read_output(self) -> dict[str, Any]:
@@ -341,8 +354,18 @@ class CalculatorModule:
             portal_obs = read_io_output_sync(spec, context=context, path=path)
             if isinstance(portal_obs, dict):
                 merged.update(portal_obs)
+            # HEP FileOperation: save:true → SAMPLE/; else → SAMPLE/.temp/ (V1)
+            saved = apply_hep_io_save(
+                source_path=path,
+                sample_info=self.sample_info,
+                module=self.name,
+                spec=spec,
+                direction="output",
+                file_ops=self._file_ops,
+            )
+            if saved and "name" in spec:
+                merged[str(spec["name"])] = saved
         return merged
-
     def execute_commands(self, *, deadline: float | None = None) -> None:
         for command in self.commands_template:
             command_index = self._next_command_index()

@@ -165,12 +165,19 @@ def build_io_context(
     evaluate_expression=None,
     runtime_values: Mapping[str, Any] | None = None,
     logger: Any = None,
+    for_portal: bool = True,
 ):
-    """Construct a Portal ``IOContext`` from Worker/sample fields."""
+    """Construct a Portal ``IOContext`` from Worker/sample fields.
+
+    When ``for_portal`` is True (default), ``sample_save_dir`` is **not** passed
+    to Portal — SAMPLE save/copy is HEP ``FileOperation`` owned (DESIGN_PORTAL_IO).
+    """
     IOContext, _, _ = _import_portal()
     info = dict(sample_info or {})
     sample_uuid = info.get("uuid")
-    sample_save_dir = info.get("save_dir")
+    # Keep local knowledge of save_dir for HEP file ops; do not hand it to Portal
+    # so Portal adapters never perform SAMPLE copies.
+    sample_save_dir = None if for_portal else info.get("save_dir")
     if sample_save_dir is not None:
         sample_save_dir = str(sample_save_dir)
     if logger is None and "logger" in info:
@@ -191,6 +198,37 @@ def build_io_context(
         module=module,
         evaluate_expression=evaluator,
         runtime_values=dict(runtime_values or {}),
+    )
+
+
+def apply_hep_io_save(
+    *,
+    source_path: str,
+    sample_info: Mapping[str, Any] | None,
+    module: str | None,
+    spec: Mapping[str, Any],
+    direction: str,
+    file_ops: Any | None = None,
+) -> str | None:
+    """Run SAMPLE save/.temp policy via HEP FileOperation (not Portal)."""
+    info = dict(sample_info or {})
+    sample_save_dir = info.get("save_dir")
+    if file_ops is not None and hasattr(file_ops, "save_io"):
+        return file_ops.save_io(
+            source_path=source_path,
+            sample_save_dir=str(sample_save_dir) if sample_save_dir else None,
+            module=module,
+            spec=dict(spec),
+            direction=direction,
+        )
+    from jarvishep2.file_ops import apply_io_save_policy
+
+    return apply_io_save_policy(
+        source_path=source_path,
+        sample_save_dir=str(sample_save_dir) if sample_save_dir else None,
+        module=module,
+        spec=dict(spec),
+        direction=direction,
     )
 
 
@@ -286,6 +324,7 @@ def read_io_output_sync(
 
 __all__ = [
     "UnsupportedIOTypeError",
+    "apply_hep_io_save",
     "available_io_formats",
     "build_io_context",
     "evaluate_io_expression",

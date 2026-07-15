@@ -17,7 +17,8 @@ from jarvishep2.command_parser import CommandParser
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
 from jarvishep2.expression import ExpressionContext
 from jarvishep2.archive_handoff import list_product_names, resolve_staging_dir, stage_sample_dir
-from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
+from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
+from jarvishep2.file_operation_service import FileOperationService
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -63,6 +64,7 @@ class Worker(Process):
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
         self._delete_method = DEFAULT_DELETE_METHOD
+        self._file_ops: FileOperationService | None = None
         self._staging_dir = ""
         self._handoff_to_staging = False
         self._sample_buckets_enabled = True
@@ -108,6 +110,18 @@ class Worker(Process):
         self._observables_lock = threading.Lock()
         self._delete_method = normalize_delete_method(
             self.worker_config.get("delete_method", DEFAULT_DELETE_METHOD)
+        )
+        # Dedicated FileOperation process (save/copy/delete). Inline mode for tests.
+        file_ops_mode = str(
+            self.worker_config.get("file_operation_mode")
+            or self.worker_config.get("file_ops_mode")
+            or "process"
+        ).strip().lower()
+        if file_ops_mode not in {"process", "inline"}:
+            file_ops_mode = "process"
+        self._file_ops = FileOperationService.start(
+            mode=file_ops_mode,
+            delete_method=self._delete_method,
         )
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
@@ -171,6 +185,7 @@ class Worker(Process):
             module.attach_scheduler(self._scheduler)
             module.attach_command_parser(self._command_parser)
             module.attach_expression_context(expression_context)
+            module.attach_file_ops(self._file_ops)
             sources = resolve_env_setup_sources(
                 module.env_setup,
                 command_parser=self._command_parser,
@@ -389,8 +404,14 @@ class Worker(Process):
 
     def _cleanup_transient_paths(self, sample: Sample) -> None:
         paths = self._collect_cleanup_paths(sample)
-        if paths:
-            delete_paths(paths, method=self._delete_method, missing_ok=True)
+        if not paths:
+            return
+        if self._file_ops is not None:
+            self._file_ops.delete(paths, missing_ok=True)
+            return
+        from jarvishep2.file_ops import delete_paths
+
+        delete_paths(paths, method=self._delete_method, missing_ok=True)
 
     def _handoff_sample_to_staging(self, sample: Sample) -> None:
         """Fast metadata-only move of materialized work dirs into staging (WP-D4.1)."""
@@ -584,6 +605,9 @@ class Worker(Process):
             if self._scheduler is not None:
                 self._scheduler.shutdown(wait=True)
                 self._scheduler = None
+            if self._file_ops is not None:
+                self._file_ops.shutdown()
+                self._file_ops = None
             if self._redis is not None:
                 self._redis.close()
                 self._redis = None

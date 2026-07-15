@@ -149,6 +149,8 @@ class WorkerCleanupTests(unittest.TestCase):
                 {"host": "127.0.0.1", "port": 6379, "db": 0},
                 {
                     "delete_method": "shutil",
+                    # Unit tests stay in-process; production Worker uses process mode.
+                    "file_operation_mode": "inline",
                     "sample_config": {
                         "task_result_dir": tmpdir,
                         "sample_dirs": os.path.join(tmpdir, "SAMPLE"),
@@ -176,6 +178,9 @@ class WorkerCleanupTests(unittest.TestCase):
                 )
                 self.assertFalse(os.path.lexists(staging))
             finally:
+                if worker._file_ops is not None:
+                    worker._file_ops.shutdown()
+                    worker._file_ops = None
                 if worker._scheduler is not None:
                     worker._scheduler.shutdown(wait=True)
 
