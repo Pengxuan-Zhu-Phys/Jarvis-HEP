@@ -84,6 +84,7 @@ class WorkflowExecutionPlanTests(unittest.TestCase):
         self.assertEqual(get_spawn_context().get_start_method(), "spawn")
 
     def test_flowchart_export_from_execution_plan(self) -> None:
+        """D12.3: plan-driven export stays jarvisplot.scene/v1 (no longer skipped)."""
         from jarvishep2.flowchart import build_flowchart_scene
 
         plan = build_execution_plan(
@@ -99,6 +100,9 @@ class WorkflowExecutionPlanTests(unittest.TestCase):
         self.assertIn("EggBox", ids)
         self.assertIn("Prep", ids)
         self.assertIn("LogLikelihood", ids)
+        # Layer indices are 1-based like V1 (Parameters = layer_1).
+        param = next(n for n in scene["nodes"] if n["id"] == "Parameters")
+        self.assertEqual(param["layer"], "layer_1")
         self.assertTrue(scene["edges"])
 
 

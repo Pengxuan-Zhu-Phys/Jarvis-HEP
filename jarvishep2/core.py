@@ -296,7 +296,11 @@ class Jarvis2Core:
         return len(samples)
 
     def _export_workflow_flowchart(self) -> None:
-        """Write flowchart.json (+ optional PNG) under images/ (D11.5)."""
+        """Write flowchart.json (+ optional PNG) under images/ (D12.3 / V1 paths).
+
+        Semantic graph is V1-compatible ``jarvisplot.scene/v1`` so stock JarvisPLOT
+        can render with no V2 adapter. ``--skip-draw-flowchart`` skips both JSON and PNG.
+        """
         if bool(self.config.get("skip_draw_flowchart")) or bool(
             self.info.get("skip_draw_flowchart")
         ):
@@ -307,26 +311,39 @@ class Jarvis2Core:
                 export_flowchart_semantics,
                 render_flowchart_png,
             )
-        except Exception:
+        except Exception as exc:
+            self._logger.warning("flowchart module unavailable -> %s", exc)
             return
         task_result_dir = str(
             self.info.get("task_result_dir") or self.config.get("task_result_dir") or os.getcwd()
         )
-        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        # V1 layout: <scan_root>/images/flowchart.{json,png}
         images_dir = os.path.join(task_result_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
         json_path = os.path.join(images_dir, "flowchart.json")
         png_path = os.path.join(images_dir, "flowchart.png")
         try:
-            scene = build_flowchart_scene_from_config(self.config)
+            # Stamp project/scan names into config for scene metadata.
+            cfg = dict(self.config)
+            if not cfg.get("project_name") and self.info.get("project_name"):
+                cfg["project_name"] = self.info.get("project_name")
+            if not cfg.get("scan_name") and self.info.get("scan_name"):
+                cfg["scan_name"] = self.info.get("scan_name")
+            scene = build_flowchart_scene_from_config(cfg)
             export_flowchart_semantics(scene, json_path)
             self.info["flowchart_semantic_path"] = json_path
+            self._logger.info(
+                "Export workflow semantic graph into %s", json_path
+            )
             rendered = render_flowchart_png(scene, png_path)
             if rendered:
                 self.info["flowchart_path"] = rendered
                 self._logger.info("workflow flowchart rendered → %s", rendered)
             else:
-                self._logger.info("workflow flowchart scene written → %s", json_path)
+                self._logger.info(
+                    "JarvisPLOT not installed; skipped flowchart.png "
+                    "(scene JSON still written)"
+                )
         except Exception as exc:
             self._logger.warning("workflow flowchart export failed -> %s", exc)
 

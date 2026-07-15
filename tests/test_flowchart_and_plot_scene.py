@@ -53,6 +53,142 @@ class FlowchartExportTests(unittest.TestCase):
             payload = json.loads(open(path, encoding="utf-8").read())
             self.assertEqual(payload["scene_type"], "flowchart")
 
+    def test_eggbox_calculator_io_ports_match_v1_shape(self) -> None:
+        """D12.3: Calculator Dump free-symbols + JSON file ports (V1 Eggbox shape)."""
+        config = {
+            "Scan": {"name": "EggBox_Bridson_V2"},
+            "Sampling": {
+                "Method": "Bridson",
+                "Variables": [
+                    {"name": "x", "distribution": {"type": "Flat"}},
+                    {"name": "y", "distribution": {"type": "Flat"}},
+                ],
+                "LogLikelihood": [
+                    {"name": "LogL_Z", "expression": "LogGauss(z, 100, 10)"},
+                ],
+            },
+            "Calculators": {
+                "Modules": [
+                    {
+                        "name": "EggBox",
+                        "required_modules": [],
+                        "execution": {
+                            "input": [
+                                {
+                                    "name": "inpjson",
+                                    "path": "input.json",
+                                    "type": "JSON",
+                                    "actions": [
+                                        {
+                                            "type": "Dump",
+                                            "variables": [
+                                                {"name": "xx", "expression": "x * Pi"},
+                                                {"name": "yy", "expression": "y * Pi"},
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                            "output": [
+                                {
+                                    "name": "oupjson",
+                                    "path": "output.json",
+                                    "type": "JSON",
+                                    "variables": [{"name": "z"}],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        }
+        scene = build_flowchart_scene_from_config(config)
+        ids = {node["id"]: node for node in scene["nodes"]}
+        self.assertIn("Parameters", ids)
+        self.assertIn("var::x", ids)
+        self.assertIn("var::y", ids)
+        self.assertIn("EggBox", ids)
+        self.assertIn("file::EggBox::input::inpjson", ids)
+        self.assertIn("file::EggBox::output::oupjson", ids)
+        self.assertIn("var::z", ids)
+        self.assertIn("LogLikelihood", ids)
+
+        egg = ids["EggBox"]
+        self.assertEqual(egg["kind"], "module")
+        self.assertEqual(egg["role"], "calculator")
+        self.assertEqual(egg["layer"], "layer_2")
+        self.assertEqual(ids["Parameters"]["layer"], "layer_1")
+
+        edge_pairs = {
+            (
+                e["source"]["node"],
+                e["target"]["node"],
+                e["role"],
+            )
+            for e in scene["edges"]
+        }
+        self.assertIn(("Parameters", "var::x", "parameterflow"), edge_pairs)
+        self.assertIn(("var::x", "file::EggBox::input::inpjson", "fileflow"), edge_pairs)
+        self.assertIn(("var::y", "file::EggBox::input::inpjson", "fileflow"), edge_pairs)
+        self.assertIn(
+            ("file::EggBox::input::inpjson", "EggBox", "fileflow"), edge_pairs
+        )
+        self.assertIn(
+            ("file::EggBox::output::oupjson", "var::z", "fileflow"), edge_pairs
+        )
+
+    def test_jarvisplot_renders_exported_scene_without_v2_adapter(self) -> None:
+        """Stock jarvisplot.render_flowchart must accept V2-exported scenes."""
+        try:
+            from jarvisplot import render_flowchart
+        except ImportError:
+            self.skipTest("JarvisPLOT not installed")
+
+        config = {
+            "Scan": {"name": "render-demo"},
+            "Sampling": {
+                "Variables": [{"name": "x"}, {"name": "y"}],
+            },
+            "Calculators": {
+                "Modules": [
+                    {
+                        "name": "EggBox",
+                        "execution": {
+                            "input": [
+                                {
+                                    "name": "inpjson",
+                                    "path": "in.json",
+                                    "type": "JSON",
+                                    "actions": [
+                                        {
+                                            "type": "Dump",
+                                            "variables": [
+                                                {"name": "xx", "expression": "x"},
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                            "output": [
+                                {
+                                    "name": "oupjson",
+                                    "path": "out.json",
+                                    "type": "JSON",
+                                    "variables": [{"name": "z"}],
+                                }
+                            ],
+                        },
+                    }
+                ]
+            },
+        }
+        scene = build_flowchart_scene_from_config(config, include_likelihood=False)
+        with tempfile.TemporaryDirectory() as tmp:
+            png = os.path.join(tmp, "flowchart.png")
+            rendered = render_flowchart(scene, output_path=png)
+            self.assertTrue(os.path.isfile(str(rendered)))
+            self.assertGreater(os.path.getsize(str(rendered)), 1000)
+
 
 class PlotSceneEmitTests(unittest.TestCase):
     def test_levelset_overlay_scene(self) -> None:
