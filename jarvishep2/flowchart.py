@@ -124,11 +124,24 @@ def _expression_free_names(expression: str) -> list[str]:
 
 
 def _input_source_names(spec: Any) -> list[str]:
+    """Names of upstream variables that feed this input port (V1 parity).
+
+    For Operas/calculator ports like ``{name: x, expression: "xx * Pi"}``, the
+    **port** is ``x`` but the **sources** are free symbols of the expression
+    (``xx``), not the port name. Falling back to ``name`` wrongly invents
+    ``var::x`` and disconnects ``var::xx`` (see EggBox_Bridson_05 vs V2).
+    """
     source_names: list[str] = []
     if isinstance(spec, str):
         return [str(spec)]
     if not isinstance(spec, Mapping):
         return [str(spec)]
+
+    # Top-level expression on the port itself (typical Operas input).
+    if "expression" in spec and str(spec.get("expression") or "").strip():
+        free = _expression_free_names(str(spec["expression"]))
+        if free:
+            source_names.extend(free)
 
     variables = spec.get("variables")
     if isinstance(variables, Mapping):
@@ -180,7 +193,9 @@ def _input_source_names(spec: Any) -> list[str]:
         source_names.extend(str(val) for val in spec.get("_inc") or [])
     if not source_names and spec.get("entry"):
         source_names.append(str(spec["entry"]))
-    if not source_names and spec.get("name"):
+    # Only if there is still no expression-derived source: use the port name
+    # (plain passthrough ports without expression).
+    if not source_names and spec.get("name") and "expression" not in spec:
         source_names.append(str(spec["name"]))
     return _unique_names(source_names)
 

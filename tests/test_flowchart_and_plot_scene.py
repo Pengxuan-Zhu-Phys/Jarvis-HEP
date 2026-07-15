@@ -139,6 +139,61 @@ class FlowchartExportTests(unittest.TestCase):
             ("file::EggBox::output::oupjson", "var::z", "fileflow"), edge_pairs
         )
 
+    def test_operas_expression_sources_match_v1_eggbox_05(self) -> None:
+        """Operas ports {name:x, expression:xx*Pi} must edge from var::xx, not invent var::x."""
+        config = {
+            "Scan": {"name": "Example_Bridson_Operas"},
+            "Sampling": {
+                "Method": "Bridson",
+                "Variables": [
+                    {"name": "xx", "distribution": {"type": "Log"}},
+                    {"name": "yy", "distribution": {"type": "Flat"}},
+                ],
+            },
+            "Operas": {
+                "Modules": [
+                    {
+                        "name": "EggBox",
+                        "operator": "helper.eggbox2d",
+                        "call_mode": "call",
+                        "required_modules": [],
+                        "input": [
+                            {"name": "x", "expression": "xx * Pi"},
+                            {"name": "y", "expression": "yy * Pi"},
+                        ],
+                        "output": [{"name": "z", "entry": "z"}],
+                    }
+                ]
+            },
+        }
+        scene = build_flowchart_scene_from_config(config)
+        ids = {n["id"] for n in scene["nodes"]}
+        self.assertEqual(
+            ids,
+            {
+                "Parameters",
+                "var::xx",
+                "var::yy",
+                "EggBox",
+                "var::z",
+            },
+        )
+        # Must not invent port-name observables.
+        self.assertNotIn("var::x", ids)
+        self.assertNotIn("var::y", ids)
+
+        edge_pairs = {
+            (e["source"]["node"], e["target"]["node"], e["role"]) for e in scene["edges"]
+        }
+        self.assertIn(("Parameters", "var::xx", "parameterflow"), edge_pairs)
+        self.assertIn(("Parameters", "var::yy", "parameterflow"), edge_pairs)
+        self.assertIn(("var::xx", "EggBox", "dataflow"), edge_pairs)
+        self.assertIn(("var::yy", "EggBox", "dataflow"), edge_pairs)
+        self.assertIn(("EggBox", "var::z", "dataflow"), edge_pairs)
+        # Port ids stay x/y on the module.
+        egg = next(n for n in scene["nodes"] if n["id"] == "EggBox")
+        self.assertEqual([p["id"] for p in egg["in_ports"]], ["x", "y"])
+
     def test_jarvisplot_renders_exported_scene_without_v2_adapter(self) -> None:
         """Stock jarvisplot.render_flowchart must accept V2-exported scenes."""
         try:
