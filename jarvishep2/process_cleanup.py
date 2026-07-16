@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Detect / terminate leftover Jarvis OS processes (orphan scan cleanup).
+"""List / terminate running Jarvis OS processes (``Jarvis2 ps`` / ``Jarvis2 kill``).
 
 Process titles are set via ``setproctitle`` (see ``proc_title.py``)::
 
@@ -8,12 +8,6 @@ Process titles are set via ``setproctitle`` (see ``proc_title.py``)::
     Jarvis2-Archiver:<scan>
     Jarvis2-FileOperation
     Jarvis-Redis:<scan>
-
-CLI::
-
-    Jarvis2 ps              # list running Jarvis processes
-    Jarvis2 kill            # kill them after interactive confirmation
-    Jarvis2 kill --yes      # non-interactive kill
 """
 
 from __future__ import annotations
@@ -260,16 +254,8 @@ def kill_running_jarvis_cli(
     return 0
 
 
-def cleanup_jarvis_processes(*, kill: bool = False, force: bool = True) -> int:
-    """Backward-compatible helper (prefer ``ps`` / ``kill`` CLI)."""
-    if kill:
-        return kill_running_jarvis_cli(yes=True, force=force)
-    return list_running_jarvis_cli()
-
-
 __all__ = [
     "JarvisProcess",
-    "cleanup_jarvis_processes",
     "confirm_kill",
     "format_process_table",
     "kill_jarvis_processes",
