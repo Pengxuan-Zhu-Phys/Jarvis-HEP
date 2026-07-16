@@ -535,6 +535,15 @@ class ArchiverProcess(Process):
         except Exception:
             return 0
 
+    def persistence_state(self) -> dict[str, Any]:
+        """Control-side checkpoint stub (child owns the real ack set).
+
+        Process-mode Archiver does not share acked_uuids with the parent; resume
+        re-proposes unfinished sampler work. Return an empty persistence bag so
+        ``save_runtime_checkpoint`` / tests share the SimpleArchiver API.
+        """
+        return {"acked_uuids": [], "records_written": int(self.drain())}
+
     def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> None:
         """Stop the child Archiver.
 

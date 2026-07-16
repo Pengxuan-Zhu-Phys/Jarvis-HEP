@@ -518,6 +518,9 @@ class Jarvis2Core:
                 )
             except Exception:
                 pass
+            # D8.3 human path: force a resume checkpoint *before* teardown
+            # (agent run_state / stop-ack remain parked with D8).
+            self._save_interrupt_checkpoint()
             outcome = self._capture_run_outcome(
                 submitted=submitted,
                 interrupted=True,
@@ -672,6 +675,31 @@ class Jarvis2Core:
         path = self.checkpoint_file()
         save_checkpoint(path, payload)
         return path
+
+    def _save_interrupt_checkpoint(self) -> str | None:
+        """Force a resume checkpoint on SIGINT/SIGTERM (D8.3 human remainder).
+
+        Agent-facing pieces (run_state interrupted, stop-ack) stay parked with D8.
+        Failures are logged and never re-raised — teardown must still run.
+        """
+        try:
+            path = self.save_runtime_checkpoint(reason="interrupt")
+            if path:
+                try:
+                    self._logger.warning(
+                        "interrupt checkpoint written → %s "
+                        "(resume: Jarvis2 run <task.yaml> --resume)",
+                        path,
+                    )
+                except Exception:
+                    pass
+            return path
+        except Exception as exc:
+            try:
+                self._logger.warning("interrupt checkpoint failed → %s", exc)
+            except Exception:
+                pass
+            return None
 
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         # EnvReqs.V2.redis (optional) overlays INTERNAL_REDIS_CONFIG defaults.
