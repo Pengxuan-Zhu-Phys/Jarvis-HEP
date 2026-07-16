@@ -704,7 +704,12 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         return not self._pending_uuids
 
     def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        """Control-process entry: generation loop with feedback barriers."""
+        """Control-process entry: generation loop with feedback barriers.
+
+        Resume-safe (D10.4 §7): if ``_points`` is already populated (checkpoint
+        import), do **not** re-run generation-0. Finish any in-flight
+        ``_pending_uuids`` first, then continue refine from the restored barrier.
+        """
         if self.redis is None:
             raise RuntimeError("AdaptiveLevelSet.run_adaptive requires redis")
         if self._seed_seq is None:
@@ -714,14 +719,21 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         if self._target_fn is None:
             self._compile_target()
 
-        total_submitted = 0
-        # generation 0
-        gen0 = self._generation_0_points()
-        self._generation = 0
-        total_submitted += self._submit_generation(gen0, generation=0)
-        self._wait_generation(timeout=timeout)
+        # Already finished in a prior process (checkpointed after converge).
+        if self._converged and self._levelset is not None and not self._pending_uuids:
+            return 0
 
-        for gen in range(1, self._max_generations + 1):
+        total_submitted = 0
+        if not self._points:
+            gen0 = self._generation_0_points()
+            self._generation = 0
+            total_submitted += self._submit_generation(gen0, generation=0)
+            self._wait_generation(timeout=timeout)
+        elif self._pending_uuids:
+            # Mid-generation resume: repropose_unfinished already re-queued tasks.
+            self._wait_generation(timeout=timeout)
+
+        while True:
             crossing = self._crossing_edges()
             if not crossing:
                 self._stop_reason = "level-set not present in domain"
@@ -737,21 +749,21 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
                 self._stop_reason = "max_points"
                 self.finalize(crossing)
                 return total_submitted
-            radius = self._initial_radius * (self._refinement_factor ** gen)
-            new_us = self._refine(crossing, generation=gen, radius=radius)
+            next_gen = self._generation + 1
+            if next_gen > self._max_generations:
+                self._stop_reason = "max_generations"
+                self._converged = self._check_converged(crossing)
+                self.finalize(crossing)
+                return total_submitted
+            radius = self._initial_radius * (self._refinement_factor ** next_gen)
+            new_us = self._refine(crossing, generation=next_gen, radius=radius)
             if not new_us:
                 self._stop_reason = "no_refinement_candidates"
                 self.finalize(crossing)
                 return total_submitted
-            self._generation = gen
-            total_submitted += self._submit_generation(new_us, generation=gen)
+            self._generation = next_gen
+            total_submitted += self._submit_generation(new_us, generation=next_gen)
             self._wait_generation(timeout=timeout)
-
-        crossing = self._crossing_edges()
-        self._stop_reason = "max_generations"
-        self._converged = self._check_converged(crossing) if crossing else False
-        self.finalize(crossing)
-        return total_submitted
 
     def run_distributed(self) -> int:
         """Alias so generic drivers can call run_distributed when registered."""
