@@ -100,8 +100,22 @@ def build_worker_config(
     )
     sampling_method = str((cfg.get("Sampling") or {}).get("Method", "")).strip()
     publish_feedback = bool(extra_payload.pop("publish_feedback", False))
-    if sampling_method == "AdaptiveLevelSet":
-        publish_feedback = True
+    # Feedback channel for stateful / feedback-driven samplers (ALS, MCMC family).
+    if not publish_feedback and sampling_method:
+        try:
+            from jarvishep2.distributor import STATELESS_METHODS
+
+            if sampling_method not in STATELESS_METHODS:
+                publish_feedback = True
+        except Exception:
+            if sampling_method in (
+                "AdaptiveLevelSet",
+                "MCMC",
+                "AMMCMC",
+                "AM",
+                "DRAM",
+            ):
+                publish_feedback = True
 
     worker_config: dict[str, Any] = {
         "sample_config": sample_config,

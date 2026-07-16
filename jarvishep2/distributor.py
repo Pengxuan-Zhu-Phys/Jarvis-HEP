@@ -163,6 +163,30 @@ def _factory_adaptive_level_set() -> SamplingVirtial:
     return AdaptiveLevelSetSampler()
 
 
+def _factory_mcmc() -> SamplingVirtial:
+    from jarvishep2.Sampling.mcmc_sampler import create_mcmc
+
+    return create_mcmc()
+
+
+def _factory_ammcmc() -> SamplingVirtial:
+    from jarvishep2.Sampling.mcmc_sampler import create_ammcmc
+
+    return create_ammcmc()
+
+
+def _factory_am() -> SamplingVirtial:
+    from jarvishep2.Sampling.mcmc_sampler import create_am
+
+    return create_am()
+
+
+def _factory_dram() -> SamplingVirtial:
+    from jarvishep2.Sampling.mcmc_sampler import create_dram
+
+    return create_dram()
+
+
 def register_builtin_samplers(*, override: bool = True) -> None:
     """Install the built-in V2 sampler set."""
     Distributor.register(
@@ -184,6 +208,20 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         resume="implemented",
         override=override,
     )
+    # D13.2 — Metropolis family (feedback-driven).
+    for name, factory in (
+        ("MCMC", _factory_mcmc),
+        ("AMMCMC", _factory_ammcmc),
+        ("AM", _factory_am),
+        ("DRAM", _factory_dram),
+    ):
+        Distributor.register(
+            name,
+            factory,
+            stateless=False,
+            resume="implemented",
+            override=override,
+        )
 
 
 register_builtin_samplers()
