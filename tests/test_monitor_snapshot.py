@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WP-D5.1 op_count-gated monitor snapshot tests."""
+"""WP-D5.1 / D9.4 op_count-gated monitor snapshot tests (explicit TaskFactory)."""
 
 from __future__ import annotations
 
@@ -7,22 +7,26 @@ import time
 import unittest
 from typing import Any
 
-from jarvishep2.factory import TaskFactory
+from jarvishep2.factory import TaskFactory, _MonitorLoop, _Watchdog
 from jarvishep2.redis_queue import make_fakeredis_queue
 
 
 class MonitorSnapshotTests(unittest.TestCase):
     def setUp(self) -> None:
-        TaskFactory.reset_instance()
+        self.factory = TaskFactory()
 
     def tearDown(self) -> None:
-        TaskFactory.reset_instance()
+        self.factory.shutdown(wait=False)
+
+    def test_collaborators_are_composed(self) -> None:
+        self.assertIsInstance(self.factory._monitor, _MonitorLoop)
+        self.assertIsInstance(self.factory._watchdog, _Watchdog)
 
     def test_get_monitor_snapshot_does_not_touch_redis(self) -> None:
-        factory = TaskFactory.get_instance()
+        factory = self.factory
         queue = make_fakeredis_queue()
         factory.redis = queue
-        factory._snapshot = {
+        factory._monitor._snapshot = {
             "timestamp": time.time(),
             "workers": [],
             "workers_alive": 0,
@@ -47,12 +51,12 @@ class MonitorSnapshotTests(unittest.TestCase):
         self.assertEqual(snapshot["sample_stats"]["completed"], 2)
 
     def test_collect_latest_status_gates_hgetall_on_idle_ticks(self) -> None:
-        factory = TaskFactory.get_instance()
+        factory = self.factory
         queue = make_fakeredis_queue()
         factory.redis = queue
         assert queue.r is not None
 
-        factory._snapshot = factory._collect_latest_status()
+        factory._monitor._snapshot = factory._collect_latest_status()
         hgetall = queue.r.hgetall
         calls = {"count": 0}
 
@@ -65,11 +69,11 @@ class MonitorSnapshotTests(unittest.TestCase):
         self.assertEqual(calls["count"], 0)
 
     def test_collect_latest_status_refreshes_sample_stats_on_op_count_bump(self) -> None:
-        factory = TaskFactory.get_instance()
+        factory = self.factory
         queue = make_fakeredis_queue()
         factory.redis = queue
 
-        factory._snapshot = factory._collect_latest_status()
+        factory._monitor._snapshot = factory._collect_latest_status()
         queue.submit_result({"uuid": "sample-1", "status": "Completed"})
         updated = factory._collect_latest_status()
 
@@ -77,10 +81,10 @@ class MonitorSnapshotTests(unittest.TestCase):
         self.assertGreaterEqual(updated["op_counts"]["sample"], 1)
 
     def test_factory_collect_status_issues_no_redis_writes(self) -> None:
-        factory = TaskFactory.get_instance()
+        factory = self.factory
         queue = make_fakeredis_queue()
         factory.redis = queue
-        factory._snapshot = factory._collect_latest_status()
+        factory._monitor._snapshot = factory._collect_latest_status()
         assert queue.r is not None
 
         write_methods = (
@@ -109,11 +113,11 @@ class MonitorSnapshotTests(unittest.TestCase):
             setattr(queue.r, method_name, _guard(method_name, originals[method_name]))
 
         for _ in range(5):
-            factory._snapshot = factory._collect_latest_status()
+            factory._monitor._snapshot = factory._collect_latest_status()
         self.assertEqual(writes["count"], 0)
 
     def test_get_run_metrics_projects_sample_stats(self) -> None:
-        factory = TaskFactory.get_instance()
+        factory = self.factory
         queue = make_fakeredis_queue()
         factory.redis = queue
         queue.push_task(
@@ -123,11 +127,16 @@ class MonitorSnapshotTests(unittest.TestCase):
                 "execution_plan": [],
             }
         )
-        queue.submit_result({"uuid": "task-1", "status": "Completed", "observables": {"x": 1.0}})
+        queue.submit_result(
+            {"uuid": "task-1", "status": "Completed", "observables": {"x": 1.0}}
+        )
 
         metrics = factory.get_run_metrics()
         self.assertGreaterEqual(metrics["submitted"], 1)
         self.assertEqual(metrics["ok"], 1)
+        # D9.4 honest None for untracked gauges
+        self.assertIsNone(metrics["mean_active_workers"])
+        self.assertIsNone(metrics["total_point_eval_sec"])
 
 
 if __name__ == "__main__":
