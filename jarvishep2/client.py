@@ -23,7 +23,9 @@ from jarvishep2.run_outcome import (
 )
 
 
-_SUBCOMMANDS = frozenset({"run", "check", "monitor", "plot", "portal", "operas", "project"})
+_SUBCOMMANDS = frozenset(
+    {"run", "check", "monitor", "plot", "portal", "operas", "project", "cleanup"}
+)
 _PROJECT_COMMANDS = frozenset(
     {"create", "pack", "browse", "list", "fetch", "info", "encrypt"}
 )
@@ -75,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas list|info NAME\n"
             "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
+            "  Jarvis2 cleanup [--kill]    # list/kill leftover Jarvis* processes\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -143,6 +146,21 @@ def build_parser() -> argparse.ArgumentParser:
         "project",
         help="Standalone project tools (create/pack/browse/fetch/info)",
         add_help=False,
+    )
+
+    cleanup_p = sub.add_parser(
+        "cleanup",
+        help="List (default) or kill leftover Jarvis OS processes after a hard stop",
+    )
+    cleanup_p.add_argument(
+        "--kill",
+        action="store_true",
+        help="Send SIGTERM (then SIGKILL) to matched processes; default is list-only",
+    )
+    cleanup_p.add_argument(
+        "--no-force",
+        action="store_true",
+        help="With --kill: only SIGTERM, do not escalate to SIGKILL",
     )
 
     # ---- legacy top-level flags (paths go through normalize_argv → subcommands) ----
@@ -996,6 +1014,15 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_operas(args)
     if intent == "project":
         return dispatch_project([])
+    if intent == "cleanup":
+        from jarvishep2.process_cleanup import cleanup_jarvis_processes
+
+        return int(
+            cleanup_jarvis_processes(
+                kill=bool(getattr(args, "kill", False)),
+                force=not bool(getattr(args, "no_force", False)),
+            )
+        )
     if intent == "check":
         task = getattr(args, "task_yaml", None)
         return dispatch_run(
