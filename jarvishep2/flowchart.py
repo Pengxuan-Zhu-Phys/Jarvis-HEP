@@ -612,8 +612,40 @@ def _collect_modules_and_layers(
         specs[name] = _module_specs_from_yaml(module, module_type="Operas")
         layer_map.setdefault(layer_id, []).append(name)
 
+    last_module_layer = max(layer_map.keys()) if layer_map else 1
+
+    # Nuisance optimize step (D13.4) — drawn when Sampling.Nuisance / Nuisance present.
+    from jarvishep2.Module.nuisance import extract_nuisance_config
+
+    nuisance_block = extract_nuisance_config(config)
+    if isinstance(nuisance_block, Mapping) and nuisance_block:
+        nuis_layer = last_module_layer + 1
+        method = str(nuisance_block.get("Method") or "Profile1D")
+        specs["NuisanceOptimize"] = {
+            "name": "NuisanceOptimize",
+            "type": "Nuisance",
+            "kind": "module",
+            "role": "nuisance",
+            "inputs": [],
+            "outputs": [
+                {
+                    "id": "NuisanceLogL",
+                    "label": "NuisanceLogL",
+                    "kind": "variable",
+                    "produced_names": ["NuisanceLogL"],
+                    "metadata": {"method": method},
+                }
+            ],
+            "selection": None,
+            "required_modules": ["Parameters"],
+            "operator": None,
+            "call_mode": None,
+        }
+        layer_map.setdefault(nuis_layer, []).append("NuisanceOptimize")
+        last_module_layer = nuis_layer
+
     # Likelihood is optional on the flowchart (off by default).
-    if include_likelihood and (calc_list or opera_list):
+    if include_likelihood and (calc_list or opera_list or nuisance_block):
         likelihood = _likelihood_module_from_config(config)
         if likelihood is None:
             likelihood = {
@@ -636,7 +668,6 @@ def _collect_modules_and_layers(
                 "operator": None,
                 "call_mode": None,
             }
-        last_module_layer = max(layer_map.keys()) if layer_map else 1
         ll_layer = last_module_layer + 1
         specs["LogLikelihood"] = likelihood
         layer_map.setdefault(ll_layer, []).append("LogLikelihood")

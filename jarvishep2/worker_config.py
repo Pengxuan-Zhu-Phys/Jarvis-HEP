@@ -117,6 +117,9 @@ def build_worker_config(
             ):
                 publish_feedback = True
 
+    from jarvishep2.Module.nuisance import extract_nuisance_config
+
+    nuisance_cfg = extract_nuisance_config(cfg)
     worker_config: dict[str, Any] = {
         "sample_config": sample_config,
         "mapper": extra_payload.pop("mapper", _default_mapper(cfg)),
@@ -128,6 +131,7 @@ def build_worker_config(
             or (cfg.get("Sampling") or {}).get("LogLikelihood")
             or []
         ),
+        "nuisance_config": nuisance_cfg,
         "pull_timeout": 1,
         "delete_method": get_delete_method(cfg),
         "cleanup_config": get_cleanup_config(cfg),

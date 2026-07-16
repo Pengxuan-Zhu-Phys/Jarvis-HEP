@@ -205,10 +205,14 @@ class Jarvis2Core:
             or sampling_block.get("LogLikelihood")
             or []
         )
+        from jarvishep2.Module.nuisance import extract_nuisance_config
+
+        include_nuisance = extract_nuisance_config(self.config) is not None
         sampler.set_execution_plan_template(
             calculator_modules=calc_modules,
             opera_modules=opera_modules,
             include_likelihood=bool(likelihood_exprs),
+            include_nuisance=include_nuisance,
         )
         self.set_sampler(sampler)
         self.info["sampler_name"] = str(getattr(sampler, "method", type(sampler).__name__))

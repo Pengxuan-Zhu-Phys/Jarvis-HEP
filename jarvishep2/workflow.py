@@ -72,8 +72,9 @@ def build_execution_plan(
     calculator_modules: Sequence[Mapping[str, Any]] | None = None,
     opera_modules: Sequence[Mapping[str, Any]] | None = None,
     include_likelihood: bool = True,
+    include_nuisance: bool = False,
 ) -> list[ExecutionStep]:
-    """Build a layered plan: calculators → operas → likelihood."""
+    """Build a layered plan: calculators → operas → nuisance_optimize → likelihood."""
     steps: list[ExecutionStep] = []
     calc_layers = resolve_module_layers(calculator_modules)
     opera_layers = resolve_module_layers(opera_modules)
@@ -99,17 +100,25 @@ def build_execution_plan(
             )
         )
 
-    likelihood_layer = opera_base
+    next_layer = opera_base
     if opera_count:
-        likelihood_layer = opera_base + max(opera_layers.values()) + 1
+        next_layer = opera_base + max(opera_layers.values()) + 1
     elif calc_count:
-        likelihood_layer = max_calc_layer + 1
-        if include_likelihood:
-            likelihood_layer += 1
+        next_layer = max_calc_layer + 1
 
-    if include_likelihood and (calc_count or opera_count):
+    if include_nuisance and (calc_count or opera_count or include_likelihood):
         steps.append(
-            ExecutionStep(type="likelihood", name="LogLikelihood", layer=likelihood_layer)
+            ExecutionStep(
+                type="nuisance_optimize",
+                name="NuisanceOptimize",
+                layer=next_layer,
+            )
+        )
+        next_layer += 1
+
+    if include_likelihood and (calc_count or opera_count or include_nuisance):
+        steps.append(
+            ExecutionStep(type="likelihood", name="LogLikelihood", layer=next_layer)
         )
     return steps
 
@@ -139,6 +148,7 @@ def execution_plan_template(
     *,
     calculator_modules: Sequence[Mapping[str, Any]] | None = None,
     include_likelihood: bool = True,
+    include_nuisance: bool = False,
 ) -> list[dict[str, Any]]:
     """JSON-serializable execution plan for Redis transport."""
     return [
@@ -147,6 +157,7 @@ def execution_plan_template(
             calculator_modules=calculator_modules,
             opera_modules=opera_modules,
             include_likelihood=include_likelihood,
+            include_nuisance=include_nuisance,
         )
     ]
 

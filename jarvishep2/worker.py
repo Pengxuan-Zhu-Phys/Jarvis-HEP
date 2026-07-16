@@ -61,6 +61,8 @@ class Worker(Process):
         self._operas: dict[str, Any] = {}
         self._calculators: dict[str, CalculatorModule] = {}
         self._likelihood: LogLikelihoodEvaluator | None = None
+        self._nuisance_profiler = None  # Profile1DProfiler | None
+        self._expression_context: ExpressionContext | None = None
         self._scheduler: AsyncSubprocessScheduler | None = None
         self._command_parser: CommandParser | None = None
         self._delete_method = DEFAULT_DELETE_METHOD
@@ -201,6 +203,18 @@ class Worker(Process):
             likelihood_exprs,
             expression_context=expression_context,
         )
+        self._expression_context = expression_context
+        nuisance_cfg = self.worker_config.get("nuisance_config")
+        if isinstance(nuisance_cfg, Mapping) and nuisance_cfg:
+            from jarvishep2.Module.profile1d import Profile1DProfiler
+
+            # Synthetic top-level config so from_config sees Nuisance block.
+            self._nuisance_profiler = Profile1DProfiler.from_config(
+                {"Nuisance": dict(nuisance_cfg)},
+                context=expression_context,
+            )
+        else:
+            self._nuisance_profiler = None
 
     def _heartbeat(self, status: str) -> None:
         if self._redis is None:
@@ -368,8 +382,117 @@ class Worker(Process):
         for step in inline_steps:
             if step.type == "opera":
                 self._run_opera_step(step.name, sample)
+            elif step.type == "nuisance_optimize":
+                self._run_nuisance_optimize(sample)
             elif step.type == "likelihood":
                 self._run_likelihood(sample)
+
+    def _rerun_physics_pipeline(self, sample: Sample) -> None:
+        """Re-run calculator + opera steps (nuisance profile attempts)."""
+        plan = list(sample.execution_plan or [])
+        layers = group_by_layer(plan)
+        for layer in layers:
+            calc_steps = [step for step in layer if step.type == "calculator"]
+            opera_steps = [step for step in layer if step.type == "opera"]
+            if calc_steps:
+                self._run_calculator_steps(calc_steps, sample)
+            for step in opera_steps:
+                self._run_opera_step(step.name, sample)
+
+    def _run_nuisance_optimize(self, sample: Sample) -> None:
+        """Profile nuisance parameters (D13.4 Profile1D) and merge results."""
+        profiler = self._nuisance_profiler
+        if profiler is None:
+            return
+        from jarvishep2.Module.profile1d import ProfileProbeResult
+
+        logger = sample.child_logger(
+            module=f"{sample.info.get('logger_name', f'Sample@{sample.uuid}')} "
+            f"(Nuisance:Profile1D)"
+        )
+        var_name = profiler.var_name
+
+        def evaluate(z: float) -> ProfileProbeResult:
+            # Inject free nuisance parameter into dual-truth fields.
+            sample.params[var_name] = float(z)
+            sample.observables[var_name] = float(z)
+            sample._mirror_fields_to_info()
+            if profiler.re_run_physics:
+                self._rerun_physics_pipeline(sample)
+            payload = dict(sample.params)
+            payload.update(sample.observables)
+            payload[var_name] = float(z)
+            terms = profiler.logl_registry.evaluate_all(payload)
+            total = float(sum(terms.values())) if terms else 0.0
+            # Pass conditions may reference nuisance LogL term names.
+            pass_payload = dict(payload)
+            pass_payload.update(terms)
+            pass_terms = profiler.pass_registry.evaluate_all(pass_payload)
+            pass_ok = all(pass_terms.values()) if pass_terms else True
+            if logger is not None:
+                try:
+                    logger.info(
+                        "nuisance probe %s=%.6g LogL=%.6g pass=%s",
+                        var_name,
+                        z,
+                        total,
+                        pass_ok,
+                    )
+                except Exception:
+                    pass
+            return ProfileProbeResult(
+                z=float(z),
+                logl=total,
+                terms=dict(terms),
+                pass_ok=pass_ok,
+                pass_terms=dict(pass_terms),
+                observables=dict(sample.observables),
+            )
+
+        result = profiler.optimize(evaluate)
+        # Apply best nuisance state onto the sample.
+        sample.params[var_name] = float(result.best_z)
+        sample.observables[var_name] = float(result.best_z)
+        sample.observables.update({k: float(v) for k, v in result.best_terms.items()})
+        sample.observables["NuisanceLogL"] = float(result.best_logl)
+        sample.observables["nuisance_pass"] = bool(result.pass_ok)
+        if not isinstance(sample.info, dict):
+            sample.info = {}
+        sample.info["nuisance"] = {
+            "method": "Profile1D",
+            "var": var_name,
+            "best": float(result.best_z),
+            "best_logl": float(result.best_logl),
+            "pass": bool(result.pass_ok),
+            "pass_terms": dict(result.pass_terms),
+            "n_attempts": int(result.n_attempts),
+            "status": result.status,
+            "mode": result.mode,
+            "history_z": list(result.history_z),
+            "history_logl": list(result.history_logl),
+        }
+        sample._mirror_fields_to_info()
+        if not result.pass_ok:
+            # Soft-fail: mark Failed when pass conditions reject the profiled point.
+            sample.status = "Failed"
+            if isinstance(sample.info, dict):
+                sample.info["error"] = (
+                    f"nuisance pass conditions failed for {var_name}={result.best_z}"
+                )
+                sample.info["error_type"] = "NuisancePassCondition"
+                sample.info["failed_module"] = "NuisanceOptimize"
+        if logger is not None:
+            try:
+                logger.info(
+                    "nuisance profile done %s=%.6g LogL=%.6g status=%s attempts=%d",
+                    var_name,
+                    result.best_z,
+                    result.best_logl,
+                    result.status,
+                    result.n_attempts,
+                )
+            except Exception:
+                pass
 
     def _run_opera_step(self, step_name: str, sample: Sample) -> None:
         module = self._operas.get(step_name)
