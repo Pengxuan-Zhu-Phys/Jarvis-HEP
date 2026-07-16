@@ -5,6 +5,13 @@ Uses the **vendored** dynesty package under
 ``jarvishep2.Sampling.Source.Dynesty`` (stock 3.0.0 + Jarvis UUID channel),
 with likelihood evaluations via :class:`RedisEvaluationPool`.
 
+YAML ``Sampling.Bounds`` is aligned with the **official dynesty 3.x API**:
+
+* constructor kwargs → ``NestedSampler`` / ``DynamicNestedSampler``
+  (via ``Bounds.sampler`` and/or flat Bounds keys)
+* run kwargs → ``run_nested`` (via ``Bounds.run_nested``)
+* ``dlogz`` is mapped to static ``dlogz`` or dynamic ``dlogz_init``
+
 Post-run diagnostics follow the V1 Jarvis-PLOT path: write
 ``DATABASE/dynesty_result.csv`` (column schema for
 ``dynesty_runplot``), then let ``plot_scene`` emit a stock jplot YAML.
@@ -14,6 +21,7 @@ Rendering stays in Jarvis-PLOT — HEP only maps results → CSV → scene.
 from __future__ import annotations
 
 import csv
+import inspect
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -30,6 +38,115 @@ from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 
+# Official NestedSampler / DynamicNestedSampler user-facing constructor keys
+# (excluding HEP-injected: loglikelihood, prior_transform, ndim, pool, rstate).
+NESTED_CONSTRUCTOR_USER_KEYS: frozenset[str] = frozenset(
+    {
+        "nlive",
+        "bound",
+        "sample",
+        "periodic",
+        "reflective",
+        "update_interval",
+        "first_update",
+        "queue_size",
+        "use_pool",
+        "live_points",
+        "logl_args",
+        "logl_kwargs",
+        "ptform_args",
+        "ptform_kwargs",
+        "enlarge",
+        "bootstrap",
+        "walks",
+        "facc",
+        "slices",
+        "ncdim",
+        "blob",
+        "save_evaluation_history",
+        "history_filename",
+    }
+)
+
+# NestedSampler.run_nested (static)
+STATIC_RUN_NESTED_KEYS: frozenset[str] = frozenset(
+    {
+        "maxiter",
+        "maxcall",
+        "dlogz",
+        "logl_max",
+        "add_live",
+        "print_progress",
+        "print_func",
+        "save_bounds",
+        "checkpoint_file",
+        "checkpoint_every",
+        "resume",
+    }
+)
+
+# DynamicNestedSampler.run_nested
+DYNAMIC_RUN_NESTED_KEYS: frozenset[str] = frozenset(
+    {
+        "nlive_init",
+        "maxiter_init",
+        "maxcall_init",
+        "dlogz_init",
+        "logl_max_init",
+        "nlive_batch",
+        "wt_function",
+        "wt_kwargs",
+        "maxiter_batch",
+        "maxcall_batch",
+        "maxiter",
+        "maxcall",
+        "maxbatch",
+        "n_effective",
+        "stop_function",
+        "stop_kwargs",
+        "use_stop",
+        "save_bounds",
+        "print_progress",
+        "print_func",
+        "live_points",
+        "resume",
+        "checkpoint_file",
+        "checkpoint_every",
+    }
+)
+
+# Bounds keys owned by HEP / meta (never forwarded as constructor kwargs).
+_BOUNDS_META_KEYS: frozenset[str] = frozenset(
+    {
+        "nlive",
+        "n_live",
+        "rseed",
+        "seed",
+        "Seed",
+        "dynamic",
+        "Dynamic",
+        "dlogz",
+        "dlogz_init",
+        "run_nested",
+        "sampler",
+        "Sampler",
+        "constructor",
+        "Constructor",
+    }
+)
+
+# Always injected by HEP — strip if a user pastes them into sampler: block.
+_HEP_INJECTED_CONSTRUCTOR_KEYS: frozenset[str] = frozenset(
+    {
+        "loglikelihood",
+        "prior_transform",
+        "ndim",
+        "pool",
+        "rstate",
+    }
+)
+
+
 def _jarvis_prior_transform(u: np.ndarray) -> np.ndarray:
     """V1-style prior_transform: append a uuid to the unit-cube vector.
 
@@ -42,6 +159,149 @@ def _jarvis_prior_transform(u: np.ndarray) -> np.ndarray:
     out[:-1] = u
     out[-1] = str(uuid4())
     return out
+
+
+def _filter_known_kwargs(
+    raw: Mapping[str, Any],
+    allowed: frozenset[str],
+    *,
+    context: str,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    """Keep only keys in *allowed*; warn on unknown (no crash)."""
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = str(key)
+        if name in allowed:
+            out[name] = value
+        elif logger is not None:
+            logger.warning(
+                "nested sampler: ignoring unknown %s key %r (not in dynesty API)",
+                context,
+                name,
+            )
+    return out
+
+
+def extract_nested_constructor_kwargs(
+    bounds: Mapping[str, Any],
+    *,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    """Build NestedSampler/DynamicNestedSampler kwargs from Bounds.
+
+    Sources (later wins):
+
+    1. Flat ``Bounds.<constructor_key>`` (official names: bound, sample, walks, …)
+    2. Nested ``Bounds.sampler`` / ``Bounds.constructor`` block (preferred)
+
+    HEP-injected keys (loglikelihood, pool, …) are stripped. ``nlive`` is left
+    in so callers can still override via sampler block if desired.
+    """
+    raw: dict[str, Any] = {}
+    for key, value in bounds.items():
+        name = str(key)
+        if name in _BOUNDS_META_KEYS:
+            continue
+        if name in NESTED_CONSTRUCTOR_USER_KEYS:
+            raw[name] = value
+    for block_key in ("sampler", "Sampler", "constructor", "Constructor"):
+        block = bounds.get(block_key)
+        if isinstance(block, Mapping):
+            for key, value in block.items():
+                raw[str(key)] = value
+    for banned in _HEP_INJECTED_CONSTRUCTOR_KEYS:
+        raw.pop(banned, None)
+    return _filter_known_kwargs(
+        raw, NESTED_CONSTRUCTOR_USER_KEYS, context="constructor", logger=logger
+    )
+
+
+def extract_run_nested_kwargs(
+    bounds: Mapping[str, Any],
+    *,
+    dynamic: bool,
+    dlogz_default: float = 0.5,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    """Build ``run_nested`` kwargs with static/dynamic evidence-threshold aliases.
+
+    * Static: uses ``dlogz`` (from ``run_nested.dlogz`` or ``Bounds.dlogz``).
+    * Dynamic: uses ``dlogz_init``; a user ``dlogz`` is remapped to ``dlogz_init``.
+    """
+    run_raw = bounds.get("run_nested") or {}
+    if not isinstance(run_raw, Mapping):
+        run_raw = {}
+    run: dict[str, Any] = {str(k): v for k, v in run_raw.items()}
+
+    if dynamic:
+        # Official Dynamic API: dlogz_init (not dlogz).
+        if "dlogz" in run and "dlogz_init" not in run:
+            run["dlogz_init"] = run.pop("dlogz")
+            if logger is not None:
+                logger.info(
+                    "nested sampler: mapped run_nested.dlogz → dlogz_init (Dynamic)"
+                )
+        elif "dlogz" in run:
+            run.pop("dlogz")
+            if logger is not None:
+                logger.warning(
+                    "nested sampler: dropped run_nested.dlogz "
+                    "(Dynamic uses dlogz_init; already set)"
+                )
+        if "dlogz_init" not in run:
+            if bounds.get("dlogz_init") is not None:
+                run["dlogz_init"] = bounds["dlogz_init"]
+            elif bounds.get("dlogz") is not None:
+                run["dlogz_init"] = bounds["dlogz"]
+            else:
+                run["dlogz_init"] = dlogz_default
+        allowed = DYNAMIC_RUN_NESTED_KEYS
+        context = "run_nested(Dynamic)"
+    else:
+        # Official NestedSampler API: dlogz.
+        if "dlogz_init" in run and "dlogz" not in run:
+            run["dlogz"] = run.pop("dlogz_init")
+            if logger is not None:
+                logger.info(
+                    "nested sampler: mapped run_nested.dlogz_init → dlogz (static)"
+                )
+        elif "dlogz_init" in run:
+            run.pop("dlogz_init")
+        if "dlogz" not in run:
+            if bounds.get("dlogz") is not None:
+                run["dlogz"] = bounds["dlogz"]
+            else:
+                run["dlogz"] = dlogz_default
+        allowed = STATIC_RUN_NESTED_KEYS
+        context = "run_nested(static)"
+
+    return _filter_known_kwargs(run, allowed, context=context, logger=logger)
+
+
+def _signature_param_names(func: Any) -> frozenset[str]:
+    try:
+        return frozenset(
+            name
+            for name in inspect.signature(func).parameters
+            if name not in {"self", "cls"}
+        )
+    except (TypeError, ValueError):
+        return frozenset()
+
+
+def filter_kwargs_to_callable(
+    kwargs: Mapping[str, Any],
+    func: Any,
+    *,
+    context: str,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    """Final safety filter against the live callable signature."""
+    allowed = _signature_param_names(func)
+    if not allowed:
+        return dict(kwargs)
+    return _filter_known_kwargs(kwargs, allowed, context=context, logger=logger)
 
 
 def _results_get(results: Any, key: str, default: Any = None) -> Any:
@@ -210,9 +470,16 @@ def export_dynesty_results_csv(
 
 
 class DynestySampler(FeedbackSampler):
-    """YAML ``Sampling.Method: Dynesty``."""
+    """YAML ``Sampling.Method: Dynesty``.
+
+    Default engine is **DynamicNestedSampler** (``Bounds.dynamic: true``).
+    Set ``dynamic: false`` for static NestedSampler. Constructor + run_nested
+    kwargs follow the official dynesty 3.x surface (see module helpers).
+    """
 
     method = "Dynesty"
+    # Subclasses (MultiNest) may force static nested sampling.
+    default_dynamic: bool = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -223,11 +490,12 @@ class DynestySampler(FeedbackSampler):
         self._dlogz = 0.5
         self._rseed = 0
         self._run_nested_kwargs: dict[str, Any] = {}
+        self._constructor_kwargs: dict[str, Any] = {}
         self._selectionexp: str | None = None
         self._sampler = None  # dynesty Nested/Dynamic sampler
         self._finished = False
         self._summary: dict[str, Any] | None = None
-        self._use_dynamic = True
+        self._use_dynamic = bool(self.default_dynamic)
         self._dynesty_csv_path: str | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -237,12 +505,19 @@ class DynestySampler(FeedbackSampler):
         self.vars = load_variables(self.config)
         self._dim = len(self.vars)
         if self._dim < 1:
-            raise ValueError("Dynesty requires at least one Sampling.Variable")
+            raise ValueError(f"{self.method} requires at least one Sampling.Variable")
         bounds = sampling.get("Bounds") or {}
         if not isinstance(bounds, Mapping):
             bounds = {}
+
+        # --- meta / HEP-owned ---
         self._nlive = max(2, int(bounds.get("nlive", bounds.get("n_live", 100)) or 100))
-        self._dlogz = float(bounds.get("dlogz", 0.5) or 0.5)
+        if bounds.get("dlogz") is not None:
+            self._dlogz = float(bounds.get("dlogz"))
+        elif bounds.get("dlogz_init") is not None:
+            self._dlogz = float(bounds.get("dlogz_init"))
+        else:
+            self._dlogz = 0.5
         self._rseed = int(
             bounds.get("rseed", sampling.get("Seed", sampling.get("seed", 0))) or 0
         )
@@ -250,15 +525,32 @@ class DynestySampler(FeedbackSampler):
         self._selectionexp = sampling.get("selection")
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        run_nested = bounds.get("run_nested") or {}
-        if isinstance(run_nested, Mapping):
-            self._run_nested_kwargs = dict(run_nested)
+
+        if "dynamic" in bounds or "Dynamic" in bounds:
+            self._use_dynamic = bool(bounds.get("dynamic", bounds.get("Dynamic")))
         else:
-            self._run_nested_kwargs = {}
-        self._run_nested_kwargs.setdefault("dlogz", self._dlogz)
-        # print_progress can be True in YAML; keep as bool
-        dynamic = bounds.get("dynamic", bounds.get("Dynamic", True))
-        self._use_dynamic = bool(dynamic)
+            self._use_dynamic = bool(self.default_dynamic)
+
+        # --- official constructor kwargs ---
+        self._constructor_kwargs = extract_nested_constructor_kwargs(
+            bounds, logger=self._logger
+        )
+        # nlive: Bounds.nlive is canonical; sampler.nlive may override if set.
+        if "nlive" not in self._constructor_kwargs:
+            self._constructor_kwargs["nlive"] = self._nlive
+        else:
+            self._nlive = max(2, int(self._constructor_kwargs["nlive"] or self._nlive))
+            self._constructor_kwargs["nlive"] = self._nlive
+
+        # --- official run_nested kwargs (static/dynamic-aware dlogz mapping) ---
+        self._run_nested_kwargs = extract_run_nested_kwargs(
+            bounds,
+            dynamic=self._use_dynamic,
+            dlogz_default=self._dlogz,
+            logger=self._logger,
+        )
+        # Default progress to Jarvis logger path; user may set print_progress: false.
+        self._run_nested_kwargs.setdefault("print_progress", True)
 
     def propose_generation(self) -> Sequence[Sample] | None:
         # Dynesty drives proposals via its own state machine + pool.map.
@@ -294,8 +586,26 @@ class DynestySampler(FeedbackSampler):
         # Without Workers we cannot evaluate real logL — return a toy Gaussian.
         return float(-0.5 * np.sum((u - 0.5) ** 2))
 
+    def _build_constructor_kwargs(
+        self,
+        *,
+        pool: RedisEvaluationPool,
+        rstate: np.random.Generator,
+    ) -> dict[str, Any]:
+        """Merge user constructor kwargs with HEP-injected runtime handles."""
+        kwargs = dict(self._constructor_kwargs)
+        kwargs["loglikelihood"] = self._local_loglike
+        kwargs["prior_transform"] = _jarvis_prior_transform
+        kwargs["ndim"] = self._dim
+        kwargs["nlive"] = self._nlive
+        kwargs["pool"] = pool
+        kwargs["rstate"] = rstate
+        # queue_size: user override wins; else batch_size / pool size.
+        kwargs.setdefault("queue_size", max(1, self._batch_size))
+        return kwargs
+
     def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        self._require_redis("Dynesty.run_adaptive")
+        self._require_redis(f"{self.method}.run_adaptive")
         self._ensure_seed_sequence()
         if self._finished and self._sampler is not None:
             return 0
@@ -327,27 +637,38 @@ class DynestySampler(FeedbackSampler):
 
         rstate = np.random.default_rng(self._rseed)
         sampler_cls = DynamicNestedSampler if self._use_dynamic else NestedSampler
+        ctor = self._build_constructor_kwargs(pool=pool, rstate=rstate)
+        # Final filter against the live constructor signature (NestedSampler uses __new__).
+        factory = getattr(sampler_cls, "__new__", sampler_cls)
+        if factory is object.__new__:
+            factory = sampler_cls
+        # NestedSampler.__new__ has the full parameter list; DynamicNestedSampler.__init__ too.
+        if sampler_cls is NestedSampler:
+            ctor = filter_kwargs_to_callable(
+                ctor, NestedSampler.__new__, context="constructor", logger=self._logger
+            )
+        else:
+            ctor = filter_kwargs_to_callable(
+                ctor,
+                DynamicNestedSampler.__init__,
+                context="constructor",
+                logger=self._logger,
+            )
+
         self._logger.info(
-            "Starting %s nlive=%d ndim=%d dynamic=%s",
+            "Starting %s nlive=%d ndim=%d dynamic=%s bound=%s sample=%s",
             sampler_cls.__name__,
             self._nlive,
             self._dim,
             self._use_dynamic,
+            ctor.get("bound", "multi"),
+            ctor.get("sample", "auto"),
         )
-        # ndim = unit-cube dim; prior_transform appends uuid (vendored split).
-        self._sampler = sampler_cls(
-            loglikelihood=self._local_loglike,
-            prior_transform=_jarvis_prior_transform,
-            ndim=self._dim,
-            nlive=self._nlive,
-            pool=pool,
-            rstate=rstate,
-            queue_size=max(1, self._batch_size),
-        )
+        self._sampler = sampler_cls(**ctor)
+
         # Attach logger onto nested sampler instance (used by run_nested progress).
         try:
             self._sampler.logger = inner_logger
-            # DynamicNestedSampler wraps an inner sampler object
             for attr in ("sampler", "base_sampler"):
                 inner = getattr(self._sampler, attr, None)
                 if inner is not None and hasattr(inner, "logger"):
@@ -356,14 +677,17 @@ class DynestySampler(FeedbackSampler):
                     setattr(inner, "logger", inner_logger)
         except Exception:
             pass
-        # Dynesty LogLikelihood uses pool.map(loglikelihood, pars) — our pool
-        # evaluates remotely and returns floats; wrap is still required by API.
-        run_kwargs = dict(self._run_nested_kwargs)
-        # Ensure dlogz present
-        run_kwargs.setdefault("dlogz", self._dlogz)
-        # Progress always on → routed to Jarvis logger (not bare stderr).
-        run_kwargs["print_progress"] = True
 
+        run_kwargs = filter_kwargs_to_callable(
+            self._run_nested_kwargs,
+            self._sampler.run_nested,
+            context="run_nested",
+            logger=self._logger,
+        )
+        self._logger.info(
+            "run_nested kwargs → %s",
+            {k: v for k, v in run_kwargs.items() if k != "print_func"},
+        )
         self._sampler.run_nested(**run_kwargs)
         self._finished = True
         self._summary = self._build_summary()
@@ -376,12 +700,12 @@ class DynestySampler(FeedbackSampler):
             self._logger.warning("failed to write dynesty_result.csv: %s", exc)
         self.checkpoint_at_barrier(reason="dynesty_finished")
         self._logger.info(
-            "Dynesty finished logZ=%.4f ± %.4f niter=%s",
+            "%s finished logZ=%.4f ± %.4f niter=%s",
+            self.method,
             self._summary.get("logz", float("nan")),
             self._summary.get("logzerr", float("nan")),
             self._summary.get("niter"),
         )
-        # Approximate submitted = ncall
         return int(self._summary.get("ncall") or 0)
 
     def _task_result_dir(self) -> str:
@@ -474,6 +798,9 @@ class DynestySampler(FeedbackSampler):
                 "nlive": self._nlive,
                 "dlogz": self._dlogz,
                 "rseed": self._rseed,
+                "use_dynamic": self._use_dynamic,
+                "constructor_kwargs": dict(self._constructor_kwargs),
+                "run_nested_kwargs": dict(self._run_nested_kwargs),
                 "dynesty_csv_path": self._dynesty_csv_path,
                 "call_index": getattr(
                     getattr(self, "_pool_ref", None), "_call_index", 0
@@ -490,6 +817,14 @@ class DynestySampler(FeedbackSampler):
         self._nlive = int(state.get("nlive", self._nlive) or self._nlive)
         self._dlogz = float(state.get("dlogz", self._dlogz) or self._dlogz)
         self._rseed = int(state.get("rseed", self._rseed) or self._rseed)
+        if "use_dynamic" in state:
+            self._use_dynamic = bool(state.get("use_dynamic"))
+        ctor = state.get("constructor_kwargs")
+        if isinstance(ctor, Mapping):
+            self._constructor_kwargs = dict(ctor)
+        run = state.get("run_nested_kwargs")
+        if isinstance(run, Mapping):
+            self._run_nested_kwargs = dict(run)
         path = state.get("dynesty_csv_path")
         self._dynesty_csv_path = str(path) if path else None
 
@@ -499,8 +834,14 @@ def create_dynesty() -> DynestySampler:
 
 
 __all__ = [
+    "DYNAMIC_RUN_NESTED_KEYS",
     "DynestySampler",
+    "NESTED_CONSTRUCTOR_USER_KEYS",
+    "STATIC_RUN_NESTED_KEYS",
     "create_dynesty",
     "export_dynesty_results_csv",
+    "extract_nested_constructor_kwargs",
+    "extract_run_nested_kwargs",
+    "filter_kwargs_to_callable",
     "_jarvis_prior_transform",
 ]

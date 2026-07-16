@@ -416,7 +416,8 @@ def _configure_batch_sampler(main_sampler,
     if psel:
         # If the lower bound encompasses all saved samples, we want
         # to propose a new set of points from the unit cube.
-        (live_u, live_v, live_logl,
+        # JARVIS: unpack live_uid from UUID-aware _initialize_live_points
+        (live_u, live_v, live_uid, live_logl,
          live_blobs), logvol0, init_ncalls = _initialize_live_points(
              None,
              main_sampler.prior_transform,
@@ -1053,7 +1054,8 @@ class DynamicSampler:
             warnings.warn("Beware: `nlive_init <= 2 * ndim`!")
 
         if not resume:
-            (self.live_u, self.live_v, self.live_logl,
+            # JARVIS: _initialize_live_points returns (u, v, uid, logl, blobs)
+            (self.live_u, self.live_v, self.live_uid, self.live_logl,
              blobs), logvol_init, init_ncalls = _initialize_live_points(
                  live_points,
                  self.prior_transform,
@@ -1071,9 +1073,13 @@ class DynamicSampler:
                 self.live_blobs = None
             self.nlive_init = len(self.live_u)
 
-            # (Re-)bundle live points.
+            # (Re-)bundle live points (include uid for NestedSampler/UUID channel).
             live_points = [
-                self.live_u, self.live_v, self.live_logl, self.live_blobs
+                self.live_u,
+                self.live_v,
+                self.live_uid,
+                self.live_logl,
+                self.live_blobs,
             ]
             self.live_init = [np.array(_) for _ in live_points]
             self.ncall += init_ncalls

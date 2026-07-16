@@ -26,20 +26,39 @@ from jarvishep2.logging import get_jarvis_logger
 
 
 class MultiNestSampler(DynestySampler):
-    """YAML ``Sampling.Method: MultiNest`` — static nested sampling (V1 parity)."""
+    """YAML ``Sampling.Method: MultiNest`` — static nested sampling (V1 parity).
+
+    Shares the full official dynesty constructor / ``run_nested`` pass-through
+    with Dynesty, but always uses static ``NestedSampler`` (never Dynamic).
+    Evidence threshold key is ``dlogz`` (not ``dlogz_init``).
+    """
 
     method = "MultiNest"
+    default_dynamic = False
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.multinest")
-        # V1 MultiNest always uses NestedSampler, never DynamicNestedSampler.
         self._use_dynamic = False
         self._multinest_csv_path: str | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
-        # Ignore Bounds.dynamic if a Dynesty card was copy-pasted — MultiNest is static.
+        # MultiNest is always static NestedSampler — re-extract run kwargs if
+        # parent briefly saw dynamic:true from a copy-pasted Dynesty card.
+        if self._use_dynamic:
+            self._use_dynamic = False
+            bounds = (self.config.get("Sampling") or {}).get("Bounds") or {}
+            if isinstance(bounds, Mapping):
+                from jarvishep2.Sampling.dynesty_sampler import extract_run_nested_kwargs
+
+                self._run_nested_kwargs = extract_run_nested_kwargs(
+                    bounds,
+                    dynamic=False,
+                    dlogz_default=self._dlogz,
+                    logger=self._logger,
+                )
+                self._run_nested_kwargs.setdefault("print_progress", True)
         self._use_dynamic = False
 
     def multinest_result_csv_path(self, task_result_dir: str | None = None) -> str:

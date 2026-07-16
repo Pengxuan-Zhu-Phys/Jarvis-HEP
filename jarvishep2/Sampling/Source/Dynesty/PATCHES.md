@@ -18,7 +18,7 @@ Vendored from PyPI `dynesty==3.0.0`, then modified for the **Jarvis Sample UUID 
 | `jarvis_uuid.py` | **new** — split/join helpers |
 | `jarvis_logging.py` | **new** — Jarvis logger bridge (progress/warnings) |
 | `sampler.py` | live init split; `live_uid`; dead-point uid; `samples_uid`; progress via Jarvis logger |
-| `dynamicsampler.py` | progress via `emit_progress` + logger bind |
+| `dynamicsampler.py` | progress via `emit_progress` + logger bind; UUID unpack of `_initialize_live_points` (u,v,uid,logl,blobs) in `sample_initial` + batch live init |
 | `utils.py` | `RunRecord['uid']`; `samples_uid`; IteratorResult `uidstar`; V1-style `print_fn` → logger |
 | `pool.py` | companion pools live in `jarvishep2.Sampling.redis_evaluation_pool` |
 
