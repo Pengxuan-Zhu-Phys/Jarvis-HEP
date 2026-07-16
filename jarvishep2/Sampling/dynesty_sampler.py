@@ -131,6 +131,16 @@ class DynestySampler(FeedbackSampler):
             DynamicNestedSampler,
             NestedSampler,
         )
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_logging import (
+            bind_inner,
+            install_warnings_bridge,
+            set_dynesty_logger,
+        )
+
+        # All dynesty progress/warnings use this sampler's Jarvis logger.
+        inner_logger = bind_inner(self._logger)
+        set_dynesty_logger(inner_logger)
+        install_warnings_bridge()
 
         pool = RedisEvaluationPool(
             self.redis,
@@ -139,6 +149,7 @@ class DynestySampler(FeedbackSampler):
             timeout=timeout,
             seed=self._seed,
             method=self.method,
+            logger=inner_logger,
         )
 
         rstate = np.random.default_rng(self._rseed)
@@ -160,14 +171,25 @@ class DynestySampler(FeedbackSampler):
             rstate=rstate,
             queue_size=max(1, self._batch_size),
         )
+        # Attach logger onto nested sampler instance (used by run_nested progress).
+        try:
+            self._sampler.logger = inner_logger
+            # DynamicNestedSampler wraps an inner sampler object
+            for attr in ("sampler", "base_sampler"):
+                inner = getattr(self._sampler, attr, None)
+                if inner is not None and hasattr(inner, "logger"):
+                    inner.logger = inner_logger
+                elif inner is not None:
+                    setattr(inner, "logger", inner_logger)
+        except Exception:
+            pass
         # Dynesty LogLikelihood uses pool.map(loglikelihood, pars) — our pool
         # evaluates remotely and returns floats; wrap is still required by API.
         run_kwargs = dict(self._run_nested_kwargs)
         # Ensure dlogz present
         run_kwargs.setdefault("dlogz", self._dlogz)
-        # print_progress may be noisy in tests
-        if "print_progress" not in run_kwargs:
-            run_kwargs["print_progress"] = False
+        # Progress always on → routed to Jarvis logger (not bare stderr).
+        run_kwargs["print_progress"] = True
 
         self._sampler.run_nested(**run_kwargs)
         self._finished = True

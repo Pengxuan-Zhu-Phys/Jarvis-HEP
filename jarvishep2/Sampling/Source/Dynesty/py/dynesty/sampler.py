@@ -396,6 +396,11 @@ class Sampler:
         self.nlive = len(self.live_u)
         self.live_bound = np.zeros(self.nlive, dtype=int)
         self.live_it = np.zeros(self.nlive, dtype=int)
+        # JARVIS: progress/warnings go through jarvishep2 logging
+        from .jarvis_logging import bind_inner, get_dynesty_logger, install_warnings_bridge
+
+        install_warnings_bridge()
+        self.logger = bind_inner(get_dynesty_logger())
 
         # random state
         self.rstate = rstate or get_random_generator()
@@ -1342,6 +1347,10 @@ class Sampler:
             return
 
         # Run the main nested sampling loop.
+        from .jarvis_logging import emit_progress, emit_warning, get_dynesty_logger
+
+        if getattr(self, "logger", None) is None:
+            self.logger = get_dynesty_logger()
         pbar, print_func = get_print_func(print_func, print_progress)
         if checkpoint_file is not None:
             timer = DelayTimer(checkpoint_every)
@@ -1357,14 +1366,18 @@ class Sampler:
                                 add_live=add_live)):
                 ncall += results.nc
 
-                # Print progress.
+                # Print progress (always via Jarvis logger).
                 if print_progress:
                     i = self.it - 1
-                    print_func(results,
-                               i,
-                               ncall,
-                               dlogz=dlogz,
-                               logl_max=logl_max)
+                    emit_progress(
+                        print_func,
+                        self.logger,
+                        results,
+                        i,
+                        ncall,
+                        dlogz=dlogz,
+                        logl_max=logl_max,
+                    )
 
                 if checkpoint_file is not None and timer.is_time():
                     self.save(checkpoint_file)
@@ -1377,12 +1390,16 @@ class Sampler:
 
                     # Print progress.
                     if print_progress:
-                        print_func(results,
-                                   it,
-                                   ncall,
-                                   add_live_it=i + 1,
-                                   dlogz=dlogz,
-                                   logl_max=logl_max)
+                        emit_progress(
+                            print_func,
+                            self.logger,
+                            results,
+                            it,
+                            ncall,
+                            add_live_it=i + 1,
+                            dlogz=dlogz,
+                            logl_max=logl_max,
+                        )
 
             # Here we recompute the integrals using the full run
             new_logwt, new_logz, new_logzvar, new_h = compute_integrals(
@@ -1422,6 +1439,10 @@ class Sampler:
             print_func = print_fn
 
         # Add remaining live points to samples.
+        from .jarvis_logging import emit_progress, get_dynesty_logger
+
+        if getattr(self, "logger", None) is None:
+            self.logger = get_dynesty_logger()
         pbar, print_func = get_print_func(print_func, print_progress)
         try:
             ncall = self.ncall
@@ -1430,11 +1451,15 @@ class Sampler:
 
                 # Print progress.
                 if print_progress:
-                    print_func(results,
-                               it,
-                               ncall,
-                               add_live_it=i + 1,
-                               dlogz=0.01)
+                    emit_progress(
+                        print_func,
+                        self.logger,
+                        results,
+                        it,
+                        ncall,
+                        add_live_it=i + 1,
+                        dlogz=0.01,
+                    )
         finally:
             if pbar is not None:
                 pbar.close()

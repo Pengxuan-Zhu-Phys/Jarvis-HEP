@@ -19,3 +19,11 @@ from .dynesty import NestedSampler, DynamicNestedSampler
 from . import bounding
 from . import utils
 from . import pool
+
+# Route dynesty warnings + default progress to Jarvis logger when available.
+try:
+    from .jarvis_logging import install_warnings_bridge
+
+    install_warnings_bridge()
+except Exception:
+    pass

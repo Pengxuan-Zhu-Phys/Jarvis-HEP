@@ -384,8 +384,10 @@ class DelayTimer:
         return False
 
 
-PrintFnArgs = namedtuple('PrintFnArgs',
-                         ['niter', 'short_str', 'mid_str', 'long_str'])
+PrintFnArgs = namedtuple(
+    'PrintFnArgs',
+    ['niter', 'short_str', 'mid_str', 'long_str', 'metrics'],
+)
 
 
 def print_fn(results,
@@ -397,62 +399,9 @@ def print_fn(results,
              nbatch=None,
              logl_min=-np.inf,
              logl_max=np.inf,
-             pbar=None):
-    """
-    The default function used to print out results in real time.
-
-    Parameters
-    ----------
-
-    results : tuple
-        Collection of variables output from the current state of the sampler.
-        Currently includes:
-        (1) particle index,
-        (2) unit cube position,
-        (3) parameter position,
-        (4) ln(likelihood),
-        (5) ln(volume),
-        (6) ln(weight),
-        (7) ln(evidence),
-        (8) Var[ln(evidence)],
-        (9) information,
-        (10) number of (current) function calls,
-        (11) iteration when the point was originally proposed,
-        (12) index of the bounding object originally proposed from,
-        (13) index of the bounding object active at a given iteration,
-        (14) cumulative efficiency, and
-        (15) estimated remaining ln(evidence).
-
-    niter : int
-        The current iteration of the sampler.
-
-    ncall : int
-        The total number of function calls at the current iteration.
-
-    add_live_it : int, optional
-        If the last set of live points are being added explicitly, this
-        quantity tracks the sorted index of the current live point being added.
-
-    dlogz : float, optional
-        The evidence stopping criterion. If not provided, the provided
-        stopping value will be used instead.
-
-    stop_val : float, optional
-        The current stopping criterion (for dynamic nested sampling). Used if
-        the `dlogz` value is not specified.
-
-    nbatch : int, optional
-        The current batch (for dynamic nested sampling).
-
-    logl_min : float, optional
-        The minimum log-likelihood used when starting sampling. Default is
-        `-np.inf`.
-
-    logl_max : float, optional
-        The maximum log-likelihood used when stopping sampling. Default is
-        `np.inf`.
-
-    """
+             pbar=None,
+             logger=None):
+    """Default real-time progress printer (Jarvis logger when available)."""
     if pbar is None:
         print_fn_fallback(results,
                           niter,
@@ -462,7 +411,8 @@ def print_fn(results,
                           stop_val=stop_val,
                           nbatch=nbatch,
                           logl_min=logl_min,
-                          logl_max=logl_max)
+                          logl_max=logl_max,
+                          logger=logger)
     else:
         print_fn_tqdm(pbar,
                       results,
@@ -473,7 +423,8 @@ def print_fn(results,
                       stop_val=stop_val,
                       nbatch=nbatch,
                       logl_min=logl_min,
-                      logl_max=logl_max)
+                      logl_max=logl_max,
+                      logger=logger)
 
 
 def get_print_fn_args(results,
@@ -533,10 +484,37 @@ def get_print_fn_args(results,
         long_str.append("stop: {:6.3f}".format(stop_val))
         mid_str.append("stop: {:6.3f}".format(stop_val))
 
+    # Metrics for Jarvis multi-line progress block (V1 print_fn).
+    if delta_logz > 1e6:
+        delta_logz_m = float("inf")
+    else:
+        delta_logz_m = float(delta_logz)
+    if logzvar >= 0.0 and logzvar <= 1e6:
+        logzerr_m = float(np.sqrt(logzvar))
+    else:
+        logzerr_m = float("nan")
+    metrics = {
+        "add_live_it": add_live_it,
+        "batch": nbatch,
+        "bound": int(bounditer),
+        "nc": int(nc),
+        "ncall": int(ncall),
+        "eff": float(eff),
+        "logl_min": float(logl_min) if np.isfinite(logl_min) else float(logl_min),
+        "loglstar": float(loglstar) if np.isfinite(loglstar) else float("-inf"),
+        "logl_max": float(logl_max) if np.isfinite(logl_max) else float(logl_max),
+        "logz": float(logz) if np.isfinite(logz) else float("-inf"),
+        "logzerr": logzerr_m,
+        "delta_logz": delta_logz_m,
+        "dlogz": None if dlogz is None else float(dlogz),
+        "stop_val": None if stop_val is None else float(stop_val),
+    }
+
     return PrintFnArgs(niter=niter,
                        short_str=short_str,
                        mid_str=mid_str,
-                       long_str=long_str)
+                       long_str=long_str,
+                       metrics=metrics)
 
 
 def print_fn_tqdm(pbar,
@@ -548,10 +526,14 @@ def print_fn_tqdm(pbar,
                   stop_val=None,
                   nbatch=None,
                   logl_min=-np.inf,
-                  logl_max=np.inf):
-    """
-    This is a function that does the status printing using tqdm module
-    """
+                  logl_max=np.inf,
+                  logger=None):
+    """Status printing via tqdm, also mirrored to Jarvis logger (V1)."""
+    from .jarvis_logging import (
+        format_progress_block,
+        get_dynesty_logger,
+    )
+
     fn_args = get_print_fn_args(results,
                                 niter,
                                 ncall,
@@ -564,6 +546,17 @@ def print_fn_tqdm(pbar,
 
     pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
     pbar.update(fn_args.niter - pbar.n)
+    rate = None
+    try:
+        rate = pbar.format_dict.get("rate", None)
+    except Exception:
+        rate = None
+    log = logger if logger is not None else get_dynesty_logger()
+    log_block = format_progress_block(fn_args, rate=rate, logger=log)
+    if fn_args.niter % 100 == 0:
+        log.warning(log_block)
+    else:
+        log.info(log_block)
 
 
 def print_fn_fallback(results,
@@ -574,11 +567,14 @@ def print_fn_fallback(results,
                       stop_val=None,
                       nbatch=None,
                       logl_min=-np.inf,
-                      logl_max=np.inf):
-    """
-    This is a function that does the status printing using just
-    standard printing into the console
-    """
+                      logl_max=np.inf,
+                      logger=None):
+    """Status printing via Jarvis logger (preferred) or stderr fallback."""
+    from .jarvis_logging import (
+        format_progress_block,
+        get_dynesty_logger,
+    )
+
     fn_args = get_print_fn_args(results,
                                 niter,
                                 ncall,
@@ -591,24 +587,15 @@ def print_fn_fallback(results,
     niter, short_str, mid_str, long_str = (fn_args.niter, fn_args.short_str,
                                            fn_args.mid_str, fn_args.long_str)
 
-    long_str = ["iter: {:d}".format(niter)] + long_str
+    log = logger if logger is not None else get_dynesty_logger()
+    log_block = format_progress_block(fn_args, logger=log)
+    # Mirror V1 cadence: every 100 iters as WARNING, otherwise INFO.
+    if niter % 100 == 0:
+        log.warning(log_block)
+    else:
+        log.info(log_block)
+    return
 
-    # Printing.
-    long_str = ' | '.join(long_str)
-    mid_str = ' | '.join(mid_str)
-    short_str = '|'.join(short_str)
-    if sys.stderr.isatty() and hasattr(shutil, 'get_terminal_size'):
-        columns = shutil.get_terminal_size(fallback=(80, 25))[0]
-    else:
-        columns = 200
-    if columns > len(long_str):
-        sys.stderr.write("\r" + long_str + ' ' * (columns - len(long_str) - 2))
-    elif columns > len(mid_str):
-        sys.stderr.write("\r" + mid_str + ' ' * (columns - len(mid_str) - 2))
-    else:
-        sys.stderr.write("\r" + short_str + ' ' *
-                         (columns - len(short_str) - 2))
-    sys.stderr.flush()
 
 
 # List of results attributes as

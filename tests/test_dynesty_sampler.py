@@ -110,6 +110,55 @@ class DistributorDynestyTests(unittest.TestCase):
         self.assertIsInstance(s, DynestySampler)
 
 
+class JarvisLoggerBridgeTests(unittest.TestCase):
+    def test_progress_and_warnings_use_injected_logger(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import jarvis_logging as jl
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import print_fn
+
+        class CapturingLogger:
+            def __init__(self) -> None:
+                self.infos: list[str] = []
+                self.warnings: list[str] = []
+                self.extra = {"jarvis_module": "Dynesty.Inner"}
+
+            def bind(self, **kwargs):
+                return self
+
+            def info(self, msg, *a, **k):
+                self.infos.append(str(msg))
+
+            def warning(self, msg, *a, **k):
+                self.warnings.append(str(msg))
+
+        capt = CapturingLogger()
+        jl.set_dynesty_logger(capt)
+        try:
+            # Minimal results-like object for print_fn
+            results = type(
+                "R",
+                (),
+                {
+                    "loglstar": -1.0,
+                    "logz": -10.0,
+                    "logzvar": 0.01,
+                    "delta_logz": 0.5,
+                    "bounditer": 0,
+                    "nc": 3,
+                    "eff": 12.0,
+                },
+            )()
+            print_fn(results, niter=10, ncall=50, dlogz=0.01, logger=capt)
+            self.assertTrue(capt.infos or capt.warnings)
+            text = "\n".join(capt.infos + capt.warnings)
+            self.assertIn("Progress", text)
+            self.assertIn("logz", text.lower())
+
+            jl.emit_warning("test plateau warning", UserWarning)
+            self.assertTrue(any("plateau" in w or "test" in w for w in capt.warnings))
+        finally:
+            jl.set_dynesty_logger(None)
+
+
 class DynestyNestedSmokeTests(unittest.TestCase):
     def test_static_nested_with_redis_pool(self) -> None:
         """Small NestedSampler run (nlive small) through RedisEvaluationPool."""

@@ -48,9 +48,8 @@ class RedisEvaluationPool:
         timeout: float = 3600.0,
         seed: int = 0,
         method: str = "Dynesty",
+        logger=None,
     ) -> None:
-        from collections.abc import Mapping as _Mapping  # noqa: F401 — typing
-
         self.redis = redis
         self.build_sample = build_sample
         self.extract_logl = extract_logl or _default_extract_logl
@@ -60,7 +59,13 @@ class RedisEvaluationPool:
         self.method = str(method)
         self.njobs = self.batch_size
         self._call_index = 0
-        self._logger = get_jarvis_logger("sampler.dynesty.pool")
+        if logger is not None:
+            self._logger = logger
+        else:
+            self._logger = get_jarvis_logger(
+                "sampler.dynesty.pool",
+                module="Dynesty.Pool",
+            )
 
     @property
     def size(self) -> int:

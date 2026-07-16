@@ -20,6 +20,7 @@ import numpy as np
 from scipy.special import logsumexp
 from .sampler import Sampler, _initialize_live_points
 from .results import Results
+from .jarvis_logging import bind_inner, emit_progress, emit_warning, get_dynesty_logger, install_warnings_bridge
 from .utils import (get_seed_sequence, get_print_func, _kld_error,
                     compute_integrals, IteratorResult, IteratorResultShort,
                     RunRecord, get_neff_from_logwt, DelayTimer, save_sampler,
@@ -1822,6 +1823,9 @@ class DynamicSampler:
                 return
 
         # Baseline run.
+        install_warnings_bridge()
+        if getattr(self, "logger", None) is None:
+            self.logger = bind_inner(get_dynesty_logger())
         pbar, print_func = get_print_func(print_func, print_progress)
         self.checkpoint_timer = DelayTimer(checkpoint_every)
         try:
@@ -1848,14 +1852,18 @@ class DynamicSampler:
                             != DynamicSamplerStatesEnum.INBASEADDLIVE
                             and self.checkpoint_timer.is_time()):
                         self.save(checkpoint_file)
-                    # Print progress.
+                    # Print progress (Jarvis logger).
                     if print_progress:
-                        print_func(results,
-                                   niter,
-                                   ncall,
-                                   nbatch=0,
-                                   dlogz=dlogz_init,
-                                   logl_max=logl_max_init)
+                        emit_progress(
+                            print_func,
+                            getattr(self, "logger", None) or get_dynesty_logger(),
+                            results,
+                            niter,
+                            ncall,
+                            nbatch=0,
+                            dlogz=dlogz_init,
+                            logl_max=logl_max_init,
+                        )
             for n in range(self.batch, maxbatch):
                 # Update stopping criteria.
                 res = self.results
@@ -1900,13 +1908,17 @@ class DynamicSampler:
                 elif logl_bounds[1] != np.inf:
                     # We ran at least one batch and now we're done!
                     if print_progress:
-                        print_func(results,
-                                   niter,
-                                   ncall,
-                                   nbatch=n,
-                                   stop_val=stop_val,
-                                   logl_min=logl_bounds[0],
-                                   logl_max=logl_bounds[1])
+                        emit_progress(
+                            print_func,
+                            getattr(self, "logger", None) or get_dynesty_logger(),
+                            results,
+                            niter,
+                            ncall,
+                            nbatch=n,
+                            stop_val=stop_val,
+                            logl_min=logl_bounds[0],
+                            logl_max=logl_bounds[1],
+                        )
                     break
                 else:
                     # We didn't run a single batch but now we're done!
@@ -2091,15 +2103,19 @@ class DynamicSampler:
                         delta_logz=np.nan,
                         proposal_stats=cur_results.proposal_stats)
 
-                    # Print progress.
+                    # Print progress (Jarvis logger).
                     if print_progress:
-                        print_func(results,
-                                   niter,
-                                   ncall,
-                                   nbatch=n + 1,
-                                   stop_val=stop_val,
-                                   logl_min=logl_min,
-                                   logl_max=logl_max)
+                        emit_progress(
+                            print_func,
+                            getattr(self, "logger", None) or get_dynesty_logger(),
+                            results,
+                            niter,
+                            ncall,
+                            nbatch=n + 1,
+                            stop_val=stop_val,
+                            logl_min=logl_min,
+                            logl_max=logl_max,
+                        )
                     if (checkpoint_file is not None and self.internal_state
                             != DynamicSamplerStatesEnum.INBATCHADDLIVE
                             and self.internal_state
