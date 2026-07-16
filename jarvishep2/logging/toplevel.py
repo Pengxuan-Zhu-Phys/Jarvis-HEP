@@ -60,7 +60,61 @@ _state: dict[str, Any] = {
     "listener": None,
     "log_queue": None,
     "log_path": None,
+    "scan_logs_dir": None,
+    "component": None,
 }
+
+# Canonical files under ``logs/<scan>/`` (one process → one primary file).
+COMPONENT_LOG_BASENAME = {
+    "core": "core.log",
+    "control": "core.log",
+    "jarvis": "core.log",
+    "factory": "factory.log",  # same process as core unless setup alone
+    "sampler": "sampler.log",
+    "archiver": "archiver.log",
+    "worker": "worker.log",  # overridden by worker_id → worker-00.log
+}
+
+# V1 presentation labels (``·•· <module>``).
+COMPONENT_MODULE_LABEL = {
+    "core": "Jarvis-HEP",
+    "control": "Jarvis-HEP",
+    "jarvis": "Jarvis-HEP",
+    "factory": "Factory",
+    "sampler": "Sampler",
+    "archiver": "Archiver",
+    "worker": "Worker",
+}
+
+
+def scan_logs_dir(task_root: str, scan_name: str) -> str:
+    """Return ``<task_root>/logs/<scan>/`` (absolute)."""
+    root = os.path.abspath(os.path.expanduser(str(task_root or ".")))
+    scan = str(scan_name or "scan").strip() or "scan"
+    return os.path.join(root, "logs", scan)
+
+
+def component_log_path(
+    scan_logs: str,
+    component: str,
+    *,
+    worker_id: int | None = None,
+) -> str:
+    """Resolve a component log file under the scan logs directory."""
+    base = os.path.abspath(str(scan_logs))
+    role = str(component or "jarvis").strip().lower() or "jarvis"
+    if role == "worker" and worker_id is not None:
+        return os.path.join(base, f"worker-{int(worker_id):02d}.log")
+    name = COMPONENT_LOG_BASENAME.get(role, f"{role}.log")
+    return os.path.join(base, name)
+
+
+def component_module_label(component: str, *, worker_id: int | None = None) -> str:
+    """Default ``·•·`` module label for a component."""
+    role = str(component or "jarvis").strip().lower() or "jarvis"
+    if role == "worker" and worker_id is not None:
+        return f"Worker-{int(worker_id)}"
+    return COMPONENT_MODULE_LABEL.get(role, role)
 
 
 def format_record_context(record: logging.LogRecord) -> str:
@@ -217,6 +271,9 @@ def shutdown_jarvis_logging() -> None:
     _state["listener"] = None
     _state["log_queue"] = None
     _state["configured"] = False
+    _state["log_path"] = None
+    _state["scan_logs_dir"] = None
+    _state["component"] = None
 
 
 def setup_jarvis_logging(
@@ -224,32 +281,47 @@ def setup_jarvis_logging(
     level: str | int = "INFO",
     console: bool = True,
     role: str = "jarvis",
+    component: str | None = None,
     log_dir: str = "logs",
+    scan_logs_dir: str | None = None,
     log_path: str | None = None,
+    worker_id: int | None = None,
     max_bytes: int = 5 * 2**20,
     backup_count: int = 7,
     use_queue: bool = True,
 ) -> str:
     """Configure process-level Jarvis logging once per process.
 
-    File layout (D12.2):
-    - If ``log_path`` is given, use it (control process prefers
-      ``<task_root>/logs/<scan>/<scan>.log``).
-    - Otherwise ``<log_dir>/jarvis_{role}_{pid}.log`` (Workers / ad-hoc).
+    Preferred layout (scan-scoped, by component)::
+
+        logs/<scan>/core.log
+        logs/<scan>/worker-00.log
+        logs/<scan>/archiver.log
+
+    Resolution order for the file path:
+
+    1. Explicit ``log_path``
+    2. ``scan_logs_dir`` + ``component``/``role`` (+ ``worker_id`` for workers)
+    3. Legacy fallback: ``<log_dir>/jarvis_{role}_{pid}.log``
     """
     shutdown_jarvis_logging()
 
     resolved_level = _resolve_level(level)
+    comp = str(component or role or "jarvis").strip().lower() or "jarvis"
+    scan_dir = str(scan_logs_dir or "").strip() or None
 
     if log_path:
         resolved_path = os.path.abspath(str(log_path))
-        parent = os.path.dirname(resolved_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
+    elif scan_dir:
+        resolved_path = component_log_path(scan_dir, comp, worker_id=worker_id)
     else:
         log_root = os.path.abspath(log_dir)
         os.makedirs(log_root, exist_ok=True)
-        resolved_path = os.path.join(log_root, f"jarvis_{role}_{os.getpid()}.log")
+        resolved_path = os.path.join(log_root, f"jarvis_{comp}_{os.getpid()}.log")
+
+    parent = os.path.dirname(resolved_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
 
     logger = logging.getLogger(JARVIS_HEP_LOG_DOMAIN)
     logger.handlers.clear()
@@ -284,29 +356,56 @@ def setup_jarvis_logging(
 
     _state["configured"] = True
     _state["log_path"] = resolved_path
+    _state["scan_logs_dir"] = os.path.dirname(resolved_path)
+    _state["component"] = comp
     atexit.register(shutdown_jarvis_logging)
     return resolved_path
 
 
-def get_jarvis_logger(name: str = "jarvis") -> JarvisLoggerAdapter:
-    """Return a bound-capable adapter over the Jarvis log domain."""
+def get_jarvis_logger(
+    name: str = "jarvis",
+    *,
+    module: str | None = None,
+    worker_id: int | None = None,
+) -> JarvisLoggerAdapter:
+    """Return a bound-capable adapter over the Jarvis log domain.
+
+    ``module`` sets the V1 ``·•·`` label (via ``jarvis_module``). When omitted,
+    a sensible default is derived from ``name`` / ``worker_id``.
+    """
     qualified = (
         name
         if name.startswith(JARVIS_HEP_LOG_DOMAIN)
         else f"{JARVIS_HEP_LOG_DOMAIN}.{name}"
     )
+    # Strip domain for component heuristic.
+    short = name
+    if short.startswith(f"{JARVIS_HEP_LOG_DOMAIN}."):
+        short = short[len(JARVIS_HEP_LOG_DOMAIN) + 1 :]
+    root = short.split(".", 1)[0] if short else "jarvis"
+    label = module
+    if label is None:
+        if root.startswith("sampler"):
+            label = f"Sampler:{short.split('.', 1)[-1]}" if "." in short else "Sampler"
+        else:
+            label = component_module_label(root, worker_id=worker_id)
     return JarvisLoggerAdapter(
         logging.getLogger(qualified),
-        {"jarvis_module": name},
+        {"jarvis_module": label},
     )
 
 
 __all__ = [
+    "COMPONENT_LOG_BASENAME",
+    "COMPONENT_MODULE_LABEL",
     "JARVIS_HEP_LOG_DOMAIN",
     "JarvisContextFormatter",
     "JarvisLoggerAdapter",
+    "component_log_path",
+    "component_module_label",
     "format_record_context",
     "get_jarvis_logger",
+    "scan_logs_dir",
     "setup_jarvis_logging",
     "shutdown_jarvis_logging",
 ]

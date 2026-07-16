@@ -98,28 +98,35 @@ class Jarvis2Core:
 
     def init_logger(self) -> None:
         """Configure top-level logging with V1 visual format and scan-scoped file path."""
+        from jarvishep2.logging import component_log_path, scan_logs_dir
         from jarvishep2.proc_title import control_title, set_process_title
 
         scan_name = str(self.info.get("scan_name") or "scan")
         # Refresh process title once the scan name is known.
         set_process_title(control_title(scan_name=scan_name))
         task_root = str(self.info.get("task_root") or os.getcwd())
-        logs_dir = os.path.join(task_root, "logs", scan_name)
-        jarvis_log = os.path.join(logs_dir, f"{scan_name}.log")
+        logs_dir = scan_logs_dir(task_root, scan_name)
+        # Component file under logs/<scan>/ (control process → core.log).
+        jarvis_log = component_log_path(logs_dir, "core")
         self.info["logs_dir"] = logs_dir
         self.info["jarvis_log"] = jarvis_log
         setup_jarvis_logging(
             role="core",
-            log_dir=logs_dir,
+            component="core",
+            scan_logs_dir=logs_dir,
             log_path=jarvis_log,
             level="INFO",
             console=True,
             use_queue=True,
         )
-        self._logger = get_jarvis_logger("core").bind(module="Jarvis-HEP")
+        self._logger = get_jarvis_logger("core", module="Jarvis-HEP")
         try:
             self._logger.warning("\n" + render_logo_with_version())
             self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
+            self._logger.info(
+                "component logs under %s (core.log; workers: worker-NN.log; archiver.log)",
+                logs_dir,
+            )
             self._logger.info(f"Jarvis-HEP write into main log file -> {jarvis_log}")
         except Exception:
             # Logging must never block bootstrap; banner is best-effort.
@@ -133,9 +140,11 @@ class Jarvis2Core:
         return self.config
 
     def _populate_info_from_config(self) -> None:
+        from jarvishep2.logging import component_log_path, scan_logs_dir
+
         task_root = str(self.config.get("task_root") or os.getcwd())
         scan_name = str(self.config.get("scan_name") or "scan")
-        logs_dir = os.path.join(task_root, "logs", scan_name)
+        logs_dir = scan_logs_dir(task_root, scan_name)
         self.info = {
             "task_root": task_root,
             "task_result_dir": str(self.config.get("task_result_dir") or os.getcwd()),
@@ -144,7 +153,7 @@ class Jarvis2Core:
             "run_id": str(self.config.get("run_id") or uuid.uuid4()),
             "task_yaml": self.config.get("task_yaml"),
             "logs_dir": logs_dir,
-            "jarvis_log": os.path.join(logs_dir, f"{scan_name}.log"),
+            "jarvis_log": component_log_path(logs_dir, "core"),
         }
 
     def prepare_resume(self, *, resume: bool = False, fresh: bool = False) -> None:
@@ -858,12 +867,12 @@ class Jarvis2Core:
             except Exception:
                 pass
 
+        from jarvishep2.logging import component_log_path
+
         scan_name = str(self.info.get("scan_name") or "").strip() or None
         logs_dir = str(self.info.get("logs_dir") or "").strip() or None
         if str(archiver_config.get("mode", "process")).strip().lower() == "process":
-            archiver_log = None
-            if logs_dir:
-                archiver_log = os.path.join(logs_dir, "jarvis_archiver.log")
+            archiver_log = component_log_path(logs_dir, "archiver") if logs_dir else None
             self.archiver = ArchiverProcess(
                 redis_config,
                 db_path=resolved_db_path,
@@ -877,7 +886,7 @@ class Jarvis2Core:
             self.archiver.start()
             self._logger.info(
                 "Archiver process started (own logger → %s)",
-                archiver_log or "logs/jarvis_archiver_<pid>.log",
+                archiver_log or "logs/<scan>/archiver.log",
             )
         else:
             # Thread mode: same process as control; still bind module="Archiver".
@@ -887,7 +896,7 @@ class Jarvis2Core:
                 sample_root=sample_root,
                 delete_method=delete_method,
                 archiver_config=archiver_config,
-                logger=get_jarvis_logger("archiver").bind(module="Archiver"),
+                logger=get_jarvis_logger("archiver", module="Archiver"),
             )
             self.archiver.start()
             self._logger.info("Archiver thread started (module=Archiver)")

@@ -15,7 +15,9 @@ from datetime import datetime
 from jarvishep2.logging import (
     BufferedSampleLogger,
     SampleLogger,
+    component_log_path,
     get_jarvis_logger,
+    scan_logs_dir,
     setup_jarvis_logging,
     shutdown_jarvis_logging,
 )
@@ -45,7 +47,7 @@ class TopLevelLoggingTests(unittest.TestCase):
                 console=False,
                 use_queue=True,
             )
-            logger = get_jarvis_logger("worker").bind(worker_id="w-1")
+            logger = get_jarvis_logger("worker", module="Worker").bind(worker_id="w-1")
             logger.info("start sample", extra={"sample_uuid": "abc-123"})
 
             shutdown_jarvis_logging()
@@ -56,7 +58,7 @@ class TopLevelLoggingTests(unittest.TestCase):
 
             self.assertIn("INFO", text)
             self.assertIn("·•·", text)
-            self.assertIn("worker", text)
+            self.assertIn("Worker", text)
             self.assertIn("start sample", text)
             self.assertIn("worker_id=w-1", text)
             self.assertIn("sample_uuid=abc-123", text)
@@ -86,16 +88,53 @@ class TopLevelLoggingTests(unittest.TestCase):
 
     def test_scan_log_path_layout(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            scan_log = os.path.join(tmpdir, "logs", "myscan", "myscan.log")
+            logs = scan_logs_dir(tmpdir, "myscan")
+            self.assertEqual(logs, os.path.join(os.path.abspath(tmpdir), "logs", "myscan"))
+            core_path = component_log_path(logs, "core")
+            self.assertTrue(core_path.endswith(os.path.join("myscan", "core.log")))
+            worker_path = component_log_path(logs, "worker", worker_id=3)
+            self.assertTrue(worker_path.endswith(os.path.join("myscan", "worker-03.log")))
+            archiver_path = component_log_path(logs, "archiver")
+            self.assertTrue(archiver_path.endswith(os.path.join("myscan", "archiver.log")))
+
             path = setup_jarvis_logging(
-                log_path=scan_log,
+                scan_logs_dir=logs,
+                component="core",
                 role="core",
                 console=False,
                 use_queue=False,
             )
-            self.assertEqual(path, os.path.abspath(scan_log))
+            self.assertEqual(path, os.path.abspath(core_path))
             self.assertTrue(os.path.isfile(path))
+            logger = get_jarvis_logger("core", module="Jarvis-HEP")
+            logger.info("control line")
             shutdown_jarvis_logging()
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertIn("·•· Jarvis-HEP", text)
+            self.assertIn("control line", text)
+
+    def test_worker_component_log_under_scan_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logs = scan_logs_dir(tmpdir, "egg")
+            path = setup_jarvis_logging(
+                scan_logs_dir=logs,
+                component="worker",
+                worker_id=1,
+                console=False,
+                use_queue=False,
+            )
+            self.assertEqual(
+                path,
+                os.path.abspath(os.path.join(logs, "worker-01.log")),
+            )
+            log = get_jarvis_logger("worker", module="Worker-1", worker_id=1)
+            log.info("worker ready")
+            shutdown_jarvis_logging()
+            with open(path, encoding="utf-8") as handle:
+                text = handle.read()
+            self.assertIn("·•· Worker-1", text)
+            self.assertIn("worker ready", text)
 
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -128,16 +167,16 @@ class TopLevelLoggingTests(unittest.TestCase):
 
     def test_bind_returns_new_adapter_without_mutating_parent(self):
         shutdown_jarvis_logging()
-        parent = get_jarvis_logger("factory")
+        parent = get_jarvis_logger("factory")  # default ·•· label "Factory"
         child = parent.bind(worker_id="w-2")
         self.assertIsNot(child, parent)
-        self.assertEqual(parent.extra, {"jarvis_module": "factory"})
-        self.assertEqual(child.extra, {"jarvis_module": "factory", "worker_id": "w-2"})
+        self.assertEqual(parent.extra, {"jarvis_module": "Factory"})
+        self.assertEqual(child.extra, {"jarvis_module": "Factory", "worker_id": "w-2"})
         # V1-style module= is remapped onto jarvis_module (LogRecord-safe).
         labeled = parent.bind(module="Jarvis-HEP")
         self.assertEqual(labeled.extra.get("jarvis_module"), "Jarvis-HEP")
         self.assertNotIn("module", labeled.extra)
-        self.assertEqual(parent.extra.get("jarvis_module"), "factory")
+        self.assertEqual(parent.extra.get("jarvis_module"), "Factory")
 
 
 class SampleLoggingReplayTests(unittest.TestCase):

@@ -177,7 +177,11 @@ class Worker(Process):
                 log_policy="quiet",
                 progress_interval_sec=3600.0,
             ),
-            logger=get_jarvis_logger("worker").bind(worker_id=self.worker_id),
+            logger=get_jarvis_logger(
+                "worker",
+                module=f"Worker-{self.worker_id}",
+                worker_id=self.worker_id,
+            ),
         )
         self._scheduler.start()
         self._command_parser = CommandParser.from_picklable(self.worker_config.get("command_parser"))
@@ -460,10 +464,11 @@ class Worker(Process):
         sample = Sample.from_task_dict(payload)
         self._current_sample_uuid = sample.uuid
         self._heartbeat("busy")
-        top = get_jarvis_logger("worker").bind(
+        top = get_jarvis_logger(
+            "worker",
+            module=f"Worker-{self.worker_id}",
             worker_id=self.worker_id,
-            sample_uuid=sample.uuid,
-        )
+        ).bind(sample_uuid=sample.uuid)
         sample_config = dict(self.worker_config.get("sample_config") or {})
         # Stamp bucket parent before set_config so materialize lands under SAMPLE/<bucket>/<uuid>.
         if payload.get("bucket_dir"):
@@ -590,7 +595,32 @@ class Worker(Process):
             if isinstance(sample_config, dict):
                 scan_name = str(sample_config.get("scan_name") or "").strip()
         set_process_title(worker_title(self.worker_id, scan_name=scan_name or None))
-        setup_jarvis_logging(role="worker")
+        # logs/<scan>/worker-NN.log (scan_logs_dir from control via worker_config).
+        logs_dir = str(self.worker_config.get("logs_dir") or "").strip()
+        setup_kwargs: dict[str, Any] = {
+            "role": "worker",
+            "component": "worker",
+            "worker_id": self.worker_id,
+            "console": True,
+            "use_queue": True,
+        }
+        if logs_dir:
+            setup_kwargs["scan_logs_dir"] = logs_dir
+        setup_jarvis_logging(**setup_kwargs)
+        worker_log = get_jarvis_logger(
+            "worker",
+            module=f"Worker-{self.worker_id}",
+            worker_id=self.worker_id,
+        )
+        try:
+            worker_log.info(
+                "Worker process started pid=%s scan=%s logs_dir=%s",
+                self.pid,
+                scan_name or "?",
+                logs_dir or "(cwd fallback)",
+            )
+        except Exception:
+            pass
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
         self._init_redis()

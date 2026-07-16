@@ -38,6 +38,7 @@ ledger: `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
+| Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
 

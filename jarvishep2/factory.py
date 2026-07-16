@@ -53,7 +53,7 @@ class TaskFactory:
         self._recovery_lock = threading.Lock()
         self._last_recovered_pid: dict[int, int | None] = {}
         self._respawn_count = 0
-        self._logger = get_jarvis_logger("factory")
+        self._logger = get_jarvis_logger("factory", module="Factory")
 
     @classmethod
     def get_instance(cls, redis_config: dict[str, Any] | None = None) -> TaskFactory:

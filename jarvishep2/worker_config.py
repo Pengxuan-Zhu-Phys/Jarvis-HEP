@@ -133,6 +133,20 @@ def build_worker_config(
         worker_config["staging_dir"] = ""
     if scan_name:
         worker_config.setdefault("scan_name", scan_name)
+    # Component logs: logs/<scan>/worker-NN.log under project task_root.
+    if scan_name:
+        from jarvishep2.logging import scan_logs_dir
+
+        task_root = str(cfg.get("task_root") or cfg.get("project_root") or "").strip()
+        if not task_root:
+            trd = os.path.abspath(str(task_result_dir or "."))
+            parent = os.path.dirname(trd)
+            # Usual layout: <task_root>/outputs/<scan>
+            if os.path.basename(parent) == "outputs":
+                task_root = os.path.dirname(parent)
+            else:
+                task_root = parent or os.getcwd()
+        worker_config.setdefault("logs_dir", scan_logs_dir(task_root, scan_name))
     # EnvReqs.V2.worker.force_serial_layers → Runtime → Worker blueprint.
     if isinstance(runtime_block, Mapping) and "force_serial_layers" in runtime_block:
         worker_config["force_serial_layers"] = bool(runtime_block.get("force_serial_layers"))

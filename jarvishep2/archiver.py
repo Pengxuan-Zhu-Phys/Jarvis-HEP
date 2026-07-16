@@ -230,7 +230,7 @@ class SimpleArchiver:
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
         # Own logger identity: ``·•· Archiver`` (not the control ``Jarvis-HEP`` prefix).
-        self._logger = logger or get_jarvis_logger("archiver").bind(module="Archiver")
+        self._logger = logger or get_jarvis_logger("archiver", module="Archiver")
         self._last_progress_written = -1
         self._progress_interval = 50  # log every N DATABASE rows (and pack events)
 
@@ -468,6 +468,7 @@ class ArchiverProcess(Process):
         # Child process: own logging sinks (do not share control QueueListener).
         setup_kwargs: dict[str, Any] = {
             "role": "archiver",
+            "component": "archiver",
             "level": "INFO",
             "console": True,
             "use_queue": True,
@@ -475,9 +476,9 @@ class ArchiverProcess(Process):
         if self.log_path:
             setup_kwargs["log_path"] = self.log_path
         elif self.log_dir:
-            setup_kwargs["log_dir"] = self.log_dir
+            setup_kwargs["scan_logs_dir"] = self.log_dir
         setup_jarvis_logging(**setup_kwargs)
-        logger = get_jarvis_logger("archiver").bind(module="Archiver")
+        logger = get_jarvis_logger("archiver", module="Archiver")
         try:
             logger.info(
                 "Archiver process started pid=%s scan=%s sample_root=%s db=%s",
