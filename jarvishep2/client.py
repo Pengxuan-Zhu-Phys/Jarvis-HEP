@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
             "  Jarvis2 ps                  # list running Jarvis* processes\n"
             "  Jarvis2 kill [--yes]        # kill them (asks for confirmation)\n"
+            "  Jarvis2 -v / --version      # logo + authors + package version\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -96,6 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 --monitor\n"
             "  Jarvis2 PLOT.yaml --plot   (deprecated)\n"
         ),
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="store_true",
+        help="Print Jarvis-HEP logo, author information and runtime package version",
     )
     sub = parser.add_subparsers(dest="command", required=False)
 
@@ -271,6 +278,14 @@ def run_monitor(
         print("No active scan found.", file=sys.stderr)
         return EXIT_RUN_FAILED
     sys.stdout.write(format_monitor_view(view))
+    return EXIT_OK
+
+
+def dispatch_version() -> int:
+    """Print V1-style logo banner with injected runtime version (no scan init)."""
+    from jarvishep2.versioning import render_logo_with_version
+
+    print(render_logo_with_version())
     return EXIT_OK
 
 
@@ -1012,6 +1027,9 @@ def dispatch_run(
 
 
 def dispatch(args: argparse.Namespace) -> int:
+    if bool(getattr(args, "version", False)):
+        return dispatch_version()
+
     try:
         intent, args = resolve_intent(args)
     except ValueError as exc:

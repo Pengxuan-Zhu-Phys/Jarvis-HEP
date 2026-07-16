@@ -77,6 +77,30 @@ class CliResolveIntentTests(unittest.TestCase):
             resolve_intent(args)
 
 
+class CliVersionTests(unittest.TestCase):
+    def test_parse_version_flags(self) -> None:
+        for flag in ("-v", "--version"):
+            args = build_parser().parse_args([flag])
+            self.assertTrue(args.version)
+
+    def test_dispatch_version_prints_logo(self) -> None:
+        from jarvishep2.client import dispatch_version
+
+        with mock.patch("builtins.print") as printer:
+            code = dispatch_version()
+        self.assertEqual(code, EXIT_OK)
+        printer.assert_called_once()
+        banner = str(printer.call_args[0][0])
+        self.assertIn("Version:", banner)
+        self.assertIn("Author:", banner)
+
+    def test_main_version_short_circuit(self) -> None:
+        with mock.patch("jarvishep2.client.dispatch_version", return_value=0) as ver:
+            code = main(["--version"])
+        self.assertEqual(code, 0)
+        ver.assert_called_once()
+
+
 class CliDispatchTests(unittest.TestCase):
     def test_dispatch_routes_check_modules_to_core(self) -> None:
         args = build_parser().parse_args(
