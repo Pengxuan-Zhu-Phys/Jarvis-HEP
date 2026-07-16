@@ -247,6 +247,16 @@ def register_builtin_samplers(*, override: bool = True) -> None:
             resume="implemented",
             override=override,
         )
+    # D13.5 — Dynesty nested sampling (vendored + RedisEvaluationPool).
+    from jarvishep2.Sampling.dynesty_sampler import create_dynesty
+
+    Distributor.register(
+        "Dynesty",
+        create_dynesty,
+        stateless=False,
+        resume="partial",  # full native resume progressive under D13.6
+        override=override,
+    )
 
 
 register_builtin_samplers()
