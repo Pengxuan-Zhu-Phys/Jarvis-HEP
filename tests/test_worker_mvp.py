@@ -508,8 +508,12 @@ class WorkerMVPTests(unittest.TestCase):
                 time.sleep(0.5)
                 os.kill(worker.pid, signum)
                 core.factory.stop_all_workers(graceful=True, join_timeout=15.0)
+                # ArchiverProcess accepts drain= for SimpleArchiver API parity.
                 core.archiver.stop(drain=True)
-                self.assertEqual(core.archiver.records_written, 1)
+                written = core.archiver.records_written
+                if hasattr(written, "value"):
+                    written = written.value
+                self.assertEqual(int(written), 1)
         finally:
             server.shutdown()
             server.server_close()

@@ -535,7 +535,15 @@ class ArchiverProcess(Process):
         except Exception:
             return 0
 
-    def stop(self, *, wait: bool = True, timeout: float = 5.0) -> None:
+    def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> None:
+        """Stop the child Archiver.
+
+        ``drain`` is accepted for API parity with :class:`SimpleArchiver`. The
+        child always drains its in-process SimpleArchiver on exit
+        (``archiver.stop(wait=True, drain=True)`` in :meth:`run`); the flag is
+        therefore informational for callers and does not change parent behavior.
+        """
+        _ = drain
         self._stop_event.set()
         if wait:
             self.join(timeout=max(0.1, float(timeout)))

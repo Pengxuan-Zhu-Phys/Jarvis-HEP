@@ -98,6 +98,7 @@ class DashboardReaderTests(unittest.TestCase):
 
 class ClientMonitorTests(unittest.TestCase):
     def test_client_main_no_scan_exit_code(self) -> None:
+        """Legacy ``Jarvis2 --monitor`` (no task YAML) when no active scan → exit 1."""
         from jarvishep2.client import main
 
         queue = make_fakeredis_queue()
@@ -105,7 +106,8 @@ class ClientMonitorTests(unittest.TestCase):
         with mock.patch("jarvishep2.client.RedisQueue", return_value=queue):
             with mock.patch.object(queue, "connect", return_value=None):
                 with mock.patch.object(queue, "close", return_value=None):
-                    code = main(["task.yaml", "--monitor"])
+                    # Documented legacy form is top-level --monitor, not bare YAML.
+                    code = main(["--monitor"])
         self.assertEqual(code, 1)
 
 

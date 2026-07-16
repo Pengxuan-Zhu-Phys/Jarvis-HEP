@@ -47,6 +47,10 @@ class CliNormalizeArgvTests(unittest.TestCase):
             ["monitor"],
         )
 
+    def test_legacy_top_level_monitor_flag(self) -> None:
+        """``Jarvis2 --monitor`` keeps the top-level flag (resolve_intent → monitor)."""
+        self.assertEqual(normalize_argv(["--monitor"]), ["--monitor"])
+
 
 class CliParseTests(unittest.TestCase):
     def test_parse_run_subcommand(self) -> None:
