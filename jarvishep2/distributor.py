@@ -222,6 +222,31 @@ def register_builtin_samplers(*, override: bool = True) -> None:
             resume="implemented",
             override=override,
         )
+    # D13.3 — Ensemble / DE / PT family.
+    from jarvishep2.Sampling.mcmc_sampler import (
+        create_demcmc,
+        create_ensemble,
+        create_ensemble_alias,
+        create_pt,
+        create_pt_ensemble,
+        create_ptmcmc,
+    )
+
+    for name, factory in (
+        ("EnsembleMCMC", create_ensemble),
+        ("Ensemble", create_ensemble_alias),
+        ("DEMCMC", create_demcmc),
+        ("PTMCMC", create_ptmcmc),
+        ("PT", create_pt),
+        ("PTEnsemble", create_pt_ensemble),
+    ):
+        Distributor.register(
+            name,
+            factory,
+            stateless=False,
+            resume="implemented",
+            override=override,
+        )
 
 
 register_builtin_samplers()

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Feedback-driven MCMC / AM / DRAM samplers (D13.2).
+"""Feedback-driven MCMC family samplers (D13.2 + D13.3).
 
 Ports V1 chain science (``Sampling/Source/MCMC/*`` engines) onto
 :class:`FeedbackSampler`: one generation = one Metropolis step across all
-chains (DRAM delayed-rejection stages are intra-generation mini-batches).
+chains (DRAM delayed-rejection stages are intra-generation mini-batches;
+ensemble methods use half-ensemble barriers; PT swaps at barriers).
 Never imports ``jarvishep``.
 """
 
@@ -18,6 +19,7 @@ import numpy as np
 from jarvishep2.Sampling.Source.MCMC.ammcmc_chain import AMMCMCChain
 from jarvishep2.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
 from jarvishep2.Sampling.Source.MCMC.config_contract import (
+    bounds_get,
     bounds_get_bool,
     bounds_get_float,
     bounds_get_int,
@@ -27,6 +29,8 @@ from jarvishep2.Sampling.Source.MCMC.config_contract import (
     parse_proposal_scale_value,
 )
 from jarvishep2.Sampling.Source.MCMC.dram_chain import DRAMChain
+from jarvishep2.Sampling.Source.MCMC.engine_demcmc import DEMCMCChain
+from jarvishep2.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
@@ -36,6 +40,13 @@ from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 _FAILED_LOGL = -1.0e300
+
+# Methods that use complementary-half ensemble proposals (emcee-style).
+_ENSEMBLE_METHODS = frozenset(
+    {"EnsembleMCMC", "Ensemble", "DEMCMC", "PTEnsemble"}
+)
+# Methods that run temperature-exchange after a full step.
+_PT_METHODS = frozenset({"PTMCMC", "PT", "PTEnsemble"})
 
 
 def mcmc_sample_uuid(
@@ -56,9 +67,11 @@ def mcmc_sample_uuid(
 
 
 class MCMCSampler(FeedbackSampler):
-    """Metropolis family on the V2 redis/feedback runtime.
+    """Metropolis / ensemble / PT family on the V2 redis/feedback runtime.
 
-    YAML ``Sampling.Method``: ``MCMC`` | ``AMMCMC`` | ``AM`` | ``DRAM``.
+    YAML ``Sampling.Method``: ``MCMC`` | ``AMMCMC`` | ``AM`` | ``DRAM`` |
+    ``EnsembleMCMC`` | ``Ensemble`` | ``DEMCMC`` | ``PTMCMC`` | ``PT`` |
+    ``PTEnsemble``.
     """
 
     method = "MCMC"
@@ -87,6 +100,18 @@ class MCMCSampler(FeedbackSampler):
         self._adapt_scale = 2.38
         self._dr_steps = 2
         self._dr_scale_factors = [1.0, 0.5]
+        # Ensemble / DE (D13.3)
+        self._stretch_a = 2.0
+        self._de_gamma = 0.0
+        self._de_noise = 1.0e-3
+        self._de_crossover = 1.0
+        # PT (D13.3)
+        self._temperature_ladder: list[float] = [1.0]
+        self._exchange_interval = 1
+        self._exchange_offset = 0
+        self._swap_attempts = 0
+        self._swap_accepts = 0
+        self._exchange_rng: np.random.Generator | None = None
         self._summary: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------ config
@@ -161,6 +186,61 @@ class MCMCSampler(FeedbackSampler):
                 factors = [1.0, float(factors)]
             self._dr_scale_factors = [max(1e-6, float(x)) for x in factors]
 
+        if self.method in ("EnsembleMCMC", "Ensemble", "PTEnsemble"):
+            self._stretch_a = bounds_get_float(
+                bounds,
+                "stretch_a",
+                aliases=("ensemble.stretch_a",),
+                default=2.0,
+                minimum=1.01,
+            )
+        if self.method == "DEMCMC":
+            self._de_gamma = bounds_get_float(
+                bounds,
+                "de_gamma",
+                aliases=("de.gamma",),
+                default=0.0,
+                minimum=0.0,
+            )
+            self._de_noise = bounds_get_float(
+                bounds,
+                "de_noise",
+                aliases=("de.noise",),
+                default=1.0e-3,
+                minimum=0.0,
+            )
+            self._de_crossover = bounds_get_float(
+                bounds,
+                "de_crossover",
+                aliases=("de.crossover",),
+                default=1.0,
+                minimum=0.0,
+            )
+        if self.method in _PT_METHODS:
+            self._exchange_interval = bounds_get_int(
+                bounds,
+                "exchange_interval",
+                aliases=("exchange.interval",),
+                default=1,
+                minimum=1,
+            )
+            ladder = bounds_get(
+                bounds,
+                "temperature_ladder",
+                aliases=("temperature.ladder",),
+                default=None,
+            )
+            if ladder is None:
+                ladder = [1.0 + float(ii) for ii in range(self._nchains)]
+            self._temperature_ladder = [float(x) for x in ladder]
+            if len(self._temperature_ladder) != self._nchains:
+                raise ValueError(
+                    f"temperature_ladder size mismatch for {self.method}: "
+                    f"expect {self._nchains}, got {len(self._temperature_ladder)}"
+                )
+        if self.method in _ENSEMBLE_METHODS and self._nchains < 2:
+            raise ValueError(f"{self.method} requires num_chains >= 2")
+
         if self._nchains < workers:
             self._logger.warning(
                 "%s: chains (%d) < workers (%d) — workers may idle at barriers; "
@@ -176,6 +256,32 @@ class MCMCSampler(FeedbackSampler):
             nchains=self._nchains,
             sampler_method=self.method,
         )
+
+    def _uses_half_ensemble(self) -> bool:
+        return self.method in _ENSEMBLE_METHODS
+
+    def _uses_pt(self) -> bool:
+        return self.method in _PT_METHODS
+
+    def _population_for(self, chain_id: int) -> list[np.ndarray]:
+        """Complementary population for ensemble / DE moves.
+
+        Half-ensemble: partners are the other half of walkers (emcee semantics).
+        """
+        assert self._registry is not None
+        ids = self._registry.ids()
+        mid = max(1, len(ids) // 2)
+        if int(chain_id) < mid:
+            partner_ids = [j for j in ids if j >= mid]
+        else:
+            partner_ids = [j for j in ids if j < mid]
+        out: list[np.ndarray] = []
+        for j in partner_ids:
+            eng = self._registry.get(j).engine
+            if eng is None:
+                continue
+            out.append(np.asarray(eng.param, dtype=float))
+        return out
 
     def _make_engine(self, chain_id: int, scale: float, rng: np.random.Generator):
         initial = rng.random(self._dim)
@@ -205,6 +311,28 @@ class MCMCSampler(FeedbackSampler):
                 adapt_scale=self._adapt_scale,
                 rng=rng,
             )
+        if self.method in ("EnsembleMCMC", "Ensemble", "PTEnsemble"):
+            return EnsembleChain(
+                initial,
+                scale,
+                self._niters,
+                chain_id=chain_id,
+                population_getter=self._population_for,
+                stretch_a=self._stretch_a,
+                rng=rng,
+            )
+        if self.method == "DEMCMC":
+            return DEMCMCChain(
+                initial,
+                scale,
+                self._niters,
+                chain_id=chain_id,
+                population_getter=self._population_for,
+                de_gamma=self._de_gamma,
+                de_noise=self._de_noise,
+                de_crossover=self._de_crossover,
+                rng=rng,
+            )
         return MCMCChain(initial, scale, self._niters, rng=rng)
 
     def _ensure_registry(self) -> ChainRegistry:
@@ -212,8 +340,20 @@ class MCMCSampler(FeedbackSampler):
             return self._registry
         root = self._ensure_seed_sequence()
         # One child SeedSequence per chain → worker-count-independent trajectories.
-        children = root.spawn(self._nchains)
+        n_spawn = self._nchains + (1 if self._uses_pt() else 0)
+        children = root.spawn(max(1, n_spawn))
         scales = self._normalize_scales()
+        ladder = (
+            list(self._temperature_ladder)
+            if self._uses_pt()
+            else [1.0] * self._nchains
+        )
+        cold_temp = min(ladder) if ladder else 1.0
+        cold_idx = 0
+        for ii, temp in enumerate(ladder):
+            if float(temp) == float(cold_temp):
+                cold_idx = ii
+                break
         chains: list[ChainRuntime] = []
         for cid in range(self._nchains):
             rng = np.random.default_rng(children[cid])
@@ -222,12 +362,14 @@ class MCMCSampler(FeedbackSampler):
                 ChainRuntime(
                     chain_id=cid,
                     engine=engine,
-                    temperature=1.0,
-                    is_cold=(cid == 0),
-                    open_stage=0 if engine.iterations < engine.n_iterations else None,
+                    temperature=float(ladder[cid] if cid < len(ladder) else 1.0),
+                    is_cold=(cid == cold_idx),
+                    open_stage=None,
                 )
             )
         self._registry = ChainRegistry(chains)
+        if self._uses_pt() and self._exchange_rng is None:
+            self._exchange_rng = np.random.default_rng(children[self._nchains])
         return self._registry
 
     # --------------------------------------------------------------- proposals
@@ -299,17 +441,34 @@ class MCMCSampler(FeedbackSampler):
         }
         return sample
 
-    def _propose_for_stages(self, *, stages: str) -> list[Sample]:
+    def _half_chain_ids(self, half: int) -> list[int]:
+        ids = self._ensure_registry().ids()
+        mid = max(1, len(ids) // 2)
+        if int(half) == 0:
+            return [i for i in ids if i < mid]
+        return [i for i in ids if i >= mid]
+
+    def _propose_for_stages(
+        self,
+        *,
+        stages: str,
+        chain_ids: Sequence[int] | None = None,
+    ) -> list[Sample]:
         """Build proposals.
 
         ``stages``:
           * ``"step"`` — stage-0 for every unfinished chain whose open_stage is
             idle (``None``); starts a new Metropolis step for that chain.
           * ``"followup"`` — only delayed-rejection stages (``open_stage > 0``).
+
+        ``chain_ids``: optional subset (half-ensemble); default = all chains.
         """
         registry = self._ensure_registry()
+        allowed = None if chain_ids is None else {int(c) for c in chain_ids}
         samples: list[Sample] = []
         for chain in registry.all():
+            if allowed is not None and int(chain.chain_id) not in allowed:
+                continue
             engine = chain.engine
             if engine.iterations >= engine.n_iterations:
                 chain.open_stage = None
@@ -396,6 +555,7 @@ class MCMCSampler(FeedbackSampler):
                     chain.last_logl = getattr(engine, "last_loglikelihood", logl)
                     # Idle until the outer loop starts the next step.
                     chain.open_stage = None
+                    chain.window_iter = int(chain.window_iter) + 1
                     chain.history.append_from_values(
                         iter=chain.iter,
                         state="UPDATE",
@@ -419,6 +579,7 @@ class MCMCSampler(FeedbackSampler):
                 chain.iter = int(engine.iterations)
                 chain.last_logl = getattr(engine, "last_loglikelihood", logl)
                 chain.open_stage = None
+                chain.window_iter = int(chain.window_iter) + 1
                 chain.history.append_from_values(
                     iter=chain.iter,
                     state="UPDATE",
@@ -429,9 +590,12 @@ class MCMCSampler(FeedbackSampler):
                 )
             self._uuid_to_meta.pop(uuid, None)
 
-    def _needs_stage_followup(self) -> bool:
+    def _needs_stage_followup(self, chain_ids: Sequence[int] | None = None) -> bool:
         registry = self._ensure_registry()
+        allowed = None if chain_ids is None else {int(c) for c in chain_ids}
         for chain in registry.all():
+            if allowed is not None and int(chain.chain_id) not in allowed:
+                continue
             if chain.open_stage is not None and int(chain.open_stage) > 0:
                 if chain.engine.iterations < chain.engine.n_iterations:
                     return True
@@ -444,9 +608,118 @@ class MCMCSampler(FeedbackSampler):
             for chain in registry.all()
         )
 
+    # ----------------------------------------------------------------- PT swap
+    def _pair_chain_ids(self) -> list[tuple[int, int]]:
+        ids = self._ensure_registry().ids()
+        if len(ids) < 2:
+            return []
+        offset = int(self._exchange_offset) % len(ids)
+        rotated = ids[offset:] + ids[:offset]
+        pairs: list[tuple[int, int]] = []
+        for ii in range(0, len(rotated) - 1, 2):
+            pairs.append((rotated[ii], rotated[ii + 1]))
+        self._exchange_offset = (self._exchange_offset + 1) % max(len(ids), 1)
+        return pairs
+
+    def _swap_acceptance(
+        self, logl1: float, temp1: float, logl2: float, temp2: float
+    ) -> bool:
+        beta1 = 1.0 / float(temp1) if float(temp1) > 0 else 1.0
+        beta2 = 1.0 / float(temp2) if float(temp2) > 0 else 1.0
+        delta = (beta1 - beta2) * (float(logl2) - float(logl1))
+        if delta >= 0.0:
+            return True
+        rng = self._exchange_rng or np.random.default_rng()
+        return bool(rng.random() < np.exp(np.clip(delta, -700.0, 0.0)))
+
+    def _attempt_swap(self, cid1: int, cid2: int) -> bool:
+        registry = self._ensure_registry()
+        chain1 = registry.get(cid1)
+        chain2 = registry.get(cid2)
+        if chain1.last_logl is None or chain2.last_logl is None:
+            return False
+        accepted = self._swap_acceptance(
+            float(chain1.last_logl),
+            chain1.temperature,
+            float(chain2.last_logl),
+            chain2.temperature,
+        )
+        if not accepted:
+            return False
+        # Swap state (params + logL); temperatures stay on the ladder slots.
+        e1, e2 = chain1.engine, chain2.engine
+        e1.param, e2.param = (
+            np.asarray(e2.param, dtype=float).copy(),
+            np.asarray(e1.param, dtype=float).copy(),
+        )
+        e1.last_loglikelihood, e2.last_loglikelihood = (
+            e2.last_loglikelihood,
+            e1.last_loglikelihood,
+        )
+        chain1.last_logl, chain2.last_logl = chain2.last_logl, chain1.last_logl
+        return True
+
+    def _should_exchange(self) -> bool:
+        if not self._uses_pt():
+            return False
+        if int(self._exchange_interval) <= 0:
+            return False
+        registry = self._ensure_registry()
+        for chain in registry.all():
+            if chain.engine.iterations >= int(self._niters):
+                continue
+            if int(chain.window_iter) < int(self._exchange_interval):
+                return False
+            if chain.last_logl is None:
+                return False
+        return True
+
+    def _do_exchange(self) -> dict[str, int]:
+        attempted = 0
+        accepted = 0
+        for cid1, cid2 in self._pair_chain_ids():
+            attempted += 1
+            self._swap_attempts += 1
+            if self._attempt_swap(cid1, cid2):
+                accepted += 1
+                self._swap_accepts += 1
+        for chain in self._ensure_registry().all():
+            chain.window_iter = 0
+        self._logger.info(
+            "%s exchange: attempted=%d accepted=%d",
+            self.method,
+            attempted,
+            accepted,
+        )
+        return {"attempted": attempted, "accepted": accepted}
+
+    def _run_half_or_all(
+        self,
+        *,
+        timeout: float,
+        chain_ids: Sequence[int] | None,
+    ) -> int:
+        """Propose → barrier → absorb for one subset of chains; return submitted count."""
+        batch = self._propose_for_stages(stages="step", chain_ids=chain_ids)
+        if not batch:
+            return 0
+        submitted = self._submit_sample_batch(batch)
+        results = self.wait_for_generation(timeout=timeout)
+        self.absorb_generation(results)
+        while self._needs_stage_followup(chain_ids):
+            stage_batch = self._propose_for_stages(
+                stages="followup", chain_ids=chain_ids
+            )
+            if not stage_batch:
+                break
+            submitted += self._submit_sample_batch(stage_batch)
+            results = self.wait_for_generation(timeout=timeout)
+            self.absorb_generation(results)
+        return submitted
+
     # ----------------------------------------------------------------- driver
     def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        """Generation loop with DRAM stage mini-batches inside each step."""
+        """Generation loop: half-ensemble / DRAM stages / PT exchange."""
         self._require_redis(f"{self.method}.run_adaptive")
         self._ensure_seed_sequence()
         self._ensure_registry()
@@ -460,22 +733,20 @@ class MCMCSampler(FeedbackSampler):
             self.absorb_generation(results)
 
         while not self._all_finished():
-            proposals = self.propose_generation()
-            if proposals is None:
-                break
-            batch = list(proposals)
-            total_submitted += self._submit_sample_batch(batch)
-            results = self.wait_for_generation(timeout=timeout)
-            self.absorb_generation(results)
+            if self._uses_half_ensemble():
+                # Half 0 then half 1 — complementary partners stay fixed within a half.
+                for half in (0, 1):
+                    total_submitted += self._run_half_or_all(
+                        timeout=timeout,
+                        chain_ids=self._half_chain_ids(half),
+                    )
+            else:
+                total_submitted += self._run_half_or_all(
+                    timeout=timeout, chain_ids=None
+                )
 
-            # DRAM delayed rejection: follow-up stages until every chain settles.
-            while self._needs_stage_followup():
-                stage_batch = self._propose_for_stages(stages="followup")
-                if not stage_batch:
-                    break
-                total_submitted += self._submit_sample_batch(stage_batch)
-                results = self.wait_for_generation(timeout=timeout)
-                self.absorb_generation(results)
+            if self._should_exchange():
+                self._do_exchange()
 
             self._generation = max(
                 (int(c.engine.iterations) for c in self._ensure_registry().all()),
@@ -523,7 +794,7 @@ class MCMCSampler(FeedbackSampler):
                 }
             )
         rhat = _gelman_rubin_rhat(logl_series)
-        return {
+        payload: dict[str, Any] = {
             "method": self.method,
             "n_chains": self._nchains,
             "n_iters": self._niters,
@@ -538,6 +809,13 @@ class MCMCSampler(FeedbackSampler):
             "failed_samples": len(self._failed_uuids),
             "chains": chains,
         }
+        if self._uses_half_ensemble():
+            payload["half_ensemble"] = True
+        if self._uses_pt():
+            payload["swap_attempts"] = int(self._swap_attempts)
+            payload["swap_accepts"] = int(self._swap_accepts)
+            payload["temperature_ladder"] = list(self._temperature_ladder)
+        return payload
 
     def summary(self) -> dict[str, Any]:
         if self._summary is None:
@@ -582,6 +860,10 @@ class MCMCSampler(FeedbackSampler):
                 "failed_uuids": list(self._failed_uuids),
                 "uuid_to_meta": dict(self._uuid_to_meta),
                 "summary": self._summary,
+                "swap_attempts": int(self._swap_attempts),
+                "swap_accepts": int(self._swap_accepts),
+                "exchange_offset": int(self._exchange_offset),
+                "temperature_ladder": list(self._temperature_ladder),
                 "chains": [
                     {
                         "chain_id": c.chain_id,
@@ -590,6 +872,7 @@ class MCMCSampler(FeedbackSampler):
                         "iter": c.iter,
                         "accepted": c.accepted,
                         "rejected": c.rejected,
+                        "window_iter": int(c.window_iter),
                         "last_logl": c.last_logl,
                         "open_stage": c.open_stage,
                         "engine": c.engine.export_state(),
@@ -610,12 +893,19 @@ class MCMCSampler(FeedbackSampler):
             str(k): dict(v) for k, v in dict(state.get("uuid_to_meta") or {}).items()
         }
         self._summary = state.get("summary")
+        self._swap_attempts = int(state.get("swap_attempts", 0) or 0)
+        self._swap_accepts = int(state.get("swap_accepts", 0) or 0)
+        self._exchange_offset = int(state.get("exchange_offset", 0) or 0)
+        ladder = state.get("temperature_ladder")
+        if ladder is not None:
+            self._temperature_ladder = [float(x) for x in ladder]
         raw_chains = list(state.get("chains") or [])
         if not raw_chains:
             self._registry = None
             return
         scales = self._normalize_scales() if self._nchains else []
-        children = self._ensure_seed_sequence().spawn(max(1, len(raw_chains)))
+        n_spawn = max(1, len(raw_chains) + (1 if self._uses_pt() else 0))
+        children = self._ensure_seed_sequence().spawn(n_spawn)
         chains: list[ChainRuntime] = []
         for item in raw_chains:
             if not isinstance(item, Mapping):
@@ -636,11 +926,14 @@ class MCMCSampler(FeedbackSampler):
                     iter=int(item.get("iter", 0) or 0),
                     accepted=int(item.get("accepted", 0) or 0),
                     rejected=int(item.get("rejected", 0) or 0),
+                    window_iter=int(item.get("window_iter", 0) or 0),
                     last_logl=item.get("last_logl"),
                     open_stage=item.get("open_stage"),
                 )
             )
         self._registry = ChainRegistry(chains)
+        if self._uses_pt() and len(children) > len(raw_chains):
+            self._exchange_rng = np.random.default_rng(children[len(raw_chains)])
 
 
 def _gelman_rubin_rhat(series: list[list[float]]) -> float | None:
@@ -681,11 +974,41 @@ def create_dram() -> MCMCSampler:
     return MCMCSampler("DRAM")
 
 
+def create_ensemble() -> MCMCSampler:
+    return MCMCSampler("EnsembleMCMC")
+
+
+def create_ensemble_alias() -> MCMCSampler:
+    return MCMCSampler("Ensemble")
+
+
+def create_demcmc() -> MCMCSampler:
+    return MCMCSampler("DEMCMC")
+
+
+def create_ptmcmc() -> MCMCSampler:
+    return MCMCSampler("PTMCMC")
+
+
+def create_pt() -> MCMCSampler:
+    return MCMCSampler("PT")
+
+
+def create_pt_ensemble() -> MCMCSampler:
+    return MCMCSampler("PTEnsemble")
+
+
 __all__ = [
     "MCMCSampler",
     "create_am",
     "create_ammcmc",
+    "create_demcmc",
     "create_dram",
+    "create_ensemble",
+    "create_ensemble_alias",
     "create_mcmc",
+    "create_pt",
+    "create_pt_ensemble",
+    "create_ptmcmc",
     "mcmc_sample_uuid",
 ]
