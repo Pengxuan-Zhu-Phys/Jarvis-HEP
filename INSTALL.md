@@ -113,7 +113,12 @@ Operas:
 Run and inspect:
 
 ```bash
+Jarvis2 -v                            # logo + authors + package version
+Jarvis2 --version
+
 Jarvis2 run quickstart.yaml           # preferred
+Jarvis2 run quickstart.yaml --console-level WARNING
+Jarvis2 run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
 Jarvis2 quickstart.yaml               # legacy alias → run
 Jarvis2 check path/to/check.yaml      # fixed-point calculator smoke
 Jarvis2 monitor                       # one read-only status snapshot
@@ -122,6 +127,11 @@ Jarvis2 portal man                    # list Portal formats (same as jportal man
 Jarvis2 portal man slha               # format manual
 Jarvis2 portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
 Jarvis2 operas list                   # list Operas operators
+
+# while a scan is running (another terminal), or after a hard kill:
+Jarvis2 ps                            # running Jarvis2* / Jarvis-Redis* processes
+Jarvis2 kill                          # list + confirm [y/N], then terminate
+Jarvis2 kill --yes                    # non-interactive kill
 
 # legacy (still work):
 Jarvis2 quickstart.yaml --resume
@@ -207,22 +217,8 @@ Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Ar
 and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
 leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
 
-```bash
-Jarvis2 -v                 # logo + authors + package version
-Jarvis2 --version
-```
-
-While a scan is running (or after a hard kill), you can inspect OS process titles
-(`Jarvis2*`, `Jarvis-Redis*`) from another terminal:
-
-```bash
-Jarvis2 ps                # list running Jarvis processes (count + PID + title)
-Jarvis2 kill              # show list, ask [y/N], then SIGTERM → SIGKILL
-Jarvis2 kill --yes        # skip confirmation (scripts / non-interactive)
-```
-
-Exit codes: **0** all samples succeeded; **1** any sample failed (including partial) or runtime
-error; **2** usage/config; **130** interrupted.
+Exit codes: **0** success (also version / empty `ps`); **1** any sample failed (including partial),
+kill incomplete, or runtime error; **2** usage/config; **130** interrupted.
 
 `--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML (scan-driven plot
 scenes are partial). Portal / Operas / project tools are native `Jarvis2` subcommands.

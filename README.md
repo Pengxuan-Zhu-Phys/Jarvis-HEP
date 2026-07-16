@@ -4,12 +4,12 @@ Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + s
 
 **Where we are (2026-07-16):** D0–D7 runtime, D11 UI, and **D12.0–D12.6 + D12.8** are in
 (including `Jarvis2 project …`, Examples catalog, restricted pack crypto via CLI). Recent
-as-built: **FileOperation** owns SAMPLE save/copy/delete (Portal keeps format R/W only),
-Archiver has its own logger, full `DATABASE/samples.csv` export, end-of-scan **[Scan Performance]**
-log (`samples_per_sec`, `avg_sample_sec`, …). **Agent bridge (D8) is parked.** Authoritative
-ledger: `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
+as-built: **FileOperation** SAMPLE save, component logs under `logs/<scan>/`, file-driven
+log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `ps` / `kill`**.
+**Agent bridge (D8) is parked.** Authoritative ledger:
+`Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 
-- Installation + CLI: [INSTALL.md](INSTALL.md)
+- Installation + CLI: [INSTALL.md](INSTALL.md) (includes `Jarvis2 -v`, `ps`, `kill`, logging flags)
 - Project catalog & **encrypt/decrypt usage**:
   - [INSTALL.md § Project tools](INSTALL.md#project-tools-scaffold-catalog-public--restricted-packs)
   - Design: `Jarvis-Books/Jarvis-HEP V2/components/project_tools.md`
@@ -38,8 +38,10 @@ ledger: `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
-| Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` |
-| Process inspect | `Jarvis2 ps` (running) / `Jarvis2 kill` (confirm then terminate) |
+| Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` (style: `card/logging.yaml`) |
+| CLI version | `Jarvis2 -v` / `--version` → logo + Author + Version |
+| Process inspect | `Jarvis2 ps` / `Jarvis2 kill` (interactive confirm; `--yes` for scripts) |
+| Console | default INFO; `--console-level`; `--silence` / `-s` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
 
