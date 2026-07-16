@@ -47,3 +47,33 @@ def circle_r2_region_fail(
     if float(x) < 0.15:
         raise RuntimeError("synthetic failure region x < 0.15")
     return circle_r2(x, y, logger=logger)
+
+
+def sphere_r(
+    x: float,
+    y: float,
+    z: float,
+    logger=None,
+    **_params: object,
+) -> dict[str, float]:
+    """d=3 sphere fixture: r = ‖(x,y,z) − 0.5‖ on the unit cube."""
+    dx = float(x) - 0.5
+    dy = float(y) - 0.5
+    dz = float(z) - 0.5
+    return {"r": float(np.sqrt(dx * dx + dy * dy + dz * dz))}
+
+
+def hypersphere_r(
+    logger=None,
+    **params: object,
+) -> dict[str, float]:
+    """d≥3 radius from box centre 0.5 for free params x/x0/x1… (or any numeric)."""
+    # Prefer explicit coord names used by AdaptiveLevelSet tests.
+    keys = [k for k in ("x", "y", "z", "x0", "x1", "x2", "x3", "x4") if k in params]
+    if not keys:
+        keys = sorted(str(k) for k, v in params.items() if isinstance(v, (int, float, np.generic)))
+    acc = 0.0
+    for k in keys:
+        d = float(params[k]) - 0.5
+        acc += d * d
+    return {"r": float(np.sqrt(acc))}

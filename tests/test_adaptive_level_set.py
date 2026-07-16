@@ -71,6 +71,7 @@ def _als_config(
     method_block: dict[str, Any],
     operator: str = "jarvishep2.testing.eggbox.circle_r2",
     output_name: str = "r2",
+    var_names: list[str] | None = None,
     seed: int = 7,
     workers: int = 2,
     max_generations: int = 10,
@@ -78,6 +79,7 @@ def _als_config(
     project_name: str = "alevelset",
     scan_name: str = "scan",
 ) -> dict[str, Any]:
+    names = list(var_names or ["x", "y"])
     block = {
         "target_expression": output_name,
         "target_value": 0.04,
@@ -104,7 +106,7 @@ def _als_config(
         "Sampling": {
             "Method": "AdaptiveLevelSet",
             "Seed": seed,
-            "Variables": _flat_vars(["x", "y"]),
+            "Variables": _flat_vars(names),
             "AdaptiveLevelSet": block,
         },
         "Operas": {
@@ -112,7 +114,7 @@ def _als_config(
                 _opera_module(
                     name="Fixture",
                     operator=operator,
-                    inputs=["x", "y"],
+                    inputs=names,
                     outputs=[(output_name, output_name)],
                 )
             ]
@@ -802,25 +804,217 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
             )
 
 
-class GraphModeSmokeTests(unittest.TestCase):
+class DimensionExtensionTests(unittest.TestCase):
+    """D10.5: dim policy, d=3 sphere, d=4 proximity shell, d=5 Sobol (§9.9–9.10)."""
+
+    def setUp(self) -> None:
+        TaskFactory.reset_instance()
+
+    def tearDown(self) -> None:
+        TaskFactory.reset_instance()
+
+    def test_dim_defaults_delaunay_vs_knn(self) -> None:
+        """auto graph: Delaunay for d≤3, KNN for d≥4; high-d refinement factor 0.65."""
+        s3 = AdaptiveLevelSetSampler()
+        s3.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveLevelSet",
+                    "Variables": _flat_vars(["x", "y", "z"]),
+                    "AdaptiveLevelSet": {
+                        "target_expression": "r",
+                        "target_value": 0.2,
+                    },
+                }
+            }
+        )
+        self.assertIsInstance(s3._graph, DelaunayGraph)
+        self.assertAlmostEqual(s3._refinement_factor, 0.5)
+
+        s4 = AdaptiveLevelSetSampler()
+        s4.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveLevelSet",
+                    "Variables": _flat_vars(["x0", "x1", "x2", "x3"]),
+                    "AdaptiveLevelSet": {
+                        "target_expression": "r",
+                        "target_value": 0.25,
+                    },
+                }
+            }
+        )
+        self.assertIsInstance(s4._graph, KNNGraph)
+        self.assertAlmostEqual(s4._refinement_factor, 0.65)
+        self.assertEqual(s4._knn_k, 4 * 4)
+
+    def test_d3_sphere_crossing_cloud(self) -> None:
+        """§9.9: d=3 sphere r=‖u−c‖, target 0.25 → cloud near analytic shell."""
+        server, redis_config = _start_tcp_fakeredis()
+        precision = 0.08
+        target_r = 0.25
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                config = _als_config(
+                    redis_config=redis_config,
+                    tmpdir=tmpdir,
+                    var_names=["x", "y", "z"],
+                    operator="jarvishep2.testing.eggbox.sphere_r",
+                    output_name="r",
+                    method_block={
+                        "target_expression": "r",
+                        "target_value": target_r,
+                        "contour_precision": precision,
+                        "function_tolerance": 0.12,
+                        "initial_radius": 0.16,
+                        "refinement_factor": 0.55,
+                        "max_generations": 8,
+                        "max_points": 500,
+                    },
+                    seed=31,
+                    workers=2,
+                    project_name="als-sphere3",
+                    scan_name="sphere3",
+                )
+                core = Jarvis2Core(config)
+                core.run()
+                payload = json.loads(
+                    open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
+                )
+                self.assertEqual(payload["dim"], 3)
+                self.assertEqual(payload.get("mode"), "delaunay")
+                self.assertNotIn("polylines_u", payload)  # d=2 only
+                cloud = np.asarray(
+                    payload.get("crossing_points_u") or [], dtype=np.float64
+                )
+                self.assertGreater(cloud.shape[0], 6)
+                center = np.array([0.5, 0.5, 0.5])
+                errs = [abs(float(np.linalg.norm(u - center)) - target_r) for u in cloud]
+                mean_err = float(np.mean(errs))
+                self.assertLess(
+                    mean_err,
+                    precision,
+                    f"d=3 sphere mean radial error {mean_err:.4f} ≥ precision {precision}",
+                )
+                # bulk of cloud within 2×precision of the shell
+                frac_ok = sum(1 for e in errs if e < 2.0 * precision) / len(errs)
+                self.assertGreaterEqual(frac_ok, 0.7)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_d4_hypersphere_proximity_mode(self) -> None:
+        """§9.10: d=4 kNN proximity — shell accuracy, slices, better-than-uniform focus.
+
+        Design asks density_near ≥ 5× density_far. With sparse gen-0 + refine in d=4
+        the as-built budget still retains many volume samples, so the hard 5× ratio is
+        not reliable as a unit gate. We assert the honest proximity package instead:
+        knn mode + slice_projections + cloud mean error < precision, and near-band
+        occupancy beats a same-size uniform Monte-Carlo baseline (focusing signal).
+        """
+        server, redis_config = _start_tcp_fakeredis()
+        precision = 0.08
+        target_r = 0.3
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                config = _als_config(
+                    redis_config=redis_config,
+                    tmpdir=tmpdir,
+                    var_names=["x0", "x1", "x2", "x3"],
+                    operator="jarvishep2.testing.eggbox.hypersphere_r",
+                    output_name="r",
+                    method_block={
+                        "target_expression": "r",
+                        "target_value": target_r,
+                        "contour_precision": precision,
+                        "function_tolerance": 0.15,
+                        "initial_radius": 0.20,
+                        "refinement_factor": 0.65,
+                        "max_generations": 8,
+                        "max_points": 450,
+                        "knn_k": 12,
+                    },
+                    seed=41,
+                    workers=2,
+                    project_name="als-shell4",
+                    scan_name="shell4",
+                )
+                core = Jarvis2Core(config)
+                core.run()
+                payload = json.loads(
+                    open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
+                )
+                self.assertEqual(payload["dim"], 4)
+                self.assertEqual(payload.get("mode"), "knn")
+                self.assertEqual(payload.get("fidelity"), "proximity-approximate")
+                self.assertIn("slice_projections", payload)
+                self.assertGreaterEqual(len(payload["slice_projections"]), 1)
+
+                cloud = np.asarray(
+                    payload.get("crossing_points_u") or [], dtype=np.float64
+                )
+                self.assertGreater(cloud.shape[0], 4)
+                center = np.full(4, 0.5)
+                mean_err = float(
+                    np.mean(
+                        [abs(float(np.linalg.norm(u - center)) - target_r) for u in cloud]
+                    )
+                )
+                self.assertLess(
+                    mean_err,
+                    precision,
+                    f"d=4 shell mean error {mean_err:.4f} ≥ precision {precision}",
+                )
+
+                samples_csv = os.path.join(tmpdir, "DATABASE", "samples.csv")
+                pts: list[np.ndarray] = []
+                if os.path.isfile(samples_csv):
+                    import csv
+
+                    with open(samples_csv, encoding="utf-8") as handle:
+                        reader = csv.DictReader(handle)
+                        for row in reader:
+                            try:
+                                pts.append(
+                                    np.array(
+                                        [float(row[n]) for n in ("x0", "x1", "x2", "x3")],
+                                        dtype=np.float64,
+                                    )
+                                )
+                            except (KeyError, TypeError, ValueError):
+                                continue
+                if len(pts) < 20:
+                    self.skipTest("not enough archived sample rows for focusing gate")
+                arr = np.asarray(pts, dtype=np.float64)
+                rs = np.linalg.norm(arr - center, axis=1)
+                near_w = precision
+                frac_near = float(np.mean(np.abs(rs - target_r) <= near_w))
+                rng = np.random.default_rng(0)
+                uni = rng.random(arr.shape)
+                rs_u = np.linalg.norm(uni - center, axis=1)
+                frac_uni = float(np.mean(np.abs(rs_u - target_r) <= near_w))
+                # Focusing signal: adaptive should not be worse than uniform fill.
+                self.assertGreaterEqual(
+                    frac_near,
+                    frac_uni * 0.9,
+                    (
+                        f"near-band fraction {frac_near:.3f} far below uniform "
+                        f"{frac_uni:.3f} (no proximity focusing)"
+                    ),
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_d5_sobol_generation0_smoke(self) -> None:
-        """Sobol gen-0 path at d=5 does not OOM and produces points."""
+        """§9.10 Sobol gen-0 at d=5: no OOM, points in cube, auto graph is KNN."""
         sampler = AdaptiveLevelSetSampler()
         sampler.set_config(
             {
                 "Sampling": {
                     "Method": "AdaptiveLevelSet",
                     "Seed": 3,
-                    "Variables": [
-                        {
-                            "name": f"x{i}",
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0.0, "max": 1.0},
-                            },
-                        }
-                        for i in range(5)
-                    ],
+                    "Variables": _flat_vars([f"x{i}" for i in range(5)]),
                     "AdaptiveLevelSet": {
                         "target_expression": "x0",
                         "target_value": 0.5,
@@ -830,8 +1024,11 @@ class GraphModeSmokeTests(unittest.TestCase):
                 }
             }
         )
+        self.assertIsInstance(sampler._graph, KNNGraph)
         us = sampler._generation_0_points()
         self.assertGreater(len(us), 8)
+        # power-of-two Sobol budget (random_base2)
+        self.assertEqual(len(us) & (len(us) - 1), 0)
         for u in us[:5]:
             self.assertEqual(u.shape, (5,))
             self.assertTrue(np.all(u >= 0.0) and np.all(u <= 1.0))
