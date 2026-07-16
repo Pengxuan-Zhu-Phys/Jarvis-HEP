@@ -12,15 +12,14 @@ import itertools
 import json
 import math
 import os
-import time
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
 import numpy as np
 
 from jarvishep2.Sampling.bridson import Bridson_sampling, hypersphere_surface_sample
-from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
+from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
 from jarvishep2.Sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.Sampling.variables import load_variables
@@ -130,8 +129,13 @@ def interpolate_crossing(
     return u_i + t * (u_j - u_i)
 
 
-class AdaptiveLevelSetSampler(CheckpointedSampler):
-    """Feedback-driven level-set tracer (Method: AdaptiveLevelSet)."""
+class AdaptiveLevelSetSampler(FeedbackSampler):
+    """Feedback-driven level-set tracer (Method: AdaptiveLevelSet).
+
+    Subclasses :class:`FeedbackSampler` for barrier drain / seed / pending
+    bookkeeping (D13.1). Control flow stays custom: gen-0 → cross → refine
+    until converge / budget (see ``run_adaptive``).
+    """
 
     method = "AdaptiveLevelSet"
 
@@ -155,14 +159,9 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         self._slice_pairs: list[tuple[str, str]] | None = None
         self._simplify_tolerance: float | None = None
         self._selectionexp: str | None = None
-        self._seed = 0
-        self._batch_size = 16
         self._graph: NeighborGraph | None = None
         self._points: list[LevelSetPoint] = []
-        self._generation = 0
-        self._pending_uuids: set[str] = set()
         self._accepted_index = 0
-        self._seed_seq: np.random.SeedSequence | None = None
         self._converged = False
         self._levelset: dict[str, Any] | None = None
         self._target_fn: CompiledExpression | None = None
@@ -208,10 +207,10 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         )
         self._k_ref = max(1, int(block.get("k_ref", 4) or 4))
         self._selectionexp = sampling.get("selection")
-        self._seed = int(sampling.get("Seed", sampling.get("seed", 0)) or 0)
+        seed = int(sampling.get("Seed", sampling.get("seed", 0)) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._seed_seq = np.random.SeedSequence(self._seed)
+        self._init_seed_sequence(seed)
         self._compile_target()
         self._graph = self._make_graph()
         # Optional slice pairs for d≥4
@@ -269,11 +268,6 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             return None
 
     # --------------------------------------------------------------- generation-0
-    def _generation_rng(self, generation: int) -> np.random.Generator:
-        assert self._seed_seq is not None
-        child = self._seed_seq.spawn(generation + 1)[generation]
-        return np.random.default_rng(child)
-
     def _generation_0_points(self) -> list[np.ndarray]:
         d = self._dim
         r = self._initial_radius
@@ -442,11 +436,11 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         )
 
     def _submit_generation(self, us: list[np.ndarray], *, generation: int) -> int:
+        """Build LevelSetPoints + Samples, then publish via FeedbackSampler batch."""
         if not us:
             return 0
-        if self.redis is None:
-            raise RuntimeError("AdaptiveLevelSet requires redis")
-        batch: list[Sample] = []
+        self._require_redis("AdaptiveLevelSet")
+        samples: list[Sample] = []
         for u in us:
             if len(self._points) >= self._max_points:
                 break
@@ -461,39 +455,28 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             )
             self._uuid_to_index[uuid] = len(self._points)
             self._points.append(point)
-            self._pending_uuids.add(uuid)
             sample = self._build_sample(np.asarray(u, dtype=np.float64))
             sample.uuid = uuid
-            batch.append(sample)
-            if len(batch) >= self._batch_size:
-                self._submit_group(batch)
-                self._submitted_uuids.extend(s.uuid for s in batch)
-                batch = []
-        if batch:
-            self._submit_group(batch)
-            self._submitted_uuids.extend(s.uuid for s in batch)
-        return len(us)
+            samples.append(sample)
+        return self._submit_sample_batch(samples)
 
     def _wait_generation(self, *, timeout: float) -> None:
-        if self.redis is None:
-            raise RuntimeError("AdaptiveLevelSet requires redis")
-        deadline = time.monotonic() + max(1.0, float(timeout))
-        while self._pending_uuids:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError(
-                    f"AdaptiveLevelSet generation {self._generation} timed out "
-                    f"with {len(self._pending_uuids)} pending sample(s)"
-                )
-            wait = max(1, min(5, int(remaining)))
-            record = self.redis.pull_feedback(timeout=wait)
-            if record is None:
-                continue
+        """Barrier drain then absorb target values into LevelSetPoints."""
+        results = self.wait_for_generation(timeout=timeout)
+        self.absorb_generation(results)
+
+    def propose_generation(self) -> Sequence[Sample] | None:
+        """FeedbackSampler contract hook — ALS drives generations via ``run_adaptive``.
+
+        Not used by the custom control loop; implemented so the base abstract
+        contract is satisfied for porting-guide / isinstance checks.
+        """
+        return None
+
+    def absorb_generation(self, results: Sequence[Mapping[str, Any]]) -> None:
+        """Fill ``LevelSetPoint.f`` from feedback records (Failed → f=None)."""
+        for record in results:
             uuid = str(record.get("uuid", ""))
-            if uuid not in self._pending_uuids:
-                continue
-            self._pending_uuids.discard(uuid)
-            self._completed_uuids.add(uuid)
             index = self._uuid_to_index.get(uuid)
             if index is None:
                 continue
@@ -503,7 +486,6 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
                 self._points[index].f = None
                 self._failed_regions.append({"uuid": uuid, "u": list(self._points[index].u)})
                 continue
-            # merge physical params into observables for expression
             payload = dict(self._points[index].x)
             payload.update(observables)
             self._points[index].f = self._eval_target(payload)
@@ -700,20 +682,18 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         return payload
 
     # ------------------------------------------------------------------- driver
-    def at_safe_barrier(self) -> bool:
-        return not self._pending_uuids
-
     def run_adaptive(self, *, timeout: float = 3600.0) -> int:
         """Control-process entry: generation loop with feedback barriers.
+
+        Overrides the generic FeedbackSampler loop: ALS control flow is
+        gen-0 → cross/refine until converge or budget, not a flat propose chain.
 
         Resume-safe (D10.4 §7): if ``_points`` is already populated (checkpoint
         import), do **not** re-run generation-0. Finish any in-flight
         ``_pending_uuids`` first, then continue refine from the restored barrier.
         """
-        if self.redis is None:
-            raise RuntimeError("AdaptiveLevelSet.run_adaptive requires redis")
-        if self._seed_seq is None:
-            self._seed_seq = np.random.SeedSequence(self._seed)
+        self._require_redis("AdaptiveLevelSet.run_adaptive")
+        self._ensure_seed_sequence()
         if self._graph is None:
             self._graph = self._make_graph()
         if self._target_fn is None:
@@ -729,6 +709,7 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             self._generation = 0
             total_submitted += self._submit_generation(gen0, generation=0)
             self._wait_generation(timeout=timeout)
+            self.checkpoint_at_barrier(reason="als_generation_0")
         elif self._pending_uuids:
             # Mid-generation resume: repropose_unfinished already re-queued tasks.
             self._wait_generation(timeout=timeout)
@@ -764,10 +745,7 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             self._generation = next_gen
             total_submitted += self._submit_generation(new_us, generation=next_gen)
             self._wait_generation(timeout=timeout)
-
-    def run_distributed(self) -> int:
-        """Alias so generic drivers can call run_distributed when registered."""
-        return self.run_adaptive()
+            self.checkpoint_at_barrier(reason=f"als_generation_{next_gen}")
 
     def repropose_unfinished(self) -> list[str]:
         if not self._pending_uuids:
@@ -785,22 +763,20 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         return requeued
 
     def export_runtime_state(self) -> dict[str, Any]:
-        return {
-            "points": [asdict(p) for p in self._points],
-            "dim": self._dim,
-            "generation": self._generation,
-            "pending_uuids": sorted(self._pending_uuids),
-            "accepted_index": self._accepted_index,
-            "seed": self._seed,
-            "converged": self._converged,
-            "levelset": self._levelset,
-            "failed_regions": list(self._failed_regions),
-            "stop_reason": self._stop_reason,
-            "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
-            "control_state": self._checkpoint_control_state(),
-            "uuid_to_index": dict(self._uuid_to_index),
-        }
+        state = self._feedback_export_state()
+        state.update(
+            {
+                "points": [asdict(p) for p in self._points],
+                "dim": self._dim,
+                "accepted_index": self._accepted_index,
+                "converged": self._converged,
+                "levelset": self._levelset,
+                "failed_regions": list(self._failed_regions),
+                "stop_reason": self._stop_reason,
+                "uuid_to_index": dict(self._uuid_to_index),
+            }
+        )
+        return state
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
         raw_points = state.get("points") or []
@@ -816,11 +792,7 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
             if isinstance(item, Mapping)
         ]
         self._dim = int(state.get("dim", self._dim) or self._dim)
-        self._generation = int(state.get("generation", 0) or 0)
-        self._pending_uuids = set(str(u) for u in (state.get("pending_uuids") or []))
         self._accepted_index = int(state.get("accepted_index", 0) or 0)
-        self._seed = int(state.get("seed", self._seed) or self._seed)
-        self._seed_seq = np.random.SeedSequence(self._seed)
         self._converged = bool(state.get("converged", False))
         self._levelset = state.get("levelset")
         self._failed_regions = list(state.get("failed_regions") or [])
@@ -830,7 +802,7 @@ class AdaptiveLevelSetSampler(CheckpointedSampler):
         }
         if not self._uuid_to_index:
             self._uuid_to_index = {p.uuid: i for i, p in enumerate(self._points)}
-        self._import_checkpoint_control_state(state)
+        self._feedback_import_state(state)
         if self._target_expression:
             self._compile_target()
         self._graph = self._make_graph()
