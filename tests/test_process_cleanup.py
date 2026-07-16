@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import signal
 import unittest
 from unittest import mock
 
@@ -60,6 +61,49 @@ class ListProcessesTests(unittest.TestCase):
         )
         self.assertIn("42", text)
         self.assertIn("Jarvis2:x", text)
+
+
+class KillOrderTests(unittest.TestCase):
+    def test_kill_sends_term_then_kill_in_dependency_order(self) -> None:
+        from jarvishep2.process_cleanup import kill_jarvis_processes
+
+        procs = [
+            JarvisProcess(pid=10, command="Jarvis-Redis:s"),
+            JarvisProcess(pid=20, command="Jarvis2:s"),
+            JarvisProcess(pid=30, command="Jarvis2-Worker-0:s"),
+            JarvisProcess(pid=40, command="Jarvis2-Archiver:s"),
+        ]
+        calls: list[tuple[int, int]] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            # 0 = existence probe
+            if sig == 0:
+                return
+            calls.append((pid, int(sig)))
+
+        with mock.patch("jarvishep2.process_cleanup.os.kill", side_effect=fake_kill):
+            with mock.patch("jarvishep2.process_cleanup.time.sleep", return_value=None):
+                result = kill_jarvis_processes(procs, sigterm_grace_sec=0.01, force=True)
+
+        # TERM order: worker → archiver → control → redis
+        term_pids = [pid for pid, sig in calls if sig == signal.SIGTERM]
+        self.assertEqual(term_pids, [30, 40, 20, 10])
+        self.assertEqual(result["signaled"], [30, 40, 20, 10])
+        # All still "alive" under fake_kill → SIGKILL same set
+        kill_pids = [pid for pid, sig in calls if sig == signal.SIGKILL]
+        self.assertEqual(set(kill_pids), {30, 40, 20, 10})
+
+
+class CliCleanupTests(unittest.TestCase):
+    def test_cleanup_subcommand_list_only(self) -> None:
+        from jarvishep2.client import main
+
+        with mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes",
+            return_value=[],
+        ):
+            code = main(["cleanup"])
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

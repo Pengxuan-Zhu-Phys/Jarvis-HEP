@@ -100,6 +100,37 @@ def format_process_table(procs: list[JarvisProcess]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _kill_order_key(proc: JarvisProcess) -> tuple[int, int]:
+    """Prefer Workers/FileOp → Archiver → control → Redis (drop deps first)."""
+    cmd = proc.command
+    if "Worker" in cmd:
+        rank = 0
+    elif "FileOperation" in cmd:
+        rank = 1
+    elif "Archiver" in cmd:
+        rank = 2
+    elif cmd.startswith("Jarvis-Redis"):
+        rank = 4
+    elif cmd.startswith("Jarvis2:") or cmd == "Jarvis2" or cmd.startswith("Jarvis2 "):
+        rank = 3
+    else:
+        rank = 5
+    return (rank, proc.pid)
+
+
+def _safe_kill(pid: int, sig: int) -> str:
+    """Send ``sig`` to ``pid``. Return ok|missing|failed."""
+    try:
+        os.kill(pid, sig)
+        return "ok"
+    except ProcessLookupError:
+        return "missing"
+    except PermissionError:
+        return "failed"
+    except OSError:
+        return "failed"
+
+
 def kill_jarvis_processes(
     procs: list[JarvisProcess] | None = None,
     *,
@@ -111,25 +142,26 @@ def kill_jarvis_processes(
     Returns ``{"signaled": [...], "killed": [...], "missing": [...], "failed": [...]}``.
     """
     targets = list(procs) if procs is not None else list_jarvis_processes()
+    targets = sorted(targets, key=_kill_order_key)
     signaled: list[int] = []
     missing: list[int] = []
     failed: list[int] = []
 
     for proc in targets:
-        try:
-            os.kill(proc.pid, 0)
-        except ProcessLookupError:
+        # Alive check
+        status = _safe_kill(proc.pid, 0)
+        if status == "missing":
             missing.append(proc.pid)
             continue
-        except PermissionError:
+        if status == "failed":
             failed.append(proc.pid)
             continue
-        try:
-            os.kill(proc.pid, signal.SIGTERM)
+        status = _safe_kill(proc.pid, signal.SIGTERM)
+        if status == "ok":
             signaled.append(proc.pid)
-        except ProcessLookupError:
+        elif status == "missing":
             missing.append(proc.pid)
-        except PermissionError:
+        else:
             failed.append(proc.pid)
 
     if signaled and sigterm_grace_sec > 0:
@@ -138,19 +170,16 @@ def kill_jarvis_processes(
     killed: list[int] = []
     if force:
         for pid in list(signaled):
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
+            status = _safe_kill(pid, 0)
+            if status == "missing":
                 continue
-            except PermissionError:
+            if status == "failed":
                 failed.append(pid)
                 continue
-            try:
-                os.kill(pid, signal.SIGKILL)
+            status = _safe_kill(pid, signal.SIGKILL)
+            if status == "ok":
                 killed.append(pid)
-            except ProcessLookupError:
-                pass
-            except PermissionError:
+            elif status == "failed":
                 failed.append(pid)
 
     return {

@@ -32,13 +32,14 @@ ledger: `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 
 | Area | Default |
 |------|---------|
-| Archiver | `mode: process`, `pack_buckets: true`, log `logs/<scan>/jarvis_archiver.log` |
+| Archiver | `mode: process`, `pack_buckets: true`, log `logs/<scan>/archiver.log` |
 | FileOperation | per-Worker process; YAML `save: true` → SAMPLE (not Portal) |
 | Cleanup / handoff | `direct` (no `staging/` hop; optional `mv_to_staging`) |
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
 | Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` |
+| Orphan processes | `Jarvis2 cleanup` (list) / `Jarvis2 cleanup --kill` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
 
