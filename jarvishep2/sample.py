@@ -161,8 +161,7 @@ class Sample:
     def update_uuid(self, new_uuid: str) -> None:
         self.uuid = str(new_uuid)
         self.observables["uuid"] = self.uuid
-        if isinstance(self.info, dict):
-            self.info["uuid"] = self.uuid
+        self._mirror_fields_to_info()
 
     def to_task_dict(self) -> dict[str, Any]:
         """Light dict for Redis transport (invariant #7, #8)."""
@@ -246,12 +245,7 @@ class Sample:
         self.observables = dict(mapped)
         self.observables["uuid"] = self.uuid
         self._params_bound = True
-
-        if not isinstance(self.info, dict):
-            self.info = {}
-        self.info["params"] = dict(self.params)
-        self.info["observables"] = dict(self.observables)
-        self.info["uuid"] = self.uuid
+        self._mirror_fields_to_info()
 
     def set_config(self, config: Mapping[str, Any]) -> None:
         self.info = dict(config)
@@ -267,6 +261,8 @@ class Sample:
 
     def create_info(self) -> None:
         # Prefer an already-assigned SAMPLE/<bucket> parent (Worker Redis allocator).
+        if not isinstance(self.info, dict):
+            self.info = {}
         bucket_parent = self.info.get("_bucket_parent") or self.info.get("bucket_dir")
         if not bucket_parent:
             bucket_parent = self.info.get("save_dir")
@@ -276,35 +272,36 @@ class Sample:
         logger_name = f"Sample@{self.uuid}"
 
         lazy_logger = _make_lazy_sample_logger(module=logger_name)
+        self.status = "Init"
         self.info.update(
             {
-                "uuid": self.uuid,
-                "params": dict(self.params),
-                "observables": dict(self.observables),
                 "sample_dirs": sample_root,
                 "save_dir": None,
                 "run_log": None,
                 "logger_name": logger_name,
                 "logger": lazy_logger,
                 "handlers": {},
-                "status": "Init",
                 "_materialized": False,
                 "_bucket_parent": bucket_parent if isinstance(bucket_parent, str) else None,
             }
         )
+        # D9.6: dual-truth keys share field objects (params/observables identity).
+        self._mirror_fields_to_info()
         self._sync_logger_handles(lazy_logger)
 
     def combine_nuisance_card(self) -> None:
         card = self.info["nuisance"]
         attempt_uuid = "{}@{}".format(self.uuid, card["NAttempt"])
-        active_params = card["active"]["param"]
+        active_params = dict(card["active"]["param"] or {})
         active_params.update({"uuid": attempt_uuid})
-        self.info["params"].update(active_params)
-        self.info["observables"] = self.info["params"]
+        self.params.update(active_params)
+        self.observables = self.params
         self.info["NAttempt"] = card["NAttempt"]
+        self._mirror_fields_to_info()
 
     def gather_nuisance(self) -> None:
-        self.info["observables"].update({"uuid": self.uuid})
+        self.observables["uuid"] = self.uuid
+        self._mirror_fields_to_info()
 
     @staticmethod
     def _resolve_sample_root(info: Mapping[str, Any]) -> str:
@@ -416,21 +413,40 @@ class Sample:
             message = f"Sample failed -> {error}"
         return self.materialize(failure_message=message)
 
+    def _mirror_fields_to_info(self) -> None:
+        """Project field SSOT into ``info`` (D9.6).
+
+        ``params`` / ``observables`` are **shared object identity** with
+        ``info["params"]`` / ``info["observables"]`` so in-place mutators used by
+        Likelihood / Calculators stay consistent. ``status`` / ``uuid`` are
+        mirrored as values.
+        """
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["uuid"] = self.uuid
+        self.info["status"] = self.status
+        self.info["params"] = self.params
+        self.info["observables"] = self.observables
+
+    def adopt_params(self, params: Mapping[str, Any], *, as_observables: bool = True) -> None:
+        """Replace physical params (and optionally seed observables) then mirror."""
+        self.params = dict(params)
+        if as_observables:
+            self.observables = dict(params)
+            self.observables["uuid"] = self.uuid
+        self._mirror_fields_to_info()
+
     def merge_observables(self, updates: Mapping[str, Any]) -> None:
         """Merge calculator/opera outputs into observables (single write entry)."""
         if not isinstance(updates, Mapping):
             raise TypeError("merge_observables requires a mapping")
         self.observables.update(dict(updates))
-        if not isinstance(self.info, dict):
-            self.info = {}
-        self.info["observables"] = dict(self.observables)
+        self._mirror_fields_to_info()
 
     def set_status(self, status: str) -> None:
-        """Update status on both the field and the info projection."""
+        """Update status field and its info projection."""
         self.status = str(status)
-        if not isinstance(self.info, dict):
-            self.info = {}
-        self.info["status"] = self.status
+        self._mirror_fields_to_info()
 
     def record_pack_id(self, step_name: str, pack_id: str) -> None:
         """Record a calculator pack_id for the given execution-plan step."""
@@ -440,6 +456,64 @@ class Sample:
         pack_ids[str(step_name)] = str(pack_id)
         self.info["pack_ids"] = pack_ids
         self.info["pack_id"] = str(pack_id)
+
+    def record_failure(
+        self,
+        error: BaseException | str,
+        *,
+        failed_module: str | None = None,
+    ) -> None:
+        """Stamp Failed status + machine-readable error fields (D11.1 / D9.6)."""
+        self.set_status("Failed")
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["error"] = str(error)
+        if isinstance(error, BaseException):
+            self.info["error_type"] = type(error).__name__
+        else:
+            self.info["error_type"] = "Error"
+        if failed_module:
+            self.info["failed_module"] = str(failed_module)
+        elif not self.info.get("failed_module") and self.execution_plan:
+            last = self.execution_plan[-1]
+            self.info["failed_module"] = str(getattr(last, "name", "") or "")
+
+    def record_handoff(
+        self,
+        *,
+        staging_path: str,
+        product_list: list[Any] | None = None,
+        clear_save_dir: bool = True,
+    ) -> None:
+        """Record staging handoff paths after SAMPLE → staging move."""
+        if not isinstance(self.info, dict):
+            self.info = {}
+        self.info["staging_path"] = str(staging_path)
+        self.info["product_list"] = list(product_list or [])
+        if clear_save_dir:
+            self.info["save_dir"] = None
+
+    def pull_dual_truth_from_info(self) -> None:
+        """Adopt info dual-truth keys into fields after external in-place mutators.
+
+        Used after Likelihood/Calculator paths that receive ``sample.info`` and may
+        rebind ``info['observables']`` / ``info['params']`` to new dicts.
+        """
+        if not isinstance(self.info, dict):
+            return
+        obs = self.info.get("observables")
+        if isinstance(obs, dict):
+            self.observables = obs
+        params = self.info.get("params")
+        if isinstance(params, dict):
+            self.params = params
+        status = self.info.get("status")
+        if status is not None and str(status):
+            self.status = str(status)
+        uuid_val = self.info.get("uuid")
+        if uuid_val is not None and str(uuid_val):
+            self.uuid = str(uuid_val)
+        self._mirror_fields_to_info()
 
     def start(self) -> None:
         logger = self._active_logger()
@@ -465,8 +539,8 @@ class Sample:
         self.close_logger()
 
     def _build_close_message(self) -> str:
-        observables = self.info.get("observables", {}) if isinstance(self.info, dict) else {}
-        if not isinstance(observables, dict) or not observables:
+        observables = self.observables if isinstance(self.observables, dict) else {}
+        if not observables:
             return "Sample closed"
         summary = self.format_summary(observables)
         return (
@@ -584,8 +658,17 @@ def _attach_sample_for_materialize(sample_info: dict[str, Any]) -> Sample:
         seed_params = sample_info.get("observables", {})
     sample = Sample.from_params(seed_params if isinstance(seed_params, dict) else {})
     sample.info = sample_info
+    # Re-bind dual-truth keys so shell Sample and info bag share field identity.
+    if isinstance(sample_info.get("params"), dict):
+        sample.params = sample_info["params"]
+    if isinstance(sample_info.get("observables"), dict):
+        sample.observables = sample_info["observables"]
     if sample_info.get("uuid"):
         sample.update_uuid(str(sample_info["uuid"]))
+    else:
+        sample._mirror_fields_to_info()
+    if sample_info.get("status"):
+        sample.set_status(str(sample_info["status"]))
     sample._materialized = bool(sample_info.get("_materialized"))
     sample._logger = sample_info.get("logger")
     sample.sample_artifacts = str(sample_info.get("sample_artifacts", "auto"))

@@ -390,8 +390,10 @@ class Worker(Process):
             return
         if not isinstance(sample.info, dict):
             sample.info = {}
+        sample._mirror_fields_to_info()
         value = self._likelihood.calculate(sample.info)
-        sample.observables = dict(sample.info.get("observables", sample.observables))
+        # Likelihood may rebind info["observables"] / params; adopt then re-share.
+        sample.pull_dual_truth_from_info()
         sample._likelihood = value
 
     def _collect_cleanup_paths(self, sample: Sample) -> list[str]:
@@ -430,9 +432,11 @@ class Worker(Process):
         # Logger must already be closed (sample.close writes SUMMARY first).
         sample.close_logger()
         staging_path = stage_sample_dir(save_dir, self._staging_dir, sample.uuid)
-        sample.info["staging_path"] = staging_path
-        sample.info["product_list"] = list_product_names(staging_path)
-        sample.info["save_dir"] = None
+        sample.record_handoff(
+            staging_path=staging_path,
+            product_list=list_product_names(staging_path),
+            clear_save_dir=True,
+        )
 
     def _stage_and_submit(self, sample: Sample) -> None:
         if self._redis is None:
@@ -484,14 +488,7 @@ class Worker(Process):
             if self._mapper is not None:
                 sample.bind_params(self._mapper)
             elif sample.opera_params:
-                sample.params = dict(sample.opera_params)
-                sample.observables = dict(sample.opera_params)
-                sample.observables["uuid"] = sample.uuid
-                if not isinstance(sample.info, dict):
-                    sample.info = {}
-                sample.info["params"] = dict(sample.params)
-                sample.info["observables"] = dict(sample.observables)
-                sample.info["uuid"] = sample.uuid
+                sample.adopt_params(sample.opera_params, as_observables=True)
             sample.materialize(worker_id=str(self.worker_id))
             delay_sec = float(self.worker_config.get("test_process_delay_sec", 0) or 0)
             if delay_sec > 0:
@@ -528,22 +525,9 @@ class Worker(Process):
                         )
                         + "\n"
                     )
-            sample.status = "Completed"
-            if isinstance(sample.info, dict):
-                sample.info["status"] = "Completed"
+            sample.set_status("Completed")
         except Exception as exc:
-            sample.status = "Failed"
-            if isinstance(sample.info, dict):
-                sample.info["status"] = "Failed"
-                # Stable machine-readable failure fields (D11.1).
-                sample.info["error"] = str(exc)
-                sample.info["error_type"] = type(exc).__name__
-                failed_module = sample.info.get("failed_module")
-                if not failed_module:
-                    # Best-effort: last calculator/opera name from execution plan.
-                    plan = sample.execution_plan or []
-                    if plan:
-                        sample.info["failed_module"] = str(getattr(plan[-1], "name", "") or "")
+            sample.record_failure(exc)
             materialize_failure_artifacts(sample.info, error=exc)
             top.error("sample failed; see sample log -> %s", exc)
         finally:

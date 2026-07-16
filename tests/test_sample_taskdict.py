@@ -182,8 +182,35 @@ class SampleTaskDictTests(unittest.TestCase):
         sample.start()
         self.assertEqual(sample.status, "Running")
         self.assertEqual(sample.info["status"], "Running")
-        sample.status = "Completed"
+        sample.set_status("Completed")
         self.assertEqual(sample.to_info_dict()["status"], "Completed")
+        self.assertEqual(sample.info["status"], "Completed")
+
+    def test_d96_dual_truth_shares_observables_identity(self):
+        """D9.6: info['observables']/params share object identity with fields."""
+        sample = Sample.from_params({"x": 1.0, "y": 2.0})
+        sample.set_config({"sample_artifacts": "never", "task_result_dir": "/tmp"})
+        self.assertIs(sample.info["observables"], sample.observables)
+        self.assertIs(sample.info["params"], sample.params)
+        sample.merge_observables({"z": 3.0})
+        self.assertEqual(sample.observables["z"], 3.0)
+        self.assertEqual(sample.info["observables"]["z"], 3.0)
+        self.assertIs(sample.info["observables"], sample.observables)
+        # External mutator path (Likelihood-style rebind) then pull back.
+        sample.info["observables"] = {"x": 9.0, "uuid": sample.uuid}
+        sample.pull_dual_truth_from_info()
+        self.assertEqual(sample.observables["x"], 9.0)
+        self.assertIs(sample.info["observables"], sample.observables)
+
+    def test_d96_record_failure_api(self):
+        sample = Sample.from_params({"x": 0.0})
+        sample.set_config({"sample_artifacts": "never", "task_result_dir": "/tmp"})
+        sample.record_failure(ValueError("boom"), failed_module="Eggbox")
+        self.assertEqual(sample.status, "Failed")
+        self.assertEqual(sample.info["status"], "Failed")
+        self.assertEqual(sample.info["error"], "boom")
+        self.assertEqual(sample.info["error_type"], "ValueError")
+        self.assertEqual(sample.info["failed_module"], "Eggbox")
 
     def test_to_info_dict_excludes_logger(self):
         sample = Sample.from_params({"x": 1.0})
