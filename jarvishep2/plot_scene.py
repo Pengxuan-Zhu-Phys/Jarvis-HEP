@@ -428,6 +428,92 @@ def emit_jplot_scan_levelset_yaml(
     return _write_yaml(yaml_path, jplot_doc)
 
 
+def emit_jplot_dynesty_runplot_yaml(
+    task_result_dir: str,
+    *,
+    scan_name: str = "scan",
+    images_dir: str | None = None,
+    project_root: str | None = None,
+    dynesty_csv: str | None = None,
+    source_label: str = "dynesty",
+    yaml_basename: str | None = None,
+) -> str | None:
+    """Emit stock jplot YAML for nested-sampling diagnostics (V1 / Jarvis-PLOT).
+
+    Requires a nested-result CSV (``dynesty_result.csv`` / ``multinest_result.csv``
+    or an explicit ``dynesty_csv``). Dataset name **must** be ``dynesty`` so the
+    ``dynesty_runplot`` card picks it up without a custom layer block (see
+    Jarvis-PLOT DYNESTY_RUNPLOT spec). MultiNest uses the same figure card with
+    path pointing at ``multinest_result.csv`` (V1 plot.py parity).
+
+    Layout:
+    - CSV: ``<task>/DATABASE/<nested>_result.csv``
+    - YAML: ``<project>/images/<scan>/<scan>_*_runplot.yaml``
+    """
+    from jarvishep2.base import (
+        infer_project_root_from_task_result_dir,
+        project_images_dir,
+    )
+
+    root = os.path.abspath(str(task_result_dir))
+    proj = os.path.abspath(
+        str(project_root or infer_project_root_from_task_result_dir(root))
+    )
+    out_dir = os.path.abspath(
+        images_dir or project_images_dir(project_root=proj, scan_name=scan_name)
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    csv_path = os.path.abspath(
+        str(dynesty_csv or os.path.join(root, "DATABASE", "dynesty_result.csv"))
+    )
+    if not os.path.isfile(csv_path):
+        return None
+
+    # Prefer a readable source basename for metadata / default yaml name.
+    csv_base = os.path.basename(csv_path)
+    label = str(source_label or "dynesty")
+    jplot_doc: dict[str, Any] = {
+        "version": 0.3,
+        "project": {
+            "name": scan_name or "Jarvis-HEP",
+        },
+        "DataSet": [
+            {
+                # Style card binds to name "dynesty" regardless of Method.
+                "name": "dynesty",
+                "path": csv_path,
+                "type": "csv",
+            }
+        ],
+        "Figures": [
+            {
+                "name": "dynesty_runplot",
+                "enable": True,
+                "style": ["a4paper_2x1", "dynesty_runplot"],
+            }
+        ],
+        "output": {
+            "dir": out_dir,
+            "dpi": 200,
+            "formats": ["png"],
+        },
+        "Functions": [],
+        "_jarvishep2": {
+            "producer": "Jarvis-HEP-V2",
+            "scan_name": scan_name,
+            "source": csv_base,
+            "method": label,
+            "title": f"{scan_name} {label} diagnostics",
+        },
+    }
+    base = yaml_basename or f"{scan_name}_{label}_runplot.yaml"
+    if not base.endswith((".yaml", ".yml")):
+        base = f"{base}.yaml"
+    yaml_path = os.path.join(out_dir, base)
+    return _write_yaml(yaml_path, jplot_doc)
+
+
 def emit_plot_scenes_from_run(
     task_result_dir: str,
     *,
@@ -444,6 +530,7 @@ def emit_plot_scenes_from_run(
     Layout:
     - ``<project>/images/<scan>/`` — jplot YAML + intermediate scene YAML / PNG
     - ``<scan>/DATABASE/samples.csv`` — full observables CSV next to ``samples.hdf5``
+    - ``<scan>/DATABASE/dynesty_result.csv`` + dynesty_runplot jplot (when present)
 
     When ``auto_render`` is true and JarvisPLOT is installed, also render the
     jplot YAML to PNG via the stock plot bridge.
@@ -504,6 +591,37 @@ def emit_plot_scenes_from_run(
             if png:
                 written["jplot_levelset_png"] = png
 
+    # Nested-sampling diagnostics (Jarvis-PLOT dynesty_runplot).
+    # Dynesty → dynesty_result.csv; MultiNest → multinest_result.csv (same card).
+    nested_csv_specs = (
+        ("dynesty", "dynesty_result.csv", "jplot_dynesty_runplot", "jplot_dynesty_runplot_png"),
+        (
+            "multinest",
+            "multinest_result.csv",
+            "jplot_multinest_runplot",
+            "jplot_multinest_runplot_png",
+        ),
+    )
+    for label, csv_name, jplot_key, png_key in nested_csv_specs:
+        nested_csv = os.path.join(root, "DATABASE", csv_name)
+        if not os.path.isfile(nested_csv):
+            continue
+        written[f"{label}_result_csv"] = nested_csv
+        jplot_nested = emit_jplot_dynesty_runplot_yaml(
+            root,
+            scan_name=scan_name,
+            images_dir=out_dir,
+            project_root=proj,
+            dynesty_csv=nested_csv,
+            source_label=label,
+        )
+        if jplot_nested:
+            written[jplot_key] = jplot_nested
+            if auto_render:
+                png = _try_render_jplot(jplot_nested)
+                if png:
+                    written[png_key] = png
+
     return written
 
 
@@ -538,6 +656,7 @@ def _try_render_jplot(plot_yaml: str) -> str | None:
 
 
 __all__ = [
+    "emit_jplot_dynesty_runplot_yaml",
     "emit_jplot_scan_levelset_yaml",
     "emit_levelset_overlay_scene",
     "emit_plot_scenes_from_run",

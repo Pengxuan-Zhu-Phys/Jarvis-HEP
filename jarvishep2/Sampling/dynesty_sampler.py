@@ -4,10 +4,17 @@
 Uses the **vendored** dynesty package under
 ``jarvishep2.Sampling.Source.Dynesty`` (stock 3.0.0 + Jarvis UUID channel),
 with likelihood evaluations via :class:`RedisEvaluationPool`.
+
+Post-run diagnostics follow the V1 Jarvis-PLOT path: write
+``DATABASE/dynesty_result.csv`` (column schema for
+``dynesty_runplot``), then let ``plot_scene`` emit a stock jplot YAML.
+Rendering stays in Jarvis-PLOT — HEP only maps results → CSV → scene.
 """
 
 from __future__ import annotations
 
+import csv
+import os
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
@@ -37,6 +44,171 @@ def _jarvis_prior_transform(u: np.ndarray) -> np.ndarray:
     return out
 
 
+def _results_get(results: Any, key: str, default: Any = None) -> Any:
+    """Read a Results key whether Results supports ``.keys()`` / ``[]``."""
+    try:
+        if hasattr(results, "keys") and key in results.keys():
+            return results[key]
+    except Exception:
+        pass
+    try:
+        return results[key]
+    except Exception:
+        return getattr(results, key, default)
+
+
+def _samples_nlive_array(results: Any, n_rows: int, fallback_nlive: int) -> np.ndarray:
+    """Per-sample live-point count (V1 ``samples_nlive`` / dynesty ``samples_n``)."""
+    raw = _results_get(results, "samples_n", None)
+    if raw is not None:
+        arr = np.asarray(raw, dtype=float).reshape(-1)
+        if arr.size == n_rows:
+            return arr
+        if arr.size > 0:
+            # Pad / trim defensively
+            out = np.empty(n_rows, dtype=float)
+            n = min(arr.size, n_rows)
+            out[:n] = arr[:n]
+            out[n:] = arr[-1] if arr.size else float(fallback_nlive)
+            return out
+    try:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import (
+            _get_nsamps_samples_n,
+        )
+
+        _nsamps, samples_n = _get_nsamps_samples_n(results)
+        arr = np.asarray(samples_n, dtype=float).reshape(-1)
+        if arr.size == n_rows:
+            return arr
+    except Exception:
+        pass
+    nlive = int(_results_get(results, "nlive", fallback_nlive) or fallback_nlive)
+    return np.full(n_rows, float(nlive), dtype=float)
+
+
+def export_dynesty_results_csv(
+    results: Any,
+    output_csv: str,
+    *,
+    fallback_nlive: int = 100,
+) -> str:
+    """Write V1-compatible ``dynesty_result.csv`` for Jarvis-PLOT ``dynesty_runplot``.
+
+    Column schema matches V1 ``Sampling.dynesty.save_dynesty_results_to_csv`` and
+    the Jarvis-PLOT default column aliases in ``dynesty_runtime._DEFAULT_COLUMNS``.
+    """
+    logl = np.asarray(_results_get(results, "logl", []), dtype=float).reshape(-1)
+    n_rows = int(logl.size)
+    if n_rows < 1:
+        raise ValueError("dynesty results have no logl rows to export")
+
+    def _col(key: str, *, dtype=float, default: float | str = 0.0) -> np.ndarray:
+        raw = _results_get(results, key, None)
+        if raw is None:
+            if dtype is str or dtype is object:
+                return np.array([""] * n_rows, dtype=object)
+            return np.full(n_rows, default, dtype=float)
+        arr = np.asarray(raw)
+        if arr.ndim == 0:
+            return np.full(n_rows, arr.item(), dtype=object if dtype is object else float)
+        flat = arr.reshape(-1) if arr.ndim == 1 else arr
+        if flat.ndim == 1:
+            out = np.empty(n_rows, dtype=object if dtype is object else float)
+            n = min(flat.size, n_rows)
+            if dtype is object:
+                out[:n] = [str(x) if x is not None else "" for x in flat[:n]]
+                out[n:] = ""
+            else:
+                out[:n] = np.asarray(flat[:n], dtype=float)
+                out[n:] = float(flat[n - 1]) if n else default
+            return out
+        return flat
+
+    logwt = _col("logwt")
+    logvol = _col("logvol")
+    logz = _col("logz")
+    logzerr = _col("logzerr")
+    samples_it = _col("samples_it")
+    samples_id = _col("samples_id")
+    information = _col("information")
+    ncall = _col("ncall")
+    samples_nlive = _samples_nlive_array(results, n_rows, fallback_nlive)
+
+    uuid_raw = _results_get(results, "samples_uid", None)
+    if uuid_raw is None:
+        uuids = [""] * n_rows
+    else:
+        uuids = [str(x) if x is not None else "" for x in np.asarray(uuid_raw).reshape(-1)]
+        if len(uuids) < n_rows:
+            uuids = uuids + [""] * (n_rows - len(uuids))
+        elif len(uuids) > n_rows:
+            uuids = uuids[:n_rows]
+
+    samples = np.asarray(_results_get(results, "samples", np.zeros((n_rows, 0))), dtype=float)
+    if samples.ndim == 1:
+        samples = samples.reshape(n_rows, -1) if samples.size else np.zeros((n_rows, 0))
+    if samples.shape[0] != n_rows and samples.size:
+        # Best-effort reshape when trailing live points differ
+        samples = samples.reshape(-1, samples.shape[-1])[:n_rows]
+    samples_u = np.asarray(_results_get(results, "samples_u", np.zeros((n_rows, 0))), dtype=float)
+    if samples_u.ndim == 1:
+        samples_u = samples_u.reshape(n_rows, -1) if samples_u.size else np.zeros((n_rows, 0))
+    if samples_u.shape[0] != n_rows and samples_u.size:
+        samples_u = samples_u.reshape(-1, samples_u.shape[-1])[:n_rows]
+
+    ndim_v = int(samples.shape[1]) if samples.ndim == 2 else 0
+    ndim_u = int(samples_u.shape[1]) if samples_u.ndim == 2 else 0
+
+    fieldnames = [
+        "uuid",
+        "log_weight",
+        "log_Like",
+        "log_PriorVolume",
+        "log_Evidence",
+        "log_Evidence_err",
+        "samples_nlive",
+        "ncall",
+        "samples_it",
+        "samples_id",
+        "information",
+    ]
+    for ii in range(ndim_v):
+        fieldnames.append(f"samples_v[{ii}]")
+    for ii in range(ndim_u):
+        fieldnames.append(f"samples_u[{ii}]")
+
+    rows: list[dict[str, Any]] = []
+    for i in range(n_rows):
+        row: dict[str, Any] = {
+            "uuid": uuids[i],
+            "log_weight": float(logwt[i]),
+            "log_Like": float(logl[i]),
+            "log_PriorVolume": float(logvol[i]),
+            "log_Evidence": float(logz[i]),
+            "log_Evidence_err": float(logzerr[i]),
+            "samples_nlive": float(samples_nlive[i]),
+            "ncall": float(ncall[i]),
+            "samples_it": float(samples_it[i]),
+            "samples_id": float(samples_id[i]),
+            "information": float(information[i]),
+        }
+        for ii in range(ndim_v):
+            row[f"samples_v[{ii}]"] = float(samples[i, ii])
+        for ii in range(ndim_u):
+            row[f"samples_u[{ii}]"] = float(samples_u[i, ii])
+        rows.append(row)
+
+    output = os.path.abspath(str(output_csv))
+    parent = os.path.dirname(output)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(output, "w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return output
+
+
 class DynestySampler(FeedbackSampler):
     """YAML ``Sampling.Method: Dynesty``."""
 
@@ -56,6 +228,7 @@ class DynestySampler(FeedbackSampler):
         self._finished = False
         self._summary: dict[str, Any] | None = None
         self._use_dynamic = True
+        self._dynesty_csv_path: str | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -194,6 +367,13 @@ class DynestySampler(FeedbackSampler):
         self._sampler.run_nested(**run_kwargs)
         self._finished = True
         self._summary = self._build_summary()
+        # V1 finalize path: CSV for Jarvis-PLOT dynesty_runplot (not dynesty.plotting).
+        try:
+            csv_path = self.save_dynesty_results_to_csv()
+            if self._summary is not None and csv_path:
+                self._summary["dynesty_result_csv"] = csv_path
+        except Exception as exc:
+            self._logger.warning("failed to write dynesty_result.csv: %s", exc)
         self.checkpoint_at_barrier(reason="dynesty_finished")
         self._logger.info(
             "Dynesty finished logZ=%.4f ± %.4f niter=%s",
@@ -203,6 +383,48 @@ class DynestySampler(FeedbackSampler):
         )
         # Approximate submitted = ncall
         return int(self._summary.get("ncall") or 0)
+
+    def _task_result_dir(self) -> str:
+        return str(
+            self.config.get("task_result_dir")
+            or (self.config.get("Runtime") or {}).get("task_result_dir")
+            or os.getcwd()
+        )
+
+    def dynesty_result_csv_path(self, task_result_dir: str | None = None) -> str:
+        """Canonical path: ``<task_result_dir>/DATABASE/dynesty_result.csv``."""
+        root = os.path.abspath(str(task_result_dir or self._task_result_dir()))
+        return os.path.join(root, "DATABASE", "dynesty_result.csv")
+
+    def save_dynesty_results_to_csv(
+        self,
+        output_csv: str | None = None,
+    ) -> str | None:
+        """Export nested results to V1-compatible CSV for Jarvis-PLOT.
+
+        Returns the written path, or ``None`` if the sampler has no results yet.
+        """
+        if self._sampler is None:
+            self._logger.warning("save_dynesty_results_to_csv: no sampler results")
+            return None
+        try:
+            results = self._sampler.results
+        except Exception as exc:
+            self._logger.warning("save_dynesty_results_to_csv: cannot read results: %s", exc)
+            return None
+        path = output_csv or self.dynesty_result_csv_path()
+        written = export_dynesty_results_csv(
+            results, path, fallback_nlive=self._nlive
+        )
+        self._dynesty_csv_path = written
+        self._logger.info("Dynesty results saved → %s", written)
+        try:
+            summary_text = results.summary()
+            if summary_text:
+                self._logger.info("Dynesty summary → %s", summary_text)
+        except Exception:
+            pass
+        return written
 
     def _build_summary(self) -> dict[str, Any]:
         if self._sampler is None:
@@ -252,6 +474,7 @@ class DynestySampler(FeedbackSampler):
                 "nlive": self._nlive,
                 "dlogz": self._dlogz,
                 "rseed": self._rseed,
+                "dynesty_csv_path": self._dynesty_csv_path,
                 "call_index": getattr(
                     getattr(self, "_pool_ref", None), "_call_index", 0
                 ),
@@ -267,10 +490,17 @@ class DynestySampler(FeedbackSampler):
         self._nlive = int(state.get("nlive", self._nlive) or self._nlive)
         self._dlogz = float(state.get("dlogz", self._dlogz) or self._dlogz)
         self._rseed = int(state.get("rseed", self._rseed) or self._rseed)
+        path = state.get("dynesty_csv_path")
+        self._dynesty_csv_path = str(path) if path else None
 
 
 def create_dynesty() -> DynestySampler:
     return DynestySampler()
 
 
-__all__ = ["DynestySampler", "create_dynesty", "_jarvis_prior_transform"]
+__all__ = [
+    "DynestySampler",
+    "create_dynesty",
+    "export_dynesty_results_csv",
+    "_jarvis_prior_transform",
+]

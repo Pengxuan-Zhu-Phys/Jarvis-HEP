@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import csv
+import os
+import tempfile
 import threading
 import unittest
 from typing import Any
@@ -13,7 +16,11 @@ from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_uuid import (
     looks_uuid_augmented,
     split_vid_batch,
 )
-from jarvishep2.Sampling.dynesty_sampler import DynestySampler, _jarvis_prior_transform
+from jarvishep2.Sampling.dynesty_sampler import (
+    DynestySampler,
+    _jarvis_prior_transform,
+    export_dynesty_results_csv,
+)
 from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.redis_queue import make_fakeredis_queue
@@ -159,6 +166,111 @@ class JarvisLoggerBridgeTests(unittest.TestCase):
             jl.set_dynesty_logger(None)
 
 
+class DynestyCsvExportTests(unittest.TestCase):
+    def test_export_dynesty_results_csv_schema(self) -> None:
+        """V1 column names required by Jarvis-PLOT dynesty_runplot."""
+        n = 5
+        ndim = 2
+        results = {
+            "logl": np.linspace(-10, -1, n),
+            "logwt": np.linspace(-5, -0.1, n),
+            "logvol": np.linspace(0, -3, n),
+            "logz": np.linspace(-8, -2, n),
+            "logzerr": np.full(n, 0.1),
+            "samples_n": np.full(n, 20),
+            "ncall": np.arange(1, n + 1),
+            "samples_it": np.arange(n),
+            "samples_id": np.arange(n),
+            "information": np.linspace(0, 1, n),
+            "samples": np.random.default_rng(0).random((n, ndim)),
+            "samples_u": np.random.default_rng(1).random((n, ndim)),
+            "samples_uid": [f"uid-{i}" for i in range(n)],
+            "nlive": 20,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "dynesty_result.csv")
+            written = export_dynesty_results_csv(results, path, fallback_nlive=20)
+            self.assertTrue(os.path.isfile(written))
+            with open(written, encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                fieldnames = list(reader.fieldnames or [])
+                rows = list(reader)
+            for col in (
+                "uuid",
+                "log_weight",
+                "log_Like",
+                "log_PriorVolume",
+                "log_Evidence",
+                "log_Evidence_err",
+                "samples_nlive",
+                "ncall",
+                "samples_it",
+                "samples_id",
+                "information",
+                "samples_v[0]",
+                "samples_v[1]",
+                "samples_u[0]",
+                "samples_u[1]",
+            ):
+                self.assertIn(col, fieldnames)
+            self.assertEqual(len(rows), n)
+            self.assertEqual(rows[0]["uuid"], "uid-0")
+            self.assertAlmostEqual(float(rows[-1]["log_Like"]), -1.0, places=5)
+
+    def test_sampler_save_writes_database_path(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+
+        def loglike(x):
+            u = np.asarray(x, dtype=float).reshape(-1)
+            return float(-0.5 * np.sum((u - 0.5) ** 2))
+
+        def prior(u):
+            return np.asarray(u, dtype=float)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = DynestySampler()
+            sampler.set_config(
+                {
+                    "task_result_dir": tmp,
+                    "Sampling": {
+                        "Method": "Dynesty",
+                        "Variables": [
+                            {
+                                "name": "x",
+                                "distribution": {
+                                    "type": "Flat",
+                                    "parameters": {"min": 0, "max": 1},
+                                },
+                            },
+                            {
+                                "name": "y",
+                                "distribution": {
+                                    "type": "Flat",
+                                    "parameters": {"min": 0, "max": 1},
+                                },
+                            },
+                        ],
+                        "Bounds": {"nlive": 10, "dlogz": 5.0, "dynamic": False},
+                    },
+                }
+            )
+            # Direct NestedSampler results (no Redis) for CSV path coverage.
+            ns = NestedSampler(
+                loglikelihood=loglike,
+                prior_transform=prior,
+                ndim=2,
+                nlive=10,
+                rstate=np.random.default_rng(0),
+            )
+            ns.run_nested(maxiter=8, dlogz=10.0, print_progress=False)
+            sampler._sampler = ns
+            path = sampler.save_dynesty_results_to_csv()
+            self.assertIsNotNone(path)
+            expected = os.path.join(tmp, "DATABASE", "dynesty_result.csv")
+            self.assertEqual(path, expected)
+            self.assertTrue(os.path.isfile(expected))
+
+
 class DynestyNestedSmokeTests(unittest.TestCase):
     def test_static_nested_with_redis_pool(self) -> None:
         """Small NestedSampler run (nlive small) through RedisEvaluationPool."""
@@ -217,6 +329,17 @@ class DynestyNestedSmokeTests(unittest.TestCase):
             if "samples_uid" in res.keys():
                 uids = list(res["samples_uid"])
                 self.assertTrue(any(str(u) for u in uids))
+            # CSV export works on real NestedSampler.results
+            with tempfile.TemporaryDirectory() as tmp:
+                csv_path = export_dynesty_results_csv(
+                    res, os.path.join(tmp, "dynesty_result.csv"), fallback_nlive=20
+                )
+                self.assertTrue(os.path.isfile(csv_path))
+                with open(csv_path, encoding="utf-8", newline="") as handle:
+                    reader = csv.DictReader(handle)
+                    rows = list(reader)
+                self.assertGreater(len(rows), 0)
+                self.assertIn("log_Like", reader.fieldnames or [])
         finally:
             stop.set()
             thread.join(timeout=2.0)

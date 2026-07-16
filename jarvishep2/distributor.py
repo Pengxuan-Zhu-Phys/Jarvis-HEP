@@ -257,6 +257,16 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         resume="partial",  # full native resume progressive under D13.6
         override=override,
     )
+    # MultiNest — V1 name for static NestedSampler (same stack as Dynesty).
+    from jarvishep2.Sampling.multinest_sampler import create_multinest
+
+    Distributor.register(
+        "MultiNest",
+        create_multinest,
+        stateless=False,
+        resume="partial",
+        override=override,
+    )
 
 
 register_builtin_samplers()

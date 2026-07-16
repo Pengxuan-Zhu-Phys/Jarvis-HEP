@@ -442,11 +442,16 @@ class Jarvis2Core:
                     "plot scenes emitted → %s",
                     ", ".join(f"{key}={path}" for key, path in written.items()),
                 )
-                jplot = written.get("jplot_levelset")
-                if jplot and "jplot_levelset_png" not in written:
-                    self._logger.info(
-                        "jplot YAML ready (render with: Jarvis2 plot %s)", jplot
-                    )
+                for key, label in (
+                    ("jplot_levelset", "jplot_levelset_png"),
+                    ("jplot_dynesty_runplot", "jplot_dynesty_runplot_png"),
+                    ("jplot_multinest_runplot", "jplot_multinest_runplot_png"),
+                ):
+                    jplot = written.get(key)
+                    if jplot and label not in written:
+                        self._logger.info(
+                            "jplot YAML ready (render with: Jarvis2 plot %s)", jplot
+                        )
         except Exception as exc:
             self._logger.warning("plot scene emit failed -> %s", exc)
 

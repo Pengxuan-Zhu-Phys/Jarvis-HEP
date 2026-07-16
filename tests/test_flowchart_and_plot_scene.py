@@ -360,6 +360,113 @@ class PlotSceneEmitTests(unittest.TestCase):
                 written["samples_csv"], os.path.join(db_dir, "samples.csv")
             )
 
+    def test_jplot_dynesty_runplot_hook(self) -> None:
+        """V1 Jarvis-PLOT path: dynesty_result.csv → dynesty_runplot jplot YAML."""
+        from jarvishep2.plot_scene import (
+            emit_jplot_dynesty_runplot_yaml,
+            emit_plot_scenes_from_run,
+        )
+
+        with tempfile.TemporaryDirectory() as project:
+            scan_dir = os.path.join(project, "outputs", "dynesty_demo")
+            db_dir = os.path.join(scan_dir, "DATABASE")
+            os.makedirs(db_dir)
+            dynesty_csv = os.path.join(db_dir, "dynesty_result.csv")
+            # Minimal columns accepted by Jarvis-PLOT dynesty_runplot aliases.
+            with open(dynesty_csv, "w", encoding="utf-8", newline="") as handle:
+                handle.write(
+                    "uuid,log_weight,log_Like,log_PriorVolume,log_Evidence,"
+                    "log_Evidence_err,samples_nlive,ncall,samples_it,"
+                    "samples_id,information\n"
+                )
+                handle.write("u1,-1.0,-2.0,0.0,-3.0,0.1,20,5,0,0,0.5\n")
+                handle.write("u2,-0.5,-1.0,-0.5,-2.5,0.1,20,8,1,1,0.6\n")
+
+            jplot_path = emit_jplot_dynesty_runplot_yaml(
+                scan_dir, scan_name="dynesty_demo", project_root=project
+            )
+            self.assertIsNotNone(jplot_path)
+            self.assertTrue(os.path.isfile(str(jplot_path)))
+            self.assertTrue(
+                str(jplot_path).startswith(
+                    os.path.join(project, "images", "dynesty_demo")
+                )
+            )
+            with open(str(jplot_path), encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            datasets = doc.get("DataSet") or []
+            self.assertEqual(len(datasets), 1)
+            self.assertEqual(datasets[0].get("name"), "dynesty")
+            self.assertEqual(datasets[0].get("path"), os.path.abspath(dynesty_csv))
+            figures = doc.get("Figures") or []
+            self.assertEqual(len(figures), 1)
+            self.assertEqual(
+                figures[0],
+                {
+                    "name": "dynesty_runplot",
+                    "enable": True,
+                    "style": ["a4paper_2x1", "dynesty_runplot"],
+                },
+            )
+
+            written = emit_plot_scenes_from_run(
+                scan_dir,
+                scan_name="dynesty_demo",
+                project_root=project,
+                auto_render=False,
+            )
+            self.assertIn("dynesty_result_csv", written)
+            self.assertIn("jplot_dynesty_runplot", written)
+            self.assertEqual(written["dynesty_result_csv"], dynesty_csv)
+
+    def test_jplot_multinest_runplot_hook(self) -> None:
+        """V1 path: multinest_result.csv → dynesty_runplot jplot (DataSet name dynesty)."""
+        from jarvishep2.plot_scene import (
+            emit_jplot_dynesty_runplot_yaml,
+            emit_plot_scenes_from_run,
+        )
+
+        with tempfile.TemporaryDirectory() as project:
+            scan_dir = os.path.join(project, "outputs", "multinest_demo")
+            db_dir = os.path.join(scan_dir, "DATABASE")
+            os.makedirs(db_dir)
+            multinest_csv = os.path.join(db_dir, "multinest_result.csv")
+            with open(multinest_csv, "w", encoding="utf-8", newline="") as handle:
+                handle.write(
+                    "uuid,log_weight,log_Like,log_PriorVolume,log_Evidence,"
+                    "log_Evidence_err,samples_nlive,ncall,samples_it,"
+                    "samples_id,information\n"
+                )
+                handle.write("u1,-1.0,-2.0,0.0,-3.0,0.1,20,5,0,0,0.5\n")
+
+            jplot_path = emit_jplot_dynesty_runplot_yaml(
+                scan_dir,
+                scan_name="multinest_demo",
+                project_root=project,
+                dynesty_csv=multinest_csv,
+                source_label="multinest",
+            )
+            self.assertIsNotNone(jplot_path)
+            with open(str(jplot_path), encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            self.assertEqual(doc["DataSet"][0]["name"], "dynesty")
+            self.assertEqual(
+                doc["DataSet"][0]["path"], os.path.abspath(multinest_csv)
+            )
+            self.assertEqual(
+                doc["Figures"][0]["style"], ["a4paper_2x1", "dynesty_runplot"]
+            )
+
+            written = emit_plot_scenes_from_run(
+                scan_dir,
+                scan_name="multinest_demo",
+                project_root=project,
+                auto_render=False,
+            )
+            self.assertIn("multinest_result_csv", written)
+            self.assertIn("jplot_multinest_runplot", written)
+            self.assertEqual(written["multinest_result_csv"], multinest_csv)
+
 
 if __name__ == "__main__":
     unittest.main()
