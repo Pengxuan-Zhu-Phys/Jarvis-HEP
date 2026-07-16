@@ -15,10 +15,11 @@ import queue
 import sys
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
-from typing import Any
+from typing import Any, Mapping
+
+from jarvishep2.logging.style import process_style
 
 JARVIS_HEP_LOG_DOMAIN = "jarvis_hep"
-_DEFAULT_DATE_FORMAT = "%m-%d %H:%M:%S"
 
 _RECORD_SKIP_KEYS = frozenset(
     {
@@ -131,17 +132,27 @@ def format_record_context(record: logging.LogRecord) -> str:
 
 
 class JarvisContextFormatter(logging.Formatter):
-    """V1-style top-level formatter with optional trailing key=value context."""
+    """Process-log formatter driven by ``card/logging.yaml`` (default = V1 look)."""
 
-    def __init__(self, *, colorize: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        colorize: bool = False,
+        style: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__()
         self.colorize = bool(colorize)
+        self._style = dict(style or process_style())
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         created = datetime.fromtimestamp(record.created)
-        stamp = created.strftime(_DEFAULT_DATE_FORMAT)
-        millis = int(record.msecs)
-        return f"{stamp}.{millis:03d}"
+        fmt = str(self._style.get("date_format") or "%m-%d %H:%M:%S")
+        stamp = created.strftime(fmt)
+        digits = int(self._style.get("millis_digits") or 0)
+        if digits > 0:
+            millis = int(record.msecs)
+            stamp = f"{stamp}.{millis:03d}"
+        return stamp
 
     def _module_label(self, record: logging.LogRecord) -> str:
         # ``module`` is a reserved LogRecord attribute (source file stem). The
@@ -174,9 +185,16 @@ class JarvisContextFormatter(logging.Formatter):
             if record.exc_text:
                 message = f"{message}\n{record.exc_text}" if message else record.exc_text
 
-        bullet = "Ϡ" if module == "Jarvis-HEP.hdf5-Writter" else "·•·"
+        hdf5_mod = str(self._style.get("hdf5_writer_module") or "Jarvis-HEP.hdf5-Writter")
+        default_bullet = str(self._style.get("bullet") or "·•·")
+        hdf5_bullet = str(self._style.get("hdf5_writer_bullet") or "Ϡ")
+        bullet = hdf5_bullet if module == hdf5_mod else default_bullet
+        head_tmpl = str(
+            self._style.get("head")
+            or "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
+        )
+
         if self.colorize and sys.stderr.isatty():
-            # Approximate V1 loguru colors without loguru.
             cyan, green, reset = "\033[36m", "\033[32m", "\033[0m"
             level_colors = {
                 "DEBUG": "\033[36m",
@@ -186,19 +204,29 @@ class JarvisContextFormatter(logging.Formatter):
                 "CRITICAL": "\033[1;31m",
             }
             level_color = level_colors.get(level, "")
-            head = (
-                f"\n{bullet} {cyan}{module}{reset} \n"
-                f"\t-> {green}{timestamp}{reset} - "
-                f"[{level_color}{level}{reset}] >>> \n"
+            # Colorize module/timestamp/level inside the configured head template.
+            head = head_tmpl.format(
+                bullet=bullet,
+                module=f"{cyan}{module}{reset}",
+                timestamp=f"{green}{timestamp}{reset}",
+                level=f"{level_color}{level}{reset}" if level_color else level,
+                message="",
             )
             body = f"{level_color}{message}{reset}" if level_color else message
         else:
-            head = f"\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
+            head = head_tmpl.format(
+                bullet=bullet,
+                module=module,
+                timestamp=timestamp,
+                level=level,
+                message="",
+            )
             body = message
 
-        context = format_record_context(record)
-        if context:
-            body = f"{body} {context}" if body else context
+        if bool(self._style.get("append_context", True)):
+            context = format_record_context(record)
+            if context:
+                body = f"{body} {context}" if body else context
         return f"{head}{body}"
 
 
@@ -235,10 +263,10 @@ def _resolve_level(level: str | int) -> int:
     return getattr(logging, name, logging.INFO)
 
 
-def _make_console_handler(*, level: int) -> logging.Handler:
+def _make_console_handler(*, level: int, style: Mapping[str, Any] | None = None) -> logging.Handler:
     stream = logging.StreamHandler(sys.stderr)
     stream.setLevel(level)
-    stream.setFormatter(JarvisContextFormatter(colorize=True))
+    stream.setFormatter(JarvisContextFormatter(colorize=True, style=style))
     return stream
 
 
@@ -248,6 +276,7 @@ def _make_file_handler(
     level: int,
     max_bytes: int,
     backup_count: int,
+    style: Mapping[str, Any] | None = None,
 ) -> RotatingFileHandler:
     parent = os.path.dirname(log_path)
     if parent:
@@ -259,7 +288,7 @@ def _make_file_handler(
         encoding="utf-8",
     )
     handler.setLevel(level)
-    handler.setFormatter(JarvisContextFormatter(colorize=False))
+    handler.setFormatter(JarvisContextFormatter(colorize=False, style=style))
     return handler
 
 
@@ -280,11 +309,14 @@ def setup_jarvis_logging(
     *,
     level: str | int = "INFO",
     console: bool = True,
+    console_level: str | int | None = None,
+    silence: bool = False,
     role: str = "jarvis",
     component: str | None = None,
     log_dir: str = "logs",
     scan_logs_dir: str | None = None,
     log_path: str | None = None,
+    style_path: str | None = None,
     worker_id: int | None = None,
     max_bytes: int = 5 * 2**20,
     backup_count: int = 7,
@@ -298,15 +330,28 @@ def setup_jarvis_logging(
         logs/<scan>/worker-00.log
         logs/<scan>/archiver.log
 
-    Resolution order for the file path:
+    Console:
+      - default on at INFO (``console_level``)
+      - ``silence=True`` disables screen output
+      - file level follows ``level`` (default INFO)
 
-    1. Explicit ``log_path``
-    2. ``scan_logs_dir`` + ``component``/``role`` (+ ``worker_id`` for workers)
-    3. Legacy fallback: ``<log_dir>/jarvis_{role}_{pid}.log``
+    Style templates load from ``card/logging.yaml`` (or ``style_path``).
     """
-    shutdown_jarvis_logging()
+    from jarvishep2.logging.style import clear_logging_style_cache, process_style
 
-    resolved_level = _resolve_level(level)
+    shutdown_jarvis_logging()
+    clear_logging_style_cache()
+    style = process_style(style_path)
+
+    file_level = _resolve_level(level)
+    # Console defaults to INFO; silence wins over console=True.
+    use_console = bool(console) and not bool(silence)
+    cons_level = _resolve_level(
+        console_level if console_level is not None else level
+    )
+    # Root logger must admit the lowest handler threshold.
+    root_level = min(file_level, cons_level) if use_console else file_level
+
     comp = str(component or role or "jarvis").strip().lower() or "jarvis"
     scan_dir = str(scan_logs_dir or "").strip() or None
 
@@ -325,25 +370,26 @@ def setup_jarvis_logging(
 
     logger = logging.getLogger(JARVIS_HEP_LOG_DOMAIN)
     logger.handlers.clear()
-    logger.setLevel(resolved_level)
+    logger.setLevel(root_level)
     logger.propagate = False
 
     sink_handlers: list[logging.Handler] = []
-    if console:
-        sink_handlers.append(_make_console_handler(level=resolved_level))
+    if use_console:
+        sink_handlers.append(_make_console_handler(level=cons_level, style=style))
     sink_handlers.append(
         _make_file_handler(
             log_path=resolved_path,
-            level=resolved_level,
+            level=file_level,
             max_bytes=max_bytes,
             backup_count=backup_count,
+            style=style,
         )
     )
 
     if use_queue and sink_handlers:
         log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
         queue_handler = QueueHandler(log_queue)
-        queue_handler.setLevel(resolved_level)
+        queue_handler.setLevel(root_level)
         logger.addHandler(queue_handler)
 
         listener = QueueListener(log_queue, *sink_handlers, respect_handler_level=True)

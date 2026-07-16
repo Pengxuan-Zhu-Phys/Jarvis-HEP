@@ -85,6 +85,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=False)
 
+    def _add_logging_flags(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--console-level",
+            default="INFO",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            help="Console log level (default: INFO). File logs stay at --log-level.",
+        )
+        p.add_argument(
+            "--log-level",
+            default="INFO",
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+            help="File log level for component logs under logs/<scan>/ (default: INFO).",
+        )
+        p.add_argument(
+            "--silence",
+            "-s",
+            action="store_true",
+            help="Disable console log output (files still written).",
+        )
+
     run_p = sub.add_parser("run", help="Run a distributed scan task YAML")
     run_p.add_argument("task_yaml", help="Path to scan task YAML")
     run_p.add_argument("--resume", action="store_true", help="Resume from checkpoint")
@@ -93,9 +113,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip workflow flowchart.json / flowchart.png export",
     )
+    _add_logging_flags(run_p)
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
     check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
+    _add_logging_flags(check_p)
 
     sub.add_parser("monitor", help="Print one monitor snapshot and exit")
 
@@ -902,6 +924,9 @@ def dispatch_run(
     resume: bool = False,
     check_modules: bool = False,
     skip_draw_flowchart: bool = False,
+    console_level: str = "INFO",
+    log_level: str = "INFO",
+    silence: bool = False,
 ) -> int:
     if not task_yaml:
         print("Task YAML is required.", file=sys.stderr)
@@ -916,6 +941,12 @@ def dispatch_run(
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+
+    core.set_logging_options(
+        console_level=console_level,
+        log_level=log_level,
+        silence=silence,
+    )
 
     if skip_draw_flowchart:
         core.config["skip_draw_flowchart"] = True
@@ -971,6 +1002,9 @@ def dispatch(args: argparse.Namespace) -> int:
             str(task or ""),
             check_modules=True,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
+            console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
+            log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
+            silence=bool(getattr(args, "silence", False)),
         )
     if intent == "run":
         task = getattr(args, "task_yaml", None)
@@ -979,6 +1013,9 @@ def dispatch(args: argparse.Namespace) -> int:
             resume=bool(args.resume),
             check_modules=False,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
+            console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
+            log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
+            silence=bool(getattr(args, "silence", False)),
         )
 
     print(f"Unknown intent: {intent}", file=sys.stderr)

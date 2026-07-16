@@ -1,0 +1,24 @@
+# Jarvis-HEP V2 logging style (loaded at process setup).
+# Visual contract matches V1; edit templates carefully — tests pin ·•· layout.
+version: 1
+
+process:
+  # Timestamp: strftime + optional millisecond digits after the second.
+  date_format: "%m-%d %H:%M:%S"
+  millis_digits: 3
+  bullet: "·•·"
+  hdf5_writer_bullet: "Ϡ"
+  hdf5_writer_module: "Jarvis-HEP.hdf5-Writter"
+  # Named fields: bullet, module, timestamp, level, message
+  head: "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
+  # If true, append trailing key=value context from LogRecord extras.
+  append_context: true
+
+sample:
+  date_format: "%m-%d %H:%M:%S.%f"
+  # Keep only this many digits of the fractional second from %f (microseconds).
+  frac_digits: 3
+  bullet: "·•·"
+  head: "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
+  # Extra blank line between records when previous did not end with newline.
+  double_newline_gap: true

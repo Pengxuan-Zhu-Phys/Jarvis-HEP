@@ -93,8 +93,29 @@ class Jarvis2Core:
         self._signal_handlers_installed = False
         self._previous_signal_handlers: dict[int, Any] = {}
         self._logger = get_jarvis_logger("core")
+        # Console / file logging options (CLI sets before bootstrap).
+        self._log_console: bool = True
+        self._log_silence: bool = False
+        self._log_level: str = "INFO"
+        self._console_level: str = "INFO"
         # Last-resort cleanup if the process exits without an orderly finally.
         atexit.register(self._atexit_cleanup)
+
+    def set_logging_options(
+        self,
+        *,
+        console_level: str | None = None,
+        log_level: str | None = None,
+        silence: bool | None = None,
+    ) -> None:
+        """CLI-facing console/file logging policy (applied in ``init_logger``)."""
+        if console_level is not None:
+            self._console_level = str(console_level).strip().upper() or "INFO"
+        if log_level is not None:
+            self._log_level = str(log_level).strip().upper() or "INFO"
+        if silence is not None:
+            self._log_silence = bool(silence)
+            self._log_console = not self._log_silence
 
     def init_logger(self) -> None:
         """Configure top-level logging with V1 visual format and scan-scoped file path."""
@@ -115,8 +136,10 @@ class Jarvis2Core:
             component="core",
             scan_logs_dir=logs_dir,
             log_path=jarvis_log,
-            level="INFO",
-            console=True,
+            level=self._log_level,
+            console=self._log_console,
+            console_level=self._console_level,
+            silence=self._log_silence,
             use_queue=True,
         )
         self._logger = get_jarvis_logger("core", module="Jarvis-HEP")
@@ -128,6 +151,9 @@ class Jarvis2Core:
                 logs_dir,
             )
             self._logger.info(f"Jarvis-HEP write into main log file -> {jarvis_log}")
+            if self._log_silence:
+                # Still lands in core.log only.
+                self._logger.info("console output silenced (--silence)")
         except Exception:
             # Logging must never block bootstrap; banner is best-effort.
             pass
@@ -795,6 +821,10 @@ class Jarvis2Core:
             or self.config.get("task_result_dir")
             or os.getcwd()
         )
+        # Propagate CLI console policy to every Worker process.
+        overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
+        overrides.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
+        overrides.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
         return build_worker_config(
             self.config,
             task_result_dir=task_result_dir,
@@ -857,7 +887,11 @@ class Jarvis2Core:
         os.makedirs(database_dir, exist_ok=True)
         os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
-        archiver_config = get_archiver_config(self.config)
+        archiver_config = dict(get_archiver_config(self.config))
+        # Same CLI console policy as Workers.
+        archiver_config.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
+        archiver_config.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
+        archiver_config.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
         delete_method = get_delete_method(self.config)
         redis_config = get_redis_config(self.config)
         if self.redis is not None:

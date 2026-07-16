@@ -147,6 +147,13 @@ def build_worker_config(
             else:
                 task_root = parent or os.getcwd()
         worker_config.setdefault("logs_dir", scan_logs_dir(task_root, scan_name))
+    # Console policy (CLI --console-level / --silence) propagated from control.
+    if "log_silence" in extra_payload:
+        worker_config["log_silence"] = bool(extra_payload.pop("log_silence"))
+    if "console_level" in extra_payload:
+        worker_config["console_level"] = str(extra_payload.pop("console_level"))
+    if "log_level" in extra_payload:
+        worker_config["log_level"] = str(extra_payload.pop("log_level"))
     # EnvReqs.V2.worker.force_serial_layers → Runtime → Worker blueprint.
     if isinstance(runtime_block, Mapping) and "force_serial_layers" in runtime_block:
         worker_config["force_serial_layers"] = bool(runtime_block.get("force_serial_layers"))

@@ -221,7 +221,8 @@ Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 - `run_summary.json` / `.csv` / `.txt` — end-of-run counters + throughput
 - Console / main log ends with a **`[Scan Performance]`** block (`samples / sec`, `avg sample (sec)`, …)
 - Logs under `logs/<scan>/` by component: `core.log`, `worker-00.log`…, `archiver.log`
-  (Jarvis `·•·` format; per-sample detail still in `SAMPLE/.../Sample_running.log`)
+  (style from packaged `jarvishep2/card/logging.yaml`; per-sample detail in `SAMPLE/.../Sample_running.log`)
+- Console: default **INFO** on screen; `Jarvis2 run … --console-level WARNING`; `--silence` / `-s` turns screen off
 - Checkpoints: `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
 
 ## Uninstall

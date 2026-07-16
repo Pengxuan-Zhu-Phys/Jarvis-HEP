@@ -37,7 +37,17 @@ class _SampleLogBackend:
         self._handle = open(self.path, "a", encoding="utf-8")
 
     def _timestamp(self) -> str:
-        return self._time_provider().strftime("%m-%d %H:%M:%S.%f")[:-3]
+        from jarvishep2.logging.style import sample_style
+
+        style = sample_style()
+        fmt = str(style.get("date_format") or "%m-%d %H:%M:%S.%f")
+        stamp = self._time_provider().strftime(fmt)
+        frac = int(style.get("frac_digits") or 0)
+        # Historical: "%f" is 6 digits; keep first frac_digits (default 3 → ms).
+        if "%f" in fmt and frac > 0 and "." in stamp:
+            head, tail = stamp.rsplit(".", 1)
+            stamp = f"{head}.{tail[:frac]}"
+        return stamp
 
     def write(
         self,
@@ -51,17 +61,37 @@ class _SampleLogBackend:
         if self._closed:
             return
 
+        from jarvishep2.logging.style import sample_style
+
+        style = sample_style()
         text = str(message)
         if not raw:
             prefix = "\n"
-            if self._has_written and not self._last_ended_newline:
+            if (
+                bool(style.get("double_newline_gap", True))
+                and self._has_written
+                and not self._last_ended_newline
+            ):
                 prefix = "\n\n"
             ts = timestamp if timestamp is not None else self._timestamp()
-            text = (
-                f"{prefix}·•· {module} \n"
-                f"\t-> {ts} - [{level}] >>> \n"
-                f"{text}"
+            bullet = str(style.get("bullet") or "·•·")
+            head_tmpl = str(
+                style.get("head")
+                or "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
             )
+            # head template already starts with \n; combine with gap prefix.
+            head = head_tmpl.format(
+                bullet=bullet,
+                module=module,
+                timestamp=ts,
+                level=level,
+                message="",
+            )
+            if prefix == "\n\n" and head.startswith("\n"):
+                head = "\n" + head
+            elif prefix == "\n" and not self._has_written and head.startswith("\n"):
+                pass
+            text = f"{head}{text}"
         else:
             if self._has_written and not self._last_ended_newline and not text.startswith("\n"):
                 text = "\n" + text

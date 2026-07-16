@@ -597,11 +597,17 @@ class Worker(Process):
         set_process_title(worker_title(self.worker_id, scan_name=scan_name or None))
         # logs/<scan>/worker-NN.log (scan_logs_dir from control via worker_config).
         logs_dir = str(self.worker_config.get("logs_dir") or "").strip()
+        silence = bool(self.worker_config.get("log_silence", False))
+        console_level = str(self.worker_config.get("console_level") or "INFO")
+        log_level = str(self.worker_config.get("log_level") or "INFO")
         setup_kwargs: dict[str, Any] = {
             "role": "worker",
             "component": "worker",
             "worker_id": self.worker_id,
-            "console": True,
+            "console": not silence,
+            "console_level": console_level,
+            "silence": silence,
+            "level": log_level,
             "use_queue": True,
         }
         if logs_dir:
