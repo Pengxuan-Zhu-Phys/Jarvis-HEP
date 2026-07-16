@@ -39,7 +39,7 @@ ledger: `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
 | Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` |
-| Orphan processes | `Jarvis2 cleanup` (list) / `Jarvis2 cleanup --kill` |
+| Process inspect | `Jarvis2 ps` (running) / `Jarvis2 kill` (confirm then terminate) |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
 

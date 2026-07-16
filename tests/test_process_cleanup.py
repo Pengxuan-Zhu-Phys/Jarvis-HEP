@@ -53,7 +53,7 @@ class ListProcessesTests(unittest.TestCase):
         self.assertEqual([p.pid for p in procs], [222, 333, 444])
 
     def test_format_empty(self) -> None:
-        self.assertIn("No leftover", format_process_table([]))
+        self.assertIn("No running Jarvis processes", format_process_table([]))
 
     def test_format_rows(self) -> None:
         text = format_process_table(
@@ -94,16 +94,61 @@ class KillOrderTests(unittest.TestCase):
         self.assertEqual(set(kill_pids), {30, 40, 20, 10})
 
 
-class CliCleanupTests(unittest.TestCase):
-    def test_cleanup_subcommand_list_only(self) -> None:
+class CliPsKillTests(unittest.TestCase):
+    def test_ps_subcommand_list_only(self) -> None:
         from jarvishep2.client import main
 
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
             return_value=[],
         ):
-            code = main(["cleanup"])
+            code = main(["ps"])
         self.assertEqual(code, 0)
+
+    def test_kill_aborts_without_confirm(self) -> None:
+        from jarvishep2.client import main
+
+        fake = [JarvisProcess(pid=99, command="Jarvis2:x")]
+        with mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes",
+            return_value=fake,
+        ):
+            with mock.patch(
+                "jarvishep2.process_cleanup.confirm_kill",
+                return_value=False,
+            ):
+                with mock.patch(
+                    "jarvishep2.process_cleanup.kill_jarvis_processes"
+                ) as kill_fn:
+                    code = main(["kill"])
+        self.assertEqual(code, 0)
+        kill_fn.assert_not_called()
+
+    def test_kill_yes_skips_confirm(self) -> None:
+        from jarvishep2.client import main
+
+        fake = [JarvisProcess(pid=99, command="Jarvis2:x")]
+        with mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes",
+            side_effect=[fake, []],
+        ):
+            with mock.patch(
+                "jarvishep2.process_cleanup.kill_jarvis_processes",
+                return_value={
+                    "signaled": [99],
+                    "killed": [],
+                    "missing": [],
+                    "failed": [],
+                },
+            ) as kill_fn:
+                code = main(["kill", "--yes"])
+        self.assertEqual(code, 0)
+        kill_fn.assert_called_once()
+
+    def test_format_says_running_not_leftover(self) -> None:
+        text = format_process_table([JarvisProcess(pid=1, command="Jarvis2:a")])
+        self.assertIn("Running Jarvis processes", text)
+        self.assertNotIn("leftover", text.lower())
 
 
 if __name__ == "__main__":

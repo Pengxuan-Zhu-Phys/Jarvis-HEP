@@ -9,7 +9,11 @@ Process titles are set via ``setproctitle`` (see ``proc_title.py``)::
     Jarvis2-FileOperation
     Jarvis-Redis:<scan>
 
-CLI: ``Jarvis2 cleanup`` (list) / ``Jarvis2 cleanup --kill``.
+CLI::
+
+    Jarvis2 ps              # list running Jarvis processes
+    Jarvis2 kill            # kill them after interactive confirmation
+    Jarvis2 kill --yes      # non-interactive kill
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from typing import Iterable
@@ -91,13 +96,36 @@ def list_jarvis_processes(*, exclude_pids: Iterable[int] | None = None) -> list[
 
 def format_process_table(procs: list[JarvisProcess]) -> str:
     if not procs:
-        return "No leftover Jarvis processes found.\n"
+        return "No running Jarvis processes.\n"
     width = max(len(str(p.pid)) for p in procs)
-    lines = [f"{'PID':>{width}}  COMMAND", f"{'-' * width}  -------"]
+    lines = [
+        f"Running Jarvis processes ({len(procs)}):",
+        f"{'PID':>{width}}  COMMAND",
+        f"{'-' * width}  -------",
+    ]
     for proc in procs:
         lines.append(f"{proc.pid:>{width}}  {proc.command}")
-    lines.append(f"\n{len(procs)} process(es)")
     return "\n".join(lines) + "\n"
+
+
+def confirm_kill(count: int, *, yes: bool = False) -> bool:
+    """Ask the user before killing. ``--yes`` skips the prompt."""
+    if count <= 0:
+        return False
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        print(
+            "Refusing to kill without confirmation in non-interactive mode; "
+            "re-run with: Jarvis2 kill --yes",
+            file=sys.stderr,
+        )
+        return False
+    try:
+        answer = input(f"Kill {count} Jarvis process(es)? [y/N] ").strip().lower()
+    except EOFError:
+        return False
+    return answer in {"y", "yes"}
 
 
 def _kill_order_key(proc: JarvisProcess) -> tuple[int, int]:
@@ -190,19 +218,31 @@ def kill_jarvis_processes(
     }
 
 
-def cleanup_jarvis_processes(*, kill: bool = False, force: bool = True) -> int:
-    """CLI helper: list (default) or kill leftovers. Returns process exit code."""
+def list_running_jarvis_cli() -> int:
+    """``Jarvis2 ps`` — show running Jarvis processes (scan-time friendly)."""
     procs = list_jarvis_processes()
     print(format_process_table(procs), end="")
-    if not kill:
-        if procs:
-            print("Re-run with: Jarvis2 cleanup --kill")
-        return 0
+    if procs:
+        print("To terminate: Jarvis2 kill")
+    return 0
+
+
+def kill_running_jarvis_cli(
+    *,
+    yes: bool = False,
+    force: bool = True,
+) -> int:
+    """``Jarvis2 kill`` — confirm (unless ``--yes``), then SIGTERM/SIGKILL."""
+    procs = list_jarvis_processes()
+    print(format_process_table(procs), end="")
     if not procs:
+        return 0
+    if not confirm_kill(len(procs), yes=yes):
+        print("Aborted.")
         return 0
     result = kill_jarvis_processes(procs, force=force)
     print(
-        "cleanup: "
+        "kill: "
         f"SIGTERM={len(result['signaled'])} "
         f"SIGKILL={len(result['killed'])} "
         f"gone={len(result['missing'])} "
@@ -211,7 +251,6 @@ def cleanup_jarvis_processes(*, kill: bool = False, force: bool = True) -> int:
     if result["failed"]:
         print(f"  failed pids: {result['failed']}")
         return 1
-    # Verify
     left = list_jarvis_processes()
     if left:
         print("Still running after kill:")
@@ -221,10 +260,20 @@ def cleanup_jarvis_processes(*, kill: bool = False, force: bool = True) -> int:
     return 0
 
 
+def cleanup_jarvis_processes(*, kill: bool = False, force: bool = True) -> int:
+    """Backward-compatible helper (prefer ``ps`` / ``kill`` CLI)."""
+    if kill:
+        return kill_running_jarvis_cli(yes=True, force=force)
+    return list_running_jarvis_cli()
+
+
 __all__ = [
     "JarvisProcess",
     "cleanup_jarvis_processes",
+    "confirm_kill",
     "format_process_table",
     "kill_jarvis_processes",
+    "kill_running_jarvis_cli",
     "list_jarvis_processes",
+    "list_running_jarvis_cli",
 ]

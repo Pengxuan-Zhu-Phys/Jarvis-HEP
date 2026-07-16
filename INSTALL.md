@@ -207,12 +207,13 @@ Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Ar
 and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
 leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
 
-If a scan was force-killed (Activity Monitor / `kill -9`), leftover OS processes may remain.
-All Jarvis process titles start with `Jarvis2` or `Jarvis-Redis`:
+While a scan is running (or after a hard kill), you can inspect OS process titles
+(`Jarvis2*`, `Jarvis-Redis*`) from another terminal:
 
 ```bash
-Jarvis2 cleanup           # list leftovers (PID + title)
-Jarvis2 cleanup --kill    # SIGTERM then SIGKILL matched processes
+Jarvis2 ps                # list running Jarvis processes (count + PID + title)
+Jarvis2 kill              # show list, ask [y/N], then SIGTERM → SIGKILL
+Jarvis2 kill --yes        # skip confirmation (scripts / non-interactive)
 ```
 
 Exit codes: **0** all samples succeeded; **1** any sample failed (including partial) or runtime

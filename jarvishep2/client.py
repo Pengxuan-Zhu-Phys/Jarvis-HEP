@@ -24,7 +24,18 @@ from jarvishep2.run_outcome import (
 
 
 _SUBCOMMANDS = frozenset(
-    {"run", "check", "monitor", "plot", "portal", "operas", "project", "cleanup"}
+    {
+        "run",
+        "check",
+        "monitor",
+        "plot",
+        "portal",
+        "operas",
+        "project",
+        "ps",
+        "kill",
+        "cleanup",  # alias of ps / kill --yes legacy
+    }
 )
 _PROJECT_COMMANDS = frozenset(
     {"create", "pack", "browse", "list", "fetch", "info", "encrypt"}
@@ -77,7 +88,8 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas list|info NAME\n"
             "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
-            "  Jarvis2 cleanup [--kill]    # list/kill leftover Jarvis* processes\n"
+            "  Jarvis2 ps                  # list running Jarvis* processes\n"
+            "  Jarvis2 kill [--yes]        # kill them (asks for confirmation)\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -148,19 +160,41 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
+    sub.add_parser(
+        "ps",
+        help="List running Jarvis OS processes (control/workers/archiver/redis titles)",
+    )
+
+    kill_p = sub.add_parser(
+        "kill",
+        help="Kill running Jarvis OS processes (prompts for confirmation)",
+    )
+    kill_p.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Do not ask for confirmation",
+    )
+    kill_p.add_argument(
+        "--no-force",
+        action="store_true",
+        help="Only SIGTERM; do not escalate to SIGKILL",
+    )
+
+    # Legacy alias: cleanup → ps; cleanup --kill → kill --yes
     cleanup_p = sub.add_parser(
         "cleanup",
-        help="List (default) or kill leftover Jarvis OS processes after a hard stop",
+        help="(legacy) List running Jarvis processes; prefer `Jarvis2 ps`",
     )
     cleanup_p.add_argument(
         "--kill",
         action="store_true",
-        help="Send SIGTERM (then SIGKILL) to matched processes; default is list-only",
+        help="(legacy) Same as `Jarvis2 kill --yes`",
     )
     cleanup_p.add_argument(
         "--no-force",
         action="store_true",
-        help="With --kill: only SIGTERM, do not escalate to SIGKILL",
+        help="With --kill: only SIGTERM",
     )
 
     # ---- legacy top-level flags (paths go through normalize_argv → subcommands) ----
@@ -1014,15 +1048,34 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_operas(args)
     if intent == "project":
         return dispatch_project([])
-    if intent == "cleanup":
-        from jarvishep2.process_cleanup import cleanup_jarvis_processes
+    if intent == "ps":
+        from jarvishep2.process_cleanup import list_running_jarvis_cli
+
+        return int(list_running_jarvis_cli())
+    if intent == "kill":
+        from jarvishep2.process_cleanup import kill_running_jarvis_cli
 
         return int(
-            cleanup_jarvis_processes(
-                kill=bool(getattr(args, "kill", False)),
+            kill_running_jarvis_cli(
+                yes=bool(getattr(args, "yes", False)),
                 force=not bool(getattr(args, "no_force", False)),
             )
         )
+    if intent == "cleanup":
+        # Legacy: list by default; --kill maps to kill --yes (no prompt).
+        from jarvishep2.process_cleanup import (
+            kill_running_jarvis_cli,
+            list_running_jarvis_cli,
+        )
+
+        if bool(getattr(args, "kill", False)):
+            return int(
+                kill_running_jarvis_cli(
+                    yes=True,
+                    force=not bool(getattr(args, "no_force", False)),
+                )
+            )
+        return int(list_running_jarvis_cli())
     if intent == "check":
         task = getattr(args, "task_yaml", None)
         return dispatch_run(
