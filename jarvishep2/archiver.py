@@ -16,6 +16,7 @@ from jarvishep2.archive_handoff import (
 )
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
+from jarvishep2.log_kv import format_two_column_log
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.redis_queue import RedisQueue
@@ -23,6 +24,54 @@ from jarvishep2.runtime_config import ARCHIVER_DEFAULTS
 from jarvishep2.sample_bucket import pack_bucket_dir
 
 Process = get_spawn_context().Process
+
+
+def _fmt_int(n: Any) -> str:
+    try:
+        return f"{int(n):,}"
+    except (TypeError, ValueError):
+        return str(n)
+
+
+def _short_path(path: str, *, sample_root: str = "") -> str:
+    """Prefer SAMPLE-relative or basename for compact logs."""
+    text = str(path or "").strip()
+    if not text:
+        return ""
+    root = str(sample_root or "").rstrip(os.sep)
+    if root and text.startswith(root + os.sep):
+        rel = text[len(root) + 1 :]
+        return rel or os.path.basename(text)
+    # Collapse .../SAMPLE/001369 → SAMPLE/001369 when possible.
+    parts = text.replace("\\", "/").split("/")
+    if "SAMPLE" in parts:
+        idx = parts.index("SAMPLE")
+        return "/".join(parts[idx:])
+    return os.path.basename(text) or text
+
+
+def _log_archiver_kv(
+    logger: Any,
+    title: str,
+    rows: list[tuple[str, Any]],
+    *,
+    level: str = "info",
+) -> None:
+    """Emit a Scan-Performance-style two-column Archiver block."""
+    if logger is None:
+        return
+    emit = getattr(logger, level, None) or getattr(logger, "info", None)
+    if emit is None:
+        return
+    try:
+        emit("\n" + format_two_column_log(title, rows).rstrip())
+    except Exception:
+        # Fallback one-liner if formatting fails.
+        try:
+            flat = " ".join(f"{k}={v}" for k, v in rows)
+            emit("%s %s", title, flat)
+        except Exception:
+            pass
 
 
 class ArchiveProcessor:
@@ -253,14 +302,14 @@ class SimpleArchiver:
             daemon=True,
         )
         self._thread.start()
-        try:
-            self._logger.info(
-                "Archiver loop started -> sample_root=%s pack_buckets=%s",
-                self.sample_root,
-                self.pack_buckets,
-            )
-        except Exception:
-            pass
+        _log_archiver_kv(
+            self._logger,
+            "[Archiver] loop started",
+            [
+                ("sample_root", _short_path(self.sample_root) or self.sample_root),
+                ("pack_buckets", self.pack_buckets),
+            ],
+        )
 
     def _note_last_flushed(self) -> None:
         """Tell Redis each freshly written sample is archived (may enqueue pack)."""
@@ -291,14 +340,14 @@ class SimpleArchiver:
         ):
             return
         self._last_progress_written = written
-        try:
-            self._logger.info(
-                "DATABASE rows written=%d buckets_packed=%d",
-                written,
-                int(self.buckets_packed),
-            )
-        except Exception:
-            pass
+        _log_archiver_kv(
+            self._logger,
+            "[Archiver] DATABASE progress",
+            [
+                ("rows written", _fmt_int(written)),
+                ("buckets packed", _fmt_int(self.buckets_packed)),
+            ],
+        )
 
     def _ingest_result(self, result: Mapping[str, Any]) -> int:
         written = self.processor.ingest(result)
@@ -341,26 +390,33 @@ class SimpleArchiver:
                     self.redis.mark_bucket_packed(bucket_id)
                 packed += 1
                 self.buckets_packed += 1
-                try:
-                    self._logger.info(
-                        "packed SAMPLE bucket -> id=%s dir=%s total_packed=%d",
-                        bucket_id,
-                        bucket_dir,
-                        self.buckets_packed,
-                    )
-                except Exception:
-                    pass
+                _log_archiver_kv(
+                    self._logger,
+                    "[Archiver] SAMPLE bucket packed",
+                    [
+                        ("bucket id", bucket_id),
+                        (
+                            "path",
+                            _short_path(bucket_dir, sample_root=sample_root),
+                        ),
+                        ("total packed", _fmt_int(self.buckets_packed)),
+                    ],
+                )
             except Exception as exc:
                 # Leave packing flag set; operator can inspect / re-seal later.
-                try:
-                    self._logger.warning(
-                        "pack SAMPLE bucket failed -> id=%s dir=%s err=%s",
-                        bucket_id,
-                        bucket_dir,
-                        exc,
-                    )
-                except Exception:
-                    pass
+                _log_archiver_kv(
+                    self._logger,
+                    "[Archiver] SAMPLE bucket pack failed",
+                    [
+                        ("bucket id", bucket_id),
+                        (
+                            "path",
+                            _short_path(bucket_dir, sample_root=sample_root),
+                        ),
+                        ("error", exc),
+                    ],
+                    level="warning",
+                )
                 continue
         return packed
 
@@ -397,15 +453,15 @@ class SimpleArchiver:
         drained += self._flush_and_note()
         drained += self._pack_ready_buckets()
         self._maybe_log_progress(force=True)
-        try:
-            self._logger.info(
-                "drain complete -> flushed=%d records_written=%d buckets_packed=%d",
-                drained,
-                int(self.records_written),
-                int(self.buckets_packed),
-            )
-        except Exception:
-            pass
+        _log_archiver_kv(
+            self._logger,
+            "[Archiver] drain complete",
+            [
+                ("flushed this drain", _fmt_int(drained)),
+                ("rows written (total)", _fmt_int(self.records_written)),
+                ("buckets packed (total)", _fmt_int(self.buckets_packed)),
+            ],
+        )
         return drained
 
     def cleanup_staging(self, paths: list[str] | tuple[str, ...]) -> None:
@@ -420,14 +476,14 @@ class SimpleArchiver:
         if thread is not None and wait:
             thread.join(timeout=5.0)
         self._thread = None
-        try:
-            self._logger.info(
-                "Archiver stopped -> records_written=%d buckets_packed=%d",
-                int(self.records_written),
-                int(self.buckets_packed),
-            )
-        except Exception:
-            pass
+        _log_archiver_kv(
+            self._logger,
+            "[Archiver] stopped",
+            [
+                ("rows written", _fmt_int(self.records_written)),
+                ("buckets packed", _fmt_int(self.buckets_packed)),
+            ],
+        )
 
 
 class ArchiverProcess(Process):
@@ -485,16 +541,16 @@ class ArchiverProcess(Process):
             setup_kwargs["scan_logs_dir"] = self.log_dir
         setup_jarvis_logging(**setup_kwargs)
         logger = get_jarvis_logger("archiver", module="Archiver")
-        try:
-            logger.info(
-                "Archiver process started pid=%s scan=%s sample_root=%s db=%s",
-                os.getpid(),
-                self.scan_name or "?",
-                self.sample_root,
-                self.db_path,
-            )
-        except Exception:
-            pass
+        _log_archiver_kv(
+            logger,
+            "[Archiver] process started",
+            [
+                ("pid", os.getpid()),
+                ("scan", self.scan_name or "?"),
+                ("sample_root", _short_path(self.sample_root) or self.sample_root),
+                ("database", _short_path(self.db_path) or self.db_path),
+            ],
+        )
 
         redis = RedisQueue(self.redis_config)
         redis.connect()
