@@ -16,7 +16,6 @@ from jarvishep2.archive_handoff import (
 )
 from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
-from jarvishep2.log_kv import format_two_column_log
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.redis_queue import RedisQueue
@@ -50,6 +49,15 @@ def _short_path(path: str, *, sample_root: str = "") -> str:
     return os.path.basename(text) or text
 
 
+def _format_arrow_block(title: str, rows: list[tuple[str, Any]]) -> str:
+    """Multi-line ``title ->`` block with tab-aligned key/value lines."""
+    label_w = max((len(str(k)) for k, _ in rows), default=0)
+    lines = [f"{title} ->"]
+    for key, value in rows:
+        lines.append(f"\t{str(key):<{label_w}}\t-> {value}")
+    return "\n".join(lines)
+
+
 def _log_archiver_kv(
     logger: Any,
     title: str,
@@ -57,19 +65,18 @@ def _log_archiver_kv(
     *,
     level: str = "info",
 ) -> None:
-    """Emit a Scan-Performance-style two-column Archiver block."""
+    """Emit Archiver status as ``title ->`` with tab-aligned fields."""
     if logger is None:
         return
     emit = getattr(logger, level, None) or getattr(logger, "info", None)
     if emit is None:
         return
     try:
-        emit("\n" + format_two_column_log(title, rows).rstrip())
+        emit("\n" + _format_arrow_block(title, rows))
     except Exception:
-        # Fallback one-liner if formatting fails.
         try:
             flat = " ".join(f"{k}={v}" for k, v in rows)
-            emit("%s %s", title, flat)
+            emit("%s -> %s", title, flat)
         except Exception:
             pass
 
