@@ -45,6 +45,44 @@ class JarvisUuidHelpersTests(unittest.TestCase):
 
 
 class RedisPoolUnitTests(unittest.TestCase):
+    def test_evaluate_logl_goes_remote(self) -> None:
+        """Direct loglikelihood(v) calls (inside sample()) must hit Redis."""
+        queue = make_fakeredis_queue()
+        seen: list[str] = []
+
+        def build_sample(payload, uuid):
+            seen.append(str(uuid))
+            return Sample(uuid=uuid, u_coords=np.asarray(payload, dtype=float))
+
+        pool = RedisEvaluationPool(
+            queue, build_sample=build_sample, batch_size=4, seed=3, timeout=10.0
+        )
+        stop = threading.Event()
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                queue.publish_feedback(
+                    {
+                        "uuid": task["uuid"],
+                        "logL": float(-np.sum(u)),
+                    }
+                )
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        try:
+            v = _jarvis_prior_transform(np.array([0.2, 0.8]))
+            val = pool.evaluate_logl(v)
+            self.assertAlmostEqual(val, -1.0, places=5)
+            self.assertEqual(len(seen), 1)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
     def test_prior_transform_is_local(self) -> None:
         queue = make_fakeredis_queue()
         calls = {"n": 0}

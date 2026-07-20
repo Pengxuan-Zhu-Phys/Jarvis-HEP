@@ -219,17 +219,27 @@ def format_scan_performance_log(summary: Mapping[str, Any]) -> str:
         ("scan", summary.get("project_name") or "?"),
         ("sampler", summary.get("sampler_name") or "?"),
         ("workers (configured / peak)", f"{summary.get('configured_workers')} / {summary.get('peak_active_workers')}"),
+        # Redis Worker SAMPLE counters (full pipeline → archive).
         ("samples submitted", submitted),
         ("samples finished", finished),
         ("samples failed", failed),
-        ("success rate", _fmt(summary.get("success_rate"), digits=4)),
-        ("wall time (sec)", _fmt(summary.get("wall_time_sec"), digits=3)),
-        ("samples / sec", _fmt(summary.get("samples_per_sec"), digits=4)),
-        ("samples / min", _fmt(summary.get("samples_per_min"), digits=2)),
-        ("avg sample (sec)", _fmt(summary.get("avg_sample_sec"), digits=4)),
-        ("avg eval (sec)", _fmt(summary.get("avg_point_eval_sec"), digits=4)),
-        ("median eval (sec)", _fmt(summary.get("median_point_eval_sec"), digits=4)),
     ]
+    # Nested samplers: Dynesty ncall / niter (likelihood evaluations ≠ samples).
+    if summary.get("ncall") is not None:
+        rows.append(("likelihood calls (ncall)", summary.get("ncall")))
+    if summary.get("niter") is not None:
+        rows.append(("nested iterations (niter)", summary.get("niter")))
+    rows.extend(
+        [
+            ("success rate", _fmt(summary.get("success_rate"), digits=4)),
+            ("wall time (sec)", _fmt(summary.get("wall_time_sec"), digits=3)),
+            ("samples / sec", _fmt(summary.get("samples_per_sec"), digits=4)),
+            ("samples / min", _fmt(summary.get("samples_per_min"), digits=2)),
+            ("avg sample (sec)", _fmt(summary.get("avg_sample_sec"), digits=4)),
+            ("avg eval (sec)", _fmt(summary.get("avg_point_eval_sec"), digits=4)),
+            ("median eval (sec)", _fmt(summary.get("median_point_eval_sec"), digits=4)),
+        ]
+    )
     from jarvishep2.log_kv import format_two_column_log
 
     return format_two_column_log("[Scan Performance]", rows)

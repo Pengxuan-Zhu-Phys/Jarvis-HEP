@@ -244,6 +244,21 @@ class RedisEvaluationPool:
             out.append(_LoglVal(float(val)))
         return out
 
+    def evaluate_logl(self, item: Any) -> float:
+        """Evaluate one point via Redis Workers (for direct loglikelihood calls).
+
+        Dynesty's internal samplers often call ``loglikelihood(v)`` *inside*
+        ``pool.map(sampler.sample, …)`` which runs on the control process. That
+        path must still hit Workers — never a control-side toy logL.
+        """
+        if self.redis is None:
+            raise RuntimeError(
+                "RedisEvaluationPool.evaluate_logl requires a connected Redis queue"
+            )
+        out = self._redis_batch_logl([item])
+        val = out[0]
+        return float(getattr(val, "val", val))
+
     def submit(self, func: Callable, item: Any):
         """Single-item submit — returns a trivial future-like holder."""
         result = self.map(func, [item])[0]

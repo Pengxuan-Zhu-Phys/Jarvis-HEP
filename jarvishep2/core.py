@@ -1220,6 +1220,12 @@ class Jarvis2Core:
 
                     diag = write_sampler_summary_json(task_result_dir, sampler_summary)
                     self.info["sampler_summary"] = diag
+                    # Nested samplers: surface ncall next to SAMPLE counts in the
+                    # performance block (not the same as Redis sample submits).
+                    if sampler_summary.get("ncall") is not None:
+                        summary["ncall"] = int(sampler_summary["ncall"])
+                    if sampler_summary.get("niter") is not None:
+                        summary["niter"] = int(sampler_summary["niter"])
             except Exception as exc:
                 self._logger.warning("sampler_summary export failed -> %s", exc)
         paths = RunSummaryRenderer().write_outputs(summary, task_result_dir)
