@@ -20,6 +20,7 @@ import numpy as np
 from scipy.special import logsumexp
 from .sampler import Sampler, _initialize_live_points
 from .results import Results
+from .jarvis_uuid import looks_uuid_augmented
 from .jarvis_logging import bind_inner, emit_progress, emit_warning, get_dynesty_logger, install_warnings_bridge
 from .utils import (get_seed_sequence, get_print_func, _kld_error,
                     compute_integrals, IteratorResult, IteratorResultShort,
@@ -532,12 +533,16 @@ def _configure_batch_sampler(main_sampler,
         live_v = saved_v[subset, :].copy()
         live_logl = saved_logl[subset].copy()
         live_blobs = saved_blobs[subset].copy()
+        # JARVIS: seed empty UUID channel for the subset (saved dead points
+        # already stripped uuids into samples_uid elsewhere).
+        live_uid = np.array([""] * cur_nlive, dtype="U36")
 
         # Hack the internal sampler by overwriting the live points
         # and scale factor.
         batch_sampler.nlive = cur_nlive
         batch_sampler.live_u = live_u
         batch_sampler.live_v = live_v
+        batch_sampler.live_uid = live_uid  # JARVIS
         batch_sampler.live_logl = live_logl
         batch_sampler.internal_sampler.scale = live_scale
         batch_sampler.live_blobs = live_blobs
@@ -548,6 +553,7 @@ def _configure_batch_sampler(main_sampler,
 
         live_u = np.empty((nlive_new, main_sampler.ndim))
         live_v = np.empty((nlive_new, saved_v.shape[1]))
+        live_uid = np.empty(nlive_new, dtype="U36")  # JARVIS UUID channel
         live_logl = np.empty(nlive_new)
         live_bound = np.zeros(nlive_new, dtype=int)
         live_it = np.zeros(nlive_new, dtype=int)
@@ -563,8 +569,22 @@ def _configure_batch_sampler(main_sampler,
         # internal sampler given the `logl_min` constraint.
         for i in range(nlive_new):
             newpt = batch_sampler._new_point(logl_min)
-            (live_u[i], live_v[i], live_logl[i], live_nc[i],
-             live_proposal_stats[i]) = newpt
+            u_i, v_i, logl_i, nc_i, prop_i = newpt
+            # JARVIS: prior_transform may return [...coords, uuid]; strip for
+            # live_v storage (same as Sampler.sample). Without this, Dynamic
+            # batch init fails: broadcast shape (ndim+1,) into (ndim,).
+            v_arr = np.asarray(v_i, dtype=object).reshape(-1)
+            if looks_uuid_augmented(v_arr):
+                live_uid[i] = str(v_arr[-1])
+                v_i = np.asarray(v_arr[:-1], dtype=float)
+            else:
+                live_uid[i] = ""
+                v_i = np.asarray(v_i, dtype=float)
+            live_u[i] = u_i
+            live_v[i] = v_i
+            live_logl[i] = logl_i
+            live_nc[i] = nc_i
+            live_proposal_stats[i] = prop_i
             if main_sampler.blob:
                 blob = newpt[2].blob
                 live_blobs.append(blob)
@@ -595,6 +615,7 @@ def _configure_batch_sampler(main_sampler,
     # We don't need to worry about them being parts of other arrays
     batch_sampler.live_u = live_u
     batch_sampler.live_v = live_v
+    batch_sampler.live_uid = live_uid  # JARVIS
     batch_sampler.live_logl = live_logl
     batch_sampler.live_bound = live_bound
     batch_sampler.live_blobs = live_blobs

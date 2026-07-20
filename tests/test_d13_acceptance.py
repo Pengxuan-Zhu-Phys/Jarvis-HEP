@@ -200,6 +200,40 @@ class DynamicNestedUuidAcceptanceTests(unittest.TestCase):
             uids = [str(u) for u in res["samples_uid"]]
             self.assertTrue(any(uids))
 
+    def test_dynamic_nested_batch_strips_uuid(self) -> None:
+        """Dynamic add_batch must strip UUID from live_v (shape ndim, not ndim+1)."""
+
+        def loglike(x):
+            arr = np.asarray(x, dtype=object).reshape(-1)
+            if looks_uuid_augmented(arr):
+                u = np.asarray(arr[:-1], dtype=float)
+            else:
+                u = np.asarray(arr, dtype=float)
+            return float(-0.5 * np.sum((u - 0.5) ** 2) / 0.1**2)
+
+        sampler = DynamicNestedSampler(
+            loglikelihood=loglike,
+            prior_transform=_jarvis_prior_transform,
+            ndim=2,
+            nlive=20,
+            bound="single",
+            sample="unif",
+            rstate=np.random.default_rng(1),
+        )
+        # Force base convergence then at least one dynamic batch (hits the
+        # live_v[i] = v assignment that previously broadcast shape (3,)→(2,)).
+        sampler.run_nested(
+            dlogz_init=0.5,
+            maxcall_init=800,
+            nlive_batch=15,
+            maxbatch=2,
+            print_progress=False,
+        )
+        res = sampler.results
+        self.assertIn("logz", res.keys())
+        samples = np.asarray(res["samples"])
+        self.assertEqual(samples.shape[1], 2)
+
 
 class SamplerConfigAcceptanceTests(unittest.TestCase):
     def test_mcmc_bounds_surface(self) -> None:
