@@ -756,6 +756,27 @@ class MCMCSampler(FeedbackSampler):
 
         self._finished = True
         self._summary = self._build_summary()
+        # D13.6: additive DATABASE diagnostics (summary JSON + chain_history.csv).
+        try:
+            from jarvishep2.Sampling.diagnostics_export import export_mcmc_diagnostics
+
+            task_dir = str(
+                self.config.get("task_result_dir")
+                or (self.config.get("Runtime") or {}).get("task_result_dir")
+                or ""
+            ).strip()
+            if task_dir:
+                written = export_mcmc_diagnostics(
+                    task_dir,
+                    summary=self._summary,
+                    registry=self._registry,
+                )
+                if written and self._summary is not None:
+                    self._summary["diagnostics"] = written
+                for key, path in written.items():
+                    self._logger.info("%s diagnostics %s → %s", self.method, key, path)
+        except Exception as exc:
+            self._logger.warning("failed to export MCMC diagnostics: %s", exc)
         self._logger.info(
             "%s finished: proposed=%d accepted=%d accept_rate=%.4f",
             self.method,

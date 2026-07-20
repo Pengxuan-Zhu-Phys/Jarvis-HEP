@@ -1175,6 +1175,20 @@ class Jarvis2Core:
             start_epoch=float(started) if started is not None else None,
             configured_workers=int(self.runtime.get("workers", 0) or len(self.factory.workers)),
         )
+        # D13.6: keep frozen run_summary schema pure; mirror sampler.summary()
+        # into DATABASE/sampler_summary.json when present (additive contract).
+        if self.sampler is not None and hasattr(self.sampler, "summary"):
+            try:
+                sampler_summary = self.sampler.summary()
+                if isinstance(sampler_summary, Mapping) and sampler_summary:
+                    from jarvishep2.Sampling.diagnostics_export import (
+                        write_sampler_summary_json,
+                    )
+
+                    diag = write_sampler_summary_json(task_result_dir, sampler_summary)
+                    self.info["sampler_summary"] = diag
+            except Exception as exc:
+                self._logger.warning("sampler_summary export failed -> %s", exc)
         paths = RunSummaryRenderer().write_outputs(summary, task_result_dir)
         try:
             # End-of-scan performance block in the main Jarvis-HEP log / console.

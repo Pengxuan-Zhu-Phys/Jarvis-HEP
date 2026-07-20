@@ -698,6 +698,19 @@ class DynestySampler(FeedbackSampler):
                 self._summary["dynesty_result_csv"] = csv_path
         except Exception as exc:
             self._logger.warning("failed to write dynesty_result.csv: %s", exc)
+        # D13.6: sampler_summary.json (logZ, ncall, …) under DATABASE/.
+        try:
+            from jarvishep2.Sampling.diagnostics_export import export_nested_diagnostics
+
+            written = export_nested_diagnostics(
+                self._task_result_dir(), summary=self._summary
+            )
+            if written and self._summary is not None:
+                self._summary.setdefault("diagnostics", {}).update(written)
+            for key, path in written.items():
+                self._logger.info("%s diagnostics %s → %s", self.method, key, path)
+        except Exception as exc:
+            self._logger.warning("failed to write nested sampler_summary: %s", exc)
         self.checkpoint_at_barrier(reason="dynesty_finished")
         self._logger.info(
             "%s finished logZ=%.4f ± %.4f niter=%s",
