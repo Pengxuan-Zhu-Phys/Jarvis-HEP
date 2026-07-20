@@ -577,23 +577,27 @@ class DynestySampler(FeedbackSampler):
         return sample
 
     def _local_loglike(self, params: Any) -> float:
-        """Fallback only when no Redis pool is wired (unit tests / offline)."""
-        arr = np.asarray(params, dtype=object).reshape(-1)
-        if arr.size >= 2 and isinstance(arr[-1], (str, np.str_)):
-            u = np.asarray(arr[:-1], dtype=float)
-        else:
-            u = np.asarray(arr, dtype=float)
-        # Without Workers we cannot evaluate real logL — return a toy Gaussian.
-        return float(-0.5 * np.sum((u - 0.5) ** 2))
+        """Disabled control-side toy logL (must never run in a real scan).
+
+        Historical bug: Dynesty's internal ``sample()`` called ``loglikelihood(v)``
+        on the control process, and this method returned a unit-cube Gaussian
+        instead of Worker physics — inflating ``ncall`` without SAMPLE archives.
+        Production wiring always uses :meth:`_make_redis_loglike`.
+        """
+        raise RuntimeError(
+            f"{self.method}: control-side toy logL is disabled. "
+            "All likelihood evaluations must go through RedisEvaluationPool "
+            "(pool.evaluate_logl / Worker). If you see this, the Dynesty "
+            "loglikelihood bridge was not installed."
+        )
 
     def _make_redis_loglike(self, pool: RedisEvaluationPool) -> Any:
         """loglikelihood callable that always evaluates through Redis Workers.
 
         Dynesty calls this both via ``pool.map(LogLikelihood, batch)`` and
         *directly* inside ``pool.map(internal_sampler.sample, …)`` (which the
-        Redis pool runs on the control process). Direct calls must not hit the
-        toy ``_local_loglike`` path — that produced fake evidence and made Scan
-        Performance ``samples submitted`` ≪ Dynesty ``ncall``.
+        Redis pool runs on the control process). Direct calls must hit
+        Workers — never a control-side toy Gaussian.
         """
 
         def loglikelihood(params: Any) -> float:
@@ -610,6 +614,7 @@ class DynestySampler(FeedbackSampler):
     ) -> dict[str, Any]:
         """Merge user constructor kwargs with HEP-injected runtime handles."""
         kwargs = dict(self._constructor_kwargs)
+        # Always Redis — never _local_loglike (toy).
         kwargs["loglikelihood"] = self._make_redis_loglike(pool)
         kwargs["prior_transform"] = _jarvis_prior_transform
         kwargs["ndim"] = self._dim

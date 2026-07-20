@@ -45,6 +45,78 @@ class JarvisUuidHelpersTests(unittest.TestCase):
 
 
 class RedisPoolUnitTests(unittest.TestCase):
+    def test_dynesty_sampler_never_binds_toy_loglike(self) -> None:
+        """Production constructor must wire Redis logL, not _local_loglike."""
+        from jarvishep2.Sampling.dynesty_sampler import DynestySampler
+
+        queue = make_fakeredis_queue()
+        seen: list[str] = []
+
+        def build_sample(payload, uuid):
+            seen.append(str(uuid))
+            return Sample(uuid=uuid, u_coords=np.asarray(payload, dtype=float))
+
+        pool = RedisEvaluationPool(
+            queue, build_sample=build_sample, batch_size=4, seed=1, timeout=5.0
+        )
+        sampler = DynestySampler()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "Dynesty",
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1},
+                            },
+                        },
+                    ],
+                    "Bounds": {"nlive": 10, "dynamic": False},
+                }
+            }
+        )
+        kwargs = sampler._build_constructor_kwargs(
+            pool=pool, rstate=np.random.default_rng(0)
+        )
+        loglike = kwargs["loglikelihood"]
+        self.assertIsNot(loglike, sampler._local_loglike)
+        self.assertEqual(getattr(loglike, "__name__", ""), "loglikelihood")
+        # Toy path must hard-fail if ever invoked.
+        with self.assertRaises(RuntimeError):
+            sampler._local_loglike(np.array([0.1, 0.2]))
+
+        stop = threading.Event()
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                queue.publish_feedback(
+                    {"uuid": task["uuid"], "logL": float(-np.sum((u - 0.5) ** 2))}
+                )
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        try:
+            v = _jarvis_prior_transform(np.array([0.5, 0.5]))
+            val = float(loglike(v))
+            self.assertAlmostEqual(val, 0.0, places=6)
+            self.assertEqual(len(seen), 1)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
     def test_evaluate_logl_goes_remote(self) -> None:
         """Direct loglikelihood(v) calls (inside sample()) must hit Redis."""
         queue = make_fakeredis_queue()
