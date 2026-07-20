@@ -470,20 +470,49 @@ class Jarvis2Core:
         except Exception:
             archived = 0
         run_id = str(self.info.get("run_id") or "")
+        ok = int(counters.get("ok") or 0)
+        failed = int(counters.get("failed") or 0)
+        queued = int(counters.get("queued") or 0)
+        running = int(counters.get("running") or 0)
+        redis_total = ok + failed + queued + running
+        extras: dict[str, Any] = {
+            "queued": queued,
+            "running": running,
+            "archive_q": int(counters.get("archive_q") or 0),
+        }
+        # Nested samplers return *ncall* from run_adaptive; Redis SAMPLE_STATS
+        # count real Worker tasks. Prefer Redis for submitted/completed and
+        # expose ncall separately so CLI is not misleading (D13.8 hygiene).
+        ncall: int | None = None
+        reported = int(submitted or 0)
+        if reported > 0 and redis_total > 0 and reported > max(1, redis_total) * 2:
+            ncall = reported
+            submitted_out = max(redis_total, ok + failed)
+        else:
+            submitted_out = reported if reported > 0 else redis_total
+            # Still surface dynesty ncall when available on the sampler summary.
+            try:
+                summary = (
+                    self.sampler.summary()
+                    if self.sampler is not None and hasattr(self.sampler, "summary")
+                    else None
+                )
+                if isinstance(summary, Mapping) and summary.get("ncall") is not None:
+                    ncall = int(summary["ncall"])
+            except Exception:
+                pass
+        if ncall is not None:
+            extras["ncall"] = int(ncall)
         return RunOutcome.from_counters(
-            submitted=int(submitted or 0),
-            completed=int(counters.get("ok") or 0),
-            failed=int(counters.get("failed") or 0),
+            submitted=int(submitted_out or 0),
+            completed=ok,
+            failed=failed,
             archived=archived,
             run_id=run_id,
             interrupted=interrupted,
             error=error,
             error_type=error_type,
-            extras={
-                "queued": int(counters.get("queued") or 0),
-                "running": int(counters.get("running") or 0),
-                "archive_q": int(counters.get("archive_q") or 0),
-            },
+            extras=extras,
         )
 
     def run(

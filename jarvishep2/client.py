@@ -957,10 +957,15 @@ def dispatch_operas(args: argparse.Namespace) -> int:
 
 def _print_outcome(outcome: RunOutcome) -> None:
     """Human-readable one-line summary on stderr (stdout stays clean for pipes)."""
+    ncall = None
+    if isinstance(outcome.extras, dict):
+        ncall = outcome.extras.get("ncall")
+    ncall_bit = f" ncall={ncall}" if ncall is not None else ""
     print(
         f"RunOutcome status={outcome.status} "
         f"submitted={outcome.submitted} completed={outcome.completed} "
-        f"failed={outcome.failed} archived={outcome.archived} "
+        f"failed={outcome.failed} archived={outcome.archived}"
+        f"{ncall_bit} "
         f"exit={outcome.exit_code}",
         file=sys.stderr,
     )

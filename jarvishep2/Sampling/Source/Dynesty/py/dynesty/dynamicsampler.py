@@ -887,7 +887,7 @@ class DynamicSampler:
         bounds are also returned."""
         d = {}
         for k in [
-                'nc', 'v', 'id', 'batch', 'it', 'u', 'n', 'logwt', 'logl',
+                'nc', 'v', 'id', 'batch', 'it', 'u', 'uid', 'n', 'logwt', 'logl',
                 'logvol', 'logz', 'logzvar', 'h', 'batch_nlive',
                 'batch_logl_bounds', 'blob', 'proposal_stats'
         ]:
@@ -898,7 +898,7 @@ class DynamicSampler:
             warnings.simplefilter("ignore")
             results = [('niter', self.it - 1), ('ncall', d['nc']),
                        ('eff', self.eff), ('samples', d['v'])]
-            for k in ['id', 'batch', 'it', 'u', 'n']:
+            for k in ['id', 'batch', 'it', 'u', 'uid', 'n']:  # JARVIS: samples_uid
                 results.append(('samples_' + k, d[k]))
             for k in [
                     'logwt', 'logl', 'logvol', 'logz', 'batch_nlive',
@@ -1146,8 +1146,10 @@ class DynamicSampler:
             # Grab results.
 
             # Save our base run (which we will use later).
+            uidstar = str(getattr(results, "uidstar", "") or "")
             add_info = dict(id=results.worst,
                             u=results.ustar,
+                            uid=uidstar,  # JARVIS
                             v=results.vstar,
                             logl=results.loglstar,
                             logvol=results.logvol,
@@ -1175,6 +1177,7 @@ class DynamicSampler:
             yield IteratorResult(worst=results.worst,
                                  ustar=results.ustar,
                                  vstar=results.vstar,
+                                 uidstar=uidstar,
                                  loglstar=results.loglstar,
                                  logvol=results.logvol,
                                  logwt=results.logwt,
@@ -1193,8 +1196,10 @@ class DynamicSampler:
         for it, results in enumerate(self.sampler.add_live_points()):
             # Grab results.
 
+            uidstar = str(getattr(results, "uidstar", "") or "")
             add_info = dict(id=results.worst,
                             u=results.ustar,
+                            uid=uidstar,  # JARVIS
                             v=results.vstar,
                             logl=results.loglstar,
                             logvol=results.logvol,
@@ -1220,6 +1225,7 @@ class DynamicSampler:
             yield IteratorResult(worst=results.worst,
                                  ustar=results.ustar,
                                  vstar=results.vstar,
+                                 uidstar=uidstar,
                                  loglstar=results.loglstar,
                                  logvol=results.logvol,
                                  logwt=results.logwt,
@@ -1406,8 +1412,10 @@ class DynamicSampler:
                                      save_bounds=save_bounds,
                                      resume=resume)):
             # Save results.
+            uidstar = str(getattr(results, "uidstar", "") or "")
             D = dict(id=results.worst,
                      u=results.ustar,
+                     uid=uidstar,  # JARVIS
                      v=results.vstar,
                      logl=results.loglstar,
                      nc=results.nc,
@@ -1432,6 +1440,7 @@ class DynamicSampler:
             yield IteratorResultShort(worst=results.worst,
                                       ustar=results.ustar,
                                       vstar=results.vstar,
+                                      uidstar=uidstar,
                                       loglstar=results.loglstar,
                                       nc=results.nc,
                                       worst_it=results.worst_it + it0,
@@ -1457,8 +1466,10 @@ class DynamicSampler:
             batch_sampler.saved_run['h'] = [0]
         for it, results in enumerate(batch_sampler.add_live_points()):
             # Save results.
+            uidstar = str(getattr(results, "uidstar", "") or "")
             D = dict(id=results.worst,
                      u=results.ustar,
+                     uid=uidstar,  # JARVIS
                      v=results.vstar,
                      logl=results.loglstar,
                      nc=results.nc,
@@ -1478,6 +1489,7 @@ class DynamicSampler:
             yield IteratorResultShort(worst=results.worst,
                                       ustar=results.ustar,
                                       vstar=results.vstar,
+                                      uidstar=uidstar,
                                       loglstar=results.loglstar,
                                       nc=results.nc,
                                       worst_it=results.worst_it + it0,
@@ -1501,11 +1513,26 @@ class DynamicSampler:
         new_d = {}
 
         for k in [
-                'id', 'u', 'v', 'logl', 'nc', 'boundidx', 'it', 'bounditer',
+                'id', 'u', 'uid', 'v', 'logl', 'nc', 'boundidx', 'it', 'bounditer',
                 'n', 'scale', 'blob', 'logvol', 'proposal_stats'
         ]:
-            saved_d[k] = np.array(self.saved_run[k])
-            new_d[k] = np.array(self.new_run[k])
+            # JARVIS: uid may be missing on older runs — pad to matching length.
+            if k == 'uid' and (
+                k not in self.saved_run.keys()
+                or len(self.saved_run[k]) != len(self.saved_run['id'])
+            ):
+                saved_d[k] = np.array(
+                    [""] * len(self.saved_run['id']), dtype="U36"
+                )
+            else:
+                saved_d[k] = np.array(self.saved_run[k])
+            if k == 'uid' and (
+                k not in self.new_run.keys()
+                or len(self.new_run[k]) != len(self.new_run['id'])
+            ):
+                new_d[k] = np.array([""] * len(self.new_run['id']), dtype="U36")
+            else:
+                new_d[k] = np.array(self.new_run[k])
 
         saved_d['batch'] = np.array(self.saved_run['batch'])
         nsaved = len(saved_d['n'])
@@ -1553,7 +1580,7 @@ class DynamicSampler:
                 idx_new += 1
 
             for k in [
-                    'id', 'u', 'v', 'logl', 'nc', 'boundidx', 'it',
+                    'id', 'u', 'uid', 'v', 'logl', 'nc', 'boundidx', 'it',
                     'bounditer', 'scale', 'blob', 'proposal_stats'
             ]:
                 add_info[k] = add_source[k][add_idx]

@@ -233,6 +233,11 @@ class DynamicNestedUuidAcceptanceTests(unittest.TestCase):
         self.assertIn("logz", res.keys())
         samples = np.asarray(res["samples"])
         self.assertEqual(samples.shape[1], 2)
+        # UUID channel must land in results for CSV export.
+        self.assertIn("samples_uid", res.keys())
+        uids = [str(u) for u in np.asarray(res["samples_uid"]).reshape(-1)]
+        nonempty = [u for u in uids if u.strip()]
+        self.assertGreater(len(nonempty), 0, msg="expected non-empty samples_uid")
 
 
 class SamplerConfigAcceptanceTests(unittest.TestCase):
