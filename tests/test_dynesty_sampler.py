@@ -352,6 +352,13 @@ class DistributorDynestyTests(unittest.TestCase):
 
 
 class JarvisLoggerBridgeTests(unittest.TestCase):
+    def test_get_print_func_never_creates_tqdm(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import get_print_func
+
+        pbar, print_func = get_print_func(None, True)
+        self.assertIsNone(pbar)
+        self.assertIsNotNone(print_func)
+
     def test_progress_and_warnings_use_injected_logger(self) -> None:
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty import jarvis_logging as jl
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import print_fn

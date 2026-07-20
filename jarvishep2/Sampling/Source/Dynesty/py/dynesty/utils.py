@@ -528,35 +528,24 @@ def print_fn_tqdm(pbar,
                   logl_min=-np.inf,
                   logl_max=np.inf,
                   logger=None):
-    """Status printing via tqdm, also mirrored to Jarvis logger (V1)."""
-    from .jarvis_logging import (
-        format_progress_block,
-        get_dynesty_logger,
+    """Legacy tqdm path — redirects to logger-only (no console bar).
+
+    Kept for call sites that still pass ``pbar=…``; tqdm updates are skipped
+    so progress appears only in the Jarvis logger.
+    """
+    # Intentionally ignore pbar: dual tqdm + Jarvis blocks confuse users.
+    print_fn_fallback(
+        results,
+        niter,
+        ncall,
+        add_live_it=add_live_it,
+        dlogz=dlogz,
+        stop_val=stop_val,
+        nbatch=nbatch,
+        logl_min=logl_min,
+        logl_max=logl_max,
+        logger=logger,
     )
-
-    fn_args = get_print_fn_args(results,
-                                niter,
-                                ncall,
-                                add_live_it=add_live_it,
-                                dlogz=dlogz,
-                                stop_val=stop_val,
-                                nbatch=nbatch,
-                                logl_min=logl_min,
-                                logl_max=logl_max)
-
-    pbar.set_postfix_str(" | ".join(fn_args.long_str), refresh=False)
-    pbar.update(fn_args.niter - pbar.n)
-    rate = None
-    try:
-        rate = pbar.format_dict.get("rate", None)
-    except Exception:
-        rate = None
-    log = logger if logger is not None else get_dynesty_logger()
-    log_block = format_progress_block(fn_args, rate=rate, logger=log)
-    if fn_args.niter % 100 == 0:
-        log.warning(log_block)
-    else:
-        log.info(log_block)
 
 
 def print_fn_fallback(results,
@@ -846,13 +835,16 @@ def get_nonbounded(ndim, periodic, reflective):
 
 
 def get_print_func(print_func, print_progress):
+    """Resolve the progress printer.
+
+    Jarvis-HEP always uses the logger-only path (``print_fn`` without tqdm).
+    Stock dynesty's tqdm bar duplicated the multi-line Jarvis ``Dynesty Progress``
+    block and cluttered the console.
+    """
     pbar = None
     if print_func is None:
-        if tqdm is None or not print_progress:
-            print_func = print_fn
-        else:
-            pbar = tqdm.tqdm()
-            print_func = partial(print_fn, pbar=pbar)
+        # Never attach tqdm here — emit only via Jarvis logger (print_fn_fallback).
+        print_func = print_fn
     return pbar, print_func
 
 
