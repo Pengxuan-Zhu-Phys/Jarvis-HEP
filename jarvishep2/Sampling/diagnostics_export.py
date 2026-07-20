@@ -26,6 +26,20 @@ def _database_dir(task_result_dir: str) -> str:
     return path
 
 
+def _summary_for_json(summary: Mapping[str, Any]) -> dict[str, Any]:
+    """Drop bulky arrays from on-disk summary (keep counts only)."""
+    payload = dict(summary)
+    uids = payload.pop("samples_uid", None)
+    if isinstance(uids, (list, tuple)):
+        payload["samples_uid_count"] = len(uids)
+    elif uids is not None:
+        try:
+            payload["samples_uid_count"] = int(len(uids))  # type: ignore[arg-type]
+        except Exception:
+            pass
+    return payload
+
+
 def write_sampler_summary_json(
     task_result_dir: str,
     summary: Mapping[str, Any],
@@ -35,7 +49,13 @@ def write_sampler_summary_json(
     """Write ``DATABASE/sampler_summary.json`` (pretty JSON)."""
     out = os.path.join(_database_dir(task_result_dir), filename)
     with open(out, "w", encoding="utf-8") as handle:
-        json.dump(dict(summary), handle, indent=2, sort_keys=False, default=str)
+        json.dump(
+            _summary_for_json(summary),
+            handle,
+            indent=2,
+            sort_keys=False,
+            default=str,
+        )
         handle.write("\n")
     return out
 

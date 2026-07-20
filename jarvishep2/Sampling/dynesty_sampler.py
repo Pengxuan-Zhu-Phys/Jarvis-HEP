@@ -351,11 +351,18 @@ def export_dynesty_results_csv(
     output_csv: str,
     *,
     fallback_nlive: int = 100,
+    param_names: Sequence[str] | None = None,
 ) -> str:
-    """Write V1-compatible ``dynesty_result.csv`` for Jarvis-PLOT ``dynesty_runplot``.
+    """Write clean nested-result CSV (Dynesty dead points only).
+
+    This is **not** the full likelihood-call archive (``samples.csv`` /
+    ``samples.hdf5``). Rows equal ``niter`` nested samples with weights,
+    evidence trajectory, uuids, and parameter coordinates.
 
     Column schema matches V1 ``Sampling.dynesty.save_dynesty_results_to_csv`` and
-    the Jarvis-PLOT default column aliases in ``dynesty_runtime._DEFAULT_COLUMNS``.
+    Jarvis-PLOT ``dynesty_runplot`` (``samples_v[i]`` / ``samples_u[i]``).
+    When *param_names* is provided, physical parameter columns with those names
+    are added alongside ``samples_v[i]`` for readability.
     """
     logl = np.asarray(_results_get(results, "logl", []), dtype=float).reshape(-1)
     n_rows = int(logl.size)
@@ -419,6 +426,31 @@ def export_dynesty_results_csv(
     ndim_v = int(samples.shape[1]) if samples.ndim == 2 else 0
     ndim_u = int(samples_u.shape[1]) if samples_u.ndim == 2 else 0
 
+    names: list[str] = []
+    if param_names:
+        for ii, raw_name in enumerate(param_names):
+            if ii >= ndim_v:
+                break
+            text = str(raw_name or "").strip()
+            if text and text not in {
+                "uuid",
+                "log_weight",
+                "log_Like",
+                "log_PriorVolume",
+                "log_Evidence",
+                "log_Evidence_err",
+                "samples_nlive",
+                "ncall",
+                "samples_it",
+                "samples_id",
+                "information",
+            }:
+                names.append(text)
+            else:
+                names.append("")
+        while len(names) < ndim_v:
+            names.append("")
+
     fieldnames = [
         "uuid",
         "log_weight",
@@ -432,6 +464,10 @@ def export_dynesty_results_csv(
         "samples_id",
         "information",
     ]
+    # Named physical coords first (clean read), then V1 samples_v/u aliases.
+    for name in names:
+        if name and name not in fieldnames:
+            fieldnames.append(name)
     for ii in range(ndim_v):
         fieldnames.append(f"samples_v[{ii}]")
     for ii in range(ndim_u):
@@ -453,7 +489,10 @@ def export_dynesty_results_csv(
             "information": float(information[i]),
         }
         for ii in range(ndim_v):
-            row[f"samples_v[{ii}]"] = float(samples[i, ii])
+            val = float(samples[i, ii])
+            row[f"samples_v[{ii}]"] = val
+            if ii < len(names) and names[ii]:
+                row[names[ii]] = val
         for ii in range(ndim_u):
             row[f"samples_u[{ii}]"] = float(samples_u[i, ii])
         rows.append(row)
@@ -758,7 +797,10 @@ class DynestySampler(FeedbackSampler):
         self,
         output_csv: str | None = None,
     ) -> str | None:
-        """Export nested results to V1-compatible CSV for Jarvis-PLOT.
+        """Export clean nested dead-point CSV (not the full logL-call archive).
+
+        Writes ``DATABASE/dynesty_result.csv`` for Jarvis-PLOT and post-run
+        analysis. Row count is ``niter`` (nested samples), not Worker ncall.
 
         Returns the written path, or ``None`` if the sampler has no results yet.
         """
@@ -771,11 +813,21 @@ class DynestySampler(FeedbackSampler):
             self._logger.warning("save_dynesty_results_to_csv: cannot read results: %s", exc)
             return None
         path = output_csv or self.dynesty_result_csv_path()
+        param_names = [
+            str(getattr(var, "name", "") or "").strip()
+            for var in (self.vars or [])
+        ]
         written = export_dynesty_results_csv(
-            results, path, fallback_nlive=self._nlive
+            results,
+            path,
+            fallback_nlive=self._nlive,
+            param_names=param_names or None,
         )
         self._dynesty_csv_path = written
-        self._logger.info("Dynesty results saved → %s", written)
+        self._logger.info(
+            "Dynesty clean nested CSV saved → %s (niter dead points; not all logL calls)",
+            written,
+        )
         try:
             summary_text = results.summary()
             if summary_text:

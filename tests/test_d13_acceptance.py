@@ -141,6 +141,22 @@ class NestedDiagnosticsExportTests(unittest.TestCase):
                 payload = json.load(handle)
             self.assertEqual(payload["logz"], -1.2)
 
+    def test_nested_summary_strips_samples_uid_list(self) -> None:
+        """On-disk summary keeps count only — full uids live in dynesty_result.csv."""
+        with tempfile.TemporaryDirectory() as tmp:
+            written = export_nested_diagnostics(
+                tmp,
+                summary={
+                    "method": "Dynesty",
+                    "logz": -2.0,
+                    "samples_uid": [f"u{i}" for i in range(50)],
+                },
+            )
+            with open(written["sampler_summary"], encoding="utf-8") as handle:
+                payload = json.load(handle)
+            self.assertNotIn("samples_uid", payload)
+            self.assertEqual(payload["samples_uid_count"], 50)
+
 
 class NestedCsvSchemaAcceptanceTests(unittest.TestCase):
     def test_export_schema_has_nested_contract_columns(self) -> None:

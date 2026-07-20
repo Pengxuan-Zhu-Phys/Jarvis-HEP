@@ -307,7 +307,9 @@ def emit_jplot_scan_levelset_yaml(
     os.makedirs(out_dir, exist_ok=True)
 
     db_path = os.path.join(root, "DATABASE", "samples.hdf5")
-    # CSV sits beside the HDF5 (same DATABASE directory); full record export.
+    # Full Worker evaluation archive (every logL call), not nested dead points.
+    # Nested clean CSV is DATABASE/dynesty_result.csv (written by DynestySampler).
+    # Caller must wait for Archiver catch-up before this snapshot.
     samples_csv = os.path.join(root, "DATABASE", "samples.csv")
     csv_path = export_samples_csv_from_hdf5(
         db_path,

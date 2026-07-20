@@ -458,6 +458,41 @@ class DynestyCsvExportTests(unittest.TestCase):
             self.assertEqual(rows[0]["uuid"], "uid-0")
             self.assertAlmostEqual(float(rows[-1]["log_Like"]), -1.0, places=5)
 
+    def test_export_dynesty_results_csv_param_names(self) -> None:
+        """Named physical columns sit alongside V1 samples_v aliases."""
+        n = 3
+        results = {
+            "logl": np.linspace(-5, -1, n),
+            "logwt": np.linspace(-3, -0.1, n),
+            "logvol": np.linspace(0, -2, n),
+            "logz": np.linspace(-4, -1, n),
+            "logzerr": np.full(n, 0.05),
+            "samples_n": np.full(n, 10),
+            "ncall": np.ones(n),
+            "samples_it": np.arange(n),
+            "samples_id": np.arange(n),
+            "information": np.zeros(n),
+            "samples": np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]),
+            "samples_u": np.array([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]),
+            "samples_uid": [f"u{i}" for i in range(n)],
+            "nlive": 10,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "dynesty_result.csv")
+            export_dynesty_results_csv(
+                results, path, fallback_nlive=10, param_names=["xx", "yy"]
+            )
+            with open(path, encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                fieldnames = list(reader.fieldnames or [])
+                rows = list(reader)
+            self.assertIn("xx", fieldnames)
+            self.assertIn("yy", fieldnames)
+            self.assertIn("samples_v[0]", fieldnames)
+            self.assertEqual(len(rows), n)
+            self.assertAlmostEqual(float(rows[1]["xx"]), 0.3, places=6)
+            self.assertAlmostEqual(float(rows[1]["samples_v[0]"]), 0.3, places=6)
+
     def test_sampler_save_writes_database_path(self) -> None:
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
 

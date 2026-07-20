@@ -310,17 +310,47 @@ class Jarvis2Core:
             raise RuntimeError(
                 f"Sampler {type(self.sampler).__name__} does not implement run_adaptive"
             )
-        # Archiver still drains the archive queue independently; wait for persisted rows.
-        expected = self._archiver_records_written()
-        # Best-effort: wait until archiver has caught up to total submitted.
-        # Adaptive samplers already barriered on feedback; a short drain is enough.
-        if self.archiver is not None:
-            try:
-                self.archiver.drain(idle_timeout=2.0)
-            except Exception:
-                pass
+        # Nested/adaptive samplers barrier on *feedback* first; Archiver lags
+        # behind on the archive queue. Wait until DATABASE rows catch Redis
+        # completed counts so samples.csv export is not a partial HDF5 snapshot.
+        self._wait_for_archive_caught_up(timeout=timeout)
         self._finalize_sample_buckets()
         return requeued + pushed
+
+    def _wait_for_archive_caught_up(self, *, timeout: float = 3600.0) -> None:
+        """Block until Archiver has persisted every Redis-completed sample.
+
+        Process-mode :class:`ArchiverProcess.drain` is a parent-side no-op; the
+        child keeps consuming ``hep:archive``. Plot/CSV export must wait until
+        ``records_written >= ok + failed`` (and workers are idle), otherwise
+        ``DATABASE/samples.csv`` misses the last archive batches.
+        """
+        if self.archiver is None:
+            return
+        deadline = time.monotonic() + max(1.0, float(timeout))
+        # Stabilize Redis counters once workers finish the feedback barrier.
+        expected = 0
+        while time.monotonic() < deadline:
+            counters = self._live_sample_counters()
+            expected = int(counters["ok"]) + int(counters["failed"])
+            inflight = int(counters["running"]) + int(counters["queued"])
+            if inflight == 0:
+                break
+            time.sleep(0.05)
+        # Parent drain is meaningful only for in-process SimpleArchiver.
+        try:
+            self.archiver.drain(idle_timeout=2.0)
+        except Exception:
+            pass
+        if expected <= 0:
+            return
+        remaining = max(1.0, deadline - time.monotonic())
+        self.wait_for_results(
+            expected,
+            timeout=remaining,
+            progress_total=expected,
+            progress_base=0,
+        )
 
     def run_check_modules(
         self,
@@ -402,6 +432,30 @@ class Jarvis2Core:
                 )
         except Exception as exc:
             self._logger.warning("workflow flowchart export failed -> %s", exc)
+
+    def _finalize_nested_result_csv(self) -> None:
+        """Write clean nested-sampler CSV (dead points only, not all logL calls).
+
+        Dynesty/MultiNest keep a much smaller set of nested samples than the
+        full Worker likelihood call stream. That table lives at
+        ``DATABASE/dynesty_result.csv`` (or multinest_result.csv) and is the
+        scientific artifact for evidence/weights — distinct from
+        ``DATABASE/samples.csv`` (every archived evaluation).
+        """
+        sampler = self.sampler
+        if sampler is None:
+            return
+        save = getattr(sampler, "save_dynesty_results_to_csv", None)
+        if not callable(save):
+            return
+        try:
+            path = save()
+        except Exception as exc:
+            self._logger.warning("nested result CSV finalize failed -> %s", exc)
+            return
+        if path:
+            self.info["dynesty_result_csv"] = path
+            self._logger.info("nested clean result CSV ready → %s", path)
 
     def _emit_plot_scenes(self) -> None:
         """Emit scan/levelset jplot YAML under ``<project>/images/<scan>/``."""
@@ -545,6 +599,15 @@ class Jarvis2Core:
                 )
             outcome = self._capture_run_outcome(submitted=submitted)
             if outcome.ok and not self._interrupt_requested:
+                # Belt-and-suspenders: ensure archive is complete before any
+                # HDF5 → samples.csv snapshot (adaptive path already waited).
+                try:
+                    self._wait_for_archive_caught_up(timeout=120.0)
+                except Exception as exc:
+                    self._logger.warning(
+                        "pre-plot archive catch-up failed -> %s", exc
+                    )
+                self._finalize_nested_result_csv()
                 self._emit_plot_scenes()
             return outcome
         except KeyboardInterrupt:
