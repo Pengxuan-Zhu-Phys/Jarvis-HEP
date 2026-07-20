@@ -81,6 +81,40 @@ class RedisPoolUnitTests(unittest.TestCase):
             pool.map(mystery, [np.array([0.1, 0.2])])
         self.assertIn("ambiguous dispatch", str(ctx.exception).lower())
 
+    def test_bound_bootstrap_map_stays_local(self) -> None:
+        """Dynesty MultiEllipsoid bootstrap must not go through Redis logL."""
+        queue = make_fakeredis_queue()
+
+        def build_sample(payload, uuid):
+            raise AssertionError("bootstrap must not build Redis samples")
+
+        pool = RedisEvaluationPool(
+            queue, build_sample=build_sample, batch_size=4, seed=1
+        )
+        calls = {"n": 0}
+
+        def _ellipsoid_bootstrap_expand(args):
+            calls["n"] += 1
+            multi, points, seed = args
+            return 1.05
+
+        # Mimic dynesty bounding.update zip(multis, ps, seeds)
+        seeds = np.random.SeedSequence(0).spawn(2)
+        points = np.random.default_rng(0).random((10, 2))
+        args = list(zip([True, True], [points, points], seeds))
+        out = pool.map(_ellipsoid_bootstrap_expand, args)
+        self.assertEqual(out, [1.05, 1.05])
+        self.assertEqual(calls["n"], 2)
+
+    def test_seedsequence_is_not_uuid_augmented(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_uuid import (
+            looks_uuid_augmented,
+        )
+
+        row = (True, np.zeros((3, 2)), np.random.SeedSequence(1))
+        self.assertFalse(looks_uuid_augmented(row))
+        self.assertTrue(looks_uuid_augmented(np.array([0.1, 0.2, "abc-uuid"], dtype=object)))
+
     def test_unmatched_feedback_is_logged(self) -> None:
         """D13.7b: destructive BLPOP of stray uuid leaves a warning trail."""
         queue = make_fakeredis_queue()

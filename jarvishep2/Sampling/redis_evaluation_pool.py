@@ -100,7 +100,9 @@ class RedisEvaluationPool:
         is_logl = self._is_loglikelihood_callable(func)
         is_ptform = self._is_prior_transform_callable(func)
         uuid_aug = looks_uuid_augmented(first)
-        wants_remote = is_logl or uuid_aug
+        # Remote only for clear logL work. Do NOT treat arbitrary non-float
+        # payloads as uuid-augmented (SeedSequence in bound bootstrap).
+        wants_remote = is_logl or (uuid_aug and not is_ptform)
 
         if wants_remote:
             if self.redis is None:
@@ -114,12 +116,19 @@ class RedisEvaluationPool:
         if is_ptform:
             return [func(x) for x in items]
 
+        # Dynesty also pool.map's bound bootstrap / expand helpers — always local.
+        if self._is_dynesty_local_map_callable(func) or self._looks_like_bound_bootstrap_item(
+            first
+        ):
+            return [func(x) for x in items]
+
         raise RuntimeError(
             "RedisEvaluationPool.map: ambiguous dispatch — refusing silent "
             "local fallback that could bypass Workers/calculators/Operas. "
             f"func={_callable_label(func)}, first_type={type(first).__name__}, "
             f"uuid_augmented={uuid_aug}. Expected prior_transform, "
-            "LogLikelihood, uuid-augmented logL vectors, or SamplerArgument."
+            "LogLikelihood, uuid-augmented logL vectors, SamplerArgument, "
+            "or dynesty bound-bootstrap helpers."
         )
 
     @staticmethod
@@ -141,6 +150,35 @@ class RedisEvaluationPool:
         if type(func).__name__ == "_function_wrapper":
             wname = str(getattr(func, "name", "") or "").lower()
             if "prior" in wname and "logl" not in wname:
+                return True
+        return False
+
+    @staticmethod
+    def _is_dynesty_local_map_callable(func: Callable) -> bool:
+        """True for dynesty internal pool.map jobs that must stay local."""
+        label = _callable_label(func).lower()
+        markers = (
+            "bootstrap",
+            "expand",
+            "ellipsoid",
+            "unit_cube",
+            "unitcube",
+            "sample_path",
+            "update_bound",
+        )
+        return any(m in label for m in markers)
+
+    @staticmethod
+    def _looks_like_bound_bootstrap_item(item: Any) -> bool:
+        """Detect dynesty bound-bootstrap arg tuples: (multi, points, seed)."""
+        if not isinstance(item, (tuple, list)) or len(item) < 2:
+            return False
+        for el in item:
+            name = type(el).__name__
+            if name in {"SeedSequence", "Generator", "RandomState"}:
+                return True
+            mod = getattr(type(el), "__module__", "") or ""
+            if "numpy.random" in mod and "Generator" in name:
                 return True
         return False
 
@@ -238,20 +276,15 @@ def _default_extract_logl(record: dict[str, Any]) -> float:
 
 
 def _uuid_and_payload(item: Any, *, seed: int, index: int) -> tuple[str, np.ndarray]:
-    """Extract uuid (if trailing) and numeric payload for Sample.u_coords."""
+    """Extract uuid (if trailing string) and numeric payload for Sample.u_coords."""
     arr = np.asarray(item, dtype=object).reshape(-1)
     if arr.size >= 2:
         last = arr[-1]
-        if isinstance(last, (str, bytes, np.str_)):
+        if isinstance(last, (str, bytes, np.str_)) or type(last).__name__ == "UUID":
             uuid = str(last)
             payload = np.asarray(arr[:-1], dtype=np.float64)
             return uuid, payload
-        try:
-            float(last)
-        except (TypeError, ValueError):
-            uuid = str(last)
-            payload = np.asarray(arr[:-1], dtype=np.float64)
-            return uuid, payload
+        # Non-string trailing object is not a uuid channel (do not str(SeedSequence)).
     payload = np.asarray(arr, dtype=np.float64)
     uuid = deterministic_sampler_uuid(prefix="dynesty", seed=seed, sample_index=index)
     return uuid, payload

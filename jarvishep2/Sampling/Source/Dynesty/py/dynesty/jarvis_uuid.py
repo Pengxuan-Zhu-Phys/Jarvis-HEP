@@ -21,19 +21,25 @@ JARVIS_UUID_CHANNEL = True
 
 
 def looks_uuid_augmented(row) -> bool:
-    """Return True if *row* looks like [...coords, uuid]."""
+    """Return True if *row* looks like [...coords, uuid_str].
+
+    Only **string-like** trailing elements count. Non-numeric objects such as
+    ``numpy.random.SeedSequence`` (dynesty bound-bootstrap args) must **not**
+    be treated as uuids — otherwise RedisEvaluationPool routes bootstrap work
+    through the logL Redis path and crashes.
+    """
     arr = np.asarray(row, dtype=object).reshape(-1)
     if arr.size < 2:
         return False
     last = arr[-1]
     if isinstance(last, (str, bytes, np.str_)):
+        text = last.decode("utf-8", errors="replace") if isinstance(last, bytes) else str(last)
+        # Empty trailing string is not a uuid channel marker.
+        return bool(text.strip())
+    # uuid.UUID instances (rare)
+    if type(last).__name__ == "UUID":
         return True
-    # uuid as object that is not a number
-    try:
-        float(last)
-        return False
-    except (TypeError, ValueError):
-        return True
+    return False
 
 
 def split_vid_row(row):
