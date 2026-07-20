@@ -118,8 +118,19 @@ def build_worker_config(
                 publish_feedback = True
 
     from jarvishep2.Module.nuisance import extract_nuisance_config
+    from jarvishep2.feedback_return import resolve_feedback_return
 
     nuisance_cfg = extract_nuisance_config(cfg)
+    # D13.8: flat feedback projection policy (default {uuid, logL}).
+    feedback_return = extra_payload.pop("feedback_return", None)
+    if not isinstance(feedback_return, dict):
+        feedback_return = resolve_feedback_return(
+            cfg,
+            sampler=extra_payload.pop("sampler", None),
+            method=sampling_method,
+        )
+    else:
+        extra_payload.pop("sampler", None)
     worker_config: dict[str, Any] = {
         "sample_config": sample_config,
         "mapper": extra_payload.pop("mapper", _default_mapper(cfg)),
@@ -139,6 +150,7 @@ def build_worker_config(
         "sample_directory": get_sample_directory_config(cfg),
         "command_parser": command_parser.to_picklable(),
         "publish_feedback": publish_feedback,
+        "feedback_return": feedback_return,
     }
     # Only resolve/create staging when the staging hop is actually enabled.
     handoff = handoff_to_staging_enabled(cfg)

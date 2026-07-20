@@ -245,6 +245,12 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
             ),
         )
 
+    def feedback_return_spec(self) -> dict[str, Any]:
+        """Request flat target-expression symbols on hep:feedback (D13.8)."""
+        from jarvishep2.feedback_return import resolve_feedback_return
+
+        return resolve_feedback_return(self.config, sampler=None, method=self.method)
+
     def _make_graph(self) -> NeighborGraph:
         mode = self._neighbor_graph_mode
         if mode == "auto":
@@ -474,21 +480,51 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
         return None
 
     def absorb_generation(self, results: Sequence[Mapping[str, Any]]) -> None:
-        """Fill ``LevelSetPoint.f`` from feedback records (Failed → f=None)."""
+        """Fill ``LevelSetPoint.f`` from flat feedback (unusable logL → f=None)."""
+        from jarvishep2.feedback_return import (
+            WIRE_LOGL_KEY,
+            feedback_logl,
+            is_unusable_logl,
+            normalize_feedback_record,
+        )
+
         for record in results:
             uuid = str(record.get("uuid", ""))
             index = self._uuid_to_index.get(uuid)
             if index is None:
                 continue
-            status = str(record.get("status", "Completed"))
-            observables = dict(record.get("observables") or {})
-            if status == "Failed":
-                self._points[index].f = None
-                self._failed_regions.append({"uuid": uuid, "u": list(self._points[index].u)})
-                continue
+            flat = normalize_feedback_record(record)
             payload = dict(self._points[index].x)
-            payload.update(observables)
-            self._points[index].f = self._eval_target(payload)
+            for key, value in flat.items():
+                if key == "uuid":
+                    continue
+                if key == WIRE_LOGL_KEY:
+                    payload["LogL"] = value
+                    payload["logL"] = value
+                else:
+                    payload[str(key)] = value
+            # Hard-fail only when the target is LogL itself and logL is −∞.
+            # Other targets (r2, x, …) may still be valid with logL=-inf when
+            # the scan has no likelihood expressions (include_logl default true).
+            target_expr = str(self._target_expression or "").strip()
+            target_is_logl = target_expr in {"LogL", "logL"}
+            if (
+                target_is_logl
+                and WIRE_LOGL_KEY in flat
+                and is_unusable_logl(feedback_logl(flat))
+            ):
+                self._points[index].f = None
+                self._failed_regions.append(
+                    {"uuid": uuid, "u": list(self._points[index].u)}
+                )
+                continue
+            try:
+                self._points[index].f = self._eval_target(payload)
+            except Exception:
+                self._points[index].f = None
+                self._failed_regions.append(
+                    {"uuid": uuid, "u": list(self._points[index].u)}
+                )
 
     # ----------------------------------------------------------------- finalize
     def _graph_component_count(self, edges: np.ndarray, n: int) -> int:

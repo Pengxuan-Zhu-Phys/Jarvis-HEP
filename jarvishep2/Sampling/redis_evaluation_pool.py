@@ -177,11 +177,11 @@ class RedisEvaluationPool:
                 # leave a greppable trail (D13.7b).
                 self._logger.warning(
                     "dropping unmatched hep:feedback uuid=%s "
-                    "(pending_batch=%d expected=%d status=%s)",
+                    "(pending_batch=%d expected=%d logL=%s)",
                     uuid or "<empty>",
                     len(remaining),
                     len(pending),
-                    record.get("status", ""),
+                    record.get("logL", ""),
                 )
                 continue
             remaining.discard(uuid)
@@ -224,20 +224,17 @@ class RedisEvaluationPool:
 
 
 def _default_extract_logl(record: dict[str, Any]) -> float:
-    status = str(record.get("status", "Completed"))
-    if status == "Failed":
+    """Map flat feedback logL to a dynesty-safe finite (D13.8).
+
+    Wire uses real −∞ for unusable points; dynesty paths historically expect a
+    large negative finite, so convert non-finite logL to ``-1e300`` here only.
+    """
+    from jarvishep2.feedback_return import feedback_logl, is_unusable_logl
+
+    logl = feedback_logl(record)
+    if is_unusable_logl(logl):
         return -1.0e300
-    obs = dict(record.get("observables") or {})
-    if "LogL" in obs:
-        return float(obs["LogL"])
-    terms = [
-        float(v)
-        for k, v in obs.items()
-        if str(k).startswith("LogL") and k != "LogL"
-    ]
-    if terms:
-        return float(sum(terms))
-    return -1.0e300
+    return float(logl)
 
 
 def _uuid_and_payload(item: Any, *, seed: int, index: int) -> tuple[str, np.ndarray]:

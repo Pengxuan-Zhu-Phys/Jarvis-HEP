@@ -163,8 +163,22 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         return None
 
     def _failure_policy_halt(self, record: Mapping[str, Any]) -> bool:
-        """Return True if a Failed record should abort the run."""
-        if str(record.get("status", "Completed")) != "Failed":
+        """Return True if an unusable feedback record should abort the run.
+
+        D13.8: no sample ``status`` on feedback — unusable means non-finite
+        ``logL`` (−∞ / nan).
+        """
+        from jarvishep2.feedback_return import (
+            WIRE_LOGL_KEY,
+            feedback_logl,
+            is_unusable_logl,
+            normalize_feedback_record,
+        )
+
+        flat = normalize_feedback_record(record)
+        if WIRE_LOGL_KEY not in flat:
+            return False
+        if not is_unusable_logl(feedback_logl(flat)):
             return False
         return str(self._on_failure).lower() == "halt"
 

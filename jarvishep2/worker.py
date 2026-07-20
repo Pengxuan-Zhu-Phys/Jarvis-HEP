@@ -567,12 +567,19 @@ class Worker(Process):
         info = sample.to_info_dict()
         self._redis.submit_result(info)
         if bool(self.worker_config.get("publish_feedback", False)):
+            from jarvishep2.feedback_return import build_feedback_record
+
+            # Ensure unusable samples still carry LogL=-inf for flat feedback.
+            if "LogL" not in sample.observables:
+                sample.observables["LogL"] = float("-inf")
+                sample._mirror_fields_to_info()
+            spec = self.worker_config.get("feedback_return") or {
+                "mode": "minimal",
+                "include_logl": True,
+                "fields": [],
+            }
             self._redis.publish_feedback(
-                {
-                    "uuid": sample.uuid,
-                    "status": sample.status,
-                    "observables": dict(sample.observables),
-                }
+                build_feedback_record(sample, spec=spec)
             )
 
     def process_task(self, task: Mapping[str, Any]) -> None:

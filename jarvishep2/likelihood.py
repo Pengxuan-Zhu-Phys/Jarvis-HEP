@@ -49,10 +49,17 @@ class LogLikelihoodEvaluator:
             self._compiled.append((name, compiled))
 
     def evaluate(self, observables: Mapping[str, Any]) -> dict[str, float]:
-        """Return likelihood terms computed from observables."""
+        """Return likelihood terms computed from observables.
+
+        Unusable totals are written as ``-inf`` (no expressions, non-finite
+        results). Callers that need fail-loud on missing symbols still raise.
+        """
         values: dict[str, float] = {}
         payload = dict(observables)
         eval_values = dict(payload)
+        if not self._compiled:
+            values["LogL"] = float("-inf")
+            return values
         explicit_total = any(name == "LogL" for name, _ in self._compiled)
         total_loglikelihood = 0.0
         for name, compiled in self._compiled:
@@ -64,14 +71,14 @@ class LogLikelihoodEvaluator:
                 ) from exc
             if isinstance(result, np.generic):
                 result = result.item()
-            likelihood = float(result)
+            likelihood = _finite_or_neginf(float(result))
             values[name] = likelihood
             eval_values[name] = likelihood
             if name == "LogL":
                 total_loglikelihood = likelihood
             elif not explicit_total:
                 total_loglikelihood += likelihood
-        values["LogL"] = float(total_loglikelihood)
+        values["LogL"] = _finite_or_neginf(float(total_loglikelihood))
         return values
 
     def _sample_logger(self, sample_info: Mapping[str, Any]) -> Any | None:
@@ -90,7 +97,12 @@ class LogLikelihoodEvaluator:
         return parent
 
     def calculate(self, sample_info: dict[str, Any]) -> float:
-        """Worker-facing evaluation that writes into sample_info."""
+        """Worker-facing evaluation that writes into sample_info.
+
+        On missing symbols / evaluation failure, writes ``LogL = -inf`` and
+        re-raises so the Worker can mark the sample Failed while feedback still
+        has a defined logL (D13.8).
+        """
         observables = sample_info.get("observables", {})
         if not isinstance(observables, dict):
             raise TypeError("sample_info['observables'] must be a dict")
@@ -98,46 +110,71 @@ class LogLikelihoodEvaluator:
         # Evaluate term-by-term so each expression can be sample-logged like V1.
         payload = dict(observables)
         eval_values = dict(payload)
+        if not self._compiled:
+            observables["LogL"] = float("-inf")
+            sample_info["observables"] = observables
+            sample_info["likelihood"] = float("-inf")
+            return float("-inf")
         explicit_total = any(name == "LogL" for name, _ in self._compiled)
         total_loglikelihood = 0.0
         values: dict[str, float] = {}
-        for name, compiled in self._compiled:
-            try:
-                result = compiled.evaluate(eval_values)
-            except MissingExpressionVariablesError as exc:
-                raise KeyError(
-                    f"LogLikelihood expression '{name}' misses observables: {list(exc.missing)}"
-                ) from exc
-            if isinstance(result, np.generic):
-                result = result.item()
-            likelihood = float(result)
-            values[name] = likelihood
-            eval_values[name] = likelihood
-            if name == "LogL":
-                total_loglikelihood = likelihood
-            elif not explicit_total:
-                total_loglikelihood += likelihood
-            if slogger is not None:
-                used = {
-                    key: eval_values[key]
-                    for key in compiled.variable_names
-                    if key in eval_values
-                }
-                input_text = ", ".join(f"{key} : {val}" for key, val in used.items())
-                slogger.info(
-                    f"Evaluating   {name}: \n"
-                    f"   expression \t-> {compiled.expression}\n"
-                    f"   with input \t-> [{input_text}] \n"
-                    f"   Output \t\t-> {likelihood}"
-                )
-        values["LogL"] = float(total_loglikelihood)
-        observables.update(values)
-        sample_info["observables"] = observables
-        likelihood = values.get("LogL")
-        if likelihood is None and values:
-            likelihood = next(iter(values.values()))
-        sample_info["likelihood"] = float(likelihood)
-        return float(likelihood)
+        try:
+            for name, compiled in self._compiled:
+                try:
+                    result = compiled.evaluate(eval_values)
+                except MissingExpressionVariablesError as exc:
+                    raise KeyError(
+                        f"LogLikelihood expression '{name}' misses observables: "
+                        f"{list(exc.missing)}"
+                    ) from exc
+                if isinstance(result, np.generic):
+                    result = result.item()
+                likelihood = _finite_or_neginf(float(result))
+                values[name] = likelihood
+                eval_values[name] = likelihood
+                if name == "LogL":
+                    total_loglikelihood = likelihood
+                elif not explicit_total:
+                    total_loglikelihood += likelihood
+                if slogger is not None:
+                    used = {
+                        key: eval_values[key]
+                        for key in compiled.variable_names
+                        if key in eval_values
+                    }
+                    input_text = ", ".join(
+                        f"{key} : {val}" for key, val in used.items()
+                    )
+                    slogger.info(
+                        f"Evaluating   {name}: \n"
+                        f"   expression \t-> {compiled.expression}\n"
+                        f"   with input \t-> [{input_text}] \n"
+                        f"   Output \t\t-> {likelihood}"
+                    )
+            values["LogL"] = _finite_or_neginf(float(total_loglikelihood))
+            observables.update(values)
+            sample_info["observables"] = observables
+            likelihood = float(values["LogL"])
+            sample_info["likelihood"] = likelihood
+            return likelihood
+        except Exception:
+            # Guarantee a defined total for feedback/archive before re-raise.
+            observables["LogL"] = float("-inf")
+            observables.update({k: v for k, v in values.items()})
+            sample_info["observables"] = observables
+            sample_info["likelihood"] = float("-inf")
+            raise
+
+
+def _finite_or_neginf(value: float) -> float:
+    """Map non-finite floats to ``-inf`` (D13.8 likelihood contract)."""
+    x = float(value)
+    if x != x or x == float("inf") or x == float("-inf"):  # nan or ±inf
+        # Preserve -inf; collapse +inf/nan to -inf (unusable likelihood).
+        if x == float("-inf"):
+            return float("-inf")
+        return float("-inf")
+    return x
 
 
 __all__ = ["LogLikelihoodEvaluator"]

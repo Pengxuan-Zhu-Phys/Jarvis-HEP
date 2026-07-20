@@ -805,20 +805,63 @@ class RedisQueue:
         pipe.execute()
 
     def publish_feedback(self, info: Mapping[str, Any]) -> None:
-        """Push a light result record for adaptive sampler barriers (D10.1)."""
+        """Push a flat sampler barrier record (D13.8).
+
+        Expected shape::
+
+            {"uuid": str, "logL": float|str, ...optional flat fields}
+
+        Nested ``observables`` / sample ``status`` are not part of the contract;
+        if a legacy caller still passes them they are dropped (not re-nested).
+        """
         self._require_client()
-        payload = {
-            "uuid": str(info.get("uuid", "")),
-            "status": str(info.get("status", "Completed")),
-            "observables": dict(info.get("observables") or {}),
-        }
-        if not payload["uuid"]:
+        from jarvishep2.feedback_return import (
+            WIRE_LOGL_KEY,
+            encode_feedback_float,
+            extract_logl_total,
+            normalize_feedback_record,
+        )
+
+        raw = dict(info or {})
+        # Accept already-flat records or legacy nested bags from older tests.
+        if "observables" in raw or (
+            WIRE_LOGL_KEY not in raw and "LogL" in dict(raw.get("observables") or {})
+        ):
+            payload = normalize_feedback_record(raw)
+        else:
+            payload = {
+                key: value
+                for key, value in raw.items()
+                if key not in {"status", "observables"}
+            }
+            payload["uuid"] = str(raw.get("uuid") or payload.get("uuid") or "")
+            if WIRE_LOGL_KEY not in payload and "LogL" in raw:
+                payload[WIRE_LOGL_KEY] = raw["LogL"]
+            if WIRE_LOGL_KEY not in payload:
+                nested = raw.get("observables")
+                if isinstance(nested, Mapping):
+                    logl = extract_logl_total(nested)
+                    if logl is not None:
+                        payload[WIRE_LOGL_KEY] = logl
+        if not payload.get("uuid"):
             raise TaskValidationError("feedback payload requires uuid")
+        # Encode non-finite floats for JSON codecs.
+        if WIRE_LOGL_KEY in payload:
+            try:
+                payload[WIRE_LOGL_KEY] = encode_feedback_float(
+                    float(payload[WIRE_LOGL_KEY])
+                )
+            except (TypeError, ValueError):
+                from jarvishep2.feedback_return import decode_feedback_float
+
+                payload[WIRE_LOGL_KEY] = encode_feedback_float(
+                    decode_feedback_float(payload[WIRE_LOGL_KEY])
+                )
         encoded = encode_payload(payload, codec=self._codec)
         self.r.rpush(FEEDBACK_QUEUE, encoded)
 
     def pull_feedback(self, timeout: int = 1) -> dict[str, Any] | None:
-        """Blocking pop from hep:feedback."""
+        """Blocking pop from hep:feedback; normalizes flat floats."""
         self._require_client()
         raw = self.r.blpop(FEEDBACK_QUEUE, timeout=timeout)
         if raw is None:
@@ -827,7 +870,9 @@ class RedisQueue:
         decoded = decode_payload(payload, codec=self._codec)
         if not isinstance(decoded, dict):
             raise CodecError("feedback payload must decode to a dict")
-        return decoded
+        from jarvishep2.feedback_return import normalize_feedback_record
+
+        return normalize_feedback_record(decoded)
 
     def drain_feedback_queue(self) -> int:
         """Discard all queued feedback records (resume path)."""

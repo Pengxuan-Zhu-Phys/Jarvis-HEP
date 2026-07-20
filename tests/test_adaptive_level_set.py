@@ -267,14 +267,15 @@ class NeighborGraphUnitTests(unittest.TestCase):
 class FeedbackChannelTests(unittest.TestCase):
     def test_publish_and_pull_feedback(self) -> None:
         queue = make_fakeredis_queue()
-        queue.publish_feedback(
-            {"uuid": "u1", "status": "Completed", "observables": {"r2": 0.1}}
-        )
+        queue.publish_feedback({"uuid": "u1", "logL": -1.0, "r2": 0.1})
         record = queue.pull_feedback(timeout=1)
         self.assertIsNotNone(record)
         assert record is not None
         self.assertEqual(record["uuid"], "u1")
-        self.assertEqual(record["observables"]["r2"], 0.1)
+        self.assertEqual(record["r2"], 0.1)
+        self.assertAlmostEqual(float(record["logL"]), -1.0)
+        self.assertNotIn("observables", record)
+        self.assertNotIn("status", record)
 
     def test_feedback_off_by_default_key_empty(self) -> None:
         queue = make_fakeredis_queue()

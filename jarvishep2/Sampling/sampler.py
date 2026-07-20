@@ -46,6 +46,14 @@ class SamplingVirtial:
     def set_redis(self, redis: RedisQueue) -> None:
         self.redis = redis
 
+    def feedback_return_spec(self) -> dict[str, Any]:
+        """Flat hep:feedback policy for Workers (D13.8).
+
+        Default is minimal ``{uuid, logL}``. Override on optimizers that need
+        extra top-level fields.
+        """
+        return {"mode": "minimal", "include_logl": True, "fields": []}
+
     def set_execution_plan_template(
         self,
         opera_modules: list[dict[str, Any]] | None = None,

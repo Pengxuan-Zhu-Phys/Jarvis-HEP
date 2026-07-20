@@ -496,21 +496,21 @@ class MCMCSampler(FeedbackSampler):
 
     # ----------------------------------------------------------------- absorb
     def _extract_logl(self, record: Mapping[str, Any]) -> float | None:
-        status = str(record.get("status", "Completed"))
-        if status == "Failed":
+        """Read flat ``logL`` from feedback; −∞ / non-finite / missing → failed."""
+        from jarvishep2.feedback_return import (
+            WIRE_LOGL_KEY,
+            feedback_logl,
+            is_unusable_logl,
+            normalize_feedback_record,
+        )
+
+        flat = normalize_feedback_record(record)
+        if WIRE_LOGL_KEY not in flat:
             return None
-        obs = dict(record.get("observables") or {})
-        if "LogL" in obs:
-            return float(obs["LogL"])
-        # Sum LogL_* terms if total missing (Worker should set LogL; be defensive).
-        terms = [
-            float(v)
-            for k, v in obs.items()
-            if str(k).startswith("LogL") and k != "LogL"
-        ]
-        if terms:
-            return float(sum(terms))
-        return None
+        logl = feedback_logl(flat)
+        if is_unusable_logl(logl):
+            return None
+        return float(logl)
 
     def absorb_generation(self, results: Sequence[Mapping[str, Any]]) -> None:
         registry = self._ensure_registry()

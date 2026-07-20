@@ -862,15 +862,19 @@ class Jarvis2Core:
         overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
         overrides.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
         overrides.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
+        extra = dict(overrides or {})
+        # Stamp active sampler into feedback_return resolution (D13.8).
+        if "sampler" not in extra and self.sampler is not None:
+            extra["sampler"] = self.sampler
         return build_worker_config(
             self.config,
             task_result_dir=task_result_dir,
             parser=self.command_parser,
-            calculator_modules=overrides.pop("calculator_modules", None),
-            likelihood_expressions=overrides.pop("likelihood_expressions", None),
-            opera_modules=overrides.pop("opera_modules", None),
-            sample_dirs=overrides.pop("sample_dirs", None),
-            extra=overrides or None,
+            calculator_modules=extra.pop("calculator_modules", None),
+            likelihood_expressions=extra.pop("likelihood_expressions", None),
+            opera_modules=extra.pop("opera_modules", None),
+            sample_dirs=extra.pop("sample_dirs", None),
+            extra=extra or None,
         )
 
     def init_factory(self, worker_config: Mapping[str, Any] | None = None) -> TaskFactory | None:
