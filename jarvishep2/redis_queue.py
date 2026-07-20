@@ -567,18 +567,41 @@ class RedisQueue:
         self.r.hset(BUCKET_META, mapping=mapping)
         return dict(mapping)
 
-    def _acquire_bucket_lock(self, *, retries: int = 50, sleep_sec: float = 0.002) -> bool:
-        """Best-effort short lock (fakeredis-safe; no Lua required)."""
-        for _ in range(max(1, retries)):
+    def _acquire_bucket_lock(
+        self,
+        *,
+        timeout_sec: float = 15.0,
+        sleep_sec: float = 0.005,
+        hold_ms: int = 5000,
+        # Legacy kwargs kept for callers/tests.
+        retries: int | None = None,
+        sleep_sec_legacy: float | None = None,
+    ) -> bool:
+        """Acquire SAMPLE bucket meta lock (fakeredis-safe; no Lua required).
+
+        Dynesty / multi-worker scans call allocate+finish on every sample. A
+        ~100ms spin (old default) dies under 10+ workers. Wait up to
+        *timeout_sec* with a short sleep; SET NX + TTL recovers dead holders.
+        """
+        if sleep_sec_legacy is not None:
+            sleep_sec = float(sleep_sec_legacy)
+        if retries is not None:
+            # Historical API: retries * sleep ≈ total wait.
+            timeout_sec = max(float(timeout_sec), float(retries) * float(sleep_sec))
+        deadline = time.monotonic() + max(0.05, float(timeout_sec))
+        hold_ms = max(500, int(hold_ms))
+        while time.monotonic() < deadline:
             # SET NX with TTL keeps a crashed holder from blocking forever.
             try:
-                ok = self.r.set(BUCKET_LOCK, "1", nx=True, px=2000)
+                ok = self.r.set(BUCKET_LOCK, "1", nx=True, px=hold_ms)
             except TypeError:
                 # Older redis-py / fakeredis spellings.
-                ok = self.r.set(BUCKET_LOCK, "1", nx=True, ex=2)
+                ok = self.r.set(
+                    BUCKET_LOCK, "1", nx=True, ex=max(1, int(hold_ms / 1000))
+                )
             if ok:
                 return True
-            time.sleep(sleep_sec)
+            time.sleep(max(0.001, float(sleep_sec)))
         return False
 
     def _release_bucket_lock(self) -> None:

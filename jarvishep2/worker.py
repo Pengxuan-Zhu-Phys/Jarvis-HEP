@@ -587,7 +587,21 @@ class Worker(Process):
         payload = dict(task)
         # Assign SAMPLE/<bucket>/<uuid> before materialize (Redis-owned numbering).
         if self._sample_buckets_enabled and self._redis is not None and not payload.get("bucket_dir"):
-            allocation = self._redis.allocate_sample_bucket()
+            allocation = None
+            last_exc: Exception | None = None
+            # High-worker Dynesty can stampede the bucket lock; retry before dying.
+            for attempt in range(6):
+                try:
+                    allocation = self._redis.allocate_sample_bucket()
+                    last_exc = None
+                    break
+                except RuntimeError as exc:
+                    last_exc = exc
+                    if "bucket lock" not in str(exc).lower() or attempt >= 5:
+                        raise
+                    time.sleep(0.02 * (attempt + 1))
+            if last_exc is not None:
+                raise last_exc
             if allocation is not None:
                 payload["bucket_id"] = allocation["bucket_id"]
                 payload["bucket_dir"] = allocation["bucket_dir"]
