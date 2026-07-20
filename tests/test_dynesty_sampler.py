@@ -62,6 +62,96 @@ class RedisPoolUnitTests(unittest.TestCase):
         self.assertTrue(looks_uuid_augmented(out[0]))
         self.assertEqual(calls["n"], 0)  # no Sample built for prior
 
+    def test_ambiguous_map_fails_loud(self) -> None:
+        """D13.7a: unknown callables must not silently run locally."""
+        queue = make_fakeredis_queue()
+
+        def build_sample(payload, uuid):
+            return Sample(uuid=uuid, u_coords=np.asarray(payload, dtype=float))
+
+        pool = RedisEvaluationPool(
+            queue, build_sample=build_sample, batch_size=4, seed=1
+        )
+
+        def mystery(x):
+            return -1.0
+
+        mystery.__name__ = "mystery_objective"
+        with self.assertRaises(RuntimeError) as ctx:
+            pool.map(mystery, [np.array([0.1, 0.2])])
+        self.assertIn("ambiguous dispatch", str(ctx.exception).lower())
+
+    def test_unmatched_feedback_is_logged(self) -> None:
+        """D13.7b: destructive BLPOP of stray uuid leaves a warning trail."""
+        queue = make_fakeredis_queue()
+
+        def build_sample(payload, uuid):
+            return Sample(uuid=uuid, u_coords=np.asarray(payload, dtype=float))
+
+        class _CapturingLogger:
+            def __init__(self) -> None:
+                self.warnings: list[str] = []
+
+            def warning(self, msg: str, *args: Any) -> None:
+                self.warnings.append(msg % args if args else str(msg))
+
+            def info(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        logger = _CapturingLogger()
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=build_sample,
+            batch_size=4,
+            seed=7,
+            timeout=5.0,
+            logger=logger,
+        )
+        stop = threading.Event()
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                # Poison pill first — wrong uuid must be dropped+logged.
+                queue.publish_feedback(
+                    {
+                        "uuid": "stray-uuid-not-in-batch",
+                        "status": "Completed",
+                        "observables": {"LogL": -999.0},
+                    }
+                )
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                logl = -float(np.sum((u - 0.5) ** 2))
+                queue.publish_feedback(
+                    {
+                        "uuid": task["uuid"],
+                        "status": "Completed",
+                        "observables": {"LogL": logl},
+                    }
+                )
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        try:
+
+            def loglikelihood(x):
+                raise AssertionError("should not call local loglike")
+
+            loglikelihood.__name__ = "loglikelihood"
+            items = [_jarvis_prior_transform(np.array([0.5, 0.5]))]
+            out = pool.map(loglikelihood, items)
+            self.assertEqual(len(out), 1)
+            self.assertAlmostEqual(float(out[0].val), 0.0, places=6)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+        self.assertTrue(
+            any("unmatched hep:feedback" in w for w in logger.warnings),
+            msg=f"expected unmatched-feedback warning, got {logger.warnings!r}",
+        )
+
     def test_logl_batch_via_redis(self) -> None:
         queue = make_fakeredis_queue()
 

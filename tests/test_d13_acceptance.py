@@ -25,7 +25,7 @@ from jarvishep2.Sampling.dynesty_sampler import (
     _jarvis_prior_transform,
     export_dynesty_results_csv,
 )
-from jarvishep2.Sampling.mcmc_sampler import MCMCSampler
+from jarvishep2.Sampling.mcmc_sampler import MCMCSampler, _effective_sample_size
 from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
 from jarvishep2.distributor import STATELESS_METHODS, Distributor
 
@@ -61,6 +61,29 @@ class RegistryAcceptanceTests(unittest.TestCase):
             self.assertIn(col, DATABASE_CHAIN_DIAGNOSTIC_COLUMNS)
         for col in ("log_weight", "log_Like", "log_Evidence"):
             self.assertIn(col, DATABASE_NESTED_RESULT_COLUMNS)
+
+
+class EssDiagnosticTests(unittest.TestCase):
+    def test_ess_independent_noise_near_n(self) -> None:
+        """D13.7d: uncorrelated series → ESS close to usable length (N/2)."""
+        rng = np.random.default_rng(0)
+        series = rng.normal(size=200).tolist()
+        ess = _effective_sample_size(series)
+        self.assertIsNotNone(ess)
+        assert ess is not None
+        # Second-half burn-in → ~100 samples; uncorrelated → ESS ~ n.
+        self.assertGreater(ess, 40.0)
+        self.assertLessEqual(ess, 100.0 + 1e-6)
+
+    def test_ess_highly_correlated_is_small(self) -> None:
+        # Positively autocorrelated AR(1)-like series → ESS << N.
+        x = [0.0]
+        for _ in range(199):
+            x.append(0.95 * x[-1] + 0.05)
+        ess = _effective_sample_size(x)
+        self.assertIsNotNone(ess)
+        assert ess is not None
+        self.assertLess(ess, 30.0)
 
 
 class McmcDiagnosticsExportTests(unittest.TestCase):

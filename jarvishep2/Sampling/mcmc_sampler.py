@@ -794,6 +794,7 @@ class MCMCSampler(FeedbackSampler):
         registry = self._ensure_registry()
         chains = []
         logl_series: list[list[float]] = []
+        ess_values: list[float] = []
         for chain in registry.all():
             accept = int(chain.accepted)
             reject = int(chain.rejected)
@@ -804,6 +805,9 @@ class MCMCSampler(FeedbackSampler):
                 if ev.logl is not None and ev.accepted
             ]
             logl_series.append(series)
+            ess = _effective_sample_size(series)
+            if ess is not None:
+                ess_values.append(float(ess))
             chains.append(
                 {
                     "chain_id": chain.chain_id,
@@ -812,6 +816,7 @@ class MCMCSampler(FeedbackSampler):
                     "rejected": reject,
                     "accept_rate": (accept / total) if total else 0.0,
                     "last_logl": chain.last_logl,
+                    "ess_logl": ess,
                 }
             )
         rhat = _gelman_rubin_rhat(logl_series)
@@ -827,6 +832,9 @@ class MCMCSampler(FeedbackSampler):
                 else 0.0
             ),
             "rhat_logl": rhat,
+            "ess_logl_mean": (
+                float(sum(ess_values) / len(ess_values)) if ess_values else None
+            ),
             "failed_samples": len(self._failed_uuids),
             "chains": chains,
         }
@@ -977,6 +985,39 @@ def _gelman_rubin_rhat(series: list[list[float]]) -> float | None:
         return None
     var_hat = ((n_eff - 1) / n_eff) * w + b / n_eff
     return float(np.sqrt(var_hat / w))
+
+
+def _effective_sample_size(series: Sequence[float] | list[float]) -> float | None:
+    """Autocorrelation-time ESS on a scalar logL chain (D13.7d).
+
+    Uses the positive initial sequence of lag autocorrelations:
+    ``ESS ≈ N / (1 + 2 Σ ρ_t)`` until the first non-positive ρ. Diagnostic
+    only — not a substitute for multi-parameter ESS tools (ArviZ/emcee).
+    """
+    x = np.asarray(list(series), dtype=float)
+    n = int(x.size)
+    if n < 4:
+        return None
+    # Burn-in heuristic aligned with R-hat (second half).
+    x = x[n // 2 :]
+    n = int(x.size)
+    if n < 4:
+        return None
+    x = x - float(x.mean())
+    var0 = float(np.dot(x, x) / n)
+    if var0 <= 1e-16:
+        return float(n)
+    rho_sum = 0.0
+    max_lag = n // 2
+    for lag in range(1, max_lag + 1):
+        cov = float(np.dot(x[:-lag], x[lag:]) / n)
+        rho = cov / var0
+        if rho <= 0.0:
+            break
+        rho_sum += rho
+    tau = 1.0 + 2.0 * rho_sum
+    tau = max(1.0, min(tau, float(n)))
+    return float(n / tau)
 
 
 def create_mcmc() -> MCMCSampler:

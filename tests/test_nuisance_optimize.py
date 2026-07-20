@@ -77,6 +77,35 @@ class RegistryUnitTests(unittest.TestCase):
 
 
 class Profile1DUnitTests(unittest.TestCase):
+    def test_re_run_physics_defaults_true_v1_parity(self) -> None:
+        """D13.7c: default True matches V1 full-pipeline-per-probe cost."""
+        cfg = {
+            "Sampling": {
+                "Nuisance": {
+                    "Method": "Profile1D",
+                    "Variables": [
+                        {
+                            "name": "ratio",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": -1.0, "max": 1.0},
+                            },
+                        }
+                    ],
+                    "LogLikelihood": [{"name": "L", "expression": "ratio**2"}],
+                    "TargetMode": "min",
+                    "MaxAttempt": 10,
+                }
+            }
+        }
+        profiler = Profile1DProfiler.from_config(cfg)
+        assert profiler is not None
+        self.assertTrue(profiler.re_run_physics)
+        cfg["Sampling"]["Nuisance"]["re_run_physics"] = False
+        profiler_off = Profile1DProfiler.from_config(cfg)
+        assert profiler_off is not None
+        self.assertFalse(profiler_off.re_run_physics)
+
     def test_golden_section_finds_minimum(self) -> None:
         profiler = Profile1DProfiler(
             var_name="z",

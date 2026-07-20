@@ -73,6 +73,8 @@ class Profile1DProfiler:
         pass_registry: NuisancePassConditionRegistry,
         mode: str = "min",
         max_attempt: int = 50,
+        # D13.7c: default True matches V1 Profile1D, which re-ran the full
+        # sample pipeline per NAttempt probe (not expression-only).
         re_run_physics: bool = True,
     ) -> None:
         self.var_name = str(var_name)
@@ -107,6 +109,9 @@ class Profile1DProfiler:
         name, zmin, zmax = parse_nuisance_variable(block)
         mode = str(block.get("TargetMode") or block.get("target_mode") or "min")
         max_attempt = int(block.get("MaxAttempt") or block.get("max_attempt") or 50)
+        # Default True: V1 re-executed each probe as a full sample (NAttempt
+        # card). Set re_run_physics/rerun_physics: false for pure expression
+        # nuisances that do not feed calculators/Operas.
         re_run = block.get("re_run_physics", block.get("rerun_physics", True))
         return cls(
             var_name=name,

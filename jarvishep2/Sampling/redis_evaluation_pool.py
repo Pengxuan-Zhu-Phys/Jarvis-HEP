@@ -77,6 +77,9 @@ class RedisEvaluationPool:
         Dynesty uses the same ``pool.map`` for **prior_transform** and
         **loglikelihood**. Prior transforms must run locally (they mint uuids);
         loglikelihoods go through Redis Workers + ``hep:feedback``.
+
+        D13.7: unknown call shapes raise instead of silently evaluating a
+        candidate physics logL in the control process.
         """
         items = list(iterable)
         if not items:
@@ -93,20 +96,52 @@ class RedisEvaluationPool:
         first = items[0]
         if type(first).__name__ in {"SamplerArgument"}:
             return [func(x) for x in items]
-        remote = self.redis is not None and (
-            self._is_loglikelihood_callable(func) or looks_uuid_augmented(first)
-        )
-        if remote:
+
+        is_logl = self._is_loglikelihood_callable(func)
+        is_ptform = self._is_prior_transform_callable(func)
+        uuid_aug = looks_uuid_augmented(first)
+        wants_remote = is_logl or uuid_aug
+
+        if wants_remote:
+            if self.redis is None:
+                raise RuntimeError(
+                    "RedisEvaluationPool.map: loglikelihood batch requires a "
+                    "connected Redis queue; refusing local physics evaluation "
+                    f"(func={_callable_label(func)}, uuid_augmented={uuid_aug})"
+                )
             return self._redis_batch_logl(items)
-        return [func(x) for x in items]
+
+        if is_ptform:
+            return [func(x) for x in items]
+
+        raise RuntimeError(
+            "RedisEvaluationPool.map: ambiguous dispatch — refusing silent "
+            "local fallback that could bypass Workers/calculators/Operas. "
+            f"func={_callable_label(func)}, first_type={type(first).__name__}, "
+            f"uuid_augmented={uuid_aug}. Expected prior_transform, "
+            "LogLikelihood, uuid-augmented logL vectors, or SamplerArgument."
+        )
 
     @staticmethod
     def _is_loglikelihood_callable(func: Callable) -> bool:
         if type(func).__name__ == "LogLikelihood":
             return True
-        name = str(getattr(func, "__name__", "") or "").lower()
-        if "logl" in name or name in {"loglikelihood", "loglike"}:
+        # dynesty wraps user logL as _function_wrapper(name='loglikelihood')
+        # and also exposes LogLikelihood.map as bound method.
+        label = _callable_label(func).lower()
+        if "logl" in label or label in {"loglikelihood", "loglike"}:
             return True
+        return False
+
+    @staticmethod
+    def _is_prior_transform_callable(func: Callable) -> bool:
+        label = _callable_label(func).lower()
+        if "prior_transform" in label or label in {"ptform", "priortransform"}:
+            return True
+        if type(func).__name__ == "_function_wrapper":
+            wname = str(getattr(func, "name", "") or "").lower()
+            if "prior" in wname and "logl" not in wname:
+                return True
         return False
 
     def _redis_batch_logl(self, items: list[Any]) -> list[Any]:
@@ -138,6 +173,16 @@ class RedisEvaluationPool:
                 continue
             uuid = str(record.get("uuid", ""))
             if uuid not in remaining:
+                # Destructive BLPOP: log before discard so resume/uuid bugs
+                # leave a greppable trail (D13.7b).
+                self._logger.warning(
+                    "dropping unmatched hep:feedback uuid=%s "
+                    "(pending_batch=%d expected=%d status=%s)",
+                    uuid or "<empty>",
+                    len(remaining),
+                    len(pending),
+                    record.get("status", ""),
+                )
                 continue
             remaining.discard(uuid)
             idx = pending[uuid]
@@ -213,6 +258,16 @@ def _uuid_and_payload(item: Any, *, seed: int, index: int) -> tuple[str, np.ndar
     payload = np.asarray(arr, dtype=np.float64)
     uuid = deterministic_sampler_uuid(prefix="dynesty", seed=seed, sample_index=index)
     return uuid, payload
+
+
+def _callable_label(func: Callable) -> str:
+    """Stable short name for dispatch diagnostics."""
+    if type(func).__name__ == "_function_wrapper":
+        return str(getattr(func, "name", "") or type(func).__name__)
+    name = getattr(func, "__name__", None)
+    if name:
+        return str(name)
+    return type(func).__name__
 
 
 # typing re-export for annotations above
