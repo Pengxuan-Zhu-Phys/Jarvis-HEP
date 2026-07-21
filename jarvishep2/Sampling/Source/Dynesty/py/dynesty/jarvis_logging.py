@@ -3,11 +3,11 @@
 """Jarvis logger bridge for the vendored dynesty package (D13.5).
 
 All dynesty progress / warning / info output should go through
-:func:`get_dynesty_logger` so formatting matches the V1 visual contract
-(``·•· Dynesty.Inner`` / ``·•· MultiNest.Inner`` via :mod:`jarvishep2.logging`).
+:func:`get_dynesty_logger` so formatting matches the HEP visual contract
+(``·•· Jarvis-HEP.Sampler.Dynesty.Inner`` / ``…MultiNest.Inner``).
 
 V2 MultiNest reuses this engine; the display label comes from the sampler
-method (``Dynesty`` vs ``MultiNest``), not from the vendored package name.
+method (``Dynesty`` vs ``MultiNest``), always under ``Jarvis-HEP.Sampler.*``.
 """
 
 from __future__ import annotations
@@ -26,15 +26,21 @@ def set_dynesty_logger(logger: Any | None) -> None:
 
 
 def _inner_module_label(method: str | None = None) -> str:
-    """Jarvis module stamp for nested progress (``Dynesty.Inner`` / ``MultiNest.Inner``)."""
+    """Presentation stamp: ``Jarvis-HEP.Sampler.<Method>.Inner``."""
+    try:
+        from jarvishep2.logging.toplevel import jarvis_module_label
+    except Exception:
+        text = str(method or "Dynesty").strip() or "Dynesty"
+        if text.lower() == "multinest" or "multinest" in text.lower():
+            return "Jarvis-HEP.Sampler.MultiNest.Inner"
+        return "Jarvis-HEP.Sampler.Dynesty.Inner"
     text = str(method or "").strip()
+    if not text or text.lower() == "dynesty":
+        return jarvis_module_label("Sampler", "Dynesty", "Inner")
     if text.lower() == "multinest" or "multinest" in text.lower():
-        return "MultiNest.Inner"
-    if text and text.lower() != "dynesty":
-        # Keep Method-based labels for any future static wrappers.
-        base = text.split(".")[0].strip() or "Dynesty"
-        return f"{base}.Inner"
-    return "Dynesty.Inner"
+        return jarvis_module_label("Sampler", "MultiNest", "Inner")
+    base = text.split(".")[0].strip() or "Dynesty"
+    return jarvis_module_label("Sampler", base, "Inner")
 
 
 def get_dynesty_logger() -> Any:
@@ -43,10 +49,11 @@ def get_dynesty_logger() -> Any:
         return _DYNESTY_LOGGER
     try:
         from jarvishep2.logging import get_jarvis_logger
+        from jarvishep2.logging.toplevel import jarvis_module_label
 
         return get_jarvis_logger(
             "sampler.dynesty.inner",
-            module="Dynesty.Inner",
+            module=jarvis_module_label("Sampler", "Dynesty", "Inner"),
         )
     except Exception:
         # Extremely defensive fallback for bare unit imports.
@@ -56,10 +63,9 @@ def get_dynesty_logger() -> Any:
 
 
 def bind_inner(logger: Any | None = None, *, method: str | None = None) -> Any:
-    """Return a child logger labeled ``{Method}.Inner`` for progress lines.
+    """Return a child logger labeled ``Jarvis-HEP.Sampler.<Method>.Inner``.
 
     *method* should be the HEP sampler name (``Dynesty`` / ``MultiNest``).
-    Defaults to ``Dynesty.Inner`` when omitted (stock vendored paths).
     """
     base = logger if logger is not None else get_dynesty_logger()
     label = _inner_module_label(method)
@@ -72,8 +78,10 @@ def bind_inner(logger: Any | None = None, *, method: str | None = None) -> Any:
                     extra.get("jarvis_module") or extra.get("module") or ""
                 )
                 if "MultiNest" in existing:
-                    label = "MultiNest.Inner"
-                elif existing.endswith(".Inner"):
+                    label = _inner_module_label("MultiNest")
+                elif "Dynesty" in existing and existing.endswith(".Inner"):
+                    label = existing if existing.startswith("Jarvis-HEP.") else label
+                elif existing.endswith(".Inner") and existing.startswith("Jarvis-HEP."):
                     label = existing
         except Exception:
             pass

@@ -181,7 +181,6 @@ class Worker(Process):
             ),
             logger=get_jarvis_logger(
                 "worker",
-                module=f"Worker-{self.worker_id}",
                 worker_id=self.worker_id,
             ),
         )
@@ -614,7 +613,6 @@ class Worker(Process):
         self._heartbeat("busy")
         top = get_jarvis_logger(
             "worker",
-            module=f"Worker-{self.worker_id}",
             worker_id=self.worker_id,
         ).bind(sample_uuid=sample.uuid)
         sample_config = dict(self.worker_config.get("sample_config") or {})
@@ -766,7 +764,6 @@ class Worker(Process):
         )
         worker_log = get_jarvis_logger(
             "worker",
-            module=f"Worker-{self.worker_id}",
             worker_id=self.worker_id,
         )
         try:

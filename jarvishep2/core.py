@@ -143,7 +143,7 @@ class Jarvis2Core:
             use_queue=True,
             multi_sink=True,
         )
-        self._logger = get_jarvis_logger("core", module="Jarvis-HEP")
+        self._logger = get_jarvis_logger("core")
         try:
             self._logger.warning("\n" + render_logo_with_version())
             self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
@@ -1076,17 +1076,17 @@ class Jarvis2Core:
                 archiver_log or "logs/<scan>/archiver.log",
             )
         else:
-            # Thread mode: same process as control; still bind module="Archiver".
+            # Thread mode: same process as control; Archiver logger → archiver.log.
             self.archiver = SimpleArchiver(
                 self.redis,
                 resolved_db_path,
                 sample_root=sample_root,
                 delete_method=delete_method,
                 archiver_config=archiver_config,
-                logger=get_jarvis_logger("archiver", module="Archiver"),
+                logger=get_jarvis_logger("archiver"),
             )
             self.archiver.start()
-            self._logger.info("Archiver thread started (module=Archiver)")
+            self._logger.info("Archiver thread started (Jarvis-HEP.Archiver)")
         self._restore_archiver_persistence()
         return self.archiver
 

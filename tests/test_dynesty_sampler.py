@@ -415,8 +415,14 @@ class NestedLoggerLabelTests(unittest.TestCase):
             resolve_progress_title,
         )
 
-        self.assertEqual(_inner_module_label("MultiNest"), "MultiNest.Inner")
-        self.assertEqual(_inner_module_label("Dynesty"), "Dynesty.Inner")
+        self.assertEqual(
+            _inner_module_label("MultiNest"),
+            "Jarvis-HEP.Sampler.MultiNest.Inner",
+        )
+        self.assertEqual(
+            _inner_module_label("Dynesty"),
+            "Jarvis-HEP.Sampler.Dynesty.Inner",
+        )
 
         class CapturingLogger:
             def __init__(self) -> None:
@@ -429,7 +435,10 @@ class NestedLoggerLabelTests(unittest.TestCase):
 
         base = CapturingLogger()
         nested = bind_inner(base, method="MultiNest")
-        self.assertEqual(nested.extra.get("module"), "MultiNest.Inner")
+        self.assertEqual(
+            nested.extra.get("module"),
+            "Jarvis-HEP.Sampler.MultiNest.Inner",
+        )
         self.assertEqual(resolve_progress_title(nested), "MultiNest")
 
 

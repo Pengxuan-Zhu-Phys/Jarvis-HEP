@@ -53,7 +53,7 @@ def _format_arrow_block(title: str, rows: list[tuple[str, Any]]) -> str:
     """Multi-line ``title ->`` block with tab-aligned key/value lines.
 
     No leading blank line; title has no ``[Archiver]`` prefix (module label
-    already comes from ``·•· Archiver``).
+    already comes from ``·•· Jarvis-HEP.Archiver``).
     """
     text = str(title or "").strip()
     if text.startswith("[Archiver]"):
@@ -293,13 +293,10 @@ class SimpleArchiver:
         self._thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
-        # Own logger identity: ``·•· Archiver`` (pack / drain / lifecycle).
-        self._logger = logger or get_jarvis_logger("archiver", module="Archiver")
+        # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
+        self._logger = logger or get_jarvis_logger("archiver")
         # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
-        self._datarecorder_logger = get_jarvis_logger(
-            "datarecorder",
-            module="Jarvis-HEP.DataRecorder",
-        )
+        self._datarecorder_logger = get_jarvis_logger("datarecorder")
         self._last_progress_written = -1
         self._progress_interval = 50  # log every N DATABASE rows (and pack events)
 
@@ -564,7 +561,7 @@ class ArchiverProcess(Process):
         elif self.log_path:
             setup_kwargs["log_path"] = self.log_path
         setup_jarvis_logging(**setup_kwargs)
-        logger = get_jarvis_logger("archiver", module="Archiver")
+        logger = get_jarvis_logger("archiver")
         _log_archiver_kv(
             logger,
             "process started",

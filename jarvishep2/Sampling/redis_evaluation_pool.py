@@ -64,11 +64,12 @@ class RedisEvaluationPool:
         else:
             method_label = self.method.strip() or "Dynesty"
             if method_label.lower() == "multinest":
-                pool_module = "MultiNest.Pool"
                 pool_name = "sampler.multinest.pool"
+                pool_module = "Jarvis-HEP.Sampler.MultiNest.Pool"
             else:
-                pool_module = f"{method_label}.Pool"
                 pool_name = "sampler.dynesty.pool"
+                # Dynesty or other methods: Jarvis-HEP.Sampler.<Method>.Pool
+                pool_module = f"Jarvis-HEP.Sampler.{method_label}.Pool"
             self._logger = get_jarvis_logger(
                 pool_name,
                 module=pool_module,

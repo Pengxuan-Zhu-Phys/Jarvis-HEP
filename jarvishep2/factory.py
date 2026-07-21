@@ -31,7 +31,7 @@ class _MonitorLoop:
         self._last_op_counts: dict[str, int] = {}
         self._thread: threading.Thread | None = None
         self._running = False
-        self._logger = get_jarvis_logger("factory.monitor", module="Factory")
+        self._logger = get_jarvis_logger("factory.monitor")
 
     def get_snapshot(self) -> dict[str, Any]:
         with self._snapshot_lock:
@@ -183,7 +183,7 @@ class _Watchdog:
         self.stale_sec = 30.0
         self.poll_interval_sec = 1.0
         self.max_sample_retries = 3
-        self._logger = get_jarvis_logger("factory.watchdog", module="Factory")
+        self._logger = get_jarvis_logger("factory.watchdog")
 
     def start(
         self,
@@ -354,7 +354,7 @@ class TaskFactory:
         self._recovery_lock = threading.Lock()
         self._last_recovered_pid: dict[int, int | None] = {}
         self._respawn_count = 0
-        self._logger = get_jarvis_logger("factory", module="Factory")
+        self._logger = get_jarvis_logger("factory")
         self._monitor = _MonitorLoop(self)
         self._watchdog = _Watchdog(self)
 

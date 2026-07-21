@@ -49,7 +49,7 @@ class TopLevelLoggingTests(unittest.TestCase):
                 console=False,
                 use_queue=True,
             )
-            logger = get_jarvis_logger("worker", module="Worker").bind(worker_id="w-1")
+            logger = get_jarvis_logger("worker", worker_id=1).bind(worker_id="w-1")
             logger.info("start sample", extra={"sample_uuid": "abc-123"})
 
             shutdown_jarvis_logging()
@@ -60,7 +60,7 @@ class TopLevelLoggingTests(unittest.TestCase):
 
             self.assertIn("INFO", text)
             self.assertIn("·•·", text)
-            self.assertIn("Worker", text)
+            self.assertIn("Jarvis-HEP.Worker.01", text)
             self.assertIn("start sample", text)
             self.assertIn("worker_id=w-1", text)
             self.assertIn("sample_uuid=abc-123", text)
@@ -130,12 +130,12 @@ class TopLevelLoggingTests(unittest.TestCase):
                 path,
                 os.path.abspath(os.path.join(logs, "worker-01.log")),
             )
-            log = get_jarvis_logger("worker", module="Worker-1", worker_id=1)
+            log = get_jarvis_logger("worker", worker_id=1)
             log.info("worker ready")
             shutdown_jarvis_logging()
             with open(path, encoding="utf-8") as handle:
                 text = handle.read()
-            self.assertIn("·•· Worker-1", text)
+            self.assertIn("·•· Jarvis-HEP.Worker.01", text)
             self.assertIn("worker ready", text)
 
     def test_build_worker_config_always_sets_scan_logs_dir(self):
@@ -203,16 +203,15 @@ class TopLevelLoggingTests(unittest.TestCase):
                 use_queue=False,
                 multi_sink=True,
             )
-            get_jarvis_logger("core", module="Jarvis-HEP").info("control-only line")
-            get_jarvis_logger("factory", module="Factory").info("factory-only line")
-            get_jarvis_logger("sampler.dynesty", module="Sampler:dynesty").info(
-                "sampler-only line"
-            )
-            get_jarvis_logger("sampler.dynesty.inner", module="MultiNest.Inner").info(
-                "progress-only line"
-            )
-            get_jarvis_logger("archiver", module="Archiver").info("archiver-only line")
-            get_jarvis_logger("datarecorder", module="Jarvis-HEP.DataRecorder").info(
+            get_jarvis_logger("core").info("control-only line")
+            get_jarvis_logger("factory").info("factory-only line")
+            get_jarvis_logger("sampler.dynesty").info("sampler-only line")
+            get_jarvis_logger(
+                "sampler.multinest.inner",
+                module="Jarvis-HEP.Sampler.MultiNest.Inner",
+            ).info("progress-only line")
+            get_jarvis_logger("archiver").info("archiver-only line")
+            get_jarvis_logger("datarecorder").info(
                 "DATABASE progress ->\n\trows written\t-> 10"
             )
             shutdown_jarvis_logging()
@@ -251,6 +250,9 @@ class TopLevelLoggingTests(unittest.TestCase):
             self.assertIn("DATABASE progress", data_text)
             self.assertIn("Jarvis-HEP.DataRecorder", data_text)
             self.assertNotIn("control-only line", data_text)
+            self.assertIn("Jarvis-HEP.Factory", factory_text)
+            self.assertIn("Jarvis-HEP.Sampler", sampler_text)
+            self.assertIn("Jarvis-HEP.Archiver", archiver_text)
 
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -283,16 +285,20 @@ class TopLevelLoggingTests(unittest.TestCase):
 
     def test_bind_returns_new_adapter_without_mutating_parent(self):
         shutdown_jarvis_logging()
-        parent = get_jarvis_logger("factory")  # default ·•· label "Factory"
+        parent = get_jarvis_logger("factory")  # default ·•· label "Jarvis-HEP.Factory"
+
         child = parent.bind(worker_id="w-2")
         self.assertIsNot(child, parent)
-        self.assertEqual(parent.extra, {"jarvis_module": "Factory"})
-        self.assertEqual(child.extra, {"jarvis_module": "Factory", "worker_id": "w-2"})
+        self.assertEqual(parent.extra, {"jarvis_module": "Jarvis-HEP.Factory"})
+        self.assertEqual(
+            child.extra,
+            {"jarvis_module": "Jarvis-HEP.Factory", "worker_id": "w-2"},
+        )
         # V1-style module= is remapped onto jarvis_module (LogRecord-safe).
         labeled = parent.bind(module="Jarvis-HEP")
         self.assertEqual(labeled.extra.get("jarvis_module"), "Jarvis-HEP")
         self.assertNotIn("module", labeled.extra)
-        self.assertEqual(parent.extra.get("jarvis_module"), "Factory")
+        self.assertEqual(parent.extra.get("jarvis_module"), "Jarvis-HEP.Factory")
 
 
 class SampleLoggingReplayTests(unittest.TestCase):

@@ -93,21 +93,84 @@ ARCHIVER_MULTI_SINK_COMPONENTS: tuple[str, ...] = (
     "datarecorder",
 )
 
-# V1 presentation labels (``·•· <module>``).
-# NOTE: DataRecorder uses a full ``Jarvis-HEP.DataRecorder`` stamp (not "DataRecorder").
+# Process presentation labels (``·•· <module>``). Always ``Jarvis-HEP`` + dot segments.
+# Examples: Jarvis-HEP, Jarvis-HEP.Factory, Jarvis-HEP.Sampler.Dynesty.Inner
+JARVIS_HEP_LABEL_ROOT = "Jarvis-HEP"
 
 COMPONENT_MODULE_LABEL = {
     "core": "Jarvis-HEP",
     "control": "Jarvis-HEP",
     "jarvis": "Jarvis-HEP",
-    "factory": "Factory",
-    "sampler": "Sampler",
-    "archiver": "Archiver",
+    "factory": "Jarvis-HEP.Factory",
+    "sampler": "Jarvis-HEP.Sampler",
+    "archiver": "Jarvis-HEP.Archiver",
     "datarecorder": "Jarvis-HEP.DataRecorder",
-    "worker": "Worker",
+    "worker": "Jarvis-HEP.Worker",
 }
 
 DATARECORDER_MODULE_LABEL = "Jarvis-HEP.DataRecorder"
+
+
+# Canonical casing for well-known segments (logger short names → display).
+_LABEL_SEGMENT_CANON: dict[str, str] = {
+    "sampler": "Sampler",
+    "factory": "Factory",
+    "archiver": "Archiver",
+    "worker": "Worker",
+    "datarecorder": "DataRecorder",
+    "dynesty": "Dynesty",
+    "multinest": "MultiNest",
+    "inner": "Inner",
+    "pool": "Pool",
+    "monitor": "Monitor",
+    "watchdog": "Watchdog",
+}
+
+
+def _canon_label_segment(seg: str) -> str:
+    key = str(seg or "").strip()
+    if not key:
+        return ""
+    mapped = _LABEL_SEGMENT_CANON.get(key.lower())
+    if mapped:
+        return mapped
+    # Digit worker ids stay zero-padded as given.
+    if key.isdigit():
+        return key
+    # Title-case pure lower/upper tokens; keep MixedCase (e.g. MultiNest).
+    if key.islower() or key.isupper():
+        return key[:1].upper() + key[1:].lower() if len(key) > 1 else key.upper()
+    return key
+
+
+def jarvis_module_label(*parts: str) -> str:
+    """Build a presentation label ``Jarvis-HEP[.Seg...]`` (dots only, no colons).
+
+    Segments are cleaned of ``:`` / spaces; a leading ``Jarvis-HEP`` is not doubled.
+    """
+    segments: list[str] = []
+    for raw in parts:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        text = text.replace(":", ".").replace(" ", ".")
+        while ".." in text:
+            text = text.replace("..", ".")
+        text = text.strip(".")
+        if not text:
+            continue
+        if text == JARVIS_HEP_LABEL_ROOT:
+            continue
+        if text.startswith(f"{JARVIS_HEP_LABEL_ROOT}."):
+            text = text[len(JARVIS_HEP_LABEL_ROOT) + 1 :]
+        for seg in text.split("."):
+            seg = _canon_label_segment(seg)
+            if not seg or seg == JARVIS_HEP_LABEL_ROOT:
+                continue
+            segments.append(seg)
+    if not segments:
+        return JARVIS_HEP_LABEL_ROOT
+    return JARVIS_HEP_LABEL_ROOT + "." + ".".join(segments)
 
 
 def scan_logs_dir(task_root: str, scan_name: str) -> str:
@@ -133,11 +196,13 @@ def component_log_path(
 
 
 def component_module_label(component: str, *, worker_id: int | None = None) -> str:
-    """Default ``·•·`` module label for a component."""
+    """Default ``·•·`` module label for a component (``Jarvis-HEP.*``)."""
     role = str(component or "jarvis").strip().lower() or "jarvis"
     if role == "worker" and worker_id is not None:
-        return f"Worker-{int(worker_id)}"
-    return COMPONENT_MODULE_LABEL.get(role, role)
+        return jarvis_module_label("Worker", f"{int(worker_id):02d}")
+    if role in COMPONENT_MODULE_LABEL:
+        return COMPONENT_MODULE_LABEL[role]
+    return jarvis_module_label(role)
 
 
 def resolve_record_component(record: logging.LogRecord) -> str:
@@ -161,21 +226,23 @@ def resolve_record_component(record: logging.LogRecord) -> str:
 
     mod = str(record.__dict__.get("jarvis_module") or "").strip()
     if mod:
+        # Accept both new Jarvis-HEP.* labels and legacy short names.
         if "DataRecorder" in mod or "hdf5" in mod.lower():
             return "datarecorder"
         if (
-            "Sampler" in mod
+            ".Sampler" in mod
+            or mod.startswith("Sampler")
             or "Dynesty" in mod
             or "MultiNest" in mod
             or mod.endswith(".Inner")
             or ".Pool" in mod
         ):
             return "sampler"
-        if "Factory" in mod:
+        if ".Factory" in mod or mod == "Factory" or mod.endswith(".Factory"):
             return "factory"
-        if "Archiver" in mod:
+        if ".Archiver" in mod or mod == "Archiver" or mod.endswith(".Archiver"):
             return "archiver"
-        if mod.startswith("Worker"):
+        if ".Worker" in mod or mod.startswith("Worker"):
             return "worker"
     return "core"
 
@@ -339,12 +406,30 @@ class JarvisLoggerAdapter(logging.LoggerAdapter):
 
     @staticmethod
     def _normalize_extra(extra: dict[str, Any]) -> dict[str, Any]:
-        """Map V1 ``module=`` presentation labels onto non-reserved ``jarvis_module``."""
+        """Map ``module=`` onto ``jarvis_module`` as ``Jarvis-HEP.*`` (dots only)."""
         normalized = dict(extra)
         if "module" in normalized and "jarvis_module" not in normalized:
-            normalized["jarvis_module"] = normalized.pop("module")
+            raw = normalized.pop("module")
+            text = str(raw or "").strip()
+            if text == JARVIS_HEP_LABEL_ROOT:
+                normalized["jarvis_module"] = JARVIS_HEP_LABEL_ROOT
+            elif text:
+                normalized["jarvis_module"] = jarvis_module_label(text)
+            else:
+                normalized["jarvis_module"] = JARVIS_HEP_LABEL_ROOT
         elif "module" in normalized:
             normalized.pop("module")
+        # Normalize existing jarvis_module to the canonical stamp when possible.
+        if "jarvis_module" in normalized and normalized["jarvis_module"] is not None:
+            jm = str(normalized["jarvis_module"]).strip()
+            if jm == JARVIS_HEP_LABEL_ROOT:
+                normalized["jarvis_module"] = JARVIS_HEP_LABEL_ROOT
+            elif jm and not jm.startswith(f"{JARVIS_HEP_LABEL_ROOT}."):
+                # Leave sample labels (Sample@uuid...) alone.
+                if jm.startswith("Sample@") or " (Likelihood)" in jm or " (Operas" in jm:
+                    pass
+                else:
+                    normalized["jarvis_module"] = jarvis_module_label(jm)
         return normalized
 
     def process(self, msg: Any, kwargs: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
@@ -586,8 +671,10 @@ def get_jarvis_logger(
 ) -> JarvisLoggerAdapter:
     """Return a bound-capable adapter over the Jarvis log domain.
 
-    ``module`` sets the V1 ``·•·`` label (via ``jarvis_module``). When omitted,
-    a sensible default is derived from ``name`` / ``worker_id``.
+    ``module`` sets the ``·•·`` presentation label (via ``jarvis_module``).
+    Prefer ``Jarvis-HEP.*`` with dots only. When omitted, a label is derived
+    from ``name`` / ``worker_id`` (e.g. ``sampler.dynesty`` →
+    ``Jarvis-HEP.Sampler.Dynesty``).
     """
     qualified = (
         name
@@ -599,12 +686,22 @@ def get_jarvis_logger(
     if short.startswith(f"{JARVIS_HEP_LOG_DOMAIN}."):
         short = short[len(JARVIS_HEP_LOG_DOMAIN) + 1 :]
     root = short.split(".", 1)[0] if short else "jarvis"
-    label = module
-    if label is None:
-        if root.startswith("sampler"):
-            label = f"Sampler:{short.split('.', 1)[-1]}" if "." in short else "Sampler"
-        else:
-            label = component_module_label(root, worker_id=worker_id)
+    if module is not None:
+        label = jarvis_module_label(module) if module else JARVIS_HEP_LABEL_ROOT
+        # Keep exact "Jarvis-HEP" when caller passed the root stamp.
+        if str(module).strip() == JARVIS_HEP_LABEL_ROOT:
+            label = JARVIS_HEP_LABEL_ROOT
+    elif root == "sampler" or short.startswith("sampler."):
+        rest = short.split(".", 1)[1] if "." in short else ""
+        label = (
+            jarvis_module_label("Sampler", *rest.split("."))
+            if rest
+            else jarvis_module_label("Sampler")
+        )
+    elif root == "factory" or short.startswith("factory."):
+        label = jarvis_module_label("Factory")
+    else:
+        label = component_module_label(root, worker_id=worker_id)
     return JarvisLoggerAdapter(
         logging.getLogger(qualified),
         {"jarvis_module": label},
@@ -612,11 +709,14 @@ def get_jarvis_logger(
 
 
 __all__ = [
+    "ARCHIVER_MULTI_SINK_COMPONENTS",
     "COMPONENT_LOG_BASENAME",
     "COMPONENT_MODULE_LABEL",
     "CONTROL_MULTI_SINK_COMPONENTS",
     "ComponentFilter",
     "CoreResidualFilter",
+    "DATARECORDER_MODULE_LABEL",
+    "JARVIS_HEP_LABEL_ROOT",
     "JARVIS_HEP_LOG_DOMAIN",
     "JarvisContextFormatter",
     "JarvisLoggerAdapter",
@@ -624,6 +724,7 @@ __all__ = [
     "component_module_label",
     "format_record_context",
     "get_jarvis_logger",
+    "jarvis_module_label",
     "resolve_record_component",
     "scan_logs_dir",
     "setup_jarvis_logging",
