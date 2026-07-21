@@ -1189,10 +1189,14 @@ class Jarvis2Core:
         total = int(progress_total) if progress_total is not None else max(0, int(expected) - base)
         progress: PermilleProgress | None = None
         if total > 0:
+            # Control-plane archive ‰ heartbeats are noisy vs DataRecorder/Archiver;
+            # keep them at DEBUG. Final "sample drain complete" stays INFO below.
             progress = PermilleProgress(
                 self._logger,
                 total=total,
                 label="samples archived",
+                level="debug",
+                milestone_level="debug",
             )
             progress.update(
                 0,

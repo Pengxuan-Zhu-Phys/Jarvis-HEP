@@ -43,14 +43,18 @@ class PermilleProgressTests(unittest.TestCase):
 class WaitForResultsProgressTests(unittest.TestCase):
     def test_wait_for_results_emits_completion_heartbeats(self) -> None:
         core = Jarvis2Core()
-        messages: list[str] = []
+        debug_messages: list[str] = []
+        info_messages: list[str] = []
 
         class _Log:
+            def debug(self, msg, *a, **k):  # noqa: ANN001
+                debug_messages.append(str(msg) % a if a else str(msg))
+
             def info(self, msg, *a, **k):  # noqa: ANN001
-                messages.append(str(msg) % a if a else str(msg))
+                info_messages.append(str(msg) % a if a else str(msg))
 
             def warning(self, msg, *a, **k):  # noqa: ANN001
-                messages.append(str(msg) % a if a else str(msg))
+                info_messages.append(str(msg) % a if a else str(msg))
 
         core._logger = _Log()  # type: ignore[assignment]
         # Fake archiver that reaches target after a few polls.
@@ -71,9 +75,10 @@ class WaitForResultsProgressTests(unittest.TestCase):
             progress_total=5,
             progress_base=0,
         )
-        joined = "\n".join(messages)
-        self.assertIn("samples archived", joined)
-        self.assertIn("sample drain complete", joined)
+        # ‰ archive heartbeats are DEBUG (avoid duplicating DataRecorder noise).
+        self.assertTrue(any("samples archived" in line for line in debug_messages))
+        # Final drain line remains INFO on Jarvis-HEP.
+        self.assertTrue(any("sample drain complete" in line for line in info_messages))
 
 
 if __name__ == "__main__":

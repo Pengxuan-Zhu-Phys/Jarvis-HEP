@@ -23,7 +23,11 @@ def format_duration(seconds: float) -> str:
 
 
 class PermilleProgress:
-    """Emit V1-style ‰ progress lines; WARNING at exact 1% milestones."""
+    """Emit V1-style ‰ progress lines.
+
+    Default: INFO for each ‰ change, WARNING at exact 1% milestones (permille % 10 == 0).
+    Callers may lower both via ``level`` / ``milestone_level`` (e.g. archive drain → DEBUG).
+    """
 
     def __init__(
         self,
@@ -32,12 +36,22 @@ class PermilleProgress:
         total: int,
         label: str = "samples finished",
         t0: float | None = None,
+        level: str = "info",
+        milestone_level: str | None = "warning",
     ) -> None:
         self._logger = logger
         self.total = max(0, int(total))
         self.label = str(label)
         self.t0 = float(time.time() if t0 is None else t0)
         self._permille = -1
+        self._level = str(level or "info").strip().lower() or "info"
+        # None → same as level (no special milestone escalation).
+        if milestone_level is None:
+            self._milestone_level = self._level
+        else:
+            self._milestone_level = (
+                str(milestone_level).strip().lower() or self._level
+            )
 
     def update(
         self,
@@ -64,9 +78,10 @@ class PermilleProgress:
         if extra:
             msg = f"{msg} ({extra})"
         if permille > 0 and permille % 10 == 0:
-            self._logger.warning(msg)
+            emit = getattr(self._logger, self._milestone_level, None) or self._logger.info
         else:
-            self._logger.info(msg)
+            emit = getattr(self._logger, self._level, None) or self._logger.info
+        emit(msg)
         return True
 
 
