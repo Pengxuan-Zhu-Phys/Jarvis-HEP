@@ -117,7 +117,12 @@ class CliDispatchTests(unittest.TestCase):
         with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_OK)
-        core.load_task_yaml.assert_called_once_with(CHECK_MODULES_YAML)
+        core.load_task_yaml.assert_called_once_with(
+            CHECK_MODULES_YAML,
+            validate=True,
+            strict=False,
+            check_modules=True,
+        )
         core.check_modules.assert_called_once_with()
         core.run.assert_not_called()
 

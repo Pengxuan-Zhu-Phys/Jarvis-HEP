@@ -1,0 +1,74 @@
+# =============================================================================
+# Sampling — Dynesty (full DynamicNestedSampler surface)
+# =============================================================================
+# Engine: always DynamicNestedSampler  (Method: Dynesty)
+# For static NestedSampler use Sampling_MultiNest_Full.yaml / Method: MultiNest.
+#
+# Do NOT set (HEP injects): loglikelihood, prior_transform, ndim, pool, rstate
+# Do NOT set: Bounds.dynamic  (rejected by validation)
+# =============================================================================
+
+Sampling:
+  Method: "Dynesty"
+  Seed: 21
+
+  Variables:
+    - name: x
+      description: "Replace with your parameters."
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 1.0}
+
+  Bounds:
+    # --- HEP meta (shared) ---
+    nlive: 100                 # default for nlive_init / constructor nlive
+    # rseed: 21                # optional; Seed above is enough
+    dlogz: 0.5                 # convenience alias → run_nested.dlogz_init
+
+    # --- constructor (prefer nested block; flat Bounds.bound also OK) ---
+    sampler:
+      bound: multi               # none | single | multi | balls | cubes
+      sample: auto               # auto | unif | rwalk | slice | rslice | hslice
+      # walks: 25                # rwalk
+      # facc: 0.5
+      # slices: 5                # slice family
+      # enlarge: 1.25
+      # bootstrap: 0
+      # update_interval: null    # int, or float × nlive
+      # first_update: {min_ncall: 1000, min_eff: 10.0}
+      # periodic: null           # list of dimension indices
+      # reflective: null
+      # ncdim: null
+
+    # --- DynamicNestedSampler.run_nested only ---
+    run_nested:
+      # Initial phase
+      # nlive_init: 100          # default: Bounds.nlive
+      # maxiter_init: null
+      # maxcall_init: null
+      # dlogz_init: 0.5          # or set Bounds.dlogz (remapped)
+      # logl_max_init: .inf
+
+      # Batch / posterior thickening
+      # nlive_batch: 100
+      # maxiter_batch: null
+      # maxcall_batch: null
+      # maxbatch: null
+      # wt_kwargs: {pfrac: 0.8}
+
+      # Global caps
+      # maxiter: null
+      # maxcall: null
+
+      # ESS stop (default dynesty behaviour when use_stop: true)
+      # n_effective: 10000
+      # use_stop: true
+
+      print_progress: true
+      # save_bounds: true
+      # checkpoint_file: null
+      # checkpoint_every: 60
+      # resume: false
+
+  LogLikelihood:
+    - {name: "LogL", expression: "0.0"}

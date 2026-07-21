@@ -20,11 +20,17 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
     "sample_artifacts": "auto",
 }
 
-_VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
-_VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
-_VALID_CLEANUP_STRATEGIES = frozenset({"mv_to_staging", "direct"})
-_VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
-_VALID_HANDOFF_MODES = frozenset({"direct", "staging"})
+VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
+VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
+VALID_CLEANUP_STRATEGIES = frozenset({"mv_to_staging", "direct"})
+VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
+VALID_HANDOFF_MODES = frozenset({"direct", "staging"})
+# Backward-compatible private aliases (tests / older imports).
+_VALID_SAMPLE_ARTIFACTS = VALID_SAMPLE_ARTIFACTS
+_VALID_RUNTIME_MODES = VALID_RUNTIME_MODES
+_VALID_CLEANUP_STRATEGIES = VALID_CLEANUP_STRATEGIES
+_VALID_ARCHIVER_MODES = VALID_ARCHIVER_MODES
+_VALID_HANDOFF_MODES = VALID_HANDOFF_MODES
 
 ARCHIVER_DEFAULTS: dict[str, Any] = {
     "mode": "process",
@@ -62,8 +68,16 @@ SUPPORTED_ENVREQS_V2_KEYS = frozenset(
         "redis",
         "factory",
         "worker",
+        "check_modules",
     }
 )
+
+# Defaults for ``Jarvis2 check`` / ``--check-modules`` (overridable via EnvReqs.V2).
+CHECK_MODULES_DEFAULTS: dict[str, Any] = {
+    # Prefer project data CSV; if missing at runtime, sampler draws n_samples points.
+    "data": "&J/data/check_modules_points.csv",
+    "n_samples": 10,
+}
 
 
 def _coerce_positive_int(value: Any, *, default: int) -> int:

@@ -12,6 +12,7 @@ import yaml
 
 from jarvishep2.base import decode_path, infer_project_root, scan_output_root
 from jarvishep2.runtime_config import (
+    CHECK_MODULES_DEFAULTS,
     SUPPORTED_ENVREQS_V2_KEYS,
     normalize_factory_block,
     normalize_redis_config,
@@ -308,18 +309,82 @@ def resolve_sampling_path(config: Mapping[str, Any], raw: str) -> str:
     return os.path.abspath(os.path.join(anchor, raw))
 
 
-def check_modules_points_path(config: Mapping[str, Any]) -> str:
-    sampling = dict(config.get("Sampling") or {})
-    raw = str(sampling.get("data") or sampling.get("points_csv") or "").strip()
+def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Return normalized check-modules knobs (task Sampling + EnvReqs.V2 + defaults)."""
+    settings = dict(CHECK_MODULES_DEFAULTS)
+    envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
+    v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
+    block = v2.get("check_modules") if isinstance(v2, Mapping) else None
+    if isinstance(block, Mapping):
+        if block.get("data") is not None and str(block.get("data")).strip():
+            settings["data"] = str(block.get("data")).strip()
+        if "n_samples" in block and block.get("n_samples") is not None:
+            try:
+                settings["n_samples"] = max(1, int(block.get("n_samples")))
+            except (TypeError, ValueError):
+                pass
+    # Task Sampling.data always wins for the CSV path when present.
+    sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
+    if isinstance(sampling, Mapping):
+        raw = sampling.get("data") or sampling.get("points_csv")
+        if raw is not None and str(raw).strip():
+            settings["data"] = str(raw).strip()
+    return settings
+
+
+def resolve_check_modules_csv(config: Mapping[str, Any]) -> tuple[str | None, str]:
+    """Resolve the check-modules CSV path.
+
+    Returns
+    -------
+    (path_or_none, raw_spec)
+        *path_or_none* is an absolute path when the file exists; ``None`` when
+        the configured path is missing (caller should fall back to sampler).
+        *raw_spec* is the unresolved YAML string (for logging).
+    """
+    settings = get_check_modules_settings(config)
+    raw = str(settings.get("data") or CHECK_MODULES_DEFAULTS["data"]).strip()
     if not raw:
-        raise ValueError("check-modules task requires Sampling.data pointing to a CSV file")
-    return resolve_sampling_path(config, raw)
+        return None, ""
+    path = resolve_sampling_path(config, raw)
+    if os.path.isfile(path):
+        return path, raw
+    return None, raw
+
+
+def check_modules_points_path(config: Mapping[str, Any]) -> str:
+    """Return an existing check-modules CSV path or raise.
+
+    Prefer :func:`resolve_check_modules_csv` when a missing file should fall back
+    to sampler-drawn smoke points.
+    """
+    path, raw = resolve_check_modules_csv(config)
+    if path is None:
+        raise ValueError(
+            "check-modules CSV not found"
+            + (f" (configured: {raw!r})" if raw else "")
+            + "; set Sampling.data / EnvReqs.V2.check_modules.data or rely on "
+            "sampler fallback (n_samples)"
+        )
+    return path
+
+
+def check_modules_n_samples(config: Mapping[str, Any]) -> int:
+    """How many sampler-drawn smoke points to use when CSV is missing."""
+    settings = get_check_modules_settings(config)
+    try:
+        return max(1, int(settings.get("n_samples", 10)))
+    except (TypeError, ValueError):
+        return int(CHECK_MODULES_DEFAULTS["n_samples"])
 
 
 __all__ = [
+    "check_modules_n_samples",
     "check_modules_points_path",
+    "get_check_modules_settings",
     "is_check_modules_task",
     "load_task_yaml",
+    "resolve_check_modules_csv",
     "resolve_sampling_path",
     "sampling_method",
 ]

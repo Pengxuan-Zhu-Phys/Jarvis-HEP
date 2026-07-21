@@ -24,9 +24,10 @@ def _files_under(root: str) -> list[str]:
 
 
 def sample_tree_file_sets(sample_root: str) -> list[list[str]]:
-    """Collect per-sample relative file lists under SAMPLE/.
+    """Collect per-sample relative file lists under SAMPLE/ (or SAMPLE/test/).
 
     Supports as-built layouts:
+    - check-modules: ``SAMPLE/test/000001/<uuid>/…`` (unpacked; no tar)
     - flat ``SAMPLE/<uuid>/…`` (legacy)
     - bucketed ``SAMPLE/000001/<uuid>/…``
     - packed ``SAMPLE/000001.tar.gz`` containing ``000001/<uuid>/…``
@@ -37,6 +38,10 @@ def sample_tree_file_sets(sample_root: str) -> list[list[str]]:
     manifests: list[list[str]] = []
     if not os.path.isdir(sample_root):
         return manifests
+    # Prefer check-modules layout when SAMPLE/test exists under the given root.
+    test_root = os.path.join(sample_root, "test")
+    if os.path.basename(os.path.abspath(sample_root)) != "test" and os.path.isdir(test_root):
+        return sample_tree_file_sets(test_root)
     for child in sorted(os.listdir(sample_root)):
         child_path = os.path.join(sample_root, child)
         if child.endswith(".tar.gz") and os.path.isfile(child_path):
@@ -108,7 +113,15 @@ def verify_check_modules_golden(
         if normalized != expected_normalized:
             raise RuntimeError("check-modules DATABASE parity mismatch")
     if expected_files:
-        tree = sample_tree_file_sets(os.path.join(task_result_dir, "SAMPLE"))
+        sample_root = os.path.join(task_result_dir, "SAMPLE")
+        test_root = os.path.join(sample_root, "test")
+        # check-modules policy: artifacts live under SAMPLE/test/
+        root = test_root if os.path.isdir(test_root) else sample_root
+        tree = sample_tree_file_sets(root)
+        if not tree:
+            raise RuntimeError(
+                f"check-modules SAMPLE parity mismatch: no sample dirs under {root}"
+            )
         for files in tree:
             if list(files) != list(expected_files):
                 raise RuntimeError("check-modules SAMPLE parity mismatch")

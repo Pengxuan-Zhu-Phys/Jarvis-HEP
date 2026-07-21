@@ -1,13 +1,11 @@
 # =============================================================================
-# Sampling template — MultiNest (simple)
+# Sampling — MultiNest (simple)
 # =============================================================================
-# Engine: always static NestedSampler (V2 MultiNest is NOT Fortran MultiNest /
-# pymultinest). Same Redis + UUID + Worker path as Dynesty static.
+# Engine: always static NestedSampler  (Method: MultiNest)
+# Not Fortran MultiNest / pymultinest — same vendored dynesty stack as Dynesty.
+# Dynamic nested sampling → Method: Dynesty instead.
 #
-# Bounds.dynamic is ignored / forced false. Use few knobs for smoke & daily runs.
-#
-# Full surface: Sampling_MultiNest_Full.yaml
-# Dynesty dynamic alternative: Sampling_Dynesty_Simple.yaml
+# Everyday knobs only. Full surface: Sampling_MultiNest_Full.yaml
 # =============================================================================
 
 Sampling:
@@ -16,32 +14,30 @@ Sampling:
 
   Variables:
     - name: x
-      description: "Replace with your sampling parameters."
+      description: "Replace with your parameters."
       distribution:
         type: Flat
-        parameters:
-          min: 0.0
-          max: 1.0
+        parameters: {min: 0.0, max: 1.0}
+    # - name: y
+    #   description: "…"
+    #   distribution:
+    #     type: Flat
+    #     parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    # Always static NestedSampler (dynamic: true is ignored).
     nlive: 100
-    rseed: 21
-    dlogz: 0.5                     # static evidence stop
+    dlogz: 0.5                 # static NestedSampler evidence stop
 
-    # Optional:
+    # Optional proposal knobs:
     # bound: multi
     # sample: auto
     # walks: 25
 
     run_nested:
       print_progress: true
+      # Safety caps (optional):
       # maxcall: 100000
       # maxiter: 50000
 
   LogLikelihood:
-    - {name: "LogL", expression: "0.0"}
-
-  FeedbackReturn:
-    mode: minimal
-    include_logl: true
+    - {name: "LogL", expression: "0.0"}   # replace

@@ -246,7 +246,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
             operas_expression_functions_required(
                 {
                     "Sampling": {
-                        "AdaptiveLevelSet": {
+                        "AdaptiveBridson": {
                             "target_expression": "ns.level(f)",
                         }
                     }

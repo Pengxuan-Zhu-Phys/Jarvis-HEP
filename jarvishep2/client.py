@@ -27,6 +27,7 @@ _SUBCOMMANDS = frozenset(
     {
         "run",
         "check",
+        "validate",
         "monitor",
         "plot",
         "portal",
@@ -69,6 +70,9 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     if "--check-modules" in args:
         rest = [a for a in args[1:] if a != "--check-modules"]
         return ["check", head, *rest]
+    if "--validate" in args:
+        rest = [a for a in args[1:] if a != "--validate"]
+        return ["validate", head, *rest]
     # Bare path (+ optional --resume) → run
     return ["run", *args]
 
@@ -82,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Intents (preferred):\n"
             "  Jarvis2 run TASK.yaml [--resume]\n"
             "  Jarvis2 check TASK.yaml\n"
+            "  Jarvis2 validate TASK.yaml [--strict] [--json]\n"
             "  Jarvis2 monitor\n"
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
@@ -94,6 +99,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
             "  Jarvis2 TASK.yaml --check-modules\n"
+            "  Jarvis2 TASK.yaml --validate\n"
             "  Jarvis2 --monitor\n"
             "  Jarvis2 PLOT.yaml --plot   (deprecated)\n"
         ),
@@ -134,11 +140,38 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip workflow flowchart.json / flowchart.png export",
     )
+    run_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat config validation warnings as errors",
+    )
     _add_logging_flags(run_p)
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
     check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
+    check_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat config validation warnings as errors",
+    )
     _add_logging_flags(check_p)
+
+    validate_p = sub.add_parser(
+        "validate",
+        help="Validate task YAML (no Redis / workers); D13.9 config gate",
+    )
+    validate_p.add_argument("task_yaml", help="Path to scan task YAML")
+    validate_p.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as errors",
+    )
+    validate_p.add_argument(
+        "--json",
+        action="store_true",
+        dest="validate_json",
+        help="Emit a minimal JSON report on stdout",
+    )
 
     sub.add_parser("monitor", help="Print one monitor snapshot and exit")
 
@@ -199,6 +232,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="(legacy) Treat path as plot scene; prefer `Jarvis2 plot`",
     )
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="(legacy) Validate task YAML only; prefer `Jarvis2 validate`",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="(legacy/global) Treat config validation warnings as errors",
+    )
+    parser.add_argument(
         "--check-modules",
         action="store_true",
         help="(legacy) Check-modules path; prefer `Jarvis2 check`",
@@ -226,7 +269,7 @@ def _mode_conflict_message(modes: list[str]) -> str:
     return (
         "conflicting CLI intents: "
         + ", ".join(modes)
-        + "; use a single subcommand (run|check|monitor|plot|portal|operas|project)"
+        + "; use a single subcommand (run|check|validate|monitor|plot|portal|operas|project)"
     )
 
 
@@ -249,6 +292,8 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         legacy_modes.append("plot")
     if args.check_modules:
         legacy_modes.append("check")
+    if getattr(args, "validate", False):
+        legacy_modes.append("validate")
 
     if command:
         if legacy_modes:
@@ -263,7 +308,7 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         return legacy_modes[0], args
     raise ValueError(
         "Provide a task YAML or a subcommand "
-        "(run|check|monitor|plot|portal|operas|project). See Jarvis2 -h."
+        "(run|check|validate|monitor|plot|portal|operas|project). See Jarvis2 -h."
     )
 
 
@@ -973,6 +1018,77 @@ def _print_outcome(outcome: RunOutcome) -> None:
         print(f"  error_type={outcome.error_type} error={outcome.error}", file=sys.stderr)
 
 
+def dispatch_validate(
+    task_yaml: str,
+    *,
+    strict: bool = False,
+    as_json: bool = False,
+    check_modules: bool | None = None,
+) -> int:
+    """Load + validate a task card; never start Redis or workers."""
+    import json
+
+    from jarvishep2.task_validation import (
+        ConfigValidationError,
+        format_report,
+        format_report_success,
+        validate_task_config,
+    )
+
+    if not task_yaml:
+        print("Task YAML is required.", file=sys.stderr)
+        return EXIT_USAGE
+
+    try:
+        core = Jarvis2Core()
+        # Load without gate, then validate once with full control over output.
+        core.load_task_yaml(task_yaml, validate=False)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_RUN_FAILED
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_USAGE
+
+    report = validate_task_config(
+        core.config, strict=strict, check_modules=check_modules
+    )
+    if as_json:
+        payload = {
+            "ok": report.ok,
+            "task_yaml": str(core.config.get("task_yaml") or task_yaml),
+            "scan_name": str(core.config.get("scan_name") or ""),
+            "issues": [
+                {
+                    "level": i.level,
+                    "code": i.code,
+                    "path": i.path,
+                    "message": i.message,
+                    "hint": i.hint,
+                }
+                for i in report.issues
+            ],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return EXIT_OK if report.ok else EXIT_USAGE
+
+    if report.ok:
+        # Mirror run-path logging: explicit success line on stderr for humans.
+        print(
+            "Config validation successful. The task YAML meets the V2 contract.",
+            file=sys.stderr,
+        )
+        if report.warnings():
+            print(format_report(report), file=sys.stderr)
+        else:
+            # Keep format_report_success available for tests / quieter tooling.
+            _ = format_report_success(report)
+        return EXIT_OK
+
+    print(format_report(report), file=sys.stderr)
+    return EXIT_USAGE
+
+
 def dispatch_run(
     task_yaml: str,
     *,
@@ -982,6 +1098,7 @@ def dispatch_run(
     console_level: str = "INFO",
     log_level: str = "INFO",
     silence: bool = False,
+    strict: bool = False,
 ) -> int:
     if not task_yaml:
         print("Task YAML is required.", file=sys.stderr)
@@ -989,13 +1106,19 @@ def dispatch_run(
 
     try:
         core = Jarvis2Core()
-        core.load_task_yaml(task_yaml)
+        core.load_task_yaml(
+            task_yaml,
+            validate=True,
+            strict=strict,
+            check_modules=check_modules if check_modules else None,
+        )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
     except ValueError as exc:
+        # Includes ConfigValidationError (subclass of ValueError).
         print(str(exc), file=sys.stderr)
-        return EXIT_RUN_FAILED
+        return EXIT_USAGE
 
     core.set_logging_options(
         console_level=console_level,
@@ -1067,6 +1190,13 @@ def dispatch(args: argparse.Namespace) -> int:
                 force=not bool(getattr(args, "no_force", False)),
             )
         )
+    if intent == "validate":
+        task = getattr(args, "task_yaml", None)
+        return dispatch_validate(
+            str(task or ""),
+            strict=bool(getattr(args, "strict", False)),
+            as_json=bool(getattr(args, "validate_json", False)),
+        )
     if intent == "check":
         task = getattr(args, "task_yaml", None)
         return dispatch_run(
@@ -1076,6 +1206,7 @@ def dispatch(args: argparse.Namespace) -> int:
             console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
             log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
             silence=bool(getattr(args, "silence", False)),
+            strict=bool(getattr(args, "strict", False)),
         )
     if intent == "run":
         task = getattr(args, "task_yaml", None)
@@ -1087,6 +1218,7 @@ def dispatch(args: argparse.Namespace) -> int:
             console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
             log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
             silence=bool(getattr(args, "silence", False)),
+            strict=bool(getattr(args, "strict", False)),
         )
 
     print(f"Unknown intent: {intent}", file=sys.stderr)

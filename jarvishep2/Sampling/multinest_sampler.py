@@ -41,21 +41,7 @@ class MultiNestSampler(DynestySampler):
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
-        # MultiNest is always static NestedSampler — re-extract run kwargs if
-        # parent briefly saw dynamic:true from a copy-pasted Dynesty card.
-        if self._use_dynamic:
-            self._use_dynamic = False
-            bounds = (self.config.get("Sampling") or {}).get("Bounds") or {}
-            if isinstance(bounds, Mapping):
-                from jarvishep2.Sampling.dynesty_sampler import extract_run_nested_kwargs
-
-                self._run_nested_kwargs = extract_run_nested_kwargs(
-                    bounds,
-                    dynamic=False,
-                    dlogz_default=self._dlogz,
-                    logger=self._logger,
-                )
-                self._run_nested_kwargs.setdefault("print_progress", True)
+        # Method contract: always static NestedSampler (never DynamicNestedSampler).
         self._use_dynamic = False
 
     def multinest_result_csv_path(self, task_result_dir: str | None = None) -> str:

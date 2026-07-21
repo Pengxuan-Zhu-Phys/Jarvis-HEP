@@ -80,7 +80,7 @@ class RedisPoolUnitTests(unittest.TestCase):
                             },
                         },
                     ],
-                    "Bounds": {"nlive": 10, "dynamic": False},
+                    "Bounds": {"nlive": 10},
                 }
             }
         )
@@ -561,7 +561,7 @@ class DynestyCsvExportTests(unittest.TestCase):
                                 },
                             },
                         ],
-                        "Bounds": {"nlive": 10, "dlogz": 5.0, "dynamic": False},
+                        "Bounds": {"nlive": 10, "dlogz": 5.0},
                     },
                 }
             )

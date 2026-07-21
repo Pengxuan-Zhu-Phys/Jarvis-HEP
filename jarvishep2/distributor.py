@@ -157,10 +157,10 @@ def _factory_csv() -> SamplingVirtial:
     return CSVSampler()
 
 
-def _factory_adaptive_level_set() -> SamplingVirtial:
-    from jarvishep2.Sampling.adaptive_level_set import AdaptiveLevelSetSampler
+def _factory_adaptive_bridson() -> SamplingVirtial:
+    from jarvishep2.Sampling.adaptive_bridson import AdaptiveBridsonSampler
 
-    return AdaptiveLevelSetSampler()
+    return AdaptiveBridsonSampler()
 
 
 def _factory_mcmc() -> SamplingVirtial:
@@ -202,8 +202,8 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         "CSV", _factory_csv, stateless=True, resume="implemented", override=override
     )
     Distributor.register(
-        "AdaptiveLevelSet",
-        _factory_adaptive_level_set,
+        "AdaptiveBridson",
+        _factory_adaptive_bridson,
         stateless=False,
         resume="implemented",
         override=override,

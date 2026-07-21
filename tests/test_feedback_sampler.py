@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 
-from jarvishep2.Sampling.adaptive_level_set import AdaptiveLevelSetSampler
+from jarvishep2.Sampling.adaptive_bridson import AdaptiveBridsonSampler
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.sample import Sample
@@ -49,8 +49,8 @@ class _ToyFeedbackSampler(FeedbackSampler):
 
 class FeedbackSamplerUnitTests(unittest.TestCase):
     def test_als_is_feedback_sampler(self) -> None:
-        self.assertTrue(issubclass(AdaptiveLevelSetSampler, FeedbackSampler))
-        sampler = AdaptiveLevelSetSampler()
+        self.assertTrue(issubclass(AdaptiveBridsonSampler, FeedbackSampler))
+        sampler = AdaptiveBridsonSampler()
         self.assertIsInstance(sampler, FeedbackSampler)
         self.assertTrue(sampler.at_safe_barrier())
 

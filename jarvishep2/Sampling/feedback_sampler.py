@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Feedback-driven sampler base (D13.1): propose → Redis → hep:feedback → absorb.
 
-Extracted from AdaptiveLevelSet so MCMC / nested / ensemble methods share one
+Extracted from AdaptiveBridson so MCMC / nested / ensemble methods share one
 barrier-synchronized generation loop. Method-specific science lives in
 ``propose_generation`` / ``absorb_generation``; transport, pending-uuid
 bookkeeping, SeedSequence spawning, and checkpoint barriers live here.
@@ -46,7 +46,7 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             absorb_generation(results)
             checkpoint_at_barrier()
 
-    Methods with richer control flow (AdaptiveLevelSet: converge / refine /
+    Methods with richer control flow (AdaptiveBridson: converge / refine /
     max_points) may override ``run_adaptive`` while still reusing
     ``wait_for_generation``, ``_submit_sample_batch``, and seed helpers.
     """
@@ -210,7 +210,7 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         """Default propose → publish → drain → absorb → checkpoint loop.
 
         Returns the number of samples submitted across all generations.
-        Subclasses with non-linear control flow (e.g. AdaptiveLevelSet) override
+        Subclasses with non-linear control flow (e.g. AdaptiveBridson) override
         this method and call ``wait_for_generation`` / ``_submit_sample_batch``
         directly.
         """

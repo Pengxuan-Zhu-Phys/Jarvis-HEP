@@ -118,11 +118,12 @@ class DistributorDispatchTests(unittest.TestCase):
 
     def test_unknown_method_lists_available(self) -> None:
         with self.assertRaises(NotImplementedError) as raised:
-            Distributor.set_method("Dynesty")
+            Distributor.set_method("Dynestyy")
         message = str(raised.exception)
-        self.assertIn("Dynesty", message)
+        self.assertIn("Dynestyy", message)
         self.assertIn("Available:", message)
         self.assertIn("Bridson", message)
+        self.assertIn("Dynesty", message)
 
     def test_register_new_sampler_without_editing_set_method(self) -> None:
         from jarvishep2.Sampling.sampler import SamplingVirtial

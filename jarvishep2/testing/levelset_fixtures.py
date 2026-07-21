@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spawn-safe operators for AdaptiveLevelSet tests.
+"""Spawn-safe operators for AdaptiveBridson tests.
 
 Single source: re-exports from ``eggbox`` so Workers and tests share one path.
 """

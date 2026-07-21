@@ -109,7 +109,7 @@ def build_worker_config(
                 publish_feedback = True
         except Exception:
             if sampling_method in (
-                "AdaptiveLevelSet",
+                "AdaptiveBridson",
                 "MCMC",
                 "AMMCMC",
                 "AM",

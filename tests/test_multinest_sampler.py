@@ -27,7 +27,7 @@ class MultiNestRegistrationTests(unittest.TestCase):
 
 
 class MultiNestConfigTests(unittest.TestCase):
-    def test_always_static_even_if_dynamic_true(self) -> None:
+    def test_always_static(self) -> None:
         sampler = MultiNestSampler()
         sampler.set_config(
             {
@@ -45,7 +45,6 @@ class MultiNestConfigTests(unittest.TestCase):
                     "Bounds": {
                         "nlive": 20,
                         "dlogz": 1.0,
-                        "dynamic": True,  # Dynesty-style key must be ignored
                         "rseed": 3,
                     },
                 },

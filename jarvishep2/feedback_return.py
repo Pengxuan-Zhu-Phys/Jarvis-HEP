@@ -299,8 +299,8 @@ def _default_spec_for_method(
 ) -> dict[str, Any]:
     name = str(method or "").strip()
     lower = name.lower()
-    # AdaptiveLevelSet: request target expression symbols as flat fields.
-    if lower in {"adaptivelevelset", "alevelset", "adaptive_level_set"}:
+    # AdaptiveBridson: request target expression symbols as flat fields.
+    if lower in {"adaptivebridson", "adaptive_bridson"}:
         fields = _target_expression_fields(sampling, cfg)
         return {
             "mode": "fields" if fields else "minimal",
@@ -319,9 +319,9 @@ def _target_expression_fields(
     cfg: Mapping[str, Any],
 ) -> list[str]:
     block = (
-        sampling.get("AdaptiveLevelSet")
-        or sampling.get("adaptive_level_set")
-        or cfg.get("AdaptiveLevelSet")
+        sampling.get("AdaptiveBridson")
+        or sampling.get("adaptive_bridson")
+        or cfg.get("AdaptiveBridson")
         or {}
     )
     if not isinstance(block, Mapping):

@@ -28,3 +28,9 @@ EnvReqs:
     #   host: 127.0.0.1
     #   port: 6379
     #   db: 0
+
+    # Jarvis2 check / --check-modules (CSV fixed points, else n_samples from Method).
+    # Runtime always forces workers=1, SAMPLE/test/, no tar pack.
+    check_modules:
+      data: "&J/data/check_modules_points.csv"
+      n_samples: 10

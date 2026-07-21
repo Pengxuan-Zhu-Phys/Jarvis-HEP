@@ -129,19 +129,22 @@ def interpolate_crossing(
     return u_i + t * (u_j - u_i)
 
 
-class AdaptiveLevelSetSampler(FeedbackSampler):
-    """Feedback-driven level-set tracer (Method: AdaptiveLevelSet).
+class AdaptiveBridsonSampler(FeedbackSampler):
+    """Feedback-driven level-set tracer (Method: AdaptiveBridson).
 
-    Subclasses :class:`FeedbackSampler` for barrier drain / seed / pending
-    bookkeeping (D13.1). Control flow stays custom: gen-0 → cross → refine
-    until converge / budget (see ``run_adaptive``).
+    Gen-0 uses a Bridson-like low-discrepancy fill of the unit cube, then
+    detects crossings of ``target_expression ≈ target_value`` and refines
+    along those edges (see ``run_adaptive``). Subclasses
+    :class:`FeedbackSampler` for Redis feedback barriers / checkpointing.
+
+    Config block: ``Sampling.AdaptiveBridson``.
     """
 
-    method = "AdaptiveLevelSet"
+    method = "AdaptiveBridson"
 
     def __init__(self) -> None:
         super().__init__()
-        self._logger = get_jarvis_logger("sampler.adaptive_level_set")
+        self._logger = get_jarvis_logger("sampler.adaptive_bridson")
         self.vars: list = []
         self._dim = 0
         self._target_expression = ""
@@ -178,16 +181,16 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
         self._dim = len(self.vars)
         if self._dim < 2 or self._dim > 5:
             raise ValueError(
-                f"AdaptiveLevelSet requires 2 ≤ dim ≤ 5, got {self._dim}"
+                f"AdaptiveBridson requires 2 ≤ dim ≤ 5, got {self._dim}"
             )
-        block = sampling.get("AdaptiveLevelSet") or sampling.get("adaptive_level_set") or {}
+        block = sampling.get("AdaptiveBridson") or sampling.get("adaptive_bridson") or {}
         if not isinstance(block, Mapping):
-            raise ValueError("Sampling.AdaptiveLevelSet must be a mapping")
+            raise ValueError("Sampling.AdaptiveBridson must be a mapping")
         self._target_expression = str(block.get("target_expression", "")).strip()
         if not self._target_expression:
-            raise ValueError("AdaptiveLevelSet.target_expression is required")
+            raise ValueError("AdaptiveBridson.target_expression is required")
         if "target_value" not in block:
-            raise ValueError("AdaptiveLevelSet.target_value is required")
+            raise ValueError("AdaptiveBridson.target_value is required")
         self._target_value = float(block["target_value"])
         self._contour_precision = float(block.get("contour_precision", 0.01) or 0.01)
         self._function_tolerance = float(block.get("function_tolerance", 0.05) or 0.05)
@@ -436,7 +439,7 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
         idx = self._accepted_index
         self._accepted_index += 1
         return deterministic_sampler_uuid(
-            prefix="alevelset",
+            prefix="abridson",
             seed=self._seed,
             sample_index=idx,
         )
@@ -445,7 +448,7 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
         """Build LevelSetPoints + Samples, then publish via FeedbackSampler batch."""
         if not us:
             return 0
-        self._require_redis("AdaptiveLevelSet")
+        self._require_redis("AdaptiveBridson")
         samples: list[Sample] = []
         for u in us:
             if len(self._points) >= self._max_points:
@@ -728,7 +731,7 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
         import), do **not** re-run generation-0. Finish any in-flight
         ``_pending_uuids`` first, then continue refine from the restored barrier.
         """
-        self._require_redis("AdaptiveLevelSet.run_adaptive")
+        self._require_redis("AdaptiveBridson.run_adaptive")
         self._ensure_seed_sequence()
         if self._graph is None:
             self._graph = self._make_graph()
@@ -845,7 +848,7 @@ class AdaptiveLevelSetSampler(FeedbackSampler):
 
 
 __all__ = [
-    "AdaptiveLevelSetSampler",
+    "AdaptiveBridsonSampler",
     "DelaunayGraph",
     "KNNGraph",
     "LevelSetPoint",

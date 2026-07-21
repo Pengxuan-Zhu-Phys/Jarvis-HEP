@@ -68,7 +68,7 @@ def hypersphere_r(
     **params: object,
 ) -> dict[str, float]:
     """d≥3 radius from box centre 0.5 for free params x/x0/x1… (or any numeric)."""
-    # Prefer explicit coord names used by AdaptiveLevelSet tests.
+    # Prefer explicit coord names used by AdaptiveBridson tests.
     keys = [k for k in ("x", "y", "z", "x0", "x1", "x2", "x3", "x4") if k in params]
     if not keys:
         keys = sorted(str(k) for k, v in params.items() if isinstance(v, (int, float, np.generic)))

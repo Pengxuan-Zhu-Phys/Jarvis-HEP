@@ -45,3 +45,11 @@ EnvReqs:
     # worker:
     #   force_serial_layers: false
     #   sample_artifacts: auto
+
+    # Jarvis2 check / --check-modules:
+    #   1) Prefer this CSV when the file exists (task Sampling.data overrides).
+    #   2) If missing, draw n_samples points from Sampling.Method (V1-like smoke).
+    # Runtime policy (always, not YAML): workers=1, SAMPLE/test/, pack=off.
+    check_modules:
+      data: "&J/data/check_modules_points.csv"
+      n_samples: 10

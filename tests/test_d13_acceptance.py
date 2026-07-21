@@ -323,7 +323,7 @@ class SamplerConfigAcceptanceTests(unittest.TestCase):
                             },
                         }
                     ],
-                    "Bounds": {"nlive": 50, "dlogz": 0.2, "dynamic": True},
+                    "Bounds": {"nlive": 50, "dlogz": 0.2},
                 }
             }
         )

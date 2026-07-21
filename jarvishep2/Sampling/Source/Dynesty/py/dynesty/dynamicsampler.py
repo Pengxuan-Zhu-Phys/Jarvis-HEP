@@ -450,6 +450,7 @@ def _configure_batch_sampler(main_sampler,
                                     boundidx=0,
                                     bounditer=0,
                                     eff=main_sampler.eff,
+                                    delta_logz=np.nan,
                                     proposal_stats=None))
         batch_sampler.update_bound_if_needed(logl_min)
         # Trigger an update of the internal bounding distribution based
@@ -605,6 +606,7 @@ def _configure_batch_sampler(main_sampler,
                                     boundidx=live_bound[i],
                                     bounditer=live_bound[i],
                                     eff=main_sampler.eff,
+                                    delta_logz=np.nan,
                                     proposal_stats=live_proposal_stats[i]))
     niter += nlive_new
     # Overwrite the previous set of live points in our internal sampler
@@ -1447,6 +1449,7 @@ class DynamicSampler:
                                       boundidx=results.boundidx,
                                       bounditer=results.bounditer,
                                       eff=self.eff,
+                                      delta_logz=results.delta_logz,
                                       proposal_stats=results.proposal_stats)
         if iterated_batch and results.loglstar < logl_max and np.isfinite(
                 logl_max) and maxiter_left > 0 and maxcall_left > 0:
@@ -1496,6 +1499,7 @@ class DynamicSampler:
                                       boundidx=results.boundidx,
                                       bounditer=results.bounditer,
                                       eff=self.eff,
+                                      delta_logz=np.nan,
                                       proposal_stats=None)
         del self.batch_sampler
         self.batch_sampler = None
@@ -1613,7 +1617,7 @@ class DynamicSampler:
             # Save the number of live points and expected ln(volume).
             if (not plateau_mode and i != len(nlive_array) - 1
                     and logl_array[i] == logl_array[i + 1]):
-                plateau_mask = (logl_array[i:] == cur_logl)
+                plateau_mask = logl_array[i:] == cur_logl
                 nplateau = plateau_mask.sum()
                 if nplateau > 1:
                     # the number of live points should not change throughout
@@ -1880,7 +1884,9 @@ class DynamicSampler:
         install_warnings_bridge()
         if getattr(self, "logger", None) is None:
             self.logger = bind_inner(get_dynesty_logger())
-        pbar, print_func = get_print_func(print_func, print_progress)
+        pbar, print_func = get_print_func(print_func,
+                                          print_progress,
+                                          initial=self.it - 1)
         self.checkpoint_timer = DelayTimer(checkpoint_every)
         try:
             # the init should be the first default stage, all other ones
@@ -2154,22 +2160,19 @@ class DynamicSampler:
                         boundidx=cur_results.boundidx,
                         bounditer=cur_results.bounditer,
                         eff=cur_results.eff,
-                        delta_logz=np.nan,
+                        delta_logz=cur_results.delta_logz,
                         proposal_stats=cur_results.proposal_stats)
 
-                    # Print progress (Jarvis logger).
+                    # Print progress.
                     if print_progress:
-                        emit_progress(
-                            print_func,
-                            getattr(self, "logger", None) or get_dynesty_logger(),
-                            results,
-                            niter,
-                            ncall,
-                            nbatch=n + 1,
-                            stop_val=stop_val,
-                            logl_min=logl_min,
-                            logl_max=logl_max,
-                        )
+                        print_func(results,
+                                   niter,
+                                   ncall,
+                                   nbatch=n + 1,
+                                   dlogz=dlogz,
+                                   stop_val=stop_val,
+                                   logl_min=logl_min,
+                                   logl_max=logl_max)
                     if (checkpoint_file is not None and self.internal_state
                             != DynamicSamplerStatesEnum.INBATCHADDLIVE
                             and self.internal_state

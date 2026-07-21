@@ -268,10 +268,9 @@ def _initialize_live_points(live_points,
                 if np.sign(logl) < 0:
                     live_logl[i] = _LOWL_VAL
                 else:
-                    raise ValueError("The log-likelihood ({0}) of live "
-                                     "point {1} located at u={2} v={3} "
-                                     " is invalid.".format(
-                                         logl, i, live_u[i], live_v[i]))
+                    raise ValueError(
+                        f"The log-likelihood ({logl}) of live point {i} "
+                        f"located at u={live_u[i]} v={live_v[i]} is invalid.")
         if np.all(live_logl == _LOWL_VAL):
             raise ValueError("Not a single provided live point has a "
                              "valid log-likelihood!")
@@ -673,9 +672,9 @@ class Sampler:
         else:
             delta_bound = self.bound_update_interval
 
-        call_check_first = (ncall >= self.first_bound_update_ncall)
-        call_check = (ncall >= delta_bound + self.ncall_at_last_update)
-        efficiency_check = (self.eff < self.first_bound_update_eff)
+        call_check_first = ncall >= self.first_bound_update_ncall
+        call_check = ncall >= delta_bound + self.ncall_at_last_update
+        efficiency_check = self.eff < self.first_bound_update_eff
         # there are three cases when we update the bound
         # * if we are still using uniform cube sampling and both efficiency is
         # lower than the threshold and the number of calls is larger than the
@@ -1351,7 +1350,9 @@ class Sampler:
 
         if getattr(self, "logger", None) is None:
             self.logger = get_dynesty_logger()
-        pbar, print_func = get_print_func(print_func, print_progress)
+        pbar, print_func = get_print_func(print_func,
+                                          print_progress,
+                                          initial=self.it - 1)
         if checkpoint_file is not None:
             timer = DelayTimer(checkpoint_every)
         try:

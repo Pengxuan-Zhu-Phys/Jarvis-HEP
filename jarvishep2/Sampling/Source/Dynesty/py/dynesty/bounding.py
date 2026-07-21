@@ -69,8 +69,7 @@ def _slogdet_checked(matrix):
         raise ValueError(
             f"Invalid ellipsoid: covariance matrix has non-positive determinant "
             f"(sign={detsign}). This may indicate degenerate live points or "
-            f"numerical instability. Matrix shape: {matrix.shape}"
-        )
+            f"numerical instability. Matrix shape: {matrix.shape}")
     return detln
 
 
@@ -243,7 +242,7 @@ class Ellipsoid(Bound):
     def scale_to_logvol(self, logvol):
         """Scale ellipsoid to a target volume."""
 
-        logf = (logvol - self.logvol)
+        logf = logvol - self.logvol
         # log of the maxium axis length of the ellipsoid
         max_log_axlen = np.log(np.sqrt(self.ndim) / 2)
         log_axlen = np.log(self.axlens)
@@ -951,7 +950,7 @@ class RadFriends(Bound):
 
         # Compute volume.
         detln = _slogdet_checked(self.am)
-        self.logvol = (logvol_prefactor(self.ndim) - 0.5 * detln)
+        self.logvol = logvol_prefactor(self.ndim) - 0.5 * detln
 
         # Estimate the volume and fractional overlap with the unit cube
         # using Monte Carlo integration.
@@ -1217,7 +1216,7 @@ class SupFriends(Bound):
         self.axes_inv /= hsmax
 
         detln = _slogdet_checked(self.am)
-        self.logvol = (self.ndim * np.log(2.) - 0.5 * detln)
+        self.logvol = self.ndim * np.log(2.) - 0.5 * detln
 
         # Estimate the volume and fractional overlap with the unit cube
         # using Monte Carlo integration.

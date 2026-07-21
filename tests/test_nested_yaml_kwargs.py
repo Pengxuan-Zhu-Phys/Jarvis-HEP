@@ -166,7 +166,8 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
         self.assertEqual(s._run_nested_kwargs["nlive_batch"], 40)
         self.assertIs(s._run_nested_kwargs["print_progress"], False)
 
-    def test_dynesty_static_mode(self) -> None:
+    def test_dynesty_always_dynamic_even_if_legacy_dynamic_false(self) -> None:
+        """Method: Dynesty is always DynamicNestedSampler (Bounds.dynamic ignored)."""
         s = DynestySampler()
         s.set_config(
             {
@@ -175,7 +176,7 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                     "Variables": self._vars(),
                     "Bounds": {
                         "nlive": 30,
-                        "dynamic": False,
+                        "dynamic": False,  # legacy; ignored at runtime
                         "dlogz": 0.4,
                         "bound": "single",
                         "run_nested": {"maxiter": 10},
@@ -183,12 +184,12 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                 }
             }
         )
-        self.assertFalse(s._use_dynamic)
+        self.assertTrue(s._use_dynamic)
         self.assertEqual(s._constructor_kwargs["bound"], "single")
-        self.assertEqual(s._run_nested_kwargs["dlogz"], 0.4)
-        self.assertNotIn("dlogz_init", s._run_nested_kwargs)
+        self.assertEqual(s._run_nested_kwargs["dlogz_init"], 0.4)
+        self.assertNotIn("dlogz", s._run_nested_kwargs)
 
-    def test_multinest_always_static_even_if_dynamic_true(self) -> None:
+    def test_multinest_always_static(self) -> None:
         s = MultiNestSampler()
         s.set_config(
             {
@@ -197,7 +198,6 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                     "Variables": self._vars(),
                     "Bounds": {
                         "nlive": 40,
-                        "dynamic": True,  # ignored
                         "dlogz": 0.12,
                         "sample": "unif",
                         "run_nested": {"maxcall": 1000, "add_live": False},

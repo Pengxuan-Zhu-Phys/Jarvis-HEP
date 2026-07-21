@@ -63,10 +63,16 @@ from jarvishep2.testing.check_modules import (
 from jarvishep2.run_outcome import RunOutcome
 from jarvishep2.worker_config import build_command_parser, build_worker_config
 from jarvishep2.task_config import (
-    check_modules_points_path,
+    check_modules_n_samples,
     is_check_modules_task,
     load_task_yaml,
+    resolve_check_modules_csv,
     sampling_method,
+)
+from jarvishep2.task_validation import (
+    ValidationReport,
+    raise_if_errors,
+    validate_task_config,
 )
 
 
@@ -98,6 +104,8 @@ class Jarvis2Core:
         self._log_silence: bool = False
         self._log_level: str = "INFO"
         self._console_level: str = "INFO"
+        # D13.9: last gate report (re-logged after init_logger so console/file see it).
+        self._validation_report: ValidationReport | None = None
         # Last-resort cleanup if the process exits without an orderly finally.
         atexit.register(self._atexit_cleanup)
 
@@ -156,16 +164,96 @@ class Jarvis2Core:
             self._logger.info("Jarvis-HEP write into main log file -> %s", jarvis_log)
             if self._log_silence:
                 self._logger.info("console output silenced (--silence)")
+            # Validation runs before logging is wired; replay so users see the gate.
+            self._log_validation_report(self._validation_report)
         except Exception:
             # Logging must never block bootstrap; banner is best-effort.
             pass
 
-    def load_task_yaml(self, path: str) -> dict[str, Any]:
-        """Load task YAML and merge normalized layout into ``self.config``."""
+    def load_task_yaml(
+        self,
+        path: str,
+        *,
+        validate: bool = True,
+        strict: bool = False,
+        check_modules: bool | None = None,
+    ) -> dict[str, Any]:
+        """Load task YAML and merge normalized layout into ``self.config``.
+
+        By default runs the D13.9 config gate (:func:`validate_task_config`) before
+        any Redis/Worker bootstrap.  Pass ``validate=False`` only for internal
+        tests that intentionally exercise malformed cards past the loader.
+        """
         self.config = load_task_yaml(path)
         self.runtime = get_runtime_block(self.config)
         self._populate_info_from_config()
+        if validate:
+            self.validate_loaded_config(strict=strict, check_modules=check_modules)
         return self.config
+
+    def validate_loaded_config(
+        self,
+        *,
+        strict: bool = False,
+        check_modules: bool | None = None,
+    ) -> ValidationReport:
+        """Run the pure D13.9 gate on ``self.config``; raise on errors.
+
+        The report is stored and re-emitted after :meth:`init_logger` so the
+        success line appears in console/file logs (validation itself runs
+        before the logging system is fully configured).
+        """
+        report = validate_task_config(
+            self.config,
+            strict=strict,
+            check_modules=check_modules,
+        )
+        self._validation_report = report
+        # Success is logged after init_logger (no sinks yet here). Failures raise below.
+        raise_if_errors(report)
+        return report
+
+    def _log_validation_report(self, report: ValidationReport | None) -> None:
+        """Emit human-visible validation status (V1-style success line).
+
+        Called from :meth:`init_logger` after the logging system is wired so the
+        message appears on the console and in ``core.log``.
+        """
+        if report is None:
+            return
+        n_err = len(report.errors())
+        n_warn = len(report.warnings())
+        try:
+            logger = get_jarvis_logger("config")
+        except Exception:
+            return
+
+        if n_err:
+            logger.error(
+                "Config validation failed (%d error(s), %d warning(s))",
+                n_err,
+                n_warn,
+            )
+            for item in report.errors():
+                logger.error("  [%s] %s: %s", item.code, item.path, item.message)
+            for item in report.warnings():
+                logger.warning("  [%s] %s: %s", item.code, item.path, item.message)
+            return
+
+        if n_warn:
+            # warning level: same visibility as the logo banner under default levels
+            logger.warning(
+                "Config validation successful with %d warning(s). "
+                "The task YAML meets the V2 contract (non-fatal issues below).",
+                n_warn,
+            )
+            for item in report.warnings():
+                logger.warning("  [%s] %s: %s", item.code, item.path, item.message)
+            return
+
+        logger.warning(
+            "Config validation successful. The task YAML meets the V2 contract."
+        )
 
     def _populate_info_from_config(self) -> None:
         from jarvishep2.logging import component_log_path, scan_logs_dir
@@ -250,16 +338,107 @@ class Jarvis2Core:
             return list(reader), fieldnames
 
     def _build_check_module_samples(self) -> list[Sample]:
+        """Build smoke samples: prefer fixed CSV, else draw from the sampler.
+
+        Resolution order for the CSV path:
+
+        1. ``Sampling.data`` / ``points_csv`` (task YAML)
+        2. ``EnvReqs.V2.check_modules.data`` (default environment YAML)
+        3. Built-in default ``&J/data/check_modules_points.csv``
+
+        When the resolved file is missing, fall back to
+        ``EnvReqs.V2.check_modules.n_samples`` (default 10) points drawn from
+        ``Sampling.Method`` (V1-like assembly-line smoke).
+        """
         if self.sampler is None:
             raise RuntimeError("sampler is not configured")
-        csv_path = check_modules_points_path(self.config)
-        rows, fieldnames = self._load_check_module_rows(csv_path)
-        return build_check_module_samples(
-            sampler=self.sampler,
-            config=self.config,
-            rows=rows,
-            csv_fieldnames=fieldnames,
+        csv_path, raw_spec = resolve_check_modules_csv(self.config)
+        if csv_path is not None:
+            self._logger.warning(
+                "check-modules: using fixed points from CSV -> %s (configured as %r)",
+                csv_path,
+                raw_spec,
+            )
+            rows, fieldnames = self._load_check_module_rows(csv_path)
+            samples = build_check_module_samples(
+                sampler=self.sampler,
+                config=self.config,
+                rows=rows,
+                csv_fieldnames=fieldnames,
+            )
+            self._logger.warning(
+                "check-modules: loaded %d fixed point(s) from CSV", len(samples)
+            )
+            return samples
+
+        n_samples = check_modules_n_samples(self.config)
+        method = sampling_method(self.config) or type(self.sampler).__name__
+        self._logger.warning(
+            "check-modules: CSV not found (configured as %r); "
+            "drawing %d smoke point(s) from Sampling.Method=%r",
+            raw_spec or "(none)",
+            n_samples,
+            method,
         )
+        samples = self._sample_check_module_points_from_sampler(n_samples)
+        self._logger.warning(
+            "check-modules: prepared %d sampler-drawn smoke point(s)", len(samples)
+        )
+        return samples
+
+    def _sample_check_module_points_from_sampler(self, n_samples: int) -> list[Sample]:
+        """Draw up to *n_samples* smoke points from the active sampler (V1-like)."""
+        n_samples = max(1, int(n_samples))
+        samples: list[Sample] = []
+
+        # Prefer propose_next for Bridson/Random/Grid/CSV when available.
+        propose = getattr(self.sampler, "propose_next", None)
+        if callable(propose):
+            for _ in range(n_samples):
+                try:
+                    sample = propose()
+                except Exception as exc:
+                    self._logger.warning(
+                        "check-modules: propose_next failed after %d sample(s) -> %s; "
+                        "falling back to unit-cube draws",
+                        len(samples),
+                        exc,
+                    )
+                    break
+                if sample is None:
+                    break
+                samples.append(sample)
+
+        if len(samples) >= n_samples:
+            return samples[:n_samples]
+
+        # Nested / feedback methods (Dynesty, MultiNest, MCMC, …) have no
+        # propose_next: draw unit-cube u and let the Worker mapper + plan run.
+        try:
+            from jarvishep2.Sampling.variables import load_variables
+
+            variables = load_variables(self.config)
+            ndim = max(1, len(variables))
+        except Exception:
+            ndim = 2
+        remaining = n_samples - len(samples)
+        seed = 0
+        try:
+            sampling = dict(self.config.get("Sampling") or {})
+            seed = int(sampling.get("Seed") or sampling.get("seed") or 0)
+        except (TypeError, ValueError):
+            seed = 0
+        rng = np.random.default_rng(seed if seed else None)
+        for _ in range(remaining):
+            u_coords = rng.random(ndim).astype(np.float64)
+            samples.append(self.sampler._build_sample(u_coords))
+
+        if not samples:
+            raise RuntimeError(
+                "check-modules could not build any smoke samples: "
+                "CSV missing and sampler produced no points"
+            )
+        return samples
 
     def run_distributed_scan(self, *, timeout: float = 3600.0) -> int:
         """Drive a stateless sampler through propose → Redis → Archiver."""
@@ -290,7 +469,7 @@ class Jarvis2Core:
         return requeued + pushed
 
     def run_adaptive_scan(self, *, timeout: float = 3600.0) -> int:
-        """Drive a feedback sampler (AdaptiveLevelSet) through generation barriers."""
+        """Drive a feedback sampler (AdaptiveBridson / MCMC / nested) through barriers."""
         if self.sampler is None:
             raise RuntimeError("sampler is not configured")
         if self.redis is None:
@@ -360,15 +539,104 @@ class Jarvis2Core:
         timeout: float = 120.0,
         verify_golden: Mapping[str, Any] | None = None,
     ) -> int:
-        """Run the fixed-point calculator smoke path and return submitted sample count."""
+        """Run the calculator/opera smoke path (CSV fixed points or N sampler draws)."""
+        sample_root = self._resolve_sample_root()
+        self._logger.warning(
+            "Start check-modules smoke (assembly-line test) "
+            "workers=1 sample_root=%s layout=flat-uuid pack=off",
+            sample_root,
+        )
         samples = self._build_check_module_samples()
+        if not samples:
+            raise RuntimeError("check-modules produced an empty sample list")
         self.submit_samples(samples)
         self.wait_for_results(len(samples), timeout=timeout)
         self._finalize_sample_buckets()
         if verify_golden is not None:
             task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
+        self._logger.warning(
+            "check-modules finished: submitted %d sample(s) "
+            "(pipeline smoke only — not a full MultiNest/Dynesty evidence run; "
+            "inspect artifacts under %s)",
+            len(samples),
+            self._resolve_sample_root(),
+        )
         return len(samples)
+
+    def _apply_check_modules_runtime_policy(self) -> None:
+        """Force smoke-friendly layout: 1 worker, SAMPLE/test, no tar pack.
+
+        Applied before bootstrap so Factory/Archiver/Workers all see the policy.
+        """
+        # --- single worker ---
+        runtime = dict(get_runtime_block(self.config))
+        runtime["workers"] = 1
+        self.config["Runtime"] = runtime
+        self.runtime = runtime
+
+        envreqs = self.config.get("EnvReqs")
+        envreqs = dict(envreqs) if isinstance(envreqs, Mapping) else {}
+        v2 = envreqs.get("V2")
+        v2 = dict(v2) if isinstance(v2, Mapping) else {}
+        v2["workers"] = 1
+        # SAMPLE/test layout: no numbered buckets (flat uuid dirs), no tar pack.
+        sample_dir = dict(get_sample_directory_config(self.config))
+        sample_dir["pack"] = False
+        sample_dir["enabled"] = False  # Worker skips Redis 00000N allocator
+        v2_sd = v2.get("sample_directory")
+        if isinstance(v2_sd, Mapping):
+            merged_sd = dict(v2_sd)
+            merged_sd["pack"] = False
+            merged_sd["enabled"] = False
+            v2["sample_directory"] = merged_sd
+        else:
+            v2["sample_directory"] = {"pack": False, "enabled": False}
+        envreqs["V2"] = v2
+        self.config["EnvReqs"] = envreqs
+
+        scan = self.config.get("Scan")
+        scan = dict(scan) if isinstance(scan, Mapping) else {}
+        scan_sd = scan.get("sample_directory")
+        scan_sd = dict(scan_sd) if isinstance(scan_sd, Mapping) else {}
+        scan_sd["pack"] = False
+        scan_sd["enabled"] = False
+        scan["sample_directory"] = scan_sd
+        self.config["Scan"] = scan
+
+        # --- Archiver: no bucket tar.gz ---
+        calculators = self.config.get("Calculators")
+        calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
+        archiver = calculators.get("Archiver")
+        archiver = dict(archiver) if isinstance(archiver, Mapping) else {}
+        archiver["pack_buckets"] = False
+        calculators["Archiver"] = archiver
+        self.config["Calculators"] = calculators
+
+        # Layout flag: SAMPLE/test instead of SAMPLE/
+        self.config["_check_modules_sample_layout"] = True
+        # Eager path so logging / helpers work even before _init_sample_buckets.
+        root = self._resolve_sample_root()
+        os.makedirs(root, exist_ok=True)
+        self.info["sample_root"] = root
+        self.info["check_modules"] = True
+
+    def _resolve_sample_root(self) -> str:
+        """Return SAMPLE root; check-modules uses ``SAMPLE/test`` (no tar pack)."""
+        task_result_dir = str(
+            self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        base = os.path.join(task_result_dir, "SAMPLE")
+        if bool(self.config.get("_check_modules_sample_layout")) or bool(
+            self.info.get("check_modules")
+        ):
+            return os.path.join(base, "test")
+        cached = self.info.get("sample_root")
+        if isinstance(cached, str) and cached.strip():
+            return os.path.abspath(cached)
+        return base
 
     def _export_workflow_flowchart(self) -> None:
         """Write flowchart.json (+ optional PNG) under images/ (D12.3 / V1 paths).
@@ -595,33 +863,45 @@ class Jarvis2Core:
         self._install_control_signal_handlers()
         submitted = 0
         outcome: RunOutcome | None = None
+        is_check = bool(check_modules or is_check_modules_task(self.config))
+        if is_check:
+            self._apply_check_modules_runtime_policy()
         try:
             self.bootstrap_distributed_runtime()
             method = sampling_method(self.config)
-            if check_modules or is_check_modules_task(self.config):
+            if is_check:
                 submitted = self.run_check_modules(verify_golden=verify_golden)
             elif method in STATELESS_METHODS:
                 submitted = self.run_distributed_scan()
             elif method:
-                # Stateful / feedback-driven methods (e.g. AdaptiveLevelSet).
+                # Stateful / feedback-driven methods (e.g. AdaptiveBridson, MCMC, nested).
                 submitted = self.run_adaptive_scan()
             else:
                 raise NotImplementedError(
                     "Unsupported task: configure Sampling.mode: check_modules, "
-                    "Sampling.Method: Bridson|AdaptiveLevelSet, or pass --check-modules."
+                    "Sampling.Method (Bridson|AdaptiveBridson|Dynesty|…), "
+                    "or pass --check-modules."
                 )
             outcome = self._capture_run_outcome(submitted=submitted)
             if outcome.ok and not self._interrupt_requested:
-                # Belt-and-suspenders: ensure archive is complete before any
-                # HDF5 → samples.csv snapshot (adaptive path already waited).
-                try:
-                    self._wait_for_archive_caught_up(timeout=120.0)
-                except Exception as exc:
+                # Full-scan post steps only — check-modules is assembly-line smoke
+                # (no nested evidence export / science plots; avoids mixing with
+                # leftover multinest_result.csv / samples.csv from prior runs).
+                if is_check:
                     self._logger.warning(
-                        "pre-plot archive catch-up failed -> %s", exc
+                        "check-modules smoke complete (submitted=%d); "
+                        "skipping nested result CSV export and plot scenes",
+                        submitted,
                     )
-                self._finalize_nested_result_csv()
-                self._emit_plot_scenes()
+                else:
+                    try:
+                        self._wait_for_archive_caught_up(timeout=120.0)
+                    except Exception as exc:
+                        self._logger.warning(
+                            "pre-plot archive catch-up failed -> %s", exc
+                        )
+                    self._finalize_nested_result_csv()
+                    self._emit_plot_scenes()
             return outcome
         except KeyboardInterrupt:
             self._interrupt_requested = True
@@ -978,6 +1258,10 @@ class Jarvis2Core:
         # Stamp active sampler into feedback_return resolution (D13.8).
         if "sampler" not in extra and self.sampler is not None:
             extra["sampler"] = self.sampler
+        # Prefer check-modules SAMPLE/test (or any resolved sample_root) over SAMPLE/.
+        sample_dirs = extra.pop("sample_dirs", None)
+        if sample_dirs is None:
+            sample_dirs = self._resolve_sample_root()
         return build_worker_config(
             self.config,
             task_result_dir=task_result_dir,
@@ -985,7 +1269,7 @@ class Jarvis2Core:
             calculator_modules=extra.pop("calculator_modules", None),
             likelihood_expressions=extra.pop("likelihood_expressions", None),
             opera_modules=extra.pop("opera_modules", None),
-            sample_dirs=extra.pop("sample_dirs", None),
+            sample_dirs=sample_dirs,
             extra=extra or None,
         )
 
@@ -1036,11 +1320,14 @@ class Jarvis2Core:
             or os.getcwd()
         )
         database_dir = os.path.join(task_result_dir, "DATABASE")
-        sample_root = os.path.join(task_result_dir, "SAMPLE")
+        sample_root = self._resolve_sample_root()
         os.makedirs(database_dir, exist_ok=True)
         os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = dict(get_archiver_config(self.config))
+        if bool(self.config.get("_check_modules_sample_layout")):
+            # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
+            archiver_config["pack_buckets"] = False
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
         archiver_config.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
@@ -1334,8 +1621,7 @@ class Jarvis2Core:
         if self.redis is None:
             return
         sample_dir = get_sample_directory_config(self.config)
-        task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
-        sample_root = os.path.join(task_result_dir, "SAMPLE")
+        sample_root = self._resolve_sample_root()
         os.makedirs(sample_root, exist_ok=True)
         meta = self.redis.init_sample_buckets(
             sample_root=sample_root,
@@ -1347,9 +1633,11 @@ class Jarvis2Core:
         )
         self.info["sample_root"] = sample_root
         self.info["sample_directory"] = dict(sample_dir)
+        enabled = bool(sample_dir.get("enabled", True))
         self._logger.info(
-            "SAMPLE buckets ready -> root=%s limit=%s width=%s pack=%s",
+            "SAMPLE ready -> root=%s enabled=%s limit=%s width=%s pack=%s",
             sample_root,
+            enabled,
             meta.get("limit"),
             meta.get("width"),
             bool(int(meta.get("pack", 0))),

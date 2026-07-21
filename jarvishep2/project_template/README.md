@@ -40,11 +40,10 @@ Under `bin/sampling/` (copy the `Sampling:` block into your card):
 
 | Template | Notes |
 |----------|--------|
-| `Sampling_Dynesty_Simple.yaml` | Dynamic default, few knobs |
-| `Sampling_Dynesty_Full_Static.yaml` | Full static NestedSampler surface |
-| `Sampling_Dynesty_Full_Dynamic.yaml` | Full DynamicNestedSampler surface |
-| `Sampling_MultiNest_Simple.yaml` | Static only, few knobs |
-| `Sampling_MultiNest_Full.yaml` | Full static surface |
+| `Sampling_Dynesty_Simple.yaml` | Dynesty = DynamicNestedSampler (everyday) |
+| `Sampling_Dynesty_Full.yaml` | Dynesty full dynamic `run_nested` + constructor |
+| `Sampling_MultiNest_Simple.yaml` | MultiNest = static NestedSampler (everyday) |
+| `Sampling_MultiNest_Full.yaml` | MultiNest full static surface only |
 
 See `bin/sampling/README.md`.
 

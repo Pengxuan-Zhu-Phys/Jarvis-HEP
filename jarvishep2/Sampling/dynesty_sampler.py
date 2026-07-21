@@ -2,7 +2,7 @@
 """Dynesty nested sampling on the V2 Redis runtime (D13.5, route A).
 
 Uses the **vendored** dynesty package under
-``jarvishep2.Sampling.Source.Dynesty`` (stock 3.0.0 + Jarvis UUID channel),
+``jarvishep2.Sampling.Source.Dynesty`` (stock 3.1.0 + Jarvis UUID channel),
 with likelihood evaluations via :class:`RedisEvaluationPool`.
 
 YAML ``Sampling.Bounds`` is aligned with the **official dynesty 3.x API**:
@@ -511,13 +511,13 @@ def export_dynesty_results_csv(
 class DynestySampler(FeedbackSampler):
     """YAML ``Sampling.Method: Dynesty``.
 
-    Default engine is **DynamicNestedSampler** (``Bounds.dynamic: true``).
-    Set ``dynamic: false`` for static NestedSampler. Constructor + run_nested
-    kwargs follow the official dynesty 3.x surface (see module helpers).
+    Always uses **DynamicNestedSampler**. Static nested sampling is
+    ``Sampling.Method: MultiNest`` only — there is no ``Bounds.dynamic`` switch.
+    Constructor + run_nested kwargs follow the official dynesty 3.x surface.
     """
 
     method = "Dynesty"
-    # Subclasses (MultiNest) may force static nested sampling.
+    # MultiNest subclasses force static NestedSampler via default_dynamic=False.
     default_dynamic: bool = True
 
     def __init__(self) -> None:
@@ -565,10 +565,16 @@ class DynestySampler(FeedbackSampler):
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
 
+        # Engine fixed by Method (Dynesty=dynamic, MultiNest=static). Ignore any
+        # leftover Bounds.dynamic / Dynamic keys (validation rejects them).
+        self._use_dynamic = bool(self.default_dynamic)
         if "dynamic" in bounds or "Dynamic" in bounds:
-            self._use_dynamic = bool(bounds.get("dynamic", bounds.get("Dynamic")))
-        else:
-            self._use_dynamic = bool(self.default_dynamic)
+            self._logger.warning(
+                "%s ignores Bounds.dynamic/Dynamic (engine is fixed by Method: "
+                "Dynesty=DynamicNestedSampler, MultiNest=NestedSampler static); "
+                "remove the key from the task YAML",
+                self.method,
+            )
 
         # --- official constructor kwargs ---
         self._constructor_kwargs = extract_nested_constructor_kwargs(

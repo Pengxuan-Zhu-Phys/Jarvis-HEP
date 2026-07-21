@@ -81,8 +81,8 @@ class ResolveSpecTests(unittest.TestCase):
         spec = resolve_feedback_return(
             {
                 "Sampling": {
-                    "Method": "AdaptiveLevelSet",
-                    "AdaptiveLevelSet": {"target_expression": "delta_chi2 + LogL"},
+                    "Method": "AdaptiveBridson",
+                    "AdaptiveBridson": {"target_expression": "delta_chi2 + LogL"},
                 }
             }
         )

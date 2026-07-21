@@ -40,8 +40,7 @@ __all__ = [
 
 SQRTEPS = math.sqrt(float(np.finfo(np.float64).eps))
 
-# JARVIS: uidstar defaults to '' so unpatched DynamicNestedSampler call sites
-# remain compatible until every yield path is updated.
+# JARVIS: uidstar defaults to '' so unpatched call sites remain compatible.
 IteratorResult = namedtuple(
     'IteratorResult',
     [
@@ -56,7 +55,7 @@ IteratorResultShort = namedtuple(
     'IteratorResultShort',
     [
         'worst', 'ustar', 'vstar', 'loglstar', 'nc', 'worst_it', 'boundidx',
-        'bounditer', 'eff', 'proposal_stats', 'uidstar',
+        'bounditer', 'eff', 'delta_logz', 'proposal_stats', 'uidstar',
     ],
 )
 IteratorResultShort.__new__.__defaults__ = ('',)
@@ -390,7 +389,124 @@ PrintFnArgs = namedtuple(
 )
 
 
-def print_fn(results,
+def _tqdm_eta_slope(history, niter, value, min_points=2, log=False):
+    """Estimate a recent per-iteration slope from tqdm ETA history."""
+    if len(history) == 0 or niter > history[-1][0]:
+        history.append((niter, value))
+        if len(history) > 10:
+            history.pop(0)
+    if len(history) < min_points:
+        return None
+
+    points = np.asarray(history, dtype=float)
+    xvals = points[:, 0]
+    yvals = points[:, 1]
+    good = np.isfinite(yvals)
+    if log:
+        good &= yvals > 0
+    if np.count_nonzero(good) < min_points:
+        return None
+
+    xvals = xvals[good]
+    yvals = yvals[good]
+    if log:
+        yvals = np.log(yvals)
+    if np.allclose(xvals, xvals[0]):
+        return None
+
+    return np.polyfit(xvals, yvals, 1)[0]
+
+
+def _update_tqdm_eta_from_dlogz(pbar,
+                                niter,
+                                delta_logz,
+                                dlogz,
+                                nbatch=None,
+                                loglstar=None,
+                                logl_min=-np.inf,
+                                logl_max=np.inf):
+    """Update ``pbar.total`` so tqdm can show its native ETA."""
+    state = getattr(pbar, "_dynesty_eta_state", None)
+    if state is None:
+        state = {}
+        setattr(pbar, "_dynesty_eta_state", state)
+
+    # Dynamic batches: estimate completion from progress
+    # within [logl_min,logl_max]
+    # only when both bounds are finite; otherwise fall back to dlogz trend.
+    if (nbatch is not None and np.isfinite(loglstar) and np.isfinite(logl_min)
+            and np.isfinite(logl_max) and (logl_max > logl_min)):
+        if state.get("mode") != "batch" or state.get("batch") != nbatch:
+            state.clear()
+            state["mode"] = "batch"
+            state["batch"] = nbatch
+            if getattr(pbar, "_dynesty_initial", 0) > 0:
+                # A restored finite batch has already consumed part of the
+                # likelihood interval, so use newly observed loglstar motion.
+                state["history"] = []
+                state["restored_batch"] = True
+            else:
+                state["batch_start_iter"] = niter
+
+        prog = (loglstar - logl_min) / (logl_max - logl_min)
+        prog = float(np.clip(prog, 0.0, 0.999))
+
+        if state.get("restored_batch", False):
+            history = state["history"]
+            slope = _tqdm_eta_slope(history, niter, loglstar)
+            if slope is None or slope <= 0:
+                pbar.total = None
+                return
+            rem_iters = (logl_max - loglstar) / slope
+            if np.isfinite(rem_iters) and rem_iters > 0:
+                pbar.total = max(niter + int(np.ceil(rem_iters)), pbar.n + 1)
+            else:
+                pbar.total = None
+            return
+
+        if prog <= 1e-3:
+            pbar.total = None
+            return
+
+        done = max(niter - state["batch_start_iter"], 1)
+        rem_iters = done * (1.0 - prog) / prog
+        if np.isfinite(rem_iters) and rem_iters > 0:
+            pbar.total = max(niter + int(np.ceil(rem_iters)), pbar.n + 1)
+        else:
+            pbar.total = None
+        return
+
+    # Static runs (or dynamic when bounds are not finite): use dlogz trend.
+    if dlogz is None or not np.isfinite(dlogz) or dlogz <= 0:
+        return
+    if not np.isfinite(delta_logz) or delta_logz <= dlogz or delta_logz <= 0:
+        return
+
+    if state.get("mode") != "dlogz":
+        state.clear()
+        state["mode"] = "dlogz"
+        state["history"] = []
+        state["last_slope"] = None
+
+    history = state["history"]
+    slope = _tqdm_eta_slope(history, niter, delta_logz, min_points=3, log=True)
+    if slope is None:
+        return
+    if slope >= -1e-8:
+        if state["last_slope"] is None:
+            pbar.total = None
+            return
+        slope = state["last_slope"]
+    else:
+        state["last_slope"] = slope
+    rem_iters = (np.log(dlogz) - np.log(delta_logz)) / slope
+    if not np.isfinite(rem_iters) or rem_iters <= 0:
+        return
+
+    pbar.total = max(niter + int(np.ceil(rem_iters)), pbar.n + 1)
+
+
+def print_fn(itresult,
              niter,
              ncall,
              add_live_it=None,
@@ -401,9 +517,52 @@ def print_fn(results,
              logl_max=np.inf,
              pbar=None,
              logger=None):
-    """Default real-time progress printer (Jarvis logger when available)."""
+    """
+    The default function used to print out results in real time.
+    JARVIS: optional ``logger`` routes progress via jarvis_logging when set.
+
+    Parameters
+    ----------
+
+    itresult : IteratorResult or IteratorResultShort
+        Single iterator output record from the sampler loop that is used
+        for progress/status printing.
+
+    niter : int
+        The current iteration of the sampler.
+
+    ncall : int
+        The total number of function calls at the current iteration.
+
+    add_live_it : int, optional
+        If the last set of live points are being added explicitly, this
+        quantity tracks the sorted index of the current live point being added.
+
+    dlogz : float, optional
+        The evidence stopping criterion. If not provided, the provided
+        stopping value will be used instead.
+
+    stop_val : float, optional
+        The current stopping criterion (for dynamic nested sampling). Used if
+        the `dlogz` value is not specified.
+
+    nbatch : int, optional
+        The current batch (for dynamic nested sampling).
+
+    logl_min : float, optional
+        The minimum log-likelihood used when starting sampling. Default is
+        `-np.inf`.
+
+    logl_max : float, optional
+        The maximum log-likelihood used when stopping sampling. Default is
+        `np.inf`.
+
+    pbar : tqdm object, optional
+        The progress bar if using tqdm.
+
+    """
     if pbar is None:
-        print_fn_fallback(results,
+        print_fn_fallback(itresult,
                           niter,
                           ncall,
                           add_live_it=add_live_it,
@@ -415,7 +574,7 @@ def print_fn(results,
                           logger=logger)
     else:
         print_fn_tqdm(pbar,
-                      results,
+                      itresult,
                       niter,
                       ncall,
                       add_live_it=add_live_it,
@@ -427,7 +586,7 @@ def print_fn(results,
                       logger=logger)
 
 
-def get_print_fn_args(results,
+def get_print_fn_args(itresult,
                       niter,
                       ncall,
                       add_live_it=None,
@@ -436,73 +595,89 @@ def get_print_fn_args(results,
                       nbatch=None,
                       logl_min=-np.inf,
                       logl_max=np.inf):
-    # Extract results at the current iteration.
-    loglstar = results.loglstar
-    logz = results.logz
-    logzvar = results.logzvar
-    delta_logz = results.delta_logz
-    bounditer = results.bounditer
-    nc = results.nc
-    eff = results.eff
+    """
+    Build preformatted status strings for progress printing.
 
-    # Adjusting outputs for printing.
-    if delta_logz > 1e6:
-        delta_logz = np.inf
-    if logzvar >= 0. and logzvar <= 1e6:
-        logzerr = np.sqrt(logzvar)
-    else:
-        logzerr = np.nan
-    if logz <= -1e6:
-        logz = -np.inf
-    if loglstar <= -1e6:
-        loglstar = -np.inf
+    Parameters
+    ----------
+    itresult : IteratorResult or IteratorResultShort
+        Single iterator output record from the sampler loop.
+    """
+    loglstar_val = itresult.loglstar
+    logz_val = itresult.logz
+    delta_logz_val = itresult.delta_logz
+    logzvar = itresult.logzvar
 
-    # Constructing output.
-    long_str = []
-    # long_str.append("iter: {:d}".format(niter))
-    if add_live_it is not None:
-        long_str.append("+{:d}".format(add_live_it))
+    loglstar = -np.inf if loglstar_val <= -1e6 else loglstar_val
+    logz = -np.inf if logz_val <= -1e6 else logz_val
+    delta_logz = np.inf if delta_logz_val > 1e6 else delta_logz_val
+    logzerr = np.sqrt(logzvar) if 0. <= logzvar <= 1e6 else np.nan
+
+    long_str = [f"+{add_live_it:d}"] if add_live_it is not None else []
     short_str = list(long_str)
     if nbatch is not None:
-        long_str.append("batch: {:d}".format(nbatch))
-    long_str.append("bound: {:d}".format(bounditer))
-    long_str.append("nc: {:d}".format(nc))
-    long_str.append("ncall: {:d}".format(ncall))
-    long_str.append("eff(%): {:6.3f}".format(eff))
-    short_str.append(long_str[-1])
-    long_str.append("loglstar: {:6.3f} < {:6.3f} < {:6.3f}".format(
-        logl_min, loglstar, logl_max))
-    short_str.append("logl*: {:6.1f}<{:6.1f}<{:6.1f}".format(
-        logl_min, loglstar, logl_max))
-    long_str.append("logz: {:6.3f} +/- {:6.3f}".format(logz, logzerr))
-    short_str.append("logz: {:6.1f}+/-{:.1f}".format(logz, logzerr))
-    mid_str = list(short_str)
-    if dlogz is not None:
-        long_str.append("dlogz: {:6.3f} > {:6.3f}".format(delta_logz, dlogz))
-        mid_str.append("dlogz: {:6.1f}>{:6.1f}".format(delta_logz, dlogz))
-    else:
-        long_str.append("stop: {:6.3f}".format(stop_val))
-        mid_str.append("stop: {:6.3f}".format(stop_val))
+        long_str.append(f"batch: {nbatch:d}")
+    long_str.extend([
+        f"bound: {itresult.bounditer:d}",
+        f"nc: {itresult.nc:d}",
+        f"ncall: {ncall:d}",
+    ])
+    eff_str = f"eff(%): {itresult.eff:6.3f}"
+    long_str.append(eff_str)
+    short_str.append(eff_str)
 
-    # Metrics for Jarvis multi-line progress block (V1 print_fn).
+    finite_logl_min = np.isfinite(logl_min)
+    finite_logl_max = np.isfinite(logl_max)
+    if finite_logl_min:
+        long_logl = f"loglstar: {logl_min:6.3f} < {loglstar:6.3f}"
+        short_logl = f"logl*: {logl_min:6.1f}<{loglstar:6.1f}"
+    else:
+        long_logl = f"loglstar: {loglstar:6.3f}"
+        short_logl = f"logl*: {loglstar:6.1f}"
+    if finite_logl_max:
+        long_logl += f" < {logl_max:6.3f}"
+        short_logl += f"<{logl_max:6.1f}"
+    long_str.append(long_logl)
+    short_str.append(short_logl)
+
+    long_logz = f"logz: {logz:6.3f}"
+    short_logz = f"logz: {logz:6.1f}"
+    if not np.isnan(logzerr):
+        long_logz += f" +/- {logzerr:6.3f}"
+        short_logz += f"+/-{logzerr:.1f}"
+    long_str.append(long_logz)
+    short_str.append(short_logz)
+
+    show_dlogz = (dlogz is not None
+                  and (nbatch is None or nbatch == 0 or stop_val is None))
+    if show_dlogz:
+        long_tail = f"dlogz: {delta_logz:6.3f} > {dlogz:6.3f}"
+        mid_tail = f"dlogz: {delta_logz:6.1f}>{dlogz:6.1f}"
+    else:
+        long_tail = f"stop: {stop_val:6.3f}"
+        mid_tail = f"stop: {stop_val:6.3f}"
+    long_str.append(long_tail)
+    mid_str = short_str + [mid_tail]
+
+    # Metrics for Jarvis multi-line progress block.
     if delta_logz > 1e6:
         delta_logz_m = float("inf")
     else:
         delta_logz_m = float(delta_logz)
-    if logzvar >= 0.0 and logzvar <= 1e6:
+    if 0.0 <= logzvar <= 1e6:
         logzerr_m = float(np.sqrt(logzvar))
     else:
         logzerr_m = float("nan")
     metrics = {
         "add_live_it": add_live_it,
         "batch": nbatch,
-        "bound": int(bounditer),
-        "nc": int(nc),
+        "bound": int(itresult.bounditer),
+        "nc": int(itresult.nc),
         "ncall": int(ncall),
-        "eff": float(eff),
-        "logl_min": float(logl_min) if np.isfinite(logl_min) else float(logl_min),
+        "eff": float(itresult.eff),
+        "logl_min": float(logl_min),
         "loglstar": float(loglstar) if np.isfinite(loglstar) else float("-inf"),
-        "logl_max": float(logl_max) if np.isfinite(logl_max) else float(logl_max),
+        "logl_max": float(logl_max),
         "logz": float(logz) if np.isfinite(logz) else float("-inf"),
         "logzerr": logzerr_m,
         "delta_logz": delta_logz_m,
@@ -518,7 +693,7 @@ def get_print_fn_args(results,
 
 
 def print_fn_tqdm(pbar,
-                  results,
+                  itresult,
                   niter,
                   ncall,
                   add_live_it=None,
@@ -528,14 +703,9 @@ def print_fn_tqdm(pbar,
                   logl_min=-np.inf,
                   logl_max=np.inf,
                   logger=None):
-    """Legacy tqdm path — redirects to logger-only (no console bar).
-
-    Kept for call sites that still pass ``pbar=…``; tqdm updates are skipped
-    so progress appears only in the Jarvis logger.
-    """
-    # Intentionally ignore pbar: dual tqdm + Jarvis blocks confuse users.
+    """Legacy tqdm path — redirects to Jarvis logger only (no console bar)."""
     print_fn_fallback(
-        results,
+        itresult,
         niter,
         ncall,
         add_live_it=add_live_it,
@@ -548,7 +718,7 @@ def print_fn_tqdm(pbar,
     )
 
 
-def print_fn_fallback(results,
+def print_fn_fallback(itresult,
                       niter,
                       ncall,
                       add_live_it=None,
@@ -564,7 +734,7 @@ def print_fn_fallback(results,
         get_dynesty_logger,
     )
 
-    fn_args = get_print_fn_args(results,
+    fn_args = get_print_fn_args(itresult,
                                 niter,
                                 ncall,
                                 add_live_it=add_live_it,
@@ -573,8 +743,7 @@ def print_fn_fallback(results,
                                 nbatch=nbatch,
                                 logl_min=logl_min,
                                 logl_max=logl_max)
-    niter, short_str, mid_str, long_str = (fn_args.niter, fn_args.short_str,
-                                           fn_args.mid_str, fn_args.long_str)
+    niter = fn_args.niter
 
     log = logger if logger is not None else get_dynesty_logger()
     log_block = format_progress_block(fn_args, logger=log)
@@ -838,12 +1007,15 @@ def get_nonbounded(ndim, periodic, reflective):
     return nonbounded
 
 
-def get_print_func(print_func, print_progress):
+def get_print_func(print_func, print_progress, initial=0):
     """Resolve the progress printer.
 
     Jarvis-HEP always uses the logger-only path (``print_fn`` without tqdm).
-    Stock dynesty's tqdm bar duplicated the multi-line Jarvis ``Dynesty Progress``
-    block and cluttered the console.
+    Stock dynesty 3.1 may create a tqdm bar when ``print_progress`` is true;
+    that duplicates the multi-line Jarvis ``Dynesty Progress`` block.
+
+    ``initial`` is accepted for API compatibility with dynesty 3.1 call sites
+    and ignored (no tqdm bar is attached).
     """
     pbar = None
     if print_func is None:
@@ -1465,7 +1637,7 @@ def resample_run(res, rstate=None, return_idx=False):
         samp_n = np.zeros(nsamps, dtype=int)
         uidxs, uidxs_n = np.unique(live_idx, return_counts=True)
         for uidx, uidx_n in zip(uidxs, uidxs_n):
-            sel = (res.samples_id == uidx)  # selection flag
+            sel = res.samples_id == uidx  # selection flag
             sbatch = samples_batch[sel][0]  # corresponding batch ID
             lower = batch_llmin[sbatch]  # lower bound
             upper = max(res.logl[sel])  # upper bound
@@ -1476,7 +1648,7 @@ def resample_run(res, rstate=None, return_idx=False):
 
             # At the endpoint, divide up the final set of points into `uidx_n`
             # (roughly) equal chunks and have live points decrease across them.
-            endsel = (logl == upper)
+            endsel = logl == upper
             endsel_n = np.count_nonzero(endsel)
             chunk = endsel_n / uidx_n  # define our chunk
             counters = np.array(np.arange(endsel_n) / chunk, dtype=int)
@@ -1614,7 +1786,7 @@ def unravel_run(res, print_progress=True):
     nstrands = len(np.unique(idxs))
     for counter, idx in enumerate(np.unique(idxs)):
         # Select strand `idx`.
-        strand = (idxs == idx)
+        strand = idxs == idx
         nsamps = sum(strand)
         logl = res.logl[strand]
 
@@ -2027,7 +2199,7 @@ def _merge_two(res1, res2, compute_aux=False):
     for i, (curl, nlive) in enumerate(zip(logl_array, nlive_array)):
         # Save the number of live points and expected ln(volume).
         if not plateau_mode:
-            plateau_mask = (logl_array[i:] == curl)
+            plateau_mask = logl_array[i:] == curl
             nplateau = plateau_mask.sum()
             if nplateau > 1:
                 # the number of live points should not change throughout
@@ -2142,10 +2314,27 @@ def restore_sampler(fname, pool=None):
             f'The dynesty version in the checkpoint file ({save_ver})'
             f'does not match the current dynesty version'
             f'({DYNESTY_VERSION}). That is *NOT* guaranteed to work')
-    if pool is not None:
-        mapper = pool.map
-    else:
-        mapper = map
+
+    # Here I try to guess what is the queue_size to use
+    # In the end I try to use the same one as was used before
+    # but I warn the user if that's the old done does not match the recommeded
+    # new one
+    queue_size_old = getattr(sampler, 'queue_size', None)
+    assert queue_size_old is not None  # I don't think it could ever happen
+    try:
+        # we first try to get the new queue_size
+        # that may fail if the pool has no information about the size
+        mapper, queue_size_new = _parse_pool_queue(pool, None)
+    except ValueError:
+        # if first failed we are using the old queue_size
+        mapper, queue_size_new = _parse_pool_queue(pool, queue_size_old)
+
+    if queue_size_new != queue_size_old and queue_size_old != 1:
+        warnings.warn(
+            f'Restoring the sampler with the original queue_size {queue_size_old}'
+        )
+        queue_size_new = queue_size_old
+
     if hasattr(sampler, 'sampler'):
         # This is the case of the dynamic sampler
         # this is better be written as isinstanceof()
@@ -2164,6 +2353,7 @@ def restore_sampler(fname, pool=None):
     for cursamp in samplers:
         cursamp.mapper = mapper
         cursamp.pool = pool
+        cursamp.queue_size = queue_size_new
     return sampler
 
 
@@ -2202,3 +2392,29 @@ def save_sampler(sampler, fname):
         except:  # noqa
             pass
         raise
+
+
+def _parse_pool_queue(pool, queue_size):
+    """
+    Common functionality of interpreting the pool and queue_size
+    arguments to Dynamic and static nested samplers
+    """
+    if queue_size is not None and queue_size < 1:
+        raise ValueError("The queue must contain at least one element!")
+    if pool is None:
+        if queue_size is not None and queue_size > 1:
+            raise ValueError("`queue_size > 1` but no `pool` provided.")
+        mapper = map
+        queue_size = 1
+    elif pool is not None:
+        mapper = pool.map
+        if queue_size is None:
+            queue_size = getattr(pool, '_processes', None) or getattr(
+                pool, 'size', None)
+            if queue_size is None:
+                raise ValueError(
+                    "Cannot initialize `queue_size` because "
+                    "`pool.size` or `pool._processes` has not been provided. "
+                    "Please define `pool.size` or specify `queue_size` "
+                    "explicitly.")
+    return mapper, queue_size

@@ -77,7 +77,24 @@ class CoreRunDistributedTests(unittest.TestCase):
                 records = _normalize_database_records(SimpleHDF5Writer(db_path).read_records())
                 self.assertEqual(records, _normalize_database_records(expected_records))
 
-                tree = _sample_tree_file_sets(os.path.join(tmpdir, "SAMPLE"))
+                # check-modules layout: SAMPLE/test/<uuid>/ (flat, no 00000N buckets)
+                sample_test = os.path.join(tmpdir, "SAMPLE", "test")
+                self.assertTrue(
+                    os.path.isdir(sample_test),
+                    f"expected check-modules sample root at {sample_test}",
+                )
+                children = sorted(os.listdir(sample_test))
+                uuid_dirs = [
+                    name
+                    for name in children
+                    if os.path.isdir(os.path.join(sample_test, name)) and not name.isdigit()
+                ]
+                self.assertEqual(len(uuid_dirs), 10)
+                # No numbered bucket dirs / tar packs.
+                self.assertFalse(any(name.isdigit() for name in children))
+                tars = [name for name in children if name.endswith(".tar.gz")]
+                self.assertEqual(tars, [])
+                tree = _sample_tree_file_sets(sample_test)
                 self.assertEqual(len(tree), 10)
                 for files in tree:
                     self.assertEqual(files, expected_files)
@@ -93,7 +110,12 @@ class CoreRunDistributedTests(unittest.TestCase):
             core.check_modules.return_value = 10
             code = main([CHECK_MODULES_YAML, "--check-modules"])
         self.assertEqual(code, 0)
-        core.load_task_yaml.assert_called_once_with(CHECK_MODULES_YAML)
+        core.load_task_yaml.assert_called_once_with(
+            CHECK_MODULES_YAML,
+            validate=True,
+            strict=False,
+            check_modules=True,
+        )
         core.check_modules.assert_called_once_with()
 
 

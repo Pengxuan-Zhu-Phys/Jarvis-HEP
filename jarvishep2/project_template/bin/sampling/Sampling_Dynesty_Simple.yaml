@@ -1,17 +1,10 @@
 # =============================================================================
-# Sampling template — Dynesty (simple)
+# Sampling — Dynesty (simple)
 # =============================================================================
-# Engine: DynamicNestedSampler by default (Bounds.dynamic: true is the Dynesty
-# default when omitted). Few knobs for smoke / everyday scans.
+# Engine: always DynamicNestedSampler  (Method: Dynesty)
+# Static nested sampling → Method: MultiNest instead (no Bounds.dynamic switch).
 #
-# Copy this ``Sampling:`` block into your task YAML. Replace Variables and
-# LogLikelihood with your physics.
-#
-# Full surfaces:
-#   Sampling_Dynesty_Full_Static.yaml
-#   Sampling_Dynesty_Full_Dynamic.yaml
-# MultiNest (always static):
-#   Sampling_MultiNest_Simple.yaml
+# Everyday knobs only. Full surface: Sampling_Dynesty_Full.yaml
 # =============================================================================
 
 Sampling:
@@ -20,46 +13,32 @@ Sampling:
 
   Variables:
     - name: x
-      description: "Replace with your sampling parameters."
+      description: "Replace with your parameters."
       distribution:
         type: Flat
-        parameters:
-          min: 0.0
-          max: 1.0
+        parameters: {min: 0.0, max: 1.0}
     # - name: y
+    #   description: "…"
     #   distribution:
     #     type: Flat
     #     parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    # Live points (also used as Dynamic initial nlive unless run_nested.nlive_init set).
-    nlive: 100
-    rseed: 21
+    nlive: 100                 # live points (also Dynamic nlive_init default)
+    dlogz: 0.5                 # → run_nested.dlogz_init (initial-phase stop)
 
-    # DynamicNestedSampler default. Set false for static NestedSampler only.
-    # dynamic: true
-
-    # Evidence threshold for the *initial* static-like phase (mapped to dlogz_init).
-    dlogz: 0.5
-
-    # Optional proposal / bounding (official dynesty names).
-    # bound: multi          # none | single | multi | balls | cubes
-    # sample: auto          # auto | unif | rwalk | slice | rslice | hslice
-    # walks: 25             # for rwalk
-    # slices: 5             # for slice family
+    # Optional proposal knobs (official dynesty names):
+    # bound: multi             # none | single | multi | balls | cubes
+    # sample: auto             # auto | unif | rwalk | slice | rslice | hslice
+    # walks: 25                # if sample: rwalk
 
     run_nested:
       print_progress: true
-      # Hard caps (optional):
+      # Safety caps (optional):
       # maxcall: 100000
       # maxiter: 50000
       # maxbatch: 100
-      # n_effective: 10000   # Dynamic ESS stop target (default ~10000)
+      # n_effective: 10000     # ESS target when use_stop is on
 
   LogLikelihood:
-    - {name: "LogL", expression: "0.0"}   # replace with your expression(s)
-
-  # Flat Worker → control feedback {uuid, logL} (D13.8).
-  FeedbackReturn:
-    mode: minimal
-    include_logl: true
+    - {name: "LogL", expression: "0.0"}   # replace

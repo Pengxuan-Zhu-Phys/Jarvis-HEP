@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+"""Early task-YAML validation gate (D13.9).
+
+Pure functions — no Redis, no workers, no ``sys.exit``.  Callers translate
+:class:`ValidationReport` into logs / CLI exit codes.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+from jarvishep2.contracts.common import is_check_modules_mode, sampling_block
+from jarvishep2.contracts.methods import validate_method_sampling
+from jarvishep2.contracts.operational import validate_operational_blocks
+from jarvishep2.contracts.variables import validate_variables
+from jarvishep2.distributor import Distributor
+from jarvishep2.task_config import get_check_modules_settings
+
+Level = Literal["error", "warning"]
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    """One diagnostic produced by the config gate."""
+
+    level: Level
+    code: str
+    path: str
+    message: str
+    hint: str | None = None
+
+    def format_line(self) -> str:
+        base = f"  [{self.level}] {self.code}  {self.path}\n          {self.message}"
+        if self.hint:
+            base += f"\n          hint: {self.hint}"
+        return base
+
+
+@dataclass
+class ValidationReport:
+    """Collected validation issues for one task config."""
+
+    issues: list[ValidationIssue] = field(default_factory=list)
+
+    def add(self, item: ValidationIssue) -> None:
+        self.issues.append(item)
+
+    def extend(self, items: Sequence[ValidationIssue]) -> None:
+        self.issues.extend(items)
+
+    def errors(self) -> list[ValidationIssue]:
+        return [i for i in self.issues if i.level == "error"]
+
+    def warnings(self) -> list[ValidationIssue]:
+        return [i for i in self.issues if i.level == "warning"]
+
+    @property
+    def ok(self) -> bool:
+        """True when there are no errors (warnings are allowed)."""
+        return not self.errors()
+
+    def promote_warnings_to_errors(self) -> None:
+        """Used by ``--strict``: every warning becomes an error."""
+        self.issues = [
+            ValidationIssue(
+                level="error",
+                code=i.code,
+                path=i.path,
+                message=i.message,
+                hint=i.hint,
+            )
+            if i.level == "warning"
+            else i
+            for i in self.issues
+        ]
+
+
+class ConfigValidationError(ValueError):
+    """Raised when the task card fails the validation gate."""
+
+    def __init__(self, report: ValidationReport) -> None:
+        self.report = report
+        super().__init__(format_report(report))
+
+
+def issue(
+    level: Level,
+    code: str,
+    path: str,
+    message: str,
+    hint: str | None = None,
+) -> ValidationIssue:
+    return ValidationIssue(
+        level=level, code=code, path=path, message=message, hint=hint
+    )
+
+
+def format_report(report: ValidationReport) -> str:
+    n_err = len(report.errors())
+    n_warn = len(report.warnings())
+    header = f"Config validation failed ({n_err} error(s), {n_warn} warning(s)):"
+    if report.ok and n_warn:
+        header = f"Config validation warnings ({n_warn}):"
+    elif report.ok:
+        return "Config validation successful."
+    lines = [header]
+    for item in report.issues:
+        lines.append(item.format_line())
+    return "\n".join(lines)
+
+
+def format_report_success(report: ValidationReport) -> str:
+    n_warn = len(report.warnings())
+    if n_warn:
+        return format_report(report)
+    return "Config validation successful. The task YAML meets the V2 contract."
+
+
+def raise_if_errors(report: ValidationReport) -> None:
+    if not report.ok:
+        raise ConfigValidationError(report)
+
+
+def _validate_dead_keys(config: Mapping[str, Any]) -> list[ValidationIssue]:
+    """Known dead / ignored user-facing keys (warnings)."""
+    issues: list[ValidationIssue] = []
+    runtime = config.get("Runtime")
+    if isinstance(runtime, Mapping) and "Subprocess" in runtime:
+        issues.append(
+            issue(
+                "warning",
+                "JV2-DEAD-001",
+                "Runtime.Subprocess",
+                "key is ignored in V2 (internal dead key)",
+            )
+        )
+
+    calculators = config.get("Calculators")
+    if isinstance(calculators, Mapping):
+        modules = calculators.get("Modules")
+        if isinstance(modules, list):
+            for mi, mod in enumerate(modules):
+                if not isinstance(mod, Mapping):
+                    continue
+                for mode_key in ("execution",):
+                    execution = mod.get(mode_key)
+                    # Also scan modes.* execution blocks.
+                    blocks: list[tuple[str, Any]] = []
+                    if isinstance(execution, Mapping):
+                        blocks.append((f"Calculators.Modules[{mi}].execution", execution))
+                    modes = mod.get("modes")
+                    if isinstance(modes, Mapping):
+                        for mname, mbody in modes.items():
+                            if isinstance(mbody, Mapping) and isinstance(
+                                mbody.get("execution"), Mapping
+                            ):
+                                blocks.append(
+                                    (
+                                        f"Calculators.Modules[{mi}].modes.{mname}.execution",
+                                        mbody["execution"],
+                                    )
+                                )
+                    for base, exe in blocks:
+                        for io_key in ("input", "output"):
+                            entries = exe.get(io_key)
+                            if not isinstance(entries, list):
+                                continue
+                            for ii, entry in enumerate(entries):
+                                if isinstance(entry, Mapping) and "save" in entry:
+                                    issues.append(
+                                        issue(
+                                            "warning",
+                                            "JV2-DEAD-002",
+                                            f"{base}.{io_key}[{ii}].save",
+                                            "key is ignored in V2 (dead key; "
+                                            "SAMPLE save policy is owned by HEP FileOperation)",
+                                        )
+                                    )
+    return issues
+
+
+def _validate_operas_call_mode(config: Mapping[str, Any]) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    operas = config.get("Operas")
+    if not isinstance(operas, Mapping):
+        return issues
+    modules = operas.get("Modules")
+    if not isinstance(modules, list):
+        return issues
+    allowed = frozenset({"call", "acall"})
+    for index, mod in enumerate(modules):
+        if not isinstance(mod, Mapping) or "call_mode" not in mod:
+            continue
+        raw = str(mod.get("call_mode") or "").strip().lower()
+        if raw not in allowed:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-OPR-001",
+                    f"Operas.Modules[{index}].call_mode",
+                    f"{mod.get('call_mode')!r} invalid; expected one of: call, acall",
+                )
+            )
+    return issues
+
+
+def validate_task_config(
+    config: Mapping[str, Any],
+    *,
+    strict: bool = False,
+    check_modules: bool | None = None,
+) -> ValidationReport:
+    """Validate a loaded task config (post-``load_task_yaml``).
+
+    Parameters
+    ----------
+    config:
+        Mapping produced by :func:`jarvishep2.task_config.load_task_yaml` (or
+        equivalent in-memory structure).
+    strict:
+        Promote warnings to errors.
+    check_modules:
+        When True, treat as check-modules mode (ignore Sampling.Method).
+        When None, detect from ``Sampling.mode``.
+    """
+    report = ValidationReport()
+    if not isinstance(config, Mapping):
+        report.add(
+            issue(
+                "error",
+                "JV2-LOAD-001",
+                "$",
+                f"task config must be a mapping, got {type(config).__name__}",
+            )
+        )
+        return report
+
+    cm = (
+        bool(check_modules)
+        if check_modules is not None
+        else is_check_modules_mode(config)
+    )
+
+    sampling = sampling_block(config)
+    if sampling is None:
+        if not cm:
+            report.add(
+                issue(
+                    "error",
+                    "JV2-MTH-001",
+                    "Sampling",
+                    "Sampling block is required for scan runs",
+                )
+            )
+        # Operational checks still useful.
+        report.extend(validate_operational_blocks(config))
+        report.extend(_validate_dead_keys(config))
+        report.extend(_validate_operas_call_mode(config))
+        if strict:
+            report.promote_warnings_to_errors()
+        return report
+
+    if not isinstance(sampling, Mapping):
+        report.add(
+            issue(
+                "error",
+                "JV2-MTH-001",
+                "Sampling",
+                f"expected a mapping, got {type(sampling).__name__}",
+            )
+        )
+        report.extend(validate_operational_blocks(config))
+        if strict:
+            report.promote_warnings_to_errors()
+        return report
+
+    method_raw = sampling.get("Method")
+    method = str(method_raw).strip() if method_raw is not None else ""
+
+    if cm:
+        # check-modules: CSV fixed points (optional) OR sampler-drawn smoke points.
+        # Prefer validating Method when present so fallback sampling can run.
+        data = str(sampling.get("data") or sampling.get("points_csv") or "").strip()
+        settings = get_check_modules_settings(
+            {"EnvReqs": config.get("EnvReqs"), "Sampling": sampling}
+        )
+        default_data = str(settings.get("data") or "").strip()
+
+        if method:
+            available_list = Distributor.available_methods()
+            if method not in available_list:
+                # Invalid Method is only fatal if there is also no CSV path configured;
+                # a dedicated check card may leave a leftover Method and still use CSV.
+                if not data and not default_data:
+                    report.add(
+                        issue(
+                            "error",
+                            "JV2-MTH-003",
+                            "Sampling.Method",
+                            f"{method!r} is not implemented; for check-modules either "
+                            f"fix Method or set Sampling.data / EnvReqs.V2.check_modules.data. "
+                            f"Available: {', '.join(available_list) or 'none'}",
+                        )
+                    )
+                # else: CSV path may still work at runtime
+            else:
+                report.extend(validate_method_sampling(sampling, method=method))
+        elif "Variables" in sampling:
+            report.extend(
+                validate_variables(
+                    sampling,
+                    method=None,
+                    require_nonempty=False,
+                )
+            )
+
+        if not method and not data and not default_data:
+            report.add(
+                issue(
+                    "error",
+                    "JV2-MTH-040",
+                    "Sampling.data",
+                    "check-modules needs either Sampling.Method (sampler smoke points) "
+                    "or Sampling.data / EnvReqs.V2.check_modules.data (CSV fixed points)",
+                    hint=(
+                        "Add Sampling.Method for V1-like N-point smoke, or set "
+                        "Sampling.data / EnvReqs.V2.check_modules.data to a CSV path."
+                    ),
+                )
+            )
+    else:
+        if not method:
+            available = ", ".join(Distributor.available_methods()) or "none"
+            report.add(
+                issue(
+                    "error",
+                    "JV2-MTH-002",
+                    "Sampling.Method",
+                    "Sampling.Method is required for scan runs "
+                    f"(available: {available})",
+                )
+            )
+        else:
+            available_list = Distributor.available_methods()
+            if method not in available_list:
+                report.add(
+                    issue(
+                        "error",
+                        "JV2-MTH-003",
+                        "Sampling.Method",
+                        f"{method!r} is not implemented in Jarvis-HEP V2. "
+                        f"Available: {', '.join(available_list) or 'none'}",
+                    )
+                )
+            else:
+                report.extend(validate_method_sampling(sampling, method=method))
+
+    report.extend(validate_operational_blocks(config))
+    report.extend(_validate_dead_keys(config))
+    report.extend(_validate_operas_call_mode(config))
+
+    if strict:
+        report.promote_warnings_to_errors()
+    return report
+
+
+def validate_or_raise(
+    config: Mapping[str, Any],
+    *,
+    strict: bool = False,
+    check_modules: bool | None = None,
+) -> ValidationReport:
+    """Validate and raise :class:`ConfigValidationError` on errors."""
+    report = validate_task_config(
+        config, strict=strict, check_modules=check_modules
+    )
+    raise_if_errors(report)
+    return report
+
+
+__all__ = [
+    "ConfigValidationError",
+    "ValidationIssue",
+    "ValidationReport",
+    "format_report",
+    "format_report_success",
+    "issue",
+    "raise_if_errors",
+    "validate_or_raise",
+    "validate_task_config",
+]

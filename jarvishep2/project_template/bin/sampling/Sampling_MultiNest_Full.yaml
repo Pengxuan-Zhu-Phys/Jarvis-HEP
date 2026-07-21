@@ -1,15 +1,12 @@
 # =============================================================================
-# Sampling template — MultiNest full surface (static NestedSampler)
+# Sampling — MultiNest (full static NestedSampler surface)
 # =============================================================================
-# Engine: static NestedSampler only. Constructor + static run_nested keys match
-# Sampling_Dynesty_Full_Static.yaml (same vendored dynesty engine).
+# Engine: always static NestedSampler  (Method: MultiNest)
+# Not Fortran MultiNest. Dynamic nested → Method: Dynesty / Sampling_Dynesty_Full.
 #
-# Differences from Dynesty full static:
-#   - Method: "MultiNest"
-#   - dynamic is always false (cannot enable DynamicNestedSampler)
-#   - Product CSV: DATABASE/multinest_result.csv (not dynesty_result.csv)
-#
+# Product: DATABASE/multinest_result.csv
 # Do NOT set (HEP injects): loglikelihood, prior_transform, ndim, pool, rstate
+# Do NOT set: Bounds.dynamic  (rejected by validation)
 # =============================================================================
 
 Sampling:
@@ -18,63 +15,44 @@ Sampling:
 
   Variables:
     - name: x
-      description: "Replace with your sampling parameters."
+      description: "Replace with your parameters."
       distribution:
         type: Flat
-        parameters:
-          min: 0.0
-          max: 1.0
+        parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    # ----- HEP meta -----
-    # dynamic: false                 # implicit; true is forced off
+    # --- HEP meta (shared) ---
     nlive: 200
-    rseed: 21
-    dlogz: 0.5
+    # rseed: 21
+    dlogz: 0.5                 # static NestedSampler evidence stop
 
-    # ----- NestedSampler constructor -----
+    # --- NestedSampler constructor ---
     sampler:
-      # nlive: 200
-      bound: multi                 # none | single | multi | balls | cubes
-      sample: auto                 # auto | unif | rwalk | slice | rslice | hslice
-      # periodic: null
-      # reflective: null
-      # update_interval: null
-      # first_update: null
-      # queue_size: null             # default → Runtime.batch_size
-      # use_pool: null
-      # live_points: null
-      # logl_args: []
-      # logl_kwargs: {}
-      # ptform_args: []
-      # ptform_kwargs: {}
-      # enlarge: 1.25
-      # bootstrap: 0
+      bound: multi               # none | single | multi | balls | cubes
+      sample: auto               # auto | unif | rwalk | slice | rslice | hslice
       # walks: 25
       # facc: 0.5
       # slices: 5
+      # enlarge: 1.25
+      # bootstrap: 0
+      # update_interval: null
+      # first_update: {min_ncall: 1000, min_eff: 10.0}
+      # periodic: null
+      # reflective: null
       # ncdim: null
-      # blob: false
-      # save_evaluation_history: false
-      # history_filename: null
 
-    # ----- NestedSampler.run_nested (static only) -----
+    # --- NestedSampler.run_nested (static only — no batch / n_effective here) ---
     run_nested:
       # maxiter: null
       # maxcall: null
-      dlogz: 0.5
-      # logl_max: inf
-      add_live: true
+      # dlogz: 0.5               # or Bounds.dlogz only
+      # logl_max: .inf
+      # add_live: true
       print_progress: true
-      # print_func: null
-      save_bounds: true
+      # save_bounds: true
       # checkpoint_file: null
       # checkpoint_every: 60
       # resume: false
 
   LogLikelihood:
     - {name: "LogL", expression: "0.0"}
-
-  FeedbackReturn:
-    mode: minimal
-    include_logl: true

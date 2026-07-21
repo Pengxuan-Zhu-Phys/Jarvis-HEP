@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AdaptiveLevelSet sampler tests (D10 / D10.4 §9 core suite)."""
+"""AdaptiveBridson sampler tests (D10 / D10.4 §9 core suite)."""
 
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from typing import Any, Callable
 import numpy as np
 from fakeredis import TcpFakeServer
 
-from jarvishep2.Sampling.adaptive_level_set import (
-    AdaptiveLevelSetSampler,
+from jarvishep2.Sampling.adaptive_bridson import (
+    AdaptiveBridsonSampler,
+    AdaptiveBridsonSampler,
     DelaunayGraph,
     KNNGraph,
     clip_unit_cube,
@@ -104,10 +105,10 @@ def _als_config(
             "Watchdog": {"enabled": False},
         },
         "Sampling": {
-            "Method": "AdaptiveLevelSet",
+            "Method": "AdaptiveBridson",
             "Seed": seed,
             "Variables": _flat_vars(names),
-            "AdaptiveLevelSet": block,
+            "AdaptiveBridson": block,
         },
         "Operas": {
             "Modules": [
@@ -294,20 +295,20 @@ class FeedbackChannelTests(unittest.TestCase):
 
 class DistributorAdaptiveTests(unittest.TestCase):
     def test_adaptive_registered_stateful(self) -> None:
-        self.assertNotIn("AdaptiveLevelSet", STATELESS_METHODS)
-        sampler = Distributor.set_method("AdaptiveLevelSet")
-        self.assertEqual(sampler.method, "AdaptiveLevelSet")
-        self.assertEqual(Distributor.get_resume_status("AdaptiveLevelSet"), "implemented")
+        self.assertNotIn("AdaptiveBridson", STATELESS_METHODS)
+        sampler = Distributor.set_method("AdaptiveBridson")
+        self.assertEqual(sampler.method, "AdaptiveBridson")
+        self.assertEqual(Distributor.get_resume_status("AdaptiveBridson"), "implemented")
 
 
 class AdaptiveConfigTests(unittest.TestCase):
     def test_rejects_dim_outside_range(self) -> None:
-        sampler = AdaptiveLevelSetSampler()
+        sampler = AdaptiveBridsonSampler()
         with self.assertRaises(ValueError):
             sampler.set_config(
                 {
                     "Sampling": {
-                        "Method": "AdaptiveLevelSet",
+                        "Method": "AdaptiveBridson",
                         "Variables": [
                             {
                                 "name": "x",
@@ -317,7 +318,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                                 },
                             }
                         ],
-                        "AdaptiveLevelSet": {
+                        "AdaptiveBridson": {
                             "target_expression": "x",
                             "target_value": 0.5,
                         },
@@ -326,14 +327,14 @@ class AdaptiveConfigTests(unittest.TestCase):
             )
 
     def test_requires_target_fields(self) -> None:
-        sampler = AdaptiveLevelSetSampler()
+        sampler = AdaptiveBridsonSampler()
         with self.assertRaises(ValueError):
             sampler.set_config(
                 {
                     "Sampling": {
-                        "Method": "AdaptiveLevelSet",
+                        "Method": "AdaptiveBridson",
                         "Variables": _flat_vars(["x", "y"]),
-                        "AdaptiveLevelSet": {"target_value": 0.5},
+                        "AdaptiveBridson": {"target_value": 0.5},
                     }
                 }
             )
@@ -520,8 +521,8 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                     project_name="alevelset-ellipse",
                     scan_name="ellipse",
                 )
-                config["Sampling"]["AdaptiveLevelSet"]["target_expression"] = "s"
-                config["Sampling"]["AdaptiveLevelSet"]["target_value"] = 1.0
+                config["Sampling"]["AdaptiveBridson"]["target_expression"] = "s"
+                config["Sampling"]["AdaptiveBridson"]["target_value"] = 1.0
                 core = Jarvis2Core(config)
                 core.run()
                 payload = json.loads(
@@ -587,14 +588,14 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
 
     def test_checkpoint_export_import_roundtrip(self) -> None:
         """§9.5: export/import preserves points, generation, accepted_index, resume path."""
-        sampler = AdaptiveLevelSetSampler()
+        sampler = AdaptiveBridsonSampler()
         sampler.set_config(
             {
                 "Sampling": {
-                    "Method": "AdaptiveLevelSet",
+                    "Method": "AdaptiveBridson",
                     "Seed": 5,
                     "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveLevelSet": {
+                    "AdaptiveBridson": {
                         "target_expression": "r2",
                         "target_value": 0.04,
                         "max_generations": 5,
@@ -604,7 +605,7 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
             }
         )
         # Simulate a barrier after a few evaluated points.
-        from jarvishep2.Sampling.adaptive_level_set import LevelSetPoint
+        from jarvishep2.Sampling.adaptive_bridson import LevelSetPoint
 
         sampler._points = [
             LevelSetPoint(u=[0.3, 0.5], x={"x": 0.3, "y": 0.5}, f=0.04, uuid="a0", generation=0),
@@ -619,7 +620,7 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
         sampler._completed_uuids = {"a0", "a1", "a2"}
         state = sampler.export_runtime_state()
 
-        restored = AdaptiveLevelSetSampler()
+        restored = AdaptiveBridsonSampler()
         restored.set_config(sampler.config)
         restored.import_runtime_state(state)
         self.assertEqual(len(restored._points), 3)
@@ -816,13 +817,13 @@ class DimensionExtensionTests(unittest.TestCase):
 
     def test_dim_defaults_delaunay_vs_knn(self) -> None:
         """auto graph: Delaunay for d≤3, KNN for d≥4; high-d refinement factor 0.65."""
-        s3 = AdaptiveLevelSetSampler()
+        s3 = AdaptiveBridsonSampler()
         s3.set_config(
             {
                 "Sampling": {
-                    "Method": "AdaptiveLevelSet",
+                    "Method": "AdaptiveBridson",
                     "Variables": _flat_vars(["x", "y", "z"]),
-                    "AdaptiveLevelSet": {
+                    "AdaptiveBridson": {
                         "target_expression": "r",
                         "target_value": 0.2,
                     },
@@ -832,13 +833,13 @@ class DimensionExtensionTests(unittest.TestCase):
         self.assertIsInstance(s3._graph, DelaunayGraph)
         self.assertAlmostEqual(s3._refinement_factor, 0.5)
 
-        s4 = AdaptiveLevelSetSampler()
+        s4 = AdaptiveBridsonSampler()
         s4.set_config(
             {
                 "Sampling": {
-                    "Method": "AdaptiveLevelSet",
+                    "Method": "AdaptiveBridson",
                     "Variables": _flat_vars(["x0", "x1", "x2", "x3"]),
-                    "AdaptiveLevelSet": {
+                    "AdaptiveBridson": {
                         "target_expression": "r",
                         "target_value": 0.25,
                     },
@@ -1009,14 +1010,14 @@ class DimensionExtensionTests(unittest.TestCase):
 
     def test_d5_sobol_generation0_smoke(self) -> None:
         """§9.10 Sobol gen-0 at d=5: no OOM, points in cube, auto graph is KNN."""
-        sampler = AdaptiveLevelSetSampler()
+        sampler = AdaptiveBridsonSampler()
         sampler.set_config(
             {
                 "Sampling": {
-                    "Method": "AdaptiveLevelSet",
+                    "Method": "AdaptiveBridson",
                     "Seed": 3,
                     "Variables": _flat_vars([f"x{i}" for i in range(5)]),
-                    "AdaptiveLevelSet": {
+                    "AdaptiveBridson": {
                         "target_expression": "x0",
                         "target_value": 0.5,
                         "initial_radius": 0.25,
