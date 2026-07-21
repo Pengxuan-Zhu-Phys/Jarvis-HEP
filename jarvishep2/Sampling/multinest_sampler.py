@@ -18,10 +18,7 @@ import os
 from collections.abc import Mapping
 from typing import Any
 
-from jarvishep2.Sampling.dynesty_sampler import (
-    DynestySampler,
-    export_dynesty_results_csv,
-)
+from jarvishep2.Sampling.dynesty_sampler import DynestySampler
 from jarvishep2.logging import get_jarvis_logger
 
 
@@ -74,30 +71,16 @@ class MultiNestSampler(DynestySampler):
         self,
         output_csv: str | None = None,
     ) -> str | None:
-        """Export nested results to V1 ``multinest_result.csv`` (Jarvis-PLOT schema)."""
-        if self._sampler is None:
-            self._logger.warning("save_multinest_results_to_csv: no sampler results")
-            return None
-        try:
-            results = self._sampler.results
-        except Exception as exc:
-            self._logger.warning(
-                "save_multinest_results_to_csv: cannot read results: %s", exc
-            )
-            return None
+        """Export clean nested dead points to ``DATABASE/multinest_result.csv``.
+
+        Delegates to :meth:`DynestySampler.save_dynesty_results_to_csv` so
+        MultiNest keeps full parity (uuid, weights, evidence, physical
+        ``param_names`` columns). Only the on-disk basename differs from Dynesty.
+        """
         path = output_csv or self.multinest_result_csv_path()
-        written = export_dynesty_results_csv(
-            results, path, fallback_nlive=self._nlive
-        )
-        self._dynesty_csv_path = written
+        written = super().save_dynesty_results_to_csv(output_csv=path)
         self._multinest_csv_path = written
-        self._logger.info("MultiNest results saved → %s", written)
-        try:
-            summary_text = results.summary()
-            if summary_text:
-                self._logger.info("MultiNest summary → %s", summary_text)
-        except Exception:
-            pass
+        self._dynesty_csv_path = written
         return written
 
     # V1 name alias

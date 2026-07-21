@@ -438,8 +438,8 @@ class Jarvis2Core:
 
         Dynesty/MultiNest keep a much smaller set of nested samples than the
         full Worker likelihood call stream. That table lives at
-        ``DATABASE/dynesty_result.csv`` (or multinest_result.csv) and is the
-        scientific artifact for evidence/weights — distinct from
+        ``DATABASE/dynesty_result.csv`` or ``DATABASE/multinest_result.csv`` and
+        is the scientific artifact for evidence/weights — distinct from
         ``DATABASE/samples.csv`` (every archived evaluation).
         """
         sampler = self.sampler
@@ -453,9 +453,20 @@ class Jarvis2Core:
         except Exception as exc:
             self._logger.warning("nested result CSV finalize failed -> %s", exc)
             return
-        if path:
-            self.info["dynesty_result_csv"] = path
-            self._logger.info("nested clean result CSV ready → %s", path)
+        if not path:
+            return
+        path_text = str(path)
+        method = str(getattr(sampler, "method", "") or "")
+        if "multinest" in path_text.lower() or method.lower() == "multinest":
+            self.info["multinest_result_csv"] = path_text
+            self.info.pop("dynesty_result_csv", None)
+        else:
+            self.info["dynesty_result_csv"] = path_text
+        self._logger.info(
+            "nested clean result CSV ready → %s (%s)",
+            path_text,
+            method or "nested",
+        )
 
     def _emit_plot_scenes(self) -> None:
         """Emit scan/levelset jplot YAML under ``<project>/images/<scan>/``."""

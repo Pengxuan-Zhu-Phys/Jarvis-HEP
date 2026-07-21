@@ -751,13 +751,21 @@ class DynestySampler(FeedbackSampler):
         self._sampler.run_nested(**run_kwargs)
         self._finished = True
         self._summary = self._build_summary()
-        # V1 finalize path: CSV for Jarvis-PLOT dynesty_runplot (not dynesty.plotting).
+        # V1 finalize path: clean nested CSV for Jarvis-PLOT dynesty_runplot.
         try:
             csv_path = self.save_dynesty_results_to_csv()
             if self._summary is not None and csv_path:
-                self._summary["dynesty_result_csv"] = csv_path
+                path_text = str(csv_path)
+                if (
+                    self.method.lower() == "multinest"
+                    or "multinest" in path_text.lower()
+                ):
+                    self._summary["multinest_result_csv"] = path_text
+                    self._summary.pop("dynesty_result_csv", None)
+                else:
+                    self._summary["dynesty_result_csv"] = path_text
         except Exception as exc:
-            self._logger.warning("failed to write dynesty_result.csv: %s", exc)
+            self._logger.warning("failed to write nested result CSV: %s", exc)
         # D13.6: sampler_summary.json (logZ, ncall, …) under DATABASE/.
         try:
             from jarvishep2.Sampling.diagnostics_export import export_nested_diagnostics
@@ -825,7 +833,8 @@ class DynestySampler(FeedbackSampler):
         )
         self._dynesty_csv_path = written
         self._logger.info(
-            "Dynesty clean nested CSV saved → %s (niter dead points; not all logL calls)",
+            "%s clean nested CSV saved → %s (niter dead points; not all logL calls)",
+            self.method,
             written,
         )
         try:

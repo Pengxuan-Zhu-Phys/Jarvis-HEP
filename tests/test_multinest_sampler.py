@@ -113,10 +113,15 @@ class MultiNestCsvExportTests(unittest.TestCase):
             )
             with open(expected, encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle)
+                fieldnames = list(reader.fieldnames or [])
                 rows = list(reader)
             self.assertGreater(len(rows), 0)
-            self.assertIn("log_Like", reader.fieldnames or [])
-            self.assertIn("log_Evidence", reader.fieldnames or [])
+            self.assertIn("log_Like", fieldnames)
+            self.assertIn("log_Evidence", fieldnames)
+            # Dynesty parity: physical Sampling.Variable names must be present.
+            self.assertIn("x", fieldnames)
+            self.assertIn("y", fieldnames)
+            self.assertIn("samples_v[0]", fieldnames)
 
     def test_export_schema_matches_dynesty_plot_columns(self) -> None:
         n = 3
