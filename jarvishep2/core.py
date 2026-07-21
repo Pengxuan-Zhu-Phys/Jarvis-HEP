@@ -965,6 +965,13 @@ class Jarvis2Core:
         overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
         overrides.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
         overrides.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
+        # Prefer control-resolved scan logs dir so Workers never land in cwd/logs/jarvis_worker_*.
+        if self.info.get("logs_dir"):
+            overrides.setdefault("logs_dir", str(self.info["logs_dir"]))
+        if self.info.get("scan_name"):
+            overrides.setdefault("scan_name", str(self.info["scan_name"]))
+        if self.info.get("task_root"):
+            overrides.setdefault("task_root", str(self.info["task_root"]))
         extra = dict(overrides or {})
         # Stamp active sampler into feedback_return resolution (D13.8).
         if "sampler" not in extra and self.sampler is not None:

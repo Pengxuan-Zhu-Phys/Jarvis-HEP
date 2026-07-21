@@ -136,6 +136,26 @@ class TopLevelLoggingTests(unittest.TestCase):
             self.assertIn("·•· Worker-1", text)
             self.assertIn("worker ready", text)
 
+    def test_build_worker_config_always_sets_scan_logs_dir(self):
+        """Worker blueprint must stamp logs/<scan>/ so processes never use cwd jarvis_worker_PID."""
+        from jarvishep2.worker_config import build_worker_config
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out = os.path.join(tmpdir, "outputs", "ScanA")
+            os.makedirs(out)
+            wc = build_worker_config(
+                {
+                    "scan_name": "ScanA",
+                    "task_root": tmpdir,
+                    "Sampling": {"Method": "Bridson"},
+                    "Operas": {"Modules": []},
+                },
+                task_result_dir=out,
+            )
+            expected = scan_logs_dir(tmpdir, "ScanA")
+            self.assertEqual(wc.get("logs_dir"), expected)
+            self.assertTrue(wc["logs_dir"].endswith(os.path.join("logs", "ScanA")))
+
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = setup_jarvis_logging(

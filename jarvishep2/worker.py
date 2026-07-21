@@ -723,24 +723,47 @@ class Worker(Process):
             if isinstance(sample_config, dict):
                 scan_name = str(sample_config.get("scan_name") or "").strip()
         set_process_title(worker_title(self.worker_id, scan_name=scan_name or None))
-        # logs/<scan>/worker-NN.log (scan_logs_dir from control via worker_config).
+        # Always logs/<scan>/worker-NN.log under the project (never cwd jarvis_worker_PID).
+        from jarvishep2.logging import component_log_path, scan_logs_dir
+
         logs_dir = str(self.worker_config.get("logs_dir") or "").strip()
+        if not logs_dir:
+            sample_config = self.worker_config.get("sample_config") or {}
+            if not isinstance(sample_config, dict):
+                sample_config = {}
+            task_root = str(
+                self.worker_config.get("task_root")
+                or sample_config.get("task_root")
+                or ""
+            ).strip()
+            task_result_dir = str(sample_config.get("task_result_dir") or "").strip()
+            if not task_root and task_result_dir:
+                trd = os.path.abspath(task_result_dir)
+                parent = os.path.dirname(trd)
+                if os.path.basename(parent) == "outputs":
+                    task_root = os.path.dirname(parent)
+                else:
+                    task_root = parent
+            if not task_root:
+                task_root = os.getcwd()
+            scan_for_logs = scan_name or "scan"
+            logs_dir = scan_logs_dir(task_root, scan_for_logs)
+        log_path = component_log_path(logs_dir, "worker", worker_id=self.worker_id)
         silence = bool(self.worker_config.get("log_silence", False))
         console_level = str(self.worker_config.get("console_level") or "INFO")
         log_level = str(self.worker_config.get("log_level") or "INFO")
-        setup_kwargs: dict[str, Any] = {
-            "role": "worker",
-            "component": "worker",
-            "worker_id": self.worker_id,
-            "console": not silence,
-            "console_level": console_level,
-            "silence": silence,
-            "level": log_level,
-            "use_queue": True,
-        }
-        if logs_dir:
-            setup_kwargs["scan_logs_dir"] = logs_dir
-        setup_jarvis_logging(**setup_kwargs)
+        setup_jarvis_logging(
+            role="worker",
+            component="worker",
+            worker_id=self.worker_id,
+            console=not silence,
+            console_level=console_level,
+            silence=silence,
+            level=log_level,
+            use_queue=True,
+            scan_logs_dir=logs_dir,
+            log_path=log_path,
+        )
         worker_log = get_jarvis_logger(
             "worker",
             module=f"Worker-{self.worker_id}",
@@ -748,10 +771,10 @@ class Worker(Process):
         )
         try:
             worker_log.info(
-                "Worker process started pid=%s scan=%s logs_dir=%s",
+                "Worker process started pid=%s scan=%s log_path=%s",
                 self.pid,
                 scan_name or "?",
-                logs_dir or "(cwd fallback)",
+                log_path,
             )
         except Exception:
             pass

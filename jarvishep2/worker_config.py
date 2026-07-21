@@ -163,20 +163,28 @@ def build_worker_config(
         worker_config["staging_dir"] = ""
     if scan_name:
         worker_config.setdefault("scan_name", scan_name)
-    # Component logs: logs/<scan>/worker-NN.log under project task_root.
-    if scan_name:
-        from jarvishep2.logging import scan_logs_dir
+    # Component logs: always <task_root>/logs/<scan>/worker-NN.log (never cwd jarvis_worker_PID).
+    from jarvishep2.logging import scan_logs_dir
 
-        task_root = str(cfg.get("task_root") or cfg.get("project_root") or "").strip()
-        if not task_root:
-            trd = os.path.abspath(str(task_result_dir or "."))
-            parent = os.path.dirname(trd)
-            # Usual layout: <task_root>/outputs/<scan>
-            if os.path.basename(parent) == "outputs":
-                task_root = os.path.dirname(parent)
-            else:
-                task_root = parent or os.getcwd()
-        worker_config.setdefault("logs_dir", scan_logs_dir(task_root, scan_name))
+    scan_for_logs = scan_name or str(
+        worker_config.get("scan_name") or sample_config.get("scan_name") or "scan"
+    ).strip() or "scan"
+    task_root = str(
+        cfg.get("task_root")
+        or cfg.get("project_root")
+        or worker_config.get("task_root")
+        or ""
+    ).strip()
+    if not task_root:
+        trd = os.path.abspath(str(task_result_dir or "."))
+        parent = os.path.dirname(trd)
+        # Usual layout: <task_root>/outputs/<scan>
+        if os.path.basename(parent) == "outputs":
+            task_root = os.path.dirname(parent)
+        else:
+            task_root = parent or os.getcwd()
+    worker_config.setdefault("logs_dir", scan_logs_dir(task_root, scan_for_logs))
+    worker_config.setdefault("task_root", task_root)
     # Console policy (CLI --console-level / --silence) propagated from control.
     if "log_silence" in extra_payload:
         worker_config["log_silence"] = bool(extra_payload.pop("log_silence"))
