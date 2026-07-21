@@ -50,9 +50,16 @@ def _short_path(path: str, *, sample_root: str = "") -> str:
 
 
 def _format_arrow_block(title: str, rows: list[tuple[str, Any]]) -> str:
-    """Multi-line ``title ->`` block with tab-aligned key/value lines."""
+    """Multi-line ``title ->`` block with tab-aligned key/value lines.
+
+    No leading blank line; title has no ``[Archiver]`` prefix (module label
+    already comes from ``·•· Archiver``).
+    """
+    text = str(title or "").strip()
+    if text.startswith("[Archiver]"):
+        text = text[len("[Archiver]") :].strip()
     label_w = max((len(str(k)) for k, _ in rows), default=0)
-    lines = [f"{title} ->"]
+    lines = [f"{text} ->"]
     for key, value in rows:
         lines.append(f"\t{str(key):<{label_w}}\t-> {value}")
     return "\n".join(lines)
@@ -71,12 +78,13 @@ def _log_archiver_kv(
     emit = getattr(logger, level, None) or getattr(logger, "info", None)
     if emit is None:
         return
+    block = _format_arrow_block(title, rows)
     try:
-        emit("\n" + _format_arrow_block(title, rows))
+        emit(block)
     except Exception:
         try:
             flat = " ".join(f"{k}={v}" for k, v in rows)
-            emit("%s -> %s", title, flat)
+            emit("%s", f"{title} -> {flat}")
         except Exception:
             pass
 
@@ -311,7 +319,7 @@ class SimpleArchiver:
         self._thread.start()
         _log_archiver_kv(
             self._logger,
-            "[Archiver] loop started",
+            "loop started",
             [
                 ("sample_root", _short_path(self.sample_root) or self.sample_root),
                 ("pack_buckets", self.pack_buckets),
@@ -349,7 +357,7 @@ class SimpleArchiver:
         self._last_progress_written = written
         _log_archiver_kv(
             self._logger,
-            "[Archiver] DATABASE progress",
+            "DATABASE progress",
             [
                 ("rows written", _fmt_int(written)),
                 ("buckets packed", _fmt_int(self.buckets_packed)),
@@ -399,7 +407,7 @@ class SimpleArchiver:
                 self.buckets_packed += 1
                 _log_archiver_kv(
                     self._logger,
-                    "[Archiver] SAMPLE bucket packed",
+                    "SAMPLE bucket packed",
                     [
                         ("bucket id", bucket_id),
                         (
@@ -413,7 +421,7 @@ class SimpleArchiver:
                 # Leave packing flag set; operator can inspect / re-seal later.
                 _log_archiver_kv(
                     self._logger,
-                    "[Archiver] SAMPLE bucket pack failed",
+                    "SAMPLE bucket pack failed",
                     [
                         ("bucket id", bucket_id),
                         (
@@ -462,7 +470,7 @@ class SimpleArchiver:
         self._maybe_log_progress(force=True)
         _log_archiver_kv(
             self._logger,
-            "[Archiver] drain complete",
+            "drain complete",
             [
                 ("flushed this drain", _fmt_int(drained)),
                 ("rows written (total)", _fmt_int(self.records_written)),
@@ -485,7 +493,7 @@ class SimpleArchiver:
         self._thread = None
         _log_archiver_kv(
             self._logger,
-            "[Archiver] stopped",
+            "stopped",
             [
                 ("rows written", _fmt_int(self.records_written)),
                 ("buckets packed", _fmt_int(self.buckets_packed)),
@@ -550,7 +558,7 @@ class ArchiverProcess(Process):
         logger = get_jarvis_logger("archiver", module="Archiver")
         _log_archiver_kv(
             logger,
-            "[Archiver] process started",
+            "process started",
             [
                 ("pid", os.getpid()),
                 ("scan", self.scan_name or "?"),
