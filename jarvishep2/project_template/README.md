@@ -11,6 +11,7 @@ Jarvis2 project create <name>
 | Path | Role |
 |------|------|
 | `bin/` | Task YAML cards |
+| `bin/sampling/` | Nested sampling `Sampling:` templates (Dynesty / MultiNest) |
 | `data/` | Small input tables / fixtures |
 | `deps/` | Default environment policy (`environment_default.yaml`) |
 | `jarvis.project.yaml` | Project descriptor (`&J` root) |
@@ -32,6 +33,20 @@ CSV operas smoke:
 ```bash
 Jarvis2 run bin/quickstart_csv_operas.yaml
 ```
+
+### Nested sampling templates
+
+Under `bin/sampling/` (copy the `Sampling:` block into your card):
+
+| Template | Notes |
+|----------|--------|
+| `Sampling_Dynesty_Simple.yaml` | Dynamic default, few knobs |
+| `Sampling_Dynesty_Full_Static.yaml` | Full static NestedSampler surface |
+| `Sampling_Dynesty_Full_Dynamic.yaml` | Full DynamicNestedSampler surface |
+| `Sampling_MultiNest_Simple.yaml` | Static only, few knobs |
+| `Sampling_MultiNest_Full.yaml` | Full static surface |
+
+See `bin/sampling/README.md`.
 
 ## Scheduling defaults
 

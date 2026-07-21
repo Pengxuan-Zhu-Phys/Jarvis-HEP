@@ -1,0 +1,95 @@
+# =============================================================================
+# Sampling template — Dynesty full surface (DynamicNestedSampler)
+# =============================================================================
+# Engine: DynamicNestedSampler (Bounds.dynamic: true, Dynesty default).
+# Full dynamic run_nested surface + shared constructor keys.
+#
+# Evidence threshold for the *initial* phase is dlogz_init (not dlogz).
+# A top-level Bounds.dlogz is remapped → dlogz_init for convenience.
+#
+# Do NOT set (HEP injects): loglikelihood, prior_transform, ndim, pool, rstate
+# =============================================================================
+
+Sampling:
+  Method: "Dynesty"
+  Seed: 21
+
+  Variables:
+    - name: x
+      description: "Replace with your sampling parameters."
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 1.0
+
+  Bounds:
+    # ----- HEP meta -----
+    dynamic: true
+    nlive: 100                     # used if nlive_init / constructor nlive omitted
+    rseed: 21
+    # Mapped to run_nested.dlogz_init when dynamic: true
+    dlogz: 0.5
+
+    # ----- Constructor (same NestedSampler / DynamicNestedSampler surface) -----
+    sampler:
+      bound: multi                 # none | single | multi | balls | cubes
+      sample: auto                 # auto | unif | rwalk | slice | rslice | hslice
+      # periodic: null
+      # reflective: null
+      # update_interval: null
+      # first_update: null
+      # queue_size: null
+      # use_pool: null
+      # live_points: null
+      # enlarge: 1.25
+      # bootstrap: 0
+      # walks: 25
+      # facc: 0.5
+      # slices: 5
+      # ncdim: null
+      # blob: false
+      # save_evaluation_history: false
+      # history_filename: null
+
+    # ----- DynamicNestedSampler.run_nested -----
+    run_nested:
+      # --- initial static-like phase ---
+      # nlive_init: 100            # default from Bounds.nlive / constructor
+      # maxiter_init: null
+      # maxcall_init: null
+      dlogz_init: 0.5              # initial-phase evidence threshold
+      # logl_max_init: inf
+
+      # --- batch phase (posterior thickening) ---
+      # nlive_batch: 100
+      # wt_function: null          # custom weight function (advanced)
+      # wt_kwargs: null            # e.g. {pfrac: 0.8}
+      # maxiter_batch: null
+      # maxcall_batch: null
+      # maxbatch: null             # max number of dynamic batches
+
+      # --- global caps ---
+      # maxiter: null
+      # maxcall: null
+
+      # --- stopping (default ESS-based stop when use_stop: true) ---
+      # n_effective: 10000         # target ESS; stop when stop = target/n_eff ≤ 1
+      # stop_function: null        # custom; default stopping_function
+      # stop_kwargs: null          # e.g. {pfrac: 1.0, target_n_effective: 10000}
+      use_stop: true
+
+      print_progress: true
+      # print_func: null
+      save_bounds: true
+      # live_points: null
+      # resume: false
+      # checkpoint_file: null
+      # checkpoint_every: 60
+
+  LogLikelihood:
+    - {name: "LogL", expression: "0.0"}
+
+  FeedbackReturn:
+    mode: minimal
+    include_logl: true
