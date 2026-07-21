@@ -1,11 +1,35 @@
+# Repo-root / local runtime (scans, plots, checkpoints)
 logs/
+checkpoints/
+outputs/
+images/
+reports/
+exports/
+*.egg-info/
 jarvishep2.egg-info/
+
+# Test fixture runtime under parity_project (cards + data stay tracked)
+tests/parity_project/images/
+tests/parity_project/logs/
+tests/parity_project/outputs/
+tests/parity_project/checkpoints/
+
+# Host-specific D7.1 gate metrics (regenerate via acceptance suite)
+docs/benchmarks/d7_1_acceptance.json
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+.venv/
+venv/
 
 # macOS
 .DS_Store
