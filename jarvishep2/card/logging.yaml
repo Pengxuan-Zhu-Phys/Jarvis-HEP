@@ -7,8 +7,9 @@ process:
   date_format: "%m-%d %H:%M:%S"
   millis_digits: 3
   bullet: "·•·"
+  # DATABASE / samples.hdf5 row progress (logger module + Ϡ bullet).
   hdf5_writer_bullet: "Ϡ"
-  hdf5_writer_module: "Jarvis-HEP.hdf5-Writter"
+  hdf5_writer_module: "Jarvis-HEP.DataRecorder"
   # Named fields: bullet, module, timestamp, level, message
   head: "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
   # If true, append trailing key=value context from LogRecord extras.

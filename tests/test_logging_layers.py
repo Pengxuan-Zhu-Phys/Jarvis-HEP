@@ -192,7 +192,7 @@ class TopLevelLoggingTests(unittest.TestCase):
         self.assertEqual(resolve_record_component(rec3), "core")
 
     def test_control_multi_sink_splits_factory_and_sampler(self) -> None:
-        """Control process multi-sink: core/factory/sampler/archiver separate files."""
+        """Control process multi-sink: core/factory/sampler/archiver/datarecorder."""
         with tempfile.TemporaryDirectory() as tmpdir:
             logs = scan_logs_dir(tmpdir, "split")
             setup_jarvis_logging(
@@ -212,6 +212,9 @@ class TopLevelLoggingTests(unittest.TestCase):
                 "progress-only line"
             )
             get_jarvis_logger("archiver", module="Archiver").info("archiver-only line")
+            get_jarvis_logger("datarecorder", module="Jarvis-HEP.DataRecorder").info(
+                "DATABASE progress ->\n\trows written\t-> 10"
+            )
             shutdown_jarvis_logging()
 
             core_text = Path(os.path.join(logs, "core.log")).read_text(encoding="utf-8")
@@ -224,11 +227,15 @@ class TopLevelLoggingTests(unittest.TestCase):
             archiver_text = Path(os.path.join(logs, "archiver.log")).read_text(
                 encoding="utf-8"
             )
+            data_text = Path(os.path.join(logs, "datarecorder.log")).read_text(
+                encoding="utf-8"
+            )
 
             self.assertIn("control-only line", core_text)
             self.assertNotIn("factory-only line", core_text)
             self.assertNotIn("sampler-only line", core_text)
             self.assertNotIn("progress-only line", core_text)
+            self.assertNotIn("DATABASE progress", core_text)
 
             self.assertIn("factory-only line", factory_text)
             self.assertNotIn("control-only line", factory_text)
@@ -239,6 +246,11 @@ class TopLevelLoggingTests(unittest.TestCase):
 
             self.assertIn("archiver-only line", archiver_text)
             self.assertNotIn("control-only line", archiver_text)
+            self.assertNotIn("DATABASE progress", archiver_text)
+
+            self.assertIn("DATABASE progress", data_text)
+            self.assertIn("Jarvis-HEP.DataRecorder", data_text)
+            self.assertNotIn("control-only line", data_text)
 
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:

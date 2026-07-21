@@ -149,8 +149,8 @@ class Jarvis2Core:
             self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
             self._logger.info(
                 "component logs under %s "
-                "(core.log, factory.log, sampler.log, archiver.log; "
-                "workers: worker-NN.log)",
+                "(core.log, factory.log, sampler.log, archiver.log, "
+                "datarecorder.log; workers: worker-NN.log)",
                 logs_dir,
             )
             self._logger.info("Jarvis-HEP write into main log file -> %s", jarvis_log)

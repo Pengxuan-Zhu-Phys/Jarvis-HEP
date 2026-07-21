@@ -293,8 +293,13 @@ class SimpleArchiver:
         self._thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
-        # Own logger identity: ``·•· Archiver`` (not the control ``Jarvis-HEP`` prefix).
+        # Own logger identity: ``·•· Archiver`` (pack / drain / lifecycle).
         self._logger = logger or get_jarvis_logger("archiver", module="Archiver")
+        # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
+        self._datarecorder_logger = get_jarvis_logger(
+            "datarecorder",
+            module="Jarvis-HEP.DataRecorder",
+        )
         self._last_progress_written = -1
         self._progress_interval = 50  # log every N DATABASE rows (and pack events)
 
@@ -355,8 +360,9 @@ class SimpleArchiver:
         ):
             return
         self._last_progress_written = written
+        # HDF5 / DATABASE flush progress — not pack lifecycle (that stays on Archiver).
         _log_archiver_kv(
-            self._logger,
+            self._datarecorder_logger,
             "DATABASE progress",
             [
                 ("rows written", _fmt_int(written)),
@@ -550,10 +556,13 @@ class ArchiverProcess(Process):
             "silence": silence,
             "use_queue": True,
         }
-        if self.log_path:
-            setup_kwargs["log_path"] = self.log_path
-        elif self.log_dir:
+        # Prefer scan multi-sink (archiver.log + datarecorder.log). Only force a
+        # single log_path when no scan logs dir is available.
+        if self.log_dir:
             setup_kwargs["scan_logs_dir"] = self.log_dir
+            setup_kwargs["multi_sink"] = True
+        elif self.log_path:
+            setup_kwargs["log_path"] = self.log_path
         setup_jarvis_logging(**setup_kwargs)
         logger = get_jarvis_logger("archiver", module="Archiver")
         _log_archiver_kv(

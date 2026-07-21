@@ -74,6 +74,7 @@ COMPONENT_LOG_BASENAME = {
     "factory": "factory.log",
     "sampler": "sampler.log",
     "archiver": "archiver.log",
+    "datarecorder": "datarecorder.log",
     "worker": "worker.log",  # overridden by worker_id → worker-00.log
 }
 
@@ -83,9 +84,18 @@ CONTROL_MULTI_SINK_COMPONENTS: tuple[str, ...] = (
     "factory",
     "sampler",
     "archiver",
+    "datarecorder",
+)
+
+# Archiver process: pack lifecycle + DATABASE DataRecorder.
+ARCHIVER_MULTI_SINK_COMPONENTS: tuple[str, ...] = (
+    "archiver",
+    "datarecorder",
 )
 
 # V1 presentation labels (``·•· <module>``).
+# NOTE: DataRecorder uses a full ``Jarvis-HEP.DataRecorder`` stamp (not "DataRecorder").
+
 COMPONENT_MODULE_LABEL = {
     "core": "Jarvis-HEP",
     "control": "Jarvis-HEP",
@@ -93,8 +103,11 @@ COMPONENT_MODULE_LABEL = {
     "factory": "Factory",
     "sampler": "Sampler",
     "archiver": "Archiver",
+    "datarecorder": "Jarvis-HEP.DataRecorder",
     "worker": "Worker",
 }
+
+DATARECORDER_MODULE_LABEL = "Jarvis-HEP.DataRecorder"
 
 
 def scan_logs_dir(task_root: str, scan_name: str) -> str:
@@ -141,13 +154,15 @@ def resolve_record_component(record: logging.LogRecord) -> str:
     else:
         short = name
     root = short.split(".", 1)[0].strip().lower() if short else ""
-    if root in {"factory", "sampler", "archiver", "worker"}:
+    if root in {"factory", "sampler", "archiver", "worker", "datarecorder"}:
         return root
     if root in {"core", "control", "jarvis", "client"}:
         return "core"
 
     mod = str(record.__dict__.get("jarvis_module") or "").strip()
     if mod:
+        if "DataRecorder" in mod or "hdf5" in mod.lower():
+            return "datarecorder"
         if (
             "Sampler" in mod
             or "Dynesty" in mod
@@ -177,15 +192,27 @@ class ComponentFilter(logging.Filter):
 
 
 class CoreResidualFilter(logging.Filter):
-    """core.log sink: accept ``core`` plus any component without its own file."""
+    """Residual sink: accept *primary* plus any component without its own file.
 
-    def __init__(self, dedicated: set[str] | frozenset[str] | tuple[str, ...]) -> None:
+    Used for ``core.log`` (control) and ``archiver.log`` (archiver process) so
+    unclaimed components are never dropped.
+    """
+
+    def __init__(
+        self,
+        dedicated: set[str] | frozenset[str] | tuple[str, ...],
+        *,
+        primary: str = "core",
+    ) -> None:
         super().__init__()
-        self.dedicated = frozenset(str(item) for item in dedicated if item != "core")
+        self.primary = str(primary or "core")
+        self.dedicated = frozenset(
+            str(item) for item in dedicated if item != self.primary
+        )
 
     def filter(self, record: logging.LogRecord) -> bool:
         resolved = resolve_record_component(record)
-        return resolved == "core" or resolved not in self.dedicated
+        return resolved == self.primary or resolved not in self.dedicated
 
 
 def format_record_context(record: logging.LogRecord) -> str:
@@ -255,10 +282,17 @@ class JarvisContextFormatter(logging.Formatter):
             if record.exc_text:
                 message = f"{message}\n{record.exc_text}" if message else record.exc_text
 
-        hdf5_mod = str(self._style.get("hdf5_writer_module") or "Jarvis-HEP.hdf5-Writter")
+        # DataRecorder (DATABASE / samples.hdf5) uses the special Ϡ bullet.
+        data_mod = str(
+            self._style.get("hdf5_writer_module") or DATARECORDER_MODULE_LABEL
+        )
         default_bullet = str(self._style.get("bullet") or "·•·")
-        hdf5_bullet = str(self._style.get("hdf5_writer_bullet") or "Ϡ")
-        bullet = hdf5_bullet if module == hdf5_mod else default_bullet
+        data_bullet = str(self._style.get("hdf5_writer_bullet") or "Ϡ")
+        bullet = (
+            data_bullet
+            if module == data_mod or "DataRecorder" in module
+            else default_bullet
+        )
         head_tmpl = str(
             self._style.get("head")
             or "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
@@ -405,9 +439,10 @@ def setup_jarvis_logging(
         logs/<scan>/worker-00.log
 
     **Control process** (role/component ``core``) with ``scan_logs_dir`` opens a
-    multi-sink by default: Factory / Sampler / Archiver lines are filtered into
-    their own files; residual control lines stay in ``core.log``. Worker and
-    Archiver *processes* keep a single component file.
+    multi-sink by default: Factory / Sampler / Archiver / DataRecorder lines go
+    to dedicated files; residual control lines stay in ``core.log``.
+    **Archiver process** multi-sinks ``archiver.log`` + ``datarecorder.log``.
+    Worker processes keep a single ``worker-NN.log``.
 
     Console:
       - default on at INFO (``console_level``)
@@ -435,24 +470,31 @@ def setup_jarvis_logging(
     comp = str(component or role or "jarvis").strip().lower() or "jarvis"
     scan_dir = str(scan_logs_dir or "").strip() or None
 
-    # Multi-sink: control process only, when we have a scan logs directory.
+    # Multi-sink when we have a scan logs directory (control or archiver process).
     # Explicit log_path forces single-file (tests / specialized callers).
     if multi_sink is None:
         multi_sink = bool(
             scan_dir
             and worker_id is None
-            and comp in {"core", "control", "jarvis"}
+            and comp in {"core", "control", "jarvis", "archiver"}
             and not log_path
         )
     else:
         multi_sink = bool(multi_sink)
 
     log_paths: dict[str, str] = {}
+    residual_primary = "core"
     if multi_sink and scan_dir:
         os.makedirs(os.path.abspath(scan_dir), exist_ok=True)
-        for name in CONTROL_MULTI_SINK_COMPONENTS:
+        if comp == "archiver":
+            sink_names = ARCHIVER_MULTI_SINK_COMPONENTS
+            residual_primary = "archiver"
+        else:
+            sink_names = CONTROL_MULTI_SINK_COMPONENTS
+            residual_primary = "core"
+        for name in sink_names:
             log_paths[name] = component_log_path(scan_dir, name)
-        resolved_path = log_paths["core"]
+        resolved_path = log_paths.get(residual_primary) or next(iter(log_paths.values()))
     elif log_path:
         resolved_path = os.path.abspath(str(log_path))
         log_paths[comp if comp != "control" else "core"] = resolved_path
@@ -481,7 +523,7 @@ def setup_jarvis_logging(
         sink_handlers.append(_make_console_handler(level=cons_level, style=style))
 
     if multi_sink and scan_dir:
-        dedicated = {name for name in log_paths if name != "core"}
+        dedicated = set(log_paths)
         for name, path in log_paths.items():
             handler = _make_file_handler(
                 log_path=path,
@@ -490,9 +532,11 @@ def setup_jarvis_logging(
                 backup_count=backup_count,
                 style=style,
             )
-            if name == "core":
-                # Residual bucket: core + any component without a dedicated sink.
-                handler.addFilter(CoreResidualFilter(dedicated))
+            if name == residual_primary:
+                # Residual bucket: primary + any component without a dedicated sink.
+                handler.addFilter(
+                    CoreResidualFilter(dedicated, primary=residual_primary)
+                )
             else:
                 handler.addFilter(ComponentFilter({name}))
             sink_handlers.append(handler)

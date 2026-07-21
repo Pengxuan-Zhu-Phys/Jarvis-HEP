@@ -16,8 +16,9 @@ _DEFAULT_STYLE: dict[str, Any] = {
         "date_format": "%m-%d %H:%M:%S",
         "millis_digits": 3,
         "bullet": "·•·",
+        # DATABASE / samples.hdf5 progress (Archiver flush counter).
         "hdf5_writer_bullet": "Ϡ",
-        "hdf5_writer_module": "Jarvis-HEP.hdf5-Writter",
+        "hdf5_writer_module": "Jarvis-HEP.DataRecorder",
         "head": "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n",
         "append_context": True,
     },
