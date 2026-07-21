@@ -761,8 +761,12 @@ Return the list of items in the results object as list of key,value pairs
                               rstate=rstate)
 
     def summary(self):
-        """Return a formatted string giving a quick summary
-        of the results."""
+        """Return a formatted string giving a quick summary of the results.
+
+        Jarvis-HEP logs this via the sampler logger (``sampler.log``). Stock
+        dynesty used to only ``print`` and return ``None``; we return the text
+        so it can be captured (no stdout spam when embedded).
+        """
 
         if self._dynamic:
             res = ("niter: {:d}\n"
@@ -785,7 +789,7 @@ Return the list of items in the results object as list of key,value pairs
                                                       self['logz'][-1],
                                                       self['logzerr'][-1]))
 
-        print('Summary\n=======\n' + res)
+        return 'Summary\n=======\n' + res
 
 
 Results.__doc__ += '\n\n' + str('\n'.join(

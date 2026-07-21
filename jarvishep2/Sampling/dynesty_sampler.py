@@ -781,14 +781,59 @@ class DynestySampler(FeedbackSampler):
         except Exception as exc:
             self._logger.warning("failed to write nested sampler_summary: %s", exc)
         self.checkpoint_at_barrier(reason="dynesty_finished")
+        # Official nested summary block (nlive/niter/ncall/eff/logz) → sampler.log
+        try:
+            self._log_nested_run_summary()
+        except Exception as exc:
+            self._logger.warning("failed to log nested run summary: %s", exc)
         self._logger.info(
-            "%s finished logZ=%.4f ± %.4f niter=%s",
+            "%s finished logZ=%.4f ± %.4f niter=%s ncall=%s",
             self.method,
             self._summary.get("logz", float("nan")),
             self._summary.get("logzerr", float("nan")),
             self._summary.get("niter"),
+            self._summary.get("ncall"),
         )
         return int(self._summary.get("ncall") or 0)
+
+    def _log_nested_run_summary(self) -> None:
+        """Emit dynesty/MultiNest ``Results.summary()`` block to the sampler logger."""
+        if self._sampler is None:
+            return
+        try:
+            results = self._sampler.results
+        except Exception:
+            return
+        summary_fn = getattr(results, "summary", None)
+        text = None
+        if callable(summary_fn):
+            try:
+                text = summary_fn()
+            except Exception:
+                text = None
+        if not text:
+            # Fallback from our _summary dict when Results.summary is unavailable.
+            s = self._summary or {}
+            nlive = s.get("nlive", self._nlive)
+            niter = s.get("niter", "")
+            ncall = s.get("ncall", "")
+            logz = s.get("logz", float("nan"))
+            logzerr = s.get("logzerr", float("nan"))
+            try:
+                eff = 100.0 * float(niter) / float(ncall) if ncall else float("nan")
+            except Exception:
+                eff = float("nan")
+            text = (
+                "Summary\n"
+                "=======\n"
+                f"nlive: {int(nlive)}\n"
+                f"niter: {int(niter) if niter != '' else niter}\n"
+                f"ncall: {int(ncall) if ncall != '' else ncall}\n"
+                f"eff(%): {eff:6.3f}\n"
+                f"logz: {float(logz):6.3f} +/- {float(logzerr):6.3f}"
+            )
+        # One multi-line INFO record → sampler.log (module Sampler:dynesty/multinest).
+        self._logger.info("%s run summary\n%s", self.method, str(text).rstrip())
 
     def _task_result_dir(self) -> str:
         return str(
@@ -838,12 +883,6 @@ class DynestySampler(FeedbackSampler):
             self.method,
             written,
         )
-        try:
-            summary_text = results.summary()
-            if summary_text:
-                self._logger.info("Dynesty summary → %s", summary_text)
-        except Exception:
-            pass
         return written
 
     def _build_summary(self) -> dict[str, Any]:
