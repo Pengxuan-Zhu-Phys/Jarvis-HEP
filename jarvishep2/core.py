@@ -127,7 +127,8 @@ class Jarvis2Core:
         set_process_title(control_title(scan_name=scan_name))
         task_root = str(self.info.get("task_root") or os.getcwd())
         logs_dir = scan_logs_dir(task_root, scan_name)
-        # Component file under logs/<scan>/ (control process → core.log).
+        # Control multi-sink: core.log + factory.log + sampler.log + archiver.log
+        # (omit log_path so setup opens filtered handlers per component).
         jarvis_log = component_log_path(logs_dir, "core")
         self.info["logs_dir"] = logs_dir
         self.info["jarvis_log"] = jarvis_log
@@ -135,24 +136,25 @@ class Jarvis2Core:
             role="core",
             component="core",
             scan_logs_dir=logs_dir,
-            log_path=jarvis_log,
             level=self._log_level,
             console=self._log_console,
             console_level=self._console_level,
             silence=self._log_silence,
             use_queue=True,
+            multi_sink=True,
         )
         self._logger = get_jarvis_logger("core", module="Jarvis-HEP")
         try:
             self._logger.warning("\n" + render_logo_with_version())
             self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
             self._logger.info(
-                "component logs under %s (core.log; workers: worker-NN.log; archiver.log)",
+                "component logs under %s "
+                "(core.log, factory.log, sampler.log, archiver.log; "
+                "workers: worker-NN.log)",
                 logs_dir,
             )
-            self._logger.info(f"Jarvis-HEP write into main log file -> {jarvis_log}")
+            self._logger.info("Jarvis-HEP write into main log file -> %s", jarvis_log)
             if self._log_silence:
-                # Still lands in core.log only.
                 self._logger.info("console output silenced (--silence)")
         except Exception:
             # Logging must never block bootstrap; banner is best-effort.

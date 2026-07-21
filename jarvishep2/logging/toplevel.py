@@ -61,20 +61,29 @@ _state: dict[str, Any] = {
     "listener": None,
     "log_queue": None,
     "log_path": None,
+    "log_paths": None,
     "scan_logs_dir": None,
     "component": None,
 }
 
-# Canonical files under ``logs/<scan>/`` (one process → one primary file).
+# Canonical files under ``logs/<scan>/``.
 COMPONENT_LOG_BASENAME = {
     "core": "core.log",
     "control": "core.log",
     "jarvis": "core.log",
-    "factory": "factory.log",  # same process as core unless setup alone
+    "factory": "factory.log",
     "sampler": "sampler.log",
     "archiver": "archiver.log",
     "worker": "worker.log",  # overridden by worker_id → worker-00.log
 }
+
+# Control-process multi-sink files (same OS process, separate RotatingFileHandlers).
+CONTROL_MULTI_SINK_COMPONENTS: tuple[str, ...] = (
+    "core",
+    "factory",
+    "sampler",
+    "archiver",
+)
 
 # V1 presentation labels (``·•· <module>``).
 COMPONENT_MODULE_LABEL = {
@@ -116,6 +125,67 @@ def component_module_label(component: str, *, worker_id: int | None = None) -> s
     if role == "worker" and worker_id is not None:
         return f"Worker-{int(worker_id)}"
     return COMPONENT_MODULE_LABEL.get(role, role)
+
+
+def resolve_record_component(record: logging.LogRecord) -> str:
+    """Map a LogRecord to a scan log component (``core`` / ``factory`` / ``sampler`` / …).
+
+    Routing keys (first match wins):
+    1. Logger name under ``jarvis_hep.<component>...``
+    2. Presentation label ``jarvis_module`` (Dynesty.Inner → sampler, Factory → factory)
+    3. Fallback ``core`` so nothing is dropped.
+    """
+    name = str(getattr(record, "name", "") or "")
+    if name.startswith(f"{JARVIS_HEP_LOG_DOMAIN}."):
+        short = name[len(JARVIS_HEP_LOG_DOMAIN) + 1 :]
+    else:
+        short = name
+    root = short.split(".", 1)[0].strip().lower() if short else ""
+    if root in {"factory", "sampler", "archiver", "worker"}:
+        return root
+    if root in {"core", "control", "jarvis", "client"}:
+        return "core"
+
+    mod = str(record.__dict__.get("jarvis_module") or "").strip()
+    if mod:
+        if (
+            "Sampler" in mod
+            or "Dynesty" in mod
+            or "MultiNest" in mod
+            or mod.endswith(".Inner")
+            or ".Pool" in mod
+        ):
+            return "sampler"
+        if "Factory" in mod:
+            return "factory"
+        if "Archiver" in mod:
+            return "archiver"
+        if mod.startswith("Worker"):
+            return "worker"
+    return "core"
+
+
+class ComponentFilter(logging.Filter):
+    """Allow only records whose resolved component is in *accept*."""
+
+    def __init__(self, accept: set[str] | frozenset[str] | tuple[str, ...]) -> None:
+        super().__init__()
+        self.accept = frozenset(str(item) for item in accept)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return resolve_record_component(record) in self.accept
+
+
+class CoreResidualFilter(logging.Filter):
+    """core.log sink: accept ``core`` plus any component without its own file."""
+
+    def __init__(self, dedicated: set[str] | frozenset[str] | tuple[str, ...]) -> None:
+        super().__init__()
+        self.dedicated = frozenset(str(item) for item in dedicated if item != "core")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        resolved = resolve_record_component(record)
+        return resolved == "core" or resolved not in self.dedicated
 
 
 def format_record_context(record: logging.LogRecord) -> str:
@@ -301,6 +371,7 @@ def shutdown_jarvis_logging() -> None:
     _state["log_queue"] = None
     _state["configured"] = False
     _state["log_path"] = None
+    _state["log_paths"] = None
     _state["scan_logs_dir"] = None
     _state["component"] = None
 
@@ -321,14 +392,22 @@ def setup_jarvis_logging(
     max_bytes: int = 5 * 2**20,
     backup_count: int = 7,
     use_queue: bool = True,
+    multi_sink: bool | None = None,
 ) -> str:
     """Configure process-level Jarvis logging once per process.
 
     Preferred layout (scan-scoped, by component)::
 
         logs/<scan>/core.log
-        logs/<scan>/worker-00.log
+        logs/<scan>/factory.log
+        logs/<scan>/sampler.log
         logs/<scan>/archiver.log
+        logs/<scan>/worker-00.log
+
+    **Control process** (role/component ``core``) with ``scan_logs_dir`` opens a
+    multi-sink by default: Factory / Sampler / Archiver lines are filtered into
+    their own files; residual control lines stay in ``core.log``. Worker and
+    Archiver *processes* keep a single component file.
 
     Console:
       - default on at INFO (``console_level``)
@@ -336,6 +415,7 @@ def setup_jarvis_logging(
       - file level follows ``level`` (default INFO)
 
     Style templates load from ``card/logging.yaml`` (or ``style_path``).
+    Returns the primary log path (``core.log`` for multi-sink control).
     """
     from jarvishep2.logging.style import clear_logging_style_cache, process_style
 
@@ -355,18 +435,41 @@ def setup_jarvis_logging(
     comp = str(component or role or "jarvis").strip().lower() or "jarvis"
     scan_dir = str(scan_logs_dir or "").strip() or None
 
-    if log_path:
+    # Multi-sink: control process only, when we have a scan logs directory.
+    # Explicit log_path forces single-file (tests / specialized callers).
+    if multi_sink is None:
+        multi_sink = bool(
+            scan_dir
+            and worker_id is None
+            and comp in {"core", "control", "jarvis"}
+            and not log_path
+        )
+    else:
+        multi_sink = bool(multi_sink)
+
+    log_paths: dict[str, str] = {}
+    if multi_sink and scan_dir:
+        os.makedirs(os.path.abspath(scan_dir), exist_ok=True)
+        for name in CONTROL_MULTI_SINK_COMPONENTS:
+            log_paths[name] = component_log_path(scan_dir, name)
+        resolved_path = log_paths["core"]
+    elif log_path:
         resolved_path = os.path.abspath(str(log_path))
+        log_paths[comp if comp != "control" else "core"] = resolved_path
     elif scan_dir:
         resolved_path = component_log_path(scan_dir, comp, worker_id=worker_id)
+        key = "worker" if comp == "worker" else (comp if comp != "control" else "core")
+        log_paths[key] = resolved_path
     else:
         log_root = os.path.abspath(log_dir)
         os.makedirs(log_root, exist_ok=True)
         resolved_path = os.path.join(log_root, f"jarvis_{comp}_{os.getpid()}.log")
+        log_paths[comp] = resolved_path
 
-    parent = os.path.dirname(resolved_path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
+    for path in log_paths.values():
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
 
     logger = logging.getLogger(JARVIS_HEP_LOG_DOMAIN)
     logger.handlers.clear()
@@ -376,15 +479,33 @@ def setup_jarvis_logging(
     sink_handlers: list[logging.Handler] = []
     if use_console:
         sink_handlers.append(_make_console_handler(level=cons_level, style=style))
-    sink_handlers.append(
-        _make_file_handler(
-            log_path=resolved_path,
-            level=file_level,
-            max_bytes=max_bytes,
-            backup_count=backup_count,
-            style=style,
+
+    if multi_sink and scan_dir:
+        dedicated = {name for name in log_paths if name != "core"}
+        for name, path in log_paths.items():
+            handler = _make_file_handler(
+                log_path=path,
+                level=file_level,
+                max_bytes=max_bytes,
+                backup_count=backup_count,
+                style=style,
+            )
+            if name == "core":
+                # Residual bucket: core + any component without a dedicated sink.
+                handler.addFilter(CoreResidualFilter(dedicated))
+            else:
+                handler.addFilter(ComponentFilter({name}))
+            sink_handlers.append(handler)
+    else:
+        sink_handlers.append(
+            _make_file_handler(
+                log_path=resolved_path,
+                level=file_level,
+                max_bytes=max_bytes,
+                backup_count=backup_count,
+                style=style,
+            )
         )
-    )
 
     if use_queue and sink_handlers:
         log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
@@ -402,7 +523,12 @@ def setup_jarvis_logging(
 
     _state["configured"] = True
     _state["log_path"] = resolved_path
-    _state["scan_logs_dir"] = os.path.dirname(resolved_path)
+    _state["log_paths"] = dict(log_paths)
+    _state["scan_logs_dir"] = (
+        os.path.abspath(scan_dir)
+        if scan_dir
+        else os.path.dirname(resolved_path)
+    )
     _state["component"] = comp
     atexit.register(shutdown_jarvis_logging)
     return resolved_path
@@ -444,6 +570,9 @@ def get_jarvis_logger(
 __all__ = [
     "COMPONENT_LOG_BASENAME",
     "COMPONENT_MODULE_LABEL",
+    "CONTROL_MULTI_SINK_COMPONENTS",
+    "ComponentFilter",
+    "CoreResidualFilter",
     "JARVIS_HEP_LOG_DOMAIN",
     "JarvisContextFormatter",
     "JarvisLoggerAdapter",
@@ -451,6 +580,7 @@ __all__ = [
     "component_module_label",
     "format_record_context",
     "get_jarvis_logger",
+    "resolve_record_component",
     "scan_logs_dir",
     "setup_jarvis_logging",
     "shutdown_jarvis_logging",

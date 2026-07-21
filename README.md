@@ -38,7 +38,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
-| Component logs | `logs/<scan>/core.log`, `worker-NN.log`, `archiver.log` (style: `card/logging.yaml`) |
+| Component logs | `logs/<scan>/core.log`, `factory.log`, `sampler.log`, `archiver.log`, `worker-NN.log` |
 | CLI version | `Jarvis2 -v` / `--version` → logo + Author + Version |
 | Process inspect | `Jarvis2 ps` / `Jarvis2 kill` (interactive confirm; `--yes` for scripts) |
 | Console | default INFO; `--console-level`; `--silence` / `-s` |

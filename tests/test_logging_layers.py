@@ -17,10 +17,12 @@ from jarvishep2.logging import (
     SampleLogger,
     component_log_path,
     get_jarvis_logger,
+    resolve_record_component,
     scan_logs_dir,
     setup_jarvis_logging,
     shutdown_jarvis_logging,
 )
+import logging
 from jarvishep2.sample import Sample, materialize_failure_artifacts
 
 
@@ -155,6 +157,88 @@ class TopLevelLoggingTests(unittest.TestCase):
             expected = scan_logs_dir(tmpdir, "ScanA")
             self.assertEqual(wc.get("logs_dir"), expected)
             self.assertTrue(wc["logs_dir"].endswith(os.path.join("logs", "ScanA")))
+
+    def test_resolve_record_component_by_logger_name_and_module(self) -> None:
+        rec = logging.LogRecord(
+            name="jarvis_hep.factory.watchdog",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="x",
+            args=(),
+            exc_info=None,
+        )
+        self.assertEqual(resolve_record_component(rec), "factory")
+        rec2 = logging.LogRecord(
+            name="jarvis_hep.sampler.dynesty",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="y",
+            args=(),
+            exc_info=None,
+        )
+        rec2.jarvis_module = "MultiNest.Inner"  # type: ignore[attr-defined]
+        self.assertEqual(resolve_record_component(rec2), "sampler")
+        rec3 = logging.LogRecord(
+            name="jarvis_hep.core",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="z",
+            args=(),
+            exc_info=None,
+        )
+        self.assertEqual(resolve_record_component(rec3), "core")
+
+    def test_control_multi_sink_splits_factory_and_sampler(self) -> None:
+        """Control process multi-sink: core/factory/sampler/archiver separate files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            logs = scan_logs_dir(tmpdir, "split")
+            setup_jarvis_logging(
+                role="core",
+                component="core",
+                scan_logs_dir=logs,
+                console=False,
+                use_queue=False,
+                multi_sink=True,
+            )
+            get_jarvis_logger("core", module="Jarvis-HEP").info("control-only line")
+            get_jarvis_logger("factory", module="Factory").info("factory-only line")
+            get_jarvis_logger("sampler.dynesty", module="Sampler:dynesty").info(
+                "sampler-only line"
+            )
+            get_jarvis_logger("sampler.dynesty.inner", module="MultiNest.Inner").info(
+                "progress-only line"
+            )
+            get_jarvis_logger("archiver", module="Archiver").info("archiver-only line")
+            shutdown_jarvis_logging()
+
+            core_text = Path(os.path.join(logs, "core.log")).read_text(encoding="utf-8")
+            factory_text = Path(os.path.join(logs, "factory.log")).read_text(
+                encoding="utf-8"
+            )
+            sampler_text = Path(os.path.join(logs, "sampler.log")).read_text(
+                encoding="utf-8"
+            )
+            archiver_text = Path(os.path.join(logs, "archiver.log")).read_text(
+                encoding="utf-8"
+            )
+
+            self.assertIn("control-only line", core_text)
+            self.assertNotIn("factory-only line", core_text)
+            self.assertNotIn("sampler-only line", core_text)
+            self.assertNotIn("progress-only line", core_text)
+
+            self.assertIn("factory-only line", factory_text)
+            self.assertNotIn("control-only line", factory_text)
+
+            self.assertIn("sampler-only line", sampler_text)
+            self.assertIn("progress-only line", sampler_text)
+            self.assertNotIn("control-only line", sampler_text)
+
+            self.assertIn("archiver-only line", archiver_text)
+            self.assertNotIn("control-only line", archiver_text)
 
     def test_two_layers_keep_summary_separate_from_sample_detail(self):
         with tempfile.TemporaryDirectory() as tmpdir:
