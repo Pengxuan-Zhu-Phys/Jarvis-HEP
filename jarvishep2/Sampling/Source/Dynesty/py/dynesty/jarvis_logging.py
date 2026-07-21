@@ -4,7 +4,10 @@
 
 All dynesty progress / warning / info output should go through
 :func:`get_dynesty_logger` so formatting matches the V1 visual contract
-(``·•· Dynesty.Inner`` via :mod:`jarvishep2.logging`).
+(``·•· Dynesty.Inner`` / ``·•· MultiNest.Inner`` via :mod:`jarvishep2.logging`).
+
+V2 MultiNest reuses this engine; the display label comes from the sampler
+method (``Dynesty`` vs ``MultiNest``), not from the vendored package name.
 """
 
 from __future__ import annotations
@@ -20,6 +23,18 @@ def set_dynesty_logger(logger: Any | None) -> None:
     """Install the Jarvis logger used by all dynesty internals."""
     global _DYNESTY_LOGGER
     _DYNESTY_LOGGER = logger
+
+
+def _inner_module_label(method: str | None = None) -> str:
+    """Jarvis module stamp for nested progress (``Dynesty.Inner`` / ``MultiNest.Inner``)."""
+    text = str(method or "").strip()
+    if text.lower() == "multinest" or "multinest" in text.lower():
+        return "MultiNest.Inner"
+    if text and text.lower() != "dynesty":
+        # Keep Method-based labels for any future static wrappers.
+        base = text.split(".")[0].strip() or "Dynesty"
+        return f"{base}.Inner"
+    return "Dynesty.Inner"
 
 
 def get_dynesty_logger() -> Any:
@@ -40,16 +55,35 @@ def get_dynesty_logger() -> Any:
         return logging.getLogger("jarvishep2.dynesty")
 
 
-def bind_inner(logger: Any | None = None) -> Any:
-    """Return a child logger labeled ``Dynesty.Inner`` (V1 presentation)."""
+def bind_inner(logger: Any | None = None, *, method: str | None = None) -> Any:
+    """Return a child logger labeled ``{Method}.Inner`` for progress lines.
+
+    *method* should be the HEP sampler name (``Dynesty`` / ``MultiNest``).
+    Defaults to ``Dynesty.Inner`` when omitted (stock vendored paths).
+    """
     base = logger if logger is not None else get_dynesty_logger()
+    label = _inner_module_label(method)
+    # Prefer an explicit method from the parent logger extra when not passed.
+    if method is None:
+        try:
+            extra = getattr(base, "extra", None)
+            if isinstance(extra, dict):
+                existing = str(
+                    extra.get("jarvis_module") or extra.get("module") or ""
+                )
+                if "MultiNest" in existing:
+                    label = "MultiNest.Inner"
+                elif existing.endswith(".Inner"):
+                    label = existing
+        except Exception:
+            pass
     binder = getattr(base, "bind", None)
     if callable(binder):
         try:
-            return binder(module="Dynesty.Inner", jarvis_module="Dynesty.Inner")
+            return binder(module=label, jarvis_module=label)
         except Exception:
             try:
-                return binder(module="Dynesty.Inner")
+                return binder(module=label)
             except Exception:
                 pass
     return base

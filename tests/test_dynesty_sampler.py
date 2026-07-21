@@ -407,6 +407,32 @@ class JarvisLoggerBridgeTests(unittest.TestCase):
             jl.set_dynesty_logger(None)
 
 
+class NestedLoggerLabelTests(unittest.TestCase):
+    def test_bind_inner_multinest_label(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_logging import (
+            _inner_module_label,
+            bind_inner,
+            resolve_progress_title,
+        )
+
+        self.assertEqual(_inner_module_label("MultiNest"), "MultiNest.Inner")
+        self.assertEqual(_inner_module_label("Dynesty"), "Dynesty.Inner")
+
+        class CapturingLogger:
+            def __init__(self) -> None:
+                self.extra: dict = {}
+
+            def bind(self, **kwargs):
+                child = CapturingLogger()
+                child.extra = dict(kwargs)
+                return child
+
+        base = CapturingLogger()
+        nested = bind_inner(base, method="MultiNest")
+        self.assertEqual(nested.extra.get("module"), "MultiNest.Inner")
+        self.assertEqual(resolve_progress_title(nested), "MultiNest")
+
+
 class DynestyCsvExportTests(unittest.TestCase):
     def test_export_dynesty_results_csv_schema(self) -> None:
         """V1 column names required by Jarvis-PLOT dynesty_runplot."""

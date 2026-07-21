@@ -680,8 +680,9 @@ class DynestySampler(FeedbackSampler):
             set_dynesty_logger,
         )
 
-        # All dynesty progress/warnings use this sampler's Jarvis logger.
-        inner_logger = bind_inner(self._logger)
+        # Progress/warnings use this sampler's Jarvis logger. MultiNest reuses
+        # the vendored engine but must stamp ·•· MultiNest.Inner, not Dynesty.Inner.
+        inner_logger = bind_inner(self._logger, method=self.method)
         set_dynesty_logger(inner_logger)
         install_warnings_bridge()
 

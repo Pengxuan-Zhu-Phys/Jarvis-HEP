@@ -62,9 +62,16 @@ class RedisEvaluationPool:
         if logger is not None:
             self._logger = logger
         else:
+            method_label = self.method.strip() or "Dynesty"
+            if method_label.lower() == "multinest":
+                pool_module = "MultiNest.Pool"
+                pool_name = "sampler.multinest.pool"
+            else:
+                pool_module = f"{method_label}.Pool"
+                pool_name = "sampler.dynesty.pool"
             self._logger = get_jarvis_logger(
-                "sampler.dynesty.pool",
-                module="Dynesty.Pool",
+                pool_name,
+                module=pool_module,
             )
 
     @property
