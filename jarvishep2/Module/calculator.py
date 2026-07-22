@@ -19,7 +19,11 @@ from jarvishep2.io_portal import (
     read_io_output_sync,
     write_io_input_sync,
 )
-from jarvishep2.Module.calculator_spec import CalculatorSpec
+from jarvishep2.Module.calculator_spec import (
+    CalculatorSpec,
+    is_cwd_switch_command,
+    next_cwd_from_command,
+)
 from jarvishep2.Module.runtime_preparer import RuntimePreparer
 from jarvishep2.Sampling.sampling_utils import BoolConversionError, evaluate_selection
 
@@ -55,7 +59,12 @@ class CalculatorModule:
         self._command_parser: CommandParser | None = None
         self._expression_context: ExpressionContext | None = None
         self._file_ops: Any | None = None
-        self._preparer = RuntimePreparer(self.spec)
+        force = bool(self.config.get("force_reinstall", False))
+        self._preparer = RuntimePreparer(self.spec, force_reinstall=force)
+        # V1: install stage writes to pack-local Installation_{name}-{PackID}.log
+        # (under shadow runtime path), not Sample_running.log.
+        self._install_logger: Any | None = None
+        self._install_log_path: str | None = None
 
     @staticmethod
     def custom_format(record: Mapping[str, Any]) -> str:
@@ -128,8 +137,48 @@ class CalculatorModule:
     def shadow_runtime_path(self) -> str:
         return self._preparer.shadow_runtime_path()
 
+    def install_log_path(self) -> str:
+        """V1 path: ``{shadow_runtime}/Installation_{name}-{PackID}.log``."""
+        pack = str(self.PackID or "NA")
+        runtime = self.shadow_runtime_path()
+        return os.path.join(runtime, f"Installation_{self.name}-{pack}.log")
+
+    def ensure_install_logger(self) -> Any:
+        """Open (or reuse) the pack-local installation log sink."""
+        if self._install_logger is not None:
+            return self._install_logger
+        from jarvishep2.sample_logger import SampleLogger
+
+        pack = str(self.PackID or "NA")
+        path = self.install_log_path()
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        label = f"{self.name}-{pack}"
+        self._install_logger = SampleLogger.open(path, module=label)
+        self._install_log_path = path
+        self._install_logger.info(f"Start install {label}")
+        return self._install_logger
+
+    def close_install_logger(self) -> None:
+        logger = self._install_logger
+        self._install_logger = None
+        if logger is None:
+            return
+        closer = getattr(logger, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+
     def ensure_shadow_installed(self) -> None:
-        self._preparer.ensure_shadow_installed(run_stage=self._run_stage_commands)
+        try:
+            self._preparer.ensure_shadow_installed(
+                run_stage=self._run_stage_commands,
+                logger=self._stream_logger_for_stage("install"),
+            )
+        finally:
+            # Install is one-shot per pack; release the file handle after the stage.
+            self.close_install_logger()
 
     def ensure_symlink_runtime(self, sample_info: Mapping[str, Any]) -> str | None:
         return self._preparer.ensure_symlink_runtime(sample_info)
@@ -140,7 +189,37 @@ class CalculatorModule:
         self._command_counter = 0
         if self.logger is None:
             self.update_sample_logger(sample_info)
-        self._preparer.prepare(sample_info, run_stage=self._run_stage_commands)
+        try:
+            # Install stage: use pack Installation_*.log only when we may actually install.
+            # Reuse hits still log a short line there if the stamp file already exists.
+            install_log = self._logger()
+            if self.clone_shadow and self.PackID:
+                try:
+                    if not self._preparer.can_reuse_install():
+                        install_log = self.ensure_install_logger()
+                    else:
+                        # Append a one-liner to the pack install log without "Start install".
+                        from jarvishep2.sample_logger import SampleLogger
+
+                        path = self.install_log_path()
+                        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                        pack = str(self.PackID)
+                        reuse_log = SampleLogger.open(
+                            path, module=f"{self.name}-{pack}"
+                        )
+                        install_log = reuse_log
+                        self._install_logger = reuse_log
+                        self._install_log_path = path
+                except Exception:
+                    install_log = self._logger()
+            self._preparer.prepare(
+                sample_info,
+                run_stage=self._run_stage_commands,
+                logger=install_log,
+            )
+        finally:
+            # Install log (if opened) is pack-local; never leave it bound into init/exec.
+            self.close_install_logger()
 
     def _logger(self):
         if self.logger is not None:
@@ -148,6 +227,12 @@ class CalculatorModule:
         if isinstance(self.sample_info, dict):
             return self.sample_info.get("logger")
         return None
+
+    def _stream_logger_for_stage(self, stage: str) -> Any | None:
+        """Install → pack Installation_*.log; init/exec → Sample_running.log."""
+        if str(stage or "").strip().lower() == "install":
+            return self.ensure_install_logger()
+        return self._logger()
 
     def update_sample_logger(self, sample_info: Mapping[str, Any]) -> None:
         """Bind the per-Sample logger as ``Sample@… (Module-No.pack)`` (V1 contract)."""
@@ -219,19 +304,31 @@ class CalculatorModule:
         cmd_text = self._resolve_runtime_tokens(str(command.get("cmd", "")), stage=stage, field="cmd")
         cwd_text = self._resolve_runtime_tokens(str(command.get("cwd", ".")), stage=stage, field="cwd")
         cwd = os.path.abspath(cwd_text or ".")
+        stream_logger = self._stream_logger_for_stage(stage)
+        # Pure ``cd <path>`` only exists to update inherited cwd for later entries
+        # (baked into each command's ``cwd`` at normalize time). Spawning a shell
+        # ``cd`` is a no-op across process boundaries — log the switch and return.
+        if is_cwd_switch_command(cmd_text):
+            target = next_cwd_from_command(cmd_text, cwd)
+            if not os.path.isabs(target):
+                target = os.path.abspath(target)
+            if stream_logger is not None:
+                stream_logger.info(
+                    f" Cwd switch [{stage}#{int(command_index):05}] -> \n"
+                    f"\t{cmd_text} \n following commands cwd -> \n\t{target} \n"
+                )
+            return
         os.makedirs(cwd, exist_ok=True)
-        sample_logger = self._logger()
-        # When a sample logger is bound, stream command header/stdout/summary into
-        # Sample_running.log (V1 contract). Otherwise stay quiet on the worker log.
-        use_sample_log = sample_logger is not None
+        # Install → pack Installation_*.log; init/exec → Sample_running.log (V1).
+        use_stream_log = stream_logger is not None
         result = scheduler.run(
             SubprocessJob(
                 cmd=cmd_text,
                 cwd=cwd,
                 env=self._subprocess_env,
                 timeout_sec=timeout_sec,
-                log_policy="logger" if use_sample_log else "quiet",
-                stream_logger=sample_logger if use_sample_log else None,
+                log_policy="logger" if use_stream_log else "quiet",
+                stream_logger=stream_logger if use_stream_log else None,
                 meta={
                     "module": self.name,
                     "pack_id": self.PackID,
@@ -243,17 +340,66 @@ class CalculatorModule:
                         else None
                     ),
                     "cwd": cwd,
-                    "command_log_to_stream": use_sample_log,
-                    "emit_command_summary": use_sample_log,
+                    "command_log_to_stream": use_stream_log,
+                    "emit_command_summary": use_stream_log,
                 },
             ),
             timeout=(float(timeout_sec) + 5.0) if timeout_sec is not None else None,
         )
         if not result.ok:
             raise RuntimeError(
-                f"Command failed [{stage}#{command_index:05}] rc={result.returncode} "
-                f"timeout={result.timed_out} cmd={cmd_text}"
+                self._format_command_failure(
+                    stage=stage,
+                    command_index=command_index,
+                    cmd_text=cmd_text,
+                    cwd=cwd,
+                    result=result,
+                )
             )
+
+    def _format_command_failure(
+        self,
+        *,
+        stage: str,
+        command_index: int,
+        cmd_text: str,
+        cwd: str,
+        result: Any,
+    ) -> str:
+        """Build a failure string that stands alone on the worker log.
+
+        Sample_running.log already has the multi-line "Run … command" header;
+        worker ERROR lines only carry ``str(exc)``, so cwd / module / stderr
+        must be embedded here (relative cmds like ``./main`` are useless alone).
+        """
+        pack = self.PackID
+        pack_s = "" if pack in (None, "", "None") else str(pack)
+        lines = [
+            f"Command failed [{stage}#{int(command_index):05}]",
+            (
+                f"  rc={int(getattr(result, 'returncode', -1))} "
+                f"timeout={bool(getattr(result, 'timed_out', False))} "
+                f"dur={float(getattr(result, 'duration_sec', 0.0)):.3f}s"
+            ),
+            f"  module={self.name}"
+            + (f" pack_id={pack_s}" if pack_s else ""),
+            f"  cwd={cwd}",
+            f"  cmd={cmd_text}",
+        ]
+        stderr_tail = str(getattr(result, "stderr_tail", "") or "").strip()
+        if stderr_tail:
+            # Keep one logical line so worker two-column logs stay greppable.
+            stderr_one = " ".join(stderr_tail.split())
+            if len(stderr_one) > 400:
+                stderr_one = stderr_one[:397] + "..."
+            lines.append(f"  stderr={stderr_one}")
+        stdout_tail = str(getattr(result, "stdout_tail", "") or "").strip()
+        if stdout_tail and not stderr_tail:
+            stdout_one = " ".join(stdout_tail.split())
+            if len(stdout_one) > 400:
+                stdout_one = stdout_one[:397] + "..."
+            lines.append(f"  stdout={stdout_one}")
+        return "\n".join(lines)
 
     def _run_stage_commands(self, commands: list[Mapping[str, Any]], stage: str) -> None:
         for command in commands:

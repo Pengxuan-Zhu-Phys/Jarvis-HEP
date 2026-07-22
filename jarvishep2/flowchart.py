@@ -1196,11 +1196,27 @@ def render_flowchart_png(
         from jarvisplot import render_flowchart
     except ImportError:
         return None
+    import logging
+    import warnings
+
     out = os.path.abspath(str(output_path))
     parent = os.path.dirname(out)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    rendered = render_flowchart(dict(scene), output_path=out)
+    # Defense in depth: mute matplotlib font-manager noise even if an older
+    # JarvisPLOT is installed (cache rebuild / missing weight warnings).
+    prev_mpl = logging.getLogger("matplotlib").level
+    prev_fm = logging.getLogger("matplotlib.font_manager").level
+    logging.getLogger("matplotlib").setLevel(logging.ERROR)
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message=r".*[Ff]ont.*")
+        warnings.filterwarnings("ignore", message=r".*findfont.*")
+        try:
+            rendered = render_flowchart(dict(scene), output_path=out)
+        finally:
+            logging.getLogger("matplotlib").setLevel(prev_mpl)
+            logging.getLogger("matplotlib.font_manager").setLevel(prev_fm)
     return str(rendered or out)
 
 

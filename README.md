@@ -42,7 +42,38 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | CLI version | `Jarvis2 -v` / `--version` → logo + Author + Version |
 | Process inspect | `Jarvis2 ps` / `Jarvis2 kill` (interactive confirm; `--yes` for scripts) |
 | Console | default INFO; `--console-level`; `--silence` / `-s` |
+| AdaptiveBridson tuning | public knobs: `outer_half_width`, `min_radius`; core/stop width = `outer_half_width / 8` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
 
 V1 (`jarvishep`) is frozen and must not be imported from this package.
+
+## AdaptiveBridson minimal configuration
+
+Besides the required target expression/value, AdaptiveBridson exposes two
+algorithm-tuning controls:
+
+```yaml
+Sampling:
+  Method: AdaptiveBridson
+  AdaptiveBridson:
+    target_expression: Omega_h2
+    target_value: 0.12
+    outer_half_width: 0.02
+    min_radius: 0.002
+```
+
+The sampler derives `core_half_width` and the `t_max - t_min` stop threshold as
+`outer_half_width / 8`. Radius shrink, coverage, bridging, endpoint exploration,
+and safety budgets use internal defaults. Historical advanced keys remain
+readable so existing scan cards and checkpoints can resume, but new cards should
+use the two-knob interface.
+
+At the default `INFO` log level, AdaptiveBridson reports only its start, `r_g`
+scale transitions, and final summary. Per-fill band diagnostics, endpoint/root
+search, bridging, and densify timing are available at `DEBUG`; abnormal safety
+stops and output failures remain `WARNING`.
+
+DataRecorder reports DATABASE progress every 500 rows (plus the forced final
+count). Archiver keeps process start/final summaries at `INFO`; per-bucket pack,
+loop, drain, and process-exit details are available at `DEBUG`.

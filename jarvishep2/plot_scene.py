@@ -48,6 +48,139 @@ def _load_levelset(levelset_path: str) -> Mapping[str, Any] | None:
     return payload if isinstance(payload, Mapping) else None
 
 
+# Columns that are never scan axes (archive / product / likelihood bookkeeping).
+_PLOT_AXIS_SKIP = frozenset(
+    {
+        "uuid",
+        "LogL",
+        "logL",
+        "product_list",
+        "bucket_dir",
+        "bucket_id",
+        "bucket_name",
+        "status",
+        "inpjson",
+        "oupjson",
+        "staging_path",
+        "save_dir",
+        "run_log",
+        "worker_id",
+    }
+)
+
+
+def _variable_names_from_config(config: Mapping[str, Any] | None) -> list[str]:
+    if not isinstance(config, Mapping):
+        return []
+    sampling = config.get("Sampling")
+    if not isinstance(sampling, Mapping):
+        return []
+    names: list[str] = []
+    for item in sampling.get("Variables") or []:
+        if isinstance(item, Mapping):
+            name = str(item.get("name") or "").strip()
+            if name:
+                names.append(name)
+    return names
+
+
+def _variable_names_from_levelset(payload: Mapping[str, Any] | None) -> list[str]:
+    if not isinstance(payload, Mapping):
+        return []
+    raw = payload.get("variable_names") or payload.get("variables")
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        return [str(n).strip() for n in raw if str(n).strip()]
+    return []
+
+
+def _columns_from_records(records: Sequence[Mapping[str, Any]] | None) -> list[str]:
+    if not records:
+        return []
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for row in records:
+        if not isinstance(row, Mapping):
+            continue
+        for key in row.keys():
+            text = str(key)
+            if text not in seen:
+                seen.add(text)
+                ordered.append(text)
+    return ordered
+
+
+def resolve_plot_axis_keys(
+    *,
+    x_key: str = "x",
+    y_key: str = "y",
+    color_key: str = "LogL",
+    levelset: Mapping[str, Any] | None = None,
+    records: Sequence[Mapping[str, Any]] | None = None,
+    config: Mapping[str, Any] | None = None,
+) -> tuple[str, str, str]:
+    """Pick scatter / axis column names from levelset, task config, or archive.
+
+    Prefer ``levelset.json`` ``variable_names`` (AdaptiveBridson), then
+    ``Sampling.Variables`` order, then numeric-looking archive columns. Falls
+    back to the explicit ``x_key`` / ``y_key`` defaults only when nothing else
+    matches (legacy Eggbox ``x``/``y`` scans).
+    """
+    color = str(color_key or "LogL").strip() or "LogL"
+    preferred = (
+        _variable_names_from_levelset(levelset)
+        or _variable_names_from_config(config)
+    )
+    columns = _columns_from_records(records)
+    colset = set(columns)
+
+    def _usable(name: str) -> bool:
+        text = str(name or "").strip()
+        if not text or text in _PLOT_AXIS_SKIP or text == color:
+            return False
+        if text.startswith("LogL_"):
+            return False
+        # Paths / file products often end with json path columns from calculators.
+        if text.endswith("json") and text not in preferred:
+            return False
+        if colset and text not in colset:
+            return False
+        return True
+
+    x = str(x_key or "x").strip() or "x"
+    y = str(y_key or "y").strip() or "y"
+
+    # Prefer first two sampling / level-set variables when present in the archive
+    # (or when archive columns are unknown — levelset-only overlay).
+    if len(preferred) >= 2:
+        cand_x, cand_y = preferred[0], preferred[1]
+        if not colset or (cand_x in colset and cand_y in colset):
+            x, y = cand_x, cand_y
+        elif cand_x in colset or cand_y in colset:
+            # Partial hit: fill missing axis from remaining preferred / columns.
+            x = cand_x if cand_x in colset else x
+            y = cand_y if cand_y in colset else y
+
+    # If defaults (or partial resolve) still miss the archive, infer from columns.
+    if colset and (x not in colset or y not in colset):
+        axis_cols = [c for c in columns if _usable(c)]
+        # Prefer preferred order among usable columns.
+        ordered: list[str] = []
+        for name in preferred:
+            if name in axis_cols and name not in ordered:
+                ordered.append(name)
+        for name in axis_cols:
+            if name not in ordered:
+                ordered.append(name)
+        if x not in colset and ordered:
+            x = ordered[0]
+        if y not in colset:
+            for name in ordered:
+                if name != x:
+                    y = name
+                    break
+    return x, y, color
+
+
 def _polylines_physical(payload: Mapping[str, Any]) -> list[list[list[float]]]:
     raw = payload.get("polylines_x") or payload.get("polylines_u") or []
     out: list[list[list[float]]] = []
@@ -81,6 +214,7 @@ def emit_levelset_overlay_scene(
     *,
     output_yaml: str,
     title: str | None = None,
+    config: Mapping[str, Any] | None = None,
 ) -> str | None:
     """Build a lightweight intermediate overlay scene (series form) from levelset.json."""
     payload = _load_levelset(levelset_path)
@@ -105,6 +239,9 @@ def emit_levelset_overlay_scene(
     if not series:
         return None
 
+    x_label, y_label, _ = resolve_plot_axis_keys(
+        levelset=payload, config=config
+    )
     scene = {
         "schema": "jarvisplot.scene/v1",
         "scene_type": "overlay",
@@ -115,10 +252,12 @@ def emit_levelset_overlay_scene(
             "title": title or "Adaptive level-set contour",
             "target_expression": payload.get("target_expression"),
             "target_value": payload.get("target_value"),
+            "variable_names": _variable_names_from_levelset(payload)
+            or _variable_names_from_config(config),
         },
         "figure": {
-            "xlabel": "x",
-            "ylabel": "y",
+            "xlabel": x_label,
+            "ylabel": y_label,
             "title": title or "Adaptive level-set contour",
         },
         "series": series,
@@ -284,11 +423,15 @@ def emit_jplot_scan_levelset_yaml(
     y_key: str = "y",
     color_key: str = "LogL",
     limit: int = 5000,
+    config: Mapping[str, Any] | None = None,
 ) -> str | None:
     """Emit a **stock jplot** YAML: sample scatter + level-set polyline overlay.
 
     - Plot YAML → ``<project>/images/<scan>/``
     - Samples CSV → next to HDF5 under ``DATABASE/samples.csv`` (full columns)
+
+    Axis expressions use real ``Sampling.Variables`` / levelset ``variable_names``
+    (e.g. ``MChi``, ``Y``), not hard-coded ``x``/``y``.
 
     Consumable by ``Jarvis2 plot path.yaml`` / ``jplot`` without a V2 adapter.
     """
@@ -307,6 +450,18 @@ def emit_jplot_scan_levelset_yaml(
     os.makedirs(out_dir, exist_ok=True)
 
     db_path = os.path.join(root, "DATABASE", "samples.hdf5")
+    levelset_path = os.path.join(root, "levelset.json")
+    payload = _load_levelset(levelset_path)
+    records = _read_hdf5_records(db_path, limit=None)
+    x_key, y_key, color_key = resolve_plot_axis_keys(
+        x_key=x_key,
+        y_key=y_key,
+        color_key=color_key,
+        levelset=payload,
+        records=records,
+        config=config,
+    )
+
     # Full Worker evaluation archive (every logL call), not nested dead points.
     # Nested clean CSV is DATABASE/dynesty_result.csv (written by DynestySampler).
     # Caller must wait for Archiver catch-up before this snapshot.
@@ -320,8 +475,6 @@ def emit_jplot_scan_levelset_yaml(
         limit=None,
     )
 
-    levelset_path = os.path.join(root, "levelset.json")
-    payload = _load_levelset(levelset_path)
     polylines = _polylines_physical(payload) if payload else []
 
     if not csv_path and not polylines:
@@ -424,6 +577,7 @@ def emit_jplot_scan_levelset_yaml(
             "scan_name": scan_name,
             "levelset": os.path.basename(levelset_path) if payload else None,
             "title": title,
+            "axis_keys": {"x": x_key, "y": y_key, "c": color_key},
         },
     }
     yaml_path = os.path.join(out_dir, f"{scan_name}_levelset_jplot.yaml")
@@ -526,6 +680,7 @@ def emit_plot_scenes_from_run(
     y_key: str = "y",
     color_key: str = "LogL",
     auto_render: bool = False,
+    config: Mapping[str, Any] | None = None,
 ) -> dict[str, str]:
     """Emit plot inputs for a finished run.
 
@@ -536,6 +691,9 @@ def emit_plot_scenes_from_run(
 
     When ``auto_render`` is true and JarvisPLOT is installed, also render the
     jplot YAML to PNG via the stock plot bridge.
+
+    Axis keys are resolved from levelset ``variable_names``, task ``config``
+    ``Sampling.Variables``, or archive columns (not hard-coded ``x``/``y``).
     """
     from jarvishep2.base import (
         infer_project_root_from_task_result_dir,
@@ -553,15 +711,27 @@ def emit_plot_scenes_from_run(
     written: dict[str, str] = {}
 
     levelset = os.path.join(root, "levelset.json")
+    levelset_payload = _load_levelset(levelset)
+    db_path = os.path.join(root, "DATABASE", "samples.hdf5")
+    records = _read_hdf5_records(db_path, limit=None)
+    x_key, y_key, color_key = resolve_plot_axis_keys(
+        x_key=x_key,
+        y_key=y_key,
+        color_key=color_key,
+        levelset=levelset_payload,
+        records=records,
+        config=config,
+    )
+
     overlay = emit_levelset_overlay_scene(
         levelset,
         output_yaml=os.path.join(out_dir, f"{scan_name}_levelset.yaml"),
         title=f"{scan_name} level-set",
+        config=config,
     )
     if overlay:
         written["levelset_overlay"] = overlay
 
-    db_path = os.path.join(root, "DATABASE", "samples.hdf5")
     scatter = emit_scan_scatter_scene_from_hdf5(
         db_path,
         output_yaml=os.path.join(out_dir, f"{scan_name}_scatter.yaml"),
@@ -581,6 +751,7 @@ def emit_plot_scenes_from_run(
         x_key=x_key,
         y_key=y_key,
         color_key=color_key,
+        config=config,
     )
     if jplot_yaml:
         written["jplot_levelset"] = jplot_yaml
@@ -664,4 +835,5 @@ __all__ = [
     "emit_plot_scenes_from_run",
     "emit_scan_scatter_scene_from_hdf5",
     "export_samples_csv_from_hdf5",
+    "resolve_plot_axis_keys",
 ]

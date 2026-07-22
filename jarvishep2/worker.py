@@ -671,7 +671,8 @@ class Worker(Process):
         except Exception as exc:
             sample.record_failure(exc)
             materialize_failure_artifacts(sample.info, error=exc)
-            top.error("sample failed; see sample log -> %s", exc)
+            # Multi-line command failures embed cwd/cmd/stderr; keep them intact.
+            top.error("sample failed; see sample log ->\n%s", exc)
         finally:
             # Always return calculator PackIDs first — even if handoff/archive fails.
             self._force_release_all_held_packs(logger=top)

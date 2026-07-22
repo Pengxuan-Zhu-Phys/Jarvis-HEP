@@ -146,6 +146,10 @@ class SubprocessResult:
     stdout_bytes: int
     stderr_bytes: int
     cmd_display: str
+    cwd: str | None = None
+    # Last decoded bytes of each stream (for failure diagnostics when logs are elsewhere).
+    stdout_tail: str = ""
+    stderr_tail: str = ""
 
     @property
     def ok(self) -> bool:
@@ -534,10 +538,15 @@ class AsyncSubprocessScheduler:
             ):
                 _emit_log_line(stream_logger, text, raw=True)
 
-        async def _drain_stream(stream, sink_fh, stream_name: str) -> int:
+        # Keep a short rolling tail so failure exceptions can quote the stream
+        # even when stdout/stderr only went to Sample_running.log.
+        stream_tail_limit = 800
+
+        async def _drain_stream(stream, sink_fh, stream_name: str) -> tuple[int, str]:
             total = 0
             emitted = 0
             text_buffer = ""
+            tail_text = ""
 
             def _emit_text(text: str) -> None:
                 _emit_command_raw(text)
@@ -547,17 +556,20 @@ class AsyncSubprocessScheduler:
                 if not chunk:
                     break
                 total += len(chunk)
+                decoded = chunk.decode(errors="replace")
+                if decoded:
+                    tail_text = (tail_text + decoded)[-stream_tail_limit:]
                 if sink_fh is not None:
                     sink_fh.write(chunk)
                 if mode == "logger" and command_logger is not None:
-                    text_buffer += chunk.decode(errors="replace")
+                    text_buffer += decoded
                     while "\n" in text_buffer:
                         line, text_buffer = text_buffer.split("\n", 1)
                         line = line.rstrip("\r")
                         if line:
                             _emit_text(line)
                 if mode == "tee-limited" and command_logger is not None and emitted < 3:
-                    text = chunk.decode(errors="ignore")
+                    text = decoded
                     if text.strip():
                         emitted += 1
                         _emit_text(text.strip()[:200])
@@ -567,7 +579,7 @@ class AsyncSubprocessScheduler:
                     _emit_text(tail)
             if sink_fh is not None:
                 sink_fh.flush()
-            return total
+            return total, tail_text.strip()
 
         drain_out = asyncio.create_task(_drain_stream(process.stdout, stdout_fh, "stdout"))
         drain_err = asyncio.create_task(_drain_stream(process.stderr, stderr_fh, "stderr"))
@@ -585,7 +597,7 @@ class AsyncSubprocessScheduler:
         finally:
             self._unregister_active_pid(process.pid)
             try:
-                stdout_bytes, stderr_bytes = await asyncio.gather(
+                (stdout_bytes, stdout_tail), (stderr_bytes, stderr_tail) = await asyncio.gather(
                     drain_out, drain_err, return_exceptions=False
                 )
             finally:
@@ -608,6 +620,9 @@ class AsyncSubprocessScheduler:
             stdout_bytes=int(stdout_bytes),
             stderr_bytes=int(stderr_bytes),
             cmd_display=cmd_display,
+            cwd=str(job.cwd) if job.cwd else None,
+            stdout_tail=str(stdout_tail or ""),
+            stderr_tail=str(stderr_tail or ""),
         )
 
         if bool(run_meta.get("emit_command_summary")):

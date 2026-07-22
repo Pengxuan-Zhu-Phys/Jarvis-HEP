@@ -311,6 +311,7 @@ class PlotSceneEmitTests(unittest.TestCase):
 
             levelset = {
                 "dim": 2,
+                "variable_names": ["x", "y"],
                 "target_expression": "r2",
                 "target_value": 0.25,
                 "polylines_x": [
@@ -345,6 +346,9 @@ class PlotSceneEmitTests(unittest.TestCase):
             methods = {layer.get("method") for layer in layers}
             self.assertIn("scatter", methods)
             self.assertIn("plot", methods)
+            scatter = next(layer for layer in layers if layer.get("name") == "scatter")
+            self.assertEqual(scatter["coordinates"]["x"]["expr"], "x")
+            self.assertEqual(scatter["coordinates"]["y"]["expr"], "y")
 
             written = emit_plot_scenes_from_run(
                 scan_dir,
@@ -359,6 +363,59 @@ class PlotSceneEmitTests(unittest.TestCase):
             self.assertEqual(
                 written["samples_csv"], os.path.join(db_dir, "samples.csv")
             )
+
+    def test_jplot_levelset_uses_real_parameter_names(self) -> None:
+        """iDM-style scans: MChi/Y must appear in scatter expr, not bare x/y."""
+        from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml
+
+        with tempfile.TemporaryDirectory() as project:
+            scan_dir = os.path.join(project, "outputs", "idm_demo")
+            db_dir = os.path.join(scan_dir, "DATABASE")
+            os.makedirs(db_dir)
+            db = os.path.join(db_dir, "samples.hdf5")
+            writer = SimpleHDF5Writer(db)
+            writer.add_record(
+                {"MChi": 50.0, "Y": 1e-6, "LogL": -1.0, "Omega_h2": 0.12, "uuid": "u1"}
+            )
+            writer.add_record(
+                {"MChi": 80.0, "Y": 2e-6, "LogL": -2.0, "Omega_h2": 0.15, "uuid": "u2"}
+            )
+            levelset = {
+                "dim": 2,
+                "variable_names": ["MChi", "Y"],
+                "target_expression": "Omega_h2",
+                "target_value": 0.12,
+                "polylines_x": [[[10.0, 1e-7], [90.0, 5e-6]]],
+            }
+            with open(os.path.join(scan_dir, "levelset.json"), "w", encoding="utf-8") as handle:
+                json.dump(levelset, handle)
+
+            jplot_path = emit_jplot_scan_levelset_yaml(
+                scan_dir,
+                scan_name="idm_demo",
+                project_root=project,
+                config={
+                    "Sampling": {
+                        "Variables": [
+                            {"name": "MChi"},
+                            {"name": "Y"},
+                        ]
+                    }
+                },
+            )
+            self.assertIsNotNone(jplot_path)
+            with open(str(jplot_path), encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            scatter = next(
+                layer
+                for layer in doc["Figures"][0]["layers"]
+                if layer.get("name") == "scatter"
+            )
+            self.assertEqual(scatter["coordinates"]["x"]["expr"], "MChi")
+            self.assertEqual(scatter["coordinates"]["y"]["expr"], "Y")
+            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["x"], "$MChi$")
+            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["y"], "$Y$")
+            self.assertEqual(doc["_jarvishep2"]["axis_keys"]["x"], "MChi")
 
     def test_jplot_dynesty_runplot_hook(self) -> None:
         """V1 Jarvis-PLOT path: dynesty_result.csv → dynesty_runplot jplot YAML."""

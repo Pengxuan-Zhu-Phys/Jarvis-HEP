@@ -11,7 +11,12 @@ from math import pi
 import numpy as np
 
 from jarvishep2.Module.calculator import CalculatorModule
-from jarvishep2.Module.calculator_spec import CalculatorSpec, normalize_command_list
+from jarvishep2.Module.calculator_spec import (
+    CalculatorSpec,
+    is_cwd_switch_command,
+    next_cwd_from_command,
+    normalize_command_list,
+)
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.calculator_pools import resolve_calculator_pools
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
@@ -177,6 +182,88 @@ class CalculatorSpecV1YamlTests(unittest.TestCase):
         )
         self.assertEqual(entries[0]["cmd"], "echo hi")
 
+    def test_cd_updates_cwd_for_following_commands(self) -> None:
+        """V1 chain: standalone ``cd path`` is inherited by later commands."""
+        pack = "/runtime/microOMEGAs/@PackID"
+        entries = normalize_command_list(
+            [
+                "make",
+                "cd vector-iDM",
+                "make main=main.cpp",
+                'cd "/tmp/other pack"',
+                "echo done",
+            ],
+            default_cwd=pack,
+        )
+        self.assertEqual(entries[0], {"cmd": "make", "cwd": pack})
+        self.assertEqual(entries[1], {"cmd": "cd vector-iDM", "cwd": pack})
+        self.assertEqual(
+            entries[2],
+            {
+                "cmd": "make main=main.cpp",
+                "cwd": f"{pack}/vector-iDM",
+            },
+        )
+        self.assertEqual(entries[3]["cmd"], 'cd "/tmp/other pack"')
+        self.assertEqual(entries[3]["cwd"], f"{pack}/vector-iDM")
+        self.assertEqual(entries[4], {"cmd": "echo done", "cwd": "/tmp/other pack"})
+
+    def test_cd_and_make_combined_does_not_chain(self) -> None:
+        """Only pure ``cd <path>`` chains; ``cd x && make`` keeps default cwd."""
+        root = "/calc/pack"
+        entries = normalize_command_list(
+            ["cd vector-iDM && make main=main.cpp", "ls"],
+            default_cwd=root,
+        )
+        self.assertEqual(entries[0]["cwd"], root)
+        self.assertEqual(entries[1]["cwd"], root)
+
+    def test_next_cwd_from_command_helpers(self) -> None:
+        self.assertTrue(is_cwd_switch_command("cd vector-iDM"))
+        self.assertTrue(is_cwd_switch_command('cd "/tmp/a b"'))
+        self.assertFalse(is_cwd_switch_command("cd vector-iDM && make"))
+        self.assertFalse(is_cwd_switch_command("make main=main.cpp"))
+        self.assertEqual(
+            next_cwd_from_command("cd vector-iDM", "/pack/@PackID"),
+            "/pack/@PackID/vector-iDM",
+        )
+        self.assertEqual(
+            next_cwd_from_command("cd /abs/target", "/pack"),
+            "/abs/target",
+        )
+
+    def test_explicit_mapping_cwd_resets_chain_base(self) -> None:
+        entries = normalize_command_list(
+            [
+                {"cmd": "cd sub", "cwd": "/explicit/root"},
+                "pwd",
+            ],
+            default_cwd="/default",
+        )
+        self.assertEqual(entries[0]["cwd"], "/explicit/root")
+        self.assertEqual(entries[1], {"cmd": "pwd", "cwd": "/explicit/root/sub"})
+
+    def test_installation_cd_chain_in_spec(self) -> None:
+        spec = CalculatorSpec.from_config(
+            "Micro",
+            {
+                "name": "Micro",
+                "path": "/calc/micro/@PackID",
+                "installation": [
+                    "make",
+                    "cd vector-iDM",
+                    "make main=main.cpp",
+                ],
+                "execution": {"commands": ["./vector-iDM/main a b"]},
+            },
+        )
+        self.assertEqual(spec.installation[1]["cmd"], "cd vector-iDM")
+        self.assertEqual(spec.installation[1]["cwd"], "/calc/micro/@PackID")
+        self.assertEqual(
+            spec.installation[2]["cwd"],
+            "/calc/micro/@PackID/vector-iDM",
+        )
+
 
 class CalculatorSelectionExecuteTests(unittest.TestCase):
     def test_selection_false_skips_execute_without_scheduler(self) -> None:
@@ -285,6 +372,13 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
             pack_dir = os.path.join(runtime_root, "EggBox", "001")
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "eggbox.py")))
             self.assertTrue(os.path.isfile(os.path.join(pack_dir, "output.json")))
+            # V1: installation log lives under the pack shadow dir, not SAMPLE/.
+            install_log = os.path.join(pack_dir, "Installation_EggBox-001.log")
+            self.assertTrue(os.path.isfile(install_log), install_log)
+            install_text = open(install_log, encoding="utf-8").read()
+            self.assertIn("Start install EggBox-001", install_text)
+            self.assertIn("Run installation command", install_text)
+            self.assertIn("Command Summary -> [install#", install_text)
 
     def test_sample_running_log_matches_v1_shape(self) -> None:
         """Calculator + Portal + Likelihood must stream into Sample_running.log."""
@@ -330,6 +424,9 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
             self.assertIn("(EggBox-No.006)", text)
             self.assertIn("Run initialize command", text)
             self.assertIn("Command Summary -> [initialize#", text)
+            # Install stage must not pollute Sample_running.log (pack Installation_*.log).
+            self.assertNotIn("Run installation command", text)
+            self.assertNotIn("Command Summary -> [install#", text)
             self.assertIn("Adding the file inpjson as 'Portal:JSON' type", text)
             self.assertIn("Evaluating: expression", text)
             self.assertIn("Run execution command", text)
@@ -339,6 +436,15 @@ class V1StringCloneShadowExecuteTests(unittest.TestCase):
             self.assertIn("(Likelihood)", text)
             self.assertIn("Sample SUMMARY", text)
             self.assertIn("Sample closed", text)
+
+            pack_install = os.path.join(
+                runtime_root, "EggBox", "006", "Installation_EggBox-006.log"
+            )
+            self.assertTrue(os.path.isfile(pack_install), pack_install)
+            self.assertIn(
+                "Run installation command",
+                open(pack_install, encoding="utf-8").read(),
+            )
 
 
 @unittest.skipUnless(EGGBOX_SOURCE, "Jarvis-Examples Eggbox assets not available")

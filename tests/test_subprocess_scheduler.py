@@ -86,6 +86,21 @@ class AsyncSubprocessSchedulerTests(unittest.TestCase):
         )
         self.assertTrue(result.ok)
 
+    def test_failure_captures_cwd_and_stderr_tail(self) -> None:
+        """Worker ERROR only has str(exc); result must carry run context."""
+        self._scheduler = AsyncSubprocessScheduler(
+            SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")
+        )
+        result = self._scheduler.run(
+            SubprocessJob(cmd="./definitely_missing_jarvis_bin", cwd="/tmp"),
+            timeout=5.0,
+        )
+        self.assertFalse(result.ok)
+        self.assertEqual(result.returncode, 127)
+        self.assertEqual(result.cwd, "/tmp")
+        self.assertEqual(result.cmd_display, "./definitely_missing_jarvis_bin")
+        self.assertIn("No such file", result.stderr_tail)
+
     def test_snapshot_tracks_pending_and_peak_running(self) -> None:
         delay = 0.3
         self._scheduler = AsyncSubprocessScheduler(

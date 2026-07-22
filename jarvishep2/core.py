@@ -611,7 +611,45 @@ class Jarvis2Core:
         archiver = dict(archiver) if isinstance(archiver, Mapping) else {}
         archiver["pack_buckets"] = False
         calculators["Archiver"] = archiver
+        # --- One calculator PackID only ---
+        # Workers=1 alone is not enough: Redis still registers N slots from
+        # ``make_paraller`` / Pools. Free-list rotation then hands sample 1 → 001,
+        # sample 2 → 002, … and each new PackID runs a full clone_shadow install
+        # (e.g. full micrOMEGAs copy+make). Check is a smoke: pin pool size to 1
+        # so every point reuses ``001`` after the first install.
+        calculators["make_paraller"] = 1
+        if "Pools" in calculators:
+            pools = calculators.get("Pools")
+            if isinstance(pools, Mapping):
+                calculators["Pools"] = {str(k): 1 for k in pools}
+            else:
+                calculators.pop("Pools", None)
+        if "pools" in calculators:
+            pools_l = calculators.get("pools")
+            if isinstance(pools_l, Mapping):
+                calculators["pools"] = {str(k): 1 for k in pools_l}
+            else:
+                calculators.pop("pools", None)
+        modules = calculators.get("Modules")
+        if isinstance(modules, list):
+            pinned_modules: list[Any] = []
+            for item in modules:
+                if isinstance(item, Mapping):
+                    mod = dict(item)
+                    mod["make_paraller"] = 1
+                    pinned_modules.append(mod)
+                else:
+                    pinned_modules.append(item)
+            calculators["Modules"] = pinned_modules
         self.config["Calculators"] = calculators
+
+        # Operas layer width is independent of PackID install, but keep smoke serial.
+        operas = self.config.get("Operas")
+        if isinstance(operas, Mapping):
+            operas = dict(operas)
+            if "make_paraller" in operas:
+                operas["make_paraller"] = 1
+            self.config["Operas"] = operas
 
         # Layout flag: SAMPLE/test instead of SAMPLE/
         self.config["_check_modules_sample_layout"] = True
@@ -770,6 +808,7 @@ class Jarvis2Core:
                 scan_name=scan_name,
                 project_root=project_root,
                 auto_render=auto_render,
+                config=self.config,
             )
             if written:
                 self.info["plot_scenes"] = written

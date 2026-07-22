@@ -25,6 +25,13 @@ from jarvishep2.sample_bucket import pack_bucket_dir
 Process = get_spawn_context().Process
 
 
+# Keep the default console useful on long scans: DATABASE writes can reach
+# tens of thousands of rows, so per-50-row INFO updates overwhelm the sampler
+# milestones.  The forced final update is still emitted regardless of this
+# interval.
+DATARECORDER_PROGRESS_INTERVAL = 500
+
+
 def _fmt_int(n: Any) -> str:
     try:
         return f"{int(n):,}"
@@ -298,7 +305,7 @@ class SimpleArchiver:
         # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
         self._datarecorder_logger = get_jarvis_logger("datarecorder")
         self._last_progress_written = -1
-        self._progress_interval = 50  # log every N DATABASE rows (and pack events)
+        self._progress_interval = DATARECORDER_PROGRESS_INTERVAL
 
     @property
     def records_written(self) -> int:
@@ -326,6 +333,7 @@ class SimpleArchiver:
                 ("sample_root", _short_path(self.sample_root) or self.sample_root),
                 ("pack_buckets", self.pack_buckets),
             ],
+            level="debug",
         )
 
     def _note_last_flushed(self) -> None:
@@ -419,6 +427,7 @@ class SimpleArchiver:
                         ),
                         ("total packed", _fmt_int(self.buckets_packed)),
                     ],
+                    level="debug",
                 )
             except Exception as exc:
                 # Leave packing flag set; operator can inspect / re-seal later.
@@ -479,6 +488,7 @@ class SimpleArchiver:
                 ("rows written (total)", _fmt_int(self.records_written)),
                 ("buckets packed (total)", _fmt_int(self.buckets_packed)),
             ],
+            level="debug",
         )
         return drained
 
@@ -594,7 +604,7 @@ class ArchiverProcess(Process):
         with self.records_written.get_lock():
             self.records_written.value = int(archiver.records_written)
         try:
-            logger.info(
+            logger.debug(
                 "Archiver process exiting pid=%s records_written=%s",
                 os.getpid(),
                 int(self.records_written.value),

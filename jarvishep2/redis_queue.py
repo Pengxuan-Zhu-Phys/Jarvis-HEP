@@ -214,31 +214,66 @@ def _validate_result_payload(info: Mapping[str, Any]) -> None:
 class RedisQueue:
     """Redis broker for tasks, calculator pools, results, and monitor counters."""
 
+    # redis-py 5+/8 default socket_timeout=5 races with BLPOP(timeout<=5) used
+    # throughout the control/worker loops (feedback barrier, task pull, archive
+    # drain). Blocking commands need socket_timeout=None so server-side BLPOP
+    # timeouts return None cleanly instead of raising TimeoutError mid-wait.
+    _SOCKET_CONNECT_TIMEOUT_SEC = 5.0
+
     def __init__(self, config: Mapping[str, Any] | None = None, *, client: Any = None) -> None:
         self.config = dict(config or {})
         self._codec = str(self.config.get("codec", "json")).strip().lower()
         self.r = client
+
+    def _client_kwargs(self) -> dict[str, Any]:
+        """Shared redis-py kwargs for long-lived blocking BLPOP clients."""
+        return {
+            "decode_responses": self._codec == "json",
+            # Override redis-py 8 default (5s) — must exceed any BLPOP wait.
+            "socket_timeout": None,
+            "socket_connect_timeout": float(
+                self.config.get(
+                    "socket_connect_timeout", self._SOCKET_CONNECT_TIMEOUT_SEC
+                )
+            ),
+        }
 
     def connect(self) -> None:
         """Build a redis client from config when one was not injected."""
         if self.r is not None:
             return
 
+        import redis
+
+        kwargs = self._client_kwargs()
         url = self.config.get("url")
         if url:
-            import redis
-
-            self.r = redis.Redis.from_url(str(url), decode_responses=self._codec == "json")
+            self.r = redis.Redis.from_url(str(url), **kwargs)
             return
-
-        import redis
 
         self.r = redis.Redis(
             host=str(self.config.get("host", "localhost")),
             port=int(self.config.get("port", 6379)),
             db=int(self.config.get("db", 0)),
-            decode_responses=self._codec == "json",
+            **kwargs,
         )
+
+    def _blpop(self, key: str, *, timeout: int = 1) -> Any | None:
+        """BLPOP wrapper that treats client socket timeouts as empty pops.
+
+        With ``socket_timeout=None`` this should not fire; kept as a defensive
+        guard so a future redis-py default change cannot crash generation
+        barriers (AdaptiveBridson / FeedbackSampler wait loops).
+        """
+        self._require_client()
+        try:
+            return self.r.blpop(key, timeout=max(0, int(timeout)))
+        except Exception as exc:
+            # redis.exceptions.TimeoutError (and socket.timeout wrappers).
+            name = type(exc).__name__
+            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+                return None
+            raise
 
     def push_task(self, task: Mapping[str, Any]) -> None:
         self._require_client()
@@ -251,7 +286,7 @@ class RedisQueue:
 
     def pull_task(self, timeout: int = 5) -> dict[str, Any] | None:
         self._require_client()
-        raw = self.r.blpop(TASK_QUEUE, timeout=timeout)
+        raw = self._blpop(TASK_QUEUE, timeout=timeout)
         if raw is None:
             return None
         _, payload = raw
@@ -271,7 +306,7 @@ class RedisQueue:
         drained = 0
         while int(self.r.llen(TASK_QUEUE)) > 0:
             # Bypass pull_task so we do not bump SAMPLE_STATS.running for discarded work.
-            raw = self.r.blpop(TASK_QUEUE, timeout=1)
+            raw = self._blpop(TASK_QUEUE, timeout=1)
             if raw is None:
                 break
             drained += 1
@@ -353,7 +388,7 @@ class RedisQueue:
                 return None
             # redis-py BLPOP timeout is whole seconds; keep waiting in chunks.
             wait_sec = max(1, int(remaining) if remaining >= 1 else 1)
-            raw = self.r.blpop(pool_key, timeout=wait_sec)
+            raw = self._blpop(pool_key, timeout=wait_sec)
             if raw is None:
                 if time.monotonic() >= deadline:
                     return None
@@ -767,7 +802,7 @@ class RedisQueue:
         """Pop a sealed+idle bucket ready for tar packing."""
         self._require_client()
         if timeout and timeout > 0:
-            raw = self.r.blpop(BUCKET_READY_QUEUE, timeout=timeout)
+            raw = self._blpop(BUCKET_READY_QUEUE, timeout=timeout)
             if raw is None:
                 return None
             _, bucket_token = raw
@@ -886,7 +921,7 @@ class RedisQueue:
     def pull_feedback(self, timeout: int = 1) -> dict[str, Any] | None:
         """Blocking pop from hep:feedback; normalizes flat floats."""
         self._require_client()
-        raw = self.r.blpop(FEEDBACK_QUEUE, timeout=timeout)
+        raw = self._blpop(FEEDBACK_QUEUE, timeout=timeout)
         if raw is None:
             return None
         _, payload = raw
@@ -910,7 +945,7 @@ class RedisQueue:
 
     def pull_result(self, timeout: int = 1) -> dict[str, Any] | None:
         self._require_client()
-        raw = self.r.blpop(ARCHIVE_QUEUE, timeout=timeout)
+        raw = self._blpop(ARCHIVE_QUEUE, timeout=timeout)
         if raw is None:
             return None
         _, payload = raw

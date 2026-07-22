@@ -5,6 +5,8 @@ outputs/
 images/
 reports/
 exports/
+# AdaptiveBridson writes this diagnostic when run from the repository root.
+/levelset.json
 *.egg-info/
 jarvishep2.egg-info/
 

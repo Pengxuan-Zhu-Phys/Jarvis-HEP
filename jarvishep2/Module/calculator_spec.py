@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import shlex
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -13,6 +15,47 @@ def _normalize_timeout(value: Any) -> float | None:
         return None
     timeout = float(value)
     return timeout if timeout > 0 else None
+
+
+def next_cwd_from_command(command: str, current_cwd: str) -> str:
+    """V1 command-chain semantics: standalone ``cd <path>`` updates inherited cwd.
+
+    Only exact two-token forms are treated as directory switches
+    (``cd path``, ``cd "path with spaces"``). Combined shell lines such as
+    ``cd foo && make`` do **not** change the inherited cwd (same as V1).
+
+    Relative targets are joined against ``current_cwd``. Paths may still contain
+    runtime tokens (``@PackID``); do not force ``abspath`` so those survive until
+    Worker/CommandParser resolution.
+    """
+    line = str(command or "").strip()
+    if not line:
+        return current_cwd
+    try:
+        parts = shlex.split(line, posix=True)
+    except ValueError:
+        return current_cwd
+    if not parts or parts[0] != "cd" or len(parts) != 2:
+        return current_cwd
+    target = parts[1]
+    if not target:
+        return current_cwd
+    if os.path.isabs(target):
+        return os.path.normpath(target)
+    anchor = str(current_cwd or ".")
+    return os.path.normpath(os.path.join(anchor, target))
+
+
+def is_cwd_switch_command(command: str) -> bool:
+    """True when ``command`` is a pure standalone ``cd <path>`` (no other argv)."""
+    line = str(command or "").strip()
+    if not line:
+        return False
+    try:
+        parts = shlex.split(line, posix=True)
+    except ValueError:
+        return False
+    return bool(parts) and parts[0] == "cd" and len(parts) == 2
 
 
 def _normalize_command_entry(item: Any, *, default_cwd: str) -> dict[str, Any] | None:
@@ -47,7 +90,12 @@ def normalize_command_list(
     *,
     default_cwd: str = ".",
 ) -> tuple[dict[str, Any], ...]:
-    """Normalize a command list; skip empty/invalid entries without aborting the parse."""
+    """Normalize a command list with V1 ``cd`` → inherited-cwd chaining.
+
+    Empty/invalid entries are skipped. Each entry receives the running cwd;
+    a pure ``cd <path>`` updates that cwd for subsequent entries (V1
+    ``ConfigLoader._next_cwd_from_command`` contract).
+    """
     if items is None:
         return ()
     if isinstance(items, (str, bytes)) or not isinstance(items, Sequence):
@@ -56,11 +104,19 @@ def normalize_command_list(
             items = [items]
         else:
             return ()
+    current_cwd = str(default_cwd or ".")
     normalized: list[dict[str, Any]] = []
     for item in items:
-        entry = _normalize_command_entry(item, default_cwd=default_cwd)
-        if entry is not None:
-            normalized.append(entry)
+        entry = _normalize_command_entry(item, default_cwd=current_cwd)
+        if entry is None:
+            continue
+        # Explicit mapping ``cwd`` wins for this entry only; otherwise inherit.
+        if isinstance(item, Mapping) and item.get("cwd") not in (None, ""):
+            entry["cwd"] = str(item["cwd"])
+        else:
+            entry["cwd"] = current_cwd
+        current_cwd = next_cwd_from_command(str(entry["cmd"]), str(entry["cwd"]))
+        normalized.append(entry)
     return tuple(normalized)
 
 
@@ -129,4 +185,9 @@ class CalculatorSpec:
         )
 
 
-__all__ = ["CalculatorSpec", "normalize_command_list"]
+__all__ = [
+    "CalculatorSpec",
+    "is_cwd_switch_command",
+    "next_cwd_from_command",
+    "normalize_command_list",
+]

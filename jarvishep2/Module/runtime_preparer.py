@@ -3,14 +3,132 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 from collections.abc import Callable, Mapping
+from datetime import datetime, timezone
 from typing import Any
 
 from jarvishep2.library import LibraryManager
 from jarvishep2.Module.calculator_spec import CalculatorSpec
 from jarvishep2.sample import ensure_sample_materialized
+
+# Written under the pack shadow directory after a successful install.
+INSTALL_STAMP_BASENAME = ".jarvis_install_stamp.json"
+INSTALL_STAMP_SCHEMA = "jarvishep2.calc_install/v1"
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _source_stat_payload(source: str) -> dict[str, Any] | None:
+    """Cheap source identity: path + root stat (not a full tree hash)."""
+    text = str(source or "").strip()
+    if not text:
+        return None
+    path = os.path.abspath(text)
+    if not os.path.exists(path):
+        return {"path": path, "exists": False}
+    try:
+        st = os.stat(path)
+        return {
+            "path": path,
+            "exists": True,
+            "mtime_ns": int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+            "size": int(st.st_size),
+            "is_dir": os.path.isdir(path),
+        }
+    except OSError:
+        return {"path": path, "exists": False}
+
+
+def build_install_fingerprint(
+    spec: CalculatorSpec,
+    *,
+    pack_id: str | None = None,
+) -> str:
+    """Stable hash of calculator *install settings* (not per-sample init).
+
+    Includes: module name, basepath template, source root identity, and the
+    installation command list. PackID is intentionally **not** mixed into the
+    hash so 001/002 share the same config identity; each pack still has its own
+    stamp file under its shadow directory.
+    """
+    del pack_id  # reserved for future per-pack overrides
+    commands: list[dict[str, str]] = []
+    for item in spec.installation:
+        if not isinstance(item, Mapping):
+            continue
+        commands.append(
+            {
+                "cmd": str(item.get("cmd", "")),
+                "cwd": str(item.get("cwd", ".")),
+            }
+        )
+    payload = {
+        "schema": INSTALL_STAMP_SCHEMA,
+        "module": str(spec.name),
+        "clone_shadow": bool(spec.clone_shadow),
+        "basepath": str(spec.basepath),
+        "source": str(spec.source or ""),
+        "source_stat": _source_stat_payload(spec.source),
+        "installation": commands,
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def install_stamp_path(runtime_dir: str) -> str:
+    return os.path.join(os.path.abspath(str(runtime_dir)), INSTALL_STAMP_BASENAME)
+
+
+def read_install_stamp(runtime_dir: str) -> dict[str, Any] | None:
+    path = install_stamp_path(runtime_dir)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_install_stamp(
+    runtime_dir: str,
+    *,
+    fingerprint: str,
+    module: str,
+    pack_id: str,
+    extra: Mapping[str, Any] | None = None,
+) -> str:
+    path = install_stamp_path(runtime_dir)
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    payload: dict[str, Any] = {
+        "schema": INSTALL_STAMP_SCHEMA,
+        "module": str(module),
+        "pack_id": str(pack_id),
+        "fingerprint": str(fingerprint),
+        "installed_at_utc": _utc_now_iso(),
+    }
+    if extra:
+        payload["extra"] = dict(extra)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
+def force_calc_install_requested(env: Mapping[str, str] | None = None) -> bool:
+    """True when operators force a full reinstall (env or future CLI)."""
+    environ = env if env is not None else os.environ
+    raw = str(environ.get("JARVIS_FORCE_CALC_INSTALL", "") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
 
 
 class RuntimePreparer:
@@ -21,11 +139,15 @@ class RuntimePreparer:
         spec: CalculatorSpec,
         *,
         library: LibraryManager | None = None,
+        force_reinstall: bool = False,
     ) -> None:
         self.spec = spec
         self._library = library or LibraryManager()
         self._installed_shadows: set[str] = set()
         self.pack_id: str | None = None
+        # Module/task override; also ORed with JARVIS_FORCE_CALC_INSTALL.
+        self.force_reinstall = bool(force_reinstall)
+        self.last_install_action: str | None = None  # "installed" | "reused" | None
 
     def acquire_pack_id(self, pack_id: str) -> None:
         self.pack_id = str(pack_id)
@@ -66,30 +188,98 @@ class RuntimePreparer:
             raw["cwd"] = self._expand_install_tokens(str(raw.get("cwd", ".")))
         return {"cmd": str(raw.get("cmd", "")), "cwd": str(raw.get("cwd", "."))}
 
+    def install_fingerprint(self) -> str:
+        return build_install_fingerprint(self.spec, pack_id=self.pack_id)
+
+    def can_reuse_install(self, runtime: str | None = None) -> bool:
+        """True when pack dir has a matching install stamp and force is off."""
+        if self.force_reinstall or force_calc_install_requested():
+            return False
+        root = runtime or self.shadow_runtime_path()
+        if not os.path.isdir(root):
+            return False
+        stamp = read_install_stamp(root)
+        if not stamp:
+            return False
+        expected = self.install_fingerprint()
+        return str(stamp.get("fingerprint") or "") == expected
+
     def ensure_shadow_installed(
         self,
         *,
         run_stage: Callable[[list[Mapping[str, Any]], str], None],
+        logger: Any | None = None,
     ) -> None:
-        """One-time physical install of a shadow pack (installation only)."""
+        """Physical install of a shadow pack (once per matching config).
+
+        Skip policy
+        -----------
+        If ``{runtime}/.jarvis_install_stamp.json`` exists and its fingerprint
+        matches the current calculator install settings, reuse the pack without
+        re-running ``installation`` commands. Force with
+        ``JARVIS_FORCE_CALC_INSTALL=1`` or ``force_reinstall=True``.
+
+        Process-local ``_installed_shadows`` still short-circuits within one
+        Worker after the first successful install/reuse of a PackID.
+        """
         if not self.spec.clone_shadow:
             return
         pack_id = str(self.pack_id or "")
         if not pack_id:
             raise RuntimeError("clone_shadow install requires pack_id")
         if pack_id in self._installed_shadows:
+            self.last_install_action = "reused"
             return
+
         runtime = self.shadow_runtime_path()
         os.makedirs(runtime, exist_ok=True)
+        fingerprint = self.install_fingerprint()
+
+        if self.can_reuse_install(runtime):
+            self._installed_shadows.add(pack_id)
+            self.last_install_action = "reused"
+            if logger is not None:
+                try:
+                    logger.info(
+                        f"Skip calculator install (settings unchanged) -> "
+                        f"module={self.spec.name} pack_id={pack_id}\n"
+                        f"\t runtime -> {runtime}\n"
+                        f"\t fingerprint -> {fingerprint[:16]}…"
+                    )
+                except Exception:
+                    pass
+            return
+
+        # Fresh or stale install: run commands then stamp on success only.
         if self.spec.installation:
             run_stage(list(self.spec.installation), "install")
         elif self.spec.source:
-            shutil.copytree(os.path.abspath(self.spec.source), runtime, dirs_exist_ok=True)
+            shutil.copytree(
+                os.path.abspath(self.spec.source), runtime, dirs_exist_ok=True
+            )
         else:
             raise RuntimeError(
-                f"clone_shadow calculator '{self.spec.name}' requires a source path or installation commands"
+                f"clone_shadow calculator '{self.spec.name}' requires a source path "
+                "or installation commands"
             )
+        write_install_stamp(
+            runtime,
+            fingerprint=fingerprint,
+            module=self.spec.name,
+            pack_id=pack_id,
+        )
         self._installed_shadows.add(pack_id)
+        self.last_install_action = "installed"
+        if logger is not None:
+            try:
+                logger.info(
+                    f"Calculator install finished -> module={self.spec.name} "
+                    f"pack_id={pack_id}\n"
+                    f"\t runtime -> {runtime}\n"
+                    f"\t stamp -> {install_stamp_path(runtime)}"
+                )
+            except Exception:
+                pass
 
     def run_initialization(
         self,
@@ -122,13 +312,23 @@ class RuntimePreparer:
         sample_info: Mapping[str, Any],
         *,
         run_stage: Callable[[list[Mapping[str, Any]], str], None],
+        logger: Any | None = None,
     ) -> None:
         if self.spec.clone_shadow:
-            self.ensure_shadow_installed(run_stage=run_stage)
+            self.ensure_shadow_installed(run_stage=run_stage, logger=logger)
             self.run_initialization(run_stage=run_stage)
         else:
             self.ensure_symlink_runtime(sample_info)
             self.run_initialization(run_stage=run_stage)
 
 
-__all__ = ["RuntimePreparer"]
+__all__ = [
+    "INSTALL_STAMP_BASENAME",
+    "INSTALL_STAMP_SCHEMA",
+    "RuntimePreparer",
+    "build_install_fingerprint",
+    "force_calc_install_requested",
+    "install_stamp_path",
+    "read_install_stamp",
+    "write_install_stamp",
+]

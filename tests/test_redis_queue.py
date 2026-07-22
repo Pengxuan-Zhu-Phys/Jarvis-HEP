@@ -59,6 +59,27 @@ class RedisQueueKeyNamespaceTests(unittest.TestCase):
         self.assertNotEqual(calc_free_list_key("DemoCalc"), calc_status_free_field("DemoCalc"))
 
 
+class RedisQueueConnectTests(unittest.TestCase):
+    """redis-py 8 defaults socket_timeout=5, which races BLPOP(timeout<=5)."""
+
+    def test_client_kwargs_disable_socket_timeout_for_blocking_pops(self):
+        queue = RedisQueue({"host": "127.0.0.1", "port": 6379, "db": 0})
+        kwargs = queue._client_kwargs()
+        self.assertIsNone(kwargs["socket_timeout"])
+        self.assertGreater(float(kwargs["socket_connect_timeout"]), 0.0)
+
+    def test_blpop_treats_socket_timeout_as_empty(self):
+        queue = make_fakeredis_queue(codec="json")
+
+        class _Boom:
+            def blpop(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+        queue.r = _Boom()
+        self.assertIsNone(queue._blpop("hep:feedback", timeout=5))
+        self.assertIsNone(queue.pull_feedback(timeout=5))
+
+
 class RedisQueueTests(unittest.TestCase):
     def setUp(self):
         self.queue = make_fakeredis_queue(codec="json")

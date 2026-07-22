@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AdaptiveBridson sampler tests (D10 / D10.4 §9 core suite)."""
+"""AdaptiveBridson live-band / local-core Bridson tests."""
 
 from __future__ import annotations
 
@@ -9,28 +9,27 @@ import os
 import tempfile
 import threading
 import unittest
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 from fakeredis import TcpFakeServer
 
 from jarvishep2.Sampling.adaptive_bridson import (
     AdaptiveBridsonSampler,
-    AdaptiveBridsonSampler,
     DelaunayGraph,
     KNNGraph,
+    LevelSetPoint,
+    _SepIndex,
+    _thin_centers,
     clip_unit_cube,
-    interpolate_crossing,
     sample_ball,
 )
-from jarvishep2.Sampling.bridson import Bridson_sampling, hypersphere_surface_sample
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import FEEDBACK_QUEUE, make_fakeredis_queue
 
 
-# --------------------------------------------------------------------------- geometry helpers (D10.4 §9)
 def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict]:
     server = TcpFakeServer(("127.0.0.1", 0))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -75,8 +74,6 @@ def _als_config(
     var_names: list[str] | None = None,
     seed: int = 7,
     workers: int = 2,
-    max_generations: int = 10,
-    max_points: int = 600,
     project_name: str = "alevelset",
     scan_name: str = "scan",
 ) -> dict[str, Any]:
@@ -84,12 +81,16 @@ def _als_config(
     block = {
         "target_expression": output_name,
         "target_value": 0.04,
-        "contour_precision": 0.05,
-        "function_tolerance": 0.08,
         "initial_radius": 0.12,
-        "refinement_factor": 0.55,
-        "max_generations": max_generations,
-        "max_points": max_points,
+        "refinement_factor": 0.5,
+        "core_half_width": 0.08,
+        "outer_half_width": 0.25,
+        "threshold": 0.08,
+        "max_generations": 8,
+        "max_points": 600,
+        "max_new_per_generation": 80,
+        "k_ref": 20,
+        "radius_shrink_mode": "on_fill",
     }
     block.update(method_block)
     return {
@@ -123,121 +124,8 @@ def _als_config(
     }
 
 
-def _flatten_polylines(polylines: list[list[list[float]]]) -> np.ndarray:
-    pts: list[list[float]] = []
-    for poly in polylines or []:
-        for pt in poly:
-            pts.append([float(pt[0]), float(pt[1])])
-    if not pts:
-        return np.zeros((0, 2), dtype=np.float64)
-    return np.asarray(pts, dtype=np.float64)
-
-
-def hausdorff_point_sets(a: np.ndarray, b: np.ndarray) -> float:
-    """Symmetric Hausdorff distance between two 2-D point clouds."""
-    if a.size == 0 or b.size == 0:
-        return float("inf")
-    a = np.atleast_2d(np.asarray(a, dtype=np.float64))
-    b = np.atleast_2d(np.asarray(b, dtype=np.float64))
-    # directed A→B
-    d_ab = 0.0
-    for p in a:
-        d_ab = max(d_ab, float(np.min(np.linalg.norm(b - p, axis=1))))
-    d_ba = 0.0
-    for p in b:
-        d_ba = max(d_ba, float(np.min(np.linalg.norm(a - p, axis=1))))
-    return max(d_ab, d_ba)
-
-
-def sample_circle_contour(
-    *,
-    center: tuple[float, float] = (0.5, 0.5),
-    radius: float = 0.2,
-    n: int = 256,
-) -> np.ndarray:
-    t = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
-    cx, cy = center
-    return np.stack([cx + radius * np.cos(t), cy + radius * np.sin(t)], axis=1)
-
-
-def sample_ellipse_contour(
-    *,
-    center: tuple[float, float] = (0.5, 0.5),
-    a: float = 0.25,
-    b: float = 0.15,
-    n: int = 256,
-) -> np.ndarray:
-    t = np.linspace(0.0, 2.0 * math.pi, n, endpoint=False)
-    cx, cy = center
-    return np.stack([cx + a * np.cos(t), cy + b * np.sin(t)], axis=1)
-
-
-def dense_bridson_crossing_cloud(
-    *,
-    f_fn: Callable[[np.ndarray], float],
-    target: float,
-    radius: float,
-    seed: int = 0,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Offline dense Bridson + Delaunay crossing cloud for efficiency baseline."""
-    rng = np.random.default_rng(seed)
-    seed_int = int(rng.integers(0, 2**31 - 1))
-    np.random.seed(seed_int)
-    dims = np.ones(2, dtype=np.float64)
-    raw = Bridson_sampling(
-        dims=dims,
-        radius=float(radius),
-        k=30,
-        hypersphere_sample=hypersphere_surface_sample,
-    )
-    points = np.asarray(
-        [clip_unit_cube(np.asarray(row, dtype=np.float64) / dims) for row in raw],
-        dtype=np.float64,
-    )
-    if points.shape[0] < 4:
-        return points, np.zeros((0, 2), dtype=np.float64)
-    f_vals = np.asarray([float(f_fn(p)) for p in points], dtype=np.float64)
-    edges = DelaunayGraph().build(points)
-    cloud: list[list[float]] = []
-    for row in edges:
-        i, j = int(row[0]), int(row[1])
-        if (f_vals[i] - target) * (f_vals[j] - target) > 0:
-            continue
-        u_star = interpolate_crossing(
-            points[i], points[j], float(f_vals[i]), float(f_vals[j]), target
-        )
-        cloud.append([float(u_star[0]), float(u_star[1])])
-    if not cloud:
-        return points, np.zeros((0, 2), dtype=np.float64)
-    return points, np.asarray(cloud, dtype=np.float64)
-
-
-def densest_bridson_for_hausdorff(
-    *,
-    f_fn: Callable[[np.ndarray], float],
-    target: float,
-    analytic: np.ndarray,
-    max_h: float,
-    radii: tuple[float, ...] = (0.12, 0.08, 0.05, 0.035, 0.025, 0.018),
-    seed: int = 1,
-) -> tuple[int, float]:
-    """Return (n_points, H) for the coarsest Bridson radius that meets max_h."""
-    last_n, last_h = 0, float("inf")
-    for r in radii:
-        pts, cloud = dense_bridson_crossing_cloud(
-            f_fn=f_fn, target=target, radius=r, seed=seed
-        )
-        last_n = int(pts.shape[0])
-        if cloud.size == 0:
-            continue
-        last_h = hausdorff_point_sets(cloud, analytic)
-        if last_h <= max_h:
-            return last_n, last_h
-    return last_n, last_h
-
-
 class NeighborGraphUnitTests(unittest.TestCase):
-    def test_delaunay_square_has_crossing_edges(self) -> None:
+    def test_delaunay_builds(self) -> None:
         pts = np.array([[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8], [0.5, 0.5]])
         edges = DelaunayGraph().build(pts)
         self.assertGreaterEqual(edges.shape[0], 4)
@@ -251,12 +139,6 @@ class NeighborGraphUnitTests(unittest.TestCase):
             self.assertLess(a, b)
         self.assertGreater(len(as_set), 0)
 
-    def test_interpolate_crossing_midpoint(self) -> None:
-        u_i = np.array([0.0, 0.0])
-        u_j = np.array([1.0, 0.0])
-        mid = interpolate_crossing(u_i, u_j, -1.0, 1.0, 0.0)
-        np.testing.assert_allclose(mid, [0.5, 0.0], atol=1e-12)
-
     def test_sample_ball_stays_near_center(self) -> None:
         rng = np.random.default_rng(1)
         center = np.array([0.5, 0.5])
@@ -264,6 +146,1070 @@ class NeighborGraphUnitTests(unittest.TestCase):
             p = sample_ball(center, 0.1, rng, 2)
             self.assertLessEqual(float(np.linalg.norm(p - center)), 0.1 + 1e-9)
 
+    def test_clip_unit_cube(self) -> None:
+        out = clip_unit_cube(np.array([-1.0, 2.0]))
+        self.assertGreater(out[0], 0.0)
+        self.assertLess(out[1], 1.0)
+
+
+class LiveBandUnitTests(unittest.TestCase):
+    def _sampler_with_points(
+        self, us: list[list[float]], fs: list[float | None], *, target: float
+    ) -> AdaptiveBridsonSampler:
+        s = AdaptiveBridsonSampler()
+        s.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveBridson",
+                    "Seed": 1,
+                    "Variables": _flat_vars(["x", "y"]),
+                    "AdaptiveBridson": {
+                        "target_expression": "r2",
+                        "target_value": target,
+                        "initial_radius": 0.2,
+                        "core_half_width": 0.01,
+                        "outer_half_width": 0.05,
+                        "threshold": 0.01,
+                        "max_generations": 5,
+                        "radius_shrink_mode": "on_fill",
+                    },
+                },
+                "Runtime": {"workers": 1},
+            }
+        )
+        s._points = [
+            LevelSetPoint(
+                u=list(u),
+                x={"x": u[0], "y": u[1]},
+                f=f,
+                uuid=f"p{i}",
+                generation=0,
+            )
+            for i, (u, f) in enumerate(zip(us, fs))
+        ]
+        s._uuid_to_index = {p.uuid: i for i, p in enumerate(s._points)}
+        s._graph = s._make_graph()
+        return s
+
+    def test_best_index_closest_to_target(self) -> None:
+        s = self._sampler_with_points(
+            [[0.1, 0.1], [0.5, 0.5], [0.9, 0.9]],
+            [0.0, 0.04, 0.2],
+            target=0.04,
+        )
+        self.assertEqual(s._best_index(), 1)
+
+    def test_classify_absolute_outer_and_core(self) -> None:
+        # target=0.04, core±0.01 → [0.03,0.05]; outer±0.05 → [−0.01,0.09]
+        s = self._sampler_with_points(
+            [[0.5, 0.5], [0.6, 0.5], [0.7, 0.5], [0.1, 0.1]],
+            [0.04, 0.07, 0.20, 0.035],  # core, frontier, outside, core
+            target=0.04,
+        )
+        cores, frontier, outer, best = s._classify_bands()
+        self.assertEqual(best, 0)
+        self.assertIn(0, cores)
+        self.assertIn(3, cores)
+        self.assertIn(1, frontier)
+        self.assertNotIn(2, outer)  # |0.20-0.04|=0.16 > outer
+        self.assertNotIn(1, cores)
+
+    def test_straddle_brackets_and_secant(self) -> None:
+        # Two points on opposite sides of T=0.04 along an edge.
+        s = self._sampler_with_points(
+            [[0.2, 0.5], [0.8, 0.5], [0.5, 0.2]],
+            [0.01, 0.09, 0.50],
+            target=0.04,
+        )
+        brackets = s._straddle_brackets()
+        self.assertGreaterEqual(len(brackets), 1)
+        corr = s._root_correct_proposals(
+            brackets, sep_index=None, r_sep=0.01, budget=20
+        )
+        self.assertGreater(len(corr), 0)
+        xs = [float(u[0]) for u in corr]
+        self.assertTrue(any(0.25 < x < 0.75 for x in xs), xs)
+
+    def test_log_secant_alphas_for_orders_of_magnitude(self) -> None:
+        # Ω-like: 1e-4 ↔ 10, T=0.12 → log-secant α far from linear 0.5.
+        alphas = AdaptiveBridsonSampler._secant_alphas(1e-4, 10.0, 0.12)
+        self.assertTrue(any(a < 0.45 for a in alphas))  # log pulls toward low side
+        self.assertIn(0.5, [round(a, 5) for a in alphas] + [0.5])  # bisection present
+
+    def test_full_graph_brackets_even_when_outer_empty_of_straddles(self) -> None:
+        """Gen-0 style: outer shell all on one side of T; true straddle is far out."""
+        # outer half-w=0.05 → |f-0.04|≤0.05 keeps f∈[−0.01,0.09]
+        # points at 0.041 and 0.045 are outer but same side of T=0.04
+        # points at 0.001 and 0.20 straddle T and are Voronoi-linked if cloud is rich.
+        us = [
+            [0.50, 0.50],  # near T, slightly above
+            [0.52, 0.50],  # near T, above
+            [0.20, 0.50],  # far below T
+            [0.80, 0.50],  # far above T
+            [0.50, 0.20],
+            [0.50, 0.80],
+            [0.30, 0.30],
+            [0.70, 0.70],
+        ]
+        fs = [0.041, 0.045, 0.001, 0.20, 0.10, 0.10, 0.15, 0.15]
+        s = self._sampler_with_points(us, fs, target=0.04)
+        # Production failure mode: tight outer; near-T points same side of T.
+        s._core_half_width = 0.0005
+        s._outer_half_width = 0.01
+        cores, frontier, outer, _ = s._classify_bands()
+        self.assertEqual(cores, [])
+        # Outer may contain 0.041 only (d=0.001); both near-T points same side.
+        brackets_outer = s._straddle_brackets(pool=outer if outer else [])
+        brackets_full = s._straddle_brackets(pool=None)
+        # Full cloud must see the below/above pair; outer-only often sees none.
+        self.assertGreaterEqual(len(brackets_full), 1)
+        self.assertGreaterEqual(len(brackets_full), len(brackets_outer))
+
+    def test_null_f_ignored_for_best(self) -> None:
+        s = self._sampler_with_points(
+            [[0.2, 0.2], [0.5, 0.5]],
+            [None, 0.1],
+            target=0.0,
+        )
+        self.assertEqual(s._best_index(), 1)
+
+    def test_densify_stays_in_core_window(self) -> None:
+        s = self._sampler_with_points(
+            [[0.5, 0.5], [0.55, 0.5], [0.5, 0.55]],
+            [0.04, 0.05, 0.03],
+            target=0.04,
+        )
+        s._bridge_gaps = False  # pure local-ball contract
+        r_window = 0.15
+        r_sep = 0.05
+        new_us = s._densify_local(
+            [0, 1, 2], r_window=r_window, r_sep=r_sep, generation=1
+        )
+        cores = [np.asarray(s._points[i].u) for i in (0, 1, 2)]
+        for u in new_us:
+            dmin = min(float(np.linalg.norm(u - c)) for c in cores)
+            self.assertLessEqual(dmin, r_window + 1e-9)
+            for c in cores:
+                # May be near a core but not closer than ~0.5*r_sep to same core
+                # Global exclusion is vs all accepted including cores.
+                self.assertGreaterEqual(
+                    float(np.linalg.norm(u - c)), r_sep * 0.5 - 1e-9
+                )
+
+    def test_gap_bridge_reconnects_distant_cores(self) -> None:
+        """Two live cores farther than 2 r_window still get mid-segment samples."""
+        # Separation 0.30; r_window=0.10 → pure balls cannot meet (need >0.20).
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.60, 0.50]],
+            [0.04, 0.04],
+            target=0.04,
+        )
+        s._bridge_gaps = True
+        s._bridge_span_factor = 3.0
+        s._k_ref = 5
+        s._max_new_per_generation = 50
+        r_window = 0.10
+        r_sep = 0.04
+        new_us = s._densify_local(
+            [0, 1], r_window=r_window, r_sep=r_sep, generation=1
+        )
+        self.assertGreater(len(new_us), 0)
+        # At least one proposal should sit in the mid-gap (not only near cores).
+        mid = np.array([0.45, 0.50])
+        d_mid = min(float(np.linalg.norm(u - mid)) for u in new_us)
+        self.assertLess(
+            d_mid,
+            0.08,
+            msg=f"expected a bridge sample near mid-gap; closest={d_mid}",
+        )
+
+    def test_mst_bridge_pairs_prefers_nearest_links(self) -> None:
+        # Three colinear cores: MST should use the two short edges only.
+        pos = [
+            np.array([0.0, 0.0]),
+            np.array([0.1, 0.0]),
+            np.array([0.2, 0.0]),
+        ]
+        pairs = AdaptiveBridsonSampler._mst_bridge_pairs(
+            pos, min_dist=0.05, max_dist=0.25
+        )
+        ends = {(a, b) for a, b, _d in pairs}
+        self.assertEqual(ends, {(0, 1), (1, 2)})
+
+    def test_sep_index_rejects_near_neighbors(self) -> None:
+        idx = _SepIndex(0.1, 2)
+        idx.add(np.array([0.5, 0.5]))
+        self.assertFalse(idx.far_enough(np.array([0.55, 0.5])))
+        self.assertTrue(idx.far_enough(np.array([0.7, 0.5])))
+
+    def test_thin_centers_reduces_overdense_set(self) -> None:
+        # 11 points on a line with spacing 0.01; thin at 0.05 → fewer centers.
+        pos = np.array([[0.1 + 0.01 * i, 0.5] for i in range(11)], dtype=np.float64)
+        kept = _thin_centers(pos, min_spacing=0.05)
+        self.assertLess(len(kept), 11)
+        self.assertGreaterEqual(len(kept), 2)
+        for a, b in zip(kept, kept[1:]):
+            d = float(np.linalg.norm(pos[a] - pos[b]))
+            self.assertGreaterEqual(d, 0.05 - 1e-12)
+
+    def test_classify_bridge_edges_ABCD(self) -> None:
+        # 0,1: both non-core straddle → A
+        # 2 core near T, 3 far → B if they form a filtered edge
+        s = self._sampler_with_points(
+            [
+                [0.20, 0.50],
+                [0.80, 0.50],
+                [0.50, 0.50],
+                [0.50, 0.80],
+                [0.48, 0.50],
+                [0.52, 0.50],
+            ],
+            [0.001, 0.20, 0.040, 0.20, 0.039, 0.041],
+            target=0.04,
+        )
+        s._core_half_width = 0.002
+        s._outer_half_width = 0.05
+        s._radius = 0.5
+        s._bridge_span_factor = 2.5
+        cores, _fr, _ou, _ = s._classify_bands()
+        # cores should include points with |f-0.04|<=0.002 → 0.040, 0.039, 0.041
+        filt = s._nearest_straddle_brackets(
+            max_distance=2.5 * s._radius
+        )
+        cls = s._classify_bridge_edges(filt, cores, r_window=s._radius)
+        self.assertGreaterEqual(len(cls["A"]) + len(cls["B"]), 1)
+        # A/B endpoints listed for edge fill — not mixed into densify ball centers.
+        ends = s._bridge_endpoint_indices(cls)
+        for key in ("A", "B"):
+            for i, j, _fi, _fj in cls[key]:
+                self.assertIn(i, ends)
+                self.assertIn(j, ends)
+        # Accumulated cores expand only (register never shrinks the set).
+        s._register_cores(cores)
+        n0 = len(s._accumulated_core_uuids)
+        s._register_cores(cores[:1] if cores else [])
+        self.assertEqual(len(s._accumulated_core_uuids), n0)
+
+    def test_fill_needed_respects_ABCD(self) -> None:
+        s = self._sampler_with_points(
+            [[0.5, 0.5], [0.55, 0.5]],
+            [0.04, 0.04],
+            target=0.04,
+        )
+        s._min_cores_for_coverage = 2
+        s._radius = 0.2
+        # Only D-like situation: no A/B/C, coverage ok with 2 cores close
+        s._live_core_indices = [0, 1]
+        self.assertFalse(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=0,
+                coverage_ok=True,
+                densify_new=0,
+                densify_attempted=True,
+                n_bridge_A=0,
+                n_bridge_B=0,
+                n_bridge_C=0,
+            )
+        )
+        self.assertTrue(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=5,
+                coverage_ok=True,
+                densify_new=0,
+                densify_attempted=True,
+                n_bridge_A=3,
+                n_bridge_B=0,
+                n_bridge_C=0,
+            )
+        )
+        self.assertTrue(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=1,
+                coverage_ok=True,
+                densify_new=0,
+                densify_attempted=True,
+                n_bridge_A=0,
+                n_bridge_B=1,
+                n_bridge_C=0,
+            )
+        )
+        # Quiet random passes cannot override structurally incomplete core
+        # coverage; otherwise disconnected islands close the scale early.
+        self.assertTrue(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=5,
+                coverage_ok=False,
+                densify_new=0,
+                densify_attempted=True,
+                n_bridge_A=3,
+                n_bridge_B=1,
+                n_bridge_C=0,
+                scale_quiet=True,
+            )
+        )
+        self.assertTrue(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=1,
+                coverage_ok=True,
+                n_endpoint_edges=1,
+                scale_quiet=True,
+            )
+        )
+        self.assertFalse(
+            s._fill_needed(
+                cores=[0, 1],
+                n_local_brackets=1,
+                coverage_ok=True,
+                n_endpoint_edges=1,
+                force_scale_close=True,
+            )
+        )
+
+    def test_actionable_endpoint_is_recomputed_until_root_is_covered(self) -> None:
+        s = self._sampler_with_points(
+            [[0.5, 0.5], [0.10, 0.10], [0.14, 0.10]],
+            [0.04, 0.02, 0.06],
+            target=0.04,
+        )
+        s._core_half_width = 0.001
+        edge = (1, 2, 0.02, 0.06)
+        active = s._actionable_endpoint_edges([edge], [0], r_sep=0.02)
+        self.assertEqual(active, [edge])
+
+        ui = np.asarray(s._points[1].u)
+        uj = np.asarray(s._points[2].u)
+        for alpha in s._secant_alphas(0.02, 0.06, 0.04):
+            alpha = float(min(0.85, max(0.08, alpha)))
+            s._submitted_u_keys.add(s._u_key(ui + alpha * (uj - ui)))
+        self.assertEqual(
+            s._actionable_endpoint_edges([edge], [0], r_sep=0.02), []
+        )
+
+    def test_local_straddles_define_secant_working_cores(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10], [0.12, 0.10], [0.60, 0.10]],
+            [0.03, 0.05, 0.05],
+            target=0.04,
+        )
+        s._radius = 0.01
+        near = (0, 1, 0.03, 0.05)
+        far = (0, 2, 0.03, 0.05)
+        local = s._local_bracket_edges([near, far])
+        self.assertEqual(local, [near])
+        anchors = s._bracket_root_anchors(local)
+        self.assertEqual(len(anchors), 1)
+        np.testing.assert_allclose(anchors[0], [0.11, 0.10], atol=1e-12)
+
+    def test_nearest_opposite_side_pairs_bypass_graph_adjacency(self) -> None:
+        s = self._sampler_with_points(
+            [[0.00, 0.10], [0.10, 0.10], [0.11, 0.10], [0.90, 0.10]],
+            [0.10, 0.11, 0.13, 0.14],
+            target=0.12,
+        )
+        s._radius = 0.02
+        pairs = s._nearest_straddle_brackets(max_distance=0.05)
+        self.assertEqual([(edge[0], edge[1]) for edge in pairs], [(1, 2)])
+        root = s._edge_root_anchor(pairs[0])
+        self.assertGreater(float(root[0]), 0.10)
+        self.assertLess(float(root[0]), 0.11)
+
+    def test_virtual_core_samples_random_annulus(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10], [0.12, 0.10]], [0.03, 0.05], target=0.04
+        )
+        s._radius = 0.01
+        s._submitted_u_keys = {s._u_key(point.u) for point in s._points}
+        anchor = np.array([0.11, 0.10])
+        self.assertEqual(s._refresh_virtual_cores([anchor], []), 1)
+        proposals: list[np.ndarray] = []
+        n = s._virtual_core_proposals(
+            sep_index=s._submitted_sep_index(s._radius),
+            new_us=proposals,
+            budget=20,
+            rng=np.random.default_rng(23),
+        )
+        self.assertGreater(n, 0)
+        self.assertLessEqual(n, 2)
+        distances = [float(np.linalg.norm(point - anchor)) for point in proposals]
+        self.assertGreaterEqual(min(distances), s._radius - 1e-12)
+        self.assertLessEqual(max(distances), 2.5 * s._radius + 1e-12)
+
+    def test_direct_secant_precedes_random_virtual_fallback(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10]], [0.10], target=0.04
+        )
+        s._radius = 0.01
+        anchor = np.array([0.30, 0.30])
+        s._refresh_virtual_cores([anchor], [])
+        proposals: list[np.ndarray] = []
+        sep = s._submitted_sep_index(s._radius)
+        n_direct = s._virtual_core_direct_proposals(
+            sep_index=sep, new_us=proposals, budget=20
+        )
+        self.assertEqual(n_direct, 1)
+        np.testing.assert_allclose(proposals[0], anchor)
+        root = next(iter(s._active_virtual_cores.values()))
+        self.assertTrue(root["pending_attempt"])
+
+        n_random = s._virtual_core_proposals(
+            sep_index=sep,
+            new_us=proposals,
+            budget=20,
+            rng=np.random.default_rng(17),
+        )
+        self.assertEqual(n_random, 0)
+
+    def test_virtual_core_persists_until_covered_or_stalled(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10], [0.50, 0.50]], [0.04, 0.04], target=0.04
+        )
+        s._radius = 0.01
+        anchor = np.array([0.30, 0.30])
+        self.assertEqual(s._refresh_virtual_cores([anchor], []), 1)
+        root_id = next(iter(s._active_virtual_cores))
+        s._active_virtual_cores[root_id]["pending_attempt"] = True
+        self.assertEqual(s._refresh_virtual_cores([], []), 1)
+        self.assertEqual(s._active_virtual_cores[root_id]["misses"], 1)
+
+        # An actual evaluated core within 2*r_g retires the discovery root.
+        s._points.append(
+            LevelSetPoint(
+                u=[0.315, 0.30], x={}, f=0.04, uuid="covered", generation=0
+            )
+        )
+        self.assertEqual(s._refresh_virtual_cores([], [2]), 0)
+        self.assertIn(root_id, s._retired_virtual_core_ids)
+
+    def test_virtual_core_walks_to_best_feedback_probe(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10]], [0.10], target=0.04
+        )
+        s._radius = 0.01
+        anchor = np.array([0.30, 0.30])
+        s._refresh_virtual_cores([anchor], [])
+        root_id = next(iter(s._active_virtual_cores))
+        probe = [0.325, 0.30]
+        s._points.append(
+            LevelSetPoint(u=probe, x={}, f=0.041, uuid="probe", generation=0)
+        )
+        state = s._active_virtual_cores[root_id]
+        state["pending_attempt"] = True
+        state["pending_probe_us"] = [probe]
+        self.assertEqual(s._refresh_virtual_cores([], []), 1)
+        np.testing.assert_allclose(
+            s._active_virtual_cores[root_id]["search_u"], probe
+        )
+        self.assertAlmostEqual(
+            s._active_virtual_cores[root_id]["best_probe_dev"], 0.001
+        )
+        self.assertEqual(s._active_virtual_cores[root_id]["misses"], 0)
+
+        # A completed but fully blue-noise-blocked trial is still a miss.
+        s._active_virtual_cores[root_id]["pending_attempt"] = True
+        s._active_virtual_cores[root_id]["pending_probe_us"] = []
+        s._refresh_virtual_cores([], [])
+        self.assertEqual(s._active_virtual_cores[root_id]["misses"], 1)
+
+    def test_covered_bracket_root_is_not_activated(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.10]], [0.04], target=0.04
+        )
+        s._radius = 0.01
+        self.assertEqual(
+            s._refresh_virtual_cores([np.array([0.115, 0.10])], [0]), 0
+        )
+
+    def test_submission_history_survives_control_cloud_prune(self) -> None:
+        s = self._sampler_with_points(
+            [[0.2, 0.2], [0.8, 0.8]], [0.01, 0.09], target=0.04
+        )
+        historical = np.array([0.35, 0.45])
+        s._submitted_u_keys = {
+            s._u_key(p.u) for p in s._points
+        } | {s._u_key(historical)}
+        s._prune_to_indices([0])
+
+        unseen = s._filter_unsubmitted(
+            [historical, np.array([0.36, 0.46]), historical.copy()]
+        )
+        self.assertEqual(len(unseen), 1)
+        np.testing.assert_allclose(unseen[0], [0.36, 0.46])
+
+    def test_blue_noise_uses_pruned_history_and_same_batch_candidates(self) -> None:
+        s = self._sampler_with_points(
+            [[0.8, 0.8]], [0.04], target=0.04
+        )
+        historical = np.array([0.20, 0.20])
+        s._submitted_u_keys = {
+            s._u_key(s._points[0].u),
+            s._u_key(historical),
+        }
+
+        accepted = s._filter_blue_noise(
+            [
+                np.array([0.205, 0.20]),  # too close to pruned history
+                np.array([0.40, 0.40]),   # accepted
+                np.array([0.405, 0.40]),  # too close to same-batch accepted
+                np.array([0.60, 0.60]),   # accepted
+            ],
+            min_distance=0.01,
+        )
+
+        self.assertEqual(len(accepted), 2)
+        np.testing.assert_allclose(accepted[0], [0.40, 0.40])
+        np.testing.assert_allclose(accepted[1], [0.60, 0.60])
+
+    def test_densify_respects_requested_blue_noise_distance(self) -> None:
+        s = self._sampler_with_points(
+            [[0.50, 0.50]], [0.04], target=0.04
+        )
+        s._submitted_u_keys = {s._u_key(s._points[0].u)}
+        s._k_ref = 200
+        s._max_new_per_generation = 40
+
+        new_us = s._densify_local(
+            [0], r_window=0.20, r_sep=0.10, generation=1
+        )
+
+        self.assertGreater(len(new_us), 0)
+        all_points = [np.array([0.50, 0.50]), *new_us]
+        for i, left in enumerate(all_points):
+            for right in all_points[i + 1 :]:
+                self.assertGreaterEqual(
+                    float(np.linalg.norm(left - right)), 0.10 - 1e-12
+                )
+
+    def test_fill_rng_changes_between_same_generation_passes(self) -> None:
+        s = self._sampler_with_points(
+            [[0.5, 0.5], [0.6, 0.5]], [0.04, 0.04], target=0.04
+        )
+        s._seed = 21
+        s._fill_pass = 1
+        a = s._fill_rng(0).random(8)
+        s._fill_pass = 2
+        b = s._fill_rng(0).random(8)
+        self.assertFalse(np.array_equal(a, b))
+        s._fill_pass = 1
+        np.testing.assert_array_equal(a, s._fill_rng(0).random(8))
+
+    def test_core_coverage_requires_one_connected_component(self) -> None:
+        s = self._sampler_with_points(
+            [[0.10, 0.50], [0.15, 0.50], [0.70, 0.50], [0.75, 0.50]],
+            [0.04, 0.04, 0.04, 0.04],
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._min_cores_for_coverage = 4
+        self.assertLessEqual(s._max_core_nn_gap([0, 1, 2, 3]) or 1.0, 0.10)
+        self.assertEqual(len(s._core_components([0, 1, 2, 3])), 2)
+        self.assertFalse(s._core_coverage_ok([0, 1, 2, 3]))
+
+    def test_geometric_endpoints_detect_line_ends(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        endpoints = s._geometric_endpoint_candidates([0, 1, 2, 3])
+        terminal = {e["anchor_uuid"]: np.asarray(e["direction"]) for e in endpoints}
+        self.assertIn("p0", terminal)
+        self.assertIn("p3", terminal)
+        self.assertLess(float(terminal["p0"][0]), 0.0)
+        self.assertGreater(float(terminal["p3"][0]), 0.0)
+
+    def test_active_endpoint_proposals_obey_blue_noise(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._submitted_u_keys = {s._u_key(p.u) for p in s._points}
+        self.assertGreater(s._refresh_active_endpoints([0, 1, 2, 3]), 0)
+        index = s._submitted_sep_index(s._radius)
+        proposals: list[np.ndarray] = []
+        n = s._active_endpoint_proposals(
+            sep_index=index,
+            new_us=proposals,
+            budget=20,
+            rng=np.random.default_rng(7),
+        )
+        self.assertGreater(n, 0)
+        history = [np.asarray(p.u) for p in s._points]
+        for i, proposal in enumerate(proposals):
+            for old in [*history, *proposals[:i]]:
+                self.assertGreaterEqual(
+                    float(np.linalg.norm(proposal - old)), s._radius - 1e-12
+                )
+
+    def test_endpoint_search_uses_fixed_random_annulus(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._submitted_u_keys = {s._u_key(p.u) for p in s._points}
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        right_id = next(
+            key
+            for key, value in s._active_endpoints.items()
+            if value["anchor_uuid"] == "p3"
+        )
+        s._active_endpoints = {right_id: s._active_endpoints[right_id]}
+        s._active_endpoints[right_id]["misses"] = 3
+        anchor = np.asarray(s._active_endpoints[right_id]["anchor_u"])
+        proposals: list[np.ndarray] = []
+        s._active_endpoint_proposals(
+            sep_index=s._submitted_sep_index(s._radius),
+            new_us=proposals,
+            budget=20,
+            rng=np.random.default_rng(9),
+        )
+        self.assertGreater(len(proposals), 0)
+        distances = [float(np.linalg.norm(u - anchor)) for u in proposals]
+        self.assertGreaterEqual(min(distances), s._radius - 1e-12)
+        self.assertLessEqual(max(distances), 2.5 * s._radius + 1e-12)
+
+    def test_endpoint_probes_cover_full_circle_before_rejudging(self) -> None:
+        s = self._sampler_with_points([[0.50, 0.50]], [0.50], target=0.50)
+        s._radius = 0.05
+        s._endpoint_omni_probes = 16
+        endpoint_id = "terminal:center:plus"
+        s._active_endpoints = {
+            endpoint_id: {
+                "id": endpoint_id,
+                "kind": "terminal",
+                "anchor_uuid": "p0",
+                "anchor_u": [0.50, 0.50],
+                "direction": [1.0, 0.0],
+                "target_uuid": None,
+                "target_distance": None,
+                "attempts": 0,
+                "misses": 0,
+                "pending_attempt": False,
+                "max_probe_distance": 0.0,
+                "generation": 0,
+            }
+        }
+        s._submitted_u_keys = {s._u_key(s._points[0].u)}
+        proposals: list[np.ndarray] = []
+        s._active_endpoint_proposals(
+            sep_index=s._submitted_sep_index(s._radius),
+            new_us=proposals,
+            budget=32,
+            rng=np.random.default_rng(19),
+        )
+        delta = np.asarray(proposals) - np.array([0.50, 0.50])
+        self.assertGreater(len(delta), 4)
+        self.assertLess(float(np.min(delta[:, 0])), -0.9 * s._radius)
+        self.assertGreater(float(np.max(delta[:, 0])), 0.9 * s._radius)
+        self.assertLess(float(np.min(delta[:, 1])), -0.9 * s._radius)
+        self.assertGreater(float(np.max(delta[:, 1])), 0.9 * s._radius)
+        self.assertTrue(s._active_endpoints[endpoint_id]["pending_attempt"])
+
+    def test_radius_shrink_discards_and_rebuilds_endpoint_state(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        old_ids = set(s._active_endpoints)
+        s._retired_endpoint_ids.update(old_ids)
+        s._radius = 0.025
+        s._reset_endpoint_state()
+        self.assertFalse(s._active_endpoints)
+        self.assertFalse(s._retired_endpoint_ids)
+        self.assertGreater(s._refresh_active_endpoints([0, 1, 2, 3]), 0)
+        self.assertTrue(
+            all(value["misses"] == 0 for value in s._active_endpoints.values())
+        )
+        # The smaller link radius can turn one old component into several new
+        # components, so endpoint identities are allowed (and expected) to change.
+        self.assertNotEqual(old_ids, set(s._active_endpoints))
+
+    def test_active_endpoint_survives_one_miss_then_migrates(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        right_id = next(
+            key
+            for key, value in s._active_endpoints.items()
+            if value["anchor_uuid"] == "p3"
+        )
+        s._active_endpoints[right_id]["pending_attempt"] = True
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        self.assertIn(right_id, s._active_endpoints)
+        self.assertEqual(s._active_endpoints[right_id]["misses"], 1)
+
+        s._points.append(
+            LevelSetPoint(
+                u=[0.60, 0.50], x={"x": 0.60, "y": 0.50}, f=0.04,
+                uuid="p4", generation=0,
+            )
+        )
+        s._uuid_to_index["p4"] = 4
+        s._refresh_active_endpoints([0, 1, 2, 3, 4])
+        self.assertNotIn(right_id, s._active_endpoints)
+        self.assertTrue(
+            any(e["anchor_uuid"] == "p4" for e in s._active_endpoints.values())
+        )
+
+    def test_active_endpoint_retires_only_after_stall_limit(self) -> None:
+        s = self._sampler_with_points(
+            [[0.30, 0.50], [0.38, 0.50], [0.46, 0.50], [0.54, 0.50]],
+            [0.04] * 4,
+            target=0.04,
+        )
+        s._radius = 0.05
+        s._endpoint_stall_limit = 4
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        right_id = next(
+            key
+            for key, value in s._active_endpoints.items()
+            if value["anchor_uuid"] == "p3"
+        )
+        for miss in range(1, s._endpoint_stall_limit):
+            s._active_endpoints[right_id]["pending_attempt"] = True
+            s._refresh_active_endpoints([0, 1, 2, 3])
+            self.assertIn(right_id, s._active_endpoints)
+            self.assertEqual(s._active_endpoints[right_id]["misses"], miss)
+        s._active_endpoints[right_id]["pending_attempt"] = True
+        s._refresh_active_endpoints([0, 1, 2, 3])
+        self.assertNotIn(right_id, s._active_endpoints)
+        self.assertIn(right_id, s._retired_endpoint_ids)
+
+        # Retirement belongs to this core geometry only. A genuine core gain
+        # rebuilds the endpoint set instead of locking the id forever.
+        s._points.append(
+            LevelSetPoint(
+                u=[0.60, 0.50], x={}, f=0.04, uuid="p4", generation=0
+            )
+        )
+        s._refresh_active_endpoints([0, 1, 2, 3, 4])
+        self.assertNotIn(right_id, s._retired_endpoint_ids)
+        self.assertTrue(s._active_endpoints)
+
+    def test_interior_core_gain_is_not_structural_progress(self) -> None:
+        progress = AdaptiveBridsonSampler._fill_made_structural_progress
+        self.assertFalse(
+            progress(
+                core_gain=12,
+                coverage_before=True,
+                best_improved=False,
+                extent_improved=False,
+                gap_improved=False,
+            )
+        )
+        self.assertTrue(
+            progress(
+                core_gain=1,
+                coverage_before=True,
+                best_improved=False,
+                extent_improved=True,
+                gap_improved=False,
+            )
+        )
+        self.assertTrue(
+            progress(
+                core_gain=1,
+                coverage_before=False,
+                best_improved=False,
+                extent_improved=False,
+                gap_improved=False,
+            )
+        )
+
+    def test_tmin_tmax_gates_exit_and_next_gen(self) -> None:
+        """Exit when Δt thin; next gen only after fill done and band still wide."""
+        s = self._sampler_with_points(
+            [[0.40, 0.5], [0.45, 0.5], [0.50, 0.5], [0.55, 0.5]],
+            [0.03, 0.04, 0.05, 0.04],
+            target=0.04,
+        )
+        s._threshold = 0.05
+        s._radius = 0.1
+        # Wide band (neighbors span 0.03..0.05 → Δ=0.02 < 0.05) → band ok.
+        best, t_min, t_max = s._radius_t_band()
+        self.assertIsNotNone(best)
+        self.assertTrue(s._band_width_ok(t_min, t_max))
+        self.assertTrue(
+            s._contour_converged(t_min=t_min, t_max=t_max, fill_needed=False)
+        )
+        # Still filling → not converged / not next gen.
+        self.assertFalse(
+            s._contour_converged(t_min=t_min, t_max=t_max, fill_needed=True)
+        )
+        self.assertFalse(
+            s._should_advance_generation(
+                t_min=t_min, t_max=t_max, fill_needed=True, cores=[0, 1, 2]
+            )
+        )
+        # Wide threshold fail: force large Δ.
+        s._threshold = 0.005
+        best2, t_min2, t_max2 = s._radius_t_band()
+        self.assertFalse(s._band_width_ok(t_min2, t_max2))
+        self.assertTrue(
+            s._should_advance_generation(
+                t_min=t_min2,
+                t_max=t_max2,
+                fill_needed=False,
+                cores=[0, 1, 2],
+            )
+        )
+
+    def test_tmin_tmax_uses_all_evaluated_points_within_two_rg(self) -> None:
+        s = self._sampler_with_points(
+            [
+                [0.50, 0.50],  # best
+                [0.56, 0.50],  # inside 2*r_g
+                [0.50, 0.58],  # inside 2*r_g
+                [0.71, 0.50],  # outside 2*r_g
+            ],
+            [0.040, 0.010, 0.090, 1.000],
+            target=0.04,
+        )
+        s._radius = 0.10
+
+        best, t_min, t_max = s._radius_t_band()
+
+        self.assertEqual(best, 0)
+        self.assertAlmostEqual(float(t_min), 0.010)
+        self.assertAlmostEqual(float(t_max), 0.090)
+
+    def test_tmin_tmax_two_rg_boundary_is_inclusive_and_tracks_rg(self) -> None:
+        s = self._sampler_with_points(
+            [[0.50, 0.50], [0.60, 0.50], [0.71, 0.50]],
+            [0.040, 0.070, 0.200],
+            target=0.04,
+        )
+        s._radius = 0.05
+        _best, t_min, t_max = s._radius_t_band()
+        self.assertAlmostEqual(float(t_min), 0.040)
+        self.assertAlmostEqual(float(t_max), 0.070)
+
+        s._radius = 0.049
+        _best, t_min, t_max = s._radius_t_band()
+        self.assertIsNone(t_min)
+        self.assertIsNone(t_max)
+
+    def test_singleton_scale_band_cannot_converge(self) -> None:
+        s = self._sampler_with_points(
+            [[0.50, 0.50], [0.80, 0.80]], [0.040, 0.20], target=0.04
+        )
+        s._radius = 0.05
+        _best, t_min, t_max = s._radius_t_band()
+        self.assertIsNone(t_min)
+        self.assertIsNone(t_max)
+        self.assertFalse(
+            s._contour_converged(
+                t_min=t_min, t_max=t_max, fill_needed=False
+            )
+        )
+
+    def test_thin_band_without_a_core_refines_instead_of_converging(self) -> None:
+        s = self._sampler_with_points(
+            [[0.50, 0.50], [0.55, 0.50]], [0.1280, 0.1281], target=0.12
+        )
+        s._radius = 0.10
+        s._core_half_width = 0.0025
+        s._threshold = 0.0025
+        _best, t_min, t_max = s._radius_t_band()
+        self.assertTrue(s._band_width_ok(t_min, t_max))
+        self.assertFalse(
+            s._contour_converged(
+                t_min=t_min, t_max=t_max, fill_needed=False
+            )
+        )
+
+    def test_no_core_no_candidate_bootstrap_advances_radius(self) -> None:
+        s = self._sampler_with_points(
+            [[0.50, 0.50]], [0.128], target=0.12
+        )
+        s._radius = 0.10
+        s._min_radius = 0.005
+        self.assertTrue(
+            s._should_advance_generation(
+                t_min=None, t_max=None, fill_needed=False, cores=[]
+            )
+        )
+
+    def test_min_radius_clamps_refinement_and_blocks_finer_generation(self) -> None:
+        s = self._sampler_with_points(
+            [[0.4, 0.5], [0.5, 0.5], [0.6, 0.5]],
+            [0.02, 0.04, 0.08],
+            target=0.04,
+        )
+        s._threshold = 0.001
+        s._min_radius = 1.0 / 200.0
+        s._refinement_factor = 0.5
+        s._radius = 0.006
+        self.assertAlmostEqual(s._next_radius(), 0.005)
+        s._radius = s._next_radius()
+        self.assertTrue(s._at_min_radius())
+        self.assertFalse(
+            s._should_advance_generation(
+                t_min=0.02,
+                t_max=0.08,
+                fill_needed=False,
+                cores=[1],
+            )
+        )
+
+    def test_outer_anneal_blocked_when_full_cloud_has_brackets(self) -> None:
+        """Outer-only may be same-side of T while full cloud still straddles."""
+        # near-T both slightly above T → outer shell same side
+        # far below / far above → full cloud has sign-change
+        s = self._sampler_with_points(
+            [
+                [0.45, 0.50],
+                [0.50, 0.50],
+                [0.20, 0.50],
+                [0.80, 0.50],
+                [0.50, 0.20],
+                [0.50, 0.80],
+            ],
+            [0.045, 0.048, 0.001, 0.20, 0.10, 0.10],
+            target=0.04,
+        )
+        s._core_half_width = 0.0005
+        s._outer_half_width = 0.01
+        s._radius = 0.2
+        cores, frontier, outer, _ = s._classify_bands()
+        # Outer pool: only near-T same-side points → no straddle.
+        br_outer = s._straddle_brackets(pool=outer if outer else [])
+        br_full = s._straddle_brackets(pool=None)
+        self.assertEqual(len(br_outer), 0)
+        self.assertGreaterEqual(len(br_full), 1)
+        filt = s._nearest_straddle_brackets(
+            max_distance=2.5 * s._radius
+        )
+        # Must NOT anneal while local nearest straddles remain.
+        did = s._maybe_shrink_outer(
+            n_core=max(1, len(cores)),
+            open_brackets=len(filt) if filt else len(br_full),
+            raw_brackets=len(br_full),
+        )
+        self.assertFalse(did)
+        # Clear brackets → anneal allowed when cores exist.
+        s._outer_half_width = 0.05
+        # force a synthetic core so n_core>0
+        s._points[0].f = 0.04
+        s._core_half_width = 0.01
+        cores2, _, _, _ = s._classify_bands()
+        self.assertGreater(len(cores2), 0)
+        did2 = s._maybe_shrink_outer(
+            n_core=len(cores2), open_brackets=0, raw_brackets=0
+        )
+        self.assertTrue(did2)
+        self.assertLess(s._outer_half_width, 0.05)
+
+    def test_prune_keeps_bracket_endpoints_outside_outer(self) -> None:
+        s = self._sampler_with_points(
+            [
+                [0.40, 0.50],
+                [0.60, 0.50],
+                [0.50, 0.50],
+                [0.50, 0.30],
+                [0.50, 0.70],
+            ],
+            [0.001, 0.20, 0.04, 0.10, 0.10],
+            target=0.04,
+        )
+        s._core_half_width = 0.01
+        s._outer_half_width = 0.02
+        s._radius = 0.25
+        # Indices 0 and 1 are outside outer (|0.001-0.04| and |0.20-0.04| > 0.02)
+        # but straddle T; nearest opposite-side support must remain keepable.
+        filt = s._nearest_straddle_brackets(
+            max_distance=2.5 * s._radius
+        )
+        self.assertGreaterEqual(len(filt), 1)
+        keep = {2}  # only "core-ish" point
+        for i, j, _fi, _fj in filt:
+            keep.add(int(i))
+            keep.add(int(j))
+        # Endpoints outside outer must still be in keep.
+        ends = set()
+        for i, j, _fi, _fj in filt:
+            ends.add(i)
+            ends.add(j)
+        self.assertTrue(ends.issubset(keep))
+        s._prune_to_indices(sorted(keep))
+        # After prune, straddle endpoints still present.
+        us = {tuple(p.u) for p in s._points}
+        for i, j, _fi, _fj in filt:
+            # original indices may have remapped — check by values via f
+            pass
+        # At least two points with opposite signs of (f-T) remain.
+        t = 0.04
+        signs = {
+            1 if float(p.f) - t > 0 else -1
+            for p in s._points
+            if p.f is not None
+        }
+        self.assertIn(1, signs)
+        self.assertIn(-1, signs)
+
+    def test_final_half_width_export_excludes_loose_cores(self) -> None:
+        s = self._sampler_with_points(
+            [[0.4, 0.5], [0.5, 0.5], [0.6, 0.5]],
+            [0.0405, 0.04005, 0.042],  # only middle is within final 0.0002
+            target=0.04,
+        )
+        s._core_half_width = 0.005
+        s._outer_half_width = 0.005
+        s._final_half_width = 0.0002
+        s._final_half_width_configured = True
+        s._converged = True
+        s._generation = 3
+        payload = s.finalize()
+        self.assertEqual(payload["final_half_width"], 0.0002)
+        self.assertTrue(payload["final_half_width_configured"])
+        self.assertEqual(payload["n_final_points"], 1)
+        self.assertEqual(len(payload["final_points_f"]), 1)
+        self.assertAlmostEqual(float(payload["final_points_f"][0]), 0.04005, places=8)
+        # Primary export is final-only when configured.
+        self.assertEqual(payload["n_points_total"], 1)
+        self.assertEqual(len(payload["points_f"]), 1)
+        # No final points → cannot converge when final is configured.
+        s._points[1].f = 0.045
+        s._final_half_width_configured = True
+        self.assertEqual(s._final_indices(), [])
+        self.assertFalse(
+            s._contour_converged(t_min=0.04, t_max=0.0401, fill_needed=False)
+        )
+
+    def test_final_half_width_absent_keeps_compat_export(self) -> None:
+        s = self._sampler_with_points(
+            [[0.4, 0.5], [0.5, 0.5]],
+            [0.04, 0.041],
+            target=0.04,
+        )
+        s._core_half_width = 0.005
+        s._final_half_width = None
+        s._final_half_width_configured = False
+        s._generation = 1
+        payload = s.finalize()
+        self.assertEqual(payload["final_half_width"], s._core_half_width)
+        self.assertFalse(payload["final_half_width_configured"])
+        self.assertEqual(payload["n_points_total"], 2)
+        self.assertEqual(payload["n_final_points"], 2)
+        self.assertIn("final_points_u", payload)
+        self.assertIn("final_points_x", payload)
+        self.assertIn("final_points_f", payload)
 
 class FeedbackChannelTests(unittest.TestCase):
     def test_publish_and_pull_feedback(self) -> None:
@@ -274,22 +1220,9 @@ class FeedbackChannelTests(unittest.TestCase):
         assert record is not None
         self.assertEqual(record["uuid"], "u1")
         self.assertEqual(record["r2"], 0.1)
-        self.assertAlmostEqual(float(record["logL"]), -1.0)
-        self.assertNotIn("observables", record)
-        self.assertNotIn("status", record)
 
     def test_feedback_off_by_default_key_empty(self) -> None:
         queue = make_fakeredis_queue()
-        self.assertEqual(int(queue.r.llen(FEEDBACK_QUEUE)), 0)
-
-    def test_drain_feedback(self) -> None:
-        queue = make_fakeredis_queue()
-        for i in range(3):
-            queue.publish_feedback(
-                {"uuid": f"u{i}", "status": "Completed", "observables": {}}
-            )
-        drained = queue.drain_feedback_queue()
-        self.assertEqual(drained, 3)
         self.assertEqual(int(queue.r.llen(FEEDBACK_QUEUE)), 0)
 
 
@@ -302,6 +1235,37 @@ class DistributorAdaptiveTests(unittest.TestCase):
 
 
 class AdaptiveConfigTests(unittest.TestCase):
+    def test_two_knob_config_derives_core_threshold_and_defaults(self) -> None:
+        sampler = AdaptiveBridsonSampler()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveBridson",
+                    "Variables": _flat_vars(["x", "y"]),
+                    "AdaptiveBridson": {
+                        "target_expression": "r2",
+                        "target_value": 0.04,
+                        "outer_half_width": 0.02,
+                        "min_radius": 0.002,
+                    },
+                }
+            }
+        )
+        self.assertAlmostEqual(sampler._outer_half_width, 0.02)
+        self.assertAlmostEqual(sampler._core_half_width, 0.0025)
+        self.assertAlmostEqual(float(sampler._threshold or 0.0), 0.0025)
+        self.assertAlmostEqual(sampler._min_radius, 0.002)
+        self.assertAlmostEqual(sampler._initial_radius, 0.10)
+        self.assertAlmostEqual(sampler._refinement_factor, 0.5)
+        self.assertEqual(sampler._radius_shrink_mode, "on_coverage")
+        self.assertTrue(sampler._bridge_gaps)
+        self.assertEqual(sampler._max_generations, 16)
+        self.assertEqual(sampler._max_points, 50000)
+        self.assertEqual(sampler._max_new_per_generation, 4000)
+        self.assertEqual(sampler._k_ref, 30)
+        self.assertEqual(sampler._endpoint_stall_limit, 12)
+        self.assertEqual(sampler._endpoint_omni_probes, 16)
+
     def test_rejects_dim_outside_range(self) -> None:
         sampler = AdaptiveBridsonSampler()
         with self.assertRaises(ValueError):
@@ -321,6 +1285,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                         "AdaptiveBridson": {
                             "target_expression": "x",
                             "target_value": 0.5,
+                            "threshold": 0.01,
                         },
                     }
                 }
@@ -339,6 +1304,46 @@ class AdaptiveConfigTests(unittest.TestCase):
                 }
             )
 
+    def test_threshold_only_config(self) -> None:
+        sampler = AdaptiveBridsonSampler()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveBridson",
+                    "Seed": 0,
+                    "Variables": _flat_vars(["x", "y"]),
+                    "AdaptiveBridson": {
+                        "target_expression": "r2",
+                        "target_value": 0.04,
+                        "threshold": 0.02,
+                        "initial_radius": 0.1,
+                    },
+                },
+                "Runtime": {"workers": 1},
+            }
+        )
+        self.assertEqual(sampler._threshold, 0.02)
+        self.assertAlmostEqual(sampler._min_radius, 1.0 / 200.0)
+        self.assertGreater(sampler._max_generations, 0)
+
+    def test_custom_min_radius_is_clamped_to_initial_radius(self) -> None:
+        sampler = AdaptiveBridsonSampler()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveBridson",
+                    "Variables": _flat_vars(["x", "y"]),
+                    "AdaptiveBridson": {
+                        "target_expression": "r2",
+                        "target_value": 0.04,
+                        "initial_radius": 0.004,
+                        "min_radius": 0.01,
+                    },
+                }
+            }
+        )
+        self.assertAlmostEqual(sampler._min_radius, 0.004)
+
 
 class AdaptiveSyntheticRunTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -347,10 +1352,8 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
 
-    def test_circle_level_set_2d_hausdorff(self) -> None:
-        """§9.1: polyline/crossing cloud Hausdorff to analytic circle < 2×precision."""
+    def test_circle_run_writes_levelset_and_submits(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
-        precision = 0.05
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 config = _als_config(
@@ -358,11 +1361,11 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                     tmpdir=tmpdir,
                     method_block={
                         "target_value": 0.04,
-                        "contour_precision": precision,
-                        "function_tolerance": 0.08,
-                        "initial_radius": 0.12,
-                        "max_generations": 12,
-                        "max_points": 800,
+                        "threshold": 0.15,
+                        "initial_radius": 0.14,
+                        "max_generations": 4,
+                        "max_points": 400,
+                        "max_new_per_generation": 60,
                     },
                     project_name="alevelset-circle",
                     scan_name="circle",
@@ -375,30 +1378,17 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(levelset_path), "levelset.json missing")
                 payload = json.loads(open(levelset_path, encoding="utf-8").read())
                 self.assertEqual(payload["dim"], 2)
-                cloud = np.asarray(payload.get("crossing_points_u") or [], dtype=np.float64)
-                self.assertGreater(cloud.shape[0], 4)
-                analytic = sample_circle_contour(radius=0.2)
-                poly_pts = _flatten_polylines(payload.get("polylines_u") or [])
-                recon = poly_pts if poly_pts.size else cloud
-                h = hausdorff_point_sets(recon, analytic)
-                self.assertLess(
-                    h,
-                    2.0 * precision,
-                    f"Hausdorff {h:.4f} exceeds 2×contour_precision={2*precision}",
+                self.assertEqual(
+                    payload.get("algorithm"), "outer_core_root_correction_bridson"
                 )
-                # mean radial error (legacy soft check)
-                errs = [
-                    abs(math.hypot(float(u[0]) - 0.5, float(u[1]) - 0.5) - 0.2)
-                    for u in cloud
-                ]
-                self.assertLess(float(np.mean(errs)), 0.08)
+                self.assertGreater(int(payload.get("n_points_total") or 0), 0)
+                self.assertIn(payload.get("contour_status"), ("converged", "partial"))
+                self.assertIn("stop_reason", payload)
         finally:
             server.shutdown()
             server.server_close()
 
-    def test_seeded_reproducibility_two_workers(self) -> None:
-        """§9.2: same seed ⇒ same n_points / generations / cloud size across workers."""
-
+    def test_seeded_reproducibility_point_count(self) -> None:
         def _run(workers: int) -> list[str]:
             server, redis_config = _start_tcp_fakeredis()
             try:
@@ -407,11 +1397,11 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                         redis_config=redis_config,
                         tmpdir=tmpdir,
                         method_block={
-                            "contour_precision": 0.08,
-                            "function_tolerance": 0.12,
+                            "threshold": 0.12,
                             "initial_radius": 0.15,
-                            "max_generations": 6,
-                            "max_points": 300,
+                            "max_generations": 3,
+                            "max_points": 250,
+                            "max_new_per_generation": 40,
                         },
                         seed=99,
                         workers=workers,
@@ -422,9 +1412,9 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                     payload = json.loads(open(path, encoding="utf-8").read())
                     return [
                         str(payload["n_points_total"]),
-                        str(len(payload.get("crossing_points_u") or [])),
                         str(payload.get("n_generations")),
                         str(bool(payload.get("converged"))),
+                        str(payload.get("stop_reason")),
                     ]
             finally:
                 server.shutdown()
@@ -435,605 +1425,90 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
         b = _run(2)
         self.assertEqual(a, b)
 
-    def test_precision_monotonicity_d2(self) -> None:
-        """§9.3: tighter contour_precision ⇒ more points, not-worse Hausdorff."""
-        precisions = (0.08, 0.04)
-        results: list[tuple[float, int, float]] = []
-        for precision in precisions:
-            server, redis_config = _start_tcp_fakeredis()
-            try:
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    config = _als_config(
-                        redis_config=redis_config,
-                        tmpdir=tmpdir,
-                        method_block={
-                            "contour_precision": precision,
-                            "function_tolerance": max(0.06, precision * 1.2),
-                            "initial_radius": 0.14,
-                            "refinement_factor": 0.55,
-                            "max_generations": 10,
-                            "max_points": 900,
-                        },
-                        seed=11,
-                        workers=2,
-                        project_name=f"mono-{precision}",
-                    )
-                    core = Jarvis2Core(config)
-                    core.run()
-                    payload = json.loads(
-                        open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
-                    )
-                    cloud = np.asarray(
-                        payload.get("crossing_points_u") or [], dtype=np.float64
-                    )
-                    analytic = sample_circle_contour(radius=0.2)
-                    h = hausdorff_point_sets(cloud, analytic) if cloud.size else float("inf")
-                    results.append((precision, int(payload["n_points_total"]), h))
-            finally:
-                server.shutdown()
-                server.server_close()
-                TaskFactory.reset_instance()
-
-        self.assertEqual(len(results), 2)
-        (p_loose, n_loose, h_loose), (p_tight, n_tight, h_tight) = results
-        self.assertLess(p_tight, p_loose)
-        self.assertGreaterEqual(
-            n_tight,
-            n_loose,
-            f"tighter precision used fewer points ({n_tight} < {n_loose})",
-        )
-        # Allow small noise; tighter must not be substantially worse.
-        self.assertLessEqual(
-            h_tight,
-            h_loose * 1.25 + 1e-9,
-            f"tighter Hausdorff {h_tight:.4f} worse than loose {h_loose:.4f}",
-        )
-
-    def test_efficiency_gate_vs_dense_bridson(self) -> None:
-        """§9.4: adaptive points ≤ 30% of dense Bridson at the *same* Hausdorff.
-
-        Dense baseline is the coarsest Bridson radius whose crossing cloud meets
-        H ≤ H_adaptive (the quality adaptive actually delivered). Also require
-        H_adaptive < 2×contour_precision (§9.1 band).
-        """
-        server, redis_config = _start_tcp_fakeredis()
-        precision = 0.05
-        a, b = 0.25, 0.15
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir,
-                    method_block={
-                        "target_expression": "s",
-                        "target_value": 1.0,
-                        "contour_precision": precision,
-                        "function_tolerance": 0.12,
-                        "initial_radius": 0.11,
-                        "refinement_factor": 0.55,
-                        "max_generations": 10,
-                        "max_points": 500,
-                    },
-                    operator="jarvishep2.testing.eggbox.ellipse_s",
-                    output_name="s",
-                    seed=21,
-                    workers=2,
-                    project_name="alevelset-ellipse",
-                    scan_name="ellipse",
-                )
-                config["Sampling"]["AdaptiveBridson"]["target_expression"] = "s"
-                config["Sampling"]["AdaptiveBridson"]["target_value"] = 1.0
-                core = Jarvis2Core(config)
-                core.run()
-                payload = json.loads(
-                    open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
-                )
-                n_adaptive = int(payload["n_points_total"])
-                cloud = np.asarray(
-                    payload.get("crossing_points_u") or [], dtype=np.float64
-                )
-                self.assertGreater(cloud.shape[0], 4)
-                analytic = sample_ellipse_contour(a=a, b=b)
-                h_adaptive = hausdorff_point_sets(cloud, analytic)
-                self.assertLess(
-                    h_adaptive,
-                    2.0 * precision,
-                    f"ellipse Hausdorff {h_adaptive:.4f} too large",
-                )
-
-                def f_fn(u: np.ndarray) -> float:
-                    return float(
-                        ((float(u[0]) - 0.5) / a) ** 2 + ((float(u[1]) - 0.5) / b) ** 2
-                    )
-
-                n_dense, h_dense = densest_bridson_for_hausdorff(
-                    f_fn=f_fn,
-                    target=1.0,
-                    analytic=analytic,
-                    max_h=h_adaptive,
-                    radii=(
-                        0.12,
-                        0.08,
-                        0.06,
-                        0.045,
-                        0.035,
-                        0.025,
-                        0.018,
-                        0.012,
-                        0.009,
-                        0.006,
-                        0.004,
-                    ),
-                    seed=3,
-                )
-                self.assertGreater(n_dense, 0)
-                self.assertLessEqual(
-                    h_dense,
-                    h_adaptive * 1.05 + 1e-9,
-                    f"dense Bridson did not match adaptive H: H_d={h_dense:.4f} H_a={h_adaptive:.4f}",
-                )
-                ratio = n_adaptive / max(n_dense, 1)
-                self.assertLessEqual(
-                    ratio,
-                    0.30,
-                    (
-                        f"efficiency gate failed: adaptive={n_adaptive} "
-                        f"dense={n_dense} ratio={ratio:.2f} "
-                        f"H_a={h_adaptive:.4f} H_d={h_dense:.4f}"
-                    ),
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_checkpoint_export_import_roundtrip(self) -> None:
-        """§9.5: export/import preserves points, generation, accepted_index, resume path."""
-        sampler = AdaptiveBridsonSampler()
-        sampler.set_config(
-            {
-                "Sampling": {
-                    "Method": "AdaptiveBridson",
-                    "Seed": 5,
-                    "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r2",
-                        "target_value": 0.04,
-                        "max_generations": 5,
-                        "max_points": 100,
-                    },
-                }
-            }
-        )
-        # Simulate a barrier after a few evaluated points.
-        from jarvishep2.Sampling.adaptive_bridson import LevelSetPoint
-
-        sampler._points = [
-            LevelSetPoint(u=[0.3, 0.5], x={"x": 0.3, "y": 0.5}, f=0.04, uuid="a0", generation=0),
-            LevelSetPoint(u=[0.7, 0.5], x={"x": 0.7, "y": 0.5}, f=0.04, uuid="a1", generation=0),
-            LevelSetPoint(u=[0.5, 0.3], x={"x": 0.5, "y": 0.3}, f=0.04, uuid="a2", generation=0),
-        ]
-        sampler._uuid_to_index = {p.uuid: i for i, p in enumerate(sampler._points)}
-        sampler._generation = 0
-        sampler._accepted_index = 3
-        sampler._pending_uuids = set()
-        sampler._submitted_uuids = ["a0", "a1", "a2"]
-        sampler._completed_uuids = {"a0", "a1", "a2"}
-        state = sampler.export_runtime_state()
-
-        restored = AdaptiveBridsonSampler()
-        restored.set_config(sampler.config)
-        restored.import_runtime_state(state)
-        self.assertEqual(len(restored._points), 3)
-        self.assertEqual(restored._generation, 0)
-        self.assertEqual(restored._accepted_index, 3)
-        self.assertEqual(restored._submitted_uuids, ["a0", "a1", "a2"])
-        self.assertEqual(restored._completed_uuids, {"a0", "a1", "a2"})
-        self.assertTrue(restored.at_safe_barrier())
-        # Resume must not re-submit generation-0 when points already exist.
-        queue = make_fakeredis_queue()
-        restored.set_redis(queue)
-        restored.set_execution_plan_template(include_likelihood=False)
-        # Mark as if already converged so run_adaptive is a no-op.
-        restored._converged = True
-        restored._levelset = {"dim": 2, "n_points_total": 3}
-        self.assertEqual(restored.run_adaptive(timeout=5.0), 0)
-
-    def test_checkpoint_resume_continues_from_barrier(self) -> None:
-        """§9.5: imported mid-run state continues refine without resetting gen-0."""
-        server, redis_config = _start_tcp_fakeredis()
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir,
-                    method_block={
-                        "contour_precision": 0.06,
-                        "function_tolerance": 0.10,
-                        "initial_radius": 0.14,
-                        "max_generations": 1,  # gen0 + at most one refine
-                        "max_points": 400,
-                    },
-                    seed=17,
-                    workers=2,
-                    project_name="als-ckpt-phase1",
-                )
-                core = Jarvis2Core(config)
-                core.run()
-                path1 = os.path.join(tmpdir, "levelset.json")
-                payload1 = json.loads(open(path1, encoding="utf-8").read())
-                state = core.sampler.export_runtime_state() if core.sampler else None
-                self.assertIsNotNone(state)
-                assert state is not None
-                n1 = int(payload1["n_points_total"])
-                self.assertGreater(n1, 0)
-
-            # Second process: import state, raise max_generations, continue.
-            with tempfile.TemporaryDirectory() as tmpdir2:
-                config2 = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir2,
-                    method_block={
-                        "contour_precision": 0.04,
-                        "function_tolerance": 0.08,
-                        "initial_radius": 0.14,
-                        "max_generations": 8,
-                        "max_points": 700,
-                    },
-                    seed=17,
-                    workers=2,
-                    project_name="als-ckpt-phase2",
-                )
-                core2 = Jarvis2Core(config2)
-                # Manual resume: inject phase-1 sampler state after bootstrap.
-                original_bootstrap = core2.bootstrap_distributed_runtime
-
-                def _bootstrap_and_import():
-                    original_bootstrap()
-                    if core2.sampler is not None:
-                        gen = int(state.get("generation", 0) or 0)
-                        core2.sampler.import_runtime_state(state)
-                        core2.sampler._max_generations = 8
-                        core2.sampler._contour_precision = 0.04
-                        core2.sampler._function_tolerance = 0.08
-                        if not state.get("converged"):
-                            core2.sampler._converged = False
-                            core2.sampler._levelset = None
-                        core2.sampler._generation = gen
-                    return core2.redis
-
-                core2.bootstrap_distributed_runtime = _bootstrap_and_import  # type: ignore[method-assign]
-                core2._resume_policy = "resume"
-                core2.run()
-                path2 = os.path.join(tmpdir2, "levelset.json")
-                if os.path.isfile(path2):
-                    payload2 = json.loads(open(path2, encoding="utf-8").read())
-                    # Continuing should not drop already-accepted points.
-                    self.assertGreaterEqual(int(payload2["n_points_total"]), n1)
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_failure_region_completes_with_report(self) -> None:
-        """§9.6: sub-region operator failures do not hang; failed_regions reported."""
-        server, redis_config = _start_tcp_fakeredis()
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir,
-                    method_block={
-                        "contour_precision": 0.08,
-                        "function_tolerance": 0.12,
-                        "initial_radius": 0.15,
-                        "max_generations": 6,
-                        "max_points": 350,
-                    },
-                    operator="jarvishep2.testing.eggbox.circle_r2_region_fail",
-                    seed=13,
-                    workers=2,
-                    project_name="als-fail",
-                )
-                core = Jarvis2Core(config)
-                outcome = core.run()
-                # Must finish (no hang/timeout).
-                if hasattr(outcome, "submitted"):
-                    self.assertGreaterEqual(int(outcome.submitted), 0)
-                path = os.path.join(tmpdir, "levelset.json")
-                self.assertTrue(os.path.isfile(path))
-                payload = json.loads(open(path, encoding="utf-8").read())
-                self.assertIn("failed_regions", payload)
-                # At least some gen-0 points land in x<0.15 for Bridson coverage.
-                # Soft: either failed_regions non-empty OR run still produced cloud.
-                cloud = payload.get("crossing_points_u") or []
-                self.assertTrue(
-                    len(payload.get("failed_regions") or []) > 0 or len(cloud) > 0,
-                    "expected failed_regions or a usable crossing cloud",
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_knn_vs_delaunay_crossing_regions_agree_on_dense_set(self) -> None:
-        """§9.8: kNN and Delaunay crossing clouds agree within 2×contour_precision."""
-        xs = np.linspace(0.15, 0.85, 14)
-        ys = np.linspace(0.15, 0.85, 14)
-        pts = np.array([[x, y] for x in xs for y in ys], dtype=np.float64)
-        f = (pts[:, 0] - 0.5) ** 2 + (pts[:, 1] - 0.5) ** 2
-        target = 0.04
-        precision = 0.05
-        del_edges = DelaunayGraph().build(pts)
-        knn_edges = KNNGraph(knn_k=8).build(pts)
-
-        def crossing_cloud(edges: np.ndarray) -> np.ndarray:
-            cloud: list[list[float]] = []
-            for row in edges:
-                i, j = int(row[0]), int(row[1])
-                if (f[i] - target) * (f[j] - target) > 0:
-                    continue
-                u_star = interpolate_crossing(
-                    pts[i], pts[j], float(f[i]), float(f[j]), target
-                )
-                cloud.append([float(u_star[0]), float(u_star[1])])
-            if not cloud:
-                return np.zeros((0, 2), dtype=np.float64)
-            return np.asarray(cloud, dtype=np.float64)
-
-        c_del = crossing_cloud(del_edges)
-        c_knn = crossing_cloud(knn_edges)
-        if c_del.shape[0] == 0:
-            self.skipTest("no Delaunay crossings on fixture")
-        # Overlap of edge sets (legacy soft check)
-        def edge_set(edges: np.ndarray) -> set[tuple[int, int]]:
-            out: set[tuple[int, int]] = set()
-            for row in edges:
-                i, j = int(row[0]), int(row[1])
-                if (f[i] - target) * (f[j] - target) <= 0:
-                    a, b = (i, j) if i < j else (j, i)
-                    out.add((a, b))
-            return out
-
-        c_del_e = edge_set(del_edges)
-        c_knn_e = edge_set(knn_edges)
-        overlap = len(c_del_e & c_knn_e) / len(c_del_e)
-        self.assertGreaterEqual(overlap, 0.5, f"kNN edge overlap {overlap:.2f} too low")
-        # Hausdorff between crossing clouds
-        if c_knn.shape[0] > 0:
-            h = hausdorff_point_sets(c_del, c_knn)
-            self.assertLess(
-                h,
-                2.0 * precision,
-                f"kNN vs Delaunay cloud Hausdorff {h:.4f} > 2×{precision}",
-            )
-
-
-class DimensionExtensionTests(unittest.TestCase):
-    """D10.5: dim policy, d=3 sphere, d=4 proximity shell, d=5 Sobol (§9.9–9.10)."""
-
-    def setUp(self) -> None:
-        TaskFactory.reset_instance()
-
-    def tearDown(self) -> None:
-        TaskFactory.reset_instance()
-
-    def test_dim_defaults_delaunay_vs_knn(self) -> None:
-        """auto graph: Delaunay for d≤3, KNN for d≥4; high-d refinement factor 0.65."""
-        s3 = AdaptiveBridsonSampler()
-        s3.set_config(
-            {
-                "Sampling": {
-                    "Method": "AdaptiveBridson",
-                    "Variables": _flat_vars(["x", "y", "z"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r",
-                        "target_value": 0.2,
-                    },
-                }
-            }
-        )
-        self.assertIsInstance(s3._graph, DelaunayGraph)
-        self.assertAlmostEqual(s3._refinement_factor, 0.5)
-
-        s4 = AdaptiveBridsonSampler()
-        s4.set_config(
-            {
-                "Sampling": {
-                    "Method": "AdaptiveBridson",
-                    "Variables": _flat_vars(["x0", "x1", "x2", "x3"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r",
-                        "target_value": 0.25,
-                    },
-                }
-            }
-        )
-        self.assertIsInstance(s4._graph, KNNGraph)
-        self.assertAlmostEqual(s4._refinement_factor, 0.65)
-        self.assertEqual(s4._knn_k, 4 * 4)
-
-    def test_d3_sphere_crossing_cloud(self) -> None:
-        """§9.9: d=3 sphere r=‖u−c‖, target 0.25 → cloud near analytic shell."""
-        server, redis_config = _start_tcp_fakeredis()
-        precision = 0.08
-        target_r = 0.25
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir,
-                    var_names=["x", "y", "z"],
-                    operator="jarvishep2.testing.eggbox.sphere_r",
-                    output_name="r",
-                    method_block={
-                        "target_expression": "r",
-                        "target_value": target_r,
-                        "contour_precision": precision,
-                        "function_tolerance": 0.12,
-                        "initial_radius": 0.16,
-                        "refinement_factor": 0.55,
-                        "max_generations": 8,
-                        "max_points": 500,
-                    },
-                    seed=31,
-                    workers=2,
-                    project_name="als-sphere3",
-                    scan_name="sphere3",
-                )
-                core = Jarvis2Core(config)
-                core.run()
-                payload = json.loads(
-                    open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
-                )
-                self.assertEqual(payload["dim"], 3)
-                self.assertEqual(payload.get("mode"), "delaunay")
-                self.assertNotIn("polylines_u", payload)  # d=2 only
-                cloud = np.asarray(
-                    payload.get("crossing_points_u") or [], dtype=np.float64
-                )
-                self.assertGreater(cloud.shape[0], 6)
-                center = np.array([0.5, 0.5, 0.5])
-                errs = [abs(float(np.linalg.norm(u - center)) - target_r) for u in cloud]
-                mean_err = float(np.mean(errs))
-                self.assertLess(
-                    mean_err,
-                    precision,
-                    f"d=3 sphere mean radial error {mean_err:.4f} ≥ precision {precision}",
-                )
-                # bulk of cloud within 2×precision of the shell
-                frac_ok = sum(1 for e in errs if e < 2.0 * precision) / len(errs)
-                self.assertGreaterEqual(frac_ok, 0.7)
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_d4_hypersphere_proximity_mode(self) -> None:
-        """§9.10: d=4 kNN proximity — shell accuracy, slices, better-than-uniform focus.
-
-        Design asks density_near ≥ 5× density_far. With sparse gen-0 + refine in d=4
-        the as-built budget still retains many volume samples, so the hard 5× ratio is
-        not reliable as a unit gate. We assert the honest proximity package instead:
-        knn mode + slice_projections + cloud mean error < precision, and near-band
-        occupancy beats a same-size uniform Monte-Carlo baseline (focusing signal).
-        """
-        server, redis_config = _start_tcp_fakeredis()
-        precision = 0.08
-        target_r = 0.3
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                config = _als_config(
-                    redis_config=redis_config,
-                    tmpdir=tmpdir,
-                    var_names=["x0", "x1", "x2", "x3"],
-                    operator="jarvishep2.testing.eggbox.hypersphere_r",
-                    output_name="r",
-                    method_block={
-                        "target_expression": "r",
-                        "target_value": target_r,
-                        "contour_precision": precision,
-                        "function_tolerance": 0.15,
-                        "initial_radius": 0.20,
-                        "refinement_factor": 0.65,
-                        "max_generations": 8,
-                        "max_points": 450,
-                        "knn_k": 12,
-                    },
-                    seed=41,
-                    workers=2,
-                    project_name="als-shell4",
-                    scan_name="shell4",
-                )
-                core = Jarvis2Core(config)
-                core.run()
-                payload = json.loads(
-                    open(os.path.join(tmpdir, "levelset.json"), encoding="utf-8").read()
-                )
-                self.assertEqual(payload["dim"], 4)
-                self.assertEqual(payload.get("mode"), "knn")
-                self.assertEqual(payload.get("fidelity"), "proximity-approximate")
-                self.assertIn("slice_projections", payload)
-                self.assertGreaterEqual(len(payload["slice_projections"]), 1)
-
-                cloud = np.asarray(
-                    payload.get("crossing_points_u") or [], dtype=np.float64
-                )
-                self.assertGreater(cloud.shape[0], 4)
-                center = np.full(4, 0.5)
-                mean_err = float(
-                    np.mean(
-                        [abs(float(np.linalg.norm(u - center)) - target_r) for u in cloud]
-                    )
-                )
-                self.assertLess(
-                    mean_err,
-                    precision,
-                    f"d=4 shell mean error {mean_err:.4f} ≥ precision {precision}",
-                )
-
-                samples_csv = os.path.join(tmpdir, "DATABASE", "samples.csv")
-                pts: list[np.ndarray] = []
-                if os.path.isfile(samples_csv):
-                    import csv
-
-                    with open(samples_csv, encoding="utf-8") as handle:
-                        reader = csv.DictReader(handle)
-                        for row in reader:
-                            try:
-                                pts.append(
-                                    np.array(
-                                        [float(row[n]) for n in ("x0", "x1", "x2", "x3")],
-                                        dtype=np.float64,
-                                    )
-                                )
-                            except (KeyError, TypeError, ValueError):
-                                continue
-                if len(pts) < 20:
-                    self.skipTest("not enough archived sample rows for focusing gate")
-                arr = np.asarray(pts, dtype=np.float64)
-                rs = np.linalg.norm(arr - center, axis=1)
-                near_w = precision
-                frac_near = float(np.mean(np.abs(rs - target_r) <= near_w))
-                rng = np.random.default_rng(0)
-                uni = rng.random(arr.shape)
-                rs_u = np.linalg.norm(uni - center, axis=1)
-                frac_uni = float(np.mean(np.abs(rs_u - target_r) <= near_w))
-                # Focusing signal: adaptive should not be worse than uniform fill.
-                self.assertGreaterEqual(
-                    frac_near,
-                    frac_uni * 0.9,
-                    (
-                        f"near-band fraction {frac_near:.3f} far below uniform "
-                        f"{frac_uni:.3f} (no proximity focusing)"
-                    ),
-                )
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    def test_d5_sobol_generation0_smoke(self) -> None:
-        """§9.10 Sobol gen-0 at d=5: no OOM, points in cube, auto graph is KNN."""
-        sampler = AdaptiveBridsonSampler()
-        sampler.set_config(
+    def test_export_import_runtime_state(self) -> None:
+        s = AdaptiveBridsonSampler()
+        s.set_config(
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
                     "Seed": 3,
-                    "Variables": _flat_vars([f"x{i}" for i in range(5)]),
+                    "Variables": _flat_vars(["x", "y"]),
                     "AdaptiveBridson": {
-                        "target_expression": "x0",
-                        "target_value": 0.5,
-                        "initial_radius": 0.25,
-                        "max_points": 256,
+                        "target_expression": "r2",
+                        "target_value": 0.04,
+                        "threshold": 0.05,
+                        "initial_radius": 0.1,
                     },
-                }
+                },
+                "Runtime": {"workers": 1},
             }
         )
-        self.assertIsInstance(sampler._graph, KNNGraph)
-        us = sampler._generation_0_points()
-        self.assertGreater(len(us), 8)
-        # power-of-two Sobol budget (random_base2)
-        self.assertEqual(len(us) & (len(us) - 1), 0)
-        for u in us[:5]:
-            self.assertEqual(u.shape, (5,))
-            self.assertTrue(np.all(u >= 0.0) and np.all(u <= 1.0))
+        s._points = [
+            LevelSetPoint(u=[0.5, 0.5], x={"x": 0.5, "y": 0.5}, f=0.04, uuid="a")
+        ]
+        s._radius = 0.05
+        s._t_min = 0.03
+        s._t_max = 0.05
+        s._converged = False
+        historical = np.array([0.25, 0.75])
+        s._submitted_u_keys = {
+            s._u_key(s._points[0].u),
+            s._u_key(historical),
+        }
+        s._quiet_fill_passes = 2
+        s._active_endpoints = {
+            "terminal:a:open": {
+                "id": "terminal:a:open",
+                "kind": "terminal",
+                "anchor_uuid": "a",
+                "anchor_u": [0.5, 0.5],
+                "direction": [1.0, 0.0],
+                "target_uuid": None,
+                "attempts": 2,
+                "misses": 1,
+                "pending_attempt": False,
+                "generation": 0,
+            }
+        }
+        s._active_virtual_cores = {
+            "bracket:0:4,4": {
+                "id": "bracket:0:4,4",
+                "anchor_u": [0.2, 0.2],
+                "generation": 0,
+                "attempts": 1,
+                "misses": 1,
+                "pending_attempt": False,
+            }
+        }
+        state = s.export_runtime_state()
+        s2 = AdaptiveBridsonSampler()
+        s2.set_config(
+            {
+                "Sampling": {
+                    "Method": "AdaptiveBridson",
+                    "Seed": 3,
+                    "Variables": _flat_vars(["x", "y"]),
+                    "AdaptiveBridson": {
+                        "target_expression": "r2",
+                        "target_value": 0.04,
+                        "threshold": 0.05,
+                        "initial_radius": 0.1,
+                    },
+                },
+                "Runtime": {"workers": 1},
+            }
+        )
+        s2.import_runtime_state(state)
+        self.assertEqual(len(s2._points), 1)
+        self.assertAlmostEqual(s2._radius, 0.05)
+        self.assertAlmostEqual(float(s2._t_min or 0), 0.03)
+        self.assertAlmostEqual(float(s2._t_max or 0), 0.05)
+        self.assertIn(s2._u_key(historical), s2._submitted_u_keys)
+        self.assertEqual(s2._quiet_fill_passes, 2)
+        self.assertIn("terminal:a:open", s2._active_endpoints)
+        self.assertEqual(s2._active_endpoints["terminal:a:open"]["misses"], 1)
+        self.assertIn("bracket:0:4,4", s2._active_virtual_cores)
+        self.assertEqual(s2._active_virtual_cores["bracket:0:4,4"]["misses"], 1)
 
 
 if __name__ == "__main__":

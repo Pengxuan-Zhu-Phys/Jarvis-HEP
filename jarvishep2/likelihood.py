@@ -15,6 +15,15 @@ from jarvishep2.expression import (
 )
 
 
+def _sanitize_eval_values(values: Mapping[str, Any]) -> dict[str, Any]:
+    """Map JSON/portal nulls to NaN so Gaussian kernels do not TypeError."""
+    out: dict[str, Any] = dict(values)
+    for key, value in list(out.items()):
+        if value is None:
+            out[key] = float("nan")
+    return out
+
+
 class LogLikelihoodEvaluator:
     """Compile and evaluate configured LogLikelihood expressions."""
 
@@ -52,11 +61,12 @@ class LogLikelihoodEvaluator:
         """Return likelihood terms computed from observables.
 
         Unusable totals are written as ``-inf`` (no expressions, non-finite
-        results). Callers that need fail-loud on missing symbols still raise.
+        results, null inputs). Callers that need fail-loud on missing symbols
+        still raise.
         """
         values: dict[str, float] = {}
         payload = dict(observables)
-        eval_values = dict(payload)
+        eval_values = _sanitize_eval_values(payload)
         if not self._compiled:
             values["LogL"] = float("-inf")
             return values
@@ -71,7 +81,13 @@ class LogLikelihoodEvaluator:
                 ) from exc
             if isinstance(result, np.generic):
                 result = result.item()
-            likelihood = _finite_or_neginf(float(result))
+            if result is None:
+                likelihood = float("-inf")
+            else:
+                try:
+                    likelihood = _finite_or_neginf(float(result))
+                except (TypeError, ValueError):
+                    likelihood = float("-inf")
             values[name] = likelihood
             eval_values[name] = likelihood
             if name == "LogL":
@@ -109,7 +125,7 @@ class LogLikelihoodEvaluator:
         slogger = self._sample_logger(sample_info)
         # Evaluate term-by-term so each expression can be sample-logged like V1.
         payload = dict(observables)
-        eval_values = dict(payload)
+        eval_values = _sanitize_eval_values(payload)
         if not self._compiled:
             observables["LogL"] = float("-inf")
             sample_info["observables"] = observables
@@ -129,7 +145,14 @@ class LogLikelihoodEvaluator:
                     ) from exc
                 if isinstance(result, np.generic):
                     result = result.item()
-                likelihood = _finite_or_neginf(float(result))
+                if result is None:
+                    likelihood = float("-inf")
+                else:
+                    try:
+                        likelihood = _finite_or_neginf(float(result))
+                    except (TypeError, ValueError):
+                        # Null/non-numeric residual from a calculator portal → unusable.
+                        likelihood = float("-inf")
                 values[name] = likelihood
                 eval_values[name] = likelihood
                 if name == "LogL":
@@ -138,9 +161,9 @@ class LogLikelihoodEvaluator:
                     total_loglikelihood += likelihood
                 if slogger is not None:
                     used = {
-                        key: eval_values[key]
+                        key: payload.get(key, eval_values.get(key))
                         for key in compiled.variable_names
-                        if key in eval_values
+                        if key in eval_values or key in payload
                     }
                     input_text = ", ".join(
                         f"{key} : {val}" for key, val in used.items()
@@ -159,6 +182,8 @@ class LogLikelihoodEvaluator:
             return likelihood
         except Exception:
             # Guarantee a defined total for feedback/archive before re-raise.
+            # Missing symbols / hard eval bugs still fail the sample; null physics
+            # values are sanitized above and should not reach this path.
             observables["LogL"] = float("-inf")
             observables.update({k: v for k, v in values.items()})
             sample_info["observables"] = observables

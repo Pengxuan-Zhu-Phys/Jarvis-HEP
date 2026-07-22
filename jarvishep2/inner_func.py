@@ -17,21 +17,35 @@ def _scalar_or_array(value: Any) -> Any:
     return array
 
 
+def _as_float_array(value: Any) -> np.ndarray:
+    """Coerce scalars/arrays to float; ``None`` / non-numeric → NaN (unusable)."""
+    if value is None:
+        return np.asarray(float("nan"), dtype=float)
+    try:
+        return np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return np.asarray(float("nan"), dtype=float)
+
+
 def Gauss(xx: Any, mean: Any, err: Any) -> Any:
     """V1 unnormalised Gaussian: ``exp(-0.5 * ((x-mean)/err)**2)``."""
-    value = np.exp(-0.5 * ((np.asarray(xx) - mean) / err) ** 2)
+    value = np.exp(-0.5 * ((_as_float_array(xx) - mean) / err) ** 2)
     return _scalar_or_array(value)
 
 
 def Normal(xx: Any, mean: Any, err: Any) -> Any:
     """V1 normalised Gaussian probability density."""
-    value = Gauss(xx, mean, err) / (np.asarray(err) * np.sqrt(2.0 * np.pi))
+    value = Gauss(xx, mean, err) / (_as_float_array(err) * np.sqrt(2.0 * np.pi))
     return _scalar_or_array(value)
 
 
 def LogGauss(xx: Any, mean: Any, err: Any) -> Any:
-    """V1 Gaussian log-kernel without the normalisation constant."""
-    value = -0.5 * ((np.asarray(xx) - mean) / err) ** 2
+    """V1 Gaussian log-kernel without the normalisation constant.
+
+    Null / non-numeric ``xx`` (e.g. JSON ``null`` from a calculator) yields NaN,
+    which likelihood maps to ``LogL = -inf`` (unusable point, not a crash).
+    """
+    value = -0.5 * ((_as_float_array(xx) - mean) / err) ** 2
     return _scalar_or_array(value)
 
 
