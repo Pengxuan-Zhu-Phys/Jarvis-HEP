@@ -153,6 +153,36 @@ class CalculatorSpecV1YamlTests(unittest.TestCase):
         self.assertIn("modes", spec.raw)
         self.assertEqual(spec.raw.get("make_paraller"), 16)
 
+    def test_execution_path_is_the_default_command_cwd(self) -> None:
+        spec = CalculatorSpec.from_config(
+            "SeparateExecutionPath",
+            {
+                "path": "/runtime/calculator",
+                "installation": ["make"],
+                "initialization": ["prepare"],
+                "execution": {
+                    "path": "/runtime/calculator/bin",
+                    "commands": ["./run", {"cmd": "echo explicit", "cwd": "/tmp"}],
+                },
+            },
+        )
+
+        self.assertEqual(spec.installation[0]["cwd"], "/runtime/calculator")
+        self.assertEqual(spec.initialization[0]["cwd"], "/runtime/calculator")
+        self.assertEqual(spec.commands[0]["cwd"], "/runtime/calculator/bin")
+        self.assertEqual(spec.commands[1]["cwd"], "/tmp")
+
+    def test_execution_commands_fall_back_to_calculator_path(self) -> None:
+        spec = CalculatorSpec.from_config(
+            "NoExecutionPath",
+            {
+                "path": "/runtime/calculator",
+                "execution": {"commands": ["./run"]},
+            },
+        )
+
+        self.assertEqual(spec.commands[0]["cwd"], "/runtime/calculator")
+
     def test_empty_and_non_command_entries_are_skipped(self) -> None:
         self.assertEqual(normalize_command_list(["", "  ", None], default_cwd="."), ())
         self.assertEqual(

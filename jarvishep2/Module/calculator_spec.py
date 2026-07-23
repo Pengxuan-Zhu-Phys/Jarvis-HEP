@@ -152,6 +152,7 @@ class CalculatorSpec:
         module_name = str(name or cfg.get("name", "")).strip() or "Calculator"
         symlink = str(cfg.get("symlink_name", module_name)).strip() or module_name
         basepath = str(cfg.get("path", execution.get("path", ".")) or ".")
+        execution_path = str(execution.get("path") or basepath)
         # V1 tolerates unused keys: modes, make_paraller (module-level), required_modules, …
         # They remain in ``raw``; pools consume make_paraller via worker_config.
         selection_raw = cfg.get("selection")
@@ -171,7 +172,7 @@ class CalculatorSpec:
                 cfg.get("initialization"), default_cwd=basepath
             ),
             commands=normalize_command_list(
-                execution.get("commands"), default_cwd=basepath
+                execution.get("commands"), default_cwd=execution_path
             ),
             input_specs=_mapping_list(execution.get("input")),
             output_specs=_mapping_list(execution.get("output")),

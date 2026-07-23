@@ -48,10 +48,15 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 
 V1 (`jarvishep`) is frozen and must not be imported from this package.
 
-## AdaptiveBridson minimal configuration
+## AdaptiveBridson
 
-Besides the required target expression/value, AdaptiveBridson exposes two
-algorithm-tuning controls:
+**Final algorithm** (complete flow + YAML recipes):
+
+- Design: `Jarvis-Books/Jarvis-HEP V2/DESIGN_ADAPTIVE_BRIDSON_LIVE_BAND.md`
+- YAML examples (minimal + full): `Jarvis-Books/Jarvis-HEP V2/YAML-Example/ADAPTIVE_BRIDSON.md`
+- Reference §6.9: `Jarvis-Books/Jarvis-HEP V2/YAML_REFERENCE_2.0.md`
+
+Besides the required target expression/value, public tuning is two knobs:
 
 ```yaml
 Sampling:
@@ -59,21 +64,23 @@ Sampling:
   AdaptiveBridson:
     target_expression: Omega_h2
     target_value: 0.12
-    outer_half_width: 0.02
-    min_radius: 0.002
+    outer_half_width: 0.02   # discovery |f−T| band
+    min_radius: 0.002        # u-space resolution floor
 ```
 
-The sampler derives `core_half_width` and the `t_max - t_min` stop threshold as
-`outer_half_width / 8`. Radius shrink, coverage, bridging, endpoint exploration,
-and safety budgets use internal defaults. Historical advanced keys remain
-readable so existing scan cards and checkpoints can resume, but new cards should
-use the two-knob interface.
+Derived: `core_half_width = threshold = outer_half_width / 8`. Control flow in
+short: gen-0 Bridson → same-\(r_g\) fill (root-corr / endpoints / bridge /
+local densify) → if \(t_{\max}-t_{\min}\) on the \(2\,r_g\) ball about best is
+thin and cores cover the contour, stop; else shrink \(r_g\) and continue.
+Historical advanced keys remain readable for checkpoints; new cards should use
+the two-knob interface.
 
-At the default `INFO` log level, AdaptiveBridson reports only its start, `r_g`
-scale transitions, and final summary. Per-fill band diagnostics, endpoint/root
-search, bridging, and densify timing are available at `DEBUG`; abnormal safety
-stops and output failures remain `WARNING`.
+At default `INFO`, AdaptiveBridson logs start, \(r_g\) transitions, and a final
+summary. Fill-pass diagnostics, endpoints, bridging, and densify timing are
+`DEBUG`.
 
 DataRecorder reports DATABASE progress every 500 rows (plus the forced final
 count). Archiver keeps process start/final summaries at `INFO`; per-bucket pack,
-loop, drain, and process-exit details are available at `DEBUG`.
+loop, drain, and process-exit details are `DEBUG`.
+
+Post-run CSV: `Jarvis2 convert path/to/task.yaml` (HDF5 → `DATABASE/samples.csv`).

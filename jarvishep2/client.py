@@ -28,6 +28,7 @@ _SUBCOMMANDS = frozenset(
         "run",
         "check",
         "validate",
+        "convert",
         "monitor",
         "plot",
         "portal",
@@ -73,6 +74,9 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     if "--validate" in args:
         rest = [a for a in args[1:] if a != "--validate"]
         return ["validate", head, *rest]
+    if "--convert" in args:
+        rest = [a for a in args[1:] if a != "--convert"]
+        return ["convert", head, *rest]
     # Bare path (+ optional --resume) → run
     return ["run", *args]
 
@@ -87,6 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 run TASK.yaml [--resume]\n"
             "  Jarvis2 check TASK.yaml\n"
             "  Jarvis2 validate TASK.yaml [--strict] [--json]\n"
+            "  Jarvis2 convert TASK.yaml [--force]\n"
             "  Jarvis2 monitor\n"
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
@@ -100,6 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 TASK.yaml [--resume]\n"
             "  Jarvis2 TASK.yaml --check-modules\n"
             "  Jarvis2 TASK.yaml --validate\n"
+            "  Jarvis2 TASK.yaml --convert\n"
             "  Jarvis2 --monitor\n"
             "  Jarvis2 PLOT.yaml --plot   (deprecated)\n"
         ),
@@ -171,6 +177,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="validate_json",
         help="Emit a minimal JSON report on stdout",
+    )
+
+    convert_p = sub.add_parser(
+        "convert",
+        help="Convert project DATABASE samples.hdf5 (and other *.hdf5) to CSV",
+    )
+    convert_p.add_argument("task_yaml", help="Path to scan task YAML")
+    convert_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing CSV files (default: skip like V1)",
     )
 
     sub.add_parser("monitor", help="Print one monitor snapshot and exit")
@@ -247,6 +264,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="(legacy) Check-modules path; prefer `Jarvis2 check`",
     )
     parser.add_argument(
+        "--convert",
+        action="store_true",
+        help="(legacy) Convert DATABASE HDF5 to CSV; prefer `Jarvis2 convert`",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="(legacy with --convert) Overwrite existing CSV files",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help="(legacy with bare TASK.yaml via normalize) Resume from checkpoint",
@@ -269,7 +296,8 @@ def _mode_conflict_message(modes: list[str]) -> str:
     return (
         "conflicting CLI intents: "
         + ", ".join(modes)
-        + "; use a single subcommand (run|check|validate|monitor|plot|portal|operas|project)"
+        + "; use a single subcommand "
+        "(run|check|validate|convert|monitor|plot|portal|operas|project)"
     )
 
 
@@ -294,6 +322,8 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         legacy_modes.append("check")
     if getattr(args, "validate", False):
         legacy_modes.append("validate")
+    if getattr(args, "convert", False):
+        legacy_modes.append("convert")
 
     if command:
         if legacy_modes:
@@ -308,7 +338,8 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         return legacy_modes[0], args
     raise ValueError(
         "Provide a task YAML or a subcommand "
-        "(run|check|validate|monitor|plot|portal|operas|project). See Jarvis2 -h."
+        "(run|check|validate|convert|monitor|plot|portal|operas|project). "
+        "See Jarvis2 -h."
     )
 
 
@@ -1089,6 +1120,37 @@ def dispatch_validate(
     return EXIT_USAGE
 
 
+def dispatch_convert(
+    task_yaml: str,
+    *,
+    force: bool = False,
+) -> int:
+    """Load task YAML paths only, then convert DATABASE HDF5 → CSV."""
+    if not task_yaml:
+        print("Task YAML is required for convert.", file=sys.stderr)
+        return EXIT_USAGE
+
+    try:
+        core = Jarvis2Core()
+        # Post-run utility: path resolution only; skip full config gate.
+        core.load_task_yaml(task_yaml, validate=False)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_RUN_FAILED
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_USAGE
+
+    results = core.convert(force=force)
+    if not results:
+        return EXIT_RUN_FAILED
+
+    # Success when at least one CSV was written or already present (V1-compatible).
+    if any(item.get("status") in {"converted", "skipped_exists"} for item in results):
+        return EXIT_OK
+    return EXIT_RUN_FAILED
+
+
 def dispatch_run(
     task_yaml: str,
     *,
@@ -1196,6 +1258,12 @@ def dispatch(args: argparse.Namespace) -> int:
             str(task or ""),
             strict=bool(getattr(args, "strict", False)),
             as_json=bool(getattr(args, "validate_json", False)),
+        )
+    if intent == "convert":
+        task = getattr(args, "task_yaml", None)
+        return dispatch_convert(
+            str(task or ""),
+            force=bool(getattr(args, "force", False)),
         )
     if intent == "check":
         task = getattr(args, "task_yaml", None)

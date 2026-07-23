@@ -19,7 +19,7 @@ import numpy as np
 from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
 from jarvishep2.dashboard import SnapshotReader, format_monitor_view
-from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.database import SimpleHDF5Writer, convert_database_dir
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.log_kv import PermilleProgress, format_duration
@@ -1349,6 +1349,105 @@ class Jarvis2Core:
         self.factory.start_watchdog(**watchdog)
         self._logger.info("TaskFactory started with %d worker(s)", workers)
         return self.factory
+
+    @staticmethod
+    def _format_convert_report(
+        *,
+        title: str,
+        rows: Sequence[tuple[str, Any]],
+    ) -> str:
+        """Multi-line convert status with space-aligned key/value fields."""
+        text = str(title or "").strip()
+        label_w = max((len(str(k)) for k, _ in rows), default=0)
+        lines = [f"{text}"]
+        for key, value in rows:
+            lines.append(f"  {str(key):<{label_w}}  →  {value}")
+        return "\n".join(lines)
+
+    def convert(self, *, force: bool = False) -> list[dict[str, Any]]:
+        """Convert project DATABASE ``*.hdf5`` files to sibling CSV (V1 ``--convert``).
+
+        Resolves ``task_result_dir/DATABASE`` from the loaded task YAML. Existing
+        CSV files are skipped unless ``force=True`` (same default as V1).
+        """
+        task_result_dir = str(
+            self.info.get("task_result_dir")
+            or self.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        database_dir = os.path.join(task_result_dir, "DATABASE")
+        results = convert_database_dir(database_dir, force=force)
+        logger = getattr(self, "_logger", None)
+        if logger is None:
+            try:
+                logger = get_jarvis_logger()
+            except Exception:
+                logger = None
+
+        def _emit(msg: str, *, error: bool = False) -> None:
+            if logger is not None:
+                if error:
+                    logger.error(msg)
+                else:
+                    logger.warning(msg)
+            else:
+                print(msg, file=sys.stderr if error else sys.stdout)
+
+        if not results:
+            _emit(
+                self._format_convert_report(
+                    title="HDF5 → CSV  (nothing to convert)",
+                    rows=[
+                        ("database", database_dir),
+                        ("reason", "no *.hdf5 files found"),
+                    ],
+                ),
+                error=True,
+            )
+            return results
+
+        for item in results:
+            status = str(item.get("status") or "")
+            csv_path = str(item.get("csv") or "")
+            hdf5_path = str(item.get("hdf5") or "")
+            rows_n = int(item.get("rows") or 0)
+            if status == "converted":
+                msg = self._format_convert_report(
+                    title="HDF5 → CSV  (converted)",
+                    rows=[
+                        ("rows", f"{rows_n:,}"),
+                        ("from", hdf5_path),
+                        ("to", csv_path),
+                    ],
+                )
+            elif status == "skipped_exists":
+                msg = self._format_convert_report(
+                    title="HDF5 → CSV  (skipped)",
+                    rows=[
+                        ("reason", "CSV already exists"),
+                        ("csv", csv_path),
+                        ("hdf5", hdf5_path),
+                        ("hint", "Jarvis2 convert <task.yaml> --force"),
+                    ],
+                )
+            elif status == "empty":
+                msg = self._format_convert_report(
+                    title="HDF5 → CSV  (empty)",
+                    rows=[
+                        ("reason", "HDF5 has no records"),
+                        ("hdf5", hdf5_path),
+                    ],
+                )
+            else:
+                msg = self._format_convert_report(
+                    title="HDF5 → CSV  (missing)",
+                    rows=[
+                        ("reason", "HDF5 missing or unreadable"),
+                        ("hdf5", hdf5_path),
+                    ],
+                )
+            _emit(msg, error=status in {"empty", "missing"})
+        return results
 
     def init_archiver(self, db_path: str | None = None) -> SimpleArchiver | ArchiverProcess:
         if self.redis is None:
