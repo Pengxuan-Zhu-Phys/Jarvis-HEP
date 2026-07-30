@@ -172,10 +172,11 @@ def _validate_dead_keys(config: Mapping[str, Any]) -> list[ValidationIssue]:
                                     issues.append(
                                         issue(
                                             "warning",
-                                            "JV2-DEAD-002",
+                                            "JV2-IO-001",
                                             f"{base}.{io_key}[{ii}].save",
-                                            "key is ignored in V2 (dead key; "
-                                            "SAMPLE save policy is owned by HEP FileOperation)",
+                                            "key is handled by HEP FileOperation "
+                                            "(not Jarvis Portal); it controls the "
+                                            "SAMPLE save policy",
                                         )
                                     )
     return issues
