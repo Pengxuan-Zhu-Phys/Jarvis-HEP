@@ -195,6 +195,14 @@ class RedisEvaluationPool:
         samples: list[Sample] = []
         for item in items:
             uuid, payload = _uuid_and_payload(item, seed=self.seed, index=self._call_index)
+            if uuid in pending:
+                previous_index = pending[uuid]
+                raise ValueError(
+                    "RedisEvaluationPool received duplicate sample UUID "
+                    f"{uuid!r} in one loglikelihood batch "
+                    f"(indices {previous_index} and {len(samples)}); "
+                    "UUIDs must be unique per batch"
+                )
             self._call_index += 1
             sample = self.build_sample(payload, uuid)
             sample.uuid = uuid

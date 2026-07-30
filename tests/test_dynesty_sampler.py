@@ -296,6 +296,30 @@ class RedisPoolUnitTests(unittest.TestCase):
             msg=f"expected unmatched-feedback warning, got {logger.warnings!r}",
         )
 
+    def test_duplicate_uuid_is_rejected_before_task_push(self) -> None:
+        """A duplicate UUID must not collapse two result slots into one."""
+        queue = make_fakeredis_queue()
+
+        def build_sample(payload, uuid):
+            return Sample(uuid=uuid, u_coords=np.asarray(payload, dtype=float))
+
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=build_sample,
+            batch_size=4,
+            seed=7,
+            timeout=5.0,
+        )
+        duplicate = np.array([0.25, "same-uuid"], dtype=object)
+
+        with self.assertRaisesRegex(ValueError, "duplicate sample UUID"):
+            pool._redis_batch_logl([duplicate, duplicate.copy()])
+
+        # Validation happens before push_many_tasks, so no orphan task is left
+        # waiting for a feedback record after the caller fixes the input.
+        assert queue.r is not None
+        self.assertEqual(int(queue.r.llen("hep:task_queue")), 0)
+
     def test_logl_batch_via_redis(self) -> None:
         queue = make_fakeredis_queue()
 

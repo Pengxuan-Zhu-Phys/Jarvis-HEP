@@ -146,6 +146,14 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                 continue
             uuid = str(record.get("uuid", ""))
             if uuid not in self._pending_uuids:
+                self._logger.warning(
+                    "dropping unmatched hep:feedback uuid=%s "
+                    "(pending=%d generation=%d logL=%s)",
+                    uuid or "<empty>",
+                    len(self._pending_uuids),
+                    self._generation,
+                    record.get("logL", ""),
+                )
                 continue
             self._clear_pending(uuid)
             self._completed_uuids.add(uuid)
@@ -206,14 +214,21 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         """Fold barrier results into method state (accept/reject, fill f, …)."""
 
     # ----------------------------------------------------------------- driver
-    def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        """Default propose → publish → drain → absorb → checkpoint loop.
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Default generation loop with a per-generation timeout.
 
         Returns the number of samples submitted across all generations.
         Subclasses with non-linear control flow (e.g. AdaptiveBridson) override
         this method and call ``wait_for_generation`` / ``_submit_sample_batch``
         directly.
         """
+        if timeout is not None:
+            generation_timeout = timeout
         self._require_redis(f"{type(self).__name__}.run_adaptive")
         self._ensure_seed_sequence()
         total_submitted = 0
@@ -224,7 +239,7 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             batch = list(proposals)
             if batch:
                 total_submitted += self._submit_sample_batch(batch)
-                results = self.wait_for_generation(timeout=timeout)
+                results = self.wait_for_generation(timeout=generation_timeout)
             else:
                 results = []
             self.absorb_generation(results)

@@ -113,6 +113,27 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):
             sampler.wait_for_generation(timeout=1.0)
 
+    def test_unmatched_feedback_is_logged(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config({"Runtime": {"mode": "redis"}})
+        sampler.set_redis(queue)
+        sampler._register_pending("expected")
+
+        class CapturingLogger:
+            def __init__(self) -> None:
+                self.warnings: list[str] = []
+
+            def warning(self, message: str, *args: Any) -> None:
+                self.warnings.append(message % args if args else message)
+
+        logger = CapturingLogger()
+        sampler._logger = logger
+        queue.publish_feedback({"uuid": "stray", "logL": -1.0})
+        queue.publish_feedback({"uuid": "expected", "logL": -2.0})
+        sampler.wait_for_generation(timeout=2.0)
+        self.assertTrue(any("unmatched hep:feedback" in item for item in logger.warnings))
+
     def test_feedback_export_import_roundtrip(self) -> None:
         sampler = _ToyFeedbackSampler()
         sampler._generation = 4
