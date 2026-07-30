@@ -85,6 +85,7 @@ class CliParseTests(unittest.TestCase):
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)
+        self.assertIn("Command help: Jarvis2 COMMAND -h", help_text)
         self.assertIn("╭─ Scan workflow", help_text)
         self.assertIn("╭─ Data export", help_text)
         self.assertIn("╭─ Plots", help_text)
