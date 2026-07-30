@@ -154,16 +154,19 @@ def _validate_selected_io(config: Mapping[str, Any]) -> list[Any]:
                 prefix = f"$.Calculators.Modules[{module_index}].execution.{direction}[{entry_index}]"
                 if not isinstance(entry, Mapping):
                     continue
-                kind = entry.get("type")
+                raw_kind = entry.get("type")
+                kind = raw_kind.strip() if isinstance(raw_kind, str) else raw_kind
                 schema_uri = formats.get(kind) if isinstance(kind, str) else None
                 if schema_uri is None:
                     issues.append(issue(
                         "error", "JV2-SCH-002", f"{prefix}.type",
-                        f"unsupported {direction} format {kind!r}; register a local schema in schema/manifest.json",
+                        f"unsupported {direction} format {raw_kind!r}; register a local schema in schema/manifest.json",
                         hint="Add the format schema file and its manifest entry together with its Portal adapter.",
                     ))
                     continue
-                issues.extend(_issues_for(_validator_for(schema_uri), entry, prefix))
+                normalized_entry = dict(entry)
+                normalized_entry["type"] = kind
+                issues.extend(_issues_for(_validator_for(schema_uri), normalized_entry, prefix))
     return issues
 
 
@@ -174,10 +177,13 @@ def validate_task_card_schema(config: Mapping[str, Any]) -> list[Any]:
 
     sampling = config.get("Sampling")
     if isinstance(sampling, Mapping):
-        method = sampling.get("Method")
+        raw_method = sampling.get("Method")
+        method = raw_method.strip() if isinstance(raw_method, str) else raw_method
         schema_uri = manifest["sampling_methods"].get(method) if isinstance(method, str) else None
         if schema_uri is not None:
-            issues.extend(_issues_for(_validator_for(schema_uri), sampling, "$.Sampling"))
+            normalized_sampling = dict(sampling)
+            normalized_sampling["Method"] = method
+            issues.extend(_issues_for(_validator_for(schema_uri), normalized_sampling, "$.Sampling"))
 
     issues.extend(_validate_selected_io(config))
     return issues

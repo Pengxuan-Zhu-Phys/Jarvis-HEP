@@ -23,6 +23,18 @@
                     "clone_shadow": {
                         "type": "boolean"
                     },
+                    "required_modules": {
+                        "type": "array",
+                        "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}
+                    },
+                    "installation": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"},
+                    "initialization": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"},
+                    "timeout": {"type": "number", "exclusiveMinimum": 0},
+                    "symlink_name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+                    "env_setup": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "object"}]}},
+                    "selection": {"oneOf": [{"type": "string"}, {"type": "boolean"}]},
+                    "make_paraller": {"type": "integer", "minimum": 1},
+                    "modes": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
                     "execution": {
                         "type": "object",
                         "properties": {
@@ -58,9 +70,13 @@
                         "additionalProperties": false
                     }
                 },
-                "additionalProperties": true
+                "additionalProperties": false
             }
-        }
+        },
+        "Pools": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+        "make_paraller": {"type": "integer", "minimum": 1},
+        "Archiver": {"type": "object"},
+        "Cleanup": {"type": "object"}
     },
-    "additionalProperties": true
+    "additionalProperties": false
 }

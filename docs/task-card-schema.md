@@ -37,12 +37,14 @@ The schema is deliberately strict for the common, user-authored interfaces:
 | `Scan` | name/path scalar shapes and sample-directory structure | resolved output paths and project layout |
 | `Sampling` | method enum, variables and distribution object shapes, method branches | value relations such as `min < max` and method-specific policy |
 | `Calculators.Modules` | module/execution shape, command and I/O list shapes | command resolution, module installation, execution graph |
-| Calculator `input` / `output` | common fields and format-specific JSON layouts | Portal adapter availability and file contents |
+| Calculator `input` / `output` | registered format, common fields, and JSON-specific layouts | Portal adapter availability and file contents |
 | `Operas.Modules` | name/operator/call-mode/input/output structure | operator discovery, signatures, expression evaluation |
 
 `EnvReqs`, project metadata, and integration extension blocks stay open at this
 layer because they are normalised from V1/default files or have runtime-owned
-semantics.
+semantics. `Scan`, `Sampling`, `Calculators`, and each Calculator module are
+closed interfaces: an unknown user key is a schema error with the allowed-key
+list in its correction suggestion.
 
 ## File composition
 
@@ -67,7 +69,7 @@ dispatch entry, and add fixtures. The generic Python loader does not change.
 
 ## I/O format design
 
-Every calculator I/O item first matches `ioCommon`:
+Every calculator I/O item supplies the common fields:
 
 ```yaml
 name: oupjson
@@ -76,18 +78,21 @@ type: JSON
 save: false
 ```
 
-`type` is the discriminator. Inputs and outputs use separate `oneOf` branches
-because their allowed fields differ. JSON is implemented as the first strict
-format:
+`type` is the manifest discriminator. The bundled manifest exactly matches the
+Portal built-ins: input supports `CSV`, `DAT`, `JSON`, `SLHA`, `Text`, `TSV`,
+and `Wolfram`; output supports `CSV`, `DAT`, `JSON`, `SLHA`, `TSV`, `Wolfram`,
+and `xSLHA`. The names are case-sensitive after surrounding whitespace is
+normalised.
+
+JSON has the first strict format-specific layout:
 
 * JSON input: `actions` with `Dump` actions and variables containing
   `name`/`expression`.
 * JSON output: `variables` containing `name`/`entry`.
-* Text input/output: a separate lightweight branch preserving the current
-  `name`/`type`/optional `path` and `save` interface.
+* Text is an input-only Portal format and requires `type: Text`.
 
-CSV, SLHA, XML, text, and future Portal adapters each get their own input and
-output schema files. Unknown format names are `JV2-SCH-002` structural errors;
+Every registered format has its own input and/or output schema file. Unknown
+format names are `JV2-SCH-002` structural errors;
 a format must be added to the manifest and its Portal adapter together.
 
 ## Compatibility policy

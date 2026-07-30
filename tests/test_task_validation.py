@@ -12,7 +12,7 @@ import unittest
 from copy import deepcopy
 
 from jarvishep2.client import dispatch_run, dispatch_validate, main, normalize_argv
-from jarvishep2.task_config import load_task_yaml
+from jarvishep2.task_config import TaskCardLoadError, load_task_yaml
 from jarvishep2.task_validation import (
     ConfigValidationError,
     validate_or_raise,
@@ -226,7 +226,7 @@ class TaskValidationKernelTests(unittest.TestCase):
                     "execution": {
                         "path": ".",
                         "commands": ["true"],
-                        "input": [{"name": "a", "type": "text", "save": True}],
+                        "input": [{"name": "a", "path": "input.txt", "type": "Text", "save": True}],
                         "output": [],
                     },
                 }
@@ -337,6 +337,41 @@ class TaskValidationCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("JV2-YAML-001", stderr.getvalue())
             self.assertIn("suggestion:", stderr.getvalue())
+
+    def test_referenced_default_yaml_syntax_has_the_same_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_path = os.path.join(tmp, "task.yaml")
+            default_path = os.path.join(tmp, "environment.yaml")
+            with open(default_path, "w", encoding="utf-8") as handle:
+                handle.write("EnvReqs:\n  V2:\n    workers: 2\n      batch_size: 1\n")
+            with open(task_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "EnvReqs:\n"
+                    "  Check_default_dependencies:\n"
+                    "    required: true\n"
+                    "    default_yaml_path: environment.yaml\n"
+                )
+            with self.assertRaises(TaskCardLoadError) as ctx:
+                load_task_yaml(task_path)
+            self.assertEqual(ctx.exception.code, "JV2-YAML-001")
+            self.assertIn("default environment YAML", str(ctx.exception))
+
+    def test_referenced_runtime_yaml_syntax_has_the_same_diagnostic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            task_path = os.path.join(tmp, "task.yaml")
+            default_path = os.path.join(tmp, "runtime.yaml")
+            with open(default_path, "w", encoding="utf-8") as handle:
+                handle.write("Runtime:\n  workers: 2\n    batch_size: 1\n")
+            with open(task_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "EnvReqs:\n"
+                    "  Runtime:\n"
+                    "    default_runtime_settings: runtime.yaml\n"
+                )
+            with self.assertRaises(TaskCardLoadError) as ctx:
+                load_task_yaml(task_path)
+            self.assertEqual(ctx.exception.code, "JV2-YAML-001")
+            self.assertIn("runtime default YAML", str(ctx.exception))
 
     def test_main_validate_subcommand(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

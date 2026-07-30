@@ -4,6 +4,7 @@
   "$defs": {
     "nonemptyString": {"type": "string", "minLength": 1},
     "command": {"type": "object", "properties": {"cmd": {"$ref": "#/$defs/nonemptyString"}, "command": {"$ref": "#/$defs/nonemptyString"}, "cwd": {"$ref": "#/$defs/nonemptyString"}}, "anyOf": [{"required": ["cmd"]}, {"required": ["command"]}], "additionalProperties": false},
+    "commandList": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "array", "items": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"$ref": "#/$defs/command"}]}}]},
     "variable": {"type": "object", "required": ["name", "distribution"], "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "description": {"type": "string"}, "distribution": {"$ref": "#/$defs/distribution"}}, "additionalProperties": false},
     "distribution": {"type": "object", "required": ["type", "parameters"], "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal"]}, "parameters": {"type": "object"}}, "additionalProperties": false},
     "csv": {"type": "object", "required": ["path"], "properties": {"path": {"$ref": "#/$defs/nonemptyString"}, "uuid_column": {"$ref": "#/$defs/nonemptyString"}, "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}}}, "additionalProperties": false},

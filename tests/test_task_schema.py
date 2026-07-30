@@ -10,6 +10,7 @@ import unittest
 from jarvishep2.task_config import load_task_yaml
 from jarvishep2.task_schema import MANIFEST_PATH, SCHEMA_PATH, task_card_validator
 from jarvishep2.task_validation import validate_task_config
+from jarvishep2.io_portal import available_io_formats
 
 
 def _card() -> dict:
@@ -95,6 +96,30 @@ class TaskCardSchemaTests(unittest.TestCase):
         method_schemas = manifest["sampling_methods"]
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
 
+    def test_manifest_matches_builtin_portal_formats(self) -> None:
+        with MANIFEST_PATH.open(encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        self.assertEqual(set(manifest["io"]["input"]), set(available_io_formats("input")))
+        self.assertEqual(set(manifest["io"]["output"]), set(available_io_formats("output")))
+
+    def test_every_portal_format_is_accepted_by_its_direction_schema(self) -> None:
+        with MANIFEST_PATH.open(encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        for direction, formats in manifest["io"].items():
+            for format_name in formats:
+                card = _card()
+                execution = card["Calculators"]["Modules"][0]["execution"]
+                execution[direction] = [{
+                    "name": direction,
+                    "path": f"{direction}.data",
+                    "type": format_name,
+                }]
+                report = validate_task_config(card)
+                self.assertFalse(
+                    [issue for issue in report.errors() if issue.code.startswith("JV2-SCH")],
+                    f"{direction} {format_name}: {[issue.format_line() for issue in report.errors()]}",
+                )
+
     def test_json_input_requires_path(self) -> None:
         card = _card()
         del card["Calculators"]["Modules"][0]["execution"]["input"][0]["path"]
@@ -118,6 +143,24 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertIn("Point number", random_error.suggestion or "")
         self.assertIn("Point number: 100", random_error.example or "")
 
+    def test_strict_user_blocks_reject_typos(self) -> None:
+        card = _card()
+        card["Scan"]["naem"] = "typo"
+        card["Sampling"]["Sead"] = 1
+        card["Calculators"]["Modules"][0]["clone_shdow"] = True
+        report = validate_task_config(card)
+        paths = {issue.path for issue in report.errors() if issue.code == "JV2-SCH-001"}
+        self.assertIn("$.Scan", paths)
+        self.assertIn("$.Sampling", paths)
+        self.assertIn("$.Calculators.Modules[0]", paths)
+
+    def test_method_and_io_dispatch_match_runtime_whitespace_normalization(self) -> None:
+        card = _card()
+        card["Sampling"]["Method"] = " Random "
+        card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = " JSON "
+        report = validate_task_config(card)
+        self.assertFalse([issue for issue in report.errors() if issue.code.startswith("JV2-SCH")])
+
     def test_operas_module_rejects_unknown_user_key(self) -> None:
         card = _card()
         card["Operas"]["Modules"][0]["typo"] = True
@@ -130,6 +173,14 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(config)
         self.assertFalse(
             [issue for issue in report.errors() if issue.code == "JV2-SCH-001"],
+            [issue.format_line() for issue in report.errors()],
+        )
+
+    def test_check_modules_parity_card_passes_closed_block_schema(self) -> None:
+        path = os.path.join(os.path.dirname(__file__), "parity_project", "check_modules.yaml")
+        report = validate_task_config(load_task_yaml(path), check_modules=True)
+        self.assertFalse(
+            [issue for issue in report.errors() if issue.code.startswith("JV2-SCH")],
             [issue.format_line() for issue in report.errors()],
         )
 

@@ -5,7 +5,8 @@
   "schema_files": [
     "task-card-v2.schema.json", "core/common.json", "core/scan.json", "core/sampling.json", "core/calculators.json", "core/operas.json",
     "sampling/methods/bridson.json", "sampling/methods/random.json", "sampling/methods/csv.json", "sampling/methods/variables.json", "sampling/methods/grid.json", "sampling/methods/adaptive_bridson.json", "sampling/methods/mcmc.json", "sampling/methods/ammcmc.json", "sampling/methods/am.json", "sampling/methods/dram.json", "sampling/methods/ensemble_mcmc.json", "sampling/methods/ensemble_base.json", "sampling/methods/demcmc.json", "sampling/methods/ptmcmc.json", "sampling/methods/pt.json", "sampling/methods/ptensemble.json", "sampling/methods/dynesty.json", "sampling/methods/multinest.json",
-    "io/input/json.json", "io/input/text.json", "io/output/json.json", "io/output/text.json"
+    "io/input/csv.json", "io/input/dat.json", "io/input/json.json", "io/input/slha.json", "io/input/text.json", "io/input/tsv.json", "io/input/wolfram.json",
+    "io/output/csv.json", "io/output/dat.json", "io/output/json.json", "io/output/slha.json", "io/output/tsv.json", "io/output/wolfram.json", "io/output/xslha.json"
   ],
   "sampling_methods": {
     "Bridson": "https://jarvis-hep.org/schema/v2/sampling/methods/bridson.json",
@@ -27,7 +28,7 @@
     "MultiNest": "https://jarvis-hep.org/schema/v2/sampling/methods/multinest.json"
   },
   "io": {
-    "input": {"JSON": "https://jarvis-hep.org/schema/v2/io/input/json.json", "text": "https://jarvis-hep.org/schema/v2/io/input/text.json", "Text": "https://jarvis-hep.org/schema/v2/io/input/text.json", "TEXT": "https://jarvis-hep.org/schema/v2/io/input/text.json"},
-    "output": {"JSON": "https://jarvis-hep.org/schema/v2/io/output/json.json", "text": "https://jarvis-hep.org/schema/v2/io/output/text.json", "Text": "https://jarvis-hep.org/schema/v2/io/output/text.json", "TEXT": "https://jarvis-hep.org/schema/v2/io/output/text.json"}
+    "input": {"CSV": "https://jarvis-hep.org/schema/v2/io/input/csv.json", "DAT": "https://jarvis-hep.org/schema/v2/io/input/dat.json", "JSON": "https://jarvis-hep.org/schema/v2/io/input/json.json", "SLHA": "https://jarvis-hep.org/schema/v2/io/input/slha.json", "Text": "https://jarvis-hep.org/schema/v2/io/input/text.json", "TSV": "https://jarvis-hep.org/schema/v2/io/input/tsv.json", "Wolfram": "https://jarvis-hep.org/schema/v2/io/input/wolfram.json"},
+    "output": {"CSV": "https://jarvis-hep.org/schema/v2/io/output/csv.json", "DAT": "https://jarvis-hep.org/schema/v2/io/output/dat.json", "JSON": "https://jarvis-hep.org/schema/v2/io/output/json.json", "SLHA": "https://jarvis-hep.org/schema/v2/io/output/slha.json", "TSV": "https://jarvis-hep.org/schema/v2/io/output/tsv.json", "Wolfram": "https://jarvis-hep.org/schema/v2/io/output/wolfram.json", "xSLHA": "https://jarvis-hep.org/schema/v2/io/output/xslha.json"}
   }
 }

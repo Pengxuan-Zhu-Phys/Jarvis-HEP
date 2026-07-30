@@ -25,6 +25,25 @@ class TaskCardLoadError(ValueError):
         super().__init__(message)
 
 
+def _load_yaml_document(path: str, *, label: str) -> Any:
+    """Load one user-selected YAML file with a consistent syntax diagnostic."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = ""
+        if mark is not None:
+            location = f" at line {mark.line + 1}, column {mark.column + 1}"
+        problem = str(getattr(exc, "problem", "invalid YAML syntax"))
+        raise TaskCardLoadError(
+            "JV2-YAML-001",
+            f"invalid YAML syntax in {label} {path}{location}: {problem}",
+            "Check indentation, list markers, quoting, and ':' placement near the reported location.",
+            "Sampling:\n  Method: Random\n  Point number: 100",
+        ) from exc
+
+
 from jarvishep2.base import decode_path, infer_project_root, scan_output_root
 from jarvishep2.runtime_config import (
     CHECK_MODULES_DEFAULTS,
@@ -114,8 +133,7 @@ def _v2_defaults_from_envreqs(
             "EnvReqs.Check_default_dependencies default YAML not found: "
             f"{defaults_path}"
         )
-    with open(defaults_path, "r", encoding="utf-8") as handle:
-        defaults_document = yaml.safe_load(handle)
+    defaults_document = _load_yaml_document(defaults_path, label="default environment YAML")
     if defaults_document is None:
         return {}
     if not isinstance(defaults_document, Mapping):
@@ -141,8 +159,7 @@ def _legacy_environment_requirements_from_defaults(
     )
     if defaults_path is None:
         return {}
-    with open(defaults_path, "r", encoding="utf-8") as handle:
-        document = yaml.safe_load(handle)
+    document = _load_yaml_document(defaults_path, label="default environment YAML")
     if not isinstance(document, Mapping):
         return {}
     envreqs = document.get("EnvReqs")
@@ -292,8 +309,7 @@ def _runtime_defaults_from_envreqs(
     defaults_path = decode_path(raw_path, project_root=project_root, base_dir=yaml_dir)
     if not os.path.isfile(defaults_path):
         raise FileNotFoundError(f"runtime default YAML not found: {defaults_path}")
-    with open(defaults_path, "r", encoding="utf-8") as handle:
-        defaults_document = yaml.safe_load(handle)
+    defaults_document = _load_yaml_document(defaults_path, label="runtime default YAML")
     if not isinstance(defaults_document, Mapping):
         raise ValueError(f"runtime default YAML must contain a mapping: {defaults_path}")
     runtime_defaults = defaults_document.get("Runtime", defaults_document)
@@ -308,21 +324,7 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     if not os.path.isfile(task_path):
         raise FileNotFoundError(f"task YAML not found: {task_path}")
 
-    try:
-        with open(task_path, "r", encoding="utf-8") as handle:
-            loaded = yaml.safe_load(handle)
-    except yaml.YAMLError as exc:
-        mark = getattr(exc, "problem_mark", None)
-        location = ""
-        if mark is not None:
-            location = f" at line {mark.line + 1}, column {mark.column + 1}"
-        problem = str(getattr(exc, "problem", "invalid YAML syntax"))
-        raise TaskCardLoadError(
-            "JV2-YAML-001",
-            f"invalid YAML syntax{location}: {problem}",
-            "Check indentation, list markers, quoting, and ':' placement near the reported location.",
-            "Sampling:\n  Method: Random\n  Point number: 100",
-        ) from exc
+    loaded = _load_yaml_document(task_path, label="task YAML")
     if not isinstance(loaded, dict):
         raise TaskCardLoadError(
             "JV2-YAML-002",
