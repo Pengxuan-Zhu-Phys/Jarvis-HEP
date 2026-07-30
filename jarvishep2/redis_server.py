@@ -103,6 +103,7 @@ class ManagedRedisServer:
 
     host: str = "127.0.0.1"
     port: int = 6379
+    db: int = 0
     scan_name: str = ""
     work_dir: str = ""
     process: subprocess.Popen[Any] | None = field(default=None, repr=False)
@@ -124,6 +125,7 @@ class ManagedRedisServer:
         return cls(
             host=str(cfg.get("host") or "127.0.0.1"),
             port=int(cfg.get("port") or 6379),
+            db=int(cfg.get("db") or 0),
             scan_name=str(scan_name or "").strip(),
             work_dir=str(work_dir or "").strip(),
         )
@@ -183,7 +185,7 @@ class ManagedRedisServer:
         )
         self.conf_path = conf_path
         self.pidfile = pidfile
-        self.title = redis_title(scan_name=self.scan_name)
+        self.title = redis_title(scan_name=self.scan_name, port=self.port, db=self.db)
 
         # argv0 rename so `ps` shows Jarvis-Redis:<scan> instead of redis-server.
         # shell=True + exec -a is the portable macOS/Linux approach for non-Python bins.

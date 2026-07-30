@@ -39,10 +39,11 @@ def archiver_title(*, scan_name: str | None = None) -> str:
     return f"Jarvis2-Archiver:{scan}" if scan else "Jarvis2-Archiver"
 
 
-def redis_title(*, scan_name: str | None = None) -> str:
+def redis_title(*, scan_name: str | None = None, port: int | None = None, db: int = 0) -> str:
     """OS process title for a Jarvis-managed redis-server."""
     scan = str(scan_name or "").strip()
-    return f"Jarvis-Redis:{scan}" if scan else "Jarvis-Redis"
+    base = f"Jarvis-Redis:{scan}" if scan else "Jarvis-Redis"
+    return f"{base}@{int(port)}/{int(db)}" if port is not None else base
 
 
 __all__ = [

@@ -769,6 +769,7 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         format_scan_table,
         list_running_scans,
         resolve_scan_reference,
+        runtime_metadata_for_scan,
     )
 
     scans = list_running_scans()
@@ -783,7 +784,14 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         print(format_scan_table(scans), end="")
         return EXIT_USAGE
     print(f"{scan.reference}: {scan.name}")
-    redis_config = dict(INTERNAL_REDIS_CONFIG)
+    metadata = runtime_metadata_for_scan(scan)
+    if metadata is None:
+        print("Unable to verify this scan's Redis runtime metadata.", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    if int(metadata.get("control_pid", -1)) not in {proc.pid for proc in scan.processes}:
+        print("Redis runtime metadata does not match the selected control process.", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    redis_config = dict(metadata["redis"])
     factory = TaskFactory(redis_config)
     try:
         factory.init_redis()

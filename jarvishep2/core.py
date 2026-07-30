@@ -40,6 +40,7 @@ from jarvishep2.redis_server import (
     redis_port_open,
 )
 from jarvishep2.task_config import update_default_redis_port
+from jarvishep2.runtime_metadata import write_scan_metadata
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
@@ -320,6 +321,7 @@ class Jarvis2Core:
         self.init_command_parser()
         self.init_redis()
         self._claim_redis_control_lock()
+        self._publish_runtime_metadata()
         if self._resume_policy != "resume":
             self._reset_redis_for_fresh_run()
         self.init_sampler_from_config()
@@ -1315,6 +1317,14 @@ class Jarvis2Core:
             self._logger.warning("failed to release Redis control lock -> %s", exc)
         self._control_lock_owner = None
 
+    def _publish_runtime_metadata(self) -> None:
+        if self.redis is None:
+            return
+        redis_config = self.redis.connection_config()
+        path = write_scan_metadata(config=self.config, info=self.info, redis=redis_config)
+        self.redis.set_runtime_metadata_path(path)
+        self.info["runtime_metadata_path"] = path
+
     def init_command_parser(self) -> CommandParser:
         """Run Phase-1 static command resolution for the loaded task config."""
         self.command_parser = build_command_parser(self.config)
@@ -1987,6 +1997,8 @@ class Jarvis2Core:
                 except Exception as exc:
                     self._logger.warning("run_summary write failed -> %s", exc)
             try:
+                if self.redis is not None:
+                    self.redis.clear_runtime_metadata_path()
                 self._release_redis_control_lock()
             except Exception:
                 pass

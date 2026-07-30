@@ -52,6 +52,7 @@ return 1
 """
 # The distributed broker is a V2 implementation detail, not task-YAML input.
 INTERNAL_REDIS_CONFIG = {"host": "127.0.0.1", "port": 6379, "db": 0}
+RUNTIME_METADATA_PATH = "hep:runtime:metadata_path"
 
 
 class CodecError(RuntimeError):
@@ -1017,6 +1018,19 @@ class RedisQueue:
             "archive_queue_length": int(archive_len),
             "feedback_queue_length": int(feedback_len),
         }
+
+    def set_runtime_metadata_path(self, path: str) -> None:
+        self._require_client()
+        self.r.set(RUNTIME_METADATA_PATH, str(path))
+
+    def get_runtime_metadata_path(self) -> str | None:
+        self._require_client()
+        value = self.r.get(RUNTIME_METADATA_PATH)
+        return str(value) if value else None
+
+    def clear_runtime_metadata_path(self) -> None:
+        self._require_client()
+        self.r.delete(RUNTIME_METADATA_PATH)
 
     def fetch_calculator_status(self) -> dict[str, int | float | str]:
         """Read the calculator status hash (monitor subsystem fetch)."""

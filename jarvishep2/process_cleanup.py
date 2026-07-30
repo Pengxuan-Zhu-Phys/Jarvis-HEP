@@ -20,6 +20,9 @@ import time
 from dataclasses import dataclass
 from typing import Iterable
 
+from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.runtime_metadata import read_scan_metadata
+
 
 # Match OS titles we set. "Jarvis2*" covers control/worker/archiver/file-ops;
 # "Jarvis-Redis" is the managed redis-server title.
@@ -121,8 +124,63 @@ def _scan_name_from_command(command: str) -> str | None:
         or head == "Jarvis2-Archiver"
         or head == "Jarvis-Redis"
     ):
-        return name.strip() or None
+        return name.split("@", 1)[0].strip() or None
     return None
+
+
+def runtime_metadata_for_scan(scan: JarvisScan) -> dict[str, object] | None:
+    """Read a scan identity record through its advertised Redis endpoint."""
+    redis_process = next(
+        (proc for proc in scan.processes if proc.command.startswith("Jarvis-Redis:")),
+        None,
+    )
+    if redis_process is None:
+        return None
+    title = redis_process.command.split(None, 1)[0]
+    marker = title.rsplit("@", 1)
+    if len(marker) != 2 or "/" not in marker[1]:
+        return None
+    try:
+        port_text, db_text = marker[1].split("/", 1)
+        redis_config = {"host": "127.0.0.1", "port": int(port_text), "db": int(db_text)}
+    except ValueError:
+        return None
+    redis = RedisQueue(redis_config)
+    try:
+        redis.connect()
+        path = redis.get_runtime_metadata_path()
+        if not path:
+            return None
+        return read_scan_metadata(path, redis=redis_config, expected_scan=scan.name)
+    except Exception:
+        return None
+    finally:
+        try:
+            redis.close()
+        except Exception:
+            pass
+
+
+def _scan_has_advertised_redis(scan: JarvisScan) -> bool:
+    return any(
+        "@" in proc.command.split(None, 1)[0]
+        for proc in scan.processes
+        if proc.command.startswith("Jarvis-Redis:")
+    )
+
+
+def _verified_runtime_metadata(scan: JarvisScan) -> dict[str, object] | None:
+    """Require metadata for modern runs, while retaining old orphan recovery."""
+    metadata = runtime_metadata_for_scan(scan)
+    if metadata is None:
+        if _scan_has_advertised_redis(scan):
+            print("Refusing unverified runtime: Redis metadata is unavailable.", file=sys.stderr)
+        return None
+    control_pid = int(metadata.get("control_pid", -1))
+    if control_pid not in {proc.pid for proc in scan.processes}:
+        print("Refusing unverified runtime: control PID does not match metadata.", file=sys.stderr)
+        return None
+    return metadata
 
 
 def list_running_scans(
@@ -302,6 +360,11 @@ def list_running_jarvis_cli(scan_ref: str | None = None) -> int:
         print(format_scan_table(scans), end="")
         return 2
     print(f"{scan.reference}: {scan.name}")
+    metadata = _verified_runtime_metadata(scan)
+    if _scan_has_advertised_redis(scan) and metadata is None:
+        return 1
+    if metadata is not None:
+        print(f"Runtime metadata: {metadata['task_result_dir']}")
     print(format_process_table(list(scan.processes)), end="")
     return 0
 
@@ -326,6 +389,11 @@ def kill_running_jarvis_cli(
         return 2
     targets = list(scan.processes)
     print(f"{scan.reference}: {scan.name}")
+    metadata = _verified_runtime_metadata(scan)
+    if _scan_has_advertised_redis(scan) and metadata is None:
+        return 1
+    if metadata is not None:
+        print(f"Runtime metadata: {metadata['task_result_dir']}")
     print(format_process_table(targets), end="")
     if not targets:
         return 0
@@ -364,4 +432,5 @@ __all__ = [
     "list_running_scans",
     "list_running_jarvis_cli",
     "resolve_scan_reference",
+    "runtime_metadata_for_scan",
 ]
