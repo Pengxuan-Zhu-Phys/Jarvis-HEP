@@ -67,6 +67,22 @@ class CliParseTests(unittest.TestCase):
         self.assertIn("-h", help_text)
         self.assertIn("╰", help_text)
 
+    def test_help_uses_a_shared_fixed_description_column(self) -> None:
+        help_text = build_parser().format_help()
+
+        def column_of(fragment: str) -> int:
+            line = next(line for line in help_text.splitlines() if fragment in line)
+            return line.index(fragment)
+
+        self.assertEqual(
+            column_of("Print Jarvis-HEP logo"),
+            column_of("Run a distributed scan task YAML"),
+        )
+        self.assertEqual(
+            column_of("Run a distributed scan task YAML"),
+            column_of("(legacy) Print one monitor snapshot"),
+        )
+
     def test_parse_run_subcommand(self) -> None:
         args = build_parser().parse_args(["run", CHECK_MODULES_YAML, "--resume"])
         self.assertEqual(args.command, "run")

@@ -14,6 +14,10 @@ from typing import Any
 
 import click
 import typer.rich_utils
+from rich import box
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
@@ -83,6 +87,128 @@ _COMMAND_HELP_PANELS = {
     "operas": "Extensions & projects",
     "project": "Extensions & projects",
 }
+
+
+_HELP_PRIMARY_COLUMN_WIDTH = 24
+_HELP_ALIAS_COLUMN_WIDTH = 6
+
+
+def _fixed_option_label(
+    param: click.Option | click.Argument, ctx: click.Context
+) -> tuple[Text, Text]:
+    """Return the common primary/alias columns used by every help panel."""
+    if isinstance(param, click.Argument):
+        label = param.make_metavar(ctx=ctx)
+        return (
+            typer.rich_utils.metavar_highlighter(label),
+            Text(),
+        )
+
+    long_options = [option for option in param.opts if option.startswith("--")]
+    short_options = [option for option in param.opts if not option.startswith("--")]
+    label = ",".join(long_options or short_options)
+    aliases = ",".join(short_options if long_options else [])
+    metavar = param.make_metavar(ctx=ctx)
+    if metavar != "BOOLEAN":
+        label = f"{label} {metavar}".strip()
+    return (
+        typer.rich_utils.highlighter(label),
+        typer.rich_utils.highlighter(aliases),
+    )
+
+
+def _print_fixed_options_panel(
+    *,
+    name: str,
+    params: list[click.Option] | list[click.Argument],
+    ctx: click.Context,
+    markup_mode: typer.rich_utils.MarkupMode,
+    console: Any,
+) -> None:
+    """Render options in the same fixed columns as command panels."""
+    if not params:
+        return
+    table = Table(
+        highlight=True,
+        show_header=False,
+        expand=True,
+        box=getattr(box, typer.rich_utils.STYLE_OPTIONS_TABLE_BOX, None),
+        show_lines=typer.rich_utils.STYLE_OPTIONS_TABLE_SHOW_LINES,
+        leading=typer.rich_utils.STYLE_OPTIONS_TABLE_LEADING,
+        border_style=typer.rich_utils.STYLE_OPTIONS_TABLE_BORDER_STYLE,
+        row_styles=typer.rich_utils.STYLE_OPTIONS_TABLE_ROW_STYLES,
+        pad_edge=typer.rich_utils.STYLE_OPTIONS_TABLE_PAD_EDGE,
+        padding=typer.rich_utils.STYLE_OPTIONS_TABLE_PADDING,
+    )
+    table.add_column(width=_HELP_PRIMARY_COLUMN_WIDTH, no_wrap=True)
+    table.add_column(width=_HELP_ALIAS_COLUMN_WIDTH, no_wrap=True)
+    table.add_column(justify="left", ratio=1)
+    for param in params:
+        primary, aliases = _fixed_option_label(param, ctx)
+        table.add_row(
+            primary,
+            aliases,
+            typer.rich_utils._get_parameter_help(
+                param=param, ctx=ctx, markup_mode=markup_mode
+            ),
+        )
+    console.print(
+        Panel(
+            table,
+            border_style=typer.rich_utils.STYLE_OPTIONS_PANEL_BORDER,
+            title=name,
+            title_align=typer.rich_utils.ALIGN_OPTIONS_PANEL,
+        )
+    )
+
+
+def _print_fixed_commands_panel(
+    *,
+    name: str,
+    commands: list[click.Command],
+    markup_mode: typer.rich_utils.MarkupMode,
+    console: Any,
+    cmd_len: int,
+) -> None:
+    """Render command groups with the option panel's fixed column grid."""
+    if not commands:
+        return
+    table = Table(
+        highlight=False,
+        show_header=False,
+        expand=True,
+        box=getattr(box, typer.rich_utils.STYLE_COMMANDS_TABLE_BOX, None),
+        show_lines=typer.rich_utils.STYLE_COMMANDS_TABLE_SHOW_LINES,
+        leading=typer.rich_utils.STYLE_COMMANDS_TABLE_LEADING,
+        border_style=typer.rich_utils.STYLE_COMMANDS_TABLE_BORDER_STYLE,
+        row_styles=typer.rich_utils.STYLE_COMMANDS_TABLE_ROW_STYLES,
+        pad_edge=typer.rich_utils.STYLE_COMMANDS_TABLE_PAD_EDGE,
+        padding=typer.rich_utils.STYLE_COMMANDS_TABLE_PADDING,
+    )
+    table.add_column(
+        style=typer.rich_utils.STYLE_COMMANDS_TABLE_FIRST_COLUMN,
+        width=_HELP_PRIMARY_COLUMN_WIDTH,
+        no_wrap=True,
+    )
+    table.add_column(width=_HELP_ALIAS_COLUMN_WIDTH, no_wrap=True)
+    table.add_column(justify="left", ratio=1)
+    for command in commands:
+        helptext = command.short_help or command.help or ""
+        table.add_row(
+            Text(command.name or ""),
+            Text(),
+            typer.rich_utils._make_command_help(
+                help_text=helptext, markup_mode=markup_mode
+            ),
+        )
+    console.print(
+        Panel(
+            table,
+            border_style=typer.rich_utils.STYLE_COMMANDS_PANEL_BORDER,
+            title=name,
+            title_align=typer.rich_utils.ALIGN_COMMANDS_PANEL,
+        )
+    )
 
 
 class JarvisArgumentParser(argparse.ArgumentParser):
@@ -175,9 +301,13 @@ class JarvisArgumentParser(argparse.ArgumentParser):
         output = io.StringIO()
         old_force_terminal = typer.rich_utils.FORCE_TERMINAL
         old_max_width = typer.rich_utils.MAX_WIDTH
+        old_options_panel = typer.rich_utils._print_options_panel
+        old_commands_panel = typer.rich_utils._print_commands_panel
         try:
             typer.rich_utils.FORCE_TERMINAL = terminal_stdout.isatty()
             typer.rich_utils.MAX_WIDTH = shutil.get_terminal_size().columns
+            typer.rich_utils._print_options_panel = _print_fixed_options_panel
+            typer.rich_utils._print_commands_panel = _print_fixed_commands_panel
             with contextlib.redirect_stdout(output):
                 typer.rich_utils.rich_format_help(
                     obj=command,
@@ -200,6 +330,8 @@ class JarvisArgumentParser(argparse.ArgumentParser):
         finally:
             typer.rich_utils.FORCE_TERMINAL = old_force_terminal
             typer.rich_utils.MAX_WIDTH = old_max_width
+            typer.rich_utils._print_options_panel = old_options_panel
+            typer.rich_utils._print_commands_panel = old_commands_panel
         return output.getvalue()
 
 
