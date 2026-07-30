@@ -215,7 +215,7 @@ class TaskValidationKernelTests(unittest.TestCase):
         report = validate_task_config(cfg, check_modules=True)
         self.assertTrue(report.ok, [i.format_line() for i in report.errors()])
 
-    def test_io_save_ownership_warning_strict_promotes(self) -> None:
+    def test_io_save_key_is_valid_in_strict_mode(self) -> None:
         cfg = _minimal_dynesty_config()
         cfg["Calculators"] = {
             "Modules": [
@@ -232,9 +232,9 @@ class TaskValidationKernelTests(unittest.TestCase):
         }
         report = validate_task_config(cfg)
         self.assertTrue(report.ok)
-        self.assertTrue(any(i.code == "JV2-IO-001" for i in report.warnings()))
+        self.assertFalse(report.warnings())
         strict = validate_task_config(cfg, strict=True)
-        self.assertFalse(strict.ok)
+        self.assertTrue(strict.ok)
 
     def test_raise_if_errors(self) -> None:
         cfg = _minimal_dynesty_config()

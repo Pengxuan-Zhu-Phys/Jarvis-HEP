@@ -137,48 +137,6 @@ def _validate_dead_keys(config: Mapping[str, Any]) -> list[ValidationIssue]:
             )
         )
 
-    calculators = config.get("Calculators")
-    if isinstance(calculators, Mapping):
-        modules = calculators.get("Modules")
-        if isinstance(modules, list):
-            for mi, mod in enumerate(modules):
-                if not isinstance(mod, Mapping):
-                    continue
-                for mode_key in ("execution",):
-                    execution = mod.get(mode_key)
-                    # Also scan modes.* execution blocks.
-                    blocks: list[tuple[str, Any]] = []
-                    if isinstance(execution, Mapping):
-                        blocks.append((f"Calculators.Modules[{mi}].execution", execution))
-                    modes = mod.get("modes")
-                    if isinstance(modes, Mapping):
-                        for mname, mbody in modes.items():
-                            if isinstance(mbody, Mapping) and isinstance(
-                                mbody.get("execution"), Mapping
-                            ):
-                                blocks.append(
-                                    (
-                                        f"Calculators.Modules[{mi}].modes.{mname}.execution",
-                                        mbody["execution"],
-                                    )
-                                )
-                    for base, exe in blocks:
-                        for io_key in ("input", "output"):
-                            entries = exe.get(io_key)
-                            if not isinstance(entries, list):
-                                continue
-                            for ii, entry in enumerate(entries):
-                                if isinstance(entry, Mapping) and "save" in entry:
-                                    issues.append(
-                                        issue(
-                                            "warning",
-                                            "JV2-IO-001",
-                                            f"{base}.{io_key}[{ii}].save",
-                                            "key is handled by HEP FileOperation "
-                                            "(not Jarvis Portal); it controls the "
-                                            "SAMPLE save policy",
-                                        )
-                                    )
     return issues
 
 
