@@ -204,6 +204,22 @@ def list_running_scans(
     return scans
 
 
+def ensure_scan_name_available(scan_name: str) -> None:
+    """Reject a new run when its exact scan name already has a live controller."""
+    name = str(scan_name or "").strip()
+    if not name:
+        raise ValueError("scan name is required")
+    for scan in list_running_scans():
+        if scan.name != name:
+            continue
+        if any(proc.command.split(None, 1)[0].startswith("Jarvis2:") for proc in scan.processes):
+            raise RuntimeError(
+                f"a Jarvis scan named {name!r} is already running; "
+                f"inspect it with `Jarvis2 monitor {scan.reference}` or "
+                f"`Jarvis2 ps {scan.reference}` before starting another run"
+            )
+
+
 def resolve_scan_reference(selector: str, scans: Iterable[JarvisScan]) -> JarvisScan:
     """Resolve an ``R1`` table reference or an exact scan name."""
     text = str(selector or "").strip()
@@ -424,6 +440,7 @@ __all__ = [
     "JarvisProcess",
     "JarvisScan",
     "confirm_kill",
+    "ensure_scan_name_available",
     "format_process_table",
     "format_scan_table",
     "kill_jarvis_processes",

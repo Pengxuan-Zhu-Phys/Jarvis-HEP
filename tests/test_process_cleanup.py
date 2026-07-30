@@ -50,6 +50,21 @@ class ListProcessesTests(unittest.TestCase):
         self.assertIs(resolve_scan_reference("Beta", scans), scans[1])
         self.assertIn("Jarvis2 kill R1", format_scan_table(scans))
 
+    def test_rejects_duplicate_live_scan_controller(self) -> None:
+        from jarvishep2.process_cleanup import ensure_scan_name_available
+
+        fake = [JarvisProcess(pid=10, command="Jarvis2:Alpha")]
+        with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
+            with self.assertRaisesRegex(RuntimeError, "already running"):
+                ensure_scan_name_available("Alpha")
+
+    def test_allows_same_name_when_only_orphan_worker_remains(self) -> None:
+        from jarvishep2.process_cleanup import ensure_scan_name_available
+
+        fake = [JarvisProcess(pid=10, command="Jarvis2-Worker-0:Alpha")]
+        with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
+            ensure_scan_name_available("Alpha")
+
     def test_parses_ps_output_and_skips_self(self) -> None:
         fake = (
             "  111 python3 -m pytest\n"

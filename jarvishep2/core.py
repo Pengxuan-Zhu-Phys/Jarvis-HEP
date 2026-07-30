@@ -317,6 +317,10 @@ class Jarvis2Core:
         """Bring up Redis, Workers, and Archiver for a distributed run."""
         if not self.is_redis_runtime():
             raise RuntimeError("distributed runtime requires the internal Redis runtime")
+        from jarvishep2.process_cleanup import ensure_scan_name_available
+
+        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
+        ensure_scan_name_available(scan_name)
         self.init_logger()
         self.init_command_parser()
         self.init_redis()
