@@ -34,7 +34,12 @@ from jarvishep2.redis_queue import (
     CONTROL_LOCK_TTL_SEC,
     RedisQueue,
 )
-from jarvishep2.redis_server import ManagedRedisServer
+from jarvishep2.redis_server import (
+    ManagedRedisServer,
+    find_available_redis_port,
+    redis_port_open,
+)
+from jarvishep2.task_config import update_default_redis_port
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
@@ -1146,9 +1151,10 @@ class Jarvis2Core:
         # EnvReqs.V2.redis (optional) overlays INTERNAL_REDIS_CONFIG defaults.
         redis_config = get_redis_config(self.config)
         # Prefer a Jarvis-managed redis-server so `ps` shows Jarvis-Redis:<scan>.
-        # If something is already listening, we connect and leave its title alone.
+        # A port collision is reassigned into the project's default YAML first.
         if client is None:
             self._ensure_managed_redis(redis_config)
+            redis_config = get_redis_config(self.config)
         if client is not None:
             self.redis = RedisQueue(redis_config, client=client)
         else:
@@ -1169,6 +1175,30 @@ class Jarvis2Core:
         """Start redis-server as Jarvis-Redis:<scan> when the port is free."""
         if self._managed_redis is not None and self._managed_redis.started_by_us:
             return
+        redis_config = dict(redis_config)
+        reassigned = False
+        host = str(redis_config.get("host") or "127.0.0.1")
+        requested_port = int(redis_config.get("port") or 6379)
+        if redis_port_open(host, requested_port):
+            defaults_path = self.config.get("environment_defaults_path")
+            if not defaults_path or self.config.get("redis_port_task_override"):
+                raise RuntimeError(
+                    f"Redis port {host}:{requested_port} is already in use. "
+                    "Set EnvReqs.V2.redis.port in the project default environment YAML "
+                    "(not in the task YAML) to enable automatic port reassignment."
+                )
+            selected_port = find_available_redis_port(host, requested_port + 1)
+            update_default_redis_port(str(defaults_path), selected_port)
+            redis_config["port"] = selected_port
+            self._set_runtime_redis_config(redis_config)
+            reassigned = True
+            self._logger.warning(
+                "Redis port %s:%s is occupied; reassigned this project to %s and updated %s",
+                host,
+                requested_port,
+                selected_port,
+                defaults_path,
+            )
         scan_name = str(
             self.info.get("scan_name") or self.config.get("scan_name") or "scan"
         ).strip()
@@ -1184,8 +1214,17 @@ class Jarvis2Core:
             work_dir=work_dir,
         )
         try:
-            started = managed.ensure(scan_name=scan_name, work_dir=work_dir)
+            started = managed.ensure(
+                scan_name=scan_name,
+                work_dir=work_dir,
+                force_start=reassigned,
+            )
         except Exception as exc:
+            if reassigned:
+                raise RuntimeError(
+                    "the replacement Redis port became occupied before Jarvis could start it; "
+                    "run again to select another port"
+                ) from exc
             # Fall through to connect attempt; init_redis will raise a clear error.
             self._logger.warning("managed redis-server ensure failed -> %s", exc)
             return
@@ -1204,6 +1243,19 @@ class Jarvis2Core:
                 managed.host,
                 managed.port,
             )
+
+    def _set_runtime_redis_config(self, redis_config: Mapping[str, Any]) -> None:
+        """Keep the loaded task in sync with an automatically reassigned port."""
+        normalized = dict(redis_config)
+        envreqs = dict(self.config.get("EnvReqs") or {})
+        v2 = dict(envreqs.get("V2") or {})
+        v2["redis"] = normalized
+        envreqs["V2"] = v2
+        self.config["EnvReqs"] = envreqs
+        runtime = dict(self.config.get("Runtime") or {})
+        runtime["redis"] = normalized
+        self.config["Runtime"] = runtime
+        self.runtime = runtime
 
     def _control_lock_owner_id(self) -> str:
         run_id = str(self.info.get("run_id") or "jarvis2-run")

@@ -36,6 +36,27 @@ def redis_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
         return False
 
 
+def find_available_redis_port(host: str, start_port: int, *, attempts: int = 1000) -> int:
+    """Find a locally bindable TCP port at or above ``start_port``.
+
+    The bind probe is more reliable than a connect-only check for choosing a
+    replacement port.  Redis still owns the final bind, so callers must retain
+    normal startup error handling for the small unavoidable race window.
+    """
+    bind_host = "127.0.0.1" if str(host) in {"localhost", "127.0.0.1", "::1"} else str(host)
+    first = max(1, int(start_port))
+    last = min(65535, first + max(1, int(attempts)) - 1)
+    for port in range(first, last + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind((bind_host, port))
+            except OSError:
+                continue
+            return port
+    raise RuntimeError(f"no free Redis port in range {first}..{last} on {host}")
+
+
 def find_redis_server_binary() -> str | None:
     path = shutil.which("redis-server")
     return path if path else None
@@ -296,5 +317,6 @@ __all__ = [
     "ensure_local_redis",
     "find_redis_server_binary",
     "redis_port_open",
+    "find_available_redis_port",
     "write_redis_conf",
 ]

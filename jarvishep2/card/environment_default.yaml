@@ -29,12 +29,12 @@ EnvReqs:
       max_hdf5_bytes: 1073741824
       delete_after_archive: true
 
-    # Optional Redis broker override (default: 127.0.0.1:6379 / db 0).
-    # Uncomment for multi-host or non-default port deployments.
-    # redis:
-    #   host: 127.0.0.1
-    #   port: 6379
-    #   db: 0
+    # Per-project Redis broker. If this port is occupied, Jarvis2 selects a
+    # free replacement and writes it back here before the scan begins.
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      db: 0
 
     # Optional factory / worker policy (defaults match code).
     # factory:

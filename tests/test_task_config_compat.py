@@ -8,7 +8,9 @@ import tempfile
 import unittest
 from unittest import mock
 
-from jarvishep2.task_config import load_task_yaml
+import yaml
+
+from jarvishep2.task_config import load_task_yaml, update_default_redis_port
 
 
 class TaskConfigCompatibilityTests(unittest.TestCase):
@@ -193,6 +195,72 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
         self.assertEqual(redis["port"], 6399)
         self.assertEqual(redis["host"], INTERNAL_REDIS_CONFIG["host"])
         self.assertEqual(redis["db"], INTERNAL_REDIS_CONFIG["db"])
+
+    def test_default_redis_port_update_preserves_project_yaml_comments(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            defaults = os.path.join(root, "environment_default.yaml")
+            with open(defaults, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "# Project policy\n"
+                    "EnvReqs:\n"
+                    "  V2:\n"
+                    "    workers: 2\n"
+                    "    redis:\n"
+                    "      host: 127.0.0.1\n"
+                    "      port: 6379  # default broker\n"
+                    "      db: 0\n"
+                )
+            update_default_redis_port(defaults, 6380)
+            with open(defaults, encoding="utf-8") as handle:
+                rewritten = handle.read()
+
+        self.assertIn("# Project policy", rewritten)
+        self.assertIn("port: 6380  # default broker", rewritten)
+        self.assertEqual(yaml.safe_load(rewritten)["EnvReqs"]["V2"]["redis"]["port"], 6380)
+
+    def test_default_redis_port_update_adds_missing_redis_block(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            defaults = os.path.join(root, "environment_default.yaml")
+            with open(defaults, "w", encoding="utf-8") as handle:
+                handle.write("EnvReqs:\n  V2:\n    workers: 2\n")
+            update_default_redis_port(defaults, 6380)
+            with open(defaults, encoding="utf-8") as handle:
+                document = yaml.safe_load(handle)
+
+        self.assertEqual(document["EnvReqs"]["V2"]["redis"], {
+            "host": "127.0.0.1", "port": 6380, "db": 0,
+        })
+
+    def test_core_reassigns_occupied_default_redis_port_and_persists_it(self) -> None:
+        from jarvishep2.core import Jarvis2Core
+
+        with tempfile.TemporaryDirectory() as root:
+            defaults = os.path.join(root, "environment_default.yaml")
+            with open(defaults, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "EnvReqs:\n  V2:\n    redis:\n"
+                    "      host: 127.0.0.1\n      port: 6379\n      db: 0\n"
+                )
+            config = {
+                "scan_name": "parallel-scan",
+                "environment_defaults_path": defaults,
+                "EnvReqs": {"V2": {"redis": {"host": "127.0.0.1", "port": 6379, "db": 0}}},
+                "Runtime": {"mode": "redis", "redis": {"host": "127.0.0.1", "port": 6379, "db": 0}},
+            }
+            managed = mock.Mock(host="127.0.0.1", port=6380, title="Jarvis-Redis:parallel-scan")
+            managed.ensure.return_value = True
+            with mock.patch("jarvishep2.core.redis_port_open", return_value=True), mock.patch(
+                "jarvishep2.core.find_available_redis_port", return_value=6380
+            ), mock.patch(
+                "jarvishep2.core.ManagedRedisServer.from_redis_config", return_value=managed
+            ):
+                core = Jarvis2Core(config)
+                core._ensure_managed_redis(config["Runtime"]["redis"])
+            with open(defaults, encoding="utf-8") as handle:
+                document = yaml.safe_load(handle)
+
+        self.assertEqual(core.config["Runtime"]["redis"]["port"], 6380)
+        self.assertEqual(document["EnvReqs"]["V2"]["redis"]["port"], 6380)
 
     def test_unknown_envreqs_v2_key_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

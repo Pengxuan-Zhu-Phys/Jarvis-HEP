@@ -25,11 +25,12 @@ EnvReqs:
       max_hdf5_bytes: 1073741824
       delete_after_archive: true
 
-    # Optional redis/factory/worker groups — see EnvReqs.V2 docs (D12.4).
-    # redis:
-    #   host: 127.0.0.1
-    #   port: 6379
-    #   db: 0
+    # Per-project Redis broker. If this port is occupied, Jarvis2 selects a
+    # free replacement and writes it back here before the scan begins.
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      db: 0
 
     # Jarvis2 check / --check-modules (CSV fixed points, else n_samples from Method).
     # Runtime always forces workers=1, SAMPLE/test/, no tar pack.

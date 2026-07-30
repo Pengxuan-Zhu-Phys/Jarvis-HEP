@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
@@ -117,6 +119,124 @@ def _v2_defaults_from_envreqs(
     return _canonicalize_v2_settings(v2_defaults)
 
 
+def _default_environment_yaml_path(
+    config: Mapping[str, Any], *, project_root: str, yaml_dir: str
+) -> str | None:
+    """Return the project default-environment YAML selected by a task, if any."""
+    envreqs = config.get("EnvReqs")
+    if not isinstance(envreqs, Mapping):
+        return None
+    dependency_check = envreqs.get("Check_default_dependencies")
+    if not isinstance(dependency_check, Mapping) or not _is_enabled(
+        dependency_check.get("required")
+    ):
+        return None
+    raw_path = dependency_check.get("default_yaml_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    return decode_path(raw_path, project_root=project_root, base_dir=yaml_dir)
+
+
+def update_default_redis_port(defaults_path: str, port: int) -> None:
+    """Atomically set ``EnvReqs.V2.redis.port`` without discarding YAML comments.
+
+    Project environment files are user-maintained documents, so a full
+    ``yaml.safe_dump`` rewrite would be unnecessarily destructive.  This small
+    structural edit retains their layout and comments while adding the Redis
+    block when a legacy defaults file has not declared one yet.
+    """
+    path = os.path.abspath(str(defaults_path))
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"default environment YAML not found: {path}")
+    try:
+        selected_port = int(port)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid Redis port: {port!r}") from exc
+    if not 1 <= selected_port <= 65535:
+        raise ValueError(f"invalid Redis port: {selected_port}")
+
+    with open(path, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    document = yaml.safe_load(text)
+    if not isinstance(document, Mapping):
+        raise ValueError(f"default environment YAML must contain a mapping: {path}")
+    envreqs = document.get("EnvReqs")
+    if not isinstance(envreqs, Mapping) or not isinstance(envreqs.get("V2"), Mapping):
+        raise ValueError(f"default environment YAML must contain EnvReqs.V2: {path}")
+
+    lines = text.splitlines(keepends=True)
+    v2_line = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^\s{2}V2:\s*(?:#.*)?(?:\r?\n)?$", line)
+        ),
+        None,
+    )
+    if v2_line is None:
+        raise ValueError(f"could not locate EnvReqs.V2 in default YAML: {path}")
+    end_v2 = len(lines)
+    for index in range(v2_line + 1, len(lines)):
+        if lines[index].strip() and not lines[index].startswith((" ", "\t", "#")):
+            end_v2 = index
+            break
+
+    redis_line = next(
+        (
+            index
+            for index in range(v2_line + 1, end_v2)
+            if re.match(r"^\s{4}redis:\s*(?:#.*)?(?:\r?\n)?$", lines[index])
+        ),
+        None,
+    )
+    if redis_line is None:
+        newline = "\r\n" if "\r\n" in text else "\n"
+        lines[v2_line + 1:v2_line + 1] = [
+            f"    redis:{newline}",
+            f"      host: 127.0.0.1{newline}",
+            f"      port: {selected_port}{newline}",
+            f"      db: 0{newline}",
+        ]
+    else:
+        end_redis = end_v2
+        for index in range(redis_line + 1, end_v2):
+            if lines[index].strip() and not lines[index].startswith(("      ", "\t", "#")):
+                end_redis = index
+                break
+        port_line = next(
+            (
+                index
+                for index in range(redis_line + 1, end_redis)
+                if re.match(r"^\s{6}port:\s*", lines[index])
+            ),
+            None,
+        )
+        if port_line is None:
+            newline = "\r\n" if "\r\n" in text else "\n"
+            lines.insert(redis_line + 1, f"      port: {selected_port}{newline}")
+        else:
+            lines[port_line] = re.sub(
+                r"^(\s{6}port:\s*)\S*(.*)$",
+                rf"\g<1>{selected_port}\2",
+                lines[port_line],
+            )
+
+    directory = os.path.dirname(path) or "."
+    fd, temporary_path = tempfile.mkstemp(prefix=".environment_default.", suffix=".yaml", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.writelines(lines)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    except Exception:
+        try:
+            os.unlink(temporary_path)
+        except OSError:
+            pass
+        raise
+
+
 def _runtime_defaults_from_envreqs(
     config: Mapping[str, Any], *, project_root: str, yaml_dir: str
 ) -> dict[str, Any]:
@@ -174,6 +294,9 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         raise ValueError("EnvReqs.V2 must be a mapping")
 
     v2_defaults = _v2_defaults_from_envreqs(
+        loaded, project_root=project_root, yaml_dir=yaml_dir
+    )
+    defaults_path = _default_environment_yaml_path(
         loaded, project_root=project_root, yaml_dir=yaml_dir
     )
     # Legacy EnvReqs.Runtime defaults may include V1 Runtime keys (mode, …);
@@ -278,6 +401,12 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         )
     config["Runtime"] = runtime
     config["task_yaml"] = task_path
+    if defaults_path is not None:
+        config["environment_defaults_path"] = os.path.abspath(defaults_path)
+    task_redis = task_v2.get("redis") if isinstance(task_v2, Mapping) else None
+    config["redis_port_task_override"] = bool(
+        isinstance(task_redis, Mapping) and task_redis.get("port") is not None
+    )
     config["task_root"] = project_root
     config["project_root"] = project_root
     config["task_result_dir"] = os.path.abspath(task_result_dir)
