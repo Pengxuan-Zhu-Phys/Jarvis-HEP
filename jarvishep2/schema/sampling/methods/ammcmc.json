@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/ammcmc.json","allOf":[{"$ref":"https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},{"properties":{"Method":{"const":"AMMCMC"}}}]}

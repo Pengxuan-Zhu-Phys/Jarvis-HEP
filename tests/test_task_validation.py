@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import tempfile
 import unittest
 from copy import deepcopy
 
-from jarvishep2.client import dispatch_validate, main, normalize_argv
+from jarvishep2.client import dispatch_run, dispatch_validate, main, normalize_argv
 from jarvishep2.task_config import load_task_yaml
 from jarvishep2.task_validation import (
     ConfigValidationError,
@@ -295,6 +297,46 @@ class TaskValidationCliTests(unittest.TestCase):
                 )
             code = dispatch_validate(path, as_json=True)
             self.assertEqual(code, 2)
+
+    def test_dispatch_validate_json_contains_actionable_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "task.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("Sampling:\n  Method: Random\n  Variables: []\n")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = dispatch_validate(path, as_json=True)
+            self.assertEqual(code, 2)
+            issues = json.loads(stdout.getvalue())["issues"]
+            random_issue = next(item for item in issues if item["code"] == "JV2-MTH-020")
+            self.assertIn("Point number", random_issue["suggestion"])
+            self.assertIn("Point number: 100", random_issue["example"])
+
+    def test_dispatch_validate_reports_yaml_syntax_with_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "broken.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("Sampling:\n  Method: Random\n    Point number: 10\n")
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = dispatch_validate(path, as_json=True)
+            self.assertEqual(code, 2)
+            issue = json.loads(stdout.getvalue())["issues"][0]
+            self.assertEqual(issue["code"], "JV2-YAML-001")
+            self.assertIn("indentation", issue["suggestion"])
+            self.assertIn("Method: Random", issue["example"])
+
+    def test_dispatch_run_reports_yaml_syntax_with_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "broken.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("Sampling:\n  Method: Random\n    Point number: 10\n")
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = dispatch_run(path)
+            self.assertEqual(code, 2)
+            self.assertIn("JV2-YAML-001", stderr.getvalue())
+            self.assertIn("suggestion:", stderr.getvalue())
 
     def test_main_validate_subcommand(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

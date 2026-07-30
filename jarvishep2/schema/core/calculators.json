@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://jarvis-hep.org/schema/v2/core/calculators.json",
+    "type": "object",
+    "properties": {
+        "Modules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": [
+                    "name"
+                ],
+                "properties": {
+                    "name": {
+                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                    },
+                    "path": {
+                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                    },
+                    "source": {
+                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                    },
+                    "clone_shadow": {
+                        "type": "boolean"
+                    },
+                    "execution": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                            },
+                            "commands": {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                                        },
+                                        {
+                                            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/command"
+                                        }
+                                    ]
+                                }
+                            },
+                            "input": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object"
+                                }
+                            },
+                            "output": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": true
+            }
+        }
+    },
+    "additionalProperties": true
+}

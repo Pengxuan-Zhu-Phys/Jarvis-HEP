@@ -12,6 +12,19 @@ from typing import Any
 
 import yaml
 
+
+class TaskCardLoadError(ValueError):
+    """A task-card loading error with a stable diagnostic and correction."""
+
+    def __init__(
+        self, code: str, message: str, suggestion: str, example: str | None = None
+    ) -> None:
+        self.code = code
+        self.suggestion = suggestion
+        self.example = example
+        super().__init__(message)
+
+
 from jarvishep2.base import decode_path, infer_project_root, scan_output_root
 from jarvishep2.runtime_config import (
     CHECK_MODULES_DEFAULTS,
@@ -295,10 +308,28 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     if not os.path.isfile(task_path):
         raise FileNotFoundError(f"task YAML not found: {task_path}")
 
-    with open(task_path, "r", encoding="utf-8") as handle:
-        loaded = yaml.safe_load(handle)
+    try:
+        with open(task_path, "r", encoding="utf-8") as handle:
+            loaded = yaml.safe_load(handle)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        location = ""
+        if mark is not None:
+            location = f" at line {mark.line + 1}, column {mark.column + 1}"
+        problem = str(getattr(exc, "problem", "invalid YAML syntax"))
+        raise TaskCardLoadError(
+            "JV2-YAML-001",
+            f"invalid YAML syntax{location}: {problem}",
+            "Check indentation, list markers, quoting, and ':' placement near the reported location.",
+            "Sampling:\n  Method: Random\n  Point number: 100",
+        ) from exc
     if not isinstance(loaded, dict):
-        raise ValueError(f"task YAML must contain a mapping at top level: {task_path}")
+        raise TaskCardLoadError(
+            "JV2-YAML-002",
+            f"task YAML must contain a mapping at top level: {task_path}",
+            "Start the file with top-level section names such as Scan and Sampling, not a list or scalar.",
+            "Scan:\n  name: my_scan\nSampling:\n  Method: Random",
+        )
 
     yaml_dir = os.path.dirname(task_path)
     project_root = infer_project_root(yaml_dir)
@@ -539,6 +570,7 @@ def check_modules_n_samples(config: Mapping[str, Any]) -> int:
 
 
 __all__ = [
+    "TaskCardLoadError",
     "check_modules_n_samples",
     "check_modules_points_path",
     "get_check_modules_settings",

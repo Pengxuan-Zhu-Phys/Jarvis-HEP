@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -839,6 +840,8 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     if not task_yaml:
         print("Task YAML is required (usage: Jarvis2 gen-plot-yaml TASK.yaml).", file=sys.stderr)
         return EXIT_USAGE
+    from jarvishep2.task_config import TaskCardLoadError
+
     try:
         core = Jarvis2Core()
         core.load_task_yaml(task_yaml, validate=False)
@@ -862,6 +865,12 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+    except TaskCardLoadError as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code=exc.code, message=str(exc),
+            suggestion=exc.suggestion, example=exc.example, as_json=False,
+        )
+        return EXIT_USAGE
     except (ValueError, OSError) as exc:
         print(f"gen-plot-yaml failed: {exc}", file=sys.stderr)
         return EXIT_USAGE
@@ -1457,6 +1466,38 @@ def _print_outcome(outcome: RunOutcome) -> None:
         print(f"  error_type={outcome.error_type} error={outcome.error}", file=sys.stderr)
 
 
+def _emit_load_diagnostic(
+    *,
+    task_yaml: str,
+    code: str,
+    message: str,
+    suggestion: str,
+    example: str | None,
+    as_json: bool,
+) -> None:
+    """Render pre-validation YAML/loading failures like normal diagnostics."""
+    if as_json:
+        print(json.dumps({
+            "ok": False,
+            "task_yaml": task_yaml,
+            "scan_name": "",
+            "issues": [{
+                "level": "error", "code": code, "path": "$",
+                "message": message, "hint": None,
+                "suggestion": suggestion, "example": example,
+            }],
+        }, indent=2, sort_keys=True))
+        return
+    print(f"Config validation failed (1 error, 0 warnings):\n"
+          f"  [error] {code}  $\n"
+          f"          {message}\n"
+          f"          suggestion: {suggestion}", file=sys.stderr)
+    if example:
+        print("          example:\n" + "\n".join(
+            f"            {line}" for line in example.splitlines()
+        ), file=sys.stderr)
+
+
 def dispatch_validate(
     task_yaml: str,
     *,
@@ -1465,8 +1506,7 @@ def dispatch_validate(
     check_modules: bool | None = None,
 ) -> int:
     """Load + validate a task card; never start Redis or workers."""
-    import json
-
+    from jarvishep2.task_config import TaskCardLoadError
     from jarvishep2.task_validation import (
         ConfigValidationError,
         format_report,
@@ -1483,10 +1523,21 @@ def dispatch_validate(
         # Load without gate, then validate once with full control over output.
         core.load_task_yaml(task_yaml, validate=False)
     except FileNotFoundError as exc:
-        print(str(exc), file=sys.stderr)
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code="JV2-LOAD-001", message=str(exc),
+            suggestion="Provide the path to an existing task YAML file.",
+            example="Jarvis2 validate path/to/task.yaml", as_json=as_json,
+        )
         return EXIT_RUN_FAILED
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
+        _emit_load_diagnostic(
+            task_yaml=task_yaml,
+            code=getattr(exc, "code", "JV2-LOAD-002"),
+            message=str(exc),
+            suggestion=getattr(exc, "suggestion", "Correct the task-card structure described in the error and validate again."),
+            example=getattr(exc, "example", None),
+            as_json=as_json,
+        )
         return EXIT_USAGE
 
     report = validate_task_config(
@@ -1504,6 +1555,8 @@ def dispatch_validate(
                     "path": i.path,
                     "message": i.message,
                     "hint": i.hint,
+                    "suggestion": i.suggestion,
+                    "example": i.example,
                 }
                 for i in report.issues
             ],
@@ -1534,6 +1587,8 @@ def dispatch_convert(task_yaml: str) -> int:
         print("Task YAML is required for convert.", file=sys.stderr)
         return EXIT_USAGE
 
+    from jarvishep2.task_config import TaskCardLoadError
+
     try:
         core = Jarvis2Core()
         # Post-run utility: path resolution only; skip full config gate.
@@ -1541,6 +1596,12 @@ def dispatch_convert(task_yaml: str) -> int:
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+    except TaskCardLoadError as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code=exc.code, message=str(exc),
+            suggestion=exc.suggestion, example=exc.example, as_json=False,
+        )
+        return EXIT_USAGE
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
@@ -1569,6 +1630,8 @@ def dispatch_run(
         print("Task YAML is required.", file=sys.stderr)
         return EXIT_USAGE
 
+    from jarvishep2.task_config import TaskCardLoadError
+
     try:
         core = Jarvis2Core()
         core.load_task_yaml(
@@ -1580,6 +1643,12 @@ def dispatch_run(
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+    except TaskCardLoadError as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code=exc.code, message=str(exc),
+            suggestion=exc.suggestion, example=exc.example, as_json=False,
+        )
+        return EXIT_USAGE
     except ValueError as exc:
         # Includes ConfigValidationError (subclass of ValueError).
         print(str(exc), file=sys.stderr)

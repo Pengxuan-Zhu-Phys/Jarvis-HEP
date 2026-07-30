@@ -1,0 +1,33 @@
+{
+  "schema_version": "v2",
+  "draft": "2020-12",
+  "root": "https://jarvis-hep.org/schema/v2/task-card.json",
+  "schema_files": [
+    "task-card-v2.schema.json", "core/common.json", "core/scan.json", "core/sampling.json", "core/calculators.json", "core/operas.json",
+    "sampling/methods/bridson.json", "sampling/methods/random.json", "sampling/methods/csv.json", "sampling/methods/variables.json", "sampling/methods/grid.json", "sampling/methods/adaptive_bridson.json", "sampling/methods/mcmc.json", "sampling/methods/ammcmc.json", "sampling/methods/am.json", "sampling/methods/dram.json", "sampling/methods/ensemble_mcmc.json", "sampling/methods/ensemble_base.json", "sampling/methods/demcmc.json", "sampling/methods/ptmcmc.json", "sampling/methods/pt.json", "sampling/methods/ptensemble.json", "sampling/methods/dynesty.json", "sampling/methods/multinest.json",
+    "io/input/json.json", "io/input/text.json", "io/output/json.json", "io/output/text.json"
+  ],
+  "sampling_methods": {
+    "Bridson": "https://jarvis-hep.org/schema/v2/sampling/methods/bridson.json",
+    "Random": "https://jarvis-hep.org/schema/v2/sampling/methods/random.json",
+    "CSV": "https://jarvis-hep.org/schema/v2/sampling/methods/csv.json",
+    "Grid": "https://jarvis-hep.org/schema/v2/sampling/methods/grid.json",
+    "AdaptiveBridson": "https://jarvis-hep.org/schema/v2/sampling/methods/adaptive_bridson.json",
+    "MCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/mcmc.json",
+    "AMMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/ammcmc.json",
+    "AM": "https://jarvis-hep.org/schema/v2/sampling/methods/am.json",
+    "DRAM": "https://jarvis-hep.org/schema/v2/sampling/methods/dram.json",
+    "EnsembleMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/ensemble_mcmc.json",
+    "Ensemble": "https://jarvis-hep.org/schema/v2/sampling/methods/ensemble_base.json",
+    "DEMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/demcmc.json",
+    "PTMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/ptmcmc.json",
+    "PT": "https://jarvis-hep.org/schema/v2/sampling/methods/pt.json",
+    "PTEnsemble": "https://jarvis-hep.org/schema/v2/sampling/methods/ptensemble.json",
+    "Dynesty": "https://jarvis-hep.org/schema/v2/sampling/methods/dynesty.json",
+    "MultiNest": "https://jarvis-hep.org/schema/v2/sampling/methods/multinest.json"
+  },
+  "io": {
+    "input": {"JSON": "https://jarvis-hep.org/schema/v2/io/input/json.json", "text": "https://jarvis-hep.org/schema/v2/io/input/text.json", "Text": "https://jarvis-hep.org/schema/v2/io/input/text.json", "TEXT": "https://jarvis-hep.org/schema/v2/io/input/text.json"},
+    "output": {"JSON": "https://jarvis-hep.org/schema/v2/io/output/json.json", "text": "https://jarvis-hep.org/schema/v2/io/output/text.json", "Text": "https://jarvis-hep.org/schema/v2/io/output/text.json", "TEXT": "https://jarvis-hep.org/schema/v2/io/output/text.json"}
+  }
+}

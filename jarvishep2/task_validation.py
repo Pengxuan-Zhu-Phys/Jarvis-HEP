@@ -15,7 +15,9 @@ from jarvishep2.contracts.common import is_check_modules_mode, sampling_block
 from jarvishep2.contracts.methods import validate_method_sampling
 from jarvishep2.contracts.operational import validate_operational_blocks
 from jarvishep2.contracts.variables import validate_variables
+from jarvishep2.diagnostic_guidance import guidance_for
 from jarvishep2.distributor import Distributor
+from jarvishep2.task_schema import validate_task_card_schema
 from jarvishep2.task_config import get_check_modules_settings
 
 Level = Literal["error", "warning"]
@@ -30,11 +32,17 @@ class ValidationIssue:
     path: str
     message: str
     hint: str | None = None
+    suggestion: str | None = None
+    example: str | None = None
 
     def format_line(self) -> str:
         base = f"  [{self.level}] {self.code}  {self.path}\n          {self.message}"
         if self.hint:
             base += f"\n          hint: {self.hint}"
+        if self.suggestion:
+            base += f"\n          suggestion: {self.suggestion}"
+        if self.example:
+            base += f"\n          example:\n{_indent_example(self.example)}"
         return base
 
 
@@ -70,6 +78,8 @@ class ValidationReport:
                 path=i.path,
                 message=i.message,
                 hint=i.hint,
+                suggestion=i.suggestion,
+                example=i.example,
             )
             if i.level == "warning"
             else i
@@ -91,10 +101,21 @@ def issue(
     path: str,
     message: str,
     hint: str | None = None,
+    suggestion: str | None = None,
+    example: str | None = None,
 ) -> ValidationIssue:
+    if suggestion is None:
+        suggestion, automatic_example = guidance_for(code, path, message)
+        if example is None:
+            example = automatic_example
     return ValidationIssue(
-        level=level, code=code, path=path, message=message, hint=hint
+        level=level, code=code, path=path, message=message, hint=hint,
+        suggestion=suggestion, example=example,
     )
+
+
+def _indent_example(example: str) -> str:
+    return "\n".join(f"            {line}" for line in example.splitlines())
 
 
 def format_report(report: ValidationReport) -> str:
@@ -195,6 +216,9 @@ def validate_task_config(
             )
         )
         return report
+
+    # Structural, editor-friendly validation precedes semantic Python contracts.
+    report.extend(validate_task_card_schema(config))
 
     cm = (
         bool(check_modules)
