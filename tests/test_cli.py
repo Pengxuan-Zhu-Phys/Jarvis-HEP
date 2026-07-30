@@ -54,6 +54,18 @@ class CliNormalizeArgvTests(unittest.TestCase):
 
 
 class CliParseTests(unittest.TestCase):
+    def test_run_debug_shortcut_enables_both_debug_levels(self) -> None:
+        args = build_parser().parse_args(["run", "task.yaml", "-d"])
+        self.assertTrue(args.debug)
+
+        core = mock.Mock()
+        core.run.return_value = RunOutcome(submitted=1, completed=1)
+        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+            self.assertEqual(dispatch(args), EXIT_OK)
+        core.set_logging_options.assert_called_once_with(
+            console_level="DEBUG", log_level="DEBUG", silence=False
+        )
+
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)

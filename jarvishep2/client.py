@@ -478,6 +478,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Treat config validation warnings as errors",
     )
     _add_logging_flags(run_p)
+    run_p.add_argument(
+        "--debug",
+        "-d",
+        action="store_true",
+        help="Enable DEBUG logs on the console and in scan log files",
+    )
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
     check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
@@ -1551,6 +1557,7 @@ def dispatch_run(
     console_level: str = "INFO",
     log_level: str = "INFO",
     silence: bool = False,
+    debug: bool = False,
     strict: bool = False,
 ) -> int:
     if not task_yaml:
@@ -1572,6 +1579,10 @@ def dispatch_run(
         # Includes ConfigValidationError (subclass of ValueError).
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
+
+    if debug:
+        console_level = "DEBUG"
+        log_level = "DEBUG"
 
     core.set_logging_options(
         console_level=console_level,
@@ -1676,6 +1687,7 @@ def dispatch(args: argparse.Namespace) -> int:
             console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
             log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
             silence=bool(getattr(args, "silence", False)),
+            debug=bool(getattr(args, "debug", False)),
             strict=bool(getattr(args, "strict", False)),
         )
 
