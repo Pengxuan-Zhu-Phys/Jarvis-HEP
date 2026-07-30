@@ -31,11 +31,20 @@ def _write_csv(path: str, rows: Sequence[Mapping[str, Any]], fieldnames: Sequenc
     parent = os.path.dirname(output)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(output, "w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(fieldnames))
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row.get(key) for key in fieldnames})
+    tmp = output + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(fieldnames))
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({key: row.get(key) for key in fieldnames})
+        os.replace(tmp, output)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return output
 
 

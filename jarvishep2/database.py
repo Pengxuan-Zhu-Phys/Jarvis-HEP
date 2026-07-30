@@ -143,11 +143,20 @@ def convert_hdf5_to_csv(
     parent = os.path.dirname(target)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(target, "w", encoding="utf-8", newline="") as handle:
-        csv_writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        csv_writer.writeheader()
-        for row in records:
-            csv_writer.writerow({key: _csv_cell(row.get(key)) for key in fieldnames})
+    tmp = target + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as handle:
+            csv_writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            csv_writer.writeheader()
+            for row in records:
+                csv_writer.writerow({key: _csv_cell(row.get(key)) for key in fieldnames})
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
     result["status"] = "converted"
     result["rows"] = len(records)

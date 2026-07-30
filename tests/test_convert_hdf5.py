@@ -22,6 +22,7 @@ from jarvishep2.database import (
     discover_database_hdf5,
 )
 from jarvishep2.run_outcome import EXIT_OK, EXIT_RUN_FAILED, EXIT_USAGE
+from jarvishep2.plot_scene import export_samples_csv_from_hdf5
 
 
 def _write_records(path: str, records: list[dict]) -> None:
@@ -85,6 +86,17 @@ class ConvertHdf5HelpersTests(unittest.TestCase):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["status"], "converted")
             self.assertTrue(os.path.isfile(os.path.join(db, "samples.csv")))
+
+    def test_exports_leave_no_temporary_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            hdf5 = os.path.join(tmp, "samples.hdf5")
+            csv_path = os.path.join(tmp, "plot_samples.csv")
+            _write_records(hdf5, [{"uuid": "u0", "x": 1.0, "y": 2.0, "LogL": 0.0}])
+            result = convert_hdf5_to_csv(hdf5, os.path.join(tmp, "converted.csv"))
+            self.assertEqual(result["status"], "converted")
+            self.assertFalse(os.path.exists(os.path.join(tmp, "converted.csv.tmp")))
+            self.assertEqual(export_samples_csv_from_hdf5(hdf5, output_csv=csv_path), csv_path)
+            self.assertFalse(os.path.exists(csv_path + ".tmp"))
 
 
 class ConvertCliTests(unittest.TestCase):
