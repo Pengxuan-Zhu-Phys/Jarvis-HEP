@@ -768,6 +768,7 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
     from jarvishep2.process_cleanup import (
         format_scan_table,
         list_running_scans,
+        print_scan_table,
         resolve_scan_reference,
         runtime_metadata_for_scan,
     )
@@ -775,13 +776,13 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
     scans = list_running_scans()
     scan_ref = str(getattr(args, "scan_ref", "") or "").strip()
     if not scan_ref:
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return EXIT_OK
     try:
         scan = resolve_scan_reference(scan_ref, scans)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return EXIT_USAGE
     print(f"{scan.reference}: {scan.name}")
     metadata = runtime_metadata_for_scan(scan)

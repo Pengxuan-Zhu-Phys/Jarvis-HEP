@@ -20,6 +20,12 @@ import time
 from dataclasses import dataclass
 from typing import Iterable
 
+from rich import box
+from rich.console import Console, Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime_metadata import read_scan_metadata
 
@@ -252,6 +258,42 @@ def format_scan_table(scans: list[JarvisScan]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def print_scan_table(scans: list[JarvisScan]) -> None:
+    """Render the running-task chooser with explicit, safe next actions."""
+    if not scans:
+        Console().print("[dim]No running Jarvis scan tasks.[/]")
+        return
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold dim")
+    table.add_column("REF", style="bold green", no_wrap=True)
+    table.add_column("SCAN", style="bold #c8c8ff")
+    table.add_column("PROCESSES", justify="right")
+    table.add_column("PIDS", style="dim")
+    for scan in scans:
+        table.add_row(
+            scan.reference,
+            scan.name,
+            str(len(scan.processes)),
+            ", ".join(str(proc.pid) for proc in scan.processes),
+        )
+    guidance = Text()
+    guidance.append("Choose a task by its REF (for example R1):\n", style="bold")
+    guidance.append("  Jarvis2 monitor R1", style="bold cyan")
+    guidance.append("  view this task's live scan status\n", style="dim")
+    guidance.append("  Jarvis2 ps R1", style="bold #c8c8ff")
+    guidance.append("       list this task's control, workers, archiver, and Redis\n", style="dim")
+    guidance.append("  Jarvis2 kill R1", style="bold red")
+    guidance.append("     terminate ALL processes belonging to this task (asks for confirmation)", style="bold red")
+    Console().print(
+        Panel(
+            Group(table, Text(""), guidance),
+            title=f"[bold]Running Jarvis scan tasks[/] [dim]({len(scans)})[/]",
+            box=box.ROUNDED,
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
+
+
 def confirm_kill(count: int, *, yes: bool = False) -> bool:
     """Ask the user before killing. ``--yes`` skips the prompt."""
     if count <= 0:
@@ -367,13 +409,13 @@ def list_running_jarvis_cli(scan_ref: str | None = None) -> int:
     procs = list_jarvis_processes()
     scans = list_running_scans(procs)
     if not scan_ref:
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return 0
     try:
         scan = resolve_scan_reference(scan_ref, scans)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return 2
     print(f"{scan.reference}: {scan.name}")
     metadata = _verified_runtime_metadata(scan)
@@ -395,13 +437,13 @@ def kill_running_jarvis_cli(
     procs = list_jarvis_processes()
     scans = list_running_scans(procs)
     if not scan_ref:
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return 0
     try:
         scan = resolve_scan_reference(scan_ref, scans)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        print(format_scan_table(scans), end="")
+        print_scan_table(scans)
         return 2
     targets = list(scan.processes)
     print(f"{scan.reference}: {scan.name}")
@@ -443,6 +485,7 @@ __all__ = [
     "ensure_scan_name_available",
     "format_process_table",
     "format_scan_table",
+    "print_scan_table",
     "kill_jarvis_processes",
     "kill_running_jarvis_cli",
     "list_jarvis_processes",
