@@ -294,6 +294,71 @@ def print_scan_table(scans: list[JarvisScan]) -> None:
     )
 
 
+def _process_role_and_detail(proc: JarvisProcess, scan_name: str) -> tuple[str, str]:
+    """Turn a long OS title into the concise role shown in the runtime card."""
+    title = proc.command.split(None, 1)[0]
+    if title.startswith("Jarvis2:"):
+        return "Control", "scan coordinator"
+    if title.startswith("Jarvis2-Worker-"):
+        worker = title.removeprefix("Jarvis2-Worker-").split(":", 1)[0]
+        return f"Worker {worker}", "calculator / sampling worker"
+    if title.startswith("Jarvis2-Archiver:"):
+        return "Archiver", "writes DATABASE and exports"
+    if title.startswith("Jarvis-Redis:"):
+        endpoint = proc.command.split(None, 1)[1] if " " in proc.command else ""
+        advertised = title.rsplit("@", 1)[-1] if "@" in title else ""
+        return "Redis", endpoint or advertised or "runtime broker"
+    return "Jarvis process", title.replace(scan_name, "<scan>")
+
+
+def print_scan_processes(
+    scan: JarvisScan,
+    metadata: dict[str, object] | None = None,
+    *,
+    kill_warning: bool = False,
+) -> None:
+    """Render a selected scan as a concise, readable process card."""
+    details = Table.grid(padding=(0, 1))
+    details.add_column(style="bold dim", no_wrap=True)
+    details.add_column()
+    details.add_row("REF", f"[bold green]{scan.reference}[/]")
+    details.add_row("SCAN", f"[bold #c8c8ff]{scan.name}[/]")
+    if metadata is not None:
+        redis = metadata.get("redis")
+        if isinstance(redis, dict):
+            details.add_row("REDIS", f"{redis.get('host')}:{redis.get('port')}  ·  db {redis.get('db')}")
+        output = str(metadata.get("task_result_dir") or "")
+        if output:
+            details.add_row("OUTPUT", f"[dim]{output}[/]")
+    processes = Table(box=box.SIMPLE_HEAVY, header_style="bold dim")
+    processes.add_column("PID", justify="right", style="bold cyan", no_wrap=True)
+    processes.add_column("ROLE", style="bold #c8c8ff", no_wrap=True)
+    processes.add_column("DETAIL", style="dim")
+    for proc in scan.processes:
+        role, detail = _process_role_and_detail(proc, scan.name)
+        processes.add_row(str(proc.pid), role, detail)
+    body: list[object] = [details, Text(""), processes]
+    if kill_warning:
+        body.extend(
+            [
+                Text(""),
+                Text(
+                    f"DANGER: Jarvis2 kill {scan.reference} will terminate all {len(scan.processes)} processes above.",
+                    style="bold red",
+                ),
+            ]
+        )
+    Console().print(
+        Panel(
+            Group(*body),
+            title=f"[bold]Runtime task[/] [dim]·[/] [bold green]{scan.reference}[/]",
+            box=box.ROUNDED,
+            border_style="red" if kill_warning else "dim",
+            padding=(0, 1),
+        )
+    )
+
+
 def confirm_kill(count: int, *, yes: bool = False) -> bool:
     """Ask the user before killing. ``--yes`` skips the prompt."""
     if count <= 0:
@@ -417,13 +482,10 @@ def list_running_jarvis_cli(scan_ref: str | None = None) -> int:
         print(str(exc), file=sys.stderr)
         print_scan_table(scans)
         return 2
-    print(f"{scan.reference}: {scan.name}")
     metadata = _verified_runtime_metadata(scan)
     if _scan_has_advertised_redis(scan) and metadata is None:
         return 1
-    if metadata is not None:
-        print(f"Runtime metadata: {metadata['task_result_dir']}")
-    print(format_process_table(list(scan.processes)), end="")
+    print_scan_processes(scan, metadata)
     return 0
 
 
@@ -446,13 +508,10 @@ def kill_running_jarvis_cli(
         print_scan_table(scans)
         return 2
     targets = list(scan.processes)
-    print(f"{scan.reference}: {scan.name}")
     metadata = _verified_runtime_metadata(scan)
     if _scan_has_advertised_redis(scan) and metadata is None:
         return 1
-    if metadata is not None:
-        print(f"Runtime metadata: {metadata['task_result_dir']}")
-    print(format_process_table(targets), end="")
+    print_scan_processes(scan, metadata, kill_warning=True)
     if not targets:
         return 0
     if not confirm_kill(len(targets), yes=yes):
@@ -486,6 +545,7 @@ __all__ = [
     "format_process_table",
     "format_scan_table",
     "print_scan_table",
+    "print_scan_processes",
     "kill_jarvis_processes",
     "kill_running_jarvis_cli",
     "list_jarvis_processes",
