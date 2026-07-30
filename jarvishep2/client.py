@@ -4,10 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
+import shutil
 import sys
 import warnings
 from typing import Any
+
+import click
+import typer.rich_utils
 
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
@@ -31,6 +37,7 @@ _SUBCOMMANDS = frozenset(
         "convert",
         "monitor",
         "plot",
+        "plot-scene",
         "portal",
         "operas",
         "project",
@@ -49,6 +56,106 @@ _PACK_MODE_FLAGS = {
 _PACK_MANIFEST_FLAG = "--man"
 _PACK_ENCRYPT_FLAGS = frozenset({"--encrypt", "--encrypted"})
 _HELP_FLAGS = frozenset({"-h", "--help"})
+
+
+class JarvisArgumentParser(argparse.ArgumentParser):
+    """Argparse parser rendered by Jarvis-Lit's Typer/Rich help formatter.
+
+    ``argparse`` remains the source of truth for parsing and legacy aliases.
+    Help is converted to a lightweight Click command tree and sent through the
+    same Typer formatter used by Jarvis-Lit, so its rounded panels and layout
+    are shared rather than reimplemented here.
+    """
+
+    _RICH_CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
+
+    @staticmethod
+    def _metavar(action: argparse.Action) -> str:
+        if action.type is int:
+            return "<int>"
+        if action.type is float:
+            return "<float>"
+        return "<str>"
+
+    def _click_params(self) -> list[click.Parameter]:
+        params: list[click.Parameter] = []
+        for action in self._actions:
+            if action.help == argparse.SUPPRESS or action.dest == "help":
+                continue
+            if isinstance(action, argparse._SubParsersAction):
+                continue
+            if action.option_strings:
+                params.append(
+                    click.Option(
+                        action.option_strings,
+                        help=action.help,
+                        is_flag=action.nargs == 0,
+                        required=bool(action.required),
+                        metavar=None if action.nargs == 0 else self._metavar(action),
+                    )
+                )
+            else:
+                params.append(
+                    click.Argument(
+                        [action.dest],
+                        required=bool(action.required),
+                        metavar=self._metavar(action),
+                    )
+                )
+        return params
+
+    def _click_command(self, name: str | None = None) -> click.Command:
+        commands: dict[str, click.Command] = {}
+        for action in self._actions:
+            if not isinstance(action, argparse._SubParsersAction):
+                continue
+            short_help = {
+                choice.dest: choice.help or ""
+                for choice in getattr(action, "_choices_actions", [])
+            }
+            for command_name, command_parser in action.choices.items():
+                command = command_parser._click_command(command_name)
+                command.short_help = short_help.get(command_name)
+                commands[command_name] = command
+        command_name = name or self.prog.rsplit(" ", maxsplit=1)[-1]
+        if commands:
+            return click.Group(
+                name=command_name,
+                help=self.description,
+                params=self._click_params(),
+                commands=commands,
+                context_settings=self._RICH_CONTEXT_SETTINGS,
+            )
+        return click.Command(
+            name=command_name,
+            help=self.description,
+            params=self._click_params(),
+            context_settings=self._RICH_CONTEXT_SETTINGS,
+        )
+
+    def format_help(self) -> str:
+        command = self._click_command()
+        terminal_stdout = sys.stdout
+        output = io.StringIO()
+        old_force_terminal = typer.rich_utils.FORCE_TERMINAL
+        old_max_width = typer.rich_utils.MAX_WIDTH
+        try:
+            typer.rich_utils.FORCE_TERMINAL = terminal_stdout.isatty()
+            typer.rich_utils.MAX_WIDTH = shutil.get_terminal_size().columns
+            with contextlib.redirect_stdout(output):
+                typer.rich_utils.rich_format_help(
+                    obj=command,
+                    ctx=click.Context(
+                        command,
+                        info_name=self.prog,
+                        **self._RICH_CONTEXT_SETTINGS,
+                    ),
+                    markup_mode=typer.rich_utils.MARKUP_MODE_RICH,
+                )
+        finally:
+            typer.rich_utils.FORCE_TERMINAL = old_force_terminal
+            typer.rich_utils.MAX_WIDTH = old_max_width
+        return output.getvalue()
 
 
 def normalize_argv(argv: list[str] | None) -> list[str]:
@@ -82,7 +189,7 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = JarvisArgumentParser(
         prog="Jarvis2",
         description="Jarvis-HEP V2 CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -116,7 +223,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print Jarvis-HEP logo, author information and runtime package version",
     )
-    sub = parser.add_subparsers(dest="command", required=False)
+    sub = parser.add_subparsers(
+        dest="command", required=False, parser_class=JarvisArgumentParser
+    )
 
     def _add_logging_flags(p: argparse.ArgumentParser) -> None:
         p.add_argument(
@@ -195,6 +304,12 @@ def build_parser() -> argparse.ArgumentParser:
     plot_p = sub.add_parser("plot", help="Render a JarvisPLOT scene YAML")
     plot_p.add_argument("plot_yaml", help="Path to plot scene YAML")
 
+    scene_p = sub.add_parser(
+        "plot-scene",
+        help="Generate JarvisPLOT YAML from a finished run task YAML",
+    )
+    scene_p.add_argument("task_yaml", help="Path to the finished scan task YAML")
+
     # ``portal`` is handled by argv passthrough in main() so that
     # ``Jarvis2 portal man|file|-h|-v`` matches the standalone jportal CLI.
     sub.add_parser(
@@ -204,7 +319,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     operas_p = sub.add_parser("operas", help="Jarvis-Operas discovery helpers")
-    operas_sub = operas_p.add_subparsers(dest="operas_command", required=False)
+    operas_sub = operas_p.add_subparsers(
+        dest="operas_command", required=False, parser_class=JarvisArgumentParser
+    )
     operas_sub.add_parser("list", help="List registered Operas operators")
     operas_info = operas_sub.add_parser("info", help="Show one Operas operator")
     operas_info.add_argument("name", help="Operator name or dotted path")
@@ -297,7 +414,7 @@ def _mode_conflict_message(modes: list[str]) -> str:
         "conflicting CLI intents: "
         + ", ".join(modes)
         + "; use a single subcommand "
-        "(run|check|validate|convert|monitor|plot|portal|operas|project)"
+        "(run|check|validate|convert|monitor|plot|plot-scene|portal|operas|project)"
     )
 
 
@@ -404,6 +521,46 @@ def dispatch_plot(plot_yaml: str, *, legacy: bool = False) -> int:
     except PlotBridgeError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
+
+
+def dispatch_plot_scene(task_yaml: str) -> int:
+    """Generate (but never render) JarvisPLOT YAML for one finished scan."""
+    if not task_yaml:
+        print("Task YAML is required (usage: Jarvis2 plot-scene TASK.yaml).", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        core = Jarvis2Core()
+        core.load_task_yaml(task_yaml, validate=False)
+        from jarvishep2.base import infer_project_root_from_task_result_dir
+        from jarvishep2.plot_scene import emit_plot_scenes_from_run
+
+        task_result_dir = str(core.config.get("task_result_dir") or "").strip()
+        scan_name = str(core.config.get("scan_name") or "scan").strip() or "scan"
+        if not task_result_dir:
+            raise ValueError("task YAML does not resolve a task_result_dir")
+        project_root = str(
+            core.config.get("project_root") or core.config.get("task_root") or ""
+        ).strip() or infer_project_root_from_task_result_dir(task_result_dir)
+        written = emit_plot_scenes_from_run(
+            task_result_dir,
+            scan_name=scan_name,
+            project_root=project_root,
+            auto_render=False,
+            config=core.config,
+        )
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_RUN_FAILED
+    except (ValueError, OSError) as exc:
+        print(f"plot-scene failed: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    if not written:
+        print("No plot YAML could be generated: run outputs were not found.", file=sys.stderr)
+        return EXIT_RUN_FAILED
+    for key, path in written.items():
+        if path.endswith((".yaml", ".yml")):
+            print(f"{key}: {path}")
+    return EXIT_OK
 
 
 def dispatch_portal(portal_argv: list[str] | None = None) -> int:
@@ -1232,6 +1389,8 @@ def dispatch(args: argparse.Namespace) -> int:
         plot_yaml = getattr(args, "plot_yaml", None) or args.task_yaml
         legacy = getattr(args, "command", None) is None
         return dispatch_plot(str(plot_yaml or ""), legacy=legacy)
+    if intent == "plot-scene":
+        return dispatch_plot_scene(str(getattr(args, "task_yaml", "") or ""))
     if intent == "portal":
         # Prefer argv passthrough via main(); this path is a thin fallback.
         return dispatch_portal([])
