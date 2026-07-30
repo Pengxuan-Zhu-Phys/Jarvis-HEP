@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from typing import Any
+from unittest import mock
 
 import numpy as np
 from fakeredis import TcpFakeServer
@@ -17,7 +18,7 @@ from fakeredis import TcpFakeServer
 from jarvishep2.archive_handoff import move_tree, stage_sample_dir
 from jarvishep2.archiver import ArchiveProcessor, ArchiverProcess, SimpleArchiver
 from jarvishep2.core import Jarvis2Core
-from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.database import SimpleHDF5Writer, StreamingHDF5Writer
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.sample import Sample
@@ -35,6 +36,45 @@ from test_worker_calculator import (
 
 
 class ArchiveHandoffUnitTests(unittest.TestCase):
+    def test_streaming_writer_publishes_one_fsynced_batch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            with mock.patch("jarvishep2.database.os.fsync") as fsync:
+                writer = StreamingHDF5Writer(db_path)
+                writer.begin_batch()
+                writer.add_record({"uuid": "u-1", "x": 1.0})
+                writer.add_record({"uuid": "u-2", "x": 2.0})
+                self.assertEqual(writer.commit_batch(), 2)
+                self.assertEqual(writer.records_persisted, 2)
+                fsync.assert_called_once()
+                self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 2)
+                writer.close()
+
+    def test_processor_requires_batch_and_interval_before_persisting(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = StreamingHDF5Writer(db_path)
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=2,
+                flush_interval_sec=10.0,
+            )
+            for index in range(2):
+                self.assertEqual(
+                    processor.ingest({"uuid": f"u-{index}", "observables": {"x": index}}),
+                    0,
+                )
+            self.assertEqual(writer.records_persisted, 0)
+
+            processor._last_flush -= 10.0
+            self.assertEqual(
+                processor.ingest({"uuid": "u-2", "observables": {"x": 2}}),
+                3,
+            )
+            self.assertEqual(writer.records_persisted, 3)
+            writer.close()
+
     def test_stage_sample_dir_moves_work_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             work_dir = os.path.join(tmpdir, "SAMPLE", "uuid-1")

@@ -14,7 +14,7 @@ from jarvishep2.archive_handoff import (
     list_product_names,
     normalize_move_strategy,
 )
-from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.database import SimpleHDF5Writer, StreamingHDF5Writer
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
@@ -101,7 +101,7 @@ class ArchiveProcessor:
 
     def __init__(
         self,
-        writer: SimpleHDF5Writer,
+        writer: SimpleHDF5Writer | StreamingHDF5Writer,
         *,
         sample_root: str,
         delete_method: str = DEFAULT_DELETE_METHOD,
@@ -153,20 +153,25 @@ class ArchiveProcessor:
         with self._lock:
             return bool(self._batch)
 
+    def _flush_due_locked(self) -> bool:
+        """Require both a full batch and the configured persistence interval."""
+        return (
+            len(self._batch) >= self.batch_size
+            and time.monotonic() - self._last_flush >= self.flush_interval_sec
+        )
+
     def ingest(self, result: Mapping[str, Any]) -> int:
-        """Queue one archive payload; flush when batch/interval thresholds are met."""
+        """Queue one archive payload; persist only when both thresholds are met."""
         with self._lock:
             self._batch.append(dict(result))
-            if len(self._batch) >= self.batch_size:
-                return self._flush_batch_locked()
-            if time.monotonic() - self._last_flush >= self.flush_interval_sec:
+            if self._flush_due_locked():
                 return self._flush_batch_locked()
             return 0
 
-    def flush_batch(self) -> int:
-        """Persist all queued payloads."""
+    def flush_batch(self, *, force: bool = True) -> int:
+        """Persist queued payloads; shutdown/manual drains may force a tail batch."""
         with self._lock:
-            return self._flush_batch_locked()
+            return self._flush_batch_locked(force=force)
 
     def take_last_flushed(self) -> list[dict[str, Any]]:
         """Return and clear payloads successfully written by the last flush."""
@@ -175,16 +180,39 @@ class ArchiveProcessor:
             self._last_flushed.clear()
             return items
 
-    def _flush_batch_locked(self) -> int:
+    def _flush_batch_locked(self, *, force: bool = False) -> int:
         self._last_flushed = []
         if not self._batch:
             self._last_flush = time.monotonic()
             return 0
+        if not force and not self._flush_due_locked():
+            return 0
+
+        batched_writer = isinstance(self.writer, StreamingHDF5Writer)
+        previous_records_written = self.records_written
+        newly_acked: list[str] = []
+        if batched_writer:
+            self.writer.begin_batch()
         written = 0
-        for result in self._batch:
-            if self._archive_one(result):
-                written += 1
-                self._last_flushed.append(dict(result))
+        try:
+            for result in self._batch:
+                uuid = str(result.get("uuid", "")).strip()
+                was_acked = bool(uuid and uuid in self.acked_uuids)
+                if self._archive_one(result):
+                    written += 1
+                    self._last_flushed.append(dict(result))
+                    if uuid and not was_acked:
+                        newly_acked.append(uuid)
+            if batched_writer:
+                self.writer.commit_batch()
+        except BaseException:
+            if batched_writer:
+                self.writer.abort_batch()
+            for uuid in newly_acked:
+                self.acked_uuids.discard(uuid)
+            self.records_written = previous_records_written
+            self._last_flushed = []
+            raise
         self._batch.clear()
         self._last_flush = time.monotonic()
         return written
@@ -291,7 +319,7 @@ class SimpleArchiver:
         self.pack_buckets = bool(cfg.get("pack_buckets", True))
         self.buckets_packed = 0
         self.processor = ArchiveProcessor.from_config(
-            SimpleHDF5Writer(db_path),
+            StreamingHDF5Writer(db_path),
             sample_root=sample_root,
             delete_method=delete_method,
             archiver_config=archiver_config,
@@ -382,8 +410,8 @@ class SimpleArchiver:
             self._maybe_log_progress()
         return written
 
-    def _flush_and_note(self) -> int:
-        written = self.processor.flush_batch()
+    def _flush_and_note(self, *, force: bool = False) -> int:
+        written = self.processor.flush_batch(force=force)
         if written:
             self._note_last_flushed()
             self._maybe_log_progress()
@@ -470,14 +498,14 @@ class SimpleArchiver:
         while time.monotonic() < idle_deadline:
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
-                flushed = self._flush_and_note()
+                flushed = self._flush_and_note(force=True)
                 drained += flushed
                 drained += self._pack_ready_buckets()
                 continue
             idle_deadline = time.monotonic() + max(0.1, float(idle_timeout))
             drained += self._ingest_result(result)
             drained += self._pack_ready_buckets()
-        drained += self._flush_and_note()
+        drained += self._flush_and_note(force=True)
         drained += self._pack_ready_buckets()
         self._maybe_log_progress(force=True)
         _log_archiver_kv(
@@ -504,6 +532,8 @@ class SimpleArchiver:
         if thread is not None and wait:
             thread.join(timeout=5.0)
         self._thread = None
+        if thread is None or not thread.is_alive():
+            self.processor.writer.close()
         _log_archiver_kv(
             self._logger,
             "stopped",

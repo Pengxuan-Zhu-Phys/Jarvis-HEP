@@ -153,37 +153,69 @@ def convert_database_dir(
 
 
 class SimpleHDF5Writer:
-    """Append JSON-encoded observables rows to samples.hdf5."""
+    """One-shot HDF5 reader/writer used by utilities and compatibility paths."""
 
     def __init__(self, db_path: str) -> None:
         self.db_path = str(db_path)
         self._lock = threading.Lock()
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
 
-    def add_record(self, observables: Mapping[str, Any]) -> None:
-        payload = json.dumps(make_json_compatible(dict(observables)), ensure_ascii=False)
+    @staticmethod
+    def _ensure_records_dataset(handle: h5py.File) -> h5py.Dataset:
+        dtype = h5py.string_dtype(encoding="utf-8")
+        if "records" not in handle:
+            return handle.create_dataset(
+                "records",
+                shape=(0,),
+                maxshape=(None,),
+                chunks=True,
+                dtype=dtype,
+            )
+        return handle["records"]
+
+    @staticmethod
+    def _encode_records(records: Sequence[Mapping[str, Any]]) -> list[str]:
+        return [
+            json.dumps(make_json_compatible(dict(record)), ensure_ascii=False)
+            for record in records
+        ]
+
+    @classmethod
+    def _append_records(cls, handle: h5py.File, records: Sequence[Mapping[str, Any]]) -> int:
+        payloads = cls._encode_records(records)
+        if not payloads:
+            return 0
+        dataset = cls._ensure_records_dataset(handle)
+        start = int(dataset.shape[0])
+        end = start + len(payloads)
+        dataset.resize((end,))
+        dataset[start:end] = payloads
+        return len(payloads)
+
+    def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
+        """Append one complete batch while opening the HDF5 file only once."""
+        if not records:
+            return 0
         with self._lock:
-            with h5py.File(self.db_path, "a") as handle:
-                dtype = h5py.string_dtype(encoding="utf-8")
-                if "records" not in handle:
-                    handle.create_dataset(
-                        "records",
-                        shape=(0,),
-                        maxshape=(None,),
-                        chunks=True,
-                        dtype=dtype,
-                    )
-                records = handle["records"]
-                start = int(records.shape[0])
-                end = start + 1
-                records.resize((end,))
-                records[start:end] = payload
+            with h5py.File(self.db_path, "a", libver="latest") as handle:
+                return self._append_records(handle, records)
+
+    def add_record(self, observables: Mapping[str, Any]) -> None:
+        self.add_records([observables])
+
+    def close(self) -> None:
+        """Compatibility no-op: one-shot writes close their own HDF5 handle."""
 
     def read_records(self) -> list[dict[str, Any]]:
         if not os.path.exists(self.db_path):
             return []
         rows: list[dict[str, Any]] = []
-        with h5py.File(self.db_path, "r") as handle:
+        try:
+            handle = h5py.File(self.db_path, "r", libver="latest", swmr=True)
+        except OSError:
+            # Compatibility for HDF5 files created before the SWMR writer.
+            handle = h5py.File(self.db_path, "r")
+        with handle:
             if "records" not in handle:
                 return []
             for item in handle["records"][()]:
@@ -193,8 +225,109 @@ class SimpleHDF5Writer:
         return rows
 
 
+class StreamingHDF5Writer:
+    """Single-writer HDF5 stream with batch publication and explicit fsync.
+
+    The Archiver owns this object for its full lifetime. New files use HDF5
+    SWMR so a converter can read batches already published by ``flush``.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self.db_path = str(db_path)
+        self._lock = threading.Lock()
+        self._pending: list[Mapping[str, Any]] = []
+        self._batch_open = False
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self._handle: h5py.File | None = None
+        self._fallback: SimpleHDF5Writer | None = None
+        try:
+            self._handle = h5py.File(self.db_path, "a", libver="latest")
+            SimpleHDF5Writer._ensure_records_dataset(self._handle)
+            self._handle.flush()
+            self._handle.swmr_mode = True
+        except RuntimeError:
+            # Existing pre-SWMR files cannot change their superblock in place.
+            # Retain compatibility while still writing an entire persistence
+            # batch per open/close cycle instead of one cycle per record.
+            if self._handle is not None:
+                self._handle.close()
+            self._handle = None
+            self._fallback = SimpleHDF5Writer(self.db_path)
+        self.records_persisted = (
+            int(self._handle["records"].shape[0]) if self._handle is not None else 0
+        )
+
+    @staticmethod
+    def _fsync_descriptor(vfd_handle: Any) -> None:
+        if isinstance(vfd_handle, tuple):
+            vfd_handle = vfd_handle[0]
+        if not isinstance(vfd_handle, int):
+            raise OSError("HDF5 driver does not expose a file descriptor for fsync")
+        os.fsync(vfd_handle)
+
+    def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
+        """Append, publish, and physically sync one durable Archiver batch."""
+        if not records:
+            return 0
+        with self._lock:
+            if self._handle is None:
+                if self._fallback is None:
+                    raise RuntimeError("HDF5 writer is closed")
+                written = self._fallback.add_records(records)
+                with open(self.db_path, "rb", buffering=0) as handle:
+                    os.fsync(handle.fileno())
+                self.records_persisted += written
+                return written
+            written = SimpleHDF5Writer._append_records(self._handle, records)
+            self._handle["records"].flush()
+            self._handle.flush()
+            self._fsync_descriptor(self._handle.id.get_vfd_handle())
+            self.records_persisted += written
+            return written
+
+    def begin_batch(self) -> None:
+        """Start collecting one Archiver batch without touching the file."""
+        with self._lock:
+            if self._batch_open:
+                raise RuntimeError("HDF5 writer batch is already open")
+            self._pending = []
+            self._batch_open = True
+
+    def add_record(self, observables: Mapping[str, Any]) -> None:
+        """Queue a record in an open batch, or immediately persist it otherwise."""
+        with self._lock:
+            if self._batch_open:
+                self._pending.append(dict(observables))
+                return
+        self.add_records([observables])
+
+    def commit_batch(self) -> int:
+        """Persist all queued records as one flush + fsync transaction."""
+        with self._lock:
+            if not self._batch_open:
+                raise RuntimeError("HDF5 writer batch is not open")
+            pending = self._pending
+            self._pending = []
+            self._batch_open = False
+        return self.add_records(pending)
+
+    def abort_batch(self) -> None:
+        """Discard records that have not yet been written to HDF5."""
+        with self._lock:
+            self._pending = []
+            self._batch_open = False
+
+    def close(self) -> None:
+        with self._lock:
+            if self._handle is not None:
+                self._handle.close()
+                self._handle = None
+            self._fallback = None
+
+
 __all__ = [
     "SimpleHDF5Writer",
+    "StreamingHDF5Writer",
     "make_json_compatible",
     "convert_hdf5_to_csv",
     "convert_database_dir",
