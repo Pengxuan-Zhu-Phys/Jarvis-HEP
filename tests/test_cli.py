@@ -304,6 +304,13 @@ class CliDispatchTests(unittest.TestCase):
 
         self.assertEqual(dispatch_portal(["formats"]), EXIT_OK)
 
+    def test_operas_passthrough_forwards_the_complete_jopera_argv(self) -> None:
+        from jarvishep2.client import main
+
+        with mock.patch("jarvis_operas.cli.main", return_value=7) as operas_main:
+            self.assertEqual(main(["operas", "list", "--namespace", "math"]), 7)
+        operas_main.assert_called_once_with(["list", "--namespace", "math"])
+
 
 if __name__ == "__main__":
     unittest.main()

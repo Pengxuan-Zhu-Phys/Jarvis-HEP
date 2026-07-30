@@ -427,7 +427,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 monitor\n"
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
-            "  Jarvis2 operas list|info NAME\n"
+            "  Jarvis2 operas …            # same CLI as jopera\n"
             "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
             "  Jarvis2 ps                  # list running Jarvis* processes\n"
             "  Jarvis2 kill [--yes]        # kill them (asks for confirmation)\n"
@@ -550,13 +550,8 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
-    operas_p = sub.add_parser("operas", help="Jarvis-Operas discovery helpers")
-    operas_sub = operas_p.add_subparsers(
-        dest="operas_command", required=False, parser_class=JarvisArgumentParser
-    )
-    operas_sub.add_parser("list", help="List registered Operas operators")
-    operas_info = operas_sub.add_parser("info", help="Show one Operas operator")
-    operas_info.add_argument("name", help="Operator name or dotted path")
+    # ``operas`` is handled by argv passthrough in main(), matching jopera.
+    sub.add_parser("operas", help="Jarvis-Operas CLI (same as jopera)", add_help=False)
 
     # ``project`` uses argv passthrough (pack has many optional flags).
     sub.add_parser(
@@ -1426,62 +1421,22 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
     return EXIT_USAGE
 
 
-def dispatch_operas(args: argparse.Namespace) -> int:
-    cmd = getattr(args, "operas_command", None)
-    if cmd is None:
-        print("Usage: Jarvis2 operas list | Jarvis2 operas info NAME", file=sys.stderr)
+def dispatch_operas(operas_argv: list[str] | None = None) -> int:
+    """Forward the complete Jarvis-Operas CLI without duplicating its surface."""
+    try:
+        from jarvis_operas.cli import main as operas_main
+    except ImportError as exc:
+        print(
+            "Jarvis-Operas is required for `Jarvis2 operas`. "
+            f"Detail: {exc}",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
     try:
-        from jarvishep2.operas_functions import ensure_operas_registry_discovered
-
-        registry = ensure_operas_registry_discovered()
+        return int(operas_main(list(operas_argv or [])))
     except Exception as exc:
-        print(f"Unable to load Operas registry: {exc}", file=sys.stderr)
+        print(f"Jarvis2 operas failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
-
-    names: list[str] = []
-    for attr in ("list_functions", "list", "names", "keys"):
-        if hasattr(registry, attr):
-            try:
-                raw = getattr(registry, attr)
-                names = list(raw() if callable(raw) else raw)
-                break
-            except Exception:
-                continue
-    if not names and isinstance(registry, dict):
-        names = sorted(str(k) for k in registry.keys())
-    names = [str(n) for n in names]
-
-    if cmd == "list":
-        for name in sorted(names):
-            print(name)
-        return EXIT_OK if names else EXIT_RUN_FAILED
-
-    if cmd == "info":
-        name = str(getattr(args, "name", "") or "").strip()
-        if not name:
-            print("operas info requires NAME", file=sys.stderr)
-            return EXIT_USAGE
-        target = None
-        if hasattr(registry, "get"):
-            try:
-                target = registry.get(name)
-            except Exception:
-                target = None
-        if target is None and isinstance(registry, dict):
-            target = registry.get(name)
-        if target is None and name not in names:
-            print(f"operator not found: {name}", file=sys.stderr)
-            return EXIT_RUN_FAILED
-        print(f"name: {name}")
-        if target is not None:
-            print(f"repr: {target!r}")
-        else:
-            print("registered: true")
-        return EXIT_OK
-
-    print(f"Unknown operas subcommand: {cmd}", file=sys.stderr)
-    return EXIT_USAGE
 
 
 def _print_outcome(outcome: RunOutcome) -> None:
@@ -1688,7 +1643,7 @@ def dispatch(args: argparse.Namespace) -> int:
         # Prefer argv passthrough via main(); this path is a thin fallback.
         return dispatch_portal([])
     if intent == "operas":
-        return dispatch_operas(args)
+        return dispatch_operas([])
     if intent == "project":
         return dispatch_project([])
     if intent == "ps":
@@ -1751,6 +1706,9 @@ def main(argv: list[str] | None = None) -> int:
     # Full jportal-compatible surface: do not let argparse eat portal args.
     if normalized and normalized[0] == "portal":
         return dispatch_portal(normalized[1:])
+    # Full jopera-compatible surface: do not let argparse consume its args.
+    if normalized and normalized[0] == "operas":
+        return dispatch_operas(normalized[1:])
     # Project pack flags are free-form; pass through like portal.
     if normalized and normalized[0] == "project":
         return dispatch_project(normalized[1:])
