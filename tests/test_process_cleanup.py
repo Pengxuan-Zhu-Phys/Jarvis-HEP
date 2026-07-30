@@ -4,14 +4,19 @@
 from __future__ import annotations
 
 import signal
+import io
 import unittest
+from contextlib import redirect_stdout
 from unittest import mock
 
 from jarvishep2.process_cleanup import (
     JarvisProcess,
     _command_is_jarvis,
+    format_scan_table,
     format_process_table,
     list_jarvis_processes,
+    list_running_scans,
+    resolve_scan_reference,
 )
 
 
@@ -30,6 +35,21 @@ class CommandMatchTests(unittest.TestCase):
 
 
 class ListProcessesTests(unittest.TestCase):
+    def test_groups_running_processes_into_scan_references(self) -> None:
+        scans = list_running_scans(
+            [
+                JarvisProcess(pid=20, command="Jarvis2:Beta"),
+                JarvisProcess(pid=10, command="Jarvis2:Alpha"),
+                JarvisProcess(pid=11, command="Jarvis2-Worker-0:Alpha"),
+                JarvisProcess(pid=12, command="Jarvis-Redis:Alpha"),
+            ]
+        )
+        self.assertEqual([(scan.reference, scan.name) for scan in scans], [("R1", "Alpha"), ("R2", "Beta")])
+        self.assertEqual([proc.pid for proc in scans[0].processes], [10, 11, 12])
+        self.assertIs(resolve_scan_reference("R1", scans), scans[0])
+        self.assertIs(resolve_scan_reference("Beta", scans), scans[1])
+        self.assertIn("Jarvis2 kill R1", format_scan_table(scans))
+
     def test_parses_ps_output_and_skips_self(self) -> None:
         fake = (
             "  111 python3 -m pytest\n"
@@ -95,15 +115,44 @@ class KillOrderTests(unittest.TestCase):
 
 
 class CliPsKillTests(unittest.TestCase):
-    def test_ps_subcommand_list_only(self) -> None:
+    def test_ps_subcommand_lists_scan_choices(self) -> None:
         from jarvishep2.client import main
 
+        fake = [JarvisProcess(pid=99, command="Jarvis2:Demo")]
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
-            return_value=[],
+            return_value=fake,
         ):
-            code = main(["ps"])
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(["ps"])
         self.assertEqual(code, 0)
+        self.assertIn("R1", output.getvalue())
+        self.assertIn("Demo", output.getvalue())
+
+    def test_ps_reference_filters_to_one_scan(self) -> None:
+        from jarvishep2.client import main
+
+        fake = [
+            JarvisProcess(pid=10, command="Jarvis2:Alpha"),
+            JarvisProcess(pid=20, command="Jarvis2:Beta"),
+        ]
+        with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main(["ps", "R1"])
+        self.assertEqual(code, 0)
+        self.assertIn("Alpha", output.getvalue())
+        self.assertNotIn("Beta", output.getvalue())
+
+    def test_kill_without_reference_only_lists_choices(self) -> None:
+        from jarvishep2.client import main
+
+        fake = [JarvisProcess(pid=99, command="Jarvis2:Demo")]
+        with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
+            with mock.patch("jarvishep2.process_cleanup.kill_jarvis_processes") as kill_fn:
+                self.assertEqual(main(["kill"]), 0)
+        kill_fn.assert_not_called()
 
     def test_kill_aborts_without_confirm(self) -> None:
         from jarvishep2.client import main
@@ -141,7 +190,7 @@ class CliPsKillTests(unittest.TestCase):
                     "failed": [],
                 },
             ) as kill_fn:
-                code = main(["kill", "--yes"])
+                    code = main(["kill", "R1", "--yes"])
         self.assertEqual(code, 0)
         kill_fn.assert_called_once()
 

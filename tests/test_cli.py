@@ -111,7 +111,7 @@ class CliParseTests(unittest.TestCase):
         )
         self.assertEqual(
             column_of("Run a distributed scan task YAML"),
-            column_of("(legacy) Print one monitor snapshot"),
+            column_of("(legacy) List running scans"),
         )
 
     def test_help_orders_commands_by_workflow(self) -> None:
@@ -123,9 +123,9 @@ class CliParseTests(unittest.TestCase):
             "Refresh CSV snapshots",
         )
         runtime_steps = (
-            "Print one monitor snapshot",
-            "List running Jarvis OS processes",
-            "Kill running Jarvis OS processes",
+            "List running scans, or print one selected",
+            "List running scans, or show one scan's OS",
+            "List running scans, or terminate one",
         )
         self.assertEqual(
             sorted(scan_steps, key=help_text.index), list(scan_steps)
@@ -151,8 +151,9 @@ class CliParseTests(unittest.TestCase):
         self.assertEqual(args.command, "check")
 
     def test_parse_monitor_subcommand(self) -> None:
-        args = build_parser().parse_args(["monitor"])
+        args = build_parser().parse_args(["monitor", "R1"])
         self.assertEqual(args.command, "monitor")
+        self.assertEqual(args.scan_ref, "R1")
 
     def test_parse_gen_plot_yaml_subcommand(self) -> None:
         args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])

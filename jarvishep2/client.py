@@ -517,7 +517,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     convert_p.add_argument("task_yaml", help="Path to scan task YAML")
 
-    sub.add_parser("monitor", help="Print one monitor snapshot and exit")
+    monitor_p = sub.add_parser(
+        "monitor", help="List running scans, or print one selected scan monitor snapshot"
+    )
+    monitor_p.add_argument(
+        "scan_ref",
+        nargs="?",
+        help="Running scan reference from `Jarvis2 monitor` (for example R1)",
+    )
 
     plot_p = sub.add_parser("plot", help="Render a JarvisPLOT scene YAML")
     plot_p.add_argument("plot_yaml", help="Path to plot scene YAML")
@@ -551,14 +558,24 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
-    sub.add_parser(
+    ps_p = sub.add_parser(
         "ps",
-        help="List running Jarvis OS processes (control/workers/archiver/redis titles)",
+        help="List running scans, or show one scan's OS processes",
+    )
+    ps_p.add_argument(
+        "scan_ref",
+        nargs="?",
+        help="Running scan reference from `Jarvis2 ps` (for example R1)",
     )
 
     kill_p = sub.add_parser(
         "kill",
-        help="Kill running Jarvis OS processes (prompts for confirmation)",
+        help="List running scans, or terminate one selected scan",
+    )
+    kill_p.add_argument(
+        "scan_ref",
+        nargs="?",
+        help="Running scan reference from `Jarvis2 kill` (for example R1)",
     )
     kill_p.add_argument(
         "--yes",
@@ -576,7 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--monitor",
         action="store_true",
-        help="(legacy) Print one monitor snapshot; prefer `Jarvis2 monitor`",
+        help="(legacy) List running scans; prefer `Jarvis2 monitor`",
     )
     parser.add_argument(
         "--plot",
@@ -747,7 +764,25 @@ def dispatch_version() -> int:
     return EXIT_OK
 
 
-def dispatch_monitor(_args: argparse.Namespace) -> int:
+def dispatch_monitor(args: argparse.Namespace) -> int:
+    from jarvishep2.process_cleanup import (
+        format_scan_table,
+        list_running_scans,
+        resolve_scan_reference,
+    )
+
+    scans = list_running_scans()
+    scan_ref = str(getattr(args, "scan_ref", "") or "").strip()
+    if not scan_ref:
+        print(format_scan_table(scans), end="")
+        return EXIT_OK
+    try:
+        scan = resolve_scan_reference(scan_ref, scans)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        print(format_scan_table(scans), end="")
+        return EXIT_USAGE
+    print(f"{scan.reference}: {scan.name}")
     redis_config = dict(INTERNAL_REDIS_CONFIG)
     factory = TaskFactory(redis_config)
     try:
@@ -1643,12 +1678,13 @@ def dispatch(args: argparse.Namespace) -> int:
     if intent == "ps":
         from jarvishep2.process_cleanup import list_running_jarvis_cli
 
-        return int(list_running_jarvis_cli())
+        return int(list_running_jarvis_cli(getattr(args, "scan_ref", None)))
     if intent == "kill":
         from jarvishep2.process_cleanup import kill_running_jarvis_cli
 
         return int(
             kill_running_jarvis_cli(
+                scan_ref=getattr(args, "scan_ref", None),
                 yes=bool(getattr(args, "yes", False)),
                 force=not bool(getattr(args, "no_force", False)),
             )

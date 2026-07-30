@@ -35,6 +35,15 @@ class JarvisProcess:
     command: str
 
 
+@dataclass(frozen=True)
+class JarvisScan:
+    """One running scan, resolved from the titles of its component processes."""
+
+    reference: str
+    name: str
+    processes: tuple[JarvisProcess, ...]
+
+
 def _command_is_jarvis(command: str) -> bool:
     text = str(command or "").strip()
     if not text:
@@ -99,6 +108,73 @@ def format_process_table(procs: list[JarvisProcess]) -> str:
     ]
     for proc in procs:
         lines.append(f"{proc.pid:>{width}}  {proc.command}")
+    return "\n".join(lines) + "\n"
+
+
+def _scan_name_from_command(command: str) -> str | None:
+    """Extract ``<scan>`` from a Jarvis process title ending in ``:<scan>``."""
+    title = str(command or "").strip().split(None, 1)[0]
+    head, marker, name = title.partition(":")
+    if marker and (
+        head == "Jarvis2"
+        or head.startswith("Jarvis2-Worker-")
+        or head == "Jarvis2-Archiver"
+        or head == "Jarvis-Redis"
+    ):
+        return name.strip() or None
+    return None
+
+
+def list_running_scans(
+    procs: Iterable[JarvisProcess] | None = None,
+) -> list[JarvisScan]:
+    """Group titled control/worker/archiver/Redis processes into scan rows."""
+    grouped: dict[str, list[JarvisProcess]] = {}
+    for proc in procs if procs is not None else list_jarvis_processes():
+        name = _scan_name_from_command(proc.command)
+        if name:
+            grouped.setdefault(name, []).append(proc)
+    scans: list[JarvisScan] = []
+    for index, name in enumerate(sorted(grouped, key=str.casefold), start=1):
+        scans.append(
+            JarvisScan(
+                reference=f"R{index}",
+                name=name,
+                processes=tuple(sorted(grouped[name], key=lambda proc: proc.pid)),
+            )
+        )
+    return scans
+
+
+def resolve_scan_reference(selector: str, scans: Iterable[JarvisScan]) -> JarvisScan:
+    """Resolve an ``R1`` table reference or an exact scan name."""
+    text = str(selector or "").strip()
+    choices = list(scans)
+    for scan in choices:
+        if text.upper() == scan.reference.upper() or text == scan.name:
+            return scan
+    available = ", ".join(f"{scan.reference} ({scan.name})" for scan in choices) or "none"
+    raise ValueError(f"Unknown running scan {text!r}; available: {available}")
+
+
+def format_scan_table(scans: list[JarvisScan]) -> str:
+    """Render the compact task chooser shared by monitor / ps / kill."""
+    if not scans:
+        return "No running Jarvis scan tasks.\n"
+    ref_w = max(len(scan.reference) for scan in scans)
+    name_w = max(len(scan.name) for scan in scans)
+    lines = [
+        f"Running Jarvis scan tasks ({len(scans)}):",
+        f"{'REF':<{ref_w}}  {'SCAN':<{name_w}}  PROCESSES  PIDS",
+        f"{'-' * ref_w}  {'-' * name_w}  ---------  ----",
+    ]
+    for scan in scans:
+        pids = ",".join(str(proc.pid) for proc in scan.processes)
+        lines.append(
+            f"{scan.reference:<{ref_w}}  {scan.name:<{name_w}}  "
+            f"{len(scan.processes):>9}  {pids}"
+        )
+    lines.append("Select one: Jarvis2 monitor R1 | Jarvis2 ps R1 | Jarvis2 kill R1")
     return "\n".join(lines) + "\n"
 
 
@@ -212,29 +288,51 @@ def kill_jarvis_processes(
     }
 
 
-def list_running_jarvis_cli() -> int:
-    """``Jarvis2 ps`` — show running Jarvis processes (scan-time friendly)."""
+def list_running_jarvis_cli(scan_ref: str | None = None) -> int:
+    """``Jarvis2 ps [R#]`` — choose a scan or list its component processes."""
     procs = list_jarvis_processes()
-    print(format_process_table(procs), end="")
-    if procs:
-        print("To terminate: Jarvis2 kill")
+    scans = list_running_scans(procs)
+    if not scan_ref:
+        print(format_scan_table(scans), end="")
+        return 0
+    try:
+        scan = resolve_scan_reference(scan_ref, scans)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        print(format_scan_table(scans), end="")
+        return 2
+    print(f"{scan.reference}: {scan.name}")
+    print(format_process_table(list(scan.processes)), end="")
     return 0
 
 
 def kill_running_jarvis_cli(
     *,
+    scan_ref: str | None = None,
     yes: bool = False,
     force: bool = True,
 ) -> int:
-    """``Jarvis2 kill`` — confirm (unless ``--yes``), then SIGTERM/SIGKILL."""
+    """``Jarvis2 kill [R#]`` — choose a scan, then confirm termination."""
     procs = list_jarvis_processes()
-    print(format_process_table(procs), end="")
-    if not procs:
+    scans = list_running_scans(procs)
+    if not scan_ref:
+        print(format_scan_table(scans), end="")
         return 0
-    if not confirm_kill(len(procs), yes=yes):
+    try:
+        scan = resolve_scan_reference(scan_ref, scans)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        print(format_scan_table(scans), end="")
+        return 2
+    targets = list(scan.processes)
+    print(f"{scan.reference}: {scan.name}")
+    print(format_process_table(targets), end="")
+    if not targets:
+        return 0
+    if not confirm_kill(len(targets), yes=yes):
         print("Aborted.")
         return 0
-    result = kill_jarvis_processes(procs, force=force)
+    result = kill_jarvis_processes(targets, force=force)
     print(
         "kill: "
         f"SIGTERM={len(result['signaled'])} "
@@ -245,7 +343,7 @@ def kill_running_jarvis_cli(
     if result["failed"]:
         print(f"  failed pids: {result['failed']}")
         return 1
-    left = list_jarvis_processes()
+    left = [proc for proc in list_jarvis_processes() if _scan_name_from_command(proc.command) == scan.name]
     if left:
         print("Still running after kill:")
         print(format_process_table(left), end="")
@@ -256,10 +354,14 @@ def kill_running_jarvis_cli(
 
 __all__ = [
     "JarvisProcess",
+    "JarvisScan",
     "confirm_kill",
     "format_process_table",
+    "format_scan_table",
     "kill_jarvis_processes",
     "kill_running_jarvis_cli",
     "list_jarvis_processes",
+    "list_running_scans",
     "list_running_jarvis_cli",
+    "resolve_scan_reference",
 ]
