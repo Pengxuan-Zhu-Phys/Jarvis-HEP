@@ -18,7 +18,7 @@ from fakeredis import TcpFakeServer
 from jarvishep2.archive_handoff import move_tree, stage_sample_dir
 from jarvishep2.archiver import ArchiveProcessor, ArchiverProcess, SimpleArchiver
 from jarvishep2.core import Jarvis2Core
-from jarvishep2.database import SimpleHDF5Writer, StreamingHDF5Writer
+from jarvishep2.database import RollingHDF5Writer, SimpleHDF5Writer, StreamingHDF5Writer
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.sample import Sample
@@ -74,6 +74,30 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             )
             self.assertEqual(writer.records_persisted, 3)
             writer.close()
+
+    def test_rolling_writer_seals_hdf5_and_exports_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = RollingHDF5Writer(db_path, max_bytes=1)
+            writer.begin_batch()
+            writer.add_record({"uuid": "sealed", "x": 1.0, "LogL": -1.0})
+            self.assertEqual(writer.commit_batch(), 1)
+
+            sealed_hdf5 = os.path.join(tmpdir, "DATABASE", "samples.0001.hdf5")
+            sealed_csv = os.path.join(tmpdir, "DATABASE", "samples.0001.csv")
+            self.assertTrue(os.path.isfile(sealed_hdf5))
+            self.assertTrue(os.path.isfile(sealed_csv))
+            self.assertEqual(
+                SimpleHDF5Writer(sealed_hdf5).read_records(),
+                [{"uuid": "sealed", "x": 1.0, "LogL": -1.0}],
+            )
+
+            writer.begin_batch()
+            writer.add_record({"uuid": "live", "x": 2.0, "LogL": -2.0})
+            writer.abort_batch()
+            writer.close()
+            # A newly-created, empty live shard never creates a bogus CSV.
+            self.assertFalse(os.path.isfile(os.path.join(tmpdir, "DATABASE", "samples.csv")))
 
     def test_stage_sample_dir_moves_work_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

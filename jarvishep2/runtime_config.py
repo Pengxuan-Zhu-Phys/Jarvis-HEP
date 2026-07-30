@@ -36,6 +36,8 @@ ARCHIVER_DEFAULTS: dict[str, Any] = {
     "mode": "process",
     "batch_size": 200,
     "flush_interval_sec": 1.0,
+    # Seal samples.NNNN.hdf5 and generate its sibling CSV after this size.
+    "max_hdf5_bytes": 1024 * 1024 * 1024,
     "strategy": "move",
     "delete_after_archive": True,
     # Default: no staging hop — Worker lands products under SAMPLE/<bucket>/<uuid>.
@@ -255,6 +257,13 @@ def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         archiver["flush_interval_sec"] = max(0.05, float(flush_interval))
     except (TypeError, ValueError):
         archiver["flush_interval_sec"] = ARCHIVER_DEFAULTS["flush_interval_sec"]
+    max_hdf5_bytes = _coerce_positive_int(
+        raw.get("max_hdf5_bytes", archiver["max_hdf5_bytes"]),
+        default=ARCHIVER_DEFAULTS["max_hdf5_bytes"],
+    )
+    archiver["max_hdf5_bytes"] = (
+        max_hdf5_bytes if max_hdf5_bytes > 0 else ARCHIVER_DEFAULTS["max_hdf5_bytes"]
+    )
     archiver["strategy"] = normalize_move_strategy(raw.get("strategy", archiver["strategy"]))
     archiver["delete_after_archive"] = bool(
         raw.get("delete_after_archive", archiver["delete_after_archive"])

@@ -14,7 +14,7 @@ from jarvishep2.archive_handoff import (
     list_product_names,
     normalize_move_strategy,
 )
-from jarvishep2.database import SimpleHDF5Writer, StreamingHDF5Writer
+from jarvishep2.database import RollingHDF5Writer, SimpleHDF5Writer, StreamingHDF5Writer
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
@@ -101,7 +101,7 @@ class ArchiveProcessor:
 
     def __init__(
         self,
-        writer: SimpleHDF5Writer | StreamingHDF5Writer,
+        writer: SimpleHDF5Writer | StreamingHDF5Writer | RollingHDF5Writer,
         *,
         sample_root: str,
         delete_method: str = DEFAULT_DELETE_METHOD,
@@ -128,7 +128,7 @@ class ArchiveProcessor:
     @classmethod
     def from_config(
         cls,
-        writer: SimpleHDF5Writer,
+        writer: SimpleHDF5Writer | StreamingHDF5Writer | RollingHDF5Writer,
         *,
         sample_root: str,
         delete_method: str = DEFAULT_DELETE_METHOD,
@@ -188,7 +188,7 @@ class ArchiveProcessor:
         if not force and not self._flush_due_locked():
             return 0
 
-        batched_writer = isinstance(self.writer, StreamingHDF5Writer)
+        batched_writer = isinstance(self.writer, (StreamingHDF5Writer, RollingHDF5Writer))
         previous_records_written = self.records_written
         newly_acked: list[str] = []
         if batched_writer:
@@ -319,7 +319,10 @@ class SimpleArchiver:
         self.pack_buckets = bool(cfg.get("pack_buckets", True))
         self.buckets_packed = 0
         self.processor = ArchiveProcessor.from_config(
-            StreamingHDF5Writer(db_path),
+            RollingHDF5Writer(
+                db_path,
+                max_bytes=int(cfg.get("max_hdf5_bytes", ARCHIVER_DEFAULTS["max_hdf5_bytes"])),
+            ),
             sample_root=sample_root,
             delete_method=delete_method,
             archiver_config=archiver_config,

@@ -417,6 +417,35 @@ class PlotSceneEmitTests(unittest.TestCase):
             self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["y"], "$Y$")
             self.assertEqual(doc["_jarvishep2"]["axis_keys"]["x"], "MChi")
 
+    def test_jplot_uses_multiple_csv_shards_without_merging(self) -> None:
+        from jarvishep2.database import convert_hdf5_to_csv
+        from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml
+
+        with tempfile.TemporaryDirectory() as project:
+            scan_dir = os.path.join(project, "outputs", "sharded")
+            db_dir = os.path.join(scan_dir, "DATABASE")
+            os.makedirs(db_dir)
+            sealed = os.path.join(db_dir, "samples.0001.hdf5")
+            live = os.path.join(db_dir, "samples.hdf5")
+            SimpleHDF5Writer(sealed).add_record({"x": 0.1, "y": 0.2, "LogL": -1.0})
+            SimpleHDF5Writer(live).add_record({"x": 0.3, "y": 0.4, "LogL": -2.0})
+            convert_hdf5_to_csv(sealed)
+
+            path = emit_jplot_scan_levelset_yaml(
+                scan_dir, scan_name="sharded", project_root=project
+            )
+            self.assertIsNotNone(path)
+            with open(str(path), encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            self.assertEqual(
+                [item["name"] for item in doc["DataSet"]],
+                ["samples_0001", "samples"],
+            )
+            scatter = next(layer for layer in doc["Figures"][0]["layers"] if layer["name"] == "scatter")
+            self.assertEqual(scatter["data"], [{"source": ["samples_0001", "samples"]}])
+            self.assertTrue(os.path.isfile(os.path.join(db_dir, "samples.0001.csv")))
+            self.assertTrue(os.path.isfile(os.path.join(db_dir, "samples.csv")))
+
     def test_jplot_dynesty_runplot_hook(self) -> None:
         """V1 Jarvis-PLOT path: dynesty_result.csv → dynesty_runplot jplot YAML."""
         from jarvishep2.plot_scene import (

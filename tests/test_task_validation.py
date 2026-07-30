@@ -140,6 +140,13 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ARC-002" for i in report.errors()))
 
+    def test_archiver_shard_limit_is_validated(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Calculators"] = {"Archiver": {"max_hdf5_bytes": 0}}
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        self.assertTrue(any(i.code == "JV2-ARC-014" for i in report.errors()))
+
     def test_workers_illegal_present_value(self) -> None:
         cfg = _minimal_dynesty_config()
         cfg["EnvReqs"] = {"V2": {"workers": "many", "batch_size": 16}}

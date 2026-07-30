@@ -356,6 +356,17 @@ def _validate_archiver(raw: Any) -> list[ValidationIssue]:
                     f"expected number ≥ 0.05, got {raw.get('flush_interval_sec')!r}",
                 )
             )
+    if "max_hdf5_bytes" in raw:
+        max_bytes = try_int(raw.get("max_hdf5_bytes"))
+        if max_bytes is None or max_bytes < 1:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-ARC-014",
+                    f"{path}.max_hdf5_bytes",
+                    f"expected integer ≥ 1, got {raw.get('max_hdf5_bytes')!r}",
+                )
+            )
     if "strategy" in raw:
         strategy = str(raw.get("strategy")).strip().lower()
         if strategy not in _VALID_ARCHIVER_STRATEGY:

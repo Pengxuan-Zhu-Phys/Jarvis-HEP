@@ -25,6 +25,8 @@ EnvReqs:
       pack_buckets: true
       batch_size: 200
       flush_interval_sec: 1.0
+      # Seal and convert each HDF5 shard after 1 GiB (bytes).
+      max_hdf5_bytes: 1073741824
       delete_after_archive: true
 
     # Optional Redis broker override (default: 127.0.0.1:6379 / db 0).

@@ -175,6 +175,57 @@ def discover_database_hdf5(database_dir: str) -> list[str]:
     return paths
 
 
+def discover_samples_hdf5_shards(database_dir: str) -> list[str]:
+    """Return scan-record shards in chronological order, then the live file.
+
+    A completed shard is named ``samples.0001.hdf5`` (and so on); the current
+    writer always keeps the compatibility name ``samples.hdf5``.  Keeping the
+    active file separate means readers never need to open an unbounded HDF5
+    archive.
+    """
+    root = os.path.abspath(str(database_dir))
+    if not os.path.isdir(root):
+        return []
+    shards: list[tuple[int, str]] = []
+    for path in glob.glob(os.path.join(root, "samples.*.hdf5")):
+        stem = os.path.basename(path)[len("samples.") : -len(".hdf5")]
+        if stem.isdigit() and os.path.isfile(path):
+            shards.append((int(stem), os.path.abspath(path)))
+    ordered = [path for _, path in sorted(shards)]
+    active = os.path.join(root, "samples.hdf5")
+    if os.path.isfile(active):
+        ordered.append(os.path.abspath(active))
+    return ordered
+
+
+def ensure_samples_csv_shards(
+    database_dir: str,
+    *,
+    preferred_columns: Sequence[str] | None = None,
+) -> list[str]:
+    """Return CSV sources for scan shards, refreshing only the live shard.
+
+    Sealed HDF5 shards are converted at rollover time and their CSV is
+    immutable.  Re-hashing each multi-gigabyte historical shard when plotting
+    would defeat sharding, so only a missing sealed CSV is regenerated.  The
+    current ``samples.hdf5`` remains mutable and uses the normal MD5 refresh.
+    """
+    paths = discover_samples_hdf5_shards(database_dir)
+    active = os.path.abspath(os.path.join(str(database_dir), "samples.hdf5"))
+    csv_paths: list[str] = []
+    for hdf5_path in paths:
+        csv_path = os.path.splitext(hdf5_path)[0] + ".csv"
+        if os.path.abspath(hdf5_path) == active or not os.path.isfile(csv_path):
+            convert_hdf5_to_csv(
+                hdf5_path,
+                csv_path,
+                preferred_columns=preferred_columns,
+            )
+        if os.path.isfile(csv_path):
+            csv_paths.append(os.path.abspath(csv_path))
+    return csv_paths
+
+
 def convert_database_dir(
     database_dir: str,
     *,
@@ -246,7 +297,7 @@ class SimpleHDF5Writer:
     def close(self) -> None:
         """Compatibility no-op: one-shot writes close their own HDF5 handle."""
 
-    def read_records(self) -> list[dict[str, Any]]:
+    def read_records(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         if not os.path.exists(self.db_path):
             return []
         rows: list[dict[str, Any]] = []
@@ -258,7 +309,11 @@ class SimpleHDF5Writer:
         with handle:
             if "records" not in handle:
                 return []
-            for item in handle["records"][()]:
+            dataset = handle["records"]
+            size = int(dataset.shape[0])
+            if limit is not None:
+                size = min(size, max(0, int(limit)))
+            for item in dataset[:size]:
                 if isinstance(item, bytes):
                     item = item.decode("utf-8")
                 rows.append(json.loads(item))
@@ -365,11 +420,94 @@ class StreamingHDF5Writer:
             self._fallback = None
 
 
+class RollingHDF5Writer:
+    """Bounded ``samples.hdf5`` writer with immutable HDF5/CSV shards.
+
+    After a durable batch pushes the live HDF5 above ``max_bytes``, it is
+    closed, renamed to ``samples.NNNN.hdf5``, and converted to a sibling CSV
+    before a fresh live ``samples.hdf5`` writer is opened.  The rollover point
+    is always a batch boundary, so a shard is self-contained and safe for
+    conversion.
+    """
+
+    def __init__(self, db_path: str, *, max_bytes: int = 1024 * 1024 * 1024) -> None:
+        self.db_path = os.path.abspath(str(db_path))
+        self.max_bytes = max(1, int(max_bytes))
+        self._lock = threading.Lock()
+        self._writer = StreamingHDF5Writer(self.db_path)
+        self._records_persisted = 0
+
+    @property
+    def records_persisted(self) -> int:
+        return self._records_persisted
+
+    def _next_shard_path(self) -> str:
+        directory = os.path.dirname(self.db_path)
+        highest = 0
+        for path in glob.glob(os.path.join(directory, "samples.*.hdf5")):
+            stem = os.path.basename(path)[len("samples.") : -len(".hdf5")]
+            if stem.isdigit():
+                highest = max(highest, int(stem))
+        return os.path.join(directory, f"samples.{highest + 1:04d}.hdf5")
+
+    def _rollover_if_needed_locked(self) -> None:
+        if not os.path.isfile(self.db_path) or os.path.getsize(self.db_path) <= self.max_bytes:
+            return
+        self._writer.close()
+        shard_path = self._next_shard_path()
+        os.replace(self.db_path, shard_path)
+        try:
+            convert_hdf5_to_csv(shard_path)
+        finally:
+            # The former live CSV describes the just-sealed file; never let it
+            # masquerade as data from the newly-created live shard.
+            for suffix in (".csv", ".csv.md5"):
+                try:
+                    os.unlink(os.path.splitext(self.db_path)[0] + suffix)
+                except FileNotFoundError:
+                    pass
+            self._writer = StreamingHDF5Writer(self.db_path)
+
+    def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
+        with self._lock:
+            written = self._writer.add_records(records)
+            self._records_persisted += written
+            self._rollover_if_needed_locked()
+            return written
+
+    def begin_batch(self) -> None:
+        self._writer.begin_batch()
+
+    def add_record(self, observables: Mapping[str, Any]) -> None:
+        self._writer.add_record(observables)
+
+    def commit_batch(self) -> int:
+        with self._lock:
+            written = self._writer.commit_batch()
+            self._records_persisted += written
+            self._rollover_if_needed_locked()
+            return written
+
+    def abort_batch(self) -> None:
+        self._writer.abort_batch()
+
+    def close(self) -> None:
+        with self._lock:
+            self._writer.close()
+            # Final live shard stays under the compatibility name but gets its
+            # CSV export as soon as the scan has finished.
+            if os.path.isfile(self.db_path):
+                convert_hdf5_to_csv(self.db_path)
+
+
 __all__ = [
     "SimpleHDF5Writer",
     "StreamingHDF5Writer",
+    "RollingHDF5Writer",
     "make_json_compatible",
     "convert_hdf5_to_csv",
     "convert_database_dir",
     "discover_database_hdf5",
+    "discover_samples_hdf5_shards",
+    "ensure_samples_csv_shards",
 ]

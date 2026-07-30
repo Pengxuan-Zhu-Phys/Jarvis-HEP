@@ -274,7 +274,7 @@ def _read_hdf5_records(db_path: str, *, limit: int | None = None) -> list[dict[s
     except Exception:
         return []
     try:
-        records = SimpleHDF5Writer(path).read_records()
+        records = SimpleHDF5Writer(path).read_records(limit=limit)
     except Exception:
         return []
     out: list[dict[str, Any]] = []
@@ -286,6 +286,26 @@ def _read_hdf5_records(db_path: str, *, limit: int | None = None) -> list[dict[s
         if isinstance(row, Mapping):
             out.append(dict(row))
     return out
+
+
+def _read_database_shard_records(
+    database_dir: str, *, limit: int | None = None
+) -> list[dict[str, Any]]:
+    """Read a bounded, chronological sample from DATABASE HDF5 shards."""
+    try:
+        from jarvishep2.database import discover_samples_hdf5_shards
+    except Exception:
+        return []
+    records: list[dict[str, Any]] = []
+    remaining = None if limit is None else max(0, int(limit))
+    for path in discover_samples_hdf5_shards(database_dir):
+        if remaining is not None and remaining <= 0:
+            break
+        chunk = _read_hdf5_records(path, limit=remaining)
+        records.extend(chunk)
+        if remaining is not None:
+            remaining -= len(chunk)
+    return records
 
 
 def _csv_cell(value: Any) -> Any:
@@ -450,10 +470,12 @@ def emit_jplot_scan_levelset_yaml(
     )
     os.makedirs(out_dir, exist_ok=True)
 
-    db_path = os.path.join(root, "DATABASE", "samples.hdf5")
+    database_dir = os.path.join(root, "DATABASE")
     levelset_path = os.path.join(root, "levelset.json")
     payload = _load_levelset(levelset_path)
-    records = _read_hdf5_records(db_path, limit=None)
+    # Axis discovery needs only a small representative sample; loading an
+    # unbounded historical archive here would negate HDF5 sharding.
+    records = _read_database_shard_records(database_dir, limit=64)
     x_key, y_key, color_key = resolve_plot_axis_keys(
         x_key=x_key,
         y_key=y_key,
@@ -466,37 +488,42 @@ def emit_jplot_scan_levelset_yaml(
     # Full Worker evaluation archive (every logL call), not nested dead points.
     # Nested clean CSV is DATABASE/dynesty_result.csv (written by DynestySampler).
     # Caller must wait for Archiver catch-up before this snapshot.
-    samples_csv = os.path.join(root, "DATABASE", "samples.csv")
-    csv_path = export_samples_csv_from_hdf5(
-        db_path,
-        output_csv=samples_csv,
-        x_key=x_key,
-        y_key=y_key,
-        color_key=color_key,
-        limit=None,
+    from jarvishep2.database import ensure_samples_csv_shards
+
+    csv_paths = ensure_samples_csv_shards(
+        database_dir,
+        preferred_columns=[x_key, y_key, color_key, "uuid"],
     )
 
     polylines = _polylines_physical(payload) if payload else []
 
-    if not csv_path and not polylines:
+    if not csv_paths and not polylines:
         return None
 
     datasets: list[dict[str, Any]] = []
     layers: list[dict[str, Any]] = []
 
-    if csv_path:
-        # Absolute path so jplot works from images/<scan>/ regardless of cwd.
-        datasets.append(
-            {
-                "name": "samples",
-                "path": os.path.abspath(csv_path),
-                "type": "csv",
-            }
-        )
+    if csv_paths:
+        # Absolute paths let jplot run from images/<scan>/; a list of sources
+        # is concatenated lazily by Jarvis-PLOT without reconstructing one CSV.
+        source_names: list[str] = []
+        for index, csv_path in enumerate(csv_paths):
+            base = os.path.splitext(os.path.basename(csv_path))[0]
+            name = "samples" if len(csv_paths) == 1 else base.replace(".", "_")
+            if name in source_names:
+                name = f"samples_{index + 1:04d}"
+            source_names.append(name)
+            datasets.append(
+                {
+                    "name": name,
+                    "path": os.path.abspath(csv_path),
+                    "type": "csv",
+                }
+            )
         layers.append(
             {
                 "name": "scatter",
-                "data": [{"source": "samples"}],
+                "data": [{"source": source_names[0] if len(source_names) == 1 else source_names}],
                 "axes": "ax",
                 "method": "scatter",
                 "coordinates": {
@@ -579,6 +606,7 @@ def emit_jplot_scan_levelset_yaml(
             "levelset": os.path.basename(levelset_path) if payload else None,
             "title": title,
             "axis_keys": {"x": x_key, "y": y_key, "c": color_key},
+            "sample_csv_shards": [os.path.basename(path) for path in csv_paths],
         },
     }
     yaml_path = os.path.join(
@@ -715,8 +743,9 @@ def emit_plot_scenes_from_run(
 
     levelset = os.path.join(root, "levelset.json")
     levelset_payload = _load_levelset(levelset)
-    db_path = os.path.join(root, "DATABASE", "samples.hdf5")
-    records = _read_hdf5_records(db_path, limit=None)
+    database_dir = os.path.join(root, "DATABASE")
+    db_path = os.path.join(database_dir, "samples.hdf5")
+    records = _read_database_shard_records(database_dir, limit=64)
     x_key, y_key, color_key = resolve_plot_axis_keys(
         x_key=x_key,
         y_key=y_key,
@@ -735,16 +764,19 @@ def emit_plot_scenes_from_run(
     if overlay:
         written["levelset_overlay"] = overlay
 
-    scatter = emit_scan_scatter_scene_from_hdf5(
-        db_path,
-        output_yaml=os.path.join(out_dir, f"{scan_name}_scatter.yaml"),
-        x_key=x_key,
-        y_key=y_key,
-        color_key=color_key,
-        title=f"{scan_name} samples",
-    )
-    if scatter:
-        written["scatter"] = scatter
+    # The intermediate scatter remains a compact preview of the current shard;
+    # the stock jplot YAML below carries every sealed CSV shard.
+    if os.path.isfile(db_path):
+        scatter = emit_scan_scatter_scene_from_hdf5(
+            db_path,
+            output_yaml=os.path.join(out_dir, f"{scan_name}_scatter.yaml"),
+            x_key=x_key,
+            y_key=y_key,
+            color_key=color_key,
+            title=f"{scan_name} samples",
+        )
+        if scatter:
+            written["scatter"] = scatter
 
     jplot_yaml = emit_jplot_scan_levelset_yaml(
         root,
@@ -758,8 +790,14 @@ def emit_plot_scenes_from_run(
     )
     if jplot_yaml:
         written["jplot_levelset"] = jplot_yaml
-        # Also record the DATABASE CSV if it was written.
-        samples_csv = os.path.join(root, "DATABASE", "samples.csv")
+        # Also expose every CSV shard to callers; preserve samples_csv when a
+        # live shard is present for compatibility with older integrations.
+        from jarvishep2.database import ensure_samples_csv_shards
+
+        csv_shards = ensure_samples_csv_shards(database_dir)
+        if csv_shards:
+            written["samples_csv_shards"] = ",".join(csv_shards)
+        samples_csv = os.path.join(database_dir, "samples.csv")
         if os.path.isfile(samples_csv):
             written["samples_csv"] = samples_csv
         if auto_render:
