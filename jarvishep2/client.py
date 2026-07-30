@@ -134,9 +134,13 @@ def _fixed_option_label(
 ) -> tuple[Text, Text]:
     """Return the common primary/alias columns used by every help panel."""
     if isinstance(param, click.Argument):
+        # Usage benefits from a semantic metavar (``<task_yaml>``), while the
+        # Arguments panel already has that name in its first column. Keep the
+        # type compact there so the fixed help grid never truncates it.
+        metavar = "<str>" if param.name == "task_yaml" else param.make_metavar(ctx=ctx)
         return (
             typer.rich_utils.highlighter(param.name or ""),
-            typer.rich_utils.metavar_highlighter(param.make_metavar(ctx=ctx)),
+            typer.rich_utils.metavar_highlighter(metavar),
         )
 
     long_options = [option for option in param.opts if option.startswith("--")]
@@ -259,6 +263,8 @@ class JarvisArgumentParser(argparse.ArgumentParser):
 
     @staticmethod
     def _metavar(action: argparse.Action) -> str:
+        if action.dest == "task_yaml":
+            return "<task_yaml>"
         if action.type is int:
             return "<int>"
         if action.type is float:
