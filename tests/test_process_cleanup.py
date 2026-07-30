@@ -12,6 +12,7 @@ from unittest import mock
 from jarvishep2.process_cleanup import (
     JarvisProcess,
     _command_is_jarvis,
+    _process_role_and_detail,
     format_scan_table,
     format_process_table,
     list_jarvis_processes,
@@ -42,13 +43,21 @@ class ListProcessesTests(unittest.TestCase):
                 JarvisProcess(pid=10, command="Jarvis2:Alpha"),
                 JarvisProcess(pid=11, command="Jarvis2-Worker-0:Alpha"),
                 JarvisProcess(pid=12, command="Jarvis-Redis:Alpha"),
+                JarvisProcess(pid=13, command="Jarvis2-FileOperation:Alpha"),
             ]
         )
         self.assertEqual([(scan.reference, scan.name) for scan in scans], [("R1", "Alpha"), ("R2", "Beta")])
-        self.assertEqual([proc.pid for proc in scans[0].processes], [10, 11, 12])
+        self.assertEqual([proc.pid for proc in scans[0].processes], [10, 11, 12, 13])
         self.assertIs(resolve_scan_reference("R1", scans), scans[0])
         self.assertIs(resolve_scan_reference("Beta", scans), scans[1])
         self.assertIn("Jarvis2 kill R1", format_scan_table(scans))
+
+    def test_file_operation_has_a_scan_role(self) -> None:
+        role, detail = _process_role_and_detail(
+            JarvisProcess(pid=13, command="Jarvis2-FileOperation:Alpha"), "Alpha"
+        )
+        self.assertEqual(role, "FileOperation")
+        self.assertIn("save / copy / delete", detail)
 
     def test_rejects_duplicate_live_scan_controller(self) -> None:
         from jarvishep2.process_cleanup import ensure_scan_name_available

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from jarvishep2.file_operation_service import FileOperationService
 from jarvishep2.file_ops import apply_io_save_policy, save_io_copy
+from jarvishep2.proc_title import file_operation_title
 
 
 class SaveIoCopyTests(unittest.TestCase):
@@ -66,6 +67,9 @@ class SaveIoCopyTests(unittest.TestCase):
 
 
 class FileOperationServiceTests(unittest.TestCase):
+    def test_file_operation_title_includes_scan_name(self) -> None:
+        self.assertEqual(file_operation_title(scan_name="Demo"), "Jarvis2-FileOperation:Demo")
+
     def test_inline_save_and_delete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "out.json"

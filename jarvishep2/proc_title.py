@@ -39,6 +39,12 @@ def archiver_title(*, scan_name: str | None = None) -> str:
     return f"Jarvis2-Archiver:{scan}" if scan else "Jarvis2-Archiver"
 
 
+def file_operation_title(*, scan_name: str | None = None) -> str:
+    """OS title for a Worker-owned file-operation child process."""
+    scan = str(scan_name or "").strip()
+    return f"Jarvis2-FileOperation:{scan}" if scan else "Jarvis2-FileOperation"
+
+
 def redis_title(*, scan_name: str | None = None, port: int | None = None, db: int = 0) -> str:
     """OS process title for a Jarvis-managed redis-server."""
     scan = str(scan_name or "").strip()
@@ -49,6 +55,7 @@ def redis_title(*, scan_name: str | None = None, port: int | None = None, db: in
 __all__ = [
     "archiver_title",
     "control_title",
+    "file_operation_title",
     "redis_title",
     "set_process_title",
     "worker_title",

@@ -6,7 +6,7 @@ Process titles are set via ``setproctitle`` (see ``proc_title.py``)::
     Jarvis2:<scan>
     Jarvis2-Worker-N:<scan>
     Jarvis2-Archiver:<scan>
-    Jarvis2-FileOperation
+    Jarvis2-FileOperation:<scan>
     Jarvis-Redis:<scan>
 """
 
@@ -127,6 +127,7 @@ def _scan_name_from_command(command: str) -> str | None:
     if marker and (
         head == "Jarvis2"
         or head.startswith("Jarvis2-Worker-")
+        or head == "Jarvis2-FileOperation"
         or head == "Jarvis2-Archiver"
         or head == "Jarvis-Redis"
     ):
@@ -192,7 +193,7 @@ def _verified_runtime_metadata(scan: JarvisScan) -> dict[str, object] | None:
 def list_running_scans(
     procs: Iterable[JarvisProcess] | None = None,
 ) -> list[JarvisScan]:
-    """Group titled control/worker/archiver/Redis processes into scan rows."""
+    """Group titled control/worker/file-operation/archiver/Redis processes into scan rows."""
     grouped: dict[str, list[JarvisProcess]] = {}
     for proc in procs if procs is not None else list_jarvis_processes():
         name = _scan_name_from_command(proc.command)
@@ -280,7 +281,10 @@ def print_scan_table(scans: list[JarvisScan]) -> None:
     guidance.append("  Jarvis2 monitor R1", style="bold cyan")
     guidance.append("  view this task's live scan status\n", style="dim")
     guidance.append("  Jarvis2 ps R1", style="bold #c8c8ff")
-    guidance.append("       list this task's control, workers, archiver, and Redis\n", style="dim")
+    guidance.append(
+        "       list this task's control, workers, file operations, archiver, and Redis\n",
+        style="dim",
+    )
     guidance.append("  Jarvis2 kill R1", style="bold red")
     guidance.append("     terminate ALL processes belonging to this task (asks for confirmation)", style="bold red")
     Console().print(
@@ -302,6 +306,8 @@ def _process_role_and_detail(proc: JarvisProcess, scan_name: str) -> tuple[str, 
     if title.startswith("Jarvis2-Worker-"):
         worker = title.removeprefix("Jarvis2-Worker-").split(":", 1)[0]
         return f"Worker {worker}", "calculator / sampling worker"
+    if title.startswith("Jarvis2-FileOperation:"):
+        return "FileOperation", "Worker-owned SAMPLE save / copy / delete"
     if title.startswith("Jarvis2-Archiver:"):
         return "Archiver", "writes DATABASE and exports"
     if title.startswith("Jarvis-Redis:"):

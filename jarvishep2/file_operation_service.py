@@ -33,6 +33,7 @@ class FileOperationService:
 
     mode: str = "process"  # process | inline
     delete_method: str = DEFAULT_DELETE_METHOD
+    scan_name: str = ""
     _request: Any = None
     _response: Any = None
     _process: Any = None
@@ -44,10 +45,12 @@ class FileOperationService:
         *,
         mode: str = "process",
         delete_method: str = DEFAULT_DELETE_METHOD,
+        scan_name: str | None = None,
     ) -> FileOperationService:
         service = cls(
             mode=str(mode or "process").strip().lower() or "process",
             delete_method=normalize_delete_method(delete_method),
+            scan_name=str(scan_name or "").strip(),
         )
         service._start()
         return service
@@ -63,7 +66,7 @@ class FileOperationService:
         self._response = ctx.Queue()
         self._process = ctx.Process(
             target=_file_operation_main,
-            args=(self._request, self._response, self.delete_method),
+            args=(self._request, self._response, self.delete_method, self.scan_name),
             name="Jarvis2-FileOperation",
             daemon=True,
         )
@@ -171,12 +174,17 @@ def _execute_job(payload: Mapping[str, Any], *, delete_method: str) -> Any:
     raise ValueError(f"unknown FileOperation op: {op!r}")
 
 
-def _file_operation_main(request_queue: Any, response_queue: Any, delete_method: str) -> None:
+def _file_operation_main(
+    request_queue: Any,
+    response_queue: Any,
+    delete_method: str,
+    scan_name: str = "",
+) -> None:
     """Child process entry — process title + job loop."""
     try:
-        from jarvishep2.proc_title import set_process_title
+        from jarvishep2.proc_title import file_operation_title, set_process_title
 
-        set_process_title("Jarvis2-FileOperation")
+        set_process_title(file_operation_title(scan_name=scan_name or None))
     except Exception:
         pass
     method = normalize_delete_method(delete_method)

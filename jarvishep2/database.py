@@ -7,6 +7,8 @@ import glob
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import threading
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -329,6 +331,28 @@ class SimpleHDF5Writer:
         return rows
 
 
+def _is_stale_swmr_write_flag(error: OSError) -> bool:
+    """Whether HDF5 rejected a file solely because a prior SWMR writer crashed."""
+    text = str(error).lower()
+    return "already open for write" in text and "swmr write" in text
+
+
+def _clear_stale_swmr_write_flag(db_path: str) -> None:
+    """Clear HDF5's stale write-status flag with the HDF5 utility."""
+    h5clear = shutil.which("h5clear")
+    if not h5clear:
+        raise RuntimeError(
+            "h5clear is required to recover a stale HDF5 SWMR write flag; "
+            f"run `h5clear -s {db_path}` after confirming no writer is active"
+        )
+    completed = subprocess.run(
+        [h5clear, "-s", db_path], capture_output=True, text=True, check=False
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
+        raise RuntimeError(f"h5clear could not recover {db_path}: {detail}")
+
+
 class StreamingHDF5Writer:
     """Single-writer HDF5 stream with batch publication and explicit fsync.
 
@@ -336,8 +360,9 @@ class StreamingHDF5Writer:
     SWMR so a converter can read batches already published by ``flush``.
     """
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, *, logger: Any | None = None) -> None:
         self.db_path = str(db_path)
+        self._logger = logger
         self._lock = threading.Lock()
         self._pending: list[Mapping[str, Any]] = []
         self._batch_open = False
@@ -345,6 +370,19 @@ class StreamingHDF5Writer:
         self._handle: h5py.File | None = None
         self._fallback: SimpleHDF5Writer | None = None
         try:
+            self._handle = h5py.File(self.db_path, "a", libver="latest")
+            SimpleHDF5Writer._ensure_records_dataset(self._handle)
+            self._handle.flush()
+            self._handle.swmr_mode = True
+        except OSError as exc:
+            if not _is_stale_swmr_write_flag(exc):
+                raise
+            _clear_stale_swmr_write_flag(self.db_path)
+            if self._logger is not None:
+                self._logger.warning(
+                    "Recovered stale HDF5 SWMR write flag; resuming append to %s",
+                    self.db_path,
+                )
             self._handle = h5py.File(self.db_path, "a", libver="latest")
             SimpleHDF5Writer._ensure_records_dataset(self._handle)
             self._handle.flush()
@@ -439,11 +477,18 @@ class RollingHDF5Writer:
     conversion.
     """
 
-    def __init__(self, db_path: str, *, max_bytes: int = 1024 * 1024 * 1024) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        max_bytes: int = 1024 * 1024 * 1024,
+        logger: Any | None = None,
+    ) -> None:
         self.db_path = os.path.abspath(str(db_path))
         self.max_bytes = max(1, int(max_bytes))
         self._lock = threading.Lock()
-        self._writer = StreamingHDF5Writer(self.db_path)
+        self._logger = logger
+        self._writer = StreamingHDF5Writer(self.db_path, logger=logger)
         self._records_persisted = 0
 
     @property
@@ -475,7 +520,7 @@ class RollingHDF5Writer:
                     os.unlink(os.path.splitext(self.db_path)[0] + suffix)
                 except FileNotFoundError:
                     pass
-            self._writer = StreamingHDF5Writer(self.db_path)
+            self._writer = StreamingHDF5Writer(self.db_path, logger=self._logger)
 
     def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
         with self._lock:

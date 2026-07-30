@@ -48,6 +48,11 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
             ) as handle:
                 handle.write(
                     "EnvReqs:\n"
+                    "  Python:\n"
+                    "    version: '>=3.10'\n"
+                    "  CERN_ROOT:\n"
+                    "    required: true\n"
+                    "    version: '>=6.20'\n"
                     "  V2:\n"
                     "    workers: 2\n"
                     "    batch_size: 32\n"
@@ -70,6 +75,8 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
         self.assertEqual(config["Runtime"]["batch_size"], 32)
         self.assertEqual(config["EnvReqs"]["V2"], {"workers": 4, "batch_size": 32})
         self.assertTrue(config["EnvReqs"]["Check_default_dependencies"]["required"])
+        self.assertEqual(config["EnvReqs"]["Python"]["version"], ">=3.10")
+        self.assertEqual(config["EnvReqs"]["CERN_ROOT"]["version"], ">=6.20")
 
     def test_required_v1_default_yaml_must_exist(self) -> None:
         with tempfile.TemporaryDirectory() as root:

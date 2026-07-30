@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import time
@@ -36,6 +37,38 @@ from test_worker_calculator import (
 
 
 class ArchiveHandoffUnitTests(unittest.TestCase):
+    def test_streaming_writer_recovers_stale_swmr_status_and_logs_warning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            os.makedirs(os.path.dirname(db_path))
+            open(db_path, "wb").close()
+            handle = mock.MagicMock()
+            handle.__contains__.return_value = True
+            handle.__getitem__.return_value.shape = (0,)
+            logger = mock.Mock()
+            with (
+                mock.patch(
+                    "jarvishep2.database.h5py.File",
+                    side_effect=[
+                        OSError("file is already open for write/SWMR write"),
+                        handle,
+                    ],
+                ) as open_hdf5,
+                mock.patch("jarvishep2.database.shutil.which", return_value="/usr/bin/h5clear"),
+                mock.patch("jarvishep2.database.subprocess.run") as clear,
+            ):
+                clear.return_value = subprocess.CompletedProcess([], 0, "", "")
+                writer = StreamingHDF5Writer(db_path, logger=logger)
+            self.assertEqual(open_hdf5.call_count, 2)
+            clear.assert_called_once_with(
+                ["/usr/bin/h5clear", "-s", db_path],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            logger.warning.assert_called_once()
+            writer.close()
+
     def test_streaming_writer_publishes_one_fsynced_batch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")

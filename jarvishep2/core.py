@@ -20,6 +20,10 @@ from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
 from jarvishep2.dashboard import SnapshotReader, format_monitor_view
 from jarvishep2.database import SimpleHDF5Writer, convert_database_dir
+from jarvishep2.environment_requirements import (
+    EnvironmentRequirementError,
+    check_environment_requirements,
+)
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
 from jarvishep2.log_kv import PermilleProgress, format_duration
@@ -175,6 +179,111 @@ class Jarvis2Core:
             # Logging must never block bootstrap; banner is best-effort.
             pass
 
+    def check_environment_requirements(self) -> None:
+        """Log and enforce V1-compatible Python and CERN ROOT requirements."""
+        report = check_environment_requirements(self.config)
+        if not report.summary and not report.warnings and not report.errors:
+            return
+        envreqs = self.config.get("EnvReqs")
+        envreqs = envreqs if isinstance(envreqs, Mapping) else {}
+        lines = [
+            "Environment requirements preflight",
+            "  Check                      | Required        | Detected        | Status",
+            "  -------------------------- | --------------- | --------------- | --------",
+        ]
+
+        def format_check(
+            label: str,
+            required: str,
+            detected: str,
+            status: str,
+            *,
+            child: bool = False,
+        ) -> str:
+            """Render every environment check against the same column grid."""
+            # Children have two extra spaces only *inside* the Check column;
+            # shrink their label field by the same amount so every separator
+            # remains on the parent row's column boundary.
+            indent = "    " if child else "  "
+            label_width = 24 if child else 26
+            return (
+                f"{indent}{label:<{label_width}} | {required:<15} | {detected:<15} | {status}"
+            )
+
+        python_requirement = envreqs.get("Python")
+        if isinstance(python_requirement, Mapping):
+            required = str(python_requirement.get("version") or "not specified")
+            found = str(report.summary.get("Python version") or "not detected")
+            passed = not any(error.startswith("Python ") for error in report.errors)
+            lines.append(format_check("Python", required, found, "PASS" if passed else "FAIL"))
+            dependencies = python_requirement.get("Dependencies")
+            if isinstance(dependencies, Sequence) and not isinstance(dependencies, (str, bytes)):
+                for dependency in dependencies:
+                    if not isinstance(dependency, Mapping):
+                        continue
+                    name = str(dependency.get("name") or "unnamed")
+                    required_version = str(dependency.get("version") or "any")
+                    found_version = report.summary.get(name)
+                    is_required = bool(dependency.get("required", False))
+                    failed = any(
+                        error.startswith(f"Python package {name}") for error in report.errors
+                    )
+                    warned = any(
+                        warning.startswith(f"Python package {name}") for warning in report.warnings
+                    )
+                    status = "FAIL" if failed else "WARN" if warned else "PASS"
+                    found_text = str(found_version) if found_version is not None else "not installed"
+                    requirement_label = f">={required_version.removeprefix('>=').strip()}" if required_version != "any" else "any"
+                    label = f"package {name}" + (" (optional)" if not is_required else "")
+                    lines.append(
+                        format_check(
+                            label,
+                            requirement_label,
+                            found_text,
+                            status,
+                            child=True,
+                        )
+                    )
+
+        root_requirement = envreqs.get("CERN_ROOT")
+        if isinstance(root_requirement, Mapping):
+            required = bool(root_requirement.get("required", False))
+            version_required = str(root_requirement.get("version") or "not specified")
+            if not required:
+                lines.append(format_check("CERN ROOT", "false", "not checked", "SKIPPED"))
+            else:
+                found = str(report.summary.get("ROOT version") or "not detected")
+                passed = not any(error.startswith("CERN ROOT") for error in report.errors)
+                lines.append(
+                    format_check("CERN ROOT", version_required, found, "PASS" if passed else "FAIL")
+                )
+                dependencies = root_requirement.get("Dependencies")
+                if isinstance(dependencies, Sequence) and not isinstance(dependencies, (str, bytes)):
+                    for dependency in dependencies:
+                        if not isinstance(dependency, Mapping):
+                            continue
+                        name = str(dependency.get("name") or "unnamed")
+                        feature_found = bool(report.summary.get(f"ROOT-{name}", False))
+                        feature_required = bool(dependency.get("required", False))
+                        status = "PASS" if feature_found else "FAIL" if feature_required else "WARN"
+                        lines.append(
+                            format_check(
+                                f"feature {name}",
+                                "yes" if feature_required else "optional",
+                                "yes" if feature_found else "no",
+                                status,
+                                child=True,
+                            )
+                        )
+        if report.errors:
+            lines.append(format_check("Result", "-", "-", "FAIL"))
+            self._logger.error("\n%s", "\n".join(lines))
+            raise EnvironmentRequirementError(report)
+        lines.append(format_check("Result", "-", "-", "PASS"))
+        # Use warning so the complete one-record summary is visible at V2's
+        # default terminal threshold; it is one logging call, not one per check.
+        self._logger.warning("\n%s", "\n".join(lines))
+
     def load_task_yaml(
         self,
         path: str,
@@ -322,6 +431,9 @@ class Jarvis2Core:
         scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
         ensure_scan_name_available(scan_name)
         self.init_logger()
+        # Preflight remains before command setup, Redis, Workers, and Archiver,
+        # while init_logger above ensures all outcomes reach core.log.
+        self.check_environment_requirements()
         self.init_command_parser()
         self.init_redis()
         self._claim_redis_control_lock()

@@ -318,10 +318,13 @@ class SimpleArchiver:
             cfg.update(archiver_config)
         self.pack_buckets = bool(cfg.get("pack_buckets", True))
         self.buckets_packed = 0
+        # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
+        self._logger = logger or get_jarvis_logger("archiver")
         self.processor = ArchiveProcessor.from_config(
             RollingHDF5Writer(
                 db_path,
                 max_bytes=int(cfg.get("max_hdf5_bytes", ARCHIVER_DEFAULTS["max_hdf5_bytes"])),
+                logger=self._logger,
             ),
             sample_root=sample_root,
             delete_method=delete_method,
@@ -331,8 +334,6 @@ class SimpleArchiver:
         self._thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
-        # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
-        self._logger = logger or get_jarvis_logger("archiver")
         # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
         self._datarecorder_logger = get_jarvis_logger("datarecorder")
         self._last_progress_written = -1

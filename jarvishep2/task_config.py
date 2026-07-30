@@ -119,6 +119,29 @@ def _v2_defaults_from_envreqs(
     return _canonicalize_v2_settings(v2_defaults)
 
 
+def _legacy_environment_requirements_from_defaults(
+    config: Mapping[str, Any], *, project_root: str, yaml_dir: str
+) -> dict[str, Any]:
+    """Load V1 Python/ROOT requirements from the selected default environment YAML."""
+    defaults_path = _default_environment_yaml_path(
+        config, project_root=project_root, yaml_dir=yaml_dir
+    )
+    if defaults_path is None:
+        return {}
+    with open(defaults_path, "r", encoding="utf-8") as handle:
+        document = yaml.safe_load(handle)
+    if not isinstance(document, Mapping):
+        return {}
+    envreqs = document.get("EnvReqs")
+    if not isinstance(envreqs, Mapping):
+        return {}
+    return {
+        key: deepcopy(envreqs[key])
+        for key in ("Python", "CERN_ROOT")
+        if isinstance(envreqs.get(key), Mapping)
+    }
+
+
 def _default_environment_yaml_path(
     config: Mapping[str, Any], *, project_root: str, yaml_dir: str
 ) -> str | None:
@@ -299,6 +322,9 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     defaults_path = _default_environment_yaml_path(
         loaded, project_root=project_root, yaml_dir=yaml_dir
     )
+    legacy_environment_defaults = _legacy_environment_requirements_from_defaults(
+        loaded, project_root=project_root, yaml_dir=yaml_dir
+    )
     # Legacy EnvReqs.Runtime defaults may include V1 Runtime keys (mode, …);
     # only V2 knobs are retained so old defaults files do not hard-fail.
     runtime_defaults_raw = _runtime_defaults_from_envreqs(
@@ -328,6 +354,11 @@ def load_task_yaml(path: str) -> dict[str, Any]:
 
     config = deepcopy(loaded)
     resolved_envreqs = deepcopy(dict(task_envreqs))
+    for key, default in legacy_environment_defaults.items():
+        existing = resolved_envreqs.get(key)
+        resolved_envreqs[key] = (
+            _deep_merge(default, existing) if isinstance(existing, Mapping) else default
+        )
     if v2_settings:
         resolved_envreqs["V2"] = v2_settings
     if resolved_envreqs:

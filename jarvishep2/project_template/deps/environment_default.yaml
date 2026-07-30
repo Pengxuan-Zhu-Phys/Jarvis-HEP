@@ -1,6 +1,21 @@
 # Jarvis-HEP V2 default runtime policy for scaffolded projects.
 # Loaded via EnvReqs.Check_default_dependencies.default_yaml_path.
 EnvReqs:
+  # V1-compatible preflight checks.  Set CERN_ROOT.required to true for
+  # calculators that use ROOT; Jarvis2 then checks root-config/version before
+  # Redis, Workers, or Archiver are started.
+  Python:
+    version: ">=3.10"
+  CERN_ROOT:
+    required: false
+    version: ">=6.20"
+    get_path_command: "root-config --prefix"
+    Dependencies:
+      - name: minuit2
+        required: false
+        check_command: "root-config --has-minuit2"
+        expected_output: "yes"
+
   V2:
     workers: 4
     batch_size: 256

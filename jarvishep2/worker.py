@@ -121,9 +121,15 @@ class Worker(Process):
         ).strip().lower()
         if file_ops_mode not in {"process", "inline"}:
             file_ops_mode = "process"
+        scan_name = str(self.worker_config.get("scan_name") or "").strip()
+        if not scan_name:
+            sample_config = self.worker_config.get("sample_config") or {}
+            if isinstance(sample_config, Mapping):
+                scan_name = str(sample_config.get("scan_name") or "").strip()
         self._file_ops = FileOperationService.start(
             mode=file_ops_mode,
             delete_method=self._delete_method,
+            scan_name=scan_name or None,
         )
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
