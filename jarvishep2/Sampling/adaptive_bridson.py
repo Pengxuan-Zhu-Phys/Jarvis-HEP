@@ -33,6 +33,7 @@ import os
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from enum import Enum
 from typing import Any, Protocol
 
 import numpy as np
@@ -61,6 +62,46 @@ class LevelSetPoint:
     f: float | None
     uuid: str = ""
     generation: int = 0
+
+
+class LoopAction(str, Enum):
+    """One explicit control-flow outcome for an adaptive loop iteration."""
+
+    CONTINUE = "continue"
+    ADVANCE = "advance"
+    STOP = "stop"
+
+
+@dataclass(frozen=True)
+class LoopDecision:
+    """A named loop transition; ``STOP`` decisions always carry a reason."""
+
+    action: LoopAction
+    reason: str | None = None
+
+    @classmethod
+    def continue_fill(cls) -> "LoopDecision":
+        return cls(LoopAction.CONTINUE)
+
+    @classmethod
+    def advance(cls) -> "LoopDecision":
+        return cls(LoopAction.ADVANCE)
+
+    @classmethod
+    def stop(cls, reason: str) -> "LoopDecision":
+        return cls(LoopAction.STOP, reason)
+
+
+@dataclass(frozen=True)
+class ScaleState:
+    """Band state prepared once at the start of a radius-scale iteration."""
+
+    cores: list[int]
+    frontier: list[int]
+    outer: list[int]
+    best: int | None
+    t_min: float | None
+    t_max: float | None
 
 
 class NeighborGraph(Protocol):
@@ -2886,8 +2927,15 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         return payload
 
     # ------------------------------------------------------------------- driver
-    def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        """Live-band control loop (see DESIGN_ADAPTIVE_BRIDSON_LIVE_BAND.md)."""
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Live-band loop; timeout applies independently to each generation."""
+        if timeout is not None:
+            generation_timeout = timeout
         self._require_redis("AdaptiveBridson.run_adaptive")
         self._ensure_seed_sequence()
         if self._graph is None:
@@ -2934,46 +2982,19 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 self._radius,
                 n,
             )
-            self._wait_generation(timeout=timeout)
+            self._wait_generation(timeout=generation_timeout)
             self.checkpoint_at_barrier(reason="als_generation_0")
         elif self._pending_uuids:
             self._logger.debug(
                 "AdaptiveBridson resume: waiting %d pending feedback…",
                 len(self._pending_uuids),
             )
-            self._wait_generation(timeout=timeout)
+            self._wait_generation(timeout=generation_timeout)
 
         while True:
-            cores, frontier, outer, best = self._classify_bands()
-            # 2*r_g ball around best: primary gen-advance / exit gate.
-            best_i, t_min, t_max = self._radius_t_band()
-            if best is None:
-                best = best_i
-            self._t_min, self._t_max = t_min, t_max
-            # Register current absolute cores, then densify only those still in
-            # the 2*r_g band (t_min,t_max) — expand core set toward T, never
-            # replace band cores by off-band accumulated ids.
-            self._register_cores(cores)
-            cores = self._accumulated_core_indices(
-                t_min=t_min, t_max=t_max, require_in_band=True
-            )
-            if not cores:
-                # Fall back to current absolute cores if band filter empties.
-                cores, frontier, outer, _ = self._classify_bands()
-                self._register_cores(cores)
-                cores = self._accumulated_core_indices(
-                    t_min=None, t_max=None, require_in_band=False
-                )
-                # Keep only those still |f−T|≤w_core
-                cores = [
-                    i
-                    for i in cores
-                    if (d := self._abs_dev(i)) is not None
-                    and d <= float(self._core_half_width) + 1e-15
-                ]
-            self._live_core_indices = list(cores)
-            self._outer_indices = list(outer)
-            self._frontier_indices = list(frontier)
+            scale = self._prepare_scale_state()
+            cores, frontier, outer = scale.cores, scale.frontier, scale.outer
+            best, t_min, t_max = scale.best, scale.t_min, scale.t_max
 
             # Full-cloud straddles for root-correction / bridge fill.
             brackets = self._straddle_brackets(pool=None)
@@ -3096,9 +3117,17 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 self._n_radius_refines,
             )
 
-            # No finite f at all → hard fail.
-            if best is None:
-                self._stop_reason = "level-set not present in domain"
+            decision = self._pre_fill_decision(
+                best=best,
+                t_min=t_min,
+                t_max=t_max,
+                fill_needed=fill_needed,
+            )
+
+            # Every terminal path is selected by the named decision above;
+            # these branches retain their established diagnostics and cleanup.
+            if decision.reason == "level-set not present in domain":
+                self._stop_reason = decision.reason
                 self._converged = False
                 self._logger.warning(
                     "AdaptiveBridson stop: %s (no finite f)", self._stop_reason
@@ -3107,11 +3136,9 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 return total_submitted
 
             # (3) Exit when fill done AND (t_max − t_min) < threshold.
-            if self._contour_converged(
-                t_min=t_min, t_max=t_max, fill_needed=fill_needed
-            ):
+            if decision.reason == "converged":
                 self._converged = True
-                self._stop_reason = "converged"
+                self._stop_reason = decision.reason
                 self._solidify_cores(cores, reason="exit_converged_tmin_tmax")
                 self._logger.debug(
                     "AdaptiveBridson stop: converged (t_max-t_min < threshold)\n"
@@ -3133,8 +3160,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             # The u-space resolution floor is a normal partial-completion
             # condition. Finish endpoint growth at this scale first; once fill
             # is quiet, do not create a finer generation below min_radius.
-            if not fill_needed and self._at_min_radius():
-                self._stop_reason = "min_radius"
+            if decision.reason == "min_radius":
+                self._stop_reason = decision.reason
                 self._converged = False
                 self._solidify_cores(cores, reason="exit_min_radius")
                 self._logger.debug(
@@ -3155,8 +3182,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 return total_submitted
 
             # generation == r_g shrink count; stop after enough scale refinements.
-            if int(self._generation) >= int(self._max_generations):
-                self._stop_reason = "max_generations"
+            if decision.reason == "max_generations":
+                self._stop_reason = decision.reason
                 self._converged = False
                 self._logger.warning(
                     "AdaptiveBridson stop: max_generations=%d "
@@ -3183,8 +3210,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     band_ok,
                 )
 
-            if self._unique_point_count() >= self._max_points:
-                self._stop_reason = "max_points"
+            if decision.reason == "max_points":
+                self._stop_reason = decision.reason
                 self._converged = False
                 self._logger.warning(
                     "AdaptiveBridson stop: max_points=%d", self._max_points
@@ -3513,37 +3540,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     fill_needed=fill_now,
                     cores=cores,
                 ):
-                    self._solidify_cores(
-                        cores, reason=f"pre_shrink_r_g={self._radius:g}"
-                    )
-                    old_r = self._radius
-                    self._radius = self._next_radius()
-                    self._n_radius_refines += 1
-                    self._generation = int(self._n_radius_refines)
-                    self._fill_pass = 0
-                    self._quiet_fill_passes = 0
-                    self._reset_endpoint_state()
-                    self._last_densify_new = 0
-                    self._last_densify_attempted = False
-                    self._logger.info(
-                        "AdaptiveBridson gen=%d: r_g %g→%g, band=%s..%s "
-                        "(Δ=%s, target<%g), cores=%d",
-                        int(self._generation),
-                        old_r,
-                        self._radius,
-                        f"{t_min:g}" if t_min is not None else "n/a",
-                        f"{t_max:g}" if t_max is not None else "n/a",
-                        (
-                            f"{float(t_max) - float(t_min):g}"
-                            if t_min is not None and t_max is not None
-                            else "n/a"
-                        ),
-                        tau,
-                        len(cores),
-                    )
-                    self.checkpoint_at_barrier(
-                        reason=f"als_generation_{int(self._generation)}"
-                    )
+                    self._advance_generation(cores, t_min=t_min, t_max=t_max)
                     continue
                 self._stop_reason = "no_refinement_candidates"
                 self._converged = False
@@ -3626,7 +3623,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 r_window,
                 "ok" if coverage_ok else "building",
             )
-            self._wait_generation(timeout=timeout)
+            self._wait_generation(timeout=generation_timeout)
             # Do NOT increment generation here — only r_g shrink advances gen.
 
             # After feedback: reclassify; continue fill if needed, else tmin/tmax
@@ -3778,8 +3775,14 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 open_brackets=n_br_after,
                 raw_brackets=n_raw_after,
             )
+            decision = self._post_fill_decision(
+                t_min=t_min_a,
+                t_max=t_max_a,
+                fill_needed=fill_after,
+                cores=cores_after,
+            )
             # If fill still needed → next loop continues 补点 at same gen.
-            if fill_after:
+            if decision.action is LoopAction.CONTINUE and fill_after:
                 self._logger.debug(
                     "AdaptiveBridson continue fill at gen=%d r_g=%g "
                     "(fill_pass=%d, band not judged for next gen yet)",
@@ -3792,47 +3795,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 )
                 continue
             # Fill done: if band thin → next loop will exit converged; else next gen.
-            if self._should_advance_generation(
-                t_min=t_min_a,
-                t_max=t_max_a,
-                fill_needed=False,
-                cores=cores_after,
-            ):
-                self._solidify_cores(
-                    cores_after, reason=f"pre_shrink_r_g={self._radius:g}"
-                )
-                old_r = self._radius
-                self._radius = self._next_radius()
-                self._n_radius_refines += 1
-                self._generation = int(self._n_radius_refines)
-                self._fill_pass = 0
-                self._quiet_fill_passes = 0
-                self._reset_endpoint_state()
-                self._last_densify_new = 0
-                self._last_densify_attempted = False
-                self._logger.info(
-                    "AdaptiveBridson gen=%d: r_g %g→%g, band=%s..%s "
-                    "(Δ=%s, target<%g), cores=%d",
-                    int(self._generation),
-                    old_r,
-                    self._radius,
-                    f"{t_min_a:g}" if t_min_a is not None else "n/a",
-                    f"{t_max_a:g}" if t_max_a is not None else "n/a",
-                    (
-                        f"{float(t_max_a) - float(t_min_a):g}"
-                        if t_min_a is not None and t_max_a is not None
-                        else "n/a"
-                    ),
-                    (
-                        float(self._threshold)
-                        if self._threshold is not None
-                        else float(self._core_half_width)
-                    ),
-                    len(cores_after),
-                )
-                self.checkpoint_at_barrier(
-                    reason=f"als_generation_{int(self._generation)}"
-                )
+            if decision.action is LoopAction.ADVANCE:
+                self._advance_generation(cores_after, t_min=t_min_a, t_max=t_max_a)
             else:
                 self._logger.debug(
                     "AdaptiveBridson fill done at gen=%d r_g=%g; "
@@ -3844,6 +3808,125 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 self.checkpoint_at_barrier(
                     reason=f"als_gen{int(self._generation)}_fill{int(self._fill_pass)}"
                 )
+
+    def _pre_fill_decision(
+        self,
+        *,
+        best: int | None,
+        t_min: float | None,
+        t_max: float | None,
+        fill_needed: bool,
+    ) -> LoopDecision:
+        """Decide whether a scale can enter the same-radius fill phase."""
+        if best is None:
+            return LoopDecision.stop("level-set not present in domain")
+        if self._contour_converged(
+            t_min=t_min, t_max=t_max, fill_needed=fill_needed
+        ):
+            return LoopDecision.stop("converged")
+        if not fill_needed and self._at_min_radius():
+            return LoopDecision.stop("min_radius")
+        if int(self._generation) >= int(self._max_generations):
+            return LoopDecision.stop("max_generations")
+        if self._unique_point_count() >= self._max_points:
+            return LoopDecision.stop("max_points")
+        return LoopDecision.continue_fill()
+
+    def _prepare_scale_state(self) -> ScaleState:
+        """Classify the live cloud and retain only scale-local core sites."""
+        cores, frontier, outer, best = self._classify_bands()
+        best_in_radius, t_min, t_max = self._radius_t_band()
+        if best is None:
+            best = best_in_radius
+        self._t_min, self._t_max = t_min, t_max
+        self._register_cores(cores)
+        cores = self._accumulated_core_indices(
+            t_min=t_min, t_max=t_max, require_in_band=True
+        )
+        if not cores:
+            # Do not let a temporarily empty radius band discard valid cores.
+            cores, frontier, outer, _ = self._classify_bands()
+            self._register_cores(cores)
+            cores = [
+                index
+                for index in self._accumulated_core_indices(
+                    t_min=None, t_max=None, require_in_band=False
+                )
+                if (deviation := self._abs_dev(index)) is not None
+                and deviation <= float(self._core_half_width) + 1e-15
+            ]
+        self._live_core_indices = list(cores)
+        self._outer_indices = list(outer)
+        self._frontier_indices = list(frontier)
+        return ScaleState(
+            cores=list(cores),
+            frontier=list(frontier),
+            outer=list(outer),
+            best=best,
+            t_min=t_min,
+            t_max=t_max,
+        )
+
+    def _post_fill_decision(
+        self,
+        *,
+        t_min: float | None,
+        t_max: float | None,
+        fill_needed: bool,
+        cores: Sequence[int],
+    ) -> LoopDecision:
+        """Choose same-scale fill or the next radius after a feedback barrier."""
+        if fill_needed:
+            return LoopDecision.continue_fill()
+        if self._should_advance_generation(
+            t_min=t_min,
+            t_max=t_max,
+            fill_needed=False,
+            cores=cores,
+        ):
+            return LoopDecision.advance()
+        return LoopDecision.continue_fill()
+
+    def _advance_generation(
+        self,
+        cores: Sequence[int],
+        *,
+        t_min: float | None,
+        t_max: float | None,
+    ) -> None:
+        """Commit one radius shrink after an explicit ``ADVANCE`` decision."""
+        self._solidify_cores(cores, reason=f"pre_shrink_r_g={self._radius:g}")
+        old_r = self._radius
+        self._radius = self._next_radius()
+        self._n_radius_refines += 1
+        self._generation = int(self._n_radius_refines)
+        self._fill_pass = 0
+        self._quiet_fill_passes = 0
+        self._reset_endpoint_state()
+        self._last_densify_new = 0
+        self._last_densify_attempted = False
+        threshold = (
+            float(self._threshold)
+            if self._threshold is not None
+            else float(self._core_half_width)
+        )
+        self._logger.info(
+            "AdaptiveBridson gen=%d: r_g %g→%g, band=%s..%s "
+            "(Δ=%s, target<%g), cores=%d",
+            int(self._generation),
+            old_r,
+            self._radius,
+            f"{t_min:g}" if t_min is not None else "n/a",
+            f"{t_max:g}" if t_max is not None else "n/a",
+            (
+                f"{float(t_max) - float(t_min):g}"
+                if t_min is not None and t_max is not None
+                else "n/a"
+            ),
+            threshold,
+            len(cores),
+        )
+        self.checkpoint_at_barrier(reason=f"als_generation_{int(self._generation)}")
 
     def repropose_unfinished(self) -> list[str]:
         if not self._pending_uuids:

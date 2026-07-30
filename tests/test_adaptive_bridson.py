@@ -19,6 +19,7 @@ from jarvishep2.Sampling.adaptive_bridson import (
     DelaunayGraph,
     KNNGraph,
     LevelSetPoint,
+    LoopAction,
     _SepIndex,
     _thin_centers,
     clip_unit_cube,
@@ -190,6 +191,38 @@ class LiveBandUnitTests(unittest.TestCase):
         s._uuid_to_index = {p.uuid: i for i, p in enumerate(s._points)}
         s._graph = s._make_graph()
         return s
+
+    def test_loop_decisions_name_terminal_and_advance_transitions(self) -> None:
+        s = self._sampler_with_points(
+            [[0.5, 0.5]], [0.04], target=0.04
+        )
+        missing = s._pre_fill_decision(
+            best=None, t_min=None, t_max=None, fill_needed=False
+        )
+        self.assertEqual(missing.action, LoopAction.STOP)
+        self.assertEqual(missing.reason, "level-set not present in domain")
+
+        s._contour_converged = lambda **_kwargs: True  # type: ignore[method-assign]
+        converged = s._pre_fill_decision(
+            best=0, t_min=0.04, t_max=0.04, fill_needed=False
+        )
+        self.assertEqual(converged.action, LoopAction.STOP)
+        self.assertEqual(converged.reason, "converged")
+
+        s._contour_converged = lambda **_kwargs: False  # type: ignore[method-assign]
+        s._should_advance_generation = lambda **_kwargs: True  # type: ignore[method-assign]
+        self.assertEqual(
+            s._post_fill_decision(
+                t_min=0.02, t_max=0.06, fill_needed=False, cores=[0]
+            ).action,
+            LoopAction.ADVANCE,
+        )
+        self.assertEqual(
+            s._post_fill_decision(
+                t_min=0.02, t_max=0.06, fill_needed=True, cores=[0]
+            ).action,
+            LoopAction.CONTINUE,
+        )
 
     def test_best_index_closest_to_target(self) -> None:
         s = self._sampler_with_points(
