@@ -70,6 +70,12 @@ class CliParseTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             build_parser().parse_args(["run", "task.yaml", "--log-level", "DEBUG"])
 
+    def test_run_help_explains_console_level_values(self) -> None:
+        help_text = build_parser()._subparsers._group_actions[0].choices["run"].format_help()
+        self.assertIn("--console-level <str>", help_text)
+        for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            self.assertIn(level, help_text)
+
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)

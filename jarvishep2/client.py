@@ -448,8 +448,12 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument(
             "--console-level",
             default="INFO",
+            metavar="LEVEL",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-            help="Console log level (default: INFO). Files always retain DEBUG and above.",
+            help=(
+                "Minimum screen severity: DEBUG, INFO, WARNING, ERROR, or CRITICAL "
+                "(default: INFO). Files always retain DEBUG and above."
+            ),
         )
         p.add_argument(
             "--silence",
