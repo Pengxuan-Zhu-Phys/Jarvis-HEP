@@ -76,7 +76,7 @@ _COMMAND_HELP_PANELS = {
     "run": "Scan workflow",
     "check": "Scan workflow",
     "validate": "Scan workflow",
-    "convert": "Scan workflow",
+    "convert": "Data export",
     "gen-plot-yaml": "Plots",
     "plot": "Plots",
     "monitor": "Runtime control",
@@ -92,7 +92,7 @@ _COMMAND_HELP_ORDER = {
     "check": 20,
     "run": 30,
     "convert": 40,
-    # Plot lifecycle
+    # Data export and plot lifecycle
     "gen-plot-yaml": 50,
     "plot": 60,
     # Local runtime lifecycle

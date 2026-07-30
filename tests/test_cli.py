@@ -58,6 +58,7 @@ class CliParseTests(unittest.TestCase):
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)
         self.assertIn("╭─ Scan workflow", help_text)
+        self.assertIn("╭─ Data export", help_text)
         self.assertIn("╭─ Plots", help_text)
         self.assertIn("╭─ Runtime control", help_text)
         self.assertIn("╭─ Legacy options", help_text)
