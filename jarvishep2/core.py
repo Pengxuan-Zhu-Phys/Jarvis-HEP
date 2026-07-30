@@ -1364,19 +1364,15 @@ class Jarvis2Core:
             lines.append(f"  {str(key):<{label_w}}  →  {value}")
         return "\n".join(lines)
 
-    def convert(self, *, force: bool = False) -> list[dict[str, Any]]:
-        """Convert project DATABASE ``*.hdf5`` files to sibling CSV (V1 ``--convert``).
-
-        Resolves ``task_result_dir/DATABASE`` from the loaded task YAML. Existing
-        CSV files are skipped unless ``force=True`` (same default as V1).
-        """
+    def convert(self) -> list[dict[str, Any]]:
+        """Refresh CSV snapshots when their DATABASE HDF5 source has changed."""
         task_result_dir = str(
             self.info.get("task_result_dir")
             or self.config.get("task_result_dir")
             or os.getcwd()
         )
         database_dir = os.path.join(task_result_dir, "DATABASE")
-        results = convert_database_dir(database_dir, force=force)
+        results = convert_database_dir(database_dir)
         logger = getattr(self, "_logger", None)
         if logger is None:
             try:
@@ -1420,14 +1416,13 @@ class Jarvis2Core:
                         ("to", csv_path),
                     ],
                 )
-            elif status == "skipped_exists":
+            elif status == "skipped_unchanged":
                 msg = self._format_convert_report(
                     title="HDF5 → CSV  (skipped)",
                     rows=[
-                        ("reason", "CSV already exists"),
+                        ("reason", "HDF5 is unchanged since the last export"),
                         ("csv", csv_path),
                         ("hdf5", hdf5_path),
-                        ("hint", "Jarvis2 convert <task.yaml> --force"),
                     ],
                 )
             elif status == "empty":

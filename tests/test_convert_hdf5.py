@@ -54,22 +54,24 @@ class ConvertHdf5HelpersTests(unittest.TestCase):
             self.assertIn("nested", rows[0])
             self.assertIn("extra", rows[1])
 
-    def test_skip_existing_unless_force(self) -> None:
+    def test_refreshes_existing_csv_only_when_hdf5_md5_changes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             hdf5 = os.path.join(tmp, "samples.hdf5")
             csv_path = os.path.join(tmp, "samples.csv")
             _write_records(hdf5, [{"uuid": "u0", "LogL": 1.0}])
-            with open(csv_path, "w", encoding="utf-8") as handle:
-                handle.write("stale\n")
-            skipped = convert_hdf5_to_csv(hdf5, csv_path)
-            self.assertEqual(skipped["status"], "skipped_exists")
-            with open(csv_path, encoding="utf-8") as handle:
-                self.assertEqual(handle.read(), "stale\n")
-            forced = convert_hdf5_to_csv(hdf5, csv_path, force=True)
-            self.assertEqual(forced["status"], "converted")
+            first = convert_hdf5_to_csv(hdf5, csv_path)
+            self.assertEqual(first["status"], "converted")
+            self.assertTrue(os.path.isfile(csv_path + ".md5"))
+
+            unchanged = convert_hdf5_to_csv(hdf5, csv_path)
+            self.assertEqual(unchanged["status"], "skipped_unchanged")
+
+            _write_records(hdf5, [{"uuid": "u1", "LogL": 2.0}])
+            refreshed = convert_hdf5_to_csv(hdf5, csv_path)
+            self.assertEqual(refreshed["status"], "converted")
             with open(csv_path, newline="", encoding="utf-8") as handle:
                 rows = list(csv.DictReader(handle))
-            self.assertEqual(rows[0]["uuid"], "u0")
+            self.assertEqual([row["uuid"] for row in rows], ["u0", "u1"])
 
     def test_discover_and_convert_database_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,15 +90,18 @@ class ConvertHdf5HelpersTests(unittest.TestCase):
 class ConvertCliTests(unittest.TestCase):
     def test_normalize_legacy_convert_flag(self) -> None:
         self.assertEqual(
-            normalize_argv(["task.yaml", "--convert", "--force"]),
-            ["convert", "task.yaml", "--force"],
+            normalize_argv(["task.yaml", "--convert"]),
+            ["convert", "task.yaml"],
         )
 
     def test_parse_convert_subcommand(self) -> None:
-        args = build_parser().parse_args(["convert", "task.yaml", "--force"])
+        args = build_parser().parse_args(["convert", "task.yaml"])
         self.assertEqual(args.command, "convert")
         self.assertEqual(args.task_yaml, "task.yaml")
-        self.assertTrue(args.force)
+
+    def test_convert_rejects_removed_force_option(self) -> None:
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["convert", "task.yaml", "--force"])
 
     def test_dispatch_convert_routes_to_core(self) -> None:
         args = build_parser().parse_args(
@@ -115,7 +120,7 @@ class ConvertCliTests(unittest.TestCase):
             code = dispatch(args)
         self.assertEqual(code, EXIT_OK)
         core.load_task_yaml.assert_called_once_with("/tmp/task.yaml", validate=False)
-        core.convert.assert_called_once_with(force=False)
+        core.convert.assert_called_once_with()
 
     def test_dispatch_convert_missing_db_fails(self) -> None:
         core = mock.Mock()

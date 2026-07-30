@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import glob
+import hashlib
 import json
 import os
 import threading
@@ -69,17 +70,48 @@ def _fieldnames_for_records(
     return fieldnames
 
 
+def _file_md5(path: str) -> str:
+    """Return a content digest for one HDF5 export source."""
+    digest = hashlib.md5()
+    with open(path, "rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_export_md5(path: str) -> str | None:
+    try:
+        with open(path, encoding="ascii") as handle:
+            value = handle.read().strip().lower()
+    except OSError:
+        return None
+    return value if len(value) == 32 and all(char in "0123456789abcdef" for char in value) else None
+
+
+def _write_export_md5(path: str, digest: str) -> None:
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w", encoding="ascii") as handle:
+            handle.write(digest + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def convert_hdf5_to_csv(
     hdf5_path: str,
     csv_path: str | None = None,
     *,
-    force: bool = False,
     preferred_columns: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Convert one V2 DATABASE HDF5 (JSON-string rows) into a flat CSV.
 
     Returns a status dict with keys:
-      ``hdf5``, ``csv``, ``status`` (``converted`` | ``skipped_exists`` |
+      ``hdf5``, ``csv``, ``status`` (``converted`` | ``skipped_unchanged`` |
       ``empty`` | ``missing``), and ``rows`` when converted.
     """
     source = os.path.abspath(str(hdf5_path))
@@ -90,8 +122,11 @@ def convert_hdf5_to_csv(
         result["status"] = "missing"
         return result
 
-    if os.path.isfile(target) and not force:
-        result["status"] = "skipped_exists"
+    source_md5 = _file_md5(source)
+    md5_path = target + ".md5"
+    if os.path.isfile(target) and _read_export_md5(md5_path) == source_md5:
+        result["status"] = "skipped_unchanged"
+        result["md5"] = source_md5
         return result
 
     writer = SimpleHDF5Writer(source)
@@ -116,6 +151,13 @@ def convert_hdf5_to_csv(
 
     result["status"] = "converted"
     result["rows"] = len(records)
+    if _file_md5(source) == source_md5:
+        _write_export_md5(md5_path, source_md5)
+        result["md5"] = source_md5
+    else:
+        # The CSV is still a valid point-in-time snapshot, but must be
+        # regenerated next time so it is never marked as current incorrectly.
+        result["source_changed_during_export"] = True
     return result
 
 
@@ -136,7 +178,6 @@ def discover_database_hdf5(database_dir: str) -> list[str]:
 def convert_database_dir(
     database_dir: str,
     *,
-    force: bool = False,
     preferred_columns: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert every ``*.hdf5`` under a DATABASE directory to sibling ``*.csv``."""
@@ -145,7 +186,6 @@ def convert_database_dir(
         results.append(
             convert_hdf5_to_csv(
                 hdf5_path,
-                force=force,
                 preferred_columns=preferred_columns,
             )
         )

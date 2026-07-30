@@ -90,7 +90,7 @@ class CliParseTests(unittest.TestCase):
             "Validate task YAML",
             "Run fixed-point calculator smoke",
             "Run a distributed scan task YAML",
-            "Convert project DATABASE",
+            "Refresh CSV snapshots",
         )
         runtime_steps = (
             "Print one monitor snapshot",

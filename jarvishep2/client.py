@@ -68,7 +68,6 @@ _LEGACY_OPTION_DESTS = frozenset(
         "strict",
         "check_modules",
         "convert",
-        "force",
         "resume",
         "skip_draw_flowchart",
     }
@@ -416,7 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 run TASK.yaml [--resume]\n"
             "  Jarvis2 check TASK.yaml\n"
             "  Jarvis2 validate TASK.yaml [--strict] [--json]\n"
-            "  Jarvis2 convert TASK.yaml [--force]\n"
+            "  Jarvis2 convert TASK.yaml\n"
             "  Jarvis2 monitor\n"
             "  Jarvis2 plot PLOT.yaml\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
@@ -508,14 +507,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     convert_p = sub.add_parser(
         "convert",
-        help="Convert project DATABASE samples.hdf5 (and other *.hdf5) to CSV",
+        help="Refresh CSV snapshots when project DATABASE HDF5 files change",
     )
     convert_p.add_argument("task_yaml", help="Path to scan task YAML")
-    convert_p.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing CSV files (default: skip like V1)",
-    )
 
     sub.add_parser("monitor", help="Print one monitor snapshot and exit")
 
@@ -602,11 +596,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--convert",
         action="store_true",
         help="(legacy) Convert DATABASE HDF5 to CSV; prefer `Jarvis2 convert`",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="(legacy with --convert) Overwrite existing CSV files",
     )
     parser.add_argument(
         "--resume",
@@ -1527,12 +1516,8 @@ def dispatch_validate(
     return EXIT_USAGE
 
 
-def dispatch_convert(
-    task_yaml: str,
-    *,
-    force: bool = False,
-) -> int:
-    """Load task YAML paths only, then convert DATABASE HDF5 → CSV."""
+def dispatch_convert(task_yaml: str) -> int:
+    """Refresh DATABASE HDF5 → CSV snapshots when their source content changes."""
     if not task_yaml:
         print("Task YAML is required for convert.", file=sys.stderr)
         return EXIT_USAGE
@@ -1548,12 +1533,11 @@ def dispatch_convert(
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
 
-    results = core.convert(force=force)
+    results = core.convert()
     if not results:
         return EXIT_RUN_FAILED
 
-    # Success when at least one CSV was written or already present (V1-compatible).
-    if any(item.get("status") in {"converted", "skipped_exists"} for item in results):
+    if any(item.get("status") in {"converted", "skipped_unchanged"} for item in results):
         return EXIT_OK
     return EXIT_RUN_FAILED
 
@@ -1670,10 +1654,7 @@ def dispatch(args: argparse.Namespace) -> int:
         )
     if intent == "convert":
         task = getattr(args, "task_yaml", None)
-        return dispatch_convert(
-            str(task or ""),
-            force=bool(getattr(args, "force", False)),
-        )
+        return dispatch_convert(str(task or ""))
     if intent == "check":
         task = getattr(args, "task_yaml", None)
         return dispatch_run(
