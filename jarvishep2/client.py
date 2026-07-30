@@ -408,7 +408,9 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Run and validate distributed HEP scans, prepare plot YAML, "
             "and manage their local runtime.\n\n"
-            "Command help: Jarvis2 COMMAND -h"
+            "Command help: Jarvis2 COMMAND -h\n"
+            "ARGS are command-specific inputs and options, e.g. "
+            "Jarvis2 run TASK.yaml --debug"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
