@@ -718,8 +718,16 @@ class MCMCSampler(FeedbackSampler):
         return submitted
 
     # ----------------------------------------------------------------- driver
-    def run_adaptive(self, *, timeout: float = 3600.0) -> int:
-        """Generation loop: half-ensemble / DRAM stages / PT exchange."""
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Generation loop with a per-generation timeout."""
+        if timeout is not None:
+            generation_timeout = timeout
+        timeout = generation_timeout
         self._require_redis(f"{self.method}.run_adaptive")
         self._ensure_seed_sequence()
         self._ensure_registry()

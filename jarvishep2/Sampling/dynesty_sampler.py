@@ -670,7 +670,16 @@ class DynestySampler(FeedbackSampler):
         kwargs.setdefault("queue_size", max(1, self._batch_size))
         return kwargs
 
-    def run_adaptive(self, *, timeout: float = 3600.0) -> int:
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Run nested sampling with a per-generation timeout setting."""
+        if timeout is not None:
+            generation_timeout = timeout
+        timeout = generation_timeout
         self._require_redis(f"{self.method}.run_adaptive")
         self._ensure_seed_sequence()
         if self._finished and self._sampler is not None:

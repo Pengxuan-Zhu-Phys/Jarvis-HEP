@@ -72,10 +72,17 @@ class MultiNestSampler(DynestySampler):
     # V1 name alias
     save_multinest_results_to_csv = save_dynesty_results_to_csv
 
-    def run_adaptive(self, *, timeout: float = 3600.0) -> int:
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
         # Force static NestedSampler even if a parent left dynamic=True.
+        if timeout is not None:
+            generation_timeout = timeout
         self._use_dynamic = False
-        ncall = super().run_adaptive(timeout=timeout)
+        ncall = super().run_adaptive(generation_timeout=generation_timeout)
         if self._summary is not None:
             self._summary["method"] = self.method
             csv_path = self._multinest_csv_path or self._dynesty_csv_path
