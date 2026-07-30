@@ -590,41 +590,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def build_portal_help_parser() -> JarvisArgumentParser:
-    """Document the forwarded Portal surface in Jarvis2's native help style."""
-    parser = JarvisArgumentParser(
-        prog="Jarvis2 portal",
-        description=(
-            "Query observables from a YAML file or browse the Jarvis-Portal "
-            "format manual."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  Jarvis2 portal input.yaml\n"
-            "  Jarvis2 portal man\n"
-            "  Jarvis2 portal man slha"
-        ),
-    )
-    parser.add_argument(
-        "target",
-        nargs="?",
-        help="Input YAML path, or `man` to browse the format manual",
-    )
-    parser.add_argument(
-        "topic",
-        nargs="?",
-        help="Optional format topic when target is `man`",
-    )
-    parser.add_argument(
-        "--version",
-        "-v",
-        action="store_true",
-        help="Print Jarvis-Portal version and exit",
-    )
-    return parser
-
-
 def build_project_help_parser() -> JarvisArgumentParser:
     """Document project tools without changing their free-form dispatcher."""
     parser = JarvisArgumentParser(
@@ -844,8 +809,6 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
     Convenience alias: ``Jarvis2 portal formats`` → ``man`` (list formats).
     """
     argv = list(portal_argv or [])
-    if any(arg in _HELP_FLAGS for arg in argv):
-        return _render_help_for_args(build_portal_help_parser(), argv)
     if argv == ["formats"]:
         argv = ["man"]
     try:
