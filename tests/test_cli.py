@@ -84,6 +84,26 @@ class CliParseTests(unittest.TestCase):
             column_of("(legacy) Print one monitor snapshot"),
         )
 
+    def test_help_orders_commands_by_workflow(self) -> None:
+        help_text = build_parser().format_help()
+        scan_steps = (
+            "Validate task YAML",
+            "Run fixed-point calculator smoke",
+            "Run a distributed scan task YAML",
+            "Convert project DATABASE",
+        )
+        runtime_steps = (
+            "Print one monitor snapshot",
+            "List running Jarvis OS processes",
+            "Kill running Jarvis OS processes",
+        )
+        self.assertEqual(
+            sorted(scan_steps, key=help_text.index), list(scan_steps)
+        )
+        self.assertEqual(
+            sorted(runtime_steps, key=help_text.index), list(runtime_steps)
+        )
+
     def test_project_help_uses_the_shared_panel_layout(self) -> None:
         help_text = build_project_help_parser().format_help()
         self.assertIn("Create, package, browse, fetch", help_text)

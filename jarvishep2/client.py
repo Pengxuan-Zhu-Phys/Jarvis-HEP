@@ -87,10 +87,47 @@ _COMMAND_HELP_PANELS = {
     "operas": "Extensions & projects",
     "project": "Extensions & projects",
 }
+_COMMAND_HELP_ORDER = {
+    # Scan lifecycle
+    "validate": 10,
+    "check": 20,
+    "run": 30,
+    "convert": 40,
+    # Plot lifecycle
+    "gen-plot-yaml": 50,
+    "plot": 60,
+    # Local runtime lifecycle
+    "monitor": 70,
+    "ps": 80,
+    "kill": 90,
+    # Project / extension entry points
+    "project": 100,
+    "portal": 110,
+    "operas": 120,
+    # Nested helper workflows
+    "create": 130,
+    "pack": 140,
+    "encrypt": 150,
+    "list": 160,
+    "browse": 170,
+    "fetch": 180,
+    "info": 190,
+}
 
 
 _HELP_PRIMARY_COLUMN_WIDTH = 24
 _HELP_ALIAS_COLUMN_WIDTH = 6
+
+
+class JarvisHelpGroup(click.Group):
+    """Click command group with an intentional workflow-oriented help order."""
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        names = super().list_commands(ctx)
+        return sorted(
+            names,
+            key=lambda name: (_COMMAND_HELP_ORDER.get(name, 1_000), name),
+        )
 
 
 def _fixed_option_label(
@@ -281,7 +318,7 @@ class JarvisArgumentParser(argparse.ArgumentParser):
                 commands[command_name] = command
         command_name = name or self.prog.rsplit(" ", maxsplit=1)[-1]
         if commands:
-            return click.Group(
+            return JarvisHelpGroup(
                 name=command_name,
                 help=self.description,
                 params=self._click_params(legacy=None if include_legacy else False),
