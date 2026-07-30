@@ -60,7 +60,11 @@ class CalculatorModule:
         self._expression_context: ExpressionContext | None = None
         self._file_ops: Any | None = None
         force = bool(self.config.get("force_reinstall", False))
-        self._preparer = RuntimePreparer(self.spec, force_reinstall=force)
+        self._preparer = RuntimePreparer(
+            self.spec,
+            force_reinstall=force,
+            install_epoch=int(self.config.get("_install_epoch", 0) or 0),
+        )
         # V1: install stage writes to pack-local Installation_{name}-{PackID}.log
         # (under shadow runtime path), not Sample_running.log.
         self._install_logger: Any | None = None

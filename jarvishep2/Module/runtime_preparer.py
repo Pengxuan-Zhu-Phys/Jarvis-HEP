@@ -7,7 +7,7 @@ import hashlib
 import json
 import os
 import shutil
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +18,8 @@ from jarvishep2.sample import ensure_sample_materialized
 # Written under the pack shadow directory after a successful install.
 INSTALL_STAMP_BASENAME = ".jarvis_install_stamp.json"
 INSTALL_STAMP_SCHEMA = "jarvishep2.calc_install/v1"
+INSTALL_CONTROL_BASENAME = "jarvis_install.json"
+INSTALL_CONTROL_SCHEMA = "jarvishep2.calc_install/v2"
 
 
 def _utc_now_iso() -> str:
@@ -85,6 +87,14 @@ def install_stamp_path(runtime_dir: str) -> str:
     return os.path.join(os.path.abspath(str(runtime_dir)), INSTALL_STAMP_BASENAME)
 
 
+def install_control_path(spec: CalculatorSpec) -> str | None:
+    """Return the control-file path beside the ``@PackID`` directories."""
+    if not spec.clone_shadow or "@PackID" not in str(spec.basepath):
+        return None
+    pack_path = os.path.abspath(str(spec.basepath).replace("@PackID", "__jarvis_pack__"))
+    return os.path.join(os.path.dirname(pack_path), INSTALL_CONTROL_BASENAME)
+
+
 def read_install_stamp(runtime_dir: str) -> dict[str, Any] | None:
     path = install_stamp_path(runtime_dir)
     if not os.path.isfile(path):
@@ -103,6 +113,7 @@ def write_install_stamp(
     fingerprint: str,
     module: str,
     pack_id: str,
+    epoch: int = 0,
     extra: Mapping[str, Any] | None = None,
 ) -> str:
     path = install_stamp_path(runtime_dir)
@@ -111,6 +122,7 @@ def write_install_stamp(
         "schema": INSTALL_STAMP_SCHEMA,
         "module": str(module),
         "pack_id": str(pack_id),
+        "epoch": max(0, int(epoch)),
         "fingerprint": str(fingerprint),
         "installed_at_utc": _utc_now_iso(),
     }
@@ -124,11 +136,116 @@ def write_install_stamp(
     return path
 
 
+def read_install_control(spec: CalculatorSpec) -> dict[str, Any] | None:
+    path = install_control_path(spec)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def write_install_control(spec: CalculatorSpec, control: Mapping[str, Any]) -> str | None:
+    """Atomically write the control-process-owned calculator state file."""
+    path = install_control_path(spec)
+    if not path:
+        return None
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(dict(control), handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
 def force_calc_install_requested(env: Mapping[str, str] | None = None) -> bool:
     """True when operators force a full reinstall (env or future CLI)."""
     environ = env if env is not None else os.environ
     raw = str(environ.get("JARVIS_FORCE_CALC_INSTALL", "") or "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
+
+def prepare_install_controls(
+    modules: Sequence[Mapping[str, Any]] | None,
+    *,
+    logger: Any | None = None,
+    env: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Bump reinstall epochs once in the control process and plumb them to Workers."""
+    force = force_calc_install_requested(env)
+    prepared: list[dict[str, Any]] = []
+    for raw in modules or []:
+        config = dict(raw)
+        spec = CalculatorSpec.from_config(str(config.get("name", "Calculator")), config)
+        if not spec.clone_shadow:
+            prepared.append(config)
+            continue
+        state = dict(read_install_control(spec) or {})
+        try:
+            epoch = max(0, int(state.get("reinstall_epoch", 0) or 0))
+        except (TypeError, ValueError):
+            epoch = 0
+        requested = bool(state.get("reinstall")) or force
+        next_epoch = epoch + 1 if requested else epoch
+        control = {
+            "schema": INSTALL_CONTROL_SCHEMA,
+            "module": spec.name,
+            "source": os.path.abspath(spec.source) if spec.source else "",
+            "reinstall": False,
+            "reinstall_epoch": next_epoch,
+            "packs": dict(state.get("packs") or {}),
+            "_help": "Edited your calculator source? Set \"reinstall\": true and run again.",
+        }
+        write_install_control(spec, control)
+        config["_install_epoch"] = next_epoch
+        prepared.append(config)
+        if logger is not None:
+            try:
+                logger.info(
+                    "%s: %s calculator install epoch %d%s",
+                    spec.name,
+                    "reinstalling" if requested else "reusing",
+                    next_epoch,
+                    " (operator requested)" if requested else "",
+                )
+            except Exception:
+                pass
+    return prepared
+
+
+def refresh_install_control_summaries(
+    modules: Sequence[Mapping[str, Any]] | None,
+) -> None:
+    """Refresh best-effort per-pack summaries (control process only)."""
+    for raw in modules or []:
+        config = dict(raw)
+        spec = CalculatorSpec.from_config(str(config.get("name", "Calculator")), config)
+        control = read_install_control(spec)
+        if not control or not spec.clone_shadow or "@PackID" not in str(spec.basepath):
+            continue
+        template = os.path.abspath(str(spec.basepath).replace("@PackID", "__jarvis_pack__"))
+        parent = os.path.dirname(template)
+        packs: dict[str, Any] = {}
+        try:
+            entries = os.listdir(parent)
+        except OSError:
+            entries = []
+        for entry in entries:
+            if not entry.isdigit():
+                continue
+            stamp = read_install_stamp(os.path.join(parent, entry))
+            if stamp:
+                packs[str(entry)] = {
+                    "fingerprint": stamp.get("fingerprint", ""),
+                    "epoch": int(stamp.get("epoch", 0) or 0),
+                    "installed_at_utc": stamp.get("installed_at_utc", ""),
+                }
+        control["packs"] = packs
+        write_install_control(spec, control)
 
 
 class RuntimePreparer:
@@ -140,6 +257,7 @@ class RuntimePreparer:
         *,
         library: LibraryManager | None = None,
         force_reinstall: bool = False,
+        install_epoch: int = 0,
     ) -> None:
         self.spec = spec
         self._library = library or LibraryManager()
@@ -147,6 +265,7 @@ class RuntimePreparer:
         self.pack_id: str | None = None
         # Module/task override; also ORed with JARVIS_FORCE_CALC_INSTALL.
         self.force_reinstall = bool(force_reinstall)
+        self.install_epoch = max(0, int(install_epoch))
         self.last_install_action: str | None = None  # "installed" | "reused" | None
 
     def acquire_pack_id(self, pack_id: str) -> None:
@@ -193,7 +312,7 @@ class RuntimePreparer:
 
     def can_reuse_install(self, runtime: str | None = None) -> bool:
         """True when pack dir has a matching install stamp and force is off."""
-        if self.force_reinstall or force_calc_install_requested():
+        if self.force_reinstall:
             return False
         root = runtime or self.shadow_runtime_path()
         if not os.path.isdir(root):
@@ -202,7 +321,14 @@ class RuntimePreparer:
         if not stamp:
             return False
         expected = self.install_fingerprint()
-        return str(stamp.get("fingerprint") or "") == expected
+        try:
+            stamp_epoch = max(0, int(stamp.get("epoch", 0) or 0))
+        except (TypeError, ValueError):
+            stamp_epoch = 0
+        return (
+            str(stamp.get("fingerprint") or "") == expected
+            and stamp_epoch >= self.install_epoch
+        )
 
     def ensure_shadow_installed(
         self,
@@ -217,7 +343,8 @@ class RuntimePreparer:
         If ``{runtime}/.jarvis_install_stamp.json`` exists and its fingerprint
         matches the current calculator install settings, reuse the pack without
         re-running ``installation`` commands. Force with
-        ``JARVIS_FORCE_CALC_INSTALL=1`` or ``force_reinstall=True``.
+        ``force_reinstall=True``. The control-process environment flag is
+        converted into a monotone epoch before Workers spawn.
 
         Process-local ``_installed_shadows`` still short-circuits within one
         Worker after the first successful install/reuse of a PackID.
@@ -267,6 +394,7 @@ class RuntimePreparer:
             fingerprint=fingerprint,
             module=self.spec.name,
             pack_id=pack_id,
+            epoch=self.install_epoch,
         )
         self._installed_shadows.add(pack_id)
         self.last_install_action = "installed"
@@ -325,9 +453,16 @@ class RuntimePreparer:
 __all__ = [
     "INSTALL_STAMP_BASENAME",
     "INSTALL_STAMP_SCHEMA",
+    "INSTALL_CONTROL_BASENAME",
+    "INSTALL_CONTROL_SCHEMA",
     "RuntimePreparer",
     "build_install_fingerprint",
     "force_calc_install_requested",
+    "install_control_path",
+    "read_install_control",
+    "write_install_control",
+    "prepare_install_controls",
+    "refresh_install_control_summaries",
     "install_stamp_path",
     "read_install_stamp",
     "write_install_stamp",

@@ -62,6 +62,10 @@ from jarvishep2.testing.check_modules import (
 )
 from jarvishep2.run_outcome import RunOutcome
 from jarvishep2.worker_config import build_command_parser, build_worker_config
+from jarvishep2.Module.runtime_preparer import (
+    prepare_install_controls,
+    refresh_install_control_summaries,
+)
 from jarvishep2.task_config import (
     check_modules_n_samples,
     is_check_modules_task,
@@ -463,8 +467,15 @@ class Jarvis2Core:
         self._finalize_sample_buckets()
         return requeued + pushed
 
-    def run_adaptive_scan(self, *, timeout: float = 3600.0) -> int:
-        """Drive a feedback sampler (AdaptiveBridson / MCMC / nested) through barriers."""
+    def run_adaptive_scan(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Drive feedback samplers; timeout is a per-generation wait, not a run budget."""
+        if timeout is not None:
+            generation_timeout = timeout
         if self.sampler is None:
             raise RuntimeError("sampler is not configured")
         if self.redis is None:
@@ -479,7 +490,9 @@ class Jarvis2Core:
         if self._resume_policy == "resume" and hasattr(self.sampler, "repropose_unfinished"):
             requeued = len(self.sampler.repropose_unfinished())
         if hasattr(self.sampler, "run_adaptive"):
-            pushed = int(self.sampler.run_adaptive(timeout=timeout))
+            pushed = int(
+                self.sampler.run_adaptive(generation_timeout=generation_timeout)
+            )
         elif hasattr(self.sampler, "run_distributed"):
             pushed = int(self.sampler.run_distributed())
         else:
@@ -489,7 +502,7 @@ class Jarvis2Core:
         # Nested/adaptive samplers barrier on *feedback* first; Archiver lags
         # behind on the archive queue. Wait until DATABASE rows catch Redis
         # completed counts so samples.csv export is not a partial HDF5 snapshot.
-        self._wait_for_archive_caught_up(timeout=timeout)
+        self._wait_for_archive_caught_up(timeout=generation_timeout)
         self._finalize_sample_buckets()
         return requeued + pushed
 
@@ -1334,6 +1347,13 @@ class Jarvis2Core:
             merged_config = dict(worker_config)
             if "command_parser" not in merged_config:
                 merged_config = self._apply_command_parser_to_worker_config(merged_config)
+        # Calculator install control is single-writer: bump epochs and write
+        # jarvis_install.json in this control process before Workers spawn.
+        merged_config["calculator_modules"] = prepare_install_controls(
+            merged_config.get("calculator_modules") or [],
+            logger=self._logger,
+        )
+        self._install_control_modules = merged_config.get("calculator_modules") or []
         if self._resume_policy == "resume":
             prepare_resume(self.redis, worker_config=merged_config)
         self.factory.start_workers(workers, **merged_config)
@@ -1930,6 +1950,10 @@ class Jarvis2Core:
                 except Exception:
                     pass
             self.redis = None
+            try:
+                refresh_install_control_summaries(getattr(self, "_install_control_modules", []))
+            except Exception as exc:
+                self._logger.debug("install-control summary refresh skipped -> %s", exc)
         finally:
             self._stop_managed_redis()
 

@@ -4,16 +4,20 @@
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 import unittest
 from unittest import mock
 
 from jarvishep2.Module.calculator_spec import CalculatorSpec
 from jarvishep2.Module.runtime_preparer import (
+    INSTALL_CONTROL_BASENAME,
     INSTALL_STAMP_BASENAME,
     RuntimePreparer,
     build_install_fingerprint,
     force_calc_install_requested,
+    install_control_path,
+    prepare_install_controls,
     read_install_stamp,
     write_install_stamp,
 )
@@ -59,6 +63,64 @@ class InstallFingerprintTests(unittest.TestCase):
 
 
 class InstallReuseTests(unittest.TestCase):
+    def test_reinstall_epoch_fans_out_to_every_pack_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, "source")
+            os.makedirs(source)
+            module = {
+                "name": "DemoCalc",
+                "clone_shadow": True,
+                "path": os.path.join(tmp, "runtime", "@PackID"),
+                "source": source,
+                "installation": ["true"],
+                "execution": {"commands": ["true"]},
+            }
+            first = prepare_install_controls([module], env={})[0]
+            self.assertEqual(first["_install_epoch"], 0)
+            calls: dict[str, int] = {pack: 0 for pack in ("001", "002", "003", "004")}
+            for pack in calls:
+                spec = CalculatorSpec.from_config("DemoCalc", first)
+                prep = RuntimePreparer(spec, install_epoch=first["_install_epoch"])
+                prep.acquire_pack_id(pack)
+                prep.ensure_shadow_installed(
+                    run_stage=lambda _commands, _stage, pack=pack: calls.__setitem__(
+                        pack, calls[pack] + 1
+                    )
+                )
+            control_path = install_control_path(CalculatorSpec.from_config("DemoCalc", module))
+            self.assertTrue(control_path and control_path.endswith(INSTALL_CONTROL_BASENAME))
+            with open(control_path, encoding="utf-8") as handle:
+                control = json.load(handle)
+            control["reinstall"] = True
+            with open(control_path, "w", encoding="utf-8") as handle:
+                json.dump(control, handle)
+
+            second = prepare_install_controls([module], env={})[0]
+            self.assertEqual(second["_install_epoch"], 1)
+            for pack in calls:
+                spec = CalculatorSpec.from_config("DemoCalc", second)
+                prep = RuntimePreparer(spec, install_epoch=second["_install_epoch"])
+                prep.acquire_pack_id(pack)
+                prep.ensure_shadow_installed(
+                    run_stage=lambda _commands, _stage, pack=pack: calls.__setitem__(
+                        pack, calls[pack] + 1
+                    )
+                )
+            self.assertEqual(calls, {pack: 2 for pack in calls})
+
+            third = prepare_install_controls([module], env={})[0]
+            self.assertEqual(third["_install_epoch"], 1)
+            for pack in calls:
+                spec = CalculatorSpec.from_config("DemoCalc", third)
+                prep = RuntimePreparer(spec, install_epoch=third["_install_epoch"])
+                prep.acquire_pack_id(pack)
+                prep.ensure_shadow_installed(
+                    run_stage=lambda _commands, _stage, pack=pack: calls.__setitem__(
+                        pack, calls[pack] + 1
+                    )
+                )
+            self.assertEqual(calls, {pack: 2 for pack in calls})
+
     def test_second_ensure_skips_run_stage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             spec = _shadow_spec(tmp)
