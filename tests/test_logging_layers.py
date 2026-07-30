@@ -14,6 +14,7 @@ from datetime import datetime
 
 from jarvishep2.logging import (
     BufferedSampleLogger,
+    JARVIS_HEP_LOG_DOMAIN,
     SampleLogger,
     component_log_path,
     get_jarvis_logger,
@@ -68,6 +69,16 @@ class TopLevelLoggingTests(unittest.TestCase):
             self.assertIn("retained debug detail", text)
             # V1-style timestamp: MM-DD HH:mm:ss.SSS
             self.assertRegex(text, r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}")
+
+    def test_default_console_level_is_warning(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            setup_jarvis_logging(log_dir=tmpdir, role="worker", console=True, use_queue=False)
+            logger = logging.getLogger(JARVIS_HEP_LOG_DOMAIN)
+            console_handlers = [
+                handler for handler in logger.handlers if isinstance(handler, logging.StreamHandler)
+            ]
+            self.assertTrue(console_handlers)
+            self.assertEqual(console_handlers[0].level, logging.WARNING)
 
     def test_v1_style_formatter_raw_and_module_bind(self):
         with tempfile.TemporaryDirectory() as tmpdir:

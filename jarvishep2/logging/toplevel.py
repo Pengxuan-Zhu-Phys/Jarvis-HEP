@@ -529,7 +529,7 @@ def setup_jarvis_logging(
     Worker processes keep a single ``worker-NN.log``.
 
     Console:
-      - default on at INFO (``console_level``)
+      - default on at WARNING (``console_level``)
       - ``silence=True`` disables screen output
       - files always retain DEBUG and above
 
@@ -543,10 +543,10 @@ def setup_jarvis_logging(
     style = process_style(style_path)
 
     file_level = logging.DEBUG
-    # Console defaults to INFO; silence wins over console=True.
+    # Console defaults to WARNING; silence wins over console=True.
     use_console = bool(console) and not bool(silence)
     cons_level = _resolve_level(
-        console_level if console_level is not None else logging.INFO
+        console_level if console_level is not None else logging.WARNING
     )
     # Root logger must admit the lowest handler threshold.
     root_level = min(file_level, cons_level) if use_console else file_level

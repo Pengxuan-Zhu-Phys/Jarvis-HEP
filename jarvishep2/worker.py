@@ -749,7 +749,7 @@ class Worker(Process):
             logs_dir = scan_logs_dir(task_root, scan_for_logs)
         log_path = component_log_path(logs_dir, "worker", worker_id=self.worker_id)
         silence = bool(self.worker_config.get("log_silence", False))
-        console_level = str(self.worker_config.get("console_level") or "INFO")
+        console_level = str(self.worker_config.get("console_level") or "WARNING")
         setup_jarvis_logging(
             role="worker",
             component="worker",

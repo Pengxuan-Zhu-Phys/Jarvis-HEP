@@ -585,7 +585,7 @@ class ArchiverProcess(Process):
         # Child process: own logging sinks (do not share control QueueListener).
         # Optional logging policy stamped from control (same CLI as Workers).
         silence = bool(self.archiver_config.get("log_silence", False))
-        console_level = str(self.archiver_config.get("console_level") or "INFO")
+        console_level = str(self.archiver_config.get("console_level") or "WARNING")
         setup_kwargs: dict[str, Any] = {
             "role": "archiver",
             "component": "archiver",

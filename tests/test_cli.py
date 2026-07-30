@@ -75,6 +75,12 @@ class CliParseTests(unittest.TestCase):
         self.assertIn("--console-level <str>", help_text)
         for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
             self.assertIn(level, help_text)
+        self.assertIn("default:", help_text)
+        self.assertIn("WARNING).", help_text)
+
+    def test_run_console_level_defaults_to_warning(self) -> None:
+        args = build_parser().parse_args(["run", "task.yaml"])
+        self.assertEqual(args.console_level, "WARNING")
 
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()

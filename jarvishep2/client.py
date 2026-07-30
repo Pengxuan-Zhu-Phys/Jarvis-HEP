@@ -447,12 +447,13 @@ def build_parser() -> argparse.ArgumentParser:
     def _add_logging_flags(p: argparse.ArgumentParser) -> None:
         p.add_argument(
             "--console-level",
-            default="INFO",
+            default="WARNING",
             metavar="LEVEL",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             help=(
-                "Minimum screen severity: DEBUG, INFO, WARNING, ERROR, or CRITICAL "
-                "(default: INFO). Files always retain DEBUG and above."
+                "Minimum screen severity: [cyan]DEBUG[/cyan], [green]INFO[/green], "
+                "[yellow]WARNING[/yellow], [red]ERROR[/red], or [bold red]CRITICAL[/bold red] "
+                "(default: WARNING). Files always retain DEBUG and above."
             ),
         )
         p.add_argument(
@@ -1552,7 +1553,7 @@ def dispatch_run(
     resume: bool = False,
     check_modules: bool = False,
     skip_draw_flowchart: bool = False,
-    console_level: str = "INFO",
+    console_level: str = "WARNING",
     silence: bool = False,
     debug: bool = False,
     strict: bool = False,
@@ -1667,7 +1668,7 @@ def dispatch(args: argparse.Namespace) -> int:
             str(task or ""),
             check_modules=True,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
-            console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
+            console_level=str(getattr(args, "console_level", "WARNING") or "WARNING"),
             silence=bool(getattr(args, "silence", False)),
             strict=bool(getattr(args, "strict", False)),
         )
@@ -1678,7 +1679,7 @@ def dispatch(args: argparse.Namespace) -> int:
             resume=bool(args.resume),
             check_modules=False,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
-            console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
+            console_level=str(getattr(args, "console_level", "WARNING") or "WARNING"),
             silence=bool(getattr(args, "silence", False)),
             debug=bool(getattr(args, "debug", False)),
             strict=bool(getattr(args, "strict", False)),
