@@ -102,7 +102,6 @@ class Jarvis2Core:
         # Console / file logging options (CLI sets before bootstrap).
         self._log_console: bool = True
         self._log_silence: bool = False
-        self._log_level: str = "INFO"
         self._console_level: str = "INFO"
         # D13.9: last gate report (re-logged after init_logger so console/file see it).
         self._validation_report: ValidationReport | None = None
@@ -113,14 +112,11 @@ class Jarvis2Core:
         self,
         *,
         console_level: str | None = None,
-        log_level: str | None = None,
         silence: bool | None = None,
     ) -> None:
         """CLI-facing console/file logging policy (applied in ``init_logger``)."""
         if console_level is not None:
             self._console_level = str(console_level).strip().upper() or "INFO"
-        if log_level is not None:
-            self._log_level = str(log_level).strip().upper() or "INFO"
         if silence is not None:
             self._log_silence = bool(silence)
             self._log_console = not self._log_silence
@@ -144,7 +140,6 @@ class Jarvis2Core:
             role="core",
             component="core",
             scan_logs_dir=logs_dir,
-            level=self._log_level,
             console=self._log_console,
             console_level=self._console_level,
             silence=self._log_silence,
@@ -1285,7 +1280,6 @@ class Jarvis2Core:
         # Propagate CLI console policy to every Worker process.
         overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
         overrides.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
-        overrides.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
         # Prefer control-resolved scan logs dir so Workers never land in cwd/logs/jarvis_worker_*.
         if self.info.get("logs_dir"):
             overrides.setdefault("logs_dir", str(self.info["logs_dir"]))
@@ -1464,7 +1458,6 @@ class Jarvis2Core:
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
         archiver_config.setdefault("console_level", str(getattr(self, "_console_level", "INFO")))
-        archiver_config.setdefault("log_level", str(getattr(self, "_log_level", "INFO")))
         delete_method = get_delete_method(self.config)
         redis_config = get_redis_config(self.config)
         if self.redis is not None:

@@ -497,7 +497,6 @@ def shutdown_jarvis_logging() -> None:
 
 def setup_jarvis_logging(
     *,
-    level: str | int = "INFO",
     console: bool = True,
     console_level: str | int | None = None,
     silence: bool = False,
@@ -532,7 +531,7 @@ def setup_jarvis_logging(
     Console:
       - default on at INFO (``console_level``)
       - ``silence=True`` disables screen output
-      - file level follows ``level`` (default INFO)
+      - files always retain DEBUG and above
 
     Style templates load from ``card/logging.yaml`` (or ``style_path``).
     Returns the primary log path (``core.log`` for multi-sink control).
@@ -543,11 +542,11 @@ def setup_jarvis_logging(
     clear_logging_style_cache()
     style = process_style(style_path)
 
-    file_level = _resolve_level(level)
+    file_level = logging.DEBUG
     # Console defaults to INFO; silence wins over console=True.
     use_console = bool(console) and not bool(silence)
     cons_level = _resolve_level(
-        console_level if console_level is not None else level
+        console_level if console_level is not None else logging.INFO
     )
     # Root logger must admit the lowest handler threshold.
     root_level = min(file_level, cons_level) if use_console else file_level

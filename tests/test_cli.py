@@ -63,8 +63,12 @@ class CliParseTests(unittest.TestCase):
         with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
             self.assertEqual(dispatch(args), EXIT_OK)
         core.set_logging_options.assert_called_once_with(
-            console_level="DEBUG", log_level="DEBUG", silence=False
+            console_level="DEBUG", silence=False
         )
+
+    def test_run_rejects_removed_file_log_level(self) -> None:
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["run", "task.yaml", "--log-level", "DEBUG"])
 
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()

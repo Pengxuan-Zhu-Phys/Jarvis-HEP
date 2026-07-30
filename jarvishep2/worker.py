@@ -750,7 +750,6 @@ class Worker(Process):
         log_path = component_log_path(logs_dir, "worker", worker_id=self.worker_id)
         silence = bool(self.worker_config.get("log_silence", False))
         console_level = str(self.worker_config.get("console_level") or "INFO")
-        log_level = str(self.worker_config.get("log_level") or "INFO")
         setup_jarvis_logging(
             role="worker",
             component="worker",
@@ -758,7 +757,6 @@ class Worker(Process):
             console=not silence,
             console_level=console_level,
             silence=silence,
-            level=log_level,
             use_queue=True,
             scan_logs_dir=logs_dir,
             log_path=log_path,

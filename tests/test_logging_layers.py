@@ -51,6 +51,7 @@ class TopLevelLoggingTests(unittest.TestCase):
             )
             logger = get_jarvis_logger("worker", worker_id=1).bind(worker_id="w-1")
             logger.info("start sample", extra={"sample_uuid": "abc-123"})
+            logger.debug("retained debug detail")
 
             shutdown_jarvis_logging()
             time.sleep(0.05)
@@ -64,6 +65,7 @@ class TopLevelLoggingTests(unittest.TestCase):
             self.assertIn("start sample", text)
             self.assertIn("worker_id=w-1", text)
             self.assertIn("sample_uuid=abc-123", text)
+            self.assertIn("retained debug detail", text)
             # V1-style timestamp: MM-DD HH:mm:ss.SSS
             self.assertRegex(text, r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}")
 

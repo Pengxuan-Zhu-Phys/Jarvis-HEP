@@ -586,11 +586,9 @@ class ArchiverProcess(Process):
         # Optional logging policy stamped from control (same CLI as Workers).
         silence = bool(self.archiver_config.get("log_silence", False))
         console_level = str(self.archiver_config.get("console_level") or "INFO")
-        log_level = str(self.archiver_config.get("log_level") or "INFO")
         setup_kwargs: dict[str, Any] = {
             "role": "archiver",
             "component": "archiver",
-            "level": log_level,
             "console": not silence,
             "console_level": console_level,
             "silence": silence,

@@ -449,13 +449,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--console-level",
             default="INFO",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-            help="Console log level (default: INFO). File logs stay at --log-level.",
-        )
-        p.add_argument(
-            "--log-level",
-            default="INFO",
-            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-            help="File log level for component logs under logs/<scan>/ (default: INFO).",
+            help="Console log level (default: INFO). Files always retain DEBUG and above.",
         )
         p.add_argument(
             "--silence",
@@ -482,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--debug",
         "-d",
         action="store_true",
-        help="Enable DEBUG logs on the console and in scan log files",
+        help="Enable DEBUG logs on the console",
     )
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
@@ -1555,7 +1549,6 @@ def dispatch_run(
     check_modules: bool = False,
     skip_draw_flowchart: bool = False,
     console_level: str = "INFO",
-    log_level: str = "INFO",
     silence: bool = False,
     debug: bool = False,
     strict: bool = False,
@@ -1582,11 +1575,9 @@ def dispatch_run(
 
     if debug:
         console_level = "DEBUG"
-        log_level = "DEBUG"
 
     core.set_logging_options(
         console_level=console_level,
-        log_level=log_level,
         silence=silence,
     )
 
@@ -1673,7 +1664,6 @@ def dispatch(args: argparse.Namespace) -> int:
             check_modules=True,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
             console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
-            log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
             silence=bool(getattr(args, "silence", False)),
             strict=bool(getattr(args, "strict", False)),
         )
@@ -1685,7 +1675,6 @@ def dispatch(args: argparse.Namespace) -> int:
             check_modules=False,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
             console_level=str(getattr(args, "console_level", "INFO") or "INFO"),
-            log_level=str(getattr(args, "log_level", "INFO") or "INFO"),
             silence=bool(getattr(args, "silence", False)),
             debug=bool(getattr(args, "debug", False)),
             strict=bool(getattr(args, "strict", False)),
