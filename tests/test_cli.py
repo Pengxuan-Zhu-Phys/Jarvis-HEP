@@ -10,6 +10,8 @@ from unittest import mock
 
 from jarvishep2.client import (
     build_parser,
+    build_portal_help_parser,
+    build_project_help_parser,
     dispatch,
     main,
     normalize_argv,
@@ -82,6 +84,16 @@ class CliParseTests(unittest.TestCase):
             column_of("Run a distributed scan task YAML"),
             column_of("(legacy) Print one monitor snapshot"),
         )
+
+    def test_portal_and_project_help_use_the_shared_panel_layout(self) -> None:
+        for help_parser, expected in (
+            (build_portal_help_parser(), "Query observables from a YAML file"),
+            (build_project_help_parser(), "Create, package, browse, fetch"),
+        ):
+            help_text = help_parser.format_help()
+            self.assertIn(expected, help_text)
+            self.assertIn("╭─ Options", help_text)
+            self.assertIn("╰", help_text)
 
     def test_parse_run_subcommand(self) -> None:
         args = build_parser().parse_args(["run", CHECK_MODULES_YAML, "--resume"])

@@ -98,10 +98,9 @@ def _fixed_option_label(
 ) -> tuple[Text, Text]:
     """Return the common primary/alias columns used by every help panel."""
     if isinstance(param, click.Argument):
-        label = param.make_metavar(ctx=ctx)
         return (
-            typer.rich_utils.metavar_highlighter(label),
-            Text(),
+            typer.rich_utils.highlighter(param.name or ""),
+            typer.rich_utils.metavar_highlighter(param.make_metavar(ctx=ctx)),
         )
 
     long_options = [option for option in param.opts if option.startswith("--")]
@@ -251,13 +250,15 @@ class JarvisArgumentParser(argparse.ArgumentParser):
                     )
                 )
             else:
-                params.append(
-                    click.Argument(
-                        [action.dest],
-                        required=bool(action.required),
-                        metavar=self._metavar(action),
-                    )
+                argument = click.Argument(
+                    [action.dest],
+                    required=bool(action.required),
+                    metavar=self._metavar(action),
                 )
+                # Click arguments have no help constructor parameter, whereas
+                # argparse stores it on the action. Preserve it for Rich.
+                argument.help = action.help
+                params.append(argument)
         return params
 
     def _click_command(
@@ -589,6 +590,93 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_portal_help_parser() -> JarvisArgumentParser:
+    """Document the forwarded Portal surface in Jarvis2's native help style."""
+    parser = JarvisArgumentParser(
+        prog="Jarvis2 portal",
+        description=(
+            "Query observables from a YAML file or browse the Jarvis-Portal "
+            "format manual."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  Jarvis2 portal input.yaml\n"
+            "  Jarvis2 portal man\n"
+            "  Jarvis2 portal man slha"
+        ),
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="Input YAML path, or `man` to browse the format manual",
+    )
+    parser.add_argument(
+        "topic",
+        nargs="?",
+        help="Optional format topic when target is `man`",
+    )
+    parser.add_argument(
+        "--version",
+        "-v",
+        action="store_true",
+        help="Print Jarvis-Portal version and exit",
+    )
+    return parser
+
+
+def build_project_help_parser() -> JarvisArgumentParser:
+    """Document project tools without changing their free-form dispatcher."""
+    parser = JarvisArgumentParser(
+        prog="Jarvis2 project",
+        description="Create, package, browse, fetch, and inspect standalone Jarvis projects.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(
+        dest="project_command", required=False, parser_class=JarvisArgumentParser
+    )
+
+    create = sub.add_parser("create", help="Scaffold a local project")
+    create.add_argument("name", help="New project directory name")
+
+    pack = sub.add_parser("pack", help="Package a project for sharing or release")
+    pack.add_argument("path", nargs="?", help="Project path or pack manifest YAML")
+    pack.add_argument("--share", action="store_true", help="Build a shareable package")
+    pack.add_argument("--repro", action="store_true", help="Build a reproducible package")
+    pack.add_argument("--full", action="store_true", help="Include full project contents")
+    pack.add_argument("--man", action="store_true", help="Write a pack manifest instead")
+    pack.add_argument("--encrypt", action="store_true", help="Encrypt the finished package")
+    pack.add_argument("--key", help="Encryption key")
+
+    for command, help_text in (
+        ("list", "List projects in the official library"),
+        ("browse", "Alias for list"),
+    ):
+        sub.add_parser(command, help=help_text)
+
+    fetch = sub.add_parser("fetch", help="Download an official project")
+    fetch.add_argument("name", help="Official project name")
+    fetch.add_argument("--key", help="Key for a restricted project")
+
+    info = sub.add_parser("info", help="Show official project details")
+    info.add_argument("name", help="Official project name")
+
+    encrypt = sub.add_parser("encrypt", help="Encrypt an existing project archive")
+    encrypt.add_argument("archive", help="Existing .tar.gz archive")
+    encrypt.add_argument("--key", required=True, help="Encryption key")
+    return parser
+
+
+def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:
+    """Render contextual parser help while keeping dispatchers integer-returning."""
+    try:
+        parser.parse_args(args)
+    except SystemExit as exc:
+        return int(exc.code)
+    parser.print_help()
+    return EXIT_OK
+
+
 def _mode_conflict_message(modes: list[str]) -> str:
     return (
         "conflicting CLI intents: "
@@ -756,6 +844,8 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
     Convenience alias: ``Jarvis2 portal formats`` → ``man`` (list formats).
     """
     argv = list(portal_argv or [])
+    if any(arg in _HELP_FLAGS for arg in argv):
+        return _render_help_for_args(build_portal_help_parser(), argv)
     if argv == ["formats"]:
         argv = ["man"]
     try:
@@ -802,27 +892,7 @@ def _print_kv_block(title: str, rows: list[tuple[str, object]]) -> None:
 
 
 def _print_project_help() -> None:
-    print(
-        "usage: Jarvis2 project <command> [arguments]\n\n"
-        "Manage Jarvis standalone projects (all crypto goes through this CLI).\n\n"
-        "commands:\n"
-        "  create <name>                      Scaffold a local project\n"
-        "  pack [path] [modes] [--encrypt --key K]\n"
-        "                                     Pack; optional encrypt for restricted release\n"
-        "  list | browse                      Official library (Access + Key columns)\n"
-        "  fetch <name> [--key K]             Download (+ decrypt if restricted)\n"
-        "  info <name>                        Project details including key requirement\n"
-        "  encrypt <archive.tar.gz> --key K   Encrypt an existing pack to *.jenc\n\n"
-        "restricted projects (end users):\n"
-        "  Jarvis2 project list\n"
-        "  Jarvis2 project fetch SecretName --key YOUR_KEY\n"
-        "  # or: export JARVIS_PROJECT_FETCH_KEY=YOUR_KEY\n\n"
-        "restricted projects (maintainers):\n"
-        "  Jarvis2 project pack . --repro --encrypt --key YOUR_KEY\n"
-        "  # upload the *.jenc URL into Examples catalog JSON\n\n"
-        "public examples:\n"
-        "  Jarvis2 project fetch Eggbox\n"
-    )
+    build_project_help_parser().print_help()
 
 
 def _run_project_create(project_name: str) -> int:
@@ -1245,6 +1315,8 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
     if not args or args[0] in _HELP_FLAGS:
         _print_project_help()
         return EXIT_OK
+    if any(arg in _HELP_FLAGS for arg in args):
+        return _render_help_for_args(build_project_help_parser(), args)
 
     command = args[0]
     rest = args[1:]
