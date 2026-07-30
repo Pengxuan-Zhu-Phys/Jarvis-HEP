@@ -37,7 +37,7 @@ _SUBCOMMANDS = frozenset(
         "convert",
         "monitor",
         "plot",
-        "plot-scene",
+        "gen-plot-yaml",
         "portal",
         "operas",
         "project",
@@ -56,6 +56,33 @@ _PACK_MODE_FLAGS = {
 _PACK_MANIFEST_FLAG = "--man"
 _PACK_ENCRYPT_FLAGS = frozenset({"--encrypt", "--encrypted"})
 _HELP_FLAGS = frozenset({"-h", "--help"})
+_LEGACY_OPTION_DESTS = frozenset(
+    {
+        "monitor",
+        "plot",
+        "validate",
+        "strict",
+        "check_modules",
+        "convert",
+        "force",
+        "resume",
+        "skip_draw_flowchart",
+    }
+)
+_COMMAND_HELP_PANELS = {
+    "run": "Scan workflow",
+    "check": "Scan workflow",
+    "validate": "Scan workflow",
+    "convert": "Scan workflow",
+    "gen-plot-yaml": "Plots",
+    "plot": "Plots",
+    "monitor": "Runtime control",
+    "ps": "Runtime control",
+    "kill": "Runtime control",
+    "portal": "Extensions & projects",
+    "operas": "Extensions & projects",
+    "project": "Extensions & projects",
+}
 
 
 class JarvisArgumentParser(argparse.ArgumentParser):
@@ -77,12 +104,15 @@ class JarvisArgumentParser(argparse.ArgumentParser):
             return "<float>"
         return "<str>"
 
-    def _click_params(self) -> list[click.Parameter]:
+    def _click_params(self, *, legacy: bool | None = None) -> list[click.Parameter]:
         params: list[click.Parameter] = []
         for action in self._actions:
             if action.help == argparse.SUPPRESS or action.dest == "help":
                 continue
             if isinstance(action, argparse._SubParsersAction):
+                continue
+            is_legacy = action.dest in _LEGACY_OPTION_DESTS
+            if legacy is not None and is_legacy is not legacy:
                 continue
             if action.option_strings:
                 params.append(
@@ -104,7 +134,9 @@ class JarvisArgumentParser(argparse.ArgumentParser):
                 )
         return params
 
-    def _click_command(self, name: str | None = None) -> click.Command:
+    def _click_command(
+        self, name: str | None = None, *, include_legacy: bool = True
+    ) -> click.Command:
         commands: dict[str, click.Command] = {}
         for action in self._actions:
             if not isinstance(action, argparse._SubParsersAction):
@@ -116,25 +148,29 @@ class JarvisArgumentParser(argparse.ArgumentParser):
             for command_name, command_parser in action.choices.items():
                 command = command_parser._click_command(command_name)
                 command.short_help = short_help.get(command_name)
+                panel = _COMMAND_HELP_PANELS.get(command_name)
+                if panel:
+                    setattr(command, typer.rich_utils._RICH_HELP_PANEL_NAME, panel)
                 commands[command_name] = command
         command_name = name or self.prog.rsplit(" ", maxsplit=1)[-1]
         if commands:
             return click.Group(
                 name=command_name,
                 help=self.description,
-                params=self._click_params(),
+                params=self._click_params(legacy=None if include_legacy else False),
                 commands=commands,
                 context_settings=self._RICH_CONTEXT_SETTINGS,
             )
         return click.Command(
             name=command_name,
             help=self.description,
-            params=self._click_params(),
+            params=self._click_params(legacy=None if include_legacy else False),
             context_settings=self._RICH_CONTEXT_SETTINGS,
         )
 
     def format_help(self) -> str:
-        command = self._click_command()
+        root_help = self.prog == "Jarvis2"
+        command = self._click_command(include_legacy=not root_help)
         terminal_stdout = sys.stdout
         output = io.StringIO()
         old_force_terminal = typer.rich_utils.FORCE_TERMINAL
@@ -152,6 +188,15 @@ class JarvisArgumentParser(argparse.ArgumentParser):
                     ),
                     markup_mode=typer.rich_utils.MARKUP_MODE_RICH,
                 )
+                if root_help:
+                    legacy_params = self._click_params(legacy=True)
+                    typer.rich_utils._print_options_panel(
+                        name="Legacy options",
+                        params=legacy_params,
+                        ctx=click.Context(command, info_name=self.prog),
+                        markup_mode=typer.rich_utils.MARKUP_MODE_RICH,
+                        console=typer.rich_utils._get_rich_console(),
+                    )
         finally:
             typer.rich_utils.FORCE_TERMINAL = old_force_terminal
             typer.rich_utils.MAX_WIDTH = old_max_width
@@ -191,7 +236,10 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     parser = JarvisArgumentParser(
         prog="Jarvis2",
-        description="Jarvis-HEP V2 CLI",
+        description=(
+            "Run and validate distributed HEP scans, prepare plot YAML, "
+            "and manage their local runtime."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Intents (preferred):\n"
@@ -305,8 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
     plot_p.add_argument("plot_yaml", help="Path to plot scene YAML")
 
     scene_p = sub.add_parser(
-        "plot-scene",
-        help="Generate JarvisPLOT YAML from a finished run task YAML",
+        "gen-plot-yaml",
+        help="Generate images/<scan>/plot.yaml from a finished run task YAML",
     )
     scene_p.add_argument("task_yaml", help="Path to the finished scan task YAML")
 
@@ -414,7 +462,7 @@ def _mode_conflict_message(modes: list[str]) -> str:
         "conflicting CLI intents: "
         + ", ".join(modes)
         + "; use a single subcommand "
-        "(run|check|validate|convert|monitor|plot|plot-scene|portal|operas|project)"
+        "(run|check|validate|convert|monitor|plot|gen-plot-yaml|portal|operas|project)"
     )
 
 
@@ -523,16 +571,16 @@ def dispatch_plot(plot_yaml: str, *, legacy: bool = False) -> int:
         return EXIT_RUN_FAILED
 
 
-def dispatch_plot_scene(task_yaml: str) -> int:
+def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     """Generate (but never render) JarvisPLOT YAML for one finished scan."""
     if not task_yaml:
-        print("Task YAML is required (usage: Jarvis2 plot-scene TASK.yaml).", file=sys.stderr)
+        print("Task YAML is required (usage: Jarvis2 gen-plot-yaml TASK.yaml).", file=sys.stderr)
         return EXIT_USAGE
     try:
         core = Jarvis2Core()
         core.load_task_yaml(task_yaml, validate=False)
         from jarvishep2.base import infer_project_root_from_task_result_dir
-        from jarvishep2.plot_scene import emit_plot_scenes_from_run
+        from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml
 
         task_result_dir = str(core.config.get("task_result_dir") or "").strip()
         scan_name = str(core.config.get("scan_name") or "scan").strip() or "scan"
@@ -541,25 +589,23 @@ def dispatch_plot_scene(task_yaml: str) -> int:
         project_root = str(
             core.config.get("project_root") or core.config.get("task_root") or ""
         ).strip() or infer_project_root_from_task_result_dir(task_result_dir)
-        written = emit_plot_scenes_from_run(
+        output = emit_jplot_scan_levelset_yaml(
             task_result_dir,
             scan_name=scan_name,
             project_root=project_root,
-            auto_render=False,
             config=core.config,
+            yaml_basename="plot.yaml",
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_RUN_FAILED
     except (ValueError, OSError) as exc:
-        print(f"plot-scene failed: {exc}", file=sys.stderr)
+        print(f"gen-plot-yaml failed: {exc}", file=sys.stderr)
         return EXIT_USAGE
-    if not written:
+    if not output:
         print("No plot YAML could be generated: run outputs were not found.", file=sys.stderr)
         return EXIT_RUN_FAILED
-    for key, path in written.items():
-        if path.endswith((".yaml", ".yml")):
-            print(f"{key}: {path}")
+    print(output)
     return EXIT_OK
 
 
@@ -1389,8 +1435,8 @@ def dispatch(args: argparse.Namespace) -> int:
         plot_yaml = getattr(args, "plot_yaml", None) or args.task_yaml
         legacy = getattr(args, "command", None) is None
         return dispatch_plot(str(plot_yaml or ""), legacy=legacy)
-    if intent == "plot-scene":
-        return dispatch_plot_scene(str(getattr(args, "task_yaml", "") or ""))
+    if intent == "gen-plot-yaml":
+        return dispatch_gen_plot_yaml(str(getattr(args, "task_yaml", "") or ""))
     if intent == "portal":
         # Prefer argv passthrough via main(); this path is a thin fallback.
         return dispatch_portal([])

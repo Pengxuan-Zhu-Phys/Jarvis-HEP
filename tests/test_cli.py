@@ -56,7 +56,11 @@ class CliParseTests(unittest.TestCase):
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)
-        self.assertIn("╭─ Commands", help_text)
+        self.assertIn("╭─ Scan workflow", help_text)
+        self.assertIn("╭─ Plots", help_text)
+        self.assertIn("╭─ Runtime control", help_text)
+        self.assertIn("╭─ Legacy options", help_text)
+        self.assertGreater(help_text.index("╭─ Legacy options"), help_text.index("╭─ Extensions & projects"))
         self.assertIn("╭─ Options", help_text)
         self.assertIn("Run a distributed scan task YAML", help_text)
         self.assertIn("--help", help_text)
@@ -77,9 +81,9 @@ class CliParseTests(unittest.TestCase):
         args = build_parser().parse_args(["monitor"])
         self.assertEqual(args.command, "monitor")
 
-    def test_parse_plot_scene_subcommand(self) -> None:
-        args = build_parser().parse_args(["plot-scene", CHECK_MODULES_YAML])
-        self.assertEqual(args.command, "plot-scene")
+    def test_parse_gen_plot_yaml_subcommand(self) -> None:
+        args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])
+        self.assertEqual(args.command, "gen-plot-yaml")
         self.assertEqual(args.task_yaml, CHECK_MODULES_YAML)
 
 
@@ -121,9 +125,9 @@ class CliVersionTests(unittest.TestCase):
 
 
 class CliDispatchTests(unittest.TestCase):
-    def test_dispatch_routes_plot_scene(self) -> None:
-        args = build_parser().parse_args(["plot-scene", CHECK_MODULES_YAML])
-        with mock.patch("jarvishep2.client.dispatch_plot_scene", return_value=0) as scene:
+    def test_dispatch_routes_gen_plot_yaml(self) -> None:
+        args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])
+        with mock.patch("jarvishep2.client.dispatch_gen_plot_yaml", return_value=0) as scene:
             self.assertEqual(dispatch(args), 0)
         scene.assert_called_once_with(CHECK_MODULES_YAML)
 

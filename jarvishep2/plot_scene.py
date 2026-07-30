@@ -424,6 +424,7 @@ def emit_jplot_scan_levelset_yaml(
     color_key: str = "LogL",
     limit: int = 5000,
     config: Mapping[str, Any] | None = None,
+    yaml_basename: str | None = None,
 ) -> str | None:
     """Emit a **stock jplot** YAML: sample scatter + level-set polyline overlay.
 
@@ -580,7 +581,9 @@ def emit_jplot_scan_levelset_yaml(
             "axis_keys": {"x": x_key, "y": y_key, "c": color_key},
         },
     }
-    yaml_path = os.path.join(out_dir, f"{scan_name}_levelset_jplot.yaml")
+    yaml_path = os.path.join(
+        out_dir, yaml_basename or f"{scan_name}_levelset_jplot.yaml"
+    )
     return _write_yaml(yaml_path, jplot_doc)
 
 
