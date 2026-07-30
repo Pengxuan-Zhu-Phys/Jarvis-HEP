@@ -308,23 +308,31 @@ class Worker(Process):
             self._heartbeat("busy")
 
     def _force_release_pack(self, step_name: str, pack_id: str | None = None) -> None:
-        """Return a calculator PackID to Redis free (best-effort, never raises)."""
+        """Return a calculator PackID, retaining local ownership on Redis errors."""
         if self._redis is None:
             return
-        held_pack = pack_id
         with self._hb_lock():
-            if held_pack is None:
-                held_pack = self._held_calc_packs.pop(step_name, None)
-            else:
-                self._held_calc_packs.pop(step_name, None)
+            held_pack = pack_id or self._held_calc_packs.get(step_name)
         if not held_pack:
             return
-        # Prefer force_release so double-release / socket blips do not crash the sample.
-        if not self._redis.force_release_calc(step_name, str(held_pack)):
+        try:
+            # False is the benign already-free/double-release result; an
+            # exception means Redis could not confirm the transition.
+            self._redis.force_release_calc(step_name, str(held_pack))
+        except Exception as exc:
             try:
-                self._redis.release_calc(step_name, str(held_pack))
+                get_jarvis_logger("worker", worker_id=self.worker_id).error(
+                    "calculator slot release failed; retaining held pack %s/%s for watchdog sweep -> %s",
+                    step_name,
+                    held_pack,
+                    exc,
+                )
             except Exception:
                 pass
+            return
+        with self._hb_lock():
+            if self._held_calc_packs.get(step_name) == str(held_pack):
+                self._held_calc_packs.pop(step_name, None)
 
     def _force_release_all_held_packs(self, logger: Any | None = None) -> None:
         """Safety net for process_task finally — release every slot this worker holds."""
@@ -332,18 +340,8 @@ class Worker(Process):
             return
         with self._hb_lock():
             held = dict(self._held_calc_packs)
-            self._held_calc_packs.clear()
         for step_name, pack_id in held.items():
-            ok = self._redis.force_release_calc(str(step_name), str(pack_id))
-            if not ok and logger is not None:
-                try:
-                    logger.warning(
-                        "force_release_calc did not own slot %s/%s (already free?)",
-                        step_name,
-                        pack_id,
-                    )
-                except Exception:
-                    pass
+            self._force_release_pack(str(step_name), str(pack_id))
 
     def _merge_calculator_observables(
         self,

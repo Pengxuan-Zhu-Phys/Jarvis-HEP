@@ -38,6 +38,18 @@ _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "
 _VALID_EXECUTION_STEP_TYPES = frozenset(
     {"calculator", "opera", "likelihood", "nuisance_optimize"}
 )
+
+_ATOMIC_RELEASE_CALC_LUA = """
+local removed = redis.call('HDEL', KEYS[1], ARGV[1])
+if removed == 0 then
+    return 0
+end
+redis.call('RPUSH', KEYS[2], ARGV[1])
+redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
+redis.call('HINCRBY', KEYS[3], ARGV[3], -1)
+redis.call('INCR', KEYS[4])
+return 1
+"""
 # The distributed broker is a V2 implementation detail, not task-YAML input.
 INTERNAL_REDIS_CONFIG = {"host": "127.0.0.1", "port": 6379, "db": 0}
 
@@ -424,19 +436,42 @@ class RedisQueue:
             return
 
         busy_key = calc_busy_packs_key(name)
-        # Atomic guard: HDEL's return value decides the single winner when a
-        # Worker's finally-release races the watchdog sweep for the same slot.
-        if not self.r.hdel(busy_key, pack_id):
+        result = self._eval_atomic_release_calc(name, pack_id)
+        if not result:
             raise ValueError(f"unknown pack_id '{pack_id}' for calculator '{name}'")
 
-        pool_key = calc_free_list_key(name)
-        pipe = self.r.pipeline(transaction=True)
-        # running → free: same PackID re-enters the pool for the next sample.
-        pipe.rpush(pool_key, pack_id)
-        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
-        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
-        pipe.incr(OP_COUNT.format(kind="calculator"))
-        pipe.execute()
+    def _eval_atomic_release_calc(self, name: str, pack_id: str) -> bool:
+        """Atomically transition one busy calculator slot back to free."""
+        busy_key = calc_busy_packs_key(name)
+        if not is_stable_calc_pack_id(pack_id):
+            return bool(self.r.hdel(busy_key, pack_id))
+        try:
+            result = self.r.eval(
+                _ATOMIC_RELEASE_CALC_LUA,
+                4,
+                busy_key,
+                calc_free_list_key(name),
+                CALC_STATUS,
+                OP_COUNT.format(kind="calculator"),
+                pack_id,
+                calc_status_free_field(name),
+                calc_status_busy_field(name),
+            )
+        except Exception as exc:
+            # fakeredis versions used by the offline test suite may omit EVAL;
+            # real Redis always takes the atomic Lua path above.
+            if "unknown command 'eval'" not in str(exc).lower():
+                raise
+            if not self.r.hdel(busy_key, pack_id):
+                return False
+            pipe = self.r.pipeline(transaction=True)
+            pipe.rpush(calc_free_list_key(name), pack_id)
+            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
+            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
+            pipe.incr(OP_COUNT.format(kind="calculator"))
+            pipe.execute()
+            return True
+        return bool(int(result or 0))
 
     def force_release_calc(self, name: str, pack_id: str) -> bool:
         """Best-effort PackID return for failure/cleanup paths (never raises).
@@ -444,30 +479,16 @@ class RedisQueue:
         Returns True when this call transitioned the slot from busy → free.
         Safe under double-release races (second caller gets False).
         """
-        try:
-            if not pack_id or not str(pack_id).strip():
-                return False
-            pack_id = str(pack_id).strip()
-            name = str(name or "").strip()
-            if not name:
-                return False
-            self._require_client()
-            busy_key = calc_busy_packs_key(name)
-            if not is_stable_calc_pack_id(pack_id):
-                self.r.hdel(busy_key, pack_id)
-                return True
-            if not self.r.hdel(busy_key, pack_id):
-                return False
-            pool_key = calc_free_list_key(name)
-            pipe = self.r.pipeline(transaction=True)
-            pipe.rpush(pool_key, pack_id)
-            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
-            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
-            pipe.incr(OP_COUNT.format(kind="calculator"))
-            pipe.execute()
-            return True
-        except Exception:
+        if not pack_id or not str(pack_id).strip():
             return False
+        pack_id = str(pack_id).strip()
+        name = str(name or "").strip()
+        if not name:
+            return False
+        self._require_client()
+        # False means the slot was already free/not owned; Redis/EVAL errors
+        # propagate so callers can distinguish them and retain local ownership.
+        return self._eval_atomic_release_calc(name, pack_id)
 
     def claim_control_lock(
         self,
