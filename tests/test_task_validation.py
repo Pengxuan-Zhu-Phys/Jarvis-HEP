@@ -15,6 +15,7 @@ from jarvishep2.client import dispatch_run, dispatch_validate, main, normalize_a
 from jarvishep2.task_config import TaskCardLoadError, load_task_yaml
 from jarvishep2.task_validation import (
     ConfigValidationError,
+    format_report,
     validate_or_raise,
     validate_task_config,
 )
@@ -51,6 +52,17 @@ def _minimal_dynesty_config(**overrides) -> dict:
 
 
 class TaskValidationKernelTests(unittest.TestCase):
+    def test_many_errors_render_reference_table_before_details(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Scan"]["naem"] = "typo"
+        cfg["Sampling"]["Variables"] = []
+        report = validate_task_config(cfg)
+        rendered = format_report(report)
+        self.assertIn("Error summary (reference only):", rendered)
+        self.assertIn("│ Code", rendered)
+        self.assertIn("Detailed diagnostics:", rendered)
+        self.assertIn("This table is only a quick reference.", rendered)
+
     def test_valid_dynesty_passes(self) -> None:
         report = validate_task_config(_minimal_dynesty_config())
         self.assertTrue(report.ok)

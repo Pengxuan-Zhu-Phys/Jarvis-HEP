@@ -118,6 +118,40 @@ def _indent_example(example: str) -> str:
     return "\n".join(f"            {line}" for line in example.splitlines())
 
 
+def _ellipsize(value: str, width: int) -> str:
+    """Keep a terminal-table cell readable without losing the detailed entry."""
+    value = " ".join(value.split())
+    return value if len(value) <= width else value[: width - 1] + "…"
+
+
+def _format_issue_summary_table(issues: Sequence[ValidationIssue]) -> str:
+    """Render a compact, plain-text table suitable for stderr and log files."""
+    rows = [
+        (str(index), item.code, _ellipsize(item.path, 38), _ellipsize(item.message, 72))
+        for index, item in enumerate(issues, start=1)
+    ]
+    headers = ("#", "Code", "YAML path", "Problem")
+    widths = [
+        max(len(headers[index]), *(len(row[index]) for row in rows))
+        for index in range(len(headers))
+    ]
+
+    def row(values: tuple[str, ...]) -> str:
+        return "│" + "│".join(
+            f" {value:<{width}} " for value, width in zip(values, widths)
+        ) + "│"
+
+    return "\n".join([
+        "Error summary (reference only):",
+        "┌" + "┬".join("─" * (width + 2) for width in widths) + "┐",
+        row(headers),
+        "├" + "┼".join("─" * (width + 2) for width in widths) + "┤",
+        *(row(values) for values in rows),
+        "└" + "┴".join("─" * (width + 2) for width in widths) + "┘",
+        "This table is only a quick reference. Please consult the Jarvis-HEP YAML settings documentation before editing the task card.",
+    ])
+
+
 def format_report(report: ValidationReport) -> str:
     n_err = len(report.errors())
     n_warn = len(report.warnings())
@@ -127,6 +161,9 @@ def format_report(report: ValidationReport) -> str:
     elif report.ok:
         return "Config validation successful."
     lines = [header]
+    errors = report.errors()
+    if len(errors) >= 2:
+        lines.extend(["", _format_issue_summary_table(errors), "", "Detailed diagnostics:"])
     for item in report.issues:
         lines.append(item.format_line())
     return "\n".join(lines)

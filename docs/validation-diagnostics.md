@@ -41,6 +41,12 @@ has resolved an unquoted boolean-like scalar where a string is required, the
 suggestion explicitly asks for quotes. Accepted numeric strings such as `1e-5`
 produce warning `JV2-SCH-003`; they are not rejected for compatibility.
 
+When a card has two or more errors, the human-readable report starts with a
+compact `Code` / `YAML path` / `Problem` table, then prints the full actionable
+diagnostics. The table explicitly says that it is only a quick reference and
+asks the user to consult the Jarvis-HEP YAML settings documentation before
+editing the card. JSON output remains structured and unchanged.
+
 ## Authoring rules
 
 * Examples must be minimal, valid YAML fragments for the failing object.
