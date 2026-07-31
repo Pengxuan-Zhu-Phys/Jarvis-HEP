@@ -6,11 +6,15 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from unittest.mock import patch
 
 from jarvishep2.task_config import load_task_yaml
-from jarvishep2.task_schema import MANIFEST_PATH, SCHEMA_PATH, task_card_validator
+from jarvishep2.task_schema import (
+    MANIFEST_PATH, SCHEMA_PATH, schema_catalog_lint_errors, task_card_validator,
+)
 from jarvishep2.task_validation import validate_task_config
 from jarvishep2.io_portal import available_io_formats
+from jarvishep2.distributor import Distributor
 
 
 def _card() -> dict:
@@ -80,6 +84,7 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertTrue(SCHEMA_PATH.is_file())
         self.assertTrue(MANIFEST_PATH.is_file())
         self.assertEqual(list(task_card_validator().iter_errors(_card())), [])
+        self.assertEqual(schema_catalog_lint_errors(), [])
 
     def test_manifest_dispatches_sampling_and_io_schemas(self) -> None:
         card = _card()
@@ -95,12 +100,21 @@ class TaskCardSchemaTests(unittest.TestCase):
             manifest = json.load(handle)
         method_schemas = manifest["sampling_methods"]
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
+        self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
 
     def test_manifest_matches_builtin_portal_formats(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
             manifest = json.load(handle)
-        self.assertEqual(set(manifest["io"]["input"]), set(available_io_formats("input")))
-        self.assertEqual(set(manifest["io"]["output"]), set(available_io_formats("output")))
+        self.assertTrue(set(manifest["io"]["input"]) <= set(available_io_formats("input")))
+        self.assertTrue(set(manifest["io"]["output"]) <= set(available_io_formats("output")))
+
+    def test_portal_format_without_bundled_schema_is_accepted(self) -> None:
+        card = _card()
+        card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = "FuturePortalFormat"
+        real_formats = available_io_formats("input")
+        with patch("jarvishep2.io_portal.available_io_formats", return_value=[*real_formats, "FuturePortalFormat"]):
+            report = validate_task_config(card)
+        self.assertFalse([issue for issue in report.errors() if issue.code == "JV2-SCH-002"])
 
     def test_every_portal_format_is_accepted_by_its_direction_schema(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
@@ -153,6 +167,37 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertIn("$.Scan", paths)
         self.assertIn("$.Sampling", paths)
         self.assertIn("$.Calculators.Modules[0]", paths)
+        suggestion = next(issue.suggestion for issue in report.errors() if issue.path == "$.Scan")
+        self.assertIn("Did you mean 'name'?", suggestion or "")
+
+    def test_numeric_string_warns_but_compatibly_passes(self) -> None:
+        card = _card()
+        card["Sampling"].update({"Method": "Bridson", "Radius": "1e-1", "MaxAttempt": "30"})
+        report = validate_task_config(card)
+        self.assertFalse([issue for issue in report.errors() if issue.path == "$.Sampling.Radius"])
+        self.assertTrue(any(issue.code == "JV2-SCH-003" for issue in report.warnings()))
+
+    def test_boolean_where_string_is_required_suggests_quoting(self) -> None:
+        card = _card()
+        card["Scan"]["name"] = True
+        report = validate_task_config(card)
+        problem = next(issue for issue in report.errors() if issue.path == "$.Scan.name")
+        self.assertIn("Quote YAML boolean-like", problem.suggestion or "")
+
+    def test_open_legacy_sampling_zone_warns_once(self) -> None:
+        card = _card()
+        card["Sampling"].update({"Control": {"future_key": 1}, "PPO": {"future_key": 2}})
+        report = validate_task_config(card)
+        self.assertEqual([item.code for item in report.warnings()].count("JV2-SCH-004"), 1)
+
+    def test_adaptive_bridson_lowercase_block_alias_is_valid(self) -> None:
+        card = _card()
+        card["Sampling"].update({
+            "Method": "AdaptiveBridson",
+            "adaptive_bridson": {"target_expression": "x", "target_value": 0.5},
+        })
+        report = validate_task_config(card)
+        self.assertFalse([item for item in report.errors() if item.code == "JV2-SCH-001"])
 
     def test_method_and_io_dispatch_match_runtime_whitespace_normalization(self) -> None:
         card = _card()

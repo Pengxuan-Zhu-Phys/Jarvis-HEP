@@ -1,82 +1,23 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://jarvis-hep.org/schema/v2/core/calculators.json",
-    "type": "object",
-    "properties": {
-        "Modules": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "required": [
-                    "name"
-                ],
-                "properties": {
-                    "name": {
-                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
-                    },
-                    "path": {
-                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
-                    },
-                    "source": {
-                        "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
-                    },
-                    "clone_shadow": {
-                        "type": "boolean"
-                    },
-                    "required_modules": {
-                        "type": "array",
-                        "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}
-                    },
-                    "installation": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"},
-                    "initialization": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"},
-                    "timeout": {"type": "number", "exclusiveMinimum": 0},
-                    "symlink_name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-                    "env_setup": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "object"}]}},
-                    "selection": {"oneOf": [{"type": "string"}, {"type": "boolean"}]},
-                    "make_paraller": {"type": "integer", "minimum": 1},
-                    "modes": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
-                    "execution": {
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
-                            },
-                            "commands": {
-                                "type": "array",
-                                "items": {
-                                    "oneOf": [
-                                        {
-                                            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
-                                        },
-                                        {
-                                            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/command"
-                                        }
-                                    ]
-                                }
-                            },
-                            "input": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object"
-                                }
-                            },
-                            "output": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object"
-                                }
-                            }
-                        },
-                        "additionalProperties": false
-                    }
-                },
-                "additionalProperties": false
-            }
-        },
-        "Pools": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
-        "make_paraller": {"type": "integer", "minimum": 1},
-        "Archiver": {"type": "object"},
-        "Cleanup": {"type": "object"}
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://jarvis-hep.org/schema/v2/core/calculators.json",
+  "type": "object", "x-jarvis-zone": "closed",
+  "properties": {
+    "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString", "description": "V1 layout metadata; modules carry their own path."},
+    "Modules": {
+      "type": "array", "items": {
+        "type": "object", "x-jarvis-zone": "closed", "required": ["name"],
+        "properties": {
+          "name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "deps_source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString", "description": "V1 module dependency source path."}, "clone_shadow": {"type": "boolean"},
+          "required_modules": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}}, "installation": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"}, "initialization": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"}, "timeout": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"}, "symlink_name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "env_setup": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}]}}, "selection": {"oneOf": [{"type": "string"}, {"type": "boolean"}]}, "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "modes": {"oneOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}]},
+          "execution": {
+            "type": "object", "x-jarvis-zone": "closed",
+            "properties": {"path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "commands": {"type": "array", "items": {"oneOf": [{"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/command"}]}}, "input": {"type": "array", "items": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}, "output": {"type": "array", "items": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}}, "additionalProperties": false
+          }
+        }, "additionalProperties": false
+      }
     },
-    "additionalProperties": false
+    "Pools": {"type": "object", "x-jarvis-zone": "closed", "additionalProperties": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}},
+    "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "Archiver": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}, "Cleanup": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}
+  }, "additionalProperties": false
 }

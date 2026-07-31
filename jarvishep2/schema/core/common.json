@@ -3,11 +3,37 @@
   "$id": "https://jarvis-hep.org/schema/v2/core/common.json",
   "$defs": {
     "nonemptyString": {"type": "string", "minLength": 1},
-    "command": {"type": "object", "properties": {"cmd": {"$ref": "#/$defs/nonemptyString"}, "command": {"$ref": "#/$defs/nonemptyString"}, "cwd": {"$ref": "#/$defs/nonemptyString"}}, "anyOf": [{"required": ["cmd"]}, {"required": ["command"]}], "additionalProperties": false},
+    "numeric": {"oneOf": [{"type": "number"}, {"type": "string", "pattern": "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"}], "x-jarvis-numeric": true},
+    "positiveNumeric": {"oneOf": [{"type": "number", "exclusiveMinimum": 0}, {"type": "string", "pattern": "^(?!\\+?0+(?:\\.0*)?(?:[eE][+-]?\\d+)?$)\\+?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"}], "x-jarvis-numeric": true},
+    "integerish": {"oneOf": [{"type": "integer"}, {"type": "string", "pattern": "^[+-]?\\d+$"}], "x-jarvis-numeric": true},
+    "command": {
+      "type": "object", "x-jarvis-zone": "closed",
+      "properties": {"cmd": {"$ref": "#/$defs/nonemptyString"}, "command": {"$ref": "#/$defs/nonemptyString"}, "cwd": {"$ref": "#/$defs/nonemptyString"}},
+      "anyOf": [{"required": ["cmd"]}, {"required": ["command"]}], "additionalProperties": false
+    },
     "commandList": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "array", "items": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"$ref": "#/$defs/command"}]}}]},
-    "variable": {"type": "object", "required": ["name", "distribution"], "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "description": {"type": "string"}, "distribution": {"$ref": "#/$defs/distribution"}}, "additionalProperties": false},
-    "distribution": {"type": "object", "required": ["type", "parameters"], "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal"]}, "parameters": {"type": "object"}}, "additionalProperties": false},
-    "csv": {"type": "object", "required": ["path"], "properties": {"path": {"$ref": "#/$defs/nonemptyString"}, "uuid_column": {"$ref": "#/$defs/nonemptyString"}, "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}}}, "additionalProperties": false},
-    "operasIO": {"type": "object", "required": ["name"], "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "entry": {"$ref": "#/$defs/nonemptyString"}, "expression": {"$ref": "#/$defs/nonemptyString"}}, "additionalProperties": false}
+    "variable": {
+      "type": "object", "x-jarvis-zone": "closed", "required": ["name", "distribution"],
+      "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "description": {"type": "string"}, "distribution": {"$ref": "#/$defs/distribution"}}, "additionalProperties": false
+    },
+    "distribution": {
+      "type": "object", "x-jarvis-zone": "closed", "required": ["type", "parameters"],
+      "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal"]}, "parameters": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}, "additionalProperties": false
+    },
+    "csv": {
+      "type": "object", "x-jarvis-zone": "closed", "required": ["path"],
+      "properties": {"path": {"$ref": "#/$defs/nonemptyString"}, "uuid_column": {"$ref": "#/$defs/nonemptyString"}, "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}}}, "additionalProperties": false
+    },
+    "operasIO": {
+      "type": "object", "x-jarvis-zone": "closed", "required": ["name"],
+      "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "entry": {"$ref": "#/$defs/nonemptyString"}, "expression": {"$ref": "#/$defs/nonemptyString"}}, "additionalProperties": false
+    },
+    "adaptiveBridson": {
+      "type": "object", "x-jarvis-zone": "closed",
+      "properties": {
+        "target_expression": {"$ref": "#/$defs/nonemptyString"}, "target_value": {"$ref": "#/$defs/numeric"}, "outer_half_width": {"$ref": "#/$defs/positiveNumeric"}, "min_radius": {"$ref": "#/$defs/positiveNumeric"}, "initial_radius": {"$ref": "#/$defs/positiveNumeric"}, "refinement_factor": {"$ref": "#/$defs/positiveNumeric"}, "bridge_gaps": {"type": "boolean"}, "bridge_span_factor": {"$ref": "#/$defs/positiveNumeric"}, "max_generations": {"$ref": "#/$defs/integerish"}, "max_points": {"$ref": "#/$defs/integerish"}, "max_new_per_generation": {"$ref": "#/$defs/integerish"}, "k_ref": {"$ref": "#/$defs/integerish"}, "neighbor_graph": {"enum": ["auto", "delaunay", "knn"]}, "knn_k": {"$ref": "#/$defs/integerish"},
+        "core_half_width": {"$ref": "#/$defs/positiveNumeric"}, "threshold": {"$ref": "#/$defs/positiveNumeric"}, "function_tolerance": {"$ref": "#/$defs/positiveNumeric"}, "final_half_width": {"$ref": "#/$defs/positiveNumeric"}, "radius_shrink_mode": {"type": "string"}, "outer_shrink_factor": {"$ref": "#/$defs/positiveNumeric"}, "core_spacing_factor": {"$ref": "#/$defs/positiveNumeric"}, "min_cores_for_coverage": {"$ref": "#/$defs/integerish"}, "quiet_fill_passes": {"$ref": "#/$defs/integerish"}, "max_fill_passes": {"$ref": "#/$defs/integerish"}, "endpoint_stall_passes": {"$ref": "#/$defs/integerish"}, "endpoint_omni_probes": {"$ref": "#/$defs/integerish"}, "slice_pairs": {"type": "array"}
+      }, "additionalProperties": false
+    }
   }
 }

@@ -12,11 +12,7 @@ if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
 # Import Nested allow-lists from the sampler module (single source of truth).
-from jarvishep2.Sampling.dynesty_sampler import (
-    DYNAMIC_RUN_NESTED_KEYS,
-    NESTED_CONSTRUCTOR_USER_KEYS,
-    STATIC_RUN_NESTED_KEYS,
-)
+from jarvishep2.Sampling.dynesty_sampler import NESTED_CONSTRUCTOR_USER_KEYS
 
 # Canonical + documented aliases for top-level Bounds keys.
 _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
@@ -40,9 +36,6 @@ _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
 
 # Flat constructor keys may also appear at Bounds top level (official dynesty style).
 _BOUNDS_TOP_ALLOWED: frozenset[str] = _BOUNDS_META_ALLOWED | NESTED_CONSTRUCTOR_USER_KEYS
-
-_RUN_NESTED_ALLOWED: frozenset[str] = STATIC_RUN_NESTED_KEYS | DYNAMIC_RUN_NESTED_KEYS
-
 
 def validate_nested_bounds(
     bounds: Mapping[str, Any],
@@ -130,16 +123,10 @@ def validate_nested_bounds(
                 )
             )
         else:
-            run_extra = unknown_keys(run_raw, _RUN_NESTED_ALLOWED)
-            if run_extra:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-BND-021",
-                        f"{path}.run_nested",
-                        f"unknown key(s): {', '.join(run_extra)}",
-                    )
-                )
+            # ``run_nested`` is forwarded to dynesty.  It is deliberately a
+            # delegated zone: a new dynesty keyword must not be rejected by a
+            # Jarvis2 release that predates it.
+            pass
 
     # sampler / constructor blocks
     for block_key in ("sampler", "Sampler", "constructor", "Constructor"):
@@ -169,6 +156,10 @@ def validate_nested_bounds(
                     f"{', '.join(bad_injected)}",
                 )
             )
+        # ``sampler`` is also forwarded to dynesty, whereas the explicit
+        # constructor aliases remain a Jarvis2-owned compatibility surface.
+        if block_key.lower() == "sampler":
+            continue
         block_extra = unknown_keys(block, NESTED_CONSTRUCTOR_USER_KEYS)
         # Filter out injected already reported.
         block_extra = [k for k in block_extra if k not in injected]

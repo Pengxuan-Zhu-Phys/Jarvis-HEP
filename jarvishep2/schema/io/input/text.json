@@ -1,1 +1,30 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/io/input/text.json","type":"object","x-jarvis-example":"name: input\npath: input.txt\ntype: Text\ncontent: '{{ x }}'","required":["name","path","type"],"properties":{"name":{"$ref":"https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},"path":{"$ref":"https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},"type":{"const":"Text"},"save":{"type":"boolean"},"content":{"type":"string"}},"additionalProperties":true}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/io/input/text.json",
+  "type": "object",
+  "x-jarvis-example": "name: input\npath: input.txt\ntype: Text\ncontent: '{{ x }}'",
+  "required": [
+    "name",
+    "path",
+    "type"
+  ],
+  "properties": {
+    "name": {
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+    },
+    "path": {
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+    },
+    "type": {
+      "const": "Text"
+    },
+    "save": {
+      "type": "boolean"
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true,
+  "x-jarvis-zone": "delegated"
+}

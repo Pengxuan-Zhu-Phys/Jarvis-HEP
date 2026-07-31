@@ -1,1 +1,1 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/csv.json","type":"object","x-jarvis-example":"Method: CSV\nCSV:\n  path: points.csv","properties":{"Method":{"const":"CSV"}},"required":["CSV"]}
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/csv.json","type":"object","x-jarvis-zone":"closed","x-jarvis-example":"Method: CSV\nCSV:\n  path: points.csv","properties":{"Method":{"const":"CSV"}},"required":["CSV"]}

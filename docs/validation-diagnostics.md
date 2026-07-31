@@ -35,6 +35,12 @@ sampling, variables, calculator/Opera modules, and V2 runtime configuration.
 Every remaining V2 error receives a conservative fallback suggestion, so no
 reported validation failure is left without a next action.
 
+Unknown keys in a closed schema object also receive a spelling suggestion when
+there is a close allowed field (for example, `naem` suggests `name`). If YAML
+has resolved an unquoted boolean-like scalar where a string is required, the
+suggestion explicitly asks for quotes. Accepted numeric strings such as `1e-5`
+produce warning `JV2-SCH-003`; they are not rejected for compatibility.
+
 ## Authoring rules
 
 * Examples must be minimal, valid YAML fragments for the failing object.

@@ -186,6 +186,14 @@ def _validate_operas_call_mode(config: Mapping[str, Any]) -> list[ValidationIssu
     return issues
 
 
+def _finalize_report(report: ValidationReport, *, strict: bool) -> ValidationReport:
+    """Apply the stable CLI ordering after every validation branch."""
+    if strict:
+        report.promote_warnings_to_errors()
+    report.issues.sort(key=lambda item: (item.level != "error", item.path, item.code, item.message))
+    return report
+
+
 def validate_task_config(
     config: Mapping[str, Any],
     *,
@@ -215,7 +223,7 @@ def validate_task_config(
                 f"task config must be a mapping, got {type(config).__name__}",
             )
         )
-        return report
+        return _finalize_report(report, strict=strict)
 
     # Structural, editor-friendly validation precedes semantic Python contracts.
     report.extend(validate_task_card_schema(config))
@@ -241,9 +249,7 @@ def validate_task_config(
         report.extend(validate_operational_blocks(config))
         report.extend(_validate_dead_keys(config))
         report.extend(_validate_operas_call_mode(config))
-        if strict:
-            report.promote_warnings_to_errors()
-        return report
+        return _finalize_report(report, strict=strict)
 
     if not isinstance(sampling, Mapping):
         report.add(
@@ -255,9 +261,7 @@ def validate_task_config(
             )
         )
         report.extend(validate_operational_blocks(config))
-        if strict:
-            report.promote_warnings_to_errors()
-        return report
+        return _finalize_report(report, strict=strict)
 
     method_raw = sampling.get("Method")
     method = str(method_raw).strip() if method_raw is not None else ""
@@ -344,9 +348,7 @@ def validate_task_config(
     report.extend(_validate_dead_keys(config))
     report.extend(_validate_operas_call_mode(config))
 
-    if strict:
-        report.promote_warnings_to_errors()
-    return report
+    return _finalize_report(report, strict=strict)
 
 
 def validate_or_raise(

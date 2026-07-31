@@ -16,7 +16,7 @@ loads files named there; it never fetches a remote schema.
 
 ```text
 YAML parse + V1/default normalisation
-    -> JSON Schema: card structure, types, closed user interfaces
+  -> JSON Schema: card structure, types, ownership zones
     -> Python contracts: cross-field, numerical, path, runtime semantics
 ```
 
@@ -40,11 +40,22 @@ The schema is deliberately strict for the common, user-authored interfaces:
 | Calculator `input` / `output` | registered format, common fields, and JSON-specific layouts | Portal adapter availability and file contents |
 | `Operas.Modules` | name/operator/call-mode/input/output structure | operator discovery, signatures, expression evaluation |
 
-`EnvReqs`, project metadata, and integration extension blocks stay open at this
-layer because they are normalised from V1/default files or have runtime-owned
-semantics. `Scan`, `Sampling`, `Calculators`, and each Calculator module are
-closed interfaces: an unknown user key is a schema error with the allowed-key
-list in its correction suggestion.
+Each object schema has an `x-jarvis-zone` owner marker, self-tested when the
+catalog loads:
+
+| Zone | Meaning |
+| --- | --- |
+| `closed` | Jarvis2 owns the interface; an unknown key is an error. |
+| `delegated` | A downstream component owns its keywords; Jarvis2 validates only its own declared envelope. |
+| `open` | An identified, un-migrated surface; nested keys pass through with one warning and an explicit reason. |
+
+`Scan`, `Sampling`, `Calculators`, Calculator modules, and Opera modules are
+closed interfaces. `Calculators.path`, `Modules[].deps_source`, and
+`Operas.Modules[].selection` are documented V1 compatibility fields rather
+than accidental exceptions. `EnvReqs` sibling V1 blocks, Portal I/O payloads,
+Opera `kwargs`, and dynesty pass-through blocks are delegated. The legacy
+RLTPMCMC `Control`, `Reward`, `PPO`, and `Diagnostics` blocks are temporarily
+open; their presence emits `JV2-SCH-004`.
 
 ## File composition
 
@@ -78,11 +89,11 @@ type: JSON
 save: false
 ```
 
-`type` is the manifest discriminator. The bundled manifest exactly matches the
-Portal built-ins: input supports `CSV`, `DAT`, `JSON`, `SLHA`, `Text`, `TSV`,
-and `Wolfram`; output supports `CSV`, `DAT`, `JSON`, `SLHA`, `TSV`, `Wolfram`,
-and `xSLHA`. The names are case-sensitive after surrounding whitespace is
-normalised.
+`type` is owned by the live Portal registry, not by the manifest. The names
+are case-sensitive after surrounding whitespace is normalised. A manifest
+entry is optional enrichment: if Portal supports a format without a bundled
+Jarvis2 schema it is accepted and delegated to Portal; if Portal does not
+support the format, `JV2-SCH-002` lists the formats valid for that direction.
 
 JSON has the first strict format-specific layout:
 
@@ -91,9 +102,10 @@ JSON has the first strict format-specific layout:
 * JSON output: `variables` containing `name`/`entry`.
 * Text is an input-only Portal format and requires `type: Text`.
 
-Every registered format has its own input and/or output schema file. Unknown
-format names are `JV2-SCH-002` structural errors;
-a format must be added to the manifest and its Portal adapter together.
+Bundled formats have their own input and/or output schema file. Unknown format
+names are `JV2-SCH-002` structural errors. Adding a Portal adapter does not
+require a synchronous schema release; add a local schema later when Jarvis2
+can usefully validate format-specific fields.
 
 ## Compatibility policy
 
@@ -110,8 +122,8 @@ runtime registry discovery, or a numerical relationship between fields.
 ## Adding a format
 
 1. Add `io/input/<format>.json` and/or `io/output/<format>.json`.
-2. List the files in `manifest.json.schema_files` and map the format names in
-   `manifest.json.io`.
+2. List the files in `manifest.json.schema_files` and optionally map the
+   Portal format name in `manifest.json.io` for detailed local validation.
 3. Add positive and negative card fixtures.
 4. Confirm the matching Jarvis-Portal adapter is registered.
 5. Keep content-dependent validation in Python/Portal, not JSON Schema.
@@ -119,6 +131,11 @@ runtime registry discovery, or a numerical relationship between fields.
 ## Rollout
 
 Schema validation is enabled by default for loaded task cards. It emits
-deterministic `JV2-SCH-001` diagnostics containing the JSON path and the
-schema's error message. Existing Python `JV2-*` diagnostics continue to run,
-so a card can report both structural and semantic corrections in one command.
+deterministically sorted `JV2-SCH-001` diagnostics containing the JSON path,
+schema message, allowed keys, and (for close spellings) a “Did you mean?”
+rename. Numeric YAML strings such as `1e-5` remain compatible with V1 and emit
+`JV2-SCH-003`, suggesting canonical numeric notation. Existing Python
+`JV2-*` diagnostics continue to run, so a card can report both structural and
+semantic corrections in one command. The corpus regression test covers all
+example `*/bin/*.yaml` cards and allows only the explicitly unimplemented
+sampler methods to remain runtime errors.
