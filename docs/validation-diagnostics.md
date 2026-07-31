@@ -13,6 +13,12 @@ document is `JV2-YAML-002`; and a missing task file is `JV2-LOAD-001`.
 `Jarvis2 validate --json` exposes the same `suggestion` and `example` fields as
 the human-readable output.
 
+`JV2-ENC-001` runs before schema validation. Keys and string values in a task
+card must be ASCII; its path and character positions identify the edit. Put
+Chinese explanatory text in a YAML `#` comment instead: comments are discarded
+before validation and remain unrestricted. User-provided non-ASCII diagnostic
+text is rendered as ASCII `\uXXXX` escapes, including in the multi-error table.
+
 ```text
 [error] JV2-SCH-001  $.Calculators.Modules[0].execution.input[0]
         'path' is a required property
@@ -36,16 +42,21 @@ Every remaining V2 error receives a conservative fallback suggestion, so no
 reported validation failure is left without a next action.
 
 Unknown keys in a closed schema object also receive a spelling suggestion when
-there is a close allowed field (for example, `naem` suggests `name`). If YAML
+there is a close allowed field (for example, `naem` suggests `name`). When
+multiple unknown keys are reported together, each receives its own spelling
+suggestion; very large allowed-key lists are compacted. If YAML
 has resolved an unquoted boolean-like scalar where a string is required, the
 suggestion explicitly asks for quotes. Accepted numeric strings such as `1e-5`
-produce warning `JV2-SCH-003`; they are not rejected for compatibility.
+produce warning `JV2-SCH-003`; they are not rejected for compatibility. An
+invalid numeric union reports accepted forms such as `0.05` or `1.0e-5`, rather
+than the generic JSON Schema `anyOf` message.
 
 When a card has two or more errors, the human-readable report starts with a
 compact `Code` / `YAML path` / `Problem` table, then prints the full actionable
 diagnostics. The table explicitly says that it is only a quick reference and
 asks the user to consult the Jarvis-HEP YAML settings documentation before
-editing the card. JSON output remains structured and unchanged.
+editing the card. It uses ASCII-only borders and escaped text for deterministic
+terminal alignment. JSON output remains structured and unchanged.
 
 ## Authoring rules
 

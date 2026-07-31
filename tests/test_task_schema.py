@@ -170,6 +170,34 @@ class TaskCardSchemaTests(unittest.TestCase):
         suggestion = next(issue.suggestion for issue in report.errors() if issue.path == "$.Scan")
         self.assertIn("Did you mean 'name'?", suggestion or "")
 
+    def test_multiple_closed_block_typos_each_get_a_spelling_hint(self) -> None:
+        card = _card()
+        card["Sampling"].update({
+            "Method": "AdaptiveBridson",
+            "AdaptiveBridson": {
+                "target_expression": "x",
+                "target_value": 0.5,
+                "initial_radiuz": 0.1,
+                "max_pointz": 10,
+            },
+        })
+        report = validate_task_config(card)
+        issue = next(item for item in report.errors() if item.path == "$.Sampling.AdaptiveBridson")
+        self.assertIn("'initial_radiuz' (did you mean 'initial_radius'?)", issue.suggestion or "")
+        self.assertIn("'max_pointz' (did you mean 'max_points'?)", issue.suggestion or "")
+        self.assertIn("... (+", issue.suggestion or "")
+
+    def test_numeric_union_error_is_actionable(self) -> None:
+        card = _card()
+        card["Sampling"].update({"Method": "Bridson", "Radius": "abc", "MaxAttempt": 30})
+        report = validate_task_config(card)
+        issue = next(item for item in report.errors() if item.path == "$.Sampling.Radius" and item.code == "JV2-SCH-001")
+        self.assertEqual(
+            issue.message,
+            "expected a number (e.g. 0.05 or 1.0e-5), got the string 'abc'",
+        )
+        self.assertIn("0.05 or 1.0e-5", issue.suggestion or "")
+
     def test_numeric_string_warns_but_compatibly_passes(self) -> None:
         card = _card()
         card["Sampling"].update({"Method": "Bridson", "Radius": "1e-1", "MaxAttempt": "30"})

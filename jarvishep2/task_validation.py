@@ -23,6 +23,13 @@ from jarvishep2.task_config import get_check_modules_settings
 Level = Literal["error", "warning"]
 
 
+def _ascii_diagnostic(value: str | None) -> str | None:
+    """Escape user-provided non-ASCII text before it reaches logs or tables."""
+    if value is None:
+        return None
+    return value.encode("ascii", "backslashreplace").decode("ascii")
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     """One diagnostic produced by the config gate."""
@@ -36,13 +43,19 @@ class ValidationIssue:
     example: str | None = None
 
     def format_line(self) -> str:
-        base = f"  [{self.level}] {self.code}  {self.path}\n          {self.message}"
-        if self.hint:
-            base += f"\n          hint: {self.hint}"
-        if self.suggestion:
-            base += f"\n          suggestion: {self.suggestion}"
-        if self.example:
-            base += f"\n          example:\n{_indent_example(self.example)}"
+        code = _ascii_diagnostic(self.code) or self.code
+        path = _ascii_diagnostic(self.path) or self.path
+        message = _ascii_diagnostic(self.message) or self.message
+        hint = _ascii_diagnostic(self.hint)
+        suggestion = _ascii_diagnostic(self.suggestion)
+        example = _ascii_diagnostic(self.example)
+        base = f"  [{self.level}] {code}  {path}\n          {message}"
+        if hint:
+            base += f"\n          hint: {hint}"
+        if suggestion:
+            base += f"\n          suggestion: {suggestion}"
+        if example:
+            base += f"\n          example:\n{_indent_example(example)}"
         return base
 
 
@@ -109,8 +122,11 @@ def issue(
         if example is None:
             example = automatic_example
     return ValidationIssue(
-        level=level, code=code, path=path, message=message, hint=hint,
-        suggestion=suggestion, example=example,
+        level=level, code=_ascii_diagnostic(code) or code,
+        path=_ascii_diagnostic(path) or path,
+        message=_ascii_diagnostic(message) or message,
+        hint=_ascii_diagnostic(hint), suggestion=_ascii_diagnostic(suggestion),
+        example=_ascii_diagnostic(example),
     )
 
 
@@ -121,33 +137,38 @@ def _indent_example(example: str) -> str:
 def _ellipsize(value: str, width: int) -> str:
     """Keep a terminal-table cell readable without losing the detailed entry."""
     value = " ".join(value.split())
-    return value if len(value) <= width else value[: width - 1] + "…"
+    return value if len(value) <= width else value[: width - 3] + "..."
 
 
 def _format_issue_summary_table(issues: Sequence[ValidationIssue]) -> str:
     """Render a compact, plain-text table suitable for stderr and log files."""
     rows = [
-        (str(index), item.code, _ellipsize(item.path, 38), _ellipsize(item.message, 72))
+        (
+            str(index),
+            _ascii_diagnostic(item.code) or item.code,
+            _ellipsize(_ascii_diagnostic(item.path) or item.path, 38),
+            _ellipsize(_ascii_diagnostic(item.message) or item.message, 72),
+        )
         for index, item in enumerate(issues, start=1)
     ]
     headers = ("#", "Code", "YAML path", "Problem")
     widths = [
-        max(len(headers[index]), *(len(row[index]) for row in rows))
+        max((len(headers[index]), *(len(row[index]) for row in rows)), default=len(headers[index]))
         for index in range(len(headers))
     ]
 
     def row(values: tuple[str, ...]) -> str:
-        return "│" + "│".join(
+        return "|" + "|".join(
             f" {value:<{width}} " for value, width in zip(values, widths)
-        ) + "│"
+        ) + "|"
 
     return "\n".join([
         "Error summary (reference only):",
-        "┌" + "┬".join("─" * (width + 2) for width in widths) + "┐",
+        "+" + "+".join("-" * (width + 2) for width in widths) + "+",
         row(headers),
-        "├" + "┼".join("─" * (width + 2) for width in widths) + "┤",
+        "+" + "+".join("-" * (width + 2) for width in widths) + "+",
         *(row(values) for values in rows),
-        "└" + "┴".join("─" * (width + 2) for width in widths) + "┘",
+        "+" + "+".join("-" * (width + 2) for width in widths) + "+",
         "This table is only a quick reference. Please consult the Jarvis-HEP YAML settings documentation before editing the task card.",
     ])
 
@@ -195,6 +216,52 @@ def _validate_dead_keys(config: Mapping[str, Any]) -> list[ValidationIssue]:
             )
         )
 
+    return issues
+
+
+def _yaml_path_part(path: str, part: Any) -> str:
+    """Append one parsed YAML key or list position to a diagnostic path."""
+    return f"{path}[{part}]" if isinstance(part, int) else f"{path}.{part}"
+
+
+def _non_ascii_positions(value: str) -> list[int]:
+    """Return one-based character positions of non-ASCII code points."""
+    return [index for index, char in enumerate(value, start=1) if ord(char) > 0x7F]
+
+
+def validate_task_card_encoding(config: Any) -> list[ValidationIssue]:
+    """Reject non-ASCII keys and string values in the parsed task card.
+
+    YAML comments are intentionally absent here: PyYAML removes them before the
+    document reaches this gate, which keeps Chinese explanations legal in
+    ``#`` comments while task-card data itself remains portable ASCII.
+    """
+    issues: list[ValidationIssue] = []
+
+    def add_issue(path: str, value: str, *, location: str) -> None:
+        positions = ", ".join(str(position) for position in _non_ascii_positions(value))
+        issues.append(issue(
+            "error", "JV2-ENC-001", path,
+            f"non-ASCII character(s) at position(s) {positions} in {location} {value!r}",
+            hint="Task-card keys and string values must be ASCII. Put Chinese text in a # comment, which is fully supported.",
+            suggestion="Replace this text with English ASCII, or move Chinese explanatory text to a # comment.",
+        ))
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            for key, child in value.items():
+                key_path = _yaml_path_part(path, key)
+                if isinstance(key, str) and _non_ascii_positions(key):
+                    add_issue(key_path, key, location="key")
+                visit(child, key_path)
+        elif isinstance(value, str):
+            if _non_ascii_positions(value):
+                add_issue(path, value, location="string value")
+        elif isinstance(value, Sequence):
+            for index, child in enumerate(value):
+                visit(child, _yaml_path_part(path, index))
+
+    visit(config, "$")
     return issues
 
 
@@ -260,6 +327,13 @@ def validate_task_config(
                 f"task config must be a mapping, got {type(config).__name__}",
             )
         )
+        return _finalize_report(report, strict=strict)
+
+    # Encoding is a hard card-surface boundary. Stop here so a non-ASCII key
+    # gets JV2-ENC-001 rather than downstream schema noise such as
+    # "additional properties".
+    report.extend(validate_task_card_encoding(config))
+    if report.errors():
         return _finalize_report(report, strict=strict)
 
     # Structural, editor-friendly validation precedes semantic Python contracts.
@@ -410,6 +484,7 @@ __all__ = [
     "format_report_success",
     "issue",
     "raise_if_errors",
+    "validate_task_card_encoding",
     "validate_or_raise",
     "validate_task_config",
 ]

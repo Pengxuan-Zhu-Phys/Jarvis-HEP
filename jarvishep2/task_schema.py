@@ -18,6 +18,7 @@ SCHEMA_DIR = Path(__file__).with_name("schema")
 SCHEMA_PATH = SCHEMA_DIR / "task-card-v2.schema.json"
 MANIFEST_PATH = SCHEMA_DIR / "manifest.json"
 _NUMERIC_STRING = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
+_MAX_ALLOWED_KEYS_IN_DIAGNOSTIC = 8
 
 
 def schema_catalog_lint_errors() -> list[str]:
@@ -97,6 +98,46 @@ def _path(parts: Any, prefix: str = "$") -> str:
     return rendered
 
 
+def _additional_property_keys(message: str) -> list[str]:
+    """Extract jsonschema's singular or plural unexpected-property payload."""
+    match = re.search(
+        r"\((?P<keys>(?:'[^']+'(?:, )?)+) (?:was|were) unexpected\)",
+        message,
+    )
+    return re.findall(r"'([^']+)'", match.group("keys")) if match else []
+
+
+def _allowed_keys_summary(allowed: Mapping[str, Any]) -> str:
+    """Keep large closed-block vocabulary hints useful in a terminal."""
+    names = sorted(allowed)
+    shown = names[:_MAX_ALLOWED_KEYS_IN_DIAGNOSTIC]
+    rendered = ", ".join(shown)
+    remaining = len(names) - len(shown)
+    if remaining:
+        rendered += f", ... (+{remaining} more)"
+    return rendered
+
+
+def _is_numeric_union_error(error: Any) -> bool:
+    schema = error.schema if isinstance(error.schema, Mapping) else {}
+    return error.validator in {"anyOf", "oneOf"} and bool(schema.get("x-jarvis-numeric"))
+
+
+def _schema_error_message(error: Any) -> str:
+    """Replace opaque numeric-union errors with an immediately editable one."""
+    if _is_numeric_union_error(error):
+        if isinstance(error.instance, str):
+            return (
+                "expected a number (e.g. 0.05 or 1.0e-5), got the string "
+                f"{error.instance!r}"
+            )
+        return (
+            "expected a number (e.g. 0.05 or 1.0e-5), got "
+            f"{type(error.instance).__name__}"
+        )
+    return error.message
+
+
 def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
     """Translate jsonschema's technical validators into an editable YAML fix."""
     schema = error.schema if isinstance(error.schema, Mapping) else {}
@@ -114,14 +155,24 @@ def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
                 example = "- name: output\n  path: output.json\n  type: JSON"
         return f"Add {field!r} at this location using the expected YAML type.", example
     if error.validator == "additionalProperties":
-        unknown = re.search(r"\('([^']+)' was unexpected\)", error.message)
-        key = unknown.group(1) if unknown else "the unexpected key"
+        keys = _additional_property_keys(error.message)
         allowed = schema.get("properties", {})
-        names = ", ".join(sorted(allowed)) if isinstance(allowed, Mapping) else ""
-        close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
-        rename = f" Did you mean {close[0]!r}?" if close else ""
-        suffix = f" Allowed keys: {names}." if names else ""
-        return f"Remove or rename {key!r}.{rename}{suffix}", example
+        if not keys:
+            return "Remove or rename the unexpected key.", example
+        if len(keys) == 1:
+            key = keys[0]
+            close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
+            rename = f" Did you mean {close[0]!r}?" if close else ""
+            suffix = f" Allowed keys: {_allowed_keys_summary(allowed)}." if isinstance(allowed, Mapping) else ""
+            return f"Remove or rename {key!r}.{rename}{suffix}", example
+        fixes: list[str] = []
+        for key in keys:
+            close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
+            fixes.append(
+                f"{key!r} (did you mean {close[0]!r}?)" if close else f"{key!r} (remove it)"
+            )
+        suffix = f" Allowed keys: {_allowed_keys_summary(allowed)}." if isinstance(allowed, Mapping) else ""
+        return "Remove or rename unexpected keys: " + "; ".join(fixes) + "." + suffix, example
     if error.validator in {"enum", "const"}:
         allowed = schema.get("enum")
         if error.validator == "const":
@@ -139,6 +190,11 @@ def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
     if error.validator in {"minimum", "exclusiveMinimum", "maximum", "minLength", "minItems"}:
         return "Adjust the value so it satisfies the bound stated in the error message.", example
     if error.validator in {"anyOf", "oneOf"}:
+        if _is_numeric_union_error(error):
+            return (
+                "Use a numeric YAML scalar, for example: 0.05 or 1.0e-5.",
+                example,
+            )
         required_fields = sorted({
             match.group(1)
             for child in error.context
@@ -164,7 +220,7 @@ def _issues_for(validator: Draft202012Validator, value: Any, prefix: str) -> lis
     for error in errors:
         suggestion, example = _schema_error_guidance(error, prefix)
         issues.append(issue(
-            "error", "JV2-SCH-001", _path(error.absolute_path, prefix), error.message,
+            "error", "JV2-SCH-001", _path(error.absolute_path, prefix), _schema_error_message(error),
             hint="See docs/task-card-schema.md for the strict card interface.",
             suggestion=suggestion, example=example,
         ))

@@ -16,6 +16,7 @@ loads files named there; it never fetches a remote schema.
 
 ```text
 YAML parse + V1/default normalisation
+  -> ASCII task-card gate: keys and string values only
   -> JSON Schema: card structure, types, ownership zones
     -> Python contracts: cross-field, numerical, path, runtime semantics
 ```
@@ -56,6 +57,28 @@ than accidental exceptions. `EnvReqs` sibling V1 blocks, Portal I/O payloads,
 Opera `kwargs`, and dynesty pass-through blocks are delegated. The legacy
 RLTPMCMC `Control`, `Reward`, `PPO`, and `Diagnostics` blocks are temporarily
 open; their presence emits `JV2-SCH-004`.
+
+## Task-card text encoding
+
+Task-card keys and every string value must be ASCII. This is enforced before
+schema validation as `JV2-ENC-001`, so a non-ASCII key receives an honest
+encoding diagnostic rather than a misleading unknown-key error. Each issue
+identifies the parsed YAML path and one-based character positions. This also
+protects `Scan.name` before it can become an output directory, tar member, or
+HDF5 attribute.
+
+Chinese (and every other non-ASCII script) remains fully supported in YAML
+comments because comments are removed by the YAML parser:
+
+```yaml
+# Chinese explanation is allowed here.
+Scan:
+  name: ascii-scan
+```
+
+Human-readable diagnostics escape non-ASCII input as `\uXXXX` and use an
+ASCII summary table, so table alignment stays deterministic even while
+explaining a rejected key.
 
 ## File composition
 
@@ -131,10 +154,13 @@ runtime registry discovery, or a numerical relationship between fields.
 ## Rollout
 
 Schema validation is enabled by default for loaded task cards. It emits
-deterministically sorted `JV2-SCH-001` diagnostics containing the JSON path,
-schema message, allowed keys, and (for close spellings) a “Did you mean?”
-rename. Numeric YAML strings such as `1e-5` remain compatible with V1 and emit
-`JV2-SCH-003`, suggesting canonical numeric notation. Existing Python
+deterministically sorted diagnostics containing the JSON path, schema message,
+allowed keys, and (for close spellings) a “Did you mean?” rename. Multiple
+unknown keys each receive their own spelling suggestion; very large allowed-key
+lists are compacted. Numeric YAML strings such as `1e-5` remain compatible with
+V1 and emit `JV2-SCH-003`, suggesting canonical numeric notation; invalid
+numeric strings explain the accepted forms (`0.05` or `1.0e-5`) directly.
+Existing Python
 `JV2-*` diagnostics continue to run, so a card can report both structural and
 semantic corrections in one command. The corpus regression test covers all
 example `*/bin/*.yaml` cards and allows only the explicitly unimplemented

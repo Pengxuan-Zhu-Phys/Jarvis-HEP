@@ -59,9 +59,57 @@ class TaskValidationKernelTests(unittest.TestCase):
         report = validate_task_config(cfg)
         rendered = format_report(report)
         self.assertIn("Error summary (reference only):", rendered)
-        self.assertIn("│ Code", rendered)
+        self.assertIn("| Code", rendered)
         self.assertIn("Detailed diagnostics:", rendered)
         self.assertIn("This table is only a quick reference.", rendered)
+
+    def test_empty_summary_table_is_safe_and_ascii_only(self) -> None:
+        from jarvishep2.task_validation import _format_issue_summary_table
+        rendered = _format_issue_summary_table([])
+        self.assertIn("| YAML path", rendered)
+        self.assertTrue(all(ord(char) < 128 for char in rendered))
+
+    def test_non_ascii_key_is_an_encoding_error_before_schema(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Scan"]["\u540d\u79f0"] = "scan"
+        report = validate_task_config(cfg)
+        self.assertEqual([issue.code for issue in report.errors()], ["JV2-ENC-001"])
+        issue = report.errors()[0]
+        self.assertIn("$.Scan.\\u540d\\u79f0", issue.path)
+        self.assertIn("position(s) 1, 2", issue.message)
+        self.assertIn("Chinese text in a # comment", issue.hint or "")
+
+    def test_non_ascii_scan_name_and_description_are_encoding_errors(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Scan"]["name"] = "\u6697\u7269\u8d28"
+        cfg["Sampling"]["Variables"][0]["description"] = "\u4e2d\u6587\u8bf4\u660e"
+        report = validate_task_config(cfg)
+        self.assertEqual([issue.code for issue in report.errors()], ["JV2-ENC-001", "JV2-ENC-001"])
+        self.assertEqual({issue.path for issue in report.errors()}, {
+            "$.Sampling.Variables[0].description", "$.Scan.name",
+        })
+        self.assertTrue(all(ord(char) < 128 for char in format_report(report)))
+
+    def test_non_ascii_comment_is_discarded_before_encoding_validation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "comment.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "# \u8fd9\u662f\u5141\u8bb8\u7684\u4e2d\u6587\u6ce8\u91ca\n"
+                    "Scan:\n  name: ascii-scan\n"
+                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "  Variables:\n    - name: x\n"
+                    "      distribution:\n        type: Flat\n"
+                    "        parameters: {min: 0.0, max: 1.0}\n"
+                )
+            report = validate_task_config(load_task_yaml(path))
+        self.assertFalse([issue for issue in report.errors() if issue.code == "JV2-ENC-001"])
+
+    def test_cyrillic_homoglyph_is_an_encoding_error(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Scan"]["n\u0430me"] = "scan"  # Cyrillic a, not ASCII a.
+        report = validate_task_config(cfg)
+        self.assertEqual([issue.code for issue in report.errors()], ["JV2-ENC-001"])
 
     def test_valid_dynesty_passes(self) -> None:
         report = validate_task_config(_minimal_dynesty_config())
@@ -349,6 +397,24 @@ class TaskValidationCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             self.assertIn("JV2-YAML-001", stderr.getvalue())
             self.assertIn("suggestion:", stderr.getvalue())
+
+    def test_dispatch_run_rejects_non_ascii_before_creating_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "task.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "Scan:\n  name: \u6697\u7269\u8d28\n"
+                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "  Variables:\n    - name: x\n"
+                    "      distribution:\n        type: Flat\n"
+                    "        parameters: {min: 0.0, max: 1.0}\n"
+                )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = dispatch_run(path)
+            self.assertEqual(code, 2)
+            self.assertIn("JV2-ENC-001", stderr.getvalue())
+            self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
 
     def test_referenced_default_yaml_syntax_has_the_same_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
