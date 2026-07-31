@@ -19,6 +19,14 @@ SCHEMA_PATH = SCHEMA_DIR / "task-card-v2.schema.json"
 MANIFEST_PATH = SCHEMA_DIR / "manifest.json"
 _NUMERIC_STRING = re.compile(r"[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
 _MAX_ALLOWED_KEYS_IN_DIAGNOSTIC = 8
+_REMOVED_ROOT_KEYS: dict[str, str] = {
+    "Likelihood": (
+        "Move its expressions to Sampling.LogLikelihood; top-level Likelihood is not a V2 interface."
+    ),
+    "Mapper": "Remove top-level Mapper: it is not a V2 task-card interface.",
+    "project_name": "Remove top-level project_name: it is not a V2 task-card interface.",
+    "Utils": "Remove top-level Utils: it is not supported by V2.",
+}
 
 
 def schema_catalog_lint_errors() -> list[str]:
@@ -147,6 +155,11 @@ def _additional_properties_message(keys: list[str]) -> str:
     ) + " were unexpected)"
 
 
+def _root_key_suggestion(key: str) -> str | None:
+    """Return the explicit migration for a removed top-level V1 block."""
+    return _REMOVED_ROOT_KEYS.get(key)
+
+
 def _schema_error_guidance(
     error: Any,
     prefix: str,
@@ -179,12 +192,19 @@ def _schema_error_guidance(
             return "Remove or rename the unexpected key.", example
         if len(keys) == 1:
             key = keys[0]
+            removed = _root_key_suggestion(key) if prefix == "$" else None
+            if removed is not None:
+                return removed, example
             close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
             rename = f" Did you mean {close[0]!r}?" if close else ""
             suffix = f" Allowed keys: {_allowed_keys_summary(allowed)}." if isinstance(allowed, Mapping) else ""
             return f"Remove or rename {key!r}.{rename}{suffix}", example
         fixes: list[str] = []
         for key in keys:
+            removed = _root_key_suggestion(key) if prefix == "$" else None
+            if removed is not None:
+                fixes.append(f"{key!r} ({removed})")
+                continue
             close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
             fixes.append(
                 f"{key!r} (did you mean {close[0]!r}?)" if close else f"{key!r} (remove it)"

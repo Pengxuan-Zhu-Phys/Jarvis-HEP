@@ -1,0 +1,25 @@
+# D18.5 verified LibDeps skill card: the library command is deliberately harmless.
+Scan:
+  name: shared-libraries-skill
+Sampling:
+  Method: Random
+  Point number: 1
+  Variables:
+    - name: x
+      distribution:
+        type: Flat
+        parameters:
+          min: 0.0
+          max: 1.0
+LibDeps:
+  path: "&J/deps/library"
+  make_paraller: 4
+  Modules:
+    - name: ExampleSharedLibrary
+      required_modules: []
+      installed: false
+      installation:
+        path: "${LibDeps:path}/ExampleSharedLibrary"
+        commands:
+          - "mkdir -p ${path}"
+          - "true"

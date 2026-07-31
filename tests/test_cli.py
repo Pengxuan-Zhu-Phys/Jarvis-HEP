@@ -83,6 +83,13 @@ class CliParseTests(unittest.TestCase):
         args = build_parser().parse_args(["run", "task.yaml"])
         self.assertEqual(args.console_level, "WARNING")
 
+    def test_run_and_check_accept_skip_library_installation(self) -> None:
+        for command in ("run", "check"):
+            args = build_parser().parse_args(
+                [command, "task.yaml", "--skip-library-installation"]
+            )
+            self.assertTrue(args.skip_library_installation)
+
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
         self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)

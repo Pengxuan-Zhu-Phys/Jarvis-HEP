@@ -354,10 +354,11 @@ def validate_task_config(
     report.extend(validate_task_card_encoding(raw_task_card))
     non_ascii_keys = _non_ascii_key_names(raw_task_card)
 
-    # Structural, editor-friendly validation precedes semantic Python contracts.
+    # Structural validation must also see the user-authored document, rather
+    # than runtime-only fields injected by ``load_task_yaml``.
     report.extend(
         validate_task_card_schema(
-            config, suppress_additional_property_keys=non_ascii_keys,
+            raw_task_card, suppress_additional_property_keys=non_ascii_keys,
         )
     )
 

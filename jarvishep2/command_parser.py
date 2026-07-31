@@ -16,6 +16,7 @@ from jarvishep2.sample import ensure_sample_materialized
 SAMPLE_TOKENS: tuple[str, ...] = ("@SampleID", "@Sdir", "@PackID")
 _LIBDEPS_PATTERN = re.compile(r"\$\{LibDeps:([^}]+)\}")
 _SCAN_PATTERN = re.compile(r"\$\{Scan:([^}]+)\}")
+_ROOT_PATH_PATTERN = re.compile(r"@\{ROOT path\}")
 def _registered_name_pattern(name: str) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w./-]){re.escape(name)}(?![\w./-])")
 
@@ -52,6 +53,8 @@ class CommandParser:
         project_root: str,
         scan_name: str = "default",
         libdeps_paths: Mapping[str, str] | None = None,
+        libdeps_values: Mapping[str, str] | None = None,
+        root_path: str | None = None,
         registered: Mapping[str, ResolvedExecutable] | None = None,
         registered_symlink_root: str | None = None,
     ) -> None:
@@ -62,6 +65,12 @@ class CommandParser:
             for name, path in (libdeps_paths or {}).items()
             if str(name).strip()
         }
+        self.libdeps_values = {
+            str(name): str(value)
+            for name, value in (libdeps_values or {}).items()
+            if str(name).strip()
+        }
+        self.root_path = os.path.abspath(str(root_path)) if root_path else None
         self.registered: dict[str, ResolvedExecutable] = dict(registered or {})
         self.registered_symlink_root = os.path.abspath(
             str(registered_symlink_root or os.path.join(self.project_root, "deps", "registered"))
@@ -73,6 +82,8 @@ class CommandParser:
             "project_root": self.project_root,
             "scan_name": self.scan_name,
             "libdeps_paths": dict(self.libdeps_paths),
+            "libdeps_values": dict(self.libdeps_values),
+            "root_path": self.root_path,
             "registered": {
                 name: {
                     "name": item.name,
@@ -102,6 +113,8 @@ class CommandParser:
             project_root=str(payload.get("project_root") or infer_project_root()),
             scan_name=str(payload.get("scan_name") or "default"),
             libdeps_paths=dict(payload.get("libdeps_paths") or {}),
+            libdeps_values=dict(payload.get("libdeps_values") or {}),
+            root_path=str(payload.get("root_path") or "") or None,
             registered=registered,
             registered_symlink_root=str(
                 payload.get("registered_symlink_root")
@@ -116,6 +129,8 @@ class CommandParser:
         *,
         project_root: str | None = None,
         task_root: str | None = None,
+        root_path: str | None = None,
+        register_executables: bool = True,
     ) -> CommandParser:
         cfg = dict(config or {})
         root = str(
@@ -126,11 +141,18 @@ class CommandParser:
             or infer_project_root()
         )
         scan_name = str((cfg.get("Scan") or {}).get("name") or cfg.get("scan_name") or "default")
-        libdeps_paths = _build_libdeps_paths(cfg, project_root=root)
-        parser = cls(project_root=root, scan_name=scan_name, libdeps_paths=libdeps_paths)
-        for spec in _registered_specs(cfg):
-            resolved = parser.register(spec)
-            parser.registered[resolved.name] = resolved
+        libdeps_paths, libdeps_values = _build_libdeps_context(cfg, project_root=root)
+        parser = cls(
+            project_root=root,
+            scan_name=scan_name,
+            libdeps_paths=libdeps_paths,
+            libdeps_values=libdeps_values,
+            root_path=root_path,
+        )
+        if register_executables:
+            for spec in _registered_specs(cfg):
+                resolved = parser.register(spec)
+                parser.registered[resolved.name] = resolved
         return parser
 
     def register(self, spec: Mapping[str, Any]) -> ResolvedExecutable:
@@ -169,12 +191,18 @@ class CommandParser:
         resolved = expand_j(raw, project_root=self.project_root)
         resolved = _SCAN_PATTERN.sub(self._replace_scan_token, resolved)
         resolved = _LIBDEPS_PATTERN.sub(self._replace_libdeps_token, resolved)
+        resolved = _ROOT_PATH_PATTERN.sub(self._replace_root_path_token, resolved)
         resolved = self._replace_registered_names(resolved)
         if "~" in resolved:
             resolved = os.path.expanduser(resolved)
         if resolved.startswith("&"):
             raise ValueError(f"Unresolved static token remains after Phase 1: {resolved}")
-        if _LIBDEPS_PATTERN.search(resolved) or _SCAN_PATTERN.search(resolved) or "&J" in resolved:
+        if (
+            _LIBDEPS_PATTERN.search(resolved)
+            or _SCAN_PATTERN.search(resolved)
+            or _ROOT_PATH_PATTERN.search(resolved)
+            or "&J" in resolved
+        ):
             raise ValueError(f"Unresolved static token remains after Phase 1: {resolved}")
         return resolved
 
@@ -269,6 +297,8 @@ class CommandParser:
             return True
         if _SCAN_PATTERN.search(raw):
             return True
+        if _ROOT_PATH_PATTERN.search(raw):
+            return True
         for name, entry in self.registered.items():
             if entry.path in raw:
                 continue
@@ -286,9 +316,19 @@ class CommandParser:
 
     def _replace_libdeps_token(self, match: re.Match[str]) -> str:
         name = str(match.group(1) or "").strip()
+        if name in self.libdeps_values:
+            return self.libdeps_values[name]
         if name not in self.libdeps_paths:
             raise KeyError(f"Unknown LibDeps reference '${{LibDeps:{name}}}'")
         return self.libdeps_paths[name]
+
+    def _replace_root_path_token(self, match: re.Match[str]) -> str:
+        if not self.root_path:
+            raise ValueError(
+                "Cannot resolve '@{ROOT path}': configure EnvReqs.CERN_ROOT "
+                "with a path or get_path_command."
+            )
+        return self.root_path
 
     def _replace_registered_names(self, text: str) -> str:
         resolved = text
@@ -315,15 +355,21 @@ def _registered_specs(config: Mapping[str, Any]) -> list[dict[str, Any]]:
     return parse_registered_executables(config)
 
 
-def _build_libdeps_paths(config: Mapping[str, Any], *, project_root: str) -> dict[str, str]:
+def _build_libdeps_context(
+    config: Mapping[str, Any], *, project_root: str
+) -> tuple[dict[str, str], dict[str, str]]:
     libdeps = config.get("LibDeps") or {}
     if not isinstance(libdeps, Mapping):
-        return {}
+        return {}, {}
     paths: dict[str, str] = {}
     base = decode_path(str(libdeps.get("path", project_root)), project_root=project_root)
+    values: dict[str, str] = {"path": base}
+    make_parallel = libdeps.get("make_paraller")
+    if make_parallel is not None:
+        values["make_paraller"] = str(make_parallel)
     modules = libdeps.get("Modules") or []
     if not isinstance(modules, Sequence):
-        return paths
+        return paths, values
     for module in modules:
         if not isinstance(module, Mapping):
             continue
@@ -339,7 +385,7 @@ def _build_libdeps_paths(config: Mapping[str, Any], *, project_root: str) -> dic
             paths[name] = decode_path(str(candidate), project_root=project_root, base_dir=base)
         else:
             paths[name] = os.path.join(base, name)
-    return paths
+    return paths, values
 
 
 def prepare_calculator_modules(

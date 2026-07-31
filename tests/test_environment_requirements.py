@@ -68,6 +68,12 @@ class EnvironmentRequirementsTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertIn("CERN ROOT is not installed", report.errors[0])
 
+    def test_optional_root_path_is_available_to_libdeps_tokens(self) -> None:
+        report = check_environment_requirements(
+            {"EnvReqs": {"CERN_ROOT": {"required": False, "path": "/opt/root"}}}
+        )
+        self.assertEqual(report.summary["ROOT path"], "/opt/root")
+
     def test_core_logs_environment_preflight_success(self) -> None:
         core = Jarvis2Core(
             {

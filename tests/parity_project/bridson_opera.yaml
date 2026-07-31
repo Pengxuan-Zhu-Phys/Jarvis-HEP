@@ -1,5 +1,4 @@
 # WP-Bridson: Poisson-disk (blue-noise) sampler smoke via TrivialEggbox opera.
-project_name: parity-bridson
 Scan:
   name: bridson-opera
 EnvReqs:

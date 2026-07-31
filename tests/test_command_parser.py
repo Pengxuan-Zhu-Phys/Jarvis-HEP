@@ -62,6 +62,7 @@ class CommandParserUnitTests(unittest.TestCase):
             "Scan": {"name": "eggbox-scan"},
             "LibDeps": {
                 "path": self.libdeps_root,
+                "make_paraller": 6,
                 "Modules": [
                     {
                         "name": "EggBoxSafe",
@@ -117,6 +118,27 @@ class CommandParserUnitTests(unittest.TestCase):
         self.assertIn("eggbox-scan", resolved)
         self.assertNotIn("&J", resolved)
         self.assertNotIn("${Scan:", resolved)
+
+    def test_resolve_static_expands_libdeps_base_and_parallel_tokens(self) -> None:
+        resolved = self.parser.resolve_static(
+            "${LibDeps:path}/build -j${LibDeps:make_paraller}"
+        )
+        self.assertEqual(resolved, f"{self.libdeps_root}/build -j6")
+
+    def test_resolve_static_expands_root_path_token(self) -> None:
+        parser = CommandParser.from_config(
+            self.config,
+            project_root=self.project_root,
+            root_path="/opt/root-6.40",
+        )
+        self.assertEqual(
+            parser.resolve_static("@{ROOT path}/bin/root-config"),
+            "/opt/root-6.40/bin/root-config",
+        )
+
+    def test_root_path_token_requires_cern_root_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, r"EnvReqs\.CERN_ROOT"):
+            self.parser.resolve_static("@{ROOT path}/bin/root-config")
 
     def test_phase1_leaves_sample_tokens_for_phase2(self) -> None:
         raw = {
@@ -258,7 +280,7 @@ class CommandParserIntegrationTests(unittest.TestCase):
                             }
                         ]
                     },
-                    "Likelihood": {"expressions": LIKELIHOOD_EXPRESSIONS},
+                    "Sampling": {"LogLikelihood": LIKELIHOOD_EXPRESSIONS},
                 }
                 core = Jarvis2Core(task_config)
                 core.init_redis()

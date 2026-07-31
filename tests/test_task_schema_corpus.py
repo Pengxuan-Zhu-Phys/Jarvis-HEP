@@ -14,16 +14,27 @@ EXAMPLES_ROOT = Path(__file__).parents[2] / "Jarvis-Examples"
 
 class TaskSchemaCorpusTests(unittest.TestCase):
     @unittest.skipUnless(EXAMPLES_ROOT.is_dir(), "requires sibling Jarvis-Examples checkout")
-    def test_example_cards_have_no_schema_vocabulary_rejections(self) -> None:
+    def test_example_cards_only_need_the_documented_utils_removal(self) -> None:
         cards = sorted(EXAMPLES_ROOT.glob("*/bin/*.yaml"))
         self.assertGreaterEqual(len(cards), 65)
         bad: list[str] = []
+        legacy_utils_cards: list[str] = []
         for card in cards:
             report = validate_task_config(load_task_yaml(str(card)))
-            schema_errors = [item.format_line() for item in report.errors() if item.code.startswith("JV2-SCH")]
-            if schema_errors:
-                bad.append(f"{card}:\n" + "\n".join(schema_errors))
+            schema_errors = [item for item in report.errors() if item.code.startswith("JV2-SCH")]
+            if not schema_errors:
+                continue
+            if (
+                len(schema_errors) == 1
+                and schema_errors[0].path == "$"
+                and "'Utils' was unexpected" in schema_errors[0].message
+                and "not supported by V2" in (schema_errors[0].suggestion or "")
+            ):
+                legacy_utils_cards.append(str(card))
+                continue
+            bad.append(f"{card}:\n" + "\n".join(item.format_line() for item in schema_errors))
         self.assertEqual(bad, [])
+        self.assertGreater(legacy_utils_cards, [])
 
     def test_unmigrated_example_methods_are_runtime_errors_not_schema_errors(self) -> None:
         if not EXAMPLES_ROOT.is_dir():

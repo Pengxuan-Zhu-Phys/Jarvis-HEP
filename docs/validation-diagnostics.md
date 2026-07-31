@@ -49,7 +49,8 @@ sampling, variables, calculator/Opera modules, and V2 runtime configuration.
 Every remaining V2 error receives a conservative fallback suggestion, so no
 reported validation failure is left without a next action.
 
-Unknown keys in a closed schema object also receive a spelling suggestion when
+Unknown keys in a closed schema object (including the task-card root) also
+receive a spelling suggestion when
 there is a close allowed field (for example, `naem` suggests `name`). When
 multiple unknown keys are reported together, each receives its own spelling
 suggestion; very large allowed-key lists are compacted. If YAML

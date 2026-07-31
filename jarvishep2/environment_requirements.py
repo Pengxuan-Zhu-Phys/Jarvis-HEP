@@ -107,6 +107,11 @@ def _check_python(requirement: Mapping[str, Any], report: EnvironmentRequirement
 
 def _check_root(requirement: Mapping[str, Any], report: EnvironmentRequirementReport) -> None:
     if not bool(requirement.get("required", False)):
+        # A task may deliberately avoid a ROOT version check but still need its
+        # configured prefix in a LibDeps build command (`@{ROOT path}`).
+        path = requirement.get("path")
+        if isinstance(path, str) and path.strip():
+            report.summary["ROOT path"] = path.strip()
         return
     try:
         result = _run_command("root-config --version")

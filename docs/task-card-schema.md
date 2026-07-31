@@ -51,13 +51,56 @@ catalog loads:
 | `delegated` | A downstream component owns its keywords; Jarvis2 validates only its own declared envelope. |
 | `open` | An identified, un-migrated surface; nested keys pass through with one warning and an explicit reason. |
 
-`Scan`, `Sampling`, `Calculators`, Calculator modules, and Opera modules are
-closed interfaces. `Calculators.path`, `Modules[].deps_source`, and
-`Operas.Modules[].selection` are documented V1 compatibility fields rather
-than accidental exceptions. `EnvReqs` sibling V1 blocks, Portal I/O payloads,
+The task-card root is closed: `Scan`, `Sampling`, `Calculators`, `Operas`,
+`EnvReqs`, and `LibDeps` are the complete top-level vocabulary. A misspelling
+such as `Calculater` is an error before the scan can start. `LibDeps` is an
+explicit closed schema rather than a root-level exception. Likelihood
+expressions belong in `Sampling.LogLikelihood`; top-level `Likelihood`,
+`Mapper`, and `project_name` are not V2 task-card interfaces. Top-level
+`Utils` is unsupported in V2 and must be removed. `Calculators.path`,
+`Modules[].deps_source`, and `Operas.Modules[].selection` are documented V1
+compatibility fields rather than accidental exceptions. `EnvReqs` sibling V1
+blocks, Portal I/O payloads,
 Opera `kwargs`, and dynesty pass-through blocks are delegated. The legacy
 RLTPMCMC `Control`, `Reward`, `PPO`, and `Diagnostics` blocks are temporarily
 open; their presence emits `JV2-SCH-004`.
+
+## LibDeps
+
+`LibDeps` is a closed, V1-compatible declaration for shared native libraries.
+`Modules` are installed once by the control process after environment preflight
+and before Redis or Workers start. `required_modules` defines the build order;
+independent modules may build concurrently up to `make_paraller`.
+
+```yaml
+LibDeps:
+  path: "&J/deps/library"
+  make_paraller: 4
+  Modules:
+    - name: ExampleLibrary
+      required_modules: []
+      installed: false             # accepted for V1 cards; V2 ignores it
+      installation:
+        path: "${LibDeps:path}/ExampleLibrary"
+        source: "&J/deps/source/example.tar.gz"
+        commands:
+          - "cd ${LibDeps:path}"
+          - "mkdir -p ${path}"
+          - "make -j${LibDeps:make_paraller}"
+```
+
+The supported static tokens are `${LibDeps:path}`, `${LibDeps:make_paraller}`,
+`${LibDeps:<module name>}`, and `@{ROOT path}`. The ROOT token requires
+`EnvReqs.CERN_ROOT.path` or `get_path_command`. Each successful module writes
+`<installation path>/.jarvis_install_stamp.json`; the graph control file is
+`<LibDeps.path>/jarvis_install.json`. Matching stamps are reused. Set the
+control file's `reinstall` value to `true` to rebuild all libraries on the next
+run; V2 deliberately has no interactive reinstall prompt.
+
+Use `Jarvis2 run TASK.yaml --skip-library-installation` (or `check`) only when
+every declared installation path already exists. The command emits a warning,
+does not build anything, and fails before Redis if a path is missing. Module
+command output is recorded under `logs/<scan>/library-<module>.log`.
 
 ## Task-card text encoding
 

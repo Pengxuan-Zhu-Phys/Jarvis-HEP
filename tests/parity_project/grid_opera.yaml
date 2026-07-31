@@ -1,4 +1,3 @@
-project_name: parity-grid
 Scan:
   name: grid-opera
 EnvReqs:

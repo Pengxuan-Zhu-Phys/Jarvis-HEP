@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/core/libdeps.json",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "properties": {
+    "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+    "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+    "Modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "x-jarvis-zone": "closed",
+        "required": ["name"],
+        "properties": {
+          "name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "required_modules": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}},
+          "installed": {"type": "boolean"},
+          "installation": {
+            "type": "object",
+            "x-jarvis-zone": "closed",
+            "properties": {
+              "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+              "source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+              "commands": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "registered_executables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "x-jarvis-zone": "closed",
+        "required": ["name", "source"],
+        "properties": {
+          "name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+          "resolution": {"enum": ["direct_path", "symlink"]}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

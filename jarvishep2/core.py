@@ -18,6 +18,7 @@ import numpy as np
 
 from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
+from jarvishep2.library import LibraryInstaller
 from jarvishep2.dashboard import SnapshotReader, format_monitor_view
 from jarvishep2.database import SimpleHDF5Writer, convert_database_dir
 from jarvishep2.environment_requirements import (
@@ -104,6 +105,8 @@ class Jarvis2Core:
         self.archiver: SimpleArchiver | ArchiverProcess | None = None
         self.sampler: Any = None
         self.command_parser: CommandParser | None = None
+        self._environment_summary: dict[str, Any] = {}
+        self._skip_library_installation = False
         self._resume_checkpoint_payload: dict[str, Any] | None = None
         self._resume_policy: str = "auto"
         self._control_lock_owner: str | None = None
@@ -134,6 +137,10 @@ class Jarvis2Core:
         if silence is not None:
             self._log_silence = bool(silence)
             self._log_console = not self._log_silence
+
+    def set_skip_library_installation(self, skip: bool) -> None:
+        """Control-process policy for the non-interactive LibDeps installer."""
+        self._skip_library_installation = bool(skip)
 
     def init_logger(self) -> None:
         """Configure top-level logging with V1 visual format and scan-scoped file path."""
@@ -182,6 +189,7 @@ class Jarvis2Core:
     def check_environment_requirements(self) -> None:
         """Log and enforce V1-compatible Python and CERN ROOT requirements."""
         report = check_environment_requirements(self.config)
+        self._environment_summary = dict(report.summary)
         if not report.summary and not report.warnings and not report.errors:
             return
         envreqs = self.config.get("EnvReqs")
@@ -402,13 +410,8 @@ class Jarvis2Core:
             (self.config.get("Calculators") or {}).get("Modules") or []
         )
         opera_modules = list((self.config.get("Operas") or {}).get("Modules") or [])
-        likelihood_block = self.config.get("Likelihood") or {}
         sampling_block = self.config.get("Sampling") or {}
-        likelihood_exprs = list(
-            likelihood_block.get("expressions")
-            or sampling_block.get("LogLikelihood")
-            or []
-        )
+        likelihood_exprs = list(sampling_block.get("LogLikelihood") or [])
         from jarvishep2.Module.nuisance import extract_nuisance_config
 
         include_nuisance = extract_nuisance_config(self.config) is not None
@@ -434,6 +437,15 @@ class Jarvis2Core:
         # Preflight remains before command setup, Redis, Workers, and Archiver,
         # while init_logger above ensures all outcomes reach core.log.
         self.check_environment_requirements()
+        # LibDeps is globally shared.  Resolve its V1 tokens with no registered
+        # executable side effects, install/reuse it once, then register tools.
+        root_path = self._environment_summary.get("ROOT path")
+        library_parser = build_command_parser(
+            self.config,
+            root_path=str(root_path) if root_path else None,
+            register_executables=False,
+        )
+        self.prepare_libraries(parser=library_parser)
         self.init_command_parser()
         self.init_redis()
         self._claim_redis_control_lock()
@@ -1443,8 +1455,39 @@ class Jarvis2Core:
 
     def init_command_parser(self) -> CommandParser:
         """Run Phase-1 static command resolution for the loaded task config."""
-        self.command_parser = build_command_parser(self.config)
+        root_path = self._environment_summary.get("ROOT path")
+        self.command_parser = build_command_parser(
+            self.config,
+            root_path=str(root_path) if root_path else None,
+        )
         return self.command_parser
+
+    def prepare_libraries(self, *, parser: CommandParser | None = None) -> dict[str, dict[str, Any]]:
+        """Install or reuse LibDeps before Redis, Workers, or an Archiver start."""
+        root_path = self._environment_summary.get("ROOT path")
+        library_parser = parser or build_command_parser(
+            self.config,
+            root_path=str(root_path) if root_path else None,
+            register_executables=False,
+        )
+        logs_dir = str(
+            self.info.get("logs_dir")
+            or os.path.join(
+                str(self.info.get("task_root") or os.getcwd()),
+                "logs",
+                str(self.info.get("scan_name") or "scan"),
+            )
+        )
+        result = LibraryInstaller(
+            self.config,
+            parser=library_parser,
+            logs_dir=logs_dir,
+            logger=self._logger,
+            skip_installation=self._skip_library_installation,
+        ).prepare()
+        if result:
+            self.info["library_installations"] = result
+        return result
 
     def _apply_command_parser_to_worker_config(self, worker_config: dict[str, Any]) -> dict[str, Any]:
         if self.command_parser is None:

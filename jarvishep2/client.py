@@ -476,6 +476,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("task_yaml", help="Path to scan task YAML")
     run_p.add_argument("--resume", action="store_true", help="Resume from checkpoint")
     run_p.add_argument(
+        "--skip-library-installation",
+        action="store_true",
+        help="Do not build LibDeps; require every declared library path to already exist",
+    )
+    run_p.add_argument(
         "--skip-draw-flowchart",
         action="store_true",
         help="Skip workflow flowchart.json / flowchart.png export",
@@ -495,6 +500,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
     check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
+    check_p.add_argument(
+        "--skip-library-installation",
+        action="store_true",
+        help="Do not build LibDeps; require every declared library path to already exist",
+    )
     check_p.add_argument(
         "--strict",
         action="store_true",
@@ -1625,6 +1635,7 @@ def dispatch_run(
     silence: bool = False,
     debug: bool = False,
     strict: bool = False,
+    skip_library_installation: bool = False,
 ) -> int:
     if not task_yaml:
         print("Task YAML is required.", file=sys.stderr)
@@ -1661,6 +1672,7 @@ def dispatch_run(
         console_level=console_level,
         silence=silence,
     )
+    core.set_skip_library_installation(skip_library_installation)
 
     if skip_draw_flowchart:
         core.config["skip_draw_flowchart"] = True
@@ -1748,6 +1760,7 @@ def dispatch(args: argparse.Namespace) -> int:
             console_level=str(getattr(args, "console_level", "WARNING") or "WARNING"),
             silence=bool(getattr(args, "silence", False)),
             strict=bool(getattr(args, "strict", False)),
+            skip_library_installation=bool(getattr(args, "skip_library_installation", False)),
         )
     if intent == "run":
         task = getattr(args, "task_yaml", None)
@@ -1760,6 +1773,7 @@ def dispatch(args: argparse.Namespace) -> int:
             silence=bool(getattr(args, "silence", False)),
             debug=bool(getattr(args, "debug", False)),
             strict=bool(getattr(args, "strict", False)),
+            skip_library_installation=bool(getattr(args, "skip_library_installation", False)),
         )
 
     print(f"Unknown intent: {intent}", file=sys.stderr)

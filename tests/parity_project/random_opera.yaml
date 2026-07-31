@@ -1,4 +1,3 @@
-project_name: parity-random
 Scan:
   name: random-opera
 EnvReqs:

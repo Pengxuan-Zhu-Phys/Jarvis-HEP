@@ -40,11 +40,21 @@ def _config_references_sdir(modules: list[dict[str, Any]]) -> bool:
     return "@Sdir" in json.dumps(modules, sort_keys=True)
 
 
-def build_command_parser(config: Mapping[str, Any] | None) -> CommandParser:
+def build_command_parser(
+    config: Mapping[str, Any] | None,
+    *,
+    root_path: str | None = None,
+    register_executables: bool = True,
+) -> CommandParser:
     """Build a CommandParser from a task config mapping."""
     cfg = dict(config or {})
     project_root = str(cfg.get("project_root") or cfg.get("task_root") or "")
-    return CommandParser.from_config(cfg, project_root=project_root or None)
+    return CommandParser.from_config(
+        cfg,
+        project_root=project_root or None,
+        root_path=root_path,
+        register_executables=register_executables,
+    )
 
 
 def build_worker_config(
@@ -138,7 +148,6 @@ def build_worker_config(
         "calculator_modules": resolved_calculators,
         "likelihood_expressions": list(
             likelihood_expressions
-            or (cfg.get("Likelihood") or {}).get("expressions")
             or (cfg.get("Sampling") or {}).get("LogLikelihood")
             or []
         ),

@@ -123,6 +123,75 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertIn("Did you mean 'name'?", schema[0].suggestion or "")
         self.assertNotIn("\\u540d\\u79f0", schema[0].message)
 
+    def test_root_block_typos_are_closed_and_actionable(self) -> None:
+        expected = {
+            "Calculater": "Calculators",
+            "Opera": "Operas",
+            "EnvReq": "EnvReqs",
+            "Scam": "Scan",
+        }
+        for typo, canonical in expected.items():
+            with self.subTest(typo=typo):
+                cfg = _minimal_dynesty_config()
+                cfg["Calculators"] = {"Modules": []}
+                cfg["Operas"] = {"Modules": []}
+                value = cfg.pop(canonical)
+                cfg[typo] = value
+                schema = [
+                    item for item in validate_task_config(cfg).errors()
+                    if item.code == "JV2-SCH-001"
+                ]
+                self.assertEqual(len(schema), 1)
+                self.assertEqual(schema[0].path, "$")
+                self.assertIn(typo, schema[0].message)
+                self.assertIn(f"Did you mean {canonical!r}?", schema[0].suggestion or "")
+
+    def test_libdeps_is_a_declared_closed_top_level_block(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["LibDeps"] = {
+            "path": "deps/library",
+            "make_paraller": 2,
+            "Modules": [{
+                "name": "Tool",
+                "installed": False,
+                "installation": {
+                    "path": "deps/library/Tool",
+                    "source": "deps/source/tool.tar.gz",
+                    "commands": ["make"],
+                },
+            }],
+            "registered_executables": [{
+                "name": "tool",
+                "source": "deps/library/Tool/tool",
+                "resolution": "direct_path",
+            }],
+        }
+        self.assertFalse([item for item in validate_task_config(cfg).errors() if item.code == "JV2-SCH-001"])
+
+        cfg["LibDeps"]["Moduels"] = []
+        schema = [item for item in validate_task_config(cfg).errors() if item.code == "JV2-SCH-001"]
+        self.assertEqual(len(schema), 1)
+        self.assertIn("Did you mean 'Modules'?", schema[0].suggestion or "")
+
+    def test_removed_v1_root_blocks_explain_the_required_migration(self) -> None:
+        expected = {
+            "Likelihood": "Move its expressions to Sampling.LogLikelihood",
+            "Mapper": "not a V2 task-card interface",
+            "project_name": "not a V2 task-card interface",
+            "Utils": "not supported by V2",
+        }
+        for key, expected_suggestion in expected.items():
+            with self.subTest(key=key):
+                cfg = _minimal_dynesty_config()
+                cfg[key] = {} if key != "project_name" else "legacy-name"
+                schema = [
+                    item for item in validate_task_config(cfg).errors()
+                    if item.code == "JV2-SCH-001"
+                ]
+                self.assertEqual(len(schema), 1)
+                self.assertEqual(schema[0].path, "$")
+                self.assertIn(expected_suggestion, schema[0].suggestion or "")
+
     def test_valid_dynesty_passes(self) -> None:
         report = validate_task_config(_minimal_dynesty_config())
         self.assertTrue(report.ok)
@@ -426,6 +495,26 @@ class TaskValidationCliTests(unittest.TestCase):
                 code = dispatch_run(path)
             self.assertEqual(code, 2)
             self.assertEqual(stderr.getvalue().count("JV2-ENC-001"), 1)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
+
+    def test_dispatch_run_rejects_top_level_calculator_typo_before_creating_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "task.yaml")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "Scan:\n  name: typo-scan\n"
+                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "  Variables:\n    - name: x\n"
+                    "      distribution:\n        type: Flat\n"
+                    "        parameters: {min: 0.0, max: 1.0}\n"
+                    "Calculater:\n  Modules: []\n"
+                )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                code = dispatch_run(path)
+            self.assertEqual(code, 2)
+            self.assertIn("JV2-SCH-001", stderr.getvalue())
+            self.assertIn("Did you mean 'Calculators'?", stderr.getvalue())
             self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
 
     def test_referenced_default_yaml_syntax_has_the_same_diagnostic(self) -> None:

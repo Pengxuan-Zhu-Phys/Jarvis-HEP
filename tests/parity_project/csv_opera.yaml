@@ -1,4 +1,3 @@
-project_name: parity-csv
 Scan:
   name: csv-opera
 EnvReqs:
