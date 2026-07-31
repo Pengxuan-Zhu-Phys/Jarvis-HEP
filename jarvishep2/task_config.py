@@ -25,6 +25,12 @@ class TaskCardLoadError(ValueError):
         super().__init__(message)
 
 
+class LoadedTaskConfig(dict[str, Any]):
+    """Normalized task configuration retaining its pre-injection YAML document."""
+
+    raw_task_card: dict[str, Any]
+
+
 def _load_yaml_document(path: str, *, label: str) -> Any:
     """Load one user-selected YAML file with a consistent syntax diagnostic."""
     try:
@@ -385,7 +391,10 @@ def load_task_yaml(path: str) -> dict[str, Any]:
 
     v2_settings = _deep_merge(_deep_merge(v2_defaults, runtime_defaults), task_v2_settings)
 
-    config = deepcopy(loaded)
+    config = LoadedTaskConfig(deepcopy(loaded))
+    # Validation must identify text the user actually wrote, not values derived
+    # below such as ``scan_name`` and absolute result-directory paths.
+    config.raw_task_card = deepcopy(loaded)
     resolved_envreqs = deepcopy(dict(task_envreqs))
     for key, default in legacy_environment_defaults.items():
         existing = resolved_envreqs.get(key)
@@ -572,6 +581,7 @@ def check_modules_n_samples(config: Mapping[str, Any]) -> int:
 
 
 __all__ = [
+    "LoadedTaskConfig",
     "TaskCardLoadError",
     "check_modules_n_samples",
     "check_modules_points_path",

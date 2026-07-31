@@ -15,8 +15,9 @@ loads files named there; it never fetches a remote schema.
 ## Validation layers
 
 ```text
-YAML parse + V1/default normalisation
-  -> ASCII task-card gate: keys and string values only
+YAML parse
+  -> ASCII task-card gate on the original user document: keys and string values only
+  -> V1/default normalisation and runtime metadata injection
   -> JSON Schema: card structure, types, ownership zones
     -> Python contracts: cross-field, numerical, path, runtime semantics
 ```
@@ -60,12 +61,19 @@ open; their presence emits `JV2-SCH-004`.
 
 ## Task-card text encoding
 
-Task-card keys and every string value must be ASCII. This is enforced before
-schema validation as `JV2-ENC-001`, so a non-ASCII key receives an honest
-encoding diagnostic rather than a misleading unknown-key error. Each issue
-identifies the parsed YAML path and one-based character positions. This also
-protects `Scan.name` before it can become an output directory, tar member, or
-HDF5 attribute.
+Task-card keys and every string value must be ASCII. `JV2-ENC-001` scans the
+original parsed user document, before normalisation and runtime metadata
+injection. Thus generated values such as `scan_name` and `task_result_dir` are
+never presented as something the user must edit. Each issue identifies the
+parsed YAML path and one-based character positions. This also protects
+`Scan.name` before it can become an output directory, tar member, or HDF5
+attribute.
+
+Encoding and schema/contract validation still run in the same report. The
+redundant unknown-key schema diagnostic for the exact non-ASCII key is removed,
+but unrelated unknown keys in that object retain their normal diagnostic and
+spelling suggestion. A card with both a non-ASCII key and `naem`, for example,
+reports `JV2-ENC-001` and the suggestion to rename `naem` to `name` together.
 
 Chinese (and every other non-ASCII script) remains fully supported in YAML
 comments because comments are removed by the YAML parser:

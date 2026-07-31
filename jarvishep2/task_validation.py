@@ -265,6 +265,24 @@ def validate_task_card_encoding(config: Any) -> list[ValidationIssue]:
     return issues
 
 
+def _non_ascii_key_names(config: Any) -> frozenset[str]:
+    """Return raw user-authored keys whose schema unknown-key error is redundant."""
+    names: set[str] = set()
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Mapping):
+            for key, child in value.items():
+                if isinstance(key, str) and _non_ascii_positions(key):
+                    names.add(key)
+                visit(child)
+        elif isinstance(value, Sequence) and not isinstance(value, str):
+            for child in value:
+                visit(child)
+
+    visit(config)
+    return frozenset(names)
+
+
 def _validate_operas_call_mode(config: Mapping[str, Any]) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
     operas = config.get("Operas")
@@ -329,15 +347,19 @@ def validate_task_config(
         )
         return _finalize_report(report, strict=strict)
 
-    # Encoding is a hard card-surface boundary. Stop here so a non-ASCII key
-    # gets JV2-ENC-001 rather than downstream schema noise such as
-    # "additional properties".
-    report.extend(validate_task_card_encoding(config))
-    if report.errors():
-        return _finalize_report(report, strict=strict)
+    # Keep the raw task document for user-facing encoding diagnostics. The
+    # normalized config contains injected copies such as ``scan_name`` and
+    # ``task_result_dir`` that the user cannot edit in their YAML.
+    raw_task_card = getattr(config, "raw_task_card", config)
+    report.extend(validate_task_card_encoding(raw_task_card))
+    non_ascii_keys = _non_ascii_key_names(raw_task_card)
 
     # Structural, editor-friendly validation precedes semantic Python contracts.
-    report.extend(validate_task_card_schema(config))
+    report.extend(
+        validate_task_card_schema(
+            config, suppress_additional_property_keys=non_ascii_keys,
+        )
+    )
 
     cm = (
         bool(check_modules)

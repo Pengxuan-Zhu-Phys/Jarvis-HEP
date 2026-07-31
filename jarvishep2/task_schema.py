@@ -138,7 +138,21 @@ def _schema_error_message(error: Any) -> str:
     return error.message
 
 
-def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
+def _additional_properties_message(keys: list[str]) -> str:
+    """Render jsonschema's unexpected-key wording for a retained key subset."""
+    if len(keys) == 1:
+        return f"Additional properties are not allowed ({keys[0]!r} was unexpected)"
+    return "Additional properties are not allowed (" + ", ".join(
+        repr(key) for key in keys
+    ) + " were unexpected)"
+
+
+def _schema_error_guidance(
+    error: Any,
+    prefix: str,
+    *,
+    additional_property_keys: list[str] | None = None,
+) -> tuple[str, str | None]:
     """Translate jsonschema's technical validators into an editable YAML fix."""
     schema = error.schema if isinstance(error.schema, Mapping) else {}
     example = schema.get("x-jarvis-example")
@@ -155,7 +169,11 @@ def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
                 example = "- name: output\n  path: output.json\n  type: JSON"
         return f"Add {field!r} at this location using the expected YAML type.", example
     if error.validator == "additionalProperties":
-        keys = _additional_property_keys(error.message)
+        keys = (
+            additional_property_keys
+            if additional_property_keys is not None
+            else _additional_property_keys(error.message)
+        )
         allowed = schema.get("properties", {})
         if not keys:
             return "Remove or rename the unexpected key.", example
@@ -212,22 +230,45 @@ def _schema_error_guidance(error: Any, prefix: str) -> tuple[str, str | None]:
     return "Correct this value to satisfy the stated schema constraint.", example
 
 
-def _issues_for(validator: Draft202012Validator, value: Any, prefix: str) -> list[Any]:
+def _issues_for(
+    validator: Draft202012Validator,
+    value: Any,
+    prefix: str,
+    *,
+    suppress_additional_property_keys: frozenset[str] = frozenset(),
+) -> list[Any]:
     from jarvishep2.task_validation import issue
 
     errors = sorted(validator.iter_errors(value), key=lambda err: list(err.absolute_path))
     issues = []
     for error in errors:
-        suggestion, example = _schema_error_guidance(error, prefix)
+        retained_additional_keys: list[str] | None = None
+        message = _schema_error_message(error)
+        if error.validator == "additionalProperties" and suppress_additional_property_keys:
+            keys = _additional_property_keys(error.message)
+            retained_additional_keys = [
+                key for key in keys if key not in suppress_additional_property_keys
+            ]
+            if keys and not retained_additional_keys:
+                continue
+            if retained_additional_keys is not None and len(retained_additional_keys) != len(keys):
+                message = _additional_properties_message(retained_additional_keys)
+        suggestion, example = _schema_error_guidance(
+            error, prefix, additional_property_keys=retained_additional_keys,
+        )
         issues.append(issue(
-            "error", "JV2-SCH-001", _path(error.absolute_path, prefix), _schema_error_message(error),
+            "error", "JV2-SCH-001", _path(error.absolute_path, prefix), message,
             hint="See docs/task-card-schema.md for the strict card interface.",
             suggestion=suggestion, example=example,
         ))
     return issues
 
 
-def _validate_selected_io(config: Mapping[str, Any]) -> list[Any]:
+def _validate_selected_io(
+    config: Mapping[str, Any],
+    *,
+    suppress_additional_property_keys: frozenset[str] = frozenset(),
+) -> list[Any]:
     """Validate Portal I/O vocabulary, then enrich it with bundled schemas.
 
     Portal owns supported format names.  The manifest is intentionally only an
@@ -279,7 +320,10 @@ def _validate_selected_io(config: Mapping[str, Any]) -> list[Any]:
                     continue
                 normalized_entry = dict(entry)
                 normalized_entry["type"] = kind
-                issues.extend(_issues_for(_validator_for(schema_uri), normalized_entry, prefix))
+                issues.extend(_issues_for(
+                    _validator_for(schema_uri), normalized_entry, prefix,
+                    suppress_additional_property_keys=suppress_additional_property_keys,
+                ))
     return issues
 
 
@@ -362,9 +406,16 @@ def _open_zone_issues(config: Mapping[str, Any]) -> list[Any]:
     )]
 
 
-def validate_task_card_schema(config: Mapping[str, Any]) -> list[Any]:
+def validate_task_card_schema(
+    config: Mapping[str, Any],
+    *,
+    suppress_additional_property_keys: frozenset[str] = frozenset(),
+) -> list[Any]:
     """Return normal V2 diagnostics from the root and selected local schemas."""
-    issues = _issues_for(task_card_validator(), dict(config), "$")
+    issues = _issues_for(
+        task_card_validator(), dict(config), "$",
+        suppress_additional_property_keys=suppress_additional_property_keys,
+    )
     manifest, _ = _schema_catalog()
 
     sampling = config.get("Sampling")
@@ -375,9 +426,14 @@ def validate_task_card_schema(config: Mapping[str, Any]) -> list[Any]:
         if schema_uri is not None:
             normalized_sampling = dict(sampling)
             normalized_sampling["Method"] = method
-            issues.extend(_issues_for(_validator_for(schema_uri), normalized_sampling, "$.Sampling"))
+            issues.extend(_issues_for(
+                _validator_for(schema_uri), normalized_sampling, "$.Sampling",
+                suppress_additional_property_keys=suppress_additional_property_keys,
+            ))
 
-    issues.extend(_validate_selected_io(config))
+    issues.extend(_validate_selected_io(
+        config, suppress_additional_property_keys=suppress_additional_property_keys,
+    ))
     issues.extend(_numeric_string_issues(config))
     issues.extend(_open_zone_issues(config))
     return issues

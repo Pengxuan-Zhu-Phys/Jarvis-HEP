@@ -111,6 +111,18 @@ class TaskValidationKernelTests(unittest.TestCase):
         report = validate_task_config(cfg)
         self.assertEqual([issue.code for issue in report.errors()], ["JV2-ENC-001"])
 
+    def test_non_ascii_key_keeps_unrelated_schema_errors_in_one_report(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["Scan"].update({"\u540d\u79f0": "scan", "naem": "scan"})
+        report = validate_task_config(cfg)
+        encoding = [item for item in report.errors() if item.code == "JV2-ENC-001"]
+        schema = [item for item in report.errors() if item.code == "JV2-SCH-001"]
+        self.assertEqual(len(encoding), 1)
+        self.assertEqual(len(schema), 1)
+        self.assertEqual(schema[0].path, "$.Scan")
+        self.assertIn("Did you mean 'name'?", schema[0].suggestion or "")
+        self.assertNotIn("\\u540d\\u79f0", schema[0].message)
+
     def test_valid_dynesty_passes(self) -> None:
         report = validate_task_config(_minimal_dynesty_config())
         self.assertTrue(report.ok)
@@ -413,7 +425,7 @@ class TaskValidationCliTests(unittest.TestCase):
             with contextlib.redirect_stderr(stderr):
                 code = dispatch_run(path)
             self.assertEqual(code, 2)
-            self.assertIn("JV2-ENC-001", stderr.getvalue())
+            self.assertEqual(stderr.getvalue().count("JV2-ENC-001"), 1)
             self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
 
     def test_referenced_default_yaml_syntax_has_the_same_diagnostic(self) -> None:

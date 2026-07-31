@@ -13,11 +13,19 @@ document is `JV2-YAML-002`; and a missing task file is `JV2-LOAD-001`.
 `Jarvis2 validate --json` exposes the same `suggestion` and `example` fields as
 the human-readable output.
 
-`JV2-ENC-001` runs before schema validation. Keys and string values in a task
-card must be ASCII; its path and character positions identify the edit. Put
-Chinese explanatory text in a YAML `#` comment instead: comments are discarded
-before validation and remain unrestricted. User-provided non-ASCII diagnostic
-text is rendered as ASCII `\uXXXX` escapes, including in the multi-error table.
+`JV2-ENC-001` scans the original parsed task YAML before normalisation and
+runtime metadata injection. Keys and string values in that user-authored card
+must be ASCII; its path and character positions identify the edit. Generated
+values such as `scan_name` and `task_result_dir` are never reported as user
+input. Put Chinese explanatory text in a YAML `#` comment instead: comments
+are discarded before validation and remain unrestricted. User-provided
+non-ASCII diagnostic text is rendered as ASCII `\uXXXX` escapes, including in
+the multi-error table.
+
+An encoding failure does not hide independent schema or contract failures:
+they are collected in the same report. Only the redundant unknown-key schema
+error for the exact non-ASCII key is suppressed, so an ordinary typo beside it
+still receives its did-you-mean suggestion.
 
 ```text
 [error] JV2-SCH-001  $.Calculators.Modules[0].execution.input[0]
