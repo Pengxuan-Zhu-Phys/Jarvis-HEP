@@ -154,14 +154,14 @@ class ArchiveProcessor:
             return bool(self._batch)
 
     def _flush_due_locked(self) -> bool:
-        """Require both a full batch and the configured persistence interval."""
-        return (
+        """Flush a non-empty batch when either persistence threshold is reached."""
+        return bool(self._batch) and (
             len(self._batch) >= self.batch_size
-            and time.monotonic() - self._last_flush >= self.flush_interval_sec
+            or time.monotonic() - self._last_flush >= self.flush_interval_sec
         )
 
     def ingest(self, result: Mapping[str, Any]) -> int:
-        """Queue one archive payload; persist only when both thresholds are met."""
+        """Queue one archive payload; persist at the batch or time threshold."""
         with self._lock:
             self._batch.append(dict(result))
             if self._flush_due_locked():

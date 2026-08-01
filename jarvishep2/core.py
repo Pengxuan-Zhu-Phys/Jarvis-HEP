@@ -1065,6 +1065,15 @@ class Jarvis2Core:
                     "or pass --check-modules."
                 )
             outcome = self._capture_run_outcome(submitted=submitted)
+            if not is_check and not self._interrupt_requested:
+                # Every normal scan, including stateless runs, must finish only
+                # after its Archiver has persisted the final partial batch.  In
+                # process mode the child owns that flush; waiting here keeps the
+                # outcome, CSV export, and plots consistent with DATABASE.
+                self._logger.info("final archive verification before normal exit")
+                self._wait_for_archive_caught_up(timeout=120.0)
+                outcome = self._capture_run_outcome(submitted=submitted)
+
             if outcome.ok and not self._interrupt_requested:
                 # Full-scan post steps only — check-modules is assembly-line smoke
                 # (no nested evidence export / science plots; avoids mixing with
@@ -1076,12 +1085,6 @@ class Jarvis2Core:
                         submitted,
                     )
                 else:
-                    try:
-                        self._wait_for_archive_caught_up(timeout=120.0)
-                    except Exception as exc:
-                        self._logger.warning(
-                            "pre-plot archive catch-up failed -> %s", exc
-                        )
                     self._finalize_nested_result_csv()
                     self._emit_plot_scenes()
             return outcome
@@ -1904,8 +1907,8 @@ class Jarvis2Core:
                         f"archive drain stalled: workers finished "
                         f"(ok={counters['ok']} failed={counters['failed']}) but only "
                         f"{written}/{expected} DATABASE rows written and archive_q=0. "
-                        f"Likely early SAMPLE bucket pack pruned dirs before Archiver "
-                        f"wrote rows (fixed by packing only after archived==assigned)."
+                        f"Archiver made no progress; inspect the Archiver log and "
+                        f"DATABASE persistence configuration."
                     )
             else:
                 stall_since = None

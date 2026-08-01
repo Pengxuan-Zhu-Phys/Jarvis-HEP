@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 from jarvishep2.core import Jarvis2Core
+from jarvishep2.run_outcome import RunOutcome
 from jarvishep2.Sampling.runtime_checkpoint import load_checkpoint
 
 
@@ -94,6 +95,57 @@ class InterruptCheckpointTests(unittest.TestCase):
             calls,
             ["bootstrap", "scan", "checkpoint", "shutdown:summary=False"],
         )
+
+
+class FinalArchiveVerificationTests(unittest.TestCase):
+    def _make_core(self) -> Jarvis2Core:
+        core = Jarvis2Core({"Runtime": {"mode": "redis", "workers": 0}})
+        core.prepare_resume = lambda **_k: None  # type: ignore[method-assign]
+        core._install_control_signal_handlers = lambda: None  # type: ignore[method-assign]
+        core._restore_control_signal_handlers = lambda: None  # type: ignore[method-assign]
+        core.bootstrap_distributed_runtime = lambda: None  # type: ignore[method-assign]
+        core.shutdown = lambda **_k: None  # type: ignore[method-assign]
+        return core
+
+    def test_normal_run_verifies_archive_and_recaptures_outcome(self) -> None:
+        core = self._make_core()
+        core.run_distributed_scan = mock.Mock(return_value=3)  # type: ignore[method-assign]
+        core._wait_for_archive_caught_up = mock.Mock()  # type: ignore[method-assign]
+        core._finalize_nested_result_csv = mock.Mock()  # type: ignore[method-assign]
+        core._emit_plot_scenes = mock.Mock()  # type: ignore[method-assign]
+        core._capture_run_outcome = mock.Mock(  # type: ignore[method-assign]
+            side_effect=[
+                RunOutcome(submitted=3, completed=3, archived=0),
+                RunOutcome(submitted=3, completed=3, archived=3),
+            ]
+        )
+
+        with (
+            mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
+            mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
+            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
+        ):
+            outcome = core.run()
+
+        core._wait_for_archive_caught_up.assert_called_once_with(timeout=120.0)
+        self.assertEqual(outcome.archived, 3)
+        core._finalize_nested_result_csv.assert_called_once_with()
+        core._emit_plot_scenes.assert_called_once_with()
+
+    def test_check_run_skips_normal_exit_archive_verification(self) -> None:
+        core = self._make_core()
+        core._apply_check_modules_runtime_policy = mock.Mock()  # type: ignore[method-assign]
+        core.run_check_modules = mock.Mock(return_value=1)  # type: ignore[method-assign]
+        core._wait_for_archive_caught_up = mock.Mock()  # type: ignore[method-assign]
+        core._capture_run_outcome = mock.Mock(  # type: ignore[method-assign]
+            return_value=RunOutcome(submitted=1, completed=1, archived=1)
+        )
+
+        with mock.patch("jarvishep2.core.is_check_modules_task", return_value=True):
+            outcome = core.run()
+
+        self.assertTrue(outcome.ok)
+        core._wait_for_archive_caught_up.assert_not_called()
 
 
 if __name__ == "__main__":

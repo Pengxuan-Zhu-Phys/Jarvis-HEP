@@ -83,7 +83,7 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 2)
                 writer.close()
 
-    def test_processor_requires_batch_and_interval_before_persisting(self) -> None:
+    def test_processor_persists_when_either_batch_or_interval_is_due(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
             writer = StreamingHDF5Writer(db_path)
@@ -91,19 +91,22 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 writer,
                 sample_root=os.path.join(tmpdir, "SAMPLE"),
                 batch_size=2,
-                flush_interval_sec=10.0,
+                flush_interval_sec=60.0,
             )
-            for index in range(2):
-                self.assertEqual(
-                    processor.ingest({"uuid": f"u-{index}", "observables": {"x": index}}),
-                    0,
-                )
-            self.assertEqual(writer.records_persisted, 0)
+            self.assertEqual(
+                processor.ingest({"uuid": "u-0", "observables": {"x": 0}}), 0
+            )
+            # A full batch must flush without waiting for the interval.
+            self.assertEqual(
+                processor.ingest({"uuid": "u-1", "observables": {"x": 1}}), 2
+            )
+            self.assertEqual(writer.records_persisted, 2)
 
-            processor._last_flush -= 10.0
+            # A partial tail must also flush when the interval expires.
+            processor._last_flush -= 60.0
             self.assertEqual(
                 processor.ingest({"uuid": "u-2", "observables": {"x": 2}}),
-                3,
+                1,
             )
             self.assertEqual(writer.records_persisted, 3)
             writer.close()
