@@ -178,7 +178,7 @@ class TaskValidationKernelTests(unittest.TestCase):
             "Likelihood": "Move its expressions to Sampling.LogLikelihood",
             "Mapper": "not a V2 task-card interface",
             "project_name": "not a V2 task-card interface",
-            "Utils": "not supported by V2",
+            "Utils": "Utils.interpolations_1D moved to Jarvis-Operas",
         }
         for key, expected_suggestion in expected.items():
             with self.subTest(key=key):

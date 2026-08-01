@@ -57,7 +57,9 @@ such as `Calculater` is an error before the scan can start. `LibDeps` is an
 explicit closed schema rather than a root-level exception. Likelihood
 expressions belong in `Sampling.LogLikelihood`; top-level `Likelihood`,
 `Mapper`, and `project_name` are not V2 task-card interfaces. Top-level
-`Utils` is unsupported in V2 and must be removed. `Calculators.path`,
+`Utils` is unsupported in V2 and must be removed: migrate
+`Utils.interpolations_1D` to Jarvis-Operas with `interp1.*` for custom curves
+or `dmddxe.*` for built-in direct-detection limits. `Calculators.path`,
 `Modules[].deps_source`, and `Operas.Modules[].selection` are documented V1
 compatibility fields rather than accidental exceptions. `EnvReqs` sibling V1
 blocks, Portal I/O payloads,

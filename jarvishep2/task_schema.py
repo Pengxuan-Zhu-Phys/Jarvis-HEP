@@ -25,7 +25,10 @@ _REMOVED_ROOT_KEYS: dict[str, str] = {
     ),
     "Mapper": "Remove top-level Mapper: it is not a V2 task-card interface.",
     "project_name": "Remove top-level project_name: it is not a V2 task-card interface.",
-    "Utils": "Remove top-level Utils: it is not supported by V2.",
+    "Utils": (
+        "Remove top-level Utils. Utils.interpolations_1D moved to Jarvis-Operas: "
+        "use interp1.* for custom curves or dmddxe.* for built-in direct-detection limits."
+    ),
 }
 
 
