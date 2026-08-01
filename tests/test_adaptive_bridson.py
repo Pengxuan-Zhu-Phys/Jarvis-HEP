@@ -36,7 +36,7 @@ def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
-    return server, {"host": host, "port": port, "db": 0}
+    return server, {"host": host, "port": port, "db": 0, "managed": False}
 
 
 def _flat_vars(names: list[str]) -> list[dict[str, Any]]:
@@ -76,7 +76,7 @@ def _als_config(
     seed: int = 7,
     workers: int = 2,
     project_name: str = "alevelset",
-    scan_name: str = "scan",
+    scan_name: str = "adaptive-test-scan",
 ) -> dict[str, Any]:
     names = list(var_names or ["x", "y"])
     block = {

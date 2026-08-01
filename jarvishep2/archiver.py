@@ -487,7 +487,12 @@ class SimpleArchiver:
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
                 if self.processor.has_pending():
-                    self._flush_and_note()
+                    # Once the archive queue has been idle for one poll, no
+                    # buffered result remains to complete this batch.  Commit
+                    # the tail now: synchronous callers must not report an
+                    # archive stall merely because their final batch is below
+                    # ``batch_size`` and has a long flush interval configured.
+                    self._flush_and_note(force=True)
                 self._pack_ready_buckets()
                 continue
             self._ingest_result(result)

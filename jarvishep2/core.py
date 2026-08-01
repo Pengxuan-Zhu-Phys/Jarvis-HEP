@@ -381,7 +381,15 @@ class Jarvis2Core:
         from jarvishep2.logging import component_log_path, scan_logs_dir
 
         task_root = str(self.config.get("task_root") or os.getcwd())
-        scan_name = str(self.config.get("scan_name") or "scan")
+        scan = self.config.get("Scan")
+        scan_mapping = scan if isinstance(scan, Mapping) else {}
+        # ``load_task_yaml`` projects Scan.name to the legacy top-level alias,
+        # but direct Python callers may pass a raw task-card mapping.  Preserve
+        # the task-card value in both paths so scan isolation never silently
+        # collapses to the default name ``scan``.
+        scan_name = str(
+            self.config.get("scan_name") or scan_mapping.get("name") or "scan"
+        )
         logs_dir = scan_logs_dir(task_root, scan_name)
         self.info = {
             "task_root": task_root,
@@ -1283,9 +1291,18 @@ class Jarvis2Core:
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         # EnvReqs.V2.redis (optional) overlays INTERNAL_REDIS_CONFIG defaults.
         redis_config = get_redis_config(self.config)
+        raw_runtime = self.config.get("Runtime")
+        raw_redis = raw_runtime.get("redis") if isinstance(raw_runtime, Mapping) else None
+        # Task cards always use a Jarvis-managed local broker.  Programmatic
+        # callers (including the multiprocessing fakeredis integration suite)
+        # may deliberately attach to an already-running broker instead.  This
+        # internal Runtime marker is not a task-card YAML setting.
+        use_managed_redis = not (
+            isinstance(raw_redis, Mapping) and raw_redis.get("managed") is False
+        )
         # Prefer a Jarvis-managed redis-server so `ps` shows Jarvis-Redis:<scan>.
         # A port collision is reassigned into the project's default YAML first.
-        if client is None:
+        if client is None and use_managed_redis:
             self._ensure_managed_redis(redis_config)
             redis_config = get_redis_config(self.config)
         if client is not None:

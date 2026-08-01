@@ -27,7 +27,7 @@ def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
-    return server, {"host": host, "port": port, "db": 0}
+    return server, {"host": host, "port": port, "db": 0, "managed": False}
 
 
 def _flat_vars(names: list[str], lo: float = 0.0, hi: float = 1.0) -> list[dict[str, Any]]:

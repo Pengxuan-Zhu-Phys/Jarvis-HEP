@@ -11,6 +11,7 @@ import threading
 import time
 import unittest
 from typing import Any
+from unittest import mock
 
 import numpy as np
 from fakeredis import TcpFakeServer
@@ -52,7 +53,7 @@ def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict[str, Any]]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
-    return server, {"host": host, "port": port, "db": 0}
+    return server, {"host": host, "port": port, "db": 0, "managed": False}
 
 
 def _normalize_database_records(records: list[dict[str, Any]]) -> list[dict[str, float]]:
@@ -101,6 +102,30 @@ class WorkerMVPTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
+
+    def test_core_can_attach_to_explicit_external_redis(self) -> None:
+        config = {
+            "Runtime": {
+                "mode": "redis",
+                "redis": {
+                    "host": "127.0.0.1",
+                    "port": 6381,
+                    "db": 0,
+                    "managed": False,
+                },
+            }
+        }
+        queue = mock.Mock()
+        with (
+            mock.patch("jarvishep2.core.RedisQueue", return_value=queue),
+            mock.patch.object(Jarvis2Core, "_ensure_managed_redis") as ensure,
+        ):
+            core = Jarvis2Core(config)
+            self.assertIs(core.init_redis(), queue)
+
+        ensure.assert_not_called()
+        queue.connect.assert_called_once_with()
+        queue.ping.assert_called_once_with()
 
     def test_start_workers_refuses_duplicate_start(self) -> None:
         server, redis_config = _start_tcp_fakeredis()

@@ -44,6 +44,10 @@ class CoreRunDistributedTests(unittest.TestCase):
     def tearDown(self) -> None:
         _stop_factory_workers()
 
+    def test_raw_task_card_scan_name_populates_runtime_metadata(self) -> None:
+        core = Jarvis2Core({"Scan": {"name": "raw-card-scan"}})
+        self.assertEqual(core.info["scan_name"], "raw-card-scan")
+
     def test_check_modules_yaml_end_to_end_golden_parity(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
         try:

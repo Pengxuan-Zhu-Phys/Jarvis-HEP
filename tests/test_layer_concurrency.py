@@ -185,6 +185,10 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
         def _calc_observables(payload: dict[str, object]) -> dict[str, object]:
             obs = dict(payload.get("observables") or {})
             obs.pop("uuid", None)
+            # ``oupjson`` is the per-sample temporary output path, not a
+            # calculator value; separate runs necessarily materialize it under
+            # different UUID directories.
+            obs.pop("oupjson", None)
             return obs
 
         self.assertEqual(
@@ -211,6 +215,7 @@ class LayerConcurrencyIntegrationTests(unittest.TestCase):
         def _calc_observables(payload: dict[str, object]) -> dict[str, object]:
             obs = dict(payload.get("observables") or {})
             obs.pop("uuid", None)
+            obs.pop("oupjson", None)
             return obs
 
         self.assertEqual(

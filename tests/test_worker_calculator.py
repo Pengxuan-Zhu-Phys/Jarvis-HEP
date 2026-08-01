@@ -114,7 +114,7 @@ def _start_tcp_fakeredis() -> tuple[TcpFakeServer, dict[str, Any]]:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     host, port = server.server_address
-    return server, {"host": host, "port": port, "db": 0}
+    return server, {"host": host, "port": port, "db": 0, "managed": False}
 
 
 def _worker_config(tmpdir: str) -> dict[str, Any]:
@@ -174,8 +174,8 @@ class WorkflowCalculatorTests(unittest.TestCase):
         self.assertEqual([step.type for step in plan], ["calculator", "likelihood"])
         self.assertEqual(plan[0].name, "EggBox")
         self.assertEqual(plan[0].layer, 0)
-        # calculator-only plans reserve layer 1 for a future opera layer
-        self.assertEqual(plan[1].layer, 2)
+        # With no Opera step, Likelihood immediately follows the calculator.
+        self.assertEqual(plan[1].layer, 1)
 
 
 class CalculatorModuleUnitTests(unittest.TestCase):
