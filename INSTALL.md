@@ -115,6 +115,7 @@ Run and inspect:
 ```bash
 Jarvis2 -v                            # logo + authors + package version
 Jarvis2 --version
+Jarvis2 --refs                        # framework and bundled-sampler citations
 
 Jarvis2 run quickstart.yaml           # preferred
 Jarvis2 run quickstart.yaml --console-level WARNING

@@ -2,7 +2,7 @@
 
 Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + spawn Workers).
 
-**Where we are (2026-07-16):** D0–D7 runtime, D11 UI, and **D12.0–D12.6 + D12.8** are in
+**Where we are (2026-08-02):** D0–D7 runtime, D11 UI, and D12–D13 foundations are in
 (including `Jarvis2 project …`, Examples catalog, restricted pack crypto via CLI). Recent
 as-built: **FileOperation** SAMPLE save, component logs under `logs/<scan>/`, file-driven
 log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `ps` / `kill`**.
@@ -40,6 +40,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
 | Component logs | `logs/<scan>/core.log`, `factory.log`, `sampler.log`, `archiver.log`, `datarecorder.log`, `worker-NN.log` |
 | CLI version | `Jarvis2 -v` / `--version` → logo + Author + Version |
+| Citations | `Jarvis2 --refs` → framework and bundled sampler references |
 | Process inspect | `Jarvis2 ps` / `Jarvis2 kill` (interactive confirm; `--yes` for scripts) |
 | Console | default INFO; `--console-level`; `--silence` / `-s` |
 | AdaptiveBridson tuning | public knobs: `outer_half_width`, `min_radius`; core/stop width = `outer_half_width / 8` |
