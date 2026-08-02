@@ -78,6 +78,31 @@ def build_install_fingerprint(
         "source": str(spec.source or ""),
         "source_stat": _source_stat_payload(spec.source),
         "installation": commands,
+        "mode_parent": str(spec.mode_parent or ""),
+        "mode_name": str(spec.mode_name or ""),
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def build_parent_install_fingerprint(spec: CalculatorSpec) -> str:
+    """Hash the physical shared base, excluding mode-specific rebuild commands."""
+    commands: list[dict[str, str]] = []
+    for item in spec.parent_installation:
+        if not isinstance(item, Mapping):
+            continue
+        commands.append({
+            "cmd": str(item.get("cmd", "")),
+            "cwd": str(item.get("cwd", ".")),
+        })
+    payload = {
+        "schema": "jarvishep2.calc_shared_base/v1",
+        "module": str(spec.mode_parent or spec.name),
+        "clone_shadow": bool(spec.clone_shadow),
+        "basepath": str(spec.basepath),
+        "source": str(spec.source or ""),
+        "source_stat": _source_stat_payload(spec.source),
+        "parent_installation": commands,
     }
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
@@ -178,10 +203,21 @@ def prepare_install_controls(
     """Bump reinstall epochs once in the control process and plumb them to Workers."""
     force = force_calc_install_requested(env)
     prepared: list[dict[str, Any]] = []
+    # A multi-mode parent has several logical CalculatorSpecs but exactly one
+    # physical ``jarvis_install.json`` beside its shared @PackID directories.
+    # Remember the epoch after the first child so ``reinstall: true`` advances
+    # it once, not once per mode.
+    shared_controls: dict[str, tuple[int, bool]] = {}
     for raw in modules or []:
         config = dict(raw)
         spec = CalculatorSpec.from_config(str(config.get("name", "Calculator")), config)
         if not spec.clone_shadow:
+            prepared.append(config)
+            continue
+        control_path = install_control_path(spec)
+        if spec.shared_mode_pack and control_path in shared_controls:
+            next_epoch, requested = shared_controls[control_path]
+            config["_install_epoch"] = next_epoch
             prepared.append(config)
             continue
         state = dict(read_install_control(spec) or {})
@@ -193,7 +229,7 @@ def prepare_install_controls(
         next_epoch = epoch + 1 if requested else epoch
         control = {
             "schema": INSTALL_CONTROL_SCHEMA,
-            "module": spec.name,
+            "module": spec.mode_parent if spec.shared_mode_pack else spec.name,
             "source": os.path.abspath(spec.source) if spec.source else "",
             "reinstall": False,
             "reinstall_epoch": next_epoch,
@@ -203,6 +239,8 @@ def prepare_install_controls(
         write_install_control(spec, control)
         config["_install_epoch"] = next_epoch
         prepared.append(config)
+        if spec.shared_mode_pack and control_path:
+            shared_controls[control_path] = (next_epoch, requested)
         if logger is not None:
             try:
                 logger.info(
@@ -221,9 +259,15 @@ def refresh_install_control_summaries(
     modules: Sequence[Mapping[str, Any]] | None,
 ) -> None:
     """Refresh best-effort per-pack summaries (control process only)."""
+    seen_controls: set[str] = set()
     for raw in modules or []:
         config = dict(raw)
         spec = CalculatorSpec.from_config(str(config.get("name", "Calculator")), config)
+        control_path = install_control_path(spec)
+        if control_path and control_path in seen_controls:
+            continue
+        if control_path:
+            seen_controls.add(control_path)
         control = read_install_control(spec)
         if not control or not spec.clone_shadow or "@PackID" not in str(spec.basepath):
             continue
@@ -239,10 +283,12 @@ def refresh_install_control_summaries(
                 continue
             stamp = read_install_stamp(os.path.join(parent, entry))
             if stamp:
+                extra = stamp.get("extra")
                 packs[str(entry)] = {
                     "fingerprint": stamp.get("fingerprint", ""),
                     "epoch": int(stamp.get("epoch", 0) or 0),
                     "installed_at_utc": stamp.get("installed_at_utc", ""),
+                    "mode": str(extra.get("mode") or "") if isinstance(extra, Mapping) else "",
                 }
         control["packs"] = packs
         write_install_control(spec, control)
@@ -310,6 +356,34 @@ class RuntimePreparer:
     def install_fingerprint(self) -> str:
         return build_install_fingerprint(self.spec, pack_id=self.pack_id)
 
+    def parent_install_fingerprint(self) -> str:
+        return build_parent_install_fingerprint(self.spec)
+
+    def _shared_parent_is_ready(
+        self,
+        runtime: str,
+        *,
+        stamp: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Whether a shared pack's common base can be retained for a mode switch."""
+        if self.force_reinstall:
+            return False
+        current = stamp if stamp is not None else read_install_stamp(runtime)
+        if not isinstance(current, Mapping):
+            return False
+        extra = current.get("extra")
+        if not isinstance(extra, Mapping):
+            return False
+        try:
+            parent_epoch = max(0, int(extra.get("parent_install_epoch", 0) or 0))
+        except (TypeError, ValueError):
+            parent_epoch = 0
+        return (
+            str(extra.get("parent_install_fingerprint") or "")
+            == self.parent_install_fingerprint()
+            and parent_epoch >= self.install_epoch
+        )
+
     def can_reuse_install(self, runtime: str | None = None) -> bool:
         """True when pack dir has a matching install stamp and force is off."""
         if self.force_reinstall:
@@ -325,9 +399,19 @@ class RuntimePreparer:
             stamp_epoch = max(0, int(stamp.get("epoch", 0) or 0))
         except (TypeError, ValueError):
             stamp_epoch = 0
+        stamp_extra = stamp.get("extra")
+        stamp_mode = (
+            str(stamp_extra.get("mode") or "")
+            if isinstance(stamp_extra, Mapping)
+            else ""
+        )
         return (
             str(stamp.get("fingerprint") or "") == expected
             and stamp_epoch >= self.install_epoch
+            and (
+                not self.spec.shared_mode_pack
+                or stamp_mode == str(self.spec.mode_name or "")
+            )
         )
 
     def ensure_shadow_installed(
@@ -354,7 +438,11 @@ class RuntimePreparer:
         pack_id = str(self.pack_id or "")
         if not pack_id:
             raise RuntimeError("clone_shadow install requires pack_id")
-        if pack_id in self._installed_shadows:
+        # Ordinary modules own their pool, so a process-local reuse shortcut is
+        # safe. Shared multi-mode packs can have been rebuilt by another Worker
+        # since this module last touched the numeric PackID; always re-read its
+        # on-disk mode stamp in that case.
+        if pack_id in self._installed_shadows and not self.spec.shared_mode_pack:
             self.last_install_action = "reused"
             return
 
@@ -363,7 +451,8 @@ class RuntimePreparer:
         fingerprint = self.install_fingerprint()
 
         if self.can_reuse_install(runtime):
-            self._installed_shadows.add(pack_id)
+            if not self.spec.shared_mode_pack:
+                self._installed_shadows.add(pack_id)
             self.last_install_action = "reused"
             if logger is not None:
                 try:
@@ -377,8 +466,34 @@ class RuntimePreparer:
                     pass
             return
 
-        # Fresh or stale install: run commands then stamp on success only.
-        if self.spec.installation:
+        old_stamp = read_install_stamp(runtime)
+        # Shared packs may currently hold a different mode. Clear the old
+        # stamp before touching the directory: a failed rebuild must never be
+        # mistaken for a healthy copy of the prior mode on the next acquire.
+        try:
+            os.unlink(install_stamp_path(runtime))
+        except FileNotFoundError:
+            pass
+        if self.spec.shared_mode_pack:
+            # The parent block builds the common physical base. A normal mode
+            # switch retains that base and runs only this mode's installation.
+            parent_needed = not self._shared_parent_is_ready(runtime, stamp=old_stamp)
+            if parent_needed:
+                if self.spec.parent_installation:
+                    run_stage(list(self.spec.parent_installation), "install")
+                elif self.spec.source:
+                    shutil.copytree(
+                        os.path.abspath(self.spec.source), runtime, dirs_exist_ok=True
+                    )
+                elif not self.spec.mode_installation:
+                    raise RuntimeError(
+                        f"shared calculator '{self.spec.mode_parent or self.spec.name}' "
+                        "requires a source path, parent installation, or mode installation"
+                    )
+            if self.spec.mode_installation:
+                run_stage(list(self.spec.mode_installation), "install")
+        # Normal calculators retain the original one-stage contract.
+        elif self.spec.installation:
             run_stage(list(self.spec.installation), "install")
         elif self.spec.source:
             shutil.copytree(
@@ -395,8 +510,19 @@ class RuntimePreparer:
             module=self.spec.name,
             pack_id=pack_id,
             epoch=self.install_epoch,
+            extra=(
+                {
+                    "mode_parent": self.spec.mode_parent,
+                    "mode": self.spec.mode_name,
+                    "parent_install_fingerprint": self.parent_install_fingerprint(),
+                    "parent_install_epoch": self.install_epoch,
+                }
+                if self.spec.shared_mode_pack
+                else None
+            ),
         )
-        self._installed_shadows.add(pack_id)
+        if not self.spec.shared_mode_pack:
+            self._installed_shadows.add(pack_id)
         self.last_install_action = "installed"
         if logger is not None:
             try:
@@ -457,6 +583,7 @@ __all__ = [
     "INSTALL_CONTROL_SCHEMA",
     "RuntimePreparer",
     "build_install_fingerprint",
+    "build_parent_install_fingerprint",
     "force_calc_install_requested",
     "install_control_path",
     "read_install_control",

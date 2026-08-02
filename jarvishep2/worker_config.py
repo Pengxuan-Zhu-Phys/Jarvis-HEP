@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
+from jarvishep2.calculator_modes import expand_calculator_modes
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_cleanup_config,
@@ -79,6 +80,7 @@ def build_worker_config(
         calculators = (cfg.get("Calculators") or {}).get("Modules") or []
         if isinstance(calculators, list):
             calc_modules = [dict(item) for item in calculators if isinstance(item, Mapping)]
+    calc_modules = expand_calculator_modes(calc_modules)
 
     opera = list(opera_modules or extra_payload.pop("opera_modules", []) or [])
     if not opera:

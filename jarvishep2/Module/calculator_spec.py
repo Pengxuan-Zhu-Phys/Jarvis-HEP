@@ -133,6 +133,8 @@ class CalculatorSpec:
     name: str
     clone_shadow: bool = False
     installation: tuple[Mapping[str, Any], ...] = ()
+    parent_installation: tuple[Mapping[str, Any], ...] = ()
+    mode_installation: tuple[Mapping[str, Any], ...] = ()
     initialization: tuple[Mapping[str, Any], ...] = ()
     commands: tuple[Mapping[str, Any], ...] = ()
     input_specs: tuple[Mapping[str, Any], ...] = ()
@@ -143,6 +145,9 @@ class CalculatorSpec:
     symlink_name: str = ""
     env_setup: tuple[Mapping[str, Any], ...] = ()
     selection: str | None = None
+    mode_parent: str | None = None
+    mode_name: str | None = None
+    shared_mode_pack: bool = False
     raw: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -168,6 +173,13 @@ class CalculatorSpec:
             installation=normalize_command_list(
                 cfg.get("installation"), default_cwd=basepath
             ),
+            parent_installation=normalize_command_list(
+                cfg.get("_parent_installation", cfg.get("installation")),
+                default_cwd=basepath,
+            ),
+            mode_installation=normalize_command_list(
+                cfg.get("_mode_installation", ()), default_cwd=basepath
+            ),
             initialization=normalize_command_list(
                 cfg.get("initialization"), default_cwd=basepath
             ),
@@ -182,6 +194,13 @@ class CalculatorSpec:
             symlink_name=symlink,
             env_setup=_mapping_list(cfg.get("env_setup")),
             selection=selection,
+            mode_parent=(
+                str(cfg.get("_mode_parent") or "").strip() or None
+            ),
+            mode_name=(
+                str(cfg.get("_mode_name") or "").strip() or None
+            ),
+            shared_mode_pack=bool(cfg.get("_shared_mode_pack", False)),
             raw=cfg,
         )
 

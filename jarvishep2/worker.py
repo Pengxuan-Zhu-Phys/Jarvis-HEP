@@ -14,6 +14,7 @@ from typing import Any
 
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessRuntimeConfig
 from jarvishep2.command_parser import CommandParser
+from jarvishep2.calculator_modes import mode_info, shared_mode_groups
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
 from jarvishep2.expression import ExpressionContext
 from jarvishep2.archive_handoff import list_product_names, resolve_staging_dir, stage_sample_dir
@@ -29,7 +30,7 @@ from jarvishep2.operas_functions import (
     build_operas_expression_context,
     operas_expression_functions_required,
 )
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import RedisQueue, SHARED_HELD_PREFIX
 from jarvishep2.sample import Sample, materialize_failure_artifacts
 from jarvishep2.sample import ExecutionStep
 from jarvishep2.workflow import group_by_layer, max_layer_width, resolve_module_layers
@@ -60,6 +61,7 @@ class Worker(Process):
         self._mapper = None
         self._operas: dict[str, Any] = {}
         self._calculators: dict[str, CalculatorModule] = {}
+        self._shared_mode_sets: dict[str, list[str]] = {}
         self._likelihood: LogLikelihoodEvaluator | None = None
         self._nuisance_profiler = None  # Profile1DProfiler | None
         self._expression_context: ExpressionContext | None = None
@@ -174,6 +176,7 @@ class Worker(Process):
         if isinstance(calculator_configs, dict):
             calculator_configs = list(calculator_configs.values())
         self._calculators = CalculatorModule.from_config_list(calculator_configs)
+        self._shared_mode_sets = shared_mode_groups(calculator_configs)
         layer_width = max(
             1,
             int(self.worker_config.get("subprocess_max_concurrency", 0) or 0),
@@ -238,6 +241,9 @@ class Worker(Process):
         active_pids: list[int] = []
         if self._scheduler is not None:
             active_pids = self._scheduler.active_subprocess_pids()
+        file_operation_pid = self._file_ops.pid if self._file_ops is not None else None
+        if file_operation_pid is not None:
+            active_pids.append(file_operation_pid)
         self._redis.heartbeat(
             str(self.worker_id),
             status=status,
@@ -247,6 +253,7 @@ class Worker(Process):
             ts=now,
             held_calc_packs=json.dumps(held_packs),
             active_subprocess_pids=json.dumps(active_pids),
+            file_operation_pid=file_operation_pid,
             current_task=current_task,
         )
 
@@ -260,6 +267,16 @@ class Worker(Process):
         while not stop.wait(interval_sec):
             try:
                 self._heartbeat(self._last_status)
+                expected_owner = str(
+                    self.worker_config.get("control_lock_owner") or ""
+                ).strip()
+                if (
+                    expected_owner
+                    and self._redis is not None
+                    and self._redis.get_control_lock_owner() != expected_owner
+                ):
+                    self._is_running = False
+                    return
             except Exception:  # pragma: no cover - heartbeat must never kill the Worker
                 continue
 
@@ -284,23 +301,88 @@ class Worker(Process):
         self._heartbeat_stop = None
         self._heartbeat_thread = None
 
-    def _run_calculator_step(self, step_name: str, sample: Sample) -> None:
+    def _shutdown_runtime(self, worker_log: Any) -> None:
+        """Best-effort child cleanup; one subsystem must never skip the next."""
+        try:
+            self._stop_heartbeat_thread()
+        except Exception as exc:
+            worker_log.warning("heartbeat shutdown failed -> %s", exc)
+        try:
+            self._heartbeat("stopped")
+        except Exception as exc:
+            worker_log.warning("final heartbeat failed -> %s", exc)
+        if self._scheduler is not None:
+            try:
+                self._scheduler.shutdown(wait=True)
+            except Exception as exc:
+                # Cleanup is deliberately independent: a scheduler timeout
+                # must never skip FileOperation termination.
+                worker_log.warning("scheduler shutdown failed -> %s", exc)
+            finally:
+                self._scheduler = None
+        if self._file_ops is not None:
+            try:
+                self._file_ops.shutdown()
+            except Exception as exc:
+                worker_log.warning("FileOperation shutdown failed -> %s", exc)
+            finally:
+                self._file_ops = None
+        if self._redis is not None:
+            try:
+                self._redis.close()
+            except Exception as exc:
+                worker_log.warning("Worker Redis close failed -> %s", exc)
+            finally:
+                self._redis = None
+
+    def _run_calculator_step(
+        self,
+        step_name: str,
+        sample: Sample,
+        *,
+        selection_checked: bool = False,
+    ) -> None:
         module = self._calculators.get(step_name)
         if module is None:
             raise KeyError(f"unknown calculator module '{step_name}'")
         if self._redis is None:
             raise RuntimeError("redis is not initialized in worker process")
+        # Selection must precede slot acquisition and runtime preparation. In
+        # shared mode, preparing a skipped step would rebuild and relabel a
+        # PackID for a mode which never actually ran.
+        if not selection_checked and not module.should_run(sample.info):
+            return
 
         timeout = int(self.worker_config.get("calc_acquire_timeout", 30))
-        pack_id = self._redis.acquire_calc(step_name, timeout=timeout)
+        info = mode_info(module.config)
+        shared_parent = info[0] if info is not None else None
+        target_mode = info[1] if info is not None else None
+        held_key = SHARED_HELD_PREFIX + shared_parent if shared_parent else step_name
+        if shared_parent and target_mode:
+            acquired = self._redis.acquire_shared_calc(
+                shared_parent,
+                target_mode,
+                modes=self._shared_mode_sets.get(shared_parent, [target_mode]),
+                timeout=timeout,
+                affinity_wait_sec=float(
+                    self.worker_config.get("shared_mode_affinity_wait_sec", 3.0)
+                ),
+            )
+            pack_id = acquired[0] if acquired is not None else None
+        else:
+            pack_id = self._redis.acquire_calc(step_name, timeout=timeout)
         if pack_id is None:
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
         with self._hb_lock():
-            self._held_calc_packs[step_name] = pack_id
+            self._held_calc_packs[held_key] = pack_id
         self._heartbeat("busy")
+        runtime_ready = False
         try:
             module.acquire_pack_id(pack_id)
             module.prepare_runtime(sample.info)
+            # A successful preparation wrote a matching mode stamp (or reused
+            # one).  Execution failure afterwards still leaves a valid pack.
+            runtime_ready = True
             updated = module.execute(sample.info, runtime_prepared=True)
             lock = self._observables_lock
             if lock is not None:
@@ -310,10 +392,22 @@ class Worker(Process):
                 self._merge_calculator_observables(sample, step_name, pack_id, updated)
         finally:
             # Hard release: Redis socket errors must not leave the slot busy.
-            self._force_release_pack(step_name, pack_id)
+            self._force_release_pack(
+                held_key,
+                pack_id,
+                shared_parent=shared_parent,
+                ready_mode=target_mode if runtime_ready else None,
+            )
             self._heartbeat("busy")
 
-    def _force_release_pack(self, step_name: str, pack_id: str | None = None) -> None:
+    def _force_release_pack(
+        self,
+        step_name: str,
+        pack_id: str | None = None,
+        *,
+        shared_parent: str | None = None,
+        ready_mode: str | None = None,
+    ) -> None:
         """Return a calculator PackID, retaining local ownership on Redis errors."""
         if self._redis is None:
             return
@@ -324,7 +418,16 @@ class Worker(Process):
         try:
             # False is the benign already-free/double-release result; an
             # exception means Redis could not confirm the transition.
-            self._redis.force_release_calc(step_name, str(held_pack))
+            if shared_parent:
+                self._redis.release_shared_calc(
+                    shared_parent, str(held_pack), ready_mode,
+                )
+            elif str(step_name).startswith(SHARED_HELD_PREFIX):
+                self._redis.force_release_shared_calc(
+                    str(step_name).removeprefix(SHARED_HELD_PREFIX), str(held_pack),
+                )
+            else:
+                self._redis.force_release_calc(step_name, str(held_pack))
         except Exception as exc:
             try:
                 get_jarvis_logger("worker", worker_id=self.worker_id).error(
@@ -363,18 +466,92 @@ class Worker(Process):
         """Rollback switch: run same-layer calculators one after another."""
         return bool(self.worker_config.get("force_serial_layers", False))
 
+    def _run_shared_mode_group(self, steps: list[ExecutionStep], sample: Sample) -> None:
+        """Run one parent's modes serially, greedily preferring a warm mode."""
+        pending = [
+            step
+            for step in steps
+            if step.name in self._calculators
+            and self._calculators[step.name].should_run(sample.info)
+        ]
+        while pending:
+            first = self._calculators.get(pending[0].name)
+            info = mode_info(first.config) if first is not None else None
+            if info is None or self._redis is None:
+                selected = pending.pop(0)
+            else:
+                parent, _ = info
+                pending_modes = [
+                    mode_info(self._calculators[step.name].config)[1]
+                    for step in pending
+                    if step.name in self._calculators
+                    and mode_info(self._calculators[step.name].config) is not None
+                ]
+                counts = self._redis.shared_mode_free_counts(
+                    parent,
+                    pending_modes,
+                )
+                if any(counts.values()):
+                    selected = max(
+                        pending,
+                        key=lambda step: (
+                            counts.get(
+                                (mode_info(self._calculators[step.name].config) or ("", ""))[1],
+                                0,
+                            ),
+                            -pending.index(step),
+                        ),
+                    )
+                else:
+                    # No warm pack exists yet. Spread the initial builds across
+                    # modes already claimed by peer Workers rather than sending
+                    # every cold Worker into the first YAML mode.
+                    busy = self._redis.shared_mode_busy_counts(parent, pending_modes)
+                    selected = min(
+                        pending,
+                        key=lambda step: (
+                            busy.get(
+                                (mode_info(self._calculators[step.name].config) or ("", ""))[1],
+                                0,
+                            ),
+                            pending.index(step),
+                        ),
+                    )
+                pending.remove(selected)
+            self._run_calculator_step(
+                selected.name, sample, selection_checked=True,
+            )
+
     def _run_calculator_steps(self, calc_steps: list[ExecutionStep], sample: Sample) -> None:
-        if len(calc_steps) > 1 and not self._force_serial_layers():
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(calc_steps)) as pool:
+        """Fan out independent calculators, but serialize shared-pack siblings."""
+        shared: dict[str, list[ExecutionStep]] = {}
+        units: list[tuple[str, list[ExecutionStep]]] = []
+        for step in calc_steps:
+            module = self._calculators.get(step.name)
+            info = mode_info(module.config) if module is not None else None
+            if info is None:
+                units.append((step.name, [step]))
+            else:
+                shared.setdefault(info[0], []).append(step)
+        units.extend((f"{SHARED_HELD_PREFIX}{parent}", steps) for parent, steps in shared.items())
+        if len(units) > 1 and not self._force_serial_layers():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(units)) as pool:
                 futures = [
-                    pool.submit(self._run_calculator_step, step.name, sample)
-                    for step in calc_steps
+                    pool.submit(
+                        self._run_shared_mode_group if key.startswith(SHARED_HELD_PREFIX) else self._run_calculator_step,
+                        steps if key.startswith(SHARED_HELD_PREFIX) else steps[0].name,
+                        sample,
+                    )
+                    for key, steps in units
                 ]
                 for future in concurrent.futures.as_completed(futures):
                     future.result()
             return
-        for step in calc_steps:
-            self._run_calculator_step(step.name, sample)
+        for key, steps in units:
+            if key.startswith(SHARED_HELD_PREFIX):
+                self._run_shared_mode_group(steps, sample)
+            else:
+                self._run_calculator_step(steps[0].name, sample)
 
     def _run_layer(self, layer: list[ExecutionStep], sample: Sample) -> None:
         """Run one execution-plan layer; fan out same-layer calculators concurrently."""
@@ -781,23 +958,16 @@ class Worker(Process):
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
         self._init_redis()
-        self._init_runtime()
-        self._heartbeat("starting")
-        self._start_heartbeat_thread()
         try:
+            # Keep initialization inside the cleanup boundary: FileOperation
+            # starts early in _init_runtime, and any later setup exception must
+            # still shut it down.
+            self._init_runtime()
+            self._heartbeat("starting")
+            self._start_heartbeat_thread()
             self._main_loop()
         finally:
-            self._stop_heartbeat_thread()
-            self._heartbeat("stopped")
-            if self._scheduler is not None:
-                self._scheduler.shutdown(wait=True)
-                self._scheduler = None
-            if self._file_ops is not None:
-                self._file_ops.shutdown()
-                self._file_ops = None
-            if self._redis is not None:
-                self._redis.close()
-                self._redis = None
+            self._shutdown_runtime(worker_log)
 
 
 __all__ = ["Worker"]

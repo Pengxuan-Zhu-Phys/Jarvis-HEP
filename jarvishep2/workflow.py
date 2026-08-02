@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jarvishep2.sample import ExecutionStep
+from jarvishep2.calculator_modes import expand_calculator_modes
 
 
 def _normalize_required_modules(value: Any) -> list[str]:
@@ -75,6 +76,7 @@ def build_execution_plan(
     include_nuisance: bool = False,
 ) -> list[ExecutionStep]:
     """Build a layered plan: calculators → operas → nuisance_optimize → likelihood."""
+    calculator_modules = expand_calculator_modes(calculator_modules)
     steps: list[ExecutionStep] = []
     calc_layers = resolve_module_layers(calculator_modules)
     opera_layers = resolve_module_layers(opera_modules)

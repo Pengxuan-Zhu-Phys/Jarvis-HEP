@@ -139,6 +139,85 @@ class FlowchartExportTests(unittest.TestCase):
             ("file::EggBox::output::oupjson", "var::z", "fileflow"), edge_pairs
         )
 
+    def test_multimode_calculators_are_logical_nodes_with_shared_runtime_metadata(self) -> None:
+        """The diagram must use the same logical nodes as the execution plan."""
+        config = {
+            "Scan": {"name": "modes"},
+            "Calculators": {
+                "Modules": [
+                    {
+                        "name": "Prospino",
+                        "path": "runtime/Prospino/@PackID",
+                        "clone_shadow": True,
+                        "modes": [
+                            {
+                                "name": "ng",
+                                "execution": {
+                                    "output": [
+                                        {"name": "ng_result", "path": "ng.json", "type": "JSON", "variables": [{"name": "ng_x"}]}
+                                    ]
+                                },
+                            },
+                            {
+                                "name": "ns",
+                                "execution": {
+                                    "output": [
+                                        {"name": "ns_result", "path": "ns.json", "type": "JSON", "variables": [{"name": "ns_x"}]}
+                                    ]
+                                },
+                            },
+                        ],
+                    }
+                ]
+            },
+        }
+        scene = build_flowchart_scene_from_config(config)
+        nodes = {node["id"]: node for node in scene["nodes"]}
+        self.assertNotIn("Prospino", nodes)
+        self.assertIn("Prospino.ng", nodes)
+        self.assertIn("Prospino.ns", nodes)
+        self.assertEqual(nodes["Prospino.ng"]["layer"], nodes["Prospino.ns"]["layer"])
+        self.assertEqual(
+            nodes["Prospino.ng"]["label"],
+            "Prospino.ng\n(shared PackID: Prospino; serialized)",
+        )
+        self.assertEqual(
+            nodes["Prospino.ng"]["metadata"]["shared_runtime"],
+            {
+                "parent": "Prospino",
+                "mode": "ng",
+                "pool": "Prospino",
+                "execution_constraint": "serialized_with_sibling_modes",
+            },
+        )
+        self.assertIn("file::Prospino.ng::output::ng_result", nodes)
+        self.assertIn("file::Prospino.ns::output::ns_result", nodes)
+        self.assertEqual(
+            scene["groups"],
+            [
+                {
+                    "id": "shared_runtime::Prospino",
+                    "kind": "shared_runtime",
+                    "label": "Prospino · shared PackID pool · modes serialize",
+                    "nodes": ["Prospino.ng", "Prospino.ns"],
+                    "metadata": {
+                        "parent": "Prospino",
+                        "pool": "Prospino",
+                        "execution_constraint": "serialized_with_sibling_modes",
+                    },
+                }
+            ],
+        )
+        # Stock renderers may ignore optional group metadata; it must remain
+        # safe and retain the individual mode data-flow nodes.
+        from jarvisplot import render_flowchart
+
+        with tempfile.TemporaryDirectory() as tmp:
+            output = os.path.join(tmp, "multimode-flowchart.png")
+            rendered = render_flowchart(scene, output_path=output)
+            self.assertTrue(os.path.isfile(str(rendered)))
+            self.assertGreater(os.path.getsize(str(rendered)), 1000)
+
     def test_operas_expression_sources_match_v1_eggbox_05(self) -> None:
         """Operas ports {name:x, expression:xx*Pi} must edge from var::xx, not invent var::x."""
         config = {

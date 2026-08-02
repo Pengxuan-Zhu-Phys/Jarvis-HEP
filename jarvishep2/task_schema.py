@@ -313,40 +313,50 @@ def _validate_selected_io(
     for module_index, module in enumerate(modules):
         if not isinstance(module, Mapping):
             continue
+        executions: list[tuple[str, Mapping[str, Any]]] = []
         execution = module.get("execution")
-        if not isinstance(execution, Mapping):
-            continue
-        for direction in ("input", "output"):
-            entries = execution.get(direction)
-            if not isinstance(entries, list):
-                continue
-            formats = manifest["io"].get(direction, {})
-            portal_formats = set(available_io_formats(direction))
-            for entry_index, entry in enumerate(entries):
-                prefix = f"$.Calculators.Modules[{module_index}].execution.{direction}[{entry_index}]"
-                if not isinstance(entry, Mapping):
-                    continue
-                raw_kind = entry.get("type")
-                kind = raw_kind.strip() if isinstance(raw_kind, str) else raw_kind
-                schema_uri = formats.get(kind) if isinstance(kind, str) else None
-                if not isinstance(kind, str) or kind not in portal_formats:
-                    supported = ", ".join(sorted(portal_formats))
-                    issues.append(issue(
-                        "error", "JV2-SCH-002", f"{prefix}.type",
-                        f"unsupported {direction} format {raw_kind!r}; Portal supports: {supported}",
-                        hint="Use a format registered by Jarvis-HEP-Portal for this direction.",
-                        suggestion="Replace the type with one of the listed Portal formats.",
+        if isinstance(execution, Mapping):
+            executions.append((f"$.Calculators.Modules[{module_index}].execution", execution))
+        modes = module.get("modes")
+        if isinstance(modes, list):
+            for mode_index, mode in enumerate(modes):
+                if isinstance(mode, Mapping) and isinstance(mode.get("execution"), Mapping):
+                    executions.append((
+                        f"$.Calculators.Modules[{module_index}].modes[{mode_index}].execution",
+                        mode["execution"],
                     ))
+        for execution_prefix, execution in executions:
+            for direction in ("input", "output"):
+                entries = execution.get(direction)
+                if not isinstance(entries, list):
                     continue
-                if not isinstance(schema_uri, str):
-                    # Portal accepts it; a detailed Jarvis2 schema is optional.
-                    continue
-                normalized_entry = dict(entry)
-                normalized_entry["type"] = kind
-                issues.extend(_issues_for(
-                    _validator_for(schema_uri), normalized_entry, prefix,
-                    suppress_additional_property_keys=suppress_additional_property_keys,
-                ))
+                formats = manifest["io"].get(direction, {})
+                portal_formats = set(available_io_formats(direction))
+                for entry_index, entry in enumerate(entries):
+                    prefix = f"{execution_prefix}.{direction}[{entry_index}]"
+                    if not isinstance(entry, Mapping):
+                        continue
+                    raw_kind = entry.get("type")
+                    kind = raw_kind.strip() if isinstance(raw_kind, str) else raw_kind
+                    schema_uri = formats.get(kind) if isinstance(kind, str) else None
+                    if not isinstance(kind, str) or kind not in portal_formats:
+                        supported = ", ".join(sorted(portal_formats))
+                        issues.append(issue(
+                            "error", "JV2-SCH-002", f"{prefix}.type",
+                            f"unsupported {direction} format {raw_kind!r}; Portal supports: {supported}",
+                            hint="Use a format registered by Jarvis-HEP-Portal for this direction.",
+                            suggestion="Replace the type with one of the listed Portal formats.",
+                        ))
+                        continue
+                    if not isinstance(schema_uri, str):
+                        # Portal accepts it; a detailed Jarvis2 schema is optional.
+                        continue
+                    normalized_entry = dict(entry)
+                    normalized_entry["type"] = kind
+                    issues.extend(_issues_for(
+                        _validator_for(schema_uri), normalized_entry, prefix,
+                        suppress_additional_property_keys=suppress_additional_property_keys,
+                    ))
     return issues
 
 

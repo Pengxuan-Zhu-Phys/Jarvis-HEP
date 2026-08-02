@@ -104,6 +104,19 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                         )
                     )
 
+            if "checkpoint_heartbeat_sec" in v2:
+                heartbeat = try_float(v2.get("checkpoint_heartbeat_sec"))
+                if heartbeat is None or heartbeat < 1.0:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-012",
+                            "EnvReqs.V2.checkpoint_heartbeat_sec",
+                            "expected number ≥ 1 second, got "
+                            f"{v2.get('checkpoint_heartbeat_sec')!r}",
+                        )
+                    )
+
             worker = v2.get("worker")
             if isinstance(worker, Mapping):
                 w_extra = unknown_keys(worker, _WORKER_POLICY_KEYS)

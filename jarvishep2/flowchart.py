@@ -18,6 +18,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from jarvishep2.calculator_modes import expand_calculator_modes, mode_info
 from jarvishep2.sample import ExecutionStep
 from jarvishep2.versioning import get_runtime_version
 from jarvishep2.workflow import resolve_module_layers
@@ -582,7 +583,11 @@ def _collect_modules_and_layers(
     """Return module_specs_by_name and layer_id → module name list (1-based layers)."""
     calculators = (config.get("Calculators") or {}).get("Modules") or []
     operas = (config.get("Operas") or {}).get("Modules") or []
-    calc_list = [dict(item) for item in calculators if isinstance(item, Mapping)]
+    # Match the execution plan: a multi-mode calculator is one physical
+    # PackID pool but several logical workflow steps with independent I/O.
+    calc_list = expand_calculator_modes(
+        [dict(item) for item in calculators if isinstance(item, Mapping)]
+    )
     opera_list = [dict(item) for item in operas if isinstance(item, Mapping)]
 
     calc_layers = resolve_module_layers(calc_list)
@@ -600,7 +605,22 @@ def _collect_modules_and_layers(
             continue
         plan_layer = int(calc_layers.get(name, 0))
         layer_id = plan_layer + 2
-        specs[name] = _module_specs_from_yaml(module, module_type="Calculator")
+        spec = _module_specs_from_yaml(module, module_type="Calculator")
+        shared_mode = mode_info(module)
+        if shared_mode is not None:
+            parent, mode = shared_mode
+            # Same-layer sibling modes are logically independent but cannot
+            # execute concurrently: they acquire one shared physical pool.
+            spec["shared_runtime"] = {
+                "parent": parent,
+                "mode": mode,
+                "pool": parent,
+                "execution_constraint": "serialized_with_sibling_modes",
+            }
+            spec["display_label"] = (
+                f"{name}\n(shared PackID: {parent}; serialized)"
+            )
+        specs[name] = spec
         layer_map.setdefault(layer_id, []).append(name)
 
     for module in opera_list:
@@ -797,7 +817,7 @@ def build_flowchart_scene_from_config(
                 kind=specs["kind"],
                 role=specs["role"],
                 layer=layer_id,
-                label=module_name,
+                label=str(specs.get("display_label") or module_name),
                 metadata={
                     "module_type": specs["type"],
                     "required_modules": list(specs.get("required_modules") or []),
@@ -807,6 +827,8 @@ def build_flowchart_scene_from_config(
                 module_node.setdefault("metadata", {})["operator"] = specs["operator"]
             if specs.get("call_mode"):
                 module_node.setdefault("metadata", {})["call_mode"] = specs["call_mode"]
+            if specs.get("shared_runtime"):
+                module_node.setdefault("metadata", {})["shared_runtime"] = specs["shared_runtime"]
 
             selection = specs.get("selection")
             if selection:
@@ -1065,6 +1087,32 @@ def build_flowchart_scene_from_config(
             }
         )
 
+    # A shared-pack calculator has several logical data-flow steps but only
+    # one physical runtime pool.  Keep this topology explicit instead of
+    # making a renderer infer it from dotted node names.
+    shared_runtime_groups: dict[str, list[str]] = {}
+    for module_name, specs in module_specs.items():
+        runtime = specs.get("shared_runtime")
+        if not isinstance(runtime, Mapping):
+            continue
+        parent = str(runtime.get("parent") or "").strip()
+        if parent:
+            shared_runtime_groups.setdefault(parent, []).append(module_name)
+    groups = [
+        {
+            "id": f"shared_runtime::{parent}",
+            "kind": "shared_runtime",
+            "label": f"{parent} · shared PackID pool · modes serialize",
+            "nodes": node_names,
+            "metadata": {
+                "parent": parent,
+                "pool": parent,
+                "execution_constraint": "serialized_with_sibling_modes",
+            },
+        }
+        for parent, node_names in shared_runtime_groups.items()
+    ]
+
     return {
         "schema": FLOWCHART_SCHEMA,
         "scene_type": FLOWCHART_SCENE_TYPE,
@@ -1073,6 +1121,7 @@ def build_flowchart_scene_from_config(
         "layers": layers,
         "nodes": nodes,
         "edges": edges,
+        "groups": groups,
     }
 
 

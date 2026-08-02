@@ -7,8 +7,6 @@ import os
 import time
 from collections.abc import Mapping
 from typing import Any
-from uuid import uuid4
-
 from jarvishep2.async_subprocess import AsyncSubprocessScheduler, SubprocessJob
 from jarvishep2.command_parser import CommandParser
 from jarvishep2.expression import ExpressionContext
@@ -562,10 +560,14 @@ class CalculatorModule:
                 f"Calculator selection for '{self.name}' failed: {exc}"
             ) from exc
 
+    def should_run(self, sample_info: Mapping[str, Any]) -> bool:
+        """Return whether this sample passes the module selection gate."""
+        return self._should_run(sample_info)
+
     def execute(self, sample_info: Mapping[str, Any], *, runtime_prepared: bool = False) -> dict[str, Any]:
         """load_input → run commands → read_output (scheduler required when selected)."""
         self.sample_info = dict(sample_info)
-        if not self._should_run(sample_info):
+        if not self.should_run(sample_info):
             return {}
         # Prefer a single bind for prepare+execute (Worker may prepare first).
         if self.logger is None:
