@@ -86,6 +86,7 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
                         "observables": {"y": 1.0},
                     }
                 )
+                queue.add_archived_uuids("scan", [str(task["uuid"])])
 
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
@@ -139,7 +140,7 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
         sampler._generation = 4
         sampler._pending_uuids = {"u1", "u2"}
         sampler._submitted_uuids = ["u0", "u1", "u2"]
-        sampler._completed_uuids = {"u0"}
+        sampler.set_persisted_uuids({"u0"})
         sampler._on_failure = "halt"
         blob = sampler._feedback_export_state()
         restored = _ToyFeedbackSampler()
@@ -148,6 +149,20 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
         self.assertEqual(restored._pending_uuids, {"u1", "u2"})
         self.assertEqual(restored._on_failure, "halt")
         self.assertEqual(restored._seed, 42)
+
+    def test_checkpoint_barrier_uses_scan_block_name_without_loader_alias(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config(
+            {"Scan": {"name": "raw-api-scan"}, "Runtime": {"mode": "redis"}}
+        )
+        sampler.set_redis(queue)
+        sampler._submitted_uuids = ["u0"]
+        queue.add_archived_uuids("raw-api-scan", ["u0"])
+        sampler._save_checkpoint_callback = lambda **_kwargs: True
+
+        self.assertTrue(sampler.checkpoint_at_barrier())
+        self.assertEqual(sampler._persisted_uuids, {"u0"})
 
 
 if __name__ == "__main__":

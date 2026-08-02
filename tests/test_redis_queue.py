@@ -15,7 +15,6 @@ from jarvishep2.redis_queue import (
     CALC_BUSY_PACKS,
     CALC_FREE,
     CALC_STATUS,
-    CONTROL_LOCK,
     OP_COUNT,
     RESULTS,
     SAMPLE_STATS,
@@ -228,10 +227,16 @@ class RedisQueueTests(unittest.TestCase):
         self.assertEqual(self.queue.get_control_lock_owner(), "owner-a")
         self.assertTrue(self.queue.refresh_control_lock("owner-a", ttl_sec=30))
         self.assertFalse(self.queue.refresh_control_lock("owner-b", ttl_sec=30))
-        self.queue.release_control_lock("owner-a")
+        self.assertFalse(self.queue.release_control_lock("owner-b"))
+        self.assertEqual(self.queue.get_control_lock_owner(), "owner-a")
+        self.assertTrue(self.queue.release_control_lock("owner-a"))
         self.assertIsNone(self.queue.get_control_lock_owner())
         self.assertTrue(self.queue.claim_control_lock("owner-b", ttl_sec=30))
-        self.queue.release_control_lock("owner-b")
+        self.assertTrue(self.queue.release_control_lock("owner-b"))
+
+    def test_control_lock_refresh_can_reclaim_an_expired_own_lease(self):
+        self.assertTrue(self.queue.refresh_control_lock("owner-a", ttl_sec=30))
+        self.assertEqual(self.queue.get_control_lock_owner(), "owner-a")
 
     def test_reset_run_ephemeral_keys_clears_queues_and_stats(self):
         self.queue.push_task(_minimal_task(uuid="t1"))

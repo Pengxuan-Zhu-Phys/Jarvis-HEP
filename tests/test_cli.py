@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import unittest
@@ -133,8 +135,8 @@ class CliParseTests(unittest.TestCase):
         )
         runtime_steps = (
             "List running scans, or print one selected",
-            "List running scans, or show one scan's OS",
-            "List running scans, or terminate one",
+            "List process groups, or show one scan / ZP",
+            "List process groups, or terminate one",
         )
         self.assertEqual(
             sorted(scan_steps, key=help_text.index), list(scan_steps)
@@ -163,6 +165,10 @@ class CliParseTests(unittest.TestCase):
         args = build_parser().parse_args(["monitor", "R1"])
         self.assertEqual(args.command, "monitor")
         self.assertEqual(args.scan_ref, "R1")
+
+    def test_parse_refs_flag(self) -> None:
+        args = build_parser().parse_args(["--refs"])
+        self.assertTrue(args.refs)
 
     def test_parse_gen_plot_yaml_subcommand(self) -> None:
         args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])
@@ -205,6 +211,27 @@ class CliVersionTests(unittest.TestCase):
             code = main(["--version"])
         self.assertEqual(code, 0)
         ver.assert_called_once()
+
+
+class CliReferencesTests(unittest.TestCase):
+    def test_old_refs_subcommand_is_rejected_with_migration_hint(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = main(["refs"])
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("Jarvis2 --refs", stderr.getvalue())
+
+    def test_refs_prints_framework_and_supported_sampler_citations(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            code = main(["--refs"])
+        self.assertEqual(code, EXIT_OK)
+        rendered = stdout.getvalue()
+        self.assertIn("Jarvis-HEP V2 references", rendered)
+        self.assertIn("Bridson / AdaptiveBridson", rendered)
+        self.assertIn("MultiNest", rendered)
+        self.assertIn("Dynesty", rendered)
+        self.assertIn("MCMC family", rendered)
 
 
 class CliDispatchTests(unittest.TestCase):

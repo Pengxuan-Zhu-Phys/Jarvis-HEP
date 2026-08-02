@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+from copy import deepcopy
 from typing import Any, Mapping
 
 import numpy as np
@@ -46,7 +47,8 @@ class SeededOperaSampler(SamplingVirtial):
         self._total_points = max(0, int(total_points))
         self._dimensions = max(1, int(dimensions))
         self._submitted_uuids: list[str] = []
-        self._completed_uuids: set[str] = set()
+        self._persisted_uuids: set[str] = set()
+        self._last_safe_state: dict[str, Any] | None = None
         self._checkpoint_file = ""
         self._checkpoint_heartbeat: CheckpointHeartbeat | None = None
         self._save_checkpoint_callback = None
@@ -60,6 +62,7 @@ class SeededOperaSampler(SamplingVirtial):
     ) -> None:
         self._checkpoint_file = str(checkpoint_file)
         self._save_checkpoint_callback = save_callback
+        self._last_safe_state = deepcopy(self.export_runtime_state())
         if self._checkpoint_heartbeat is not None:
             self._checkpoint_heartbeat.stop()
         self._checkpoint_heartbeat = CheckpointHeartbeat(
@@ -100,9 +103,12 @@ class SeededOperaSampler(SamplingVirtial):
         return samples
 
     def submit_next(self) -> str | None:
-        sample = self.propose_next()
-        if sample is None:
-            return None
+        while True:
+            sample = self.propose_next()
+            if sample is None:
+                return None
+            if self.should_submit_uuid(sample.uuid):
+                break
         self._submit(sample)
         self._submitted_uuids.append(sample.uuid)
         return sample.uuid
@@ -120,15 +126,25 @@ class SeededOperaSampler(SamplingVirtial):
     def submitted_uuids(self) -> frozenset[str]:
         return frozenset(self._submitted_uuids)
 
-    def mark_completed(self, uuid: str) -> None:
-        self._completed_uuids.add(str(uuid))
+    def set_persisted_uuids(self, uuids: set[str] | frozenset[str]) -> None:
+        self._persisted_uuids = {str(item) for item in uuids if str(item)}
+
+    def should_submit_uuid(self, uuid: str) -> bool:
+        return str(uuid) not in self._persisted_uuids
+
+    def checkpoint_runtime_state(self, *, safe: bool) -> dict[str, Any]:
+        if safe:
+            self._last_safe_state = deepcopy(self.export_runtime_state())
+        if self._last_safe_state is None:
+            self._last_safe_state = deepcopy(self.export_runtime_state())
+        return deepcopy(self._last_safe_state)
 
     def at_safe_barrier(self) -> bool:
         if self._next_sample_index < self._total_points:
             return False
         if not self._submitted_uuids:
             return True
-        return set(self._submitted_uuids) <= self._completed_uuids
+        return set(self._submitted_uuids) <= self._persisted_uuids
 
     def export_runtime_state(self) -> dict[str, Any]:
         return {
@@ -137,7 +153,6 @@ class SeededOperaSampler(SamplingVirtial):
             "total_points": int(self._total_points),
             "dimensions": int(self._dimensions),
             "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
             "chains": [],
             "ready_queue": [],
             "control_state": {"repropose_after_resume": bool(self._repropose_after_resume)},
@@ -152,7 +167,7 @@ class SeededOperaSampler(SamplingVirtial):
         self._total_points = int(state.get("total_points", self._total_points) or self._total_points)
         self._dimensions = int(state.get("dimensions", self._dimensions) or self._dimensions)
         self._submitted_uuids = [str(item) for item in state.get("submitted_uuids") or []]
-        self._completed_uuids = {str(item) for item in state.get("completed_uuids") or []}
+        self._last_safe_state = deepcopy(dict(state))
         control = dict(state.get("control_state") or {})
         self._repropose_after_resume = bool(control.get("repropose_after_resume", False))
 
@@ -166,7 +181,7 @@ class SeededOperaSampler(SamplingVirtial):
         pending = [
             uuid
             for uuid in self._submitted_uuids
-            if uuid not in self._completed_uuids
+            if uuid not in self._persisted_uuids
         ]
         requeued: list[str] = []
         for uuid in pending:

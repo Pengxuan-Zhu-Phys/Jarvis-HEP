@@ -24,6 +24,7 @@ from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
 from jarvishep2.plot_bridge import PlotBridgeError, run_plot
+from jarvishep2.references import render_references
 from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.run_outcome import (
     EXIT_INTERRUPTED,
@@ -433,6 +434,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 ps                  # list running Jarvis* processes\n"
             "  Jarvis2 kill [--yes]        # kill them (asks for confirmation)\n"
             "  Jarvis2 -v / --version      # logo + authors + package version\n"
+            "  Jarvis2 --refs              # framework and sampler references\n"
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis2 TASK.yaml [--resume]\n"
@@ -448,6 +450,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--version",
         action="store_true",
         help="Print Jarvis-HEP logo, author information and runtime package version",
+    )
+    parser.add_argument(
+        "--refs",
+        action="store_true",
+        help="Print framework and built-in sampler references for citation",
     )
     sub = parser.add_subparsers(
         dest="command", required=False, parser_class=JarvisArgumentParser
@@ -573,22 +580,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     ps_p = sub.add_parser(
         "ps",
-        help="List running scans, or show one scan's OS processes",
+        help="List process groups, or show one scan / ZP group",
     )
     ps_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Running scan reference from `Jarvis2 ps` (for example R1)",
+        help="Process-group reference from `Jarvis2 ps` (for example R1 or ZP)",
     )
 
     kill_p = sub.add_parser(
         "kill",
-        help="List running scans, or terminate one selected scan",
+        help="List process groups, or terminate one selected scan / ZP group",
     )
     kill_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Running scan reference from `Jarvis2 kill` (for example R1)",
+        help="Process-group reference from `Jarvis2 kill` (for example R1 or ZP)",
     )
     kill_p.add_argument(
         "--yes",
@@ -769,6 +776,14 @@ def run_monitor(
     return EXIT_OK
 
 
+def dispatch_refs() -> int:
+    """Print the framework and built-in sampler citations without a task card."""
+    from jarvishep2.versioning import render_logo_with_version
+
+    sys.stdout.write(f"{render_logo_with_version()}\n\n{render_references()}")
+    return EXIT_OK
+
+
 def dispatch_version() -> int:
     """Print V1-style logo banner with injected runtime version (no scan init)."""
     from jarvishep2.versioning import render_logo_with_version
@@ -780,13 +795,13 @@ def dispatch_version() -> int:
 def dispatch_monitor(args: argparse.Namespace) -> int:
     from jarvishep2.process_cleanup import (
         format_scan_table,
-        list_running_scans,
+        list_active_scans,
         print_scan_table,
         resolve_scan_reference,
         runtime_metadata_for_scan,
     )
 
-    scans = list_running_scans()
+    scans = list_active_scans()
     scan_ref = str(getattr(args, "scan_ref", "") or "").strip()
     if not scan_ref:
         print_scan_table(scans)
@@ -1705,6 +1720,8 @@ def dispatch_run(
 def dispatch(args: argparse.Namespace) -> int:
     if bool(getattr(args, "version", False)):
         return dispatch_version()
+    if bool(getattr(args, "refs", False)):
+        return dispatch_refs()
 
     try:
         intent, args = resolve_intent(args)
@@ -1785,6 +1802,9 @@ def main(argv: list[str] | None = None) -> int:
 
     set_process_title(control_title())
     raw = list(sys.argv[1:] if argv is None else argv)
+    if raw[:1] == ["refs"]:
+        print("`Jarvis2 refs` has moved to `Jarvis2 --refs`.", file=sys.stderr)
+        return EXIT_USAGE
     normalized = normalize_argv(raw)
     # Full jportal-compatible surface: do not let argparse eat portal args.
     if normalized and normalized[0] == "portal":

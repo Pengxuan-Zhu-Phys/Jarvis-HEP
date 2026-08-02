@@ -463,7 +463,7 @@ class TaskFactory:
         }
 
     def stop_all_workers(self, *, graceful: bool = True, join_timeout: float = 30.0) -> None:
-        """Stop all tracked Workers; SIGTERM first, then force-terminate."""
+        """Stop all tracked Workers; SIGTERM first, then guaranteed SIGKILL fallback."""
         if not self.workers:
             return
         if graceful:
@@ -473,9 +473,18 @@ class TaskFactory:
                     worker.join(timeout=join_timeout)
         for worker in self.workers:
             if worker.is_alive():
-                worker.terminate()
-                worker.join(timeout=5.0)
-        self.workers.clear()
+                # Worker installs a SIGTERM handler, so Process.terminate()
+                # merely repeats the graceful request and cannot break a stuck
+                # scheduler/FileOperation wait.  The watchdog fallback uses
+                # SIGKILL and joins the process.
+                self._watchdog.force_stop_worker(worker)
+        survivors = [worker for worker in self.workers if worker.is_alive()]
+        if survivors:
+            self._logger.error(
+                "failed to stop Worker pid(s): %s",
+                [worker.pid for worker in survivors],
+            )
+        self.workers = survivors
 
     def request_worker_shutdown(self) -> None:
         """Signal live Workers to stop after the current Sample."""

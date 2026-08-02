@@ -13,6 +13,7 @@ Process titles are set via ``setproctitle`` (see ``proc_title.py``)::
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -36,6 +37,14 @@ _TITLE_PREFIXES: tuple[str, ...] = (
     "Jarvis2",
     "Jarvis-Redis",
 )
+# Jarvis-Lit is a separate application.  Its executable may appear either as
+# a setproctitle-style name or as an absolute path to its Python/app bundle.
+_JARVIS_LIT_MARKERS: tuple[str, ...] = (
+    "Jarvis-Lit",
+    "JarvisLit",
+)
+ZP_REFERENCE = "ZP"
+ZP_LABEL = "Zambie Process"
 
 
 @dataclass(frozen=True)
@@ -57,12 +66,28 @@ def _command_is_jarvis(command: str) -> bool:
     text = str(command or "").strip()
     if not text:
         return False
+    if _command_is_jarvis_lit(text):
+        return False
     # Full command string may be the title alone, or "title args…".
     first = text.split(None, 1)[0]
     for prefix in _TITLE_PREFIXES:
         if text.startswith(prefix) or first.startswith(prefix):
             return True
     return False
+
+
+def _command_is_jarvis_lit(command: str) -> bool:
+    """Return whether a command belongs to the separate Jarvis-Lit app."""
+    text = str(command or "").strip()
+    if not text:
+        return False
+    first = text.split(None, 1)[0]
+    if first in _JARVIS_LIT_MARKERS or first.startswith(("Jarvis-Lit:", "JarvisLit:")):
+        return True
+    return any(
+        f"/{marker}/" in text or f"/{marker}.app/" in text
+        for marker in _JARVIS_LIT_MARKERS
+    )
 
 
 def list_jarvis_processes(*, exclude_pids: Iterable[int] | None = None) -> list[JarvisProcess]:
@@ -135,6 +160,55 @@ def _scan_name_from_command(command: str) -> str | None:
     return None
 
 
+def _is_unscoped_jarvis_title(command: str) -> bool:
+    """Return whether ``command`` is a known Jarvis title without a scan id.
+
+    Discovery intentionally mirrors a broad ``grep Jarvis2``. ZP cleanup is
+    narrower: only titles emitted by Jarvis itself are eligible, preventing a
+    third-party command such as ``Jarvis2Helper`` from being killed merely
+    because it shares a prefix.
+    """
+    title = str(command or "").strip().split(None, 1)[0]
+    if title in {
+        "Jarvis2",
+        "Jarvis2-Archiver",
+        "Jarvis2-FileOperation",
+        "Jarvis-Redis",
+    }:
+        return True
+    if re.fullmatch(r"Jarvis2-Worker-\d+", title):
+        return True
+    return re.fullmatch(r"Jarvis-Redis@\d+/\d+", title) is not None
+
+
+def list_zombie_processes(
+    procs: Iterable[JarvisProcess] | None = None,
+) -> list[JarvisProcess]:
+    """Return known Jarvis components not owned by a live scan controller.
+
+    This includes both bare legacy titles and components which retain a stale
+    ``:<scan>`` suffix after their matching ``Jarvis2:<scan>`` control process
+    has disappeared.
+    """
+    candidates = list(procs if procs is not None else list_jarvis_processes())
+    controlled_scans = {
+        name
+        for proc in candidates
+        if proc.command.strip().split(None, 1)[0].startswith("Jarvis2:")
+        if (name := _scan_name_from_command(proc.command)) is not None
+    }
+    zombies: list[JarvisProcess] = []
+    for proc in candidates:
+        name = _scan_name_from_command(proc.command)
+        if name is None:
+            if _is_unscoped_jarvis_title(proc.command):
+                zombies.append(proc)
+            continue
+        if name not in controlled_scans:
+            zombies.append(proc)
+    return sorted(zombies, key=lambda proc: proc.pid)
+
+
 def runtime_metadata_for_scan(scan: JarvisScan) -> dict[str, object] | None:
     """Read a scan identity record through its advertised Redis endpoint."""
     redis_process = next(
@@ -178,15 +252,32 @@ def _scan_has_advertised_redis(scan: JarvisScan) -> bool:
 
 def _verified_runtime_metadata(scan: JarvisScan) -> dict[str, object] | None:
     """Require metadata for modern runs, while retaining old orphan recovery."""
+    control_alive = any(
+        proc.command.split(None, 1)[0].startswith("Jarvis2:")
+        for proc in scan.processes
+    )
     metadata = runtime_metadata_for_scan(scan)
     if metadata is None:
-        if _scan_has_advertised_redis(scan):
+        if control_alive and _scan_has_advertised_redis(scan):
             print("Refusing unverified runtime: Redis metadata is unavailable.", file=sys.stderr)
+            return None
+        if not control_alive:
+            print(
+                "Warning: stale Jarvis runtime has no live control process; "
+                "orphan cleanup is allowed.",
+                file=sys.stderr,
+            )
+            return {}
         return None
     control_pid = int(metadata.get("control_pid", -1))
     if control_pid not in {proc.pid for proc in scan.processes}:
-        print("Refusing unverified runtime: control PID does not match metadata.", file=sys.stderr)
-        return None
+        if control_alive:
+            print("Refusing unverified runtime: control PID does not match metadata.", file=sys.stderr)
+            return None
+        print(
+            "Warning: control process is gone; treating the verified runtime as stale.",
+            file=sys.stderr,
+        )
     return metadata
 
 
@@ -211,7 +302,30 @@ def list_running_scans(
     return scans
 
 
-def ensure_scan_name_available(scan_name: str) -> None:
+def list_active_scans(
+    procs: Iterable[JarvisProcess] | None = None,
+) -> list[JarvisScan]:
+    """Return only controller-owned scan groups, with dense ``R#`` refs."""
+    groups = list_running_scans(procs)
+    active = [
+        scan
+        for scan in groups
+        if any(
+            proc.command.strip().split(None, 1)[0] == f"Jarvis2:{scan.name}"
+            for proc in scan.processes
+        )
+    ]
+    return [
+        JarvisScan(
+            reference=f"R{index}",
+            name=scan.name,
+            processes=scan.processes,
+        )
+        for index, scan in enumerate(active, start=1)
+    ]
+
+
+def ensure_scan_name_available(scan_name: str, *, cleanup_stale: bool = False) -> None:
     """Reject a new run when its exact scan name already has a live controller."""
     name = str(scan_name or "").strip()
     if not name:
@@ -219,12 +333,37 @@ def ensure_scan_name_available(scan_name: str) -> None:
     for scan in list_running_scans():
         if scan.name != name:
             continue
-        if any(proc.command.split(None, 1)[0].startswith("Jarvis2:") for proc in scan.processes):
+        control_alive = any(
+            proc.command.split(None, 1)[0].startswith("Jarvis2:")
+            for proc in scan.processes
+        )
+        if control_alive:
             raise RuntimeError(
                 f"a Jarvis scan named {name!r} is already running; "
                 f"inspect it with `Jarvis2 monitor {scan.reference}` or "
                 f"`Jarvis2 ps {scan.reference}` before starting another run"
             )
+        if not cleanup_stale:
+            raise RuntimeError(
+                f"a stale Jarvis runtime named {name!r} still has orphan processes; "
+                f"clean it with `Jarvis2 kill {scan.reference} --yes` or rerun with --resume"
+            )
+        result = kill_jarvis_processes(list(scan.processes), force=True)
+        if result["failed"]:
+            raise RuntimeError(
+                f"resume could not clean stale runtime {name!r}; failed pids: {result['failed']}"
+            )
+        remaining = [
+            proc
+            for proc in list_jarvis_processes()
+            if _scan_name_from_command(proc.command) == name
+        ]
+        if remaining:
+            raise RuntimeError(
+                f"resume could not clean all stale processes for {name!r}: "
+                + ", ".join(str(proc.pid) for proc in remaining)
+            )
+        return
 
 
 def resolve_scan_reference(selector: str, scans: Iterable[JarvisScan]) -> JarvisScan:
@@ -238,30 +377,43 @@ def resolve_scan_reference(selector: str, scans: Iterable[JarvisScan]) -> Jarvis
     raise ValueError(f"Unknown running scan {text!r}; available: {available}")
 
 
-def format_scan_table(scans: list[JarvisScan]) -> str:
+def format_scan_table(
+    scans: list[JarvisScan],
+    zombie_processes: Iterable[JarvisProcess] = (),
+) -> str:
     """Render the compact task chooser shared by monitor / ps / kill."""
-    if not scans:
+    zombies = tuple(zombie_processes)
+    if not scans and not zombies:
         return "No running Jarvis scan tasks.\n"
-    ref_w = max(len(scan.reference) for scan in scans)
-    name_w = max(len(scan.name) for scan in scans)
+    rows = [(scan.reference, scan.name, scan.processes) for scan in scans]
+    if zombies:
+        rows.append((ZP_REFERENCE, ZP_LABEL, zombies))
+    ref_w = max(len(reference) for reference, _, _ in rows)
+    name_w = max(len(name) for _, name, _ in rows)
     lines = [
-        f"Running Jarvis scan tasks ({len(scans)}):",
+        f"Running Jarvis process groups ({len(rows)}):",
         f"{'REF':<{ref_w}}  {'SCAN':<{name_w}}  PROCESSES  PIDS",
         f"{'-' * ref_w}  {'-' * name_w}  ---------  ----",
     ]
-    for scan in scans:
-        pids = ",".join(str(proc.pid) for proc in scan.processes)
+    for reference, name, processes in rows:
+        pids = ",".join(str(proc.pid) for proc in processes)
         lines.append(
-            f"{scan.reference:<{ref_w}}  {scan.name:<{name_w}}  "
-            f"{len(scan.processes):>9}  {pids}"
+            f"{reference:<{ref_w}}  {name:<{name_w}}  "
+            f"{len(processes):>9}  {pids}"
         )
     lines.append("Select one: Jarvis2 monitor R1 | Jarvis2 ps R1 | Jarvis2 kill R1")
+    if zombies:
+        lines.append("Clean unscoped processes: Jarvis2 ps ZP | Jarvis2 kill ZP -y")
     return "\n".join(lines) + "\n"
 
 
-def print_scan_table(scans: list[JarvisScan]) -> None:
+def print_scan_table(
+    scans: list[JarvisScan],
+    zombie_processes: Iterable[JarvisProcess] = (),
+) -> None:
     """Render the running-task chooser with explicit, safe next actions."""
-    if not scans:
+    zombies = tuple(zombie_processes)
+    if not scans and not zombies:
         Console().print("[dim]No running Jarvis scan tasks.[/]")
         return
     table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold dim")
@@ -276,6 +428,13 @@ def print_scan_table(scans: list[JarvisScan]) -> None:
             str(len(scan.processes)),
             ", ".join(str(proc.pid) for proc in scan.processes),
         )
+    if zombies:
+        table.add_row(
+            ZP_REFERENCE,
+            f"{ZP_LABEL} [dim](no live control)[/]",
+            str(len(zombies)),
+            ", ".join(str(proc.pid) for proc in zombies),
+        )
     guidance = Text()
     guidance.append("Choose a task by its REF (for example R1):\n", style="bold")
     guidance.append("  Jarvis2 monitor R1", style="bold cyan")
@@ -287,10 +446,18 @@ def print_scan_table(scans: list[JarvisScan]) -> None:
     )
     guidance.append("  Jarvis2 kill R1", style="bold red")
     guidance.append("     terminate ALL processes belonging to this task (asks for confirmation)", style="bold red")
+    if zombies:
+        guidance.append("\n  Jarvis2 ps ZP", style="bold yellow")
+        guidance.append("       inspect Jarvis processes without a live control\n", style="dim")
+        guidance.append("  Jarvis2 kill ZP -y", style="bold red")
+        guidance.append("  terminate ALL orphan Jarvis processes", style="bold red")
     Console().print(
         Panel(
             Group(table, Text(""), guidance),
-            title=f"[bold]Running Jarvis scan tasks[/] [dim]({len(scans)})[/]",
+            title=(
+                "[bold]Running Jarvis process groups[/] "
+                f"[dim]({len(scans) + int(bool(zombies))})[/]"
+            ),
             box=box.ROUNDED,
             border_style="dim",
             padding=(0, 1),
@@ -301,20 +468,41 @@ def print_scan_table(scans: list[JarvisScan]) -> None:
 def _process_role_and_detail(proc: JarvisProcess, scan_name: str) -> tuple[str, str]:
     """Turn a long OS title into the concise role shown in the runtime card."""
     title = proc.command.split(None, 1)[0]
-    if title.startswith("Jarvis2:"):
+    if title.startswith("Jarvis2:") or title == "Jarvis2":
         return "Control", "scan coordinator"
     if title.startswith("Jarvis2-Worker-"):
         worker = title.removeprefix("Jarvis2-Worker-").split(":", 1)[0]
         return f"Worker {worker}", "calculator / sampling worker"
-    if title.startswith("Jarvis2-FileOperation:"):
+    if title.startswith("Jarvis2-FileOperation:") or title == "Jarvis2-FileOperation":
         return "FileOperation", "Worker-owned SAMPLE save / copy / delete"
-    if title.startswith("Jarvis2-Archiver:"):
+    if title.startswith("Jarvis2-Archiver:") or title == "Jarvis2-Archiver":
         return "Archiver", "writes DATABASE and exports"
-    if title.startswith("Jarvis-Redis:"):
+    if (
+        title.startswith("Jarvis-Redis:")
+        or title.startswith("Jarvis-Redis@")
+        or title == "Jarvis-Redis"
+    ):
         endpoint = proc.command.split(None, 1)[1] if " " in proc.command else ""
         advertised = title.rsplit("@", 1)[-1] if "@" in title else ""
         return "Redis", endpoint or advertised or "runtime broker"
     return "Jarvis process", title.replace(scan_name, "<scan>")
+
+
+def print_zombie_processes(
+    processes: Iterable[JarvisProcess],
+    *,
+    kill_warning: bool = False,
+) -> None:
+    """Render the fixed ZP group of Jarvis processes without a run id."""
+    print_scan_processes(
+        JarvisScan(
+            reference=ZP_REFERENCE,
+            name=ZP_LABEL,
+            processes=tuple(processes),
+        ),
+        metadata=None,
+        kill_warning=kill_warning,
+    )
 
 
 def print_scan_processes(
@@ -476,17 +664,24 @@ def kill_jarvis_processes(
 
 
 def list_running_jarvis_cli(scan_ref: str | None = None) -> int:
-    """``Jarvis2 ps [R#]`` — choose a scan or list its component processes."""
+    """``Jarvis2 ps [R#|ZP]`` — inspect one scan or unscoped processes."""
     procs = list_jarvis_processes()
-    scans = list_running_scans(procs)
+    scans = list_active_scans(procs)
+    zombies = list_zombie_processes(procs)
     if not scan_ref:
-        print_scan_table(scans)
+        print_scan_table(scans, zombies)
+        return 0
+    if str(scan_ref).strip().upper() == ZP_REFERENCE:
+        if not zombies:
+            print("No ZP (unscoped Jarvis processes) found.")
+            return 0
+        print_zombie_processes(zombies)
         return 0
     try:
         scan = resolve_scan_reference(scan_ref, scans)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
-        print_scan_table(scans)
+        print_scan_table(scans, zombies)
         return 2
     metadata = _verified_runtime_metadata(scan)
     if _scan_has_advertised_redis(scan) and metadata is None:
@@ -501,23 +696,33 @@ def kill_running_jarvis_cli(
     yes: bool = False,
     force: bool = True,
 ) -> int:
-    """``Jarvis2 kill [R#]`` — choose a scan, then confirm termination."""
+    """``Jarvis2 kill [R#|ZP]`` — terminate one scan or unscoped processes."""
     procs = list_jarvis_processes()
-    scans = list_running_scans(procs)
+    scans = list_active_scans(procs)
+    zombies = list_zombie_processes(procs)
     if not scan_ref:
-        print_scan_table(scans)
+        print_scan_table(scans, zombies)
         return 0
-    try:
-        scan = resolve_scan_reference(scan_ref, scans)
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        print_scan_table(scans)
-        return 2
-    targets = list(scan.processes)
-    metadata = _verified_runtime_metadata(scan)
-    if _scan_has_advertised_redis(scan) and metadata is None:
-        return 1
-    print_scan_processes(scan, metadata, kill_warning=True)
+    is_zombie_group = str(scan_ref).strip().upper() == ZP_REFERENCE
+    if is_zombie_group:
+        if not zombies:
+            print("No ZP (unscoped Jarvis processes) found.")
+            return 0
+        targets = list(zombies)
+        scan = None
+        print_zombie_processes(targets, kill_warning=True)
+    else:
+        try:
+            scan = resolve_scan_reference(scan_ref, scans)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            print_scan_table(scans, zombies)
+            return 2
+        targets = list(scan.processes)
+        metadata = _verified_runtime_metadata(scan)
+        if _scan_has_advertised_redis(scan) and metadata is None:
+            return 1
+        print_scan_processes(scan, metadata, kill_warning=True)
     if not targets:
         return 0
     if not confirm_kill(len(targets), yes=yes):
@@ -534,7 +739,15 @@ def kill_running_jarvis_cli(
     if result["failed"]:
         print(f"  failed pids: {result['failed']}")
         return 1
-    left = [proc for proc in list_jarvis_processes() if _scan_name_from_command(proc.command) == scan.name]
+    if is_zombie_group:
+        left = list_zombie_processes()
+    else:
+        assert scan is not None
+        left = [
+            proc
+            for proc in list_jarvis_processes()
+            if _scan_name_from_command(proc.command) == scan.name
+        ]
     if left:
         print("Still running after kill:")
         print(format_process_table(left), end="")
@@ -546,6 +759,8 @@ def kill_running_jarvis_cli(
 __all__ = [
     "JarvisProcess",
     "JarvisScan",
+    "ZP_LABEL",
+    "ZP_REFERENCE",
     "confirm_kill",
     "ensure_scan_name_available",
     "format_process_table",
@@ -555,8 +770,11 @@ __all__ = [
     "kill_jarvis_processes",
     "kill_running_jarvis_cli",
     "list_jarvis_processes",
+    "list_active_scans",
     "list_running_scans",
     "list_running_jarvis_cli",
+    "list_zombie_processes",
+    "print_zombie_processes",
     "resolve_scan_reference",
     "runtime_metadata_for_scan",
 ]

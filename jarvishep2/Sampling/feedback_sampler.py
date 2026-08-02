@@ -156,7 +156,6 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                 )
                 continue
             self._clear_pending(uuid)
-            self._completed_uuids.add(uuid)
             matched.append(dict(record))
             self._on_feedback_record(record)
         return matched
@@ -196,7 +195,27 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         return not self._pending_uuids
 
     def checkpoint_at_barrier(self, *, reason: str = "generation_barrier") -> bool:
-        """Force a runtime checkpoint at a generation barrier (safe by construction)."""
+        """Checkpoint only after the completed generation is durable.
+
+        Feedback arrives before the process Archiver necessarily fsyncs its
+        HDF5 batch.  Wait briefly for Redis's post-fsync UUID set; if it does
+        not catch up, the checkpoint callback records the previous safe state
+        with ``safe_barrier_confirmed=False`` rather than advancing past disk.
+        """
+        redis = self.redis
+        scan_block = self.config.get("Scan")
+        scan_mapping = scan_block if isinstance(scan_block, Mapping) else {}
+        scan_name = str(
+            self.config.get("scan_name") or scan_mapping.get("name") or "scan"
+        )
+        if redis is not None and self._submitted_uuids:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                persisted = redis.get_archived_uuids(scan_name)
+                self.set_persisted_uuids(persisted)
+                if set(self._submitted_uuids) <= persisted:
+                    break
+                time.sleep(0.05)
         return self.persist_runtime_checkpoint(force=True, reason=reason)
 
     # ---------------------------------------------------------- method hooks
@@ -243,8 +262,8 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             else:
                 results = []
             self.absorb_generation(results)
-            self.checkpoint_at_barrier()
             self._generation += 1
+            self.checkpoint_at_barrier()
         return total_submitted
 
     def run_distributed(self) -> int:
@@ -259,7 +278,6 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             "pending_uuids": sorted(self._pending_uuids),
             "seed": self._seed,
             "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
             "control_state": self._checkpoint_control_state(),
             "on_failure": self._on_failure,
         }

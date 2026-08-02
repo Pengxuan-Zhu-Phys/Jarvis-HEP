@@ -5,13 +5,11 @@ from __future__ import annotations
 
 import os
 import pickle
+import signal
 import tempfile
-import threading
 import time
 import unittest
 from typing import Any
-
-from fakeredis import TcpFakeServer
 
 from jarvishep2.Sampling.runtime_checkpoint import (
     CHECKPOINT_FORMAT,
@@ -20,19 +18,21 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     RESUME_PROMPT,
     THROUGHPUT_CORE_FORMAT,
     V1_CHECKPOINT_FORMAT,
-    build_payload,
-    build_run_spec,
     derive_sample_seed,
     load_checkpoint,
     prepare_resume,
     safe_barrier_ready,
-    save_checkpoint,
-    serialize_seed_sequence,
     validate_checkpoint_payload,
 )
 from jarvishep2.Sampling.seeded_sampler import SeededOperaSampler, deterministic_uuid
 from jarvishep2.core import Jarvis2Core
+from jarvishep2.database import SimpleHDF5Writer, read_persisted_uuids
 from jarvishep2.factory import TaskFactory
+from jarvishep2.mp_context import get_spawn_context
+from jarvishep2.process_cleanup import (
+    kill_jarvis_processes,
+    list_running_scans,
+)
 from jarvishep2.redis_queue import make_fakeredis_queue
 
 from test_worker_mvp import (
@@ -105,17 +105,15 @@ def _run_seeded_scan(
     core.init_factory(worker_config=_worker_config(tmpdir))
     db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
     core.init_archiver(db_path)
+    persisted = read_persisted_uuids(os.path.dirname(db_path))
+    sampler.set_persisted_uuids(persisted)
 
     try:
         if resume_payload is not None:
             sampler.repropose_unfinished()
         sampler.submit_all_remaining()
 
-        if resume_payload is not None:
-            completed = len(resume_payload.get("sampler_state", {}).get("completed_uuids") or [])
-            expected_new = max(0, total_points - completed)
-        else:
-            expected_new = total_points
+        expected_new = max(0, total_points - len(persisted))
         core.wait_for_results(expected_new, timeout=60.0)
     finally:
         core.shutdown()
@@ -133,10 +131,308 @@ def _stop_factory_workers() -> None:
             factory.shutdown(wait=False)
         except Exception:
             pass
+
+
+def _run_crashable_control(
+    redis_config: dict[str, Any],
+    tmpdir: str,
+    scan_name: str,
+    resume: bool,
+    outcome_queue: Any,
+    total_points: int = 200,
+) -> None:
+    config = {
+        "task_root": tmpdir,
+        "task_result_dir": tmpdir,
+        "scan_name": scan_name,
+        "Scan": {"name": scan_name},
+        "Runtime": {
+            "mode": "redis",
+            "workers": 2,
+            "batch_size": 4,
+            "max_inflight": 8,
+            "redis": dict(redis_config, managed=False),
+            "Watchdog": {"enabled": False},
+            "Archiver": {"mode": "process", "batch_size": 4},
+        },
+        "Sampling": {
+            "Method": "Random",
+            "Point number": int(total_points),
+            "Seed": 29,
+            "Variables": [
+                {
+                    "name": "x",
+                    "distribution": {
+                        "type": "Flat",
+                        "parameters": {"min": 0.0, "max": 1.0},
+                    },
+                },
+                {
+                    "name": "y",
+                    "distribution": {
+                        "type": "Flat",
+                        "parameters": {"min": 0.0, "max": 1.0},
+                    },
+                },
+            ],
+            "LogLikelihood": [{"name": "LogL_Z", "expression": "z"}],
+        },
+        "Operas": {
+            "Modules": [
+                {
+                    "name": "SlowResume",
+                    "operator": "jarvishep2.testing.resume.slow_sum",
+                    "call_mode": "call",
+                    "input": [
+                        {"name": "x", "expression": "x"},
+                        {"name": "y", "expression": "y"},
+                    ],
+                    "output": [{"name": "z", "entry": "z"}],
+                }
+            ]
+        },
+    }
+    core = Jarvis2Core(config)
+    outcome = core.run(resume=resume, write_run_summary=False)
+    outcome_queue.put(
+        {
+            "ok": outcome.ok,
+            "submitted": outcome.submitted,
+            "archived": outcome.archived,
+            "exit_code": outcome.exit_code,
+        }
+    )
     TaskFactory.reset_instance()
 
 
 class DistributedResumeTests(unittest.TestCase):
+    @staticmethod
+    def _database_records(database_dir: str) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
+        for path in sorted(
+            os.path.join(database_dir, name)
+            for name in os.listdir(database_dir)
+            if name.endswith(".hdf5")
+        ):
+            records.extend(SimpleHDF5Writer(path).read_records())
+        return records
+
+    def test_ctrl_c_resume_matches_uninterrupted_4000_point_run(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        ctx = get_spawn_context()
+        baseline = interrupted = resumed = None
+        baseline_queue = ctx.Queue()
+        interrupted_queue = ctx.Queue()
+        resumed_queue = ctx.Queue()
+        point_count = 4000
+        scan_prefix = f"resume-ctrl-c-{os.getpid()}"
+        try:
+            with (
+                tempfile.TemporaryDirectory() as baseline_dir,
+                tempfile.TemporaryDirectory() as resume_dir,
+            ):
+                baseline = ctx.Process(
+                    target=_run_crashable_control,
+                    args=(
+                        redis_config,
+                        baseline_dir,
+                        f"{scan_prefix}-baseline",
+                        False,
+                        baseline_queue,
+                        point_count,
+                    ),
+                )
+                baseline.start()
+                baseline.join(timeout=120.0)
+                self.assertFalse(baseline.is_alive(), "uninterrupted baseline did not finish")
+                self.assertEqual(baseline.exitcode, 0)
+                self.assertTrue(baseline_queue.get(timeout=5.0)["ok"])
+                baseline_records = self._database_records(
+                    os.path.join(baseline_dir, "DATABASE")
+                )
+
+                interrupted = ctx.Process(
+                    target=_run_crashable_control,
+                    args=(
+                        redis_config,
+                        resume_dir,
+                        f"{scan_prefix}-resume",
+                        False,
+                        interrupted_queue,
+                        point_count,
+                    ),
+                )
+                interrupted.start()
+                database_dir = os.path.join(resume_dir, "DATABASE")
+                deadline = time.monotonic() + 60.0
+                durable_at_interrupt: set[str] = set()
+                while time.monotonic() < deadline:
+                    durable_at_interrupt = read_persisted_uuids(database_dir)
+                    if 16 <= len(durable_at_interrupt) < point_count:
+                        break
+                    if not interrupted.is_alive():
+                        self.fail("control process exited before Ctrl+C checkpoint")
+                    time.sleep(0.05)
+                self.assertGreaterEqual(len(durable_at_interrupt), 16)
+                os.kill(interrupted.pid, signal.SIGINT)
+                interrupted.join(timeout=60.0)
+                self.assertFalse(interrupted.is_alive(), "Ctrl+C shutdown did not finish")
+
+                checkpoint = os.path.join(
+                    resume_dir,
+                    "checkpoints",
+                    f"{scan_prefix}-resume",
+                    "Random",
+                    "state.pkl",
+                )
+                self.assertTrue(os.path.isfile(checkpoint))
+                durable_before_resume = read_persisted_uuids(database_dir)
+                self.assertLess(len(durable_before_resume), point_count)
+
+                resumed = ctx.Process(
+                    target=_run_crashable_control,
+                    args=(
+                        redis_config,
+                        resume_dir,
+                        f"{scan_prefix}-resume",
+                        True,
+                        resumed_queue,
+                        point_count,
+                    ),
+                )
+                resumed.start()
+                resumed.join(timeout=120.0)
+                self.assertFalse(resumed.is_alive(), "Ctrl+C resume did not finish")
+                self.assertEqual(resumed.exitcode, 0)
+                outcome = resumed_queue.get(timeout=5.0)
+                self.assertTrue(outcome["ok"], outcome)
+                self.assertLessEqual(
+                    int(outcome["submitted"]),
+                    point_count - len(durable_at_interrupt) + 12,
+                )
+
+                resumed_records = self._database_records(database_dir)
+                physics_keys = ("uuid", "x", "y", "z", "LogL", "LogL_Z", "status")
+                baseline_by_uuid = {
+                    str(row["uuid"]): {key: row.get(key) for key in physics_keys}
+                    for row in baseline_records
+                }
+                resumed_by_uuid = {
+                    str(row["uuid"]): {key: row.get(key) for key in physics_keys}
+                    for row in resumed_records
+                }
+                self.assertEqual(len(baseline_records), point_count)
+                self.assertEqual(len(resumed_records), point_count)
+                self.assertEqual(len(resumed_by_uuid), point_count)
+                self.assertEqual(resumed_by_uuid, baseline_by_uuid)
+        finally:
+            for proc in (baseline, interrupted, resumed):
+                if proc is not None and proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=5.0)
+            for scan in list_running_scans():
+                if scan.name.startswith(scan_prefix):
+                    kill_jarvis_processes(list(scan.processes), force=True)
+            for queue in (baseline_queue, interrupted_queue, resumed_queue):
+                queue.close()
+                queue.join_thread()
+            server.shutdown()
+            server.server_close()
+
+    def test_sigkill_control_then_database_only_resume_is_unique(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        scan_name = f"resume-e2e-{os.getpid()}"
+        ctx = get_spawn_context()
+        outcome_queue = ctx.Queue()
+        first = None
+        second = None
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                first = ctx.Process(
+                    target=_run_crashable_control,
+                    args=(redis_config, tmpdir, scan_name, False, outcome_queue),
+                )
+                first.start()
+                db_dir = os.path.join(tmpdir, "DATABASE")
+                deadline = time.monotonic() + 45.0
+                durable_before_kill: set[str] = set()
+                while time.monotonic() < deadline:
+                    try:
+                        durable_before_kill = read_persisted_uuids(db_dir)
+                    except OSError:
+                        durable_before_kill = set()
+                    if 1 <= len(durable_before_kill) < 200:
+                        break
+                    if not first.is_alive():
+                        self.fail("control process exited before SIGKILL checkpoint")
+                    time.sleep(0.1)
+                self.assertTrue(durable_before_kill)
+                os.kill(first.pid, signal.SIGKILL)
+                first.join(timeout=10.0)
+                self.assertFalse(first.is_alive())
+
+                # No heartbeat checkpoint is expected this early.  Resume must
+                # reconcile from DATABASE and clean the exact-name orphan fleet.
+                checkpoint = os.path.join(
+                    tmpdir, "checkpoints", scan_name, "Random", "state.pkl"
+                )
+                self.assertFalse(os.path.exists(checkpoint))
+                second = ctx.Process(
+                    target=_run_crashable_control,
+                    args=(redis_config, tmpdir, scan_name, True, outcome_queue),
+                )
+                second.start()
+                second.join(timeout=120.0)
+                self.assertFalse(second.is_alive(), "resume control did not finish")
+                self.assertEqual(second.exitcode, 0)
+                outcome = outcome_queue.get(timeout=5.0)
+                self.assertTrue(outcome["ok"], outcome)
+
+                records = self._database_records(db_dir)
+                uuids = [str(row.get("uuid") or "") for row in records]
+                self.assertEqual(len(records), 200)
+                self.assertEqual(len(set(uuids)), len(records))
+                self.assertLessEqual(
+                    int(outcome["submitted"]),
+                    200 - len(durable_before_kill) + 12,
+                )
+        finally:
+            for proc in (first, second):
+                if proc is not None and proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=5.0)
+            scans = [scan for scan in list_running_scans() if scan.name == scan_name]
+            for scan in scans:
+                kill_jarvis_processes(list(scan.processes), force=True)
+            outcome_queue.close()
+            outcome_queue.join_thread()
+            server.shutdown()
+            server.server_close()
+
+    def test_database_only_resume_without_checkpoint_skips_durable_uuids(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sampler = SeededOperaSampler(seed=11, total_points=6)
+            sampler.set_config({"Runtime": {"mode": "redis"}})
+            sampler.set_execution_plan_template(include_likelihood=False)
+            queue = make_fakeredis_queue()
+            queue.connect()
+            sampler.set_redis(queue)
+            durable = {
+                deterministic_uuid(master=sampler._master_seq, sample_index=index)
+                for index in range(3)
+            }
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            SimpleHDF5Writer(db_path).add_records(
+                [{"uuid": uuid, "status": "Completed"} for uuid in sorted(durable)]
+            )
+
+            sampler.set_persisted_uuids(read_persisted_uuids(os.path.dirname(db_path)))
+            submitted = sampler.submit_all_remaining()
+
+            self.assertEqual(len(submitted), 3)
+            self.assertTrue(set(submitted).isdisjoint(durable))
+            self.assertEqual(int(queue.r.llen("hep:task_queue")), 3)
+
     def setUp(self) -> None:
         _stop_factory_workers()
 
@@ -217,6 +513,21 @@ class DistributedResumeTests(unittest.TestCase):
         assert queue.r is not None
         self.assertEqual(int(queue.r.llen("hep:task_queue")), 0)
 
+    def test_prepare_resume_seeds_failed_counts_from_database(self) -> None:
+        """D21.13: resume must not re-label durable Failed rows as completed."""
+        queue = make_fakeredis_queue()
+        queue.connect()
+        prepare_resume(
+            queue,
+            worker_config={},
+            persisted_count=40,
+            persisted_failed=20,
+        )
+        stats = queue.fetch_sample_stats()
+        self.assertEqual(int(stats.get("completed") or 0), 20)
+        self.assertEqual(int(stats.get("failed") or 0), 20)
+        self.assertEqual(int(stats.get("running") or 0), 0)
+
     def test_derive_sample_seed_independent_of_worker_count(self) -> None:
         import numpy as np
 
@@ -292,11 +603,6 @@ class DistributedResumeTests(unittest.TestCase):
                     opera_modules=[BENCHMARK_OPERA_MODULE],
                     include_likelihood=True,
                 )
-                expected = [
-                    deterministic_uuid(master=sampler._master_seq, sample_index=index)
-                    for index in range(total_points)
-                ]
-
                 # Phase 1: partial run
                 TaskFactory.reset_instance()
                 core = Jarvis2Core(
@@ -329,23 +635,9 @@ class DistributedResumeTests(unittest.TestCase):
                     for _ in range(3):
                         sampler.submit_next()
                     core.wait_for_results(3, timeout=45.0)
-                    for uuid in expected[:3]:
-                        sampler.mark_completed(uuid)
-                    persistence = core.archiver.persistence_state()
-                    payload = build_payload(
-                        run_spec=build_run_spec(
-                            config=core.config,
-                            scan_name="resume-scan",
-                            task_root=tmpdir,
-                            task_result_dir=tmpdir,
-                            sampler_name="SeededOperaSampler",
-                        ),
-                        sampler_state=sampler.export_runtime_state(),
-                        persistence=persistence,
-                        reason="test_barrier",
-                    )
-                    checkpoint = core.checkpoint_file()
-                    save_checkpoint(checkpoint, payload)
+                    checkpoint = core.save_runtime_checkpoint(reason="test_interrupt")
+                    assert checkpoint is not None
+                    payload = load_checkpoint(checkpoint)
                 finally:
                     core.shutdown()
                 self.assertEqual(payload["format"], CHECKPOINT_FORMAT)

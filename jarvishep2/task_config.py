@@ -12,6 +12,16 @@ from typing import Any
 
 import yaml
 
+from jarvishep2.base import decode_path, infer_project_root, scan_output_root
+from jarvishep2.runtime_config import (
+    CHECK_MODULES_DEFAULTS,
+    SUPPORTED_ENVREQS_V2_KEYS,
+    normalize_factory_block,
+    normalize_redis_config,
+    normalize_runtime_block,
+    normalize_worker_block,
+)
+
 
 class TaskCardLoadError(ValueError):
     """A task-card loading error with a stable diagnostic and correction."""
@@ -48,18 +58,6 @@ def _load_yaml_document(path: str, *, label: str) -> Any:
             "Check indentation, list markers, quoting, and ':' placement near the reported location.",
             "Sampling:\n  Method: Random\n  Point number: 100",
         ) from exc
-
-
-from jarvishep2.base import decode_path, infer_project_root, scan_output_root
-from jarvishep2.runtime_config import (
-    CHECK_MODULES_DEFAULTS,
-    SUPPORTED_ENVREQS_V2_KEYS,
-    normalize_factory_block,
-    normalize_redis_config,
-    normalize_runtime_block,
-    normalize_worker_block,
-)
-
 
 def _deep_merge(defaults: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
     """Recursively merge task values over externally supplied defaults."""
@@ -447,7 +445,7 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         **{
             key: value
             for key, value in v2_settings.items()
-            if key in {"workers", "batch_size"}
+            if key in {"workers", "batch_size", "checkpoint_heartbeat_sec"}
         },
     }
     if isinstance(v2_settings.get("redis"), Mapping):

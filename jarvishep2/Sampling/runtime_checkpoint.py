@@ -237,15 +237,29 @@ def prepare_resume(
     redis: RedisQueue,
     *,
     worker_config: Mapping[str, Any] | None,
+    persisted_count: int | None = None,
+    persisted_failed: int = 0,
 ) -> int:
-    """Rebuild Redis pools and drain stale task queue (WP-D6.2)."""
-    drained = redis.drain_task_queue()
+    """Rebuild Redis pools and drain stale task queue (WP-D6.2 / D21.13).
+
+    When ``persisted_count`` is set it is the total durable DATABASE row count
+    (completed + failed).  ``persisted_failed`` seeds SAMPLE_STATS.failed so a
+    resume of a partially-failed scan does not report ``success`` / exit 0.
+    """
+    if persisted_count is None:
+        drained = redis.drain_task_queue()
+    else:
+        before = int(redis.get_queue_lengths().get("task_queue_length", 0) or 0)
+        failed = max(0, int(persisted_failed or 0))
+        completed = max(0, int(persisted_count) - failed)
+        redis.reconcile_resume_ephemeral(completed=completed, failed=failed)
+        drained = before
     register_calculator_pools(redis, worker_config or {})
     return drained
 
 
 class CheckpointHeartbeat:
-    """30 s checkpoint heartbeat (frozen UX, WP-D6.2)."""
+    """Periodic checkpoint trigger; the interval comes from runtime configuration."""
 
     def __init__(
         self,

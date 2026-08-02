@@ -20,6 +20,8 @@ from jarvishep2.sample import Sample
 class RandomS(FixedSetSampler):
     method = "Random"
     uuid_prefix = "random"
+    _checkpoint_saved_attributes = frozenset({"_maxp"})
+    _checkpoint_excluded_attributes = frozenset({"_logger", "_dimensions", "_generator_ready"})
 
     def __init__(self) -> None:
         super().__init__()
@@ -74,30 +76,18 @@ class RandomS(FixedSetSampler):
             accepted_index = self._accepted_index
             self._accepted_index += 1
             sample = self._build_sample(u_coords)
+            sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            self._u_by_uuid[sample.uuid] = np.asarray(u_coords, dtype=np.float64)
             return sample
         return None
 
     def _stream_exhausted(self) -> bool:
         return self._index >= self._maxp
 
-    def repropose_unfinished(self) -> list[str]:
-        if not self._repropose_after_resume:
-            return []
-        pending = [uuid for uuid in self._submitted_uuids if uuid not in self._completed_uuids]
-        requeued: list[str] = []
-        for uuid in pending:
-            u_coords = self._u_by_uuid.get(uuid)
-            if u_coords is None:
-                continue
-            sample = self._build_sample(u_coords)
-            sample.uuid = uuid
-            self._submit(sample)
-            requeued.append(uuid)
-        return requeued
-
     def export_runtime_state(self) -> dict[str, Any]:
+        # The initial checkpoint must capture the seeded generator state, not
+        # whichever global NumPy state happened to precede the first proposal.
+        self._ensure_ready()
         payload = self._common_export_fields()
         payload.update(
             {
@@ -113,6 +103,7 @@ class RandomS(FixedSetSampler):
         np_state = state.get("numpy_random_state")
         if np_state is not None:
             np.random.set_state(np_state)
+            self._generator_ready = True
 
 
 __all__ = ["RandomS"]

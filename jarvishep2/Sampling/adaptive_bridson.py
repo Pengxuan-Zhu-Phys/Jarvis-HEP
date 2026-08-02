@@ -3933,6 +3933,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             return []
         requeued: list[str] = []
         for uuid in sorted(self._pending_uuids):
+            if uuid in self._persisted_uuids:
+                continue
             index = self._uuid_to_index.get(uuid)
             if index is None:
                 continue

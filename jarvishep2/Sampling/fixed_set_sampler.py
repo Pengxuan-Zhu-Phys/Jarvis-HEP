@@ -6,8 +6,6 @@ from __future__ import annotations
 import time
 from typing import Any, Mapping
 
-import numpy as np
-
 from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.Sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.Sampling.variables import Variable, load_variables
@@ -31,6 +29,16 @@ class FixedSetSampler(CheckpointedSampler):
     """
 
     uuid_prefix: str = "fixed"
+    uses_indexed_resume = True
+    _checkpoint_saved_attributes = frozenset(
+        {"_index", "_accepted_index", "_selectionexp", "_seed"}
+    )
+    _checkpoint_excluded_attributes = frozenset(
+        {
+            "vars", "_batch_size", "_max_inflight", "_logger",
+            "_backpressure_last_log", "_checkpoint_heartbeat_sec",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -42,8 +50,6 @@ class FixedSetSampler(CheckpointedSampler):
         self._batch_size = 16
         # High-water mark for Redis in-flight tasks (submitted - finished).
         self._max_inflight = 16
-        self._uuid_by_accepted_index: dict[int, str] = {}
-        self._u_by_uuid: dict[str, np.ndarray] = {}
         self._logger = get_jarvis_logger("sampler.fixed")
         self._backpressure_last_log = 0.0
 
@@ -56,6 +62,7 @@ class FixedSetSampler(CheckpointedSampler):
         self._seed = int(sampling.get("Seed", sampling.get("seed", 0)) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
+        self._checkpoint_heartbeat_sec = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
         # Default backpressure: keep the pipeline full but bounded.
         # Subclasses (e.g. Bridson) may override with Sampling.MaxWorker.
         explicit = runtime.get("max_inflight", sampling.get("MaxWorker"))
@@ -65,15 +72,11 @@ class FixedSetSampler(CheckpointedSampler):
             self._max_inflight = max(self._batch_size, workers * 4, 1)
 
     def _uuid_for_accepted_index(self, accepted_index: int) -> str:
-        if accepted_index in self._uuid_by_accepted_index:
-            return self._uuid_by_accepted_index[accepted_index]
-        uuid = deterministic_sampler_uuid(
+        return deterministic_sampler_uuid(
             prefix=self.uuid_prefix,
             seed=self._seed,
             sample_index=accepted_index,
         )
-        self._uuid_by_accepted_index[accepted_index] = uuid
-        return uuid
 
     def flush_batch(self, batch: list[Sample]) -> int:
         if not batch:
@@ -82,7 +85,8 @@ class FixedSetSampler(CheckpointedSampler):
             self._submit(batch[0])
         else:
             self._submit_group(batch)
-        self._submitted_uuids.extend(sample.uuid for sample in batch)
+        # At most one boolean check per batch in the normal submission path.
+        self.capture_checkpoint_at_batch_boundary()
         return len(batch)
 
     def _finished_count(self) -> int:
@@ -181,11 +185,33 @@ class FixedSetSampler(CheckpointedSampler):
         raise NotImplementedError
 
     def at_safe_barrier(self) -> bool:
-        if not self._stream_exhausted():
-            return False
-        if not self._submitted_uuids:
-            return True
-        return set(self._submitted_uuids) <= self._completed_uuids
+        return self._stream_exhausted()
+
+    def advance_to_persisted_prefix(self, prefix: int) -> int:
+        """Replay cheap proposals locally through the durable prefix.
+
+        No worker task is submitted here.  This is a resume-only optimisation:
+        DATABASE has proved ``[0, prefix)`` durable, so rebuilding the
+        deterministic generator state locally avoids recalculating those
+        physics points when the latest checkpoint is older than the watermark
+        (or absent altogether).
+
+        Bridson-style submit ‰ progress is suppressed for the replay so a
+        resume does not look like it is re-submitting durable points (D21.14).
+        """
+        target = max(0, int(prefix or 0))
+        previous = bool(getattr(self, "_suppress_submit_progress", False))
+        self._suppress_submit_progress = True
+        try:
+            while self._accepted_index < target:
+                if self.propose_next() is None:
+                    break
+        finally:
+            self._suppress_submit_progress = previous
+            # Fresh bar after local replay so the first real submit is 0‰ again.
+            if hasattr(self, "barinfo"):
+                self.barinfo = {}
+        return int(self._accepted_index)
 
     def _common_export_fields(self) -> dict[str, Any]:
         return {
@@ -193,10 +219,6 @@ class FixedSetSampler(CheckpointedSampler):
             "accepted_index": int(self._accepted_index),
             "selectionexp": self._selectionexp,
             "seed": int(self._seed),
-            "uuid_by_accepted_index": dict(self._uuid_by_accepted_index),
-            "u_by_uuid": {key: value.tolist() for key, value in self._u_by_uuid.items()},
-            "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
             "chains": [],
             "ready_queue": [],
             "control_state": self._checkpoint_control_state(),
@@ -207,12 +229,6 @@ class FixedSetSampler(CheckpointedSampler):
         self._accepted_index = int(state.get("accepted_index", self._accepted_index) or 0)
         self._selectionexp = state.get("selectionexp", self._selectionexp)
         self._seed = int(state.get("seed", self._seed) or self._seed)
-        raw_uuid_map = state.get("uuid_by_accepted_index") or {}
-        self._uuid_by_accepted_index = {int(k): str(v) for k, v in raw_uuid_map.items()}
-        raw_u_by_uuid = state.get("u_by_uuid") or {}
-        self._u_by_uuid = {
-            str(key): np.asarray(value, dtype=np.float64) for key, value in raw_u_by_uuid.items()
-        }
         self._import_checkpoint_control_state(state)
 
 

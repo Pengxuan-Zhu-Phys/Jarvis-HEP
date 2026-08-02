@@ -209,6 +209,143 @@ def discover_samples_hdf5_shards(database_dir: str) -> list[str]:
     return ordered
 
 
+def read_hdf5_uuids(hdf5_path: str) -> set[str]:
+    """Read only the UUID field from one JSON-row HDF5 database.
+
+    DATABASE is the resume authority.  Keep this reader deliberately
+    independent of Redis/checkpoint state so it also works after a power loss
+    or when the checkpoint was deleted.
+    """
+    path = os.path.abspath(str(hdf5_path))
+    if not os.path.isfile(path):
+        return set()
+    uuids: set[str] = set()
+    try:
+        handle = h5py.File(path, "r", libver="latest", swmr=True)
+    except OSError:
+        handle = h5py.File(path, "r")
+    with handle:
+        if "records" not in handle:
+            return uuids
+        for item in handle["records"]:
+            if isinstance(item, bytes):
+                item = item.decode("utf-8")
+            try:
+                record = json.loads(item)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            uuid = str(record.get("uuid") or "").strip() if isinstance(record, Mapping) else ""
+            if uuid:
+                uuids.add(uuid)
+    return uuids
+
+
+def read_persisted_uuids(database_dir: str) -> set[str]:
+    """Return the union of durable UUIDs across sealed and live scan shards."""
+    persisted: set[str] = set()
+    for path in discover_samples_hdf5_shards(database_dir):
+        persisted.update(read_hdf5_uuids(path))
+    return persisted
+
+
+def _record_is_failed(record: Mapping[str, Any]) -> bool:
+    """Whether a durable DATABASE row should count as a failed sample."""
+    return str(record.get("status") or "Completed").strip() == "Failed"
+
+
+def read_hdf5_outcome_counts(hdf5_path: str) -> tuple[int, int]:
+    """Return ``(completed, failed)`` counts from one JSON-row HDF5 shard.
+
+    Missing ``status`` is treated as ``Completed`` (historical rows).  Only the
+    explicit ``Failed`` status increments the failure counter — used so resume
+    can seed Redis SAMPLE_STATS honestly (D21.13).
+    """
+    path = os.path.abspath(str(hdf5_path))
+    if not os.path.isfile(path):
+        return 0, 0
+    completed = 0
+    failed = 0
+    try:
+        handle = h5py.File(path, "r", libver="latest", swmr=True)
+    except OSError:
+        handle = h5py.File(path, "r")
+    with handle:
+        if "records" not in handle:
+            return 0, 0
+        for item in handle["records"]:
+            if isinstance(item, bytes):
+                item = item.decode("utf-8")
+            try:
+                record = json.loads(item)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(record, Mapping):
+                continue
+            if _record_is_failed(record):
+                failed += 1
+            else:
+                completed += 1
+    return completed, failed
+
+
+def read_persisted_outcome_counts(database_dir: str) -> tuple[int, int]:
+    """Return ``(completed, failed)`` across sealed and live DATABASE shards."""
+    completed = 0
+    failed = 0
+    for path in discover_samples_hdf5_shards(database_dir):
+        ok, bad = read_hdf5_outcome_counts(path)
+        completed += ok
+        failed += bad
+    return completed, failed
+
+
+def read_persisted_sample_index_state(
+    database_dir: str,
+) -> tuple[int, set[int], set[str]]:
+    """Return ``(prefix, out_of_order, legacy_uuids)`` from DATABASE.
+
+    ``prefix`` is the largest durable contiguous logical index range
+    ``[0, prefix)``.  The trailing index set is normally bounded by the
+    runtime in-flight window; UUIDs are retained only for records written by
+    pre-index checkpoint formats. DATABASE is still the sole authority.
+    """
+    indices: set[int] = set()
+    legacy_uuids: set[str] = set()
+    for path in discover_samples_hdf5_shards(database_dir):
+        try:
+            handle = h5py.File(path, "r", libver="latest", swmr=True)
+        except OSError:
+            handle = h5py.File(path, "r")
+        with handle:
+            if "records" not in handle:
+                continue
+            for item in handle["records"]:
+                if isinstance(item, bytes):
+                    item = item.decode("utf-8")
+                try:
+                    record = json.loads(item)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                if not isinstance(record, Mapping):
+                    continue
+                raw_index = record.get("sample_index")
+                try:
+                    index = int(raw_index) if raw_index is not None else -1
+                except (TypeError, ValueError):
+                    index = -1
+                if index >= 0:
+                    indices.add(index)
+                    continue
+                uuid = str(record.get("uuid") or "").strip()
+                if uuid:
+                    legacy_uuids.add(uuid)
+    prefix = 0
+    while prefix in indices:
+        indices.remove(prefix)
+        prefix += 1
+    return prefix, indices, legacy_uuids
+
+
 def ensure_samples_csv_shards(
     database_dir: str,
     *,
@@ -338,12 +475,20 @@ def _is_stale_swmr_write_flag(error: OSError) -> bool:
 
 
 def _clear_stale_swmr_write_flag(db_path: str) -> None:
-    """Clear HDF5's stale write-status flag with the HDF5 utility."""
+    """Clear HDF5's stale write-status flag with the HDF5 utility.
+
+    ``h5clear`` ships with the system/HDF5 **command-line tools**, not the
+    ``h5py`` pip wheel.  Install the distro package (e.g. ``hdf5-tools`` on
+    Debian/Ubuntu, ``hdf5`` on Homebrew) so resume can recover a crashed SWMR
+    writer flag.
+    """
     h5clear = shutil.which("h5clear")
     if not h5clear:
         raise RuntimeError(
-            "h5clear is required to recover a stale HDF5 SWMR write flag; "
-            f"run `h5clear -s {db_path}` after confirming no writer is active"
+            "h5clear is required to recover a stale HDF5 SWMR write flag "
+            f"({db_path}). It is an HDF5 CLI tool, not part of the h5py wheel — "
+            "install hdf5-tools (apt) / hdf5 (brew), confirm no live Archiver "
+            f"owns the file, then run `h5clear -s {db_path}`"
         )
     completed = subprocess.run(
         [h5clear, "-s", db_path], capture_output=True, text=True, check=False
@@ -353,6 +498,31 @@ def _clear_stale_swmr_write_flag(db_path: str) -> None:
         raise RuntimeError(f"h5clear could not recover {db_path}: {detail}")
 
 
+def recover_stale_hdf5_write_flag(db_path: str) -> bool:
+    """Clear a crashed SWMR writer flag, returning whether recovery occurred.
+
+    Callers must first establish that no live Archiver owns the file.  The
+    resume bootstrap does that by cleaning an exact-name stale runtime before
+    touching DATABASE.
+    """
+    path = os.path.abspath(str(db_path))
+    if not os.path.isfile(path):
+        return False
+    try:
+        # A SWMR reader is deliberately allowed to open a file whose writer
+        # consistency flag is set, so read-only probing cannot distinguish a
+        # clean file from a crashed writer.  The resume caller has already
+        # removed the exact-name runtime fleet; an append-capable probe is
+        # therefore both safe and the only reliable way to test this flag.
+        with h5py.File(path, "r+", libver="latest"):
+            return False
+    except OSError as exc:
+        if not _is_stale_swmr_write_flag(exc):
+            raise
+    _clear_stale_swmr_write_flag(path)
+    return True
+
+
 class StreamingHDF5Writer:
     """Single-writer HDF5 stream with batch publication and explicit fsync.
 
@@ -360,7 +530,13 @@ class StreamingHDF5Writer:
     SWMR so a converter can read batches already published by ``flush``.
     """
 
-    def __init__(self, db_path: str, *, logger: Any | None = None) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        logger: Any | None = None,
+        recover_stale: bool = False,
+    ) -> None:
         self.db_path = str(db_path)
         self._logger = logger
         self._lock = threading.Lock()
@@ -377,6 +553,11 @@ class StreamingHDF5Writer:
         except OSError as exc:
             if not _is_stale_swmr_write_flag(exc):
                 raise
+            if not recover_stale:
+                raise RuntimeError(
+                    "stale HDF5 writer state detected; cleanup the owning runtime "
+                    "before requesting recovery"
+                ) from exc
             _clear_stale_swmr_write_flag(self.db_path)
             if self._logger is not None:
                 self._logger.warning(
@@ -563,5 +744,11 @@ __all__ = [
     "convert_database_dir",
     "discover_database_hdf5",
     "discover_samples_hdf5_shards",
+    "read_hdf5_uuids",
+    "read_hdf5_outcome_counts",
+    "read_persisted_outcome_counts",
+    "read_persisted_sample_index_state",
+    "read_persisted_uuids",
+    "recover_stale_hdf5_write_flag",
     "ensure_samples_csv_shards",
 ]

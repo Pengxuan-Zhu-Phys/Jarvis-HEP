@@ -31,13 +31,14 @@ def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
 class Grid(FixedSetSampler):
     method = "Grid"
     uuid_prefix = "grid"
+    _checkpoint_excluded_attributes = frozenset({"_logger", "_P"})
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.grid")
         self._P: np.ndarray | None = None
 
-    def initialize(self) -> None:
+    def initialize(self, *, reset: bool = True) -> None:
         t0 = time.time()
         dims = []
         for var in self.vars:
@@ -50,8 +51,9 @@ class Grid(FixedSetSampler):
         self._P = grid_sampling(dims_arr)
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
-        self._index = 0
-        self._accepted_index = 0
+        if reset:
+            self._index = 0
+            self._accepted_index = 0
         self._logger.info(
             "Grid generated %d points in %.2f s",
             self.info["NSamples"],
@@ -60,7 +62,7 @@ class Grid(FixedSetSampler):
 
     def _ensure_grid(self) -> None:
         if self._P is None:
-            self.initialize()
+            self.initialize(reset=False)
 
     def propose_next(self) -> Sample | None:
         self._ensure_grid()
@@ -79,68 +81,21 @@ class Grid(FixedSetSampler):
             self._accepted_index += 1
             u_coords = np.asarray(row, dtype=np.float64)
             sample = self._build_sample(u_coords)
+            sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            self._u_by_uuid[sample.uuid] = u_coords
             return sample
         return None
 
     def _stream_exhausted(self) -> bool:
         return self._P is not None and self._index >= len(self._P)
 
-    def repropose_unfinished(self) -> list[str]:
-        if not self._repropose_after_resume:
-            return []
-        pending = [uuid for uuid in self._submitted_uuids if uuid not in self._completed_uuids]
-        requeued: list[str] = []
-        for uuid in pending:
-            u_coords = self._u_by_uuid.get(uuid)
-            if u_coords is None:
-                accepted_index = next(
-                    (idx for idx, mapped in self._uuid_by_accepted_index.items() if mapped == uuid),
-                    None,
-                )
-                if accepted_index is not None:
-                    row = self._find_row_for_accepted_index(accepted_index)
-                    if row is not None:
-                        u_coords = np.asarray(row, dtype=np.float64)
-            if u_coords is None:
-                continue
-            sample = self._build_sample(u_coords)
-            sample.uuid = uuid
-            self._submit(sample)
-            requeued.append(uuid)
-        return requeued
-
-    def _find_row_for_accepted_index(self, target: int) -> np.ndarray | None:
-        if self._P is None:
-            return None
-        accepted = 0
-        for scan_index in range(len(self._P)):
-            row = self._P[scan_index]
-            physical = map_u_to_physical(row, self.vars)
-            if self._selectionexp and not evaluate_selection(
-                self._selectionexp,
-                physical,
-                context=self._expression_context,
-            ):
-                continue
-            if accepted == target:
-                return np.asarray(row, dtype=np.float64)
-            accepted += 1
-        return None
-
     def export_runtime_state(self) -> dict[str, Any]:
         payload = self._common_export_fields()
-        payload.update({"grid_points": self._P, "numpy_random_state": None})
+        payload.update({"numpy_random_state": None})
         return payload
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        grid = state.get("grid_points")
-        if grid is not None:
-            self._P = np.asarray(grid)
         self._import_common_fields(state)
-        if self._P is not None:
-            self.info["NSamples"] = int(self._P.shape[0])
 
 
 __all__ = ["Grid", "grid_sampling"]

@@ -24,13 +24,24 @@ def flush_batch(sampler: Any, batch: list[Sample]) -> int:
     method = getattr(sampler, "flush_batch", None)
     if callable(method):
         return int(method(batch))
+    proposed = list(batch)
+    should_submit = getattr(sampler, "should_submit_uuid", None)
+    if callable(should_submit):
+        batch = [sample for sample in batch if should_submit(sample.uuid)]
     if not batch:
+        if proposed and callable(getattr(sampler, "record_persisted_proposals", None)):
+            sampler.record_persisted_proposals()
         return 0
     if len(batch) == 1:
         sampler._submit(batch[0])
     else:
         sampler._submit_group(batch)
-    sampler._submitted_uuids.extend(sample.uuid for sample in batch)
+    record_batch = getattr(sampler, "record_submitted_batch", None)
+    if callable(record_batch):
+        record_batch([sample.uuid for sample in batch])
+    capture = getattr(sampler, "capture_checkpoint_at_batch_boundary", None)
+    if callable(capture):
+        capture()
     return len(batch)
 
 

@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 from collections.abc import Iterator, Mapping, Sequence
-from copy import deepcopy
 from typing import Any
-from uuid import uuid4
 
 from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection
@@ -23,6 +22,20 @@ _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
 class CSVSampler(CheckpointedSampler):
     method = "CSV"
+    uses_indexed_resume = True
+    _checkpoint_saved_attributes = frozenset(
+        {
+            "_csv_path", "_csv_delimiter", "_csv_encoding", "_uuid_column_requested",
+            "_uuid_column_resolved", "_selected_variables", "_selectionexp",
+            "_runtime_csv_cursor", "_accepted_index",
+        }
+    )
+    _checkpoint_excluded_attributes = frozenset(
+        {
+            "_logger", "_batch_size", "_records_exhausted", "_record_iter",
+            "_checkpoint_heartbeat_sec",
+        }
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -36,9 +49,8 @@ class CSVSampler(CheckpointedSampler):
         self._selectionexp: str | None = None
         self._batch_size = 16
         self._runtime_csv_cursor = 0
-        self._runtime_seen_source_uuid: set[str] = set()
+        self._accepted_index = 0
         self._records_exhausted = False
-        self._params_by_uuid: dict[str, dict[str, Any]] = {}
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -58,7 +70,9 @@ class CSVSampler(CheckpointedSampler):
         self._csv_encoding = str(csv_cfg.get("encoding", "utf-8"))
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
+        self._checkpoint_heartbeat_sec = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
         self._uuid_column_resolved = self._resolve_uuid_column_from_file()
+        self._validate_source_uuids()
 
     @staticmethod
     def _normalize_selected_variables(raw_variables: Any) -> list[str] | None:
@@ -93,6 +107,27 @@ class CSVSampler(CheckpointedSampler):
             if str(name).strip().lower() == req:
                 return str(name).strip()
         return None
+
+    def _validate_source_uuids(self) -> None:
+        """Reject duplicate explicit UUIDs once at setup, not per sample.
+
+        The temporary set belongs to input validation and is released before
+        sampling begins.  In particular, it is not checkpoint state and cannot
+        turn a long CSV replay into an O(N) hot-path memory consumer.
+        """
+        if self._uuid_column_resolved is None:
+            return
+        assert self._csv_path is not None
+        seen: set[str] = set()
+        with open(self._csv_path, "r", encoding=self._csv_encoding, newline="") as handle:
+            reader = csv.DictReader(handle, delimiter=self._csv_delimiter)
+            for row_index, row in enumerate(reader, start=1):
+                source_uuid = str(row.get(self._uuid_column_resolved) or "").strip()
+                if not source_uuid:
+                    continue
+                if source_uuid in seen:
+                    raise ValueError(f"Duplicate CSV uuid found at row {row_index}: {source_uuid}")
+                seen.add(source_uuid)
 
     @staticmethod
     def _coerce_cell(value: Any) -> Any:
@@ -160,13 +195,16 @@ class CSVSampler(CheckpointedSampler):
                 source_uuid = None
                 if uuid_idx is not None and uuid_idx < len(row):
                     source_uuid = str(row[uuid_idx]).strip() or None
-                    if source_uuid is not None:
-                        if source_uuid in self._runtime_seen_source_uuid:
-                            raise ValueError(
-                                f"Duplicate CSV uuid found at row {row_index}: {source_uuid}"
-                            )
-                        self._runtime_seen_source_uuid.add(source_uuid)
-                effective_uuid = source_uuid or str(uuid4())
+                if source_uuid:
+                    effective_uuid = source_uuid
+                else:
+                    digest = hashlib.sha256(
+                        f"csv:{self._csv_path}:{row_index}".encode("utf-8")
+                    ).hexdigest()
+                    effective_uuid = (
+                        f"{digest[0:8]}-{digest[8:12]}-{digest[12:16]}-"
+                        f"{digest[16:20]}-{digest[20:32]}"
+                    )
                 yield {
                     "row_index": row_index,
                     "source_uuid": source_uuid,
@@ -186,36 +224,34 @@ class CSVSampler(CheckpointedSampler):
             return None
         self._runtime_csv_cursor = int(record["row_index"])
         sample = self._build_sample([])
+        sample.sample_index = self._accepted_index
+        self._accepted_index += 1
         sample.uuid = str(record["uuid"])
         sample.opera_params = dict(record["params"])
-        self._params_by_uuid[sample.uuid] = dict(record["params"])
         return sample
 
-    def repropose_unfinished(self) -> list[str]:
-        if not self._repropose_after_resume:
-            return []
-        pending = [uuid for uuid in self._submitted_uuids if uuid not in self._completed_uuids]
-        requeued: list[str] = []
-        for uuid in pending:
-            params = self._params_by_uuid.get(uuid)
-            if params is None:
-                continue
-            sample = self._build_sample([])
-            sample.uuid = uuid
-            sample.opera_params = dict(params)
-            self._submit(sample)
-            requeued.append(uuid)
-        return requeued
+    def record_submitted_batch(self, uuids: list[str]) -> None:
+        """CSV is indexed and replayed; retaining UUIDs is unnecessary."""
+        return
 
     def run_distributed(self) -> int:
         return run_stateless_distributed(self, propose_next=self.propose_next)
 
     def at_safe_barrier(self) -> bool:
-        if not self._records_exhausted:
-            return False
-        if not self._submitted_uuids:
-            return True
-        return set(self._submitted_uuids) <= self._completed_uuids
+        return self._records_exhausted
+
+    def advance_to_persisted_prefix(self, prefix: int) -> int:
+        """Resume-only local replay through the DATABASE-durable prefix."""
+        target = max(0, int(prefix or 0))
+        previous = bool(getattr(self, "_suppress_submit_progress", False))
+        self._suppress_submit_progress = True
+        try:
+            while self._accepted_index < target:
+                if self.propose_next() is None:
+                    break
+        finally:
+            self._suppress_submit_progress = previous
+        return int(self._accepted_index)
 
     def export_runtime_state(self) -> dict[str, Any]:
         return {
@@ -224,13 +260,10 @@ class CSVSampler(CheckpointedSampler):
             "csv_encoding": self._csv_encoding,
             "uuid_column_requested": self._uuid_column_requested,
             "uuid_column_resolved": self._uuid_column_resolved,
-            "selected_variables": deepcopy(self._selected_variables),
+            "selected_variables": list(self._selected_variables or []),
             "selectionexp": self._selectionexp,
             "cursor_row_index": int(self._runtime_csv_cursor),
-            "seen_source_uuid": sorted(self._runtime_seen_source_uuid),
-            "params_by_uuid": deepcopy(self._params_by_uuid),
-            "submitted_uuids": list(self._submitted_uuids),
-            "completed_uuids": sorted(self._completed_uuids),
+            "accepted_index": int(self._accepted_index),
             "chains": [],
             "ready_queue": [],
             "control_state": self._checkpoint_control_state(),
@@ -249,16 +282,11 @@ class CSVSampler(CheckpointedSampler):
             "uuid_column_resolved",
             self._uuid_column_resolved,
         )
-        self._selected_variables = deepcopy(state.get("selected_variables", self._selected_variables))
+        selected = state.get("selected_variables", self._selected_variables)
+        self._selected_variables = list(selected) if selected else None
         self._selectionexp = state.get("selectionexp", self._selectionexp)
         self._runtime_csv_cursor = int(state.get("cursor_row_index", self._runtime_csv_cursor) or 0)
-        self._runtime_seen_source_uuid = {
-            str(item) for item in state.get("seen_source_uuid") or []
-        }
-        self._params_by_uuid = {
-            str(key): dict(value)
-            for key, value in dict(state.get("params_by_uuid") or {}).items()
-        }
+        self._accepted_index = int(state.get("accepted_index", self._accepted_index) or 0)
         self._records_exhausted = False
         if hasattr(self, "_record_iter"):
             delattr(self, "_record_iter")

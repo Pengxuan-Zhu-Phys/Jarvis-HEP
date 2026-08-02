@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import json
-import math
 import os
+import signal
 import tempfile
 import threading
+import time
 import unittest
 from typing import Any
 
@@ -28,6 +29,9 @@ from jarvishep2.Sampling.adaptive_bridson import (
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
+from jarvishep2.mp_context import get_spawn_context
+from jarvishep2.process_cleanup import kill_jarvis_processes, list_running_scans
+from jarvishep2.database import read_persisted_uuids
 from jarvishep2.redis_queue import FEEDBACK_QUEUE, make_fakeredis_queue
 
 
@@ -123,6 +127,45 @@ def _als_config(
             ]
         },
     }
+
+
+def _run_adaptive_resume_control(
+    redis_config: dict[str, Any],
+    tmpdir: str,
+    scan_name: str,
+    resume: bool,
+    outcome_queue: Any,
+) -> None:
+    config = _als_config(
+        redis_config=redis_config,
+        tmpdir=tmpdir,
+        method_block={
+            "target_value": 0.04,
+            "threshold": 0.12,
+            "initial_radius": 0.15,
+            "max_generations": 2,
+            "max_points": 120,
+            "max_new_per_generation": 30,
+        },
+        operator="jarvishep2.testing.resume.slow_circle_r2",
+        seed=41,
+        workers=2,
+        project_name="adaptive-resume",
+        scan_name=scan_name,
+    )
+    config["task_root"] = tmpdir
+    config["Runtime"]["max_inflight"] = 8
+    config["Runtime"]["Archiver"] = {"mode": "process", "batch_size": 4}
+    outcome = Jarvis2Core(config).run(resume=resume, write_run_summary=False)
+    outcome_queue.put(
+        {
+            "ok": outcome.ok,
+            "submitted": outcome.submitted,
+            "archived": outcome.archived,
+            "exit_code": outcome.exit_code,
+        }
+    )
+    TaskFactory.reset_instance()
 
 
 class NeighborGraphUnitTests(unittest.TestCase):
@@ -1182,7 +1225,6 @@ class LiveBandUnitTests(unittest.TestCase):
         self.assertTrue(ends.issubset(keep))
         s._prune_to_indices(sorted(keep))
         # After prune, straddle endpoints still present.
-        us = {tuple(p.u) for p in s._points}
         for i, j, _fi, _fj in filt:
             # original indices may have remapped — check by values via f
             pass
@@ -1384,6 +1426,112 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
+
+    def test_generation_barrier_resume_matches_uninterrupted_run(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        ctx = get_spawn_context()
+        baseline_queue = ctx.Queue()
+        interrupted_queue = ctx.Queue()
+        resumed_queue = ctx.Queue()
+        baseline = interrupted = resumed = None
+        scan_prefix = f"adaptive-resume-{os.getpid()}"
+        try:
+            with (
+                tempfile.TemporaryDirectory() as baseline_dir,
+                tempfile.TemporaryDirectory() as resume_dir,
+            ):
+                baseline = ctx.Process(
+                    target=_run_adaptive_resume_control,
+                    args=(
+                        redis_config,
+                        baseline_dir,
+                        f"{scan_prefix}-baseline",
+                        False,
+                        baseline_queue,
+                    ),
+                )
+                baseline.start()
+                baseline.join(timeout=120.0)
+                self.assertFalse(baseline.is_alive())
+                self.assertEqual(baseline.exitcode, 0)
+                self.assertTrue(baseline_queue.get(timeout=5.0)["ok"])
+                with open(
+                    os.path.join(baseline_dir, "levelset.json"), encoding="utf-8"
+                ) as handle:
+                    baseline_levelset = json.load(handle)
+
+                interrupted = ctx.Process(
+                    target=_run_adaptive_resume_control,
+                    args=(
+                        redis_config,
+                        resume_dir,
+                        f"{scan_prefix}-resume",
+                        False,
+                        interrupted_queue,
+                    ),
+                )
+                interrupted.start()
+                database_dir = os.path.join(resume_dir, "DATABASE")
+                deadline = time.monotonic() + 60.0
+                durable: set[str] = set()
+                while time.monotonic() < deadline:
+                    durable = read_persisted_uuids(database_dir)
+                    if 4 <= len(durable) < int(baseline_levelset["n_unique_submitted"]):
+                        break
+                    if not interrupted.is_alive():
+                        self.fail("AdaptiveBridson finished before interruption")
+                    time.sleep(0.05)
+                self.assertGreaterEqual(len(durable), 4)
+                os.kill(interrupted.pid, signal.SIGINT)
+                interrupted.join(timeout=60.0)
+                self.assertFalse(interrupted.is_alive())
+
+                checkpoint = os.path.join(
+                    resume_dir,
+                    "checkpoints",
+                    f"{scan_prefix}-resume",
+                    "AdaptiveBridson",
+                    "state.pkl",
+                )
+                self.assertTrue(os.path.isfile(checkpoint))
+                resumed = ctx.Process(
+                    target=_run_adaptive_resume_control,
+                    args=(
+                        redis_config,
+                        resume_dir,
+                        f"{scan_prefix}-resume",
+                        True,
+                        resumed_queue,
+                    ),
+                )
+                resumed.start()
+                resumed.join(timeout=120.0)
+                self.assertFalse(resumed.is_alive())
+                self.assertEqual(resumed.exitcode, 0)
+                self.assertTrue(resumed_queue.get(timeout=5.0)["ok"])
+                with open(
+                    os.path.join(resume_dir, "levelset.json"), encoding="utf-8"
+                ) as handle:
+                    resumed_levelset = json.load(handle)
+
+                self.assertEqual(resumed_levelset, baseline_levelset)
+                uuids = read_persisted_uuids(database_dir)
+                self.assertEqual(
+                    len(uuids), int(resumed_levelset["n_unique_submitted"])
+                )
+        finally:
+            for proc in (baseline, interrupted, resumed):
+                if proc is not None and proc.is_alive():
+                    proc.terminate()
+                    proc.join(timeout=5.0)
+            for scan in list_running_scans():
+                if scan.name.startswith(scan_prefix):
+                    kill_jarvis_processes(list(scan.processes), force=True)
+            for queue in (baseline_queue, interrupted_queue, resumed_queue):
+                queue.close()
+                queue.join_thread()
+            server.shutdown()
+            server.server_close()
 
     def test_circle_run_writes_levelset_and_submits(self) -> None:
         server, redis_config = _start_tcp_fakeredis()

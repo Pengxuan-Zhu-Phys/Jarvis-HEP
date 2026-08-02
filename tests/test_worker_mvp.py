@@ -103,6 +103,23 @@ class WorkerMVPTests(unittest.TestCase):
     def tearDown(self) -> None:
         TaskFactory.reset_instance()
 
+    def test_worker_stops_when_control_lease_is_lost(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"control_lock_owner": "owner-a"},
+        )
+        redis = mock.Mock()
+        redis.get_control_lock_owner.return_value = "owner-b"
+        worker._redis = redis
+        stop = mock.Mock()
+        stop.wait.return_value = False
+
+        worker._heartbeat_loop(stop, 0.1)
+
+        self.assertFalse(worker._is_running)
+        redis.get_control_lock_owner.assert_called_once_with()
+
     def test_core_can_attach_to_explicit_external_redis(self) -> None:
         config = {
             "Runtime": {
@@ -495,6 +512,59 @@ class WorkerMVPTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_stop_all_workers_uses_sigkill_fallback_after_grace_timeout(self) -> None:
+        factory = TaskFactory({})
+        alive = {"value": True}
+        worker = mock.Mock()
+        worker.pid = 4242
+        worker.is_alive.side_effect = lambda: alive["value"]
+
+        def force_stop(_worker) -> None:
+            alive["value"] = False
+
+        factory.workers = [worker]
+        factory._watchdog.force_stop_worker = mock.Mock(side_effect=force_stop)
+        factory.stop_all_workers(graceful=False)
+
+        factory._watchdog.force_stop_worker.assert_called_once_with(worker)
+        self.assertEqual(factory.workers, [])
+
+    def test_worker_heartbeat_exposes_file_operation_pid_for_orphan_reaping(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = mock.Mock()
+        worker._scheduler = mock.Mock()
+        worker._scheduler.active_subprocess_pids.return_value = [888]
+        worker._file_ops = mock.Mock(pid=777)
+
+        worker._heartbeat("busy")
+
+        fields = worker._redis.heartbeat.call_args.kwargs
+        self.assertEqual(fields["file_operation_pid"], 777)
+        self.assertEqual(json.loads(fields["active_subprocess_pids"]), [888, 777])
+
+    def test_scheduler_shutdown_failure_does_not_skip_file_operation_cleanup(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._stop_heartbeat_thread = mock.Mock()  # type: ignore[method-assign]
+        worker._heartbeat = mock.Mock()  # type: ignore[method-assign]
+        scheduler = mock.Mock()
+        scheduler.shutdown.side_effect = TimeoutError("stuck scheduler")
+        file_ops = mock.Mock()
+        redis = mock.Mock()
+        worker._scheduler = scheduler
+        worker._file_ops = file_ops
+        worker._redis = redis
+        logger = mock.Mock()
+
+        worker._shutdown_runtime(logger)
+
+        scheduler.shutdown.assert_called_once_with(wait=True)
+        file_ops.shutdown.assert_called_once_with()
+        redis.close.assert_called_once_with()
+        self.assertIsNone(worker._scheduler)
+        self.assertIsNone(worker._file_ops)
+        self.assertIsNone(worker._redis)
+        logger.warning.assert_any_call("scheduler shutdown failed -> %s", mock.ANY)
+
     def _graceful_signal_finishes_inflight_sample(self, signum: int) -> None:
         server, redis_config = _start_tcp_fakeredis()
         try:
@@ -509,36 +579,62 @@ class WorkerMVPTests(unittest.TestCase):
                         "task_result_dir": tmpdir,
                     }
                 )
-                core.init_redis()
-                worker_config = _worker_config(tmpdir)
-                core.init_factory(worker_config)
-                core.init_archiver(os.path.join(tmpdir, "DATABASE", "samples.hdf5"))
+                try:
+                    core.init_redis()
+                    worker_config = _worker_config(tmpdir)
+                    worker_config["opera_modules"] = [
+                        {
+                            "name": "TrivialEggbox",
+                            "operator": "jarvishep2.testing.resume.slow_sum",
+                            "call_mode": "call",
+                            "input": [
+                                {"name": "x", "expression": "x"},
+                                {"name": "y", "expression": "y"},
+                                {"name": "delay", "expression": "1.0"},
+                            ],
+                            "output": [{"name": "z", "entry": "z"}],
+                        }
+                    ]
+                    core.init_factory(worker_config)
+                    core.init_archiver(os.path.join(tmpdir, "DATABASE", "samples.hdf5"))
 
-                assert core.redis is not None
-                assert core.factory is not None
-                assert core.factory.workers
-                worker = core.factory.workers[0]
-                time.sleep(0.2)
-                assert worker.pid is not None
+                    assert core.redis is not None
+                    assert core.factory is not None
+                    assert core.factory.workers
+                    worker = core.factory.workers[0]
+                    assert worker.pid is not None
 
-                sample = Sample(
-                    uuid=f"signal-sample-{signum}",
-                    u_coords=np.array([0.2, 0.3, 0.4], dtype=np.float64),
-                    execution_plan=[
-                        ExecutionStep(type="opera", name="TrivialEggbox", layer=0),
-                        ExecutionStep(type="likelihood", name="LogLikelihood", layer=1),
-                    ],
-                )
-                core.redis.push_task(sample.to_task_dict())
-                time.sleep(0.5)
-                os.kill(worker.pid, signum)
-                core.factory.stop_all_workers(graceful=True, join_timeout=15.0)
-                # ArchiverProcess accepts drain= for SimpleArchiver API parity.
-                core.archiver.stop(drain=True)
-                written = core.archiver.records_written
-                if hasattr(written, "value"):
-                    written = written.value
-                self.assertEqual(int(written), 1)
+                    sample = Sample(
+                        uuid=f"signal-sample-{signum}",
+                        u_coords=np.array([0.2, 0.3, 0.4], dtype=np.float64),
+                        execution_plan=[
+                            ExecutionStep(type="opera", name="TrivialEggbox", layer=0),
+                            ExecutionStep(type="likelihood", name="LogLikelihood", layer=1),
+                        ],
+                    )
+                    core.redis.push_task(sample.to_task_dict())
+                    # Synchronize on the behavior under test.  The deliberately
+                    # slow operator keeps the sample in flight after this beat.
+                    deadline = time.monotonic() + 10.0
+                    heartbeat: dict[str, Any] = {}
+                    while time.monotonic() < deadline:
+                        heartbeat = dict(
+                            core.redis.fetch_worker_status(["0"]).get("0") or {}
+                        )
+                        if heartbeat.get("current_sample") == sample.uuid:
+                            break
+                        time.sleep(0.05)
+                    self.assertEqual(heartbeat.get("current_sample"), sample.uuid)
+                    os.kill(worker.pid, signum)
+                    core.factory.stop_all_workers(graceful=True, join_timeout=15.0)
+                    # ArchiverProcess accepts drain= for SimpleArchiver API parity.
+                    core.archiver.stop(drain=True)
+                    written = core.archiver.records_written
+                    if hasattr(written, "value"):
+                        written = written.value
+                    self.assertEqual(int(written), 1)
+                finally:
+                    core.shutdown()
         finally:
             server.shutdown()
             server.server_close()

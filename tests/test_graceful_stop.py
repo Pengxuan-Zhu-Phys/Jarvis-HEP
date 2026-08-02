@@ -28,9 +28,14 @@ class InterruptCheckpointTests(unittest.TestCase):
             sampler = mock.Mock()
             sampler.export_runtime_state.return_value = {
                 "submitted_uuids": ["a", "b"],
-                "completed_uuids": ["a"],
                 "cursor": 1,
+                "ready_queue": [],
             }
+            sampler.submitted_uuids = frozenset({"a", "b"})
+            sampler.at_safe_barrier.return_value = False
+            sampler.checkpoint_runtime_state.return_value = (
+                sampler.export_runtime_state.return_value
+            )
             core.sampler = sampler
             core.info["task_result_dir"] = tmpdir
             core.info["scan_name"] = "scan"
@@ -45,7 +50,8 @@ class InterruptCheckpointTests(unittest.TestCase):
             self.assertEqual(str(integrity.get("checkpoint_reason") or ""), "interrupt")
             state = dict(payload.get("sampler_state") or {})
             self.assertEqual(state.get("submitted_uuids"), ["a", "b"])
-            self.assertEqual(state.get("completed_uuids"), ["a"])
+            self.assertEqual(state.get("cursor"), 1)
+            self.assertNotIn("completed_uuids", state)
 
     def test_keyboard_interrupt_triggers_checkpoint_before_shutdown(self) -> None:
         core = Jarvis2Core(
@@ -106,6 +112,47 @@ class FinalArchiveVerificationTests(unittest.TestCase):
         core.bootstrap_distributed_runtime = lambda: None  # type: ignore[method-assign]
         core.shutdown = lambda **_k: None  # type: ignore[method-assign]
         return core
+
+    def test_partial_failure_still_emits_plot_scenes(self) -> None:
+        """D19.2: mixed completed/failed must emit plots, not silent-skip."""
+        core = self._make_core()
+        core.run_distributed_scan = mock.Mock(return_value=40)  # type: ignore[method-assign]
+        core._wait_for_archive_caught_up = mock.Mock()  # type: ignore[method-assign]
+        core._finalize_nested_result_csv = mock.Mock()  # type: ignore[method-assign]
+        core._emit_plot_scenes = mock.Mock()  # type: ignore[method-assign]
+        partial = RunOutcome(submitted=40, completed=20, failed=20, archived=40)
+        core._capture_run_outcome = mock.Mock(return_value=partial)  # type: ignore[method-assign]
+
+        with (
+            mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
+            mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
+            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
+        ):
+            outcome = core.run(write_run_summary=False)
+
+        self.assertEqual(outcome.status, "partial_failure")
+        core._finalize_nested_result_csv.assert_called_once()
+        core._emit_plot_scenes.assert_called_once()
+
+    def test_full_failure_skips_plot_scenes_with_reason(self) -> None:
+        core = self._make_core()
+        core.run_distributed_scan = mock.Mock(return_value=10)  # type: ignore[method-assign]
+        core._wait_for_archive_caught_up = mock.Mock()  # type: ignore[method-assign]
+        core._finalize_nested_result_csv = mock.Mock()  # type: ignore[method-assign]
+        core._emit_plot_scenes = mock.Mock()  # type: ignore[method-assign]
+        failed = RunOutcome(submitted=10, completed=0, failed=10, archived=10)
+        core._capture_run_outcome = mock.Mock(return_value=failed)  # type: ignore[method-assign]
+
+        with (
+            mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
+            mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
+            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
+        ):
+            outcome = core.run(write_run_summary=False)
+
+        self.assertEqual(outcome.status, "failed")
+        core._finalize_nested_result_csv.assert_not_called()
+        core._emit_plot_scenes.assert_not_called()
 
     def test_normal_run_verifies_archive_and_recaptures_outcome(self) -> None:
         core = self._make_core()

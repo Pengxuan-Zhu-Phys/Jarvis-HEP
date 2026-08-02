@@ -7,27 +7,28 @@ import json
 import os
 import subprocess
 import tempfile
-import threading
-import time
 import unittest
-from typing import Any
 from unittest import mock
 
 import numpy as np
-from fakeredis import TcpFakeServer
 
 from jarvishep2.archive_handoff import move_tree, stage_sample_dir
 from jarvishep2.archiver import ArchiveProcessor, ArchiverProcess, SimpleArchiver
 from jarvishep2.core import Jarvis2Core
-from jarvishep2.database import RollingHDF5Writer, SimpleHDF5Writer, StreamingHDF5Writer
+from jarvishep2.database import (
+    RollingHDF5Writer,
+    SimpleHDF5Writer,
+    StreamingHDF5Writer,
+    read_persisted_outcome_counts,
+    read_persisted_uuids,
+    recover_stale_hdf5_write_flag,
+)
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import make_fakeredis_queue
-from jarvishep2.sample import Sample
 
 from test_worker_calculator import (
     EGGBOX_CALC_MODULE,
     FIXTURES,
-    LIKELIHOOD_EXPRESSIONS,
     _load_csv_points,
     _normalize_database_records,
     _sample_tree_file_sets,
@@ -37,6 +38,21 @@ from test_worker_calculator import (
 
 
 class ArchiveHandoffUnitTests(unittest.TestCase):
+    def test_resume_probe_uses_write_access_before_clearing_stale_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "samples.hdf5")
+            open(db_path, "wb").close()
+            with (
+                mock.patch(
+                    "jarvishep2.database.h5py.File",
+                    side_effect=OSError("file is already open for write/SWMR write"),
+                ) as open_hdf5,
+                mock.patch("jarvishep2.database._clear_stale_swmr_write_flag") as clear,
+            ):
+                self.assertTrue(recover_stale_hdf5_write_flag(db_path))
+            open_hdf5.assert_called_once_with(db_path, "r+", libver="latest")
+            clear.assert_called_once_with(db_path)
+
     def test_streaming_writer_recovers_stale_swmr_status_and_logs_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
@@ -58,7 +74,7 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 mock.patch("jarvishep2.database.subprocess.run") as clear,
             ):
                 clear.return_value = subprocess.CompletedProcess([], 0, "", "")
-                writer = StreamingHDF5Writer(db_path, logger=logger)
+                writer = StreamingHDF5Writer(db_path, logger=logger, recover_stale=True)
             self.assertEqual(open_hdf5.call_count, 2)
             clear.assert_called_once_with(
                 ["/usr/bin/h5clear", "-s", db_path],
@@ -109,6 +125,143 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 1,
             )
             self.assertEqual(writer.records_persisted, 3)
+            writer.close()
+
+    def test_index_prefix_waits_for_delayed_record_and_deduplicates_replay(self) -> None:
+        """D21.12 A8: a durable hole may not advance the resume watermark."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = StreamingHDF5Writer(db_path)
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=1,
+            )
+            self.assertEqual(
+                processor.ingest({"uuid": "u0", "sample_index": 0, "observables": {"x": 0}}),
+                1,
+            )
+            self.assertEqual(
+                processor.ingest({"uuid": "u2", "sample_index": 2, "observables": {"x": 2}}),
+                1,
+            )
+            state = processor.persistence_state()
+            self.assertEqual(state["persisted_prefix"], 1)
+            self.assertEqual(state["pending_persisted_indices"], 1)
+            # Replaying the ahead-of-watermark item must remain a no-op.
+            self.assertEqual(
+                processor.ingest({"uuid": "u2-replay", "sample_index": 2, "observables": {"x": 2}}),
+                0,
+            )
+            self.assertEqual(
+                processor.ingest({"uuid": "u1", "sample_index": 1, "observables": {"x": 1}}),
+                1,
+            )
+            self.assertEqual(processor.persistence_state()["persisted_prefix"], 3)
+            self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 3)
+            writer.close()
+
+    def test_process_persistence_state_reads_only_the_o1_index_prefix(self) -> None:
+        process = ArchiverProcess.__new__(ArchiverProcess)
+        process.redis_config = {"host": "127.0.0.1", "port": 6379, "db": 0}
+        process.scan_name = "watermark"
+        process.drain = mock.Mock(return_value=17)
+        redis = mock.Mock()
+        redis.get_archived_index_prefix.return_value = 12
+        with mock.patch("jarvishep2.archiver.RedisQueue", return_value=redis):
+            state = process.persistence_state()
+        self.assertEqual(state, {"persisted_prefix": 12, "records_written": 17})
+        redis.get_archived_uuids.assert_not_called()
+        redis.connect.assert_called_once()
+        redis.close.assert_called_once()
+
+    def test_thread_persistence_state_is_o1_highwater_only(self) -> None:
+        """D21.14: do not sorted()-materialise the full UUID set on the hot path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = StreamingHDF5Writer(db_path)
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=1,
+                persisted_uuids={"legacy-a", "legacy-b"},
+            )
+            state = processor.persistence_state()
+            self.assertNotIn("acked_uuids", state)
+            self.assertEqual(state["acked_uuids_highwater"], 2)
+            self.assertEqual(state["persisted_prefix"], 0)
+            writer.close()
+
+    def test_read_persisted_outcome_counts_split_failed_and_completed(self) -> None:
+        """D21.13: DATABASE status is the source of truth for resume SAMPLE_STATS."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_dir = os.path.join(tmpdir, "DATABASE")
+            os.makedirs(database_dir, exist_ok=True)
+            db_path = os.path.join(database_dir, "samples.hdf5")
+            writer = SimpleHDF5Writer(db_path)
+            for index, status in enumerate(
+                ["Completed", "Failed", "Completed", "Failed", "Completed"]
+            ):
+                writer.add_record(
+                    {
+                        "uuid": f"u-{index}",
+                        "sample_index": index,
+                        "status": status,
+                        "x": float(index),
+                    }
+                )
+            completed, failed = read_persisted_outcome_counts(database_dir)
+            self.assertEqual((completed, failed), (3, 2))
+
+    def test_database_uuid_seed_prevents_duplicate_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            database_dir = os.path.join(tmpdir, "DATABASE")
+            db_path = os.path.join(database_dir, "samples.hdf5")
+            SimpleHDF5Writer(db_path).add_record({"uuid": "u-1", "x": 1.0})
+            redis = make_fakeredis_queue()
+            redis.connect()
+            archiver = SimpleArchiver(
+                redis,
+                db_path,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                archiver_config={"batch_size": 1},
+                scan_name="resume",
+            )
+            try:
+                self.assertEqual(
+                    archiver._ingest_result(
+                        {"uuid": "u-1", "observables": {"uuid": "u-1", "x": 99.0}}
+                    ),
+                    0,
+                )
+                self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 1)
+                self.assertEqual(read_persisted_uuids(database_dir), {"u-1"})
+                self.assertEqual(redis.get_archived_uuids("resume"), {"u-1"})
+            finally:
+                archiver.stop(wait=False, drain=False)
+                redis.close()
+
+    def test_failed_artifact_only_sample_gets_database_status_row(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            sample_dir = os.path.join(tmpdir, "SAMPLE", "failed-1")
+            os.makedirs(sample_dir)
+            writer = StreamingHDF5Writer(db_path)
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=1,
+            )
+            self.assertEqual(
+                processor.ingest(
+                    {"uuid": "failed-1", "status": "Failed", "save_dir": sample_dir}
+                ),
+                1,
+            )
+            self.assertEqual(
+                SimpleHDF5Writer(db_path).read_records(),
+                [{"uuid": "failed-1", "status": "Failed"}],
+            )
             writer.close()
 
     def test_rolling_writer_seals_hdf5_and_exports_csv(self) -> None:

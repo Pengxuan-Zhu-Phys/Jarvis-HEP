@@ -7,8 +7,8 @@ from dataclasses import asdict, is_dataclass
 import json
 import os
 import time
-from typing import Any, Mapping
-from uuid import UUID, uuid4
+from typing import Any, Mapping, Sequence
+from uuid import UUID
 
 import numpy as np
 
@@ -17,8 +17,16 @@ import numpy as np
 TASK_QUEUE = "hep:task_queue"
 CALC_FREE = "calc:free:{name}"
 CALC_BUSY_PACKS = "calc:busy:{name}"
+CALC_SHARED_FREE = "calc:free:{name}:mode:{mode}"
+CALC_SHARED_UNASSIGNED = "calc:free:{name}:unassigned"
+CALC_SHARED_PACK_MODE = "calc:packmode:{name}"
+SHARED_HELD_PREFIX = "@shared:"
 RESULTS = "hep:results:{uuid}"
 ARCHIVE_QUEUE = "hep:archive_queue"
+ARCHIVED_UUIDS = "hep:archived:{scan}"
+# Largest durable contiguous logical sample prefix [0, P).  Unlike
+# ARCHIVED_UUIDS this is O(1) to read from the control heartbeat.
+ARCHIVED_INDEX_PREFIX = "hep:archived-prefix:{scan}"
 FEEDBACK_QUEUE = "hep:feedback"
 WORKER_STATUS = "hep:worker:status:{id}"
 CALC_STATUS = "hep:calculator:status"
@@ -31,7 +39,7 @@ BUCKET_READY_QUEUE = "hep:sample:bucket:ready"
 BUCKET_LOCK = "hep:sample:bucket:lock"
 # Single control-process lease for one Redis DB (hard guard against stacked Jarvis2 runs).
 CONTROL_LOCK = "hep:control:lock"
-CONTROL_LOCK_TTL_SEC = 120
+CONTROL_LOCK_TTL_SEC = 30
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
@@ -49,6 +57,40 @@ redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
 redis.call('HINCRBY', KEYS[3], ARGV[3], -1)
 redis.call('INCR', KEYS[4])
 return 1
+"""
+_ATOMIC_RELEASE_SHARED_CALC_LUA = """
+local removed = redis.call('HDEL', KEYS[1], ARGV[1])
+if removed == 0 then
+    return 0
+end
+redis.call('RPUSH', KEYS[2], ARGV[1])
+if ARGV[4] == '' then
+    redis.call('HDEL', KEYS[3], ARGV[1])
+else
+    redis.call('HSET', KEYS[3], ARGV[1], ARGV[4])
+end
+redis.call('HINCRBY', KEYS[4], ARGV[2], 1)
+redis.call('HINCRBY', KEYS[4], ARGV[3], -1)
+redis.call('INCR', KEYS[5])
+return 1
+"""
+_ATOMIC_REFRESH_CONTROL_LOCK_LUA = """
+local current = redis.call('GET', KEYS[1])
+if not current then
+    redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+    return 1
+end
+if current ~= ARGV[1] then
+    return 0
+end
+redis.call('EXPIRE', KEYS[1], ARGV[2])
+return 1
+"""
+_ATOMIC_RELEASE_CONTROL_LOCK_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+return redis.call('DEL', KEYS[1])
 """
 # The distributed broker is a V2 implementation detail, not task-YAML input.
 INTERNAL_REDIS_CONFIG = {"host": "127.0.0.1", "port": 6379, "db": 0}
@@ -71,6 +113,21 @@ def calc_free_list_key(name: str) -> str:
 def calc_busy_packs_key(name: str) -> str:
     """Redis hash key tracking active pack_id owners per calculator."""
     return CALC_BUSY_PACKS.format(name=name)
+
+
+def calc_shared_free_list_key(name: str, mode: str) -> str:
+    """Redis free list for PackIDs currently built as one shared-pack mode."""
+    return CALC_SHARED_FREE.format(name=name, mode=mode)
+
+
+def calc_shared_unassigned_list_key(name: str) -> str:
+    """Redis free list for shared packs with no trustworthy installed mode."""
+    return CALC_SHARED_UNASSIGNED.format(name=name)
+
+
+def calc_shared_pack_mode_key(name: str) -> str:
+    """Redis hash of PackID -> successfully installed shared-pack mode."""
+    return CALC_SHARED_PACK_MODE.format(name=name)
 
 
 def format_calc_pack_id(index: int, *, slots: int) -> str:
@@ -104,6 +161,11 @@ def calc_status_free_field(name: str) -> str:
 def calc_status_busy_field(name: str) -> str:
     """Hash field inside CALC_STATUS for busy-slot count."""
     return f"{name}:busy"
+
+
+def _redis_text(value: Any) -> str:
+    """Normalize redis-py decode-responses and byte-client return values."""
+    return value.decode("utf-8") if isinstance(value, bytes) else str(value)
 
 
 def _json_default(obj: Any) -> Any:
@@ -288,6 +350,18 @@ class RedisQueue:
                 return None
             raise
 
+    def _blpop_many(self, keys: list[str], *, timeout: float = 1) -> Any | None:
+        """Blocking pop from several candidate lists, preserving Redis affinity order."""
+        if not keys:
+            return None
+        try:
+            return self.r.blpop(keys, timeout=max(0.0, float(timeout)))
+        except Exception as exc:
+            name = type(exc).__name__
+            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+                return None
+            raise
+
     def push_task(self, task: Mapping[str, Any]) -> None:
         self._require_client()
         _validate_task_payload(task)
@@ -324,6 +398,48 @@ class RedisQueue:
                 break
             drained += 1
         return drained
+
+    def add_archived_uuids(self, scan_name: str, uuids: Sequence[str]) -> int:
+        """Publish UUIDs only after their HDF5 batch is durable."""
+        self._require_client()
+        values = [str(item).strip() for item in uuids if str(item).strip()]
+        if not values:
+            return 0
+        key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
+        return int(self.r.sadd(key, *values))
+
+    def get_archived_uuids(self, scan_name: str) -> set[str]:
+        """Read the process-visible durable-archive acknowledgement cache."""
+        self._require_client()
+        key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
+        return {_redis_text(item) for item in (self.r.smembers(key) or set())}
+
+    def clear_archived_uuids(self, scan_name: str) -> int:
+        """Clear the Redis cache for a fresh run; DATABASE remains authoritative."""
+        self._require_client()
+        key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
+        return int(self.r.delete(key))
+
+    def set_archived_index_prefix(self, scan_name: str, prefix: int) -> None:
+        """Publish the HDF5-durable contiguous sample-index prefix."""
+        self._require_client()
+        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
+        self.r.set(key, max(0, int(prefix)))
+
+    def get_archived_index_prefix(self, scan_name: str) -> int:
+        """Read the durable prefix in O(1); Redis remains only a cache."""
+        self._require_client()
+        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
+        raw = self.r.get(key)
+        try:
+            return max(0, int(_redis_text(raw))) if raw is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    def clear_archived_index_prefix(self, scan_name: str) -> int:
+        self._require_client()
+        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
+        return int(self.r.delete(key))
 
     def push_many_tasks(self, tasks: list[Mapping[str, Any]]) -> None:
         if not tasks:
@@ -371,6 +487,268 @@ class RedisQueue:
             },
         )
         pipe.execute()
+
+    def register_shared_calc_pool(
+        self,
+        name: str,
+        n: int,
+        *,
+        modes: list[str],
+        pack_modes: Mapping[str, str] | None = None,
+    ) -> None:
+        """Register one physical PackID pool, partitioned by its installed mode.
+
+        A PackID lives in exactly one mode-affinity list while free.  A failed
+        rebuild goes back to ``unassigned``; a successful rebuild is returned
+        to the requested mode's list.  The active busy hash remains the normal
+        ``calc:busy:<parent>`` key, so a physical directory can never be held
+        by two modes at once.
+        """
+        self._require_client()
+        slots = int(n)
+        normalized_modes = list(dict.fromkeys(
+            str(mode).strip() for mode in modes if str(mode).strip()
+        ))
+        if slots <= 0 or not normalized_modes:
+            return
+        prefix = f"calc:free:{name}:"
+        stale = [_redis_text(key) for key in self.r.scan_iter(match=prefix + "*")]
+        keys = [
+            calc_free_list_key(name), calc_busy_packs_key(name),
+            calc_shared_pack_mode_key(name), *stale,
+        ]
+        pack_modes = {
+            str(pack): str(mode)
+            for pack, mode in dict(pack_modes or {}).items()
+            if str(mode) in normalized_modes
+        }
+        pack_ids = [format_calc_pack_id(index, slots=slots) for index in range(1, slots + 1)]
+        pipe = self.r.pipeline(transaction=True)
+        pipe.delete(*list(dict.fromkeys(keys)))
+        for pack_id in pack_ids:
+            mode = pack_modes.get(pack_id)
+            if mode:
+                pipe.rpush(calc_shared_free_list_key(name, mode), pack_id)
+                pipe.hset(calc_shared_pack_mode_key(name), pack_id, mode)
+            else:
+                pipe.rpush(calc_shared_unassigned_list_key(name), pack_id)
+        pipe.hset(
+            CALC_STATUS,
+            mapping={
+                calc_status_free_field(name): slots,
+                calc_status_busy_field(name): 0,
+            },
+        )
+        pipe.execute()
+
+    def shared_mode_free_counts(self, name: str, modes: Sequence[str]) -> dict[str, int]:
+        """Return currently free affinity-slot counts for Worker greedy ordering."""
+        self._require_client()
+        normalized = list(dict.fromkeys(str(mode).strip() for mode in modes if str(mode).strip()))
+        if not normalized:
+            return {}
+        pipe = self.r.pipeline(transaction=False)
+        for mode in normalized:
+            pipe.llen(calc_shared_free_list_key(name, mode))
+        values = pipe.execute()
+        return {mode: int(value or 0) for mode, value in zip(normalized, values)}
+
+    def shared_mode_busy_counts(self, name: str, modes: Sequence[str]) -> dict[str, int]:
+        """Count in-flight shared slots by target mode for cold-start balancing."""
+        self._require_client()
+        normalized = list(dict.fromkeys(str(mode).strip() for mode in modes if str(mode).strip()))
+        counts = {mode: 0 for mode in normalized}
+        for raw_status in (self.r.hvals(calc_busy_packs_key(name)) or []):
+            status = _redis_text(raw_status)
+            if not status.startswith("running:"):
+                continue
+            mode = status.removeprefix("running:")
+            if mode in counts:
+                counts[mode] += 1
+        return counts
+
+    def _claim_shared_pack(
+        self,
+        name: str,
+        pack_id: str,
+        current_mode: str | None,
+        target_mode: str,
+    ) -> tuple[str, str | None]:
+        if not is_stable_calc_pack_id(pack_id):
+            self._discard_stale_free_token(name, pack_id)
+            raise ValueError(f"invalid shared calculator PackID {pack_id!r} for {name!r}")
+        pipe = self.r.pipeline(transaction=True)
+        # This label has no ownership semantics (the hash key and PackID do);
+        # it lets concurrently starting Workers spread cold packs across modes.
+        pipe.hset(calc_busy_packs_key(name), pack_id, f"running:{target_mode}")
+        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
+        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
+        pipe.incr(OP_COUNT.format(kind="calculator"))
+        pipe.execute()
+        return pack_id, current_mode
+
+    def acquire_shared_calc(
+        self,
+        name: str,
+        mode: str,
+        *,
+        modes: Sequence[str],
+        timeout: int = 30,
+        affinity_wait_sec: float = 3.0,
+    ) -> tuple[str, str | None] | None:
+        """Acquire one parent PackID, preferring a pack already built for *mode*.
+
+        This is the broker half of affinity scheduling.  Workers choose a
+        preferred pending mode from :meth:`shared_mode_free_counts`; this method
+        then takes an exact match first, an unassigned pack second, and borrows
+        the most plentiful other mode only when necessary. If an exact warm
+        pack is already running, wait briefly for it before rebuilding another
+        mode's pack; this preserves affinity under saturated Worker contention.
+        """
+        self._require_client()
+        parent = str(name or "").strip()
+        target = str(mode or "").strip()
+        all_modes = list(dict.fromkeys(str(item).strip() for item in modes if str(item).strip()))
+        if not parent or not target or target not in all_modes:
+            raise ValueError("shared calculator acquire requires a declared parent and mode")
+        deadline = time.monotonic() + max(0.0, float(timeout))
+        target_key = calc_shared_free_list_key(parent, target)
+        unassigned_key = calc_shared_unassigned_list_key(parent)
+        warm_wait_budget = max(0.0, float(affinity_wait_sec))
+        while True:
+            # Exact and never-built packs are always preferable and cheap.
+            for key, current_mode in (
+                (target_key, target),
+                (unassigned_key, None),
+            ):
+                raw = self.r.lpop(key)
+                if raw is None:
+                    continue
+                try:
+                    return self._claim_shared_pack(
+                        parent, _redis_text(raw).strip(), current_mode, target,
+                    )
+                except ValueError:
+                    continue
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+
+            # A peer Worker is already preparing/running this target mode. Let
+            # its warm pack return instead of immediately destroying another
+            # useful affinity. Do not wait when no target pack is in flight:
+            # that would penalize pools smaller than the number of modes.
+            target_busy = self.shared_mode_busy_counts(parent, [target]).get(target, 0)
+            if target_busy > 0 and warm_wait_budget > 0:
+                warm_wait = min(remaining, warm_wait_budget)
+                raw = self._blpop_many([target_key], timeout=warm_wait)
+                if raw is not None:
+                    try:
+                        return self._claim_shared_pack(
+                            parent, _redis_text(raw[1]).strip(), target, target,
+                        )
+                    except ValueError:
+                        continue
+                if deadline - time.monotonic() <= 0:
+                    return None
+
+            other_modes = sorted(
+                (item for item in all_modes if item != target),
+                key=lambda item: (-int(self.r.llen(calc_shared_free_list_key(parent, item)) or 0), item),
+            )
+            candidates: list[tuple[str, str | None]] = [
+                (target_key, target),
+                (unassigned_key, None),
+                *((calc_shared_free_list_key(parent, item), item) for item in other_modes),
+            ]
+            for key, current_mode in candidates:
+                raw = self.r.lpop(key)
+                if raw is None:
+                    continue
+                try:
+                    return self._claim_shared_pack(
+                        parent, _redis_text(raw).strip(), current_mode, target,
+                    )
+                except ValueError:
+                    continue
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            raw = self._blpop_many(
+                [key for key, _ in candidates], timeout=remaining,
+            )
+            if raw is None:
+                continue
+            popped_key, pack = _redis_text(raw[0]), _redis_text(raw[1]).strip()
+            current_mode = next((candidate_mode for key, candidate_mode in candidates if key == popped_key), None)
+            try:
+                return self._claim_shared_pack(parent, pack, current_mode, target)
+            except ValueError:
+                continue
+
+    def release_shared_calc(self, name: str, pack_id: str, mode: str | None) -> bool:
+        """Release a shared PackID to its successful mode list or unassigned."""
+        self._require_client()
+        parent = str(name or "").strip()
+        pack = str(pack_id or "").strip()
+        if not parent or not is_stable_calc_pack_id(pack):
+            return False
+        target_mode = str(mode or "").strip()
+        free_key = (
+            calc_shared_free_list_key(parent, target_mode)
+            if target_mode else calc_shared_unassigned_list_key(parent)
+        )
+        return self._eval_atomic_release_shared_calc(
+            parent, pack, free_key, target_mode,
+        )
+
+    def _eval_atomic_release_shared_calc(
+        self,
+        parent: str,
+        pack_id: str,
+        free_key: str,
+        target_mode: str,
+    ) -> bool:
+        """Atomically return a shared PackID and record its trusted warm mode."""
+        busy_key = calc_busy_packs_key(parent)
+        mode_key = calc_shared_pack_mode_key(parent)
+        try:
+            result = self.r.eval(
+                _ATOMIC_RELEASE_SHARED_CALC_LUA,
+                5,
+                busy_key,
+                free_key,
+                mode_key,
+                CALC_STATUS,
+                OP_COUNT.format(kind="calculator"),
+                pack_id,
+                calc_status_free_field(parent),
+                calc_status_busy_field(parent),
+                target_mode,
+            )
+        except Exception as exc:
+            # Keep the same fakeredis compatibility contract as normal pools.
+            if "unknown command 'eval'" not in str(exc).lower():
+                raise
+            if not self.r.hdel(busy_key, pack_id):
+                return False
+            pipe = self.r.pipeline(transaction=True)
+            pipe.rpush(free_key, pack_id)
+            if target_mode:
+                pipe.hset(mode_key, pack_id, target_mode)
+            else:
+                pipe.hdel(mode_key, pack_id)
+            pipe.hincrby(CALC_STATUS, calc_status_free_field(parent), 1)
+            pipe.hincrby(CALC_STATUS, calc_status_busy_field(parent), -1)
+            pipe.incr(OP_COUNT.format(kind="calculator"))
+            pipe.execute()
+            return True
+        return bool(int(result or 0))
+
+    def force_release_shared_calc(self, name: str, pack_id: str) -> bool:
+        """Return an uncertain shared pack to unassigned after a Worker failure."""
+        return self.release_shared_calc(name, pack_id, None)
 
     def _discard_stale_free_token(self, name: str, token: str) -> None:
         """Drop a non-PackID free-list entry (e.g. legacy ``ready``/UUID) permanently."""
@@ -514,21 +892,51 @@ class RedisQueue:
         """Extend the lease only if *owner* still holds it."""
         self._require_client()
         owner_text = str(owner or "").strip()
-        current = self.r.get(CONTROL_LOCK)
-        if current is None:
-            return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=max(5, int(ttl_sec))))
-        if str(current) != owner_text:
-            return False
-        self.r.expire(CONTROL_LOCK, max(5, int(ttl_sec)))
-        return True
+        if not owner_text:
+            raise ValueError("control lock owner is required")
+        ttl = max(5, int(ttl_sec))
+        try:
+            result = self.r.eval(
+                _ATOMIC_REFRESH_CONTROL_LOCK_LUA,
+                1,
+                CONTROL_LOCK,
+                owner_text,
+                ttl,
+            )
+        except Exception as exc:
+            # fakeredis versions used by the offline suite may omit EVAL.
+            # Real Redis always takes the atomic Lua path above.
+            if "unknown command 'eval'" not in str(exc).lower():
+                raise
+            current = self.r.get(CONTROL_LOCK)
+            if current is None:
+                return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
+            if _redis_text(current) != owner_text:
+                return False
+            return bool(self.r.expire(CONTROL_LOCK, ttl))
+        return bool(int(result or 0))
 
-    def release_control_lock(self, owner: str) -> None:
+    def release_control_lock(self, owner: str) -> bool:
         """Drop the control lease if we still own it."""
         self._require_client()
         owner_text = str(owner or "").strip()
-        current = self.r.get(CONTROL_LOCK)
-        if current is not None and str(current) == owner_text:
-            self.r.delete(CONTROL_LOCK)
+        if not owner_text:
+            return False
+        try:
+            result = self.r.eval(
+                _ATOMIC_RELEASE_CONTROL_LOCK_LUA,
+                1,
+                CONTROL_LOCK,
+                owner_text,
+            )
+        except Exception as exc:
+            if "unknown command 'eval'" not in str(exc).lower():
+                raise
+            current = self.r.get(CONTROL_LOCK)
+            if current is None or _redis_text(current) != owner_text:
+                return False
+            return bool(self.r.delete(CONTROL_LOCK))
+        return bool(int(result or 0))
 
     def get_control_lock_owner(self) -> str | None:
         self._require_client()
@@ -565,6 +973,8 @@ class RedisQueue:
                 continue
             keys.append(calc_free_list_key(text))
             keys.append(calc_busy_packs_key(text))
+            keys.append(calc_shared_pack_mode_key(text))
+            keys.extend(self.r.scan_iter(match=f"calc:free:{text}:*"))
         if worker_ids is None:
             # Best-effort: clear a reasonable worker status range.
             worker_ids = list(range(0, 64))
@@ -596,6 +1006,31 @@ class RedisQueue:
             mapping={"completed": 0, "failed": 0, "running": 0},
         )
         return {"deleted_keys": deleted, "sample_stats_reset": 1}
+
+    def reconcile_resume_ephemeral(
+        self,
+        *,
+        completed: int,
+        failed: int = 0,
+    ) -> dict[str, int]:
+        """Discard crash-era transport state and seed counters from DATABASE."""
+        self._require_client()
+        keys: list[str] = [TASK_QUEUE, ARCHIVE_QUEUE, FEEDBACK_QUEUE]
+        keys.extend(self.r.scan_iter(match="hep:worker:status:*"))
+        deleted = int(self.r.delete(*keys) or 0) if keys else 0
+        self.r.hset(
+            SAMPLE_STATS,
+            mapping={
+                "completed": max(0, int(completed)),
+                "failed": max(0, int(failed)),
+                "running": 0,
+            },
+        )
+        return {
+            "deleted_keys": deleted,
+            "completed": max(0, int(completed)),
+            "failed": max(0, int(failed)),
+        }
 
     def init_sample_buckets(
         self,
@@ -1072,7 +1507,13 @@ class RedisQueue:
             if not pack_id or not str(pack_id).strip():
                 continue
             try:
-                self.release_calc(str(name), str(pack_id))
+                label = str(name)
+                if label.startswith(SHARED_HELD_PREFIX):
+                    self.force_release_shared_calc(
+                        label.removeprefix(SHARED_HELD_PREFIX), str(pack_id)
+                    )
+                else:
+                    self.release_calc(label, str(pack_id))
             except ValueError:
                 continue
             released += 1
@@ -1207,11 +1648,15 @@ def _coerce_numeric(value: Any) -> int | float | str:
 
 __all__ = [
     "ARCHIVE_QUEUE",
+    "ARCHIVED_UUIDS",
     "BUCKET_META",
     "BUCKET_READY_QUEUE",
     "BUCKET_STATE",
     "CALC_BUSY_PACKS",
     "CALC_FREE",
+    "CALC_SHARED_FREE",
+    "CALC_SHARED_PACK_MODE",
+    "CALC_SHARED_UNASSIGNED",
     "CALC_STATUS",
     "CONTROL_LOCK",
     "CONTROL_LOCK_TTL_SEC",
@@ -1220,11 +1665,15 @@ __all__ = [
     "RESULTS",
     "RedisQueue",
     "SAMPLE_STATS",
+    "SHARED_HELD_PREFIX",
     "TASK_QUEUE",
     "TaskValidationError",
     "WORKER_STATUS",
     "calc_busy_packs_key",
     "calc_free_list_key",
+    "calc_shared_free_list_key",
+    "calc_shared_pack_mode_key",
+    "calc_shared_unassigned_list_key",
     "calc_status_busy_field",
     "calc_status_free_field",
     "decode_payload",

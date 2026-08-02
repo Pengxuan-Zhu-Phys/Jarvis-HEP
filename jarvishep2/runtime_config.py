@@ -18,6 +18,7 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
     "workers": 0,
     "batch_size": 256,
     "sample_artifacts": "auto",
+    "checkpoint_heartbeat_sec": 30.0,
 }
 
 VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
@@ -71,6 +72,7 @@ SUPPORTED_ENVREQS_V2_KEYS = frozenset(
         "factory",
         "worker",
         "check_modules",
+        "checkpoint_heartbeat_sec",
     }
 )
 
@@ -186,6 +188,12 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if sample_artifacts not in _VALID_SAMPLE_ARTIFACTS:
         sample_artifacts = RUNTIME_DEFAULTS["sample_artifacts"]
     runtime["sample_artifacts"] = sample_artifacts
+
+    heartbeat = raw.get("checkpoint_heartbeat_sec", runtime["checkpoint_heartbeat_sec"])
+    try:
+        runtime["checkpoint_heartbeat_sec"] = max(1.0, float(heartbeat))
+    except (TypeError, ValueError):
+        runtime["checkpoint_heartbeat_sec"] = RUNTIME_DEFAULTS["checkpoint_heartbeat_sec"]
 
     redis_block = raw.get("redis")
     if isinstance(redis_block, Mapping):

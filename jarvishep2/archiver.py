@@ -14,7 +14,12 @@ from jarvishep2.archive_handoff import (
     list_product_names,
     normalize_move_strategy,
 )
-from jarvishep2.database import RollingHDF5Writer, SimpleHDF5Writer, StreamingHDF5Writer
+from jarvishep2.database import (
+    RollingHDF5Writer,
+    SimpleHDF5Writer,
+    StreamingHDF5Writer,
+    read_persisted_sample_index_state,
+)
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
@@ -109,6 +114,9 @@ class ArchiveProcessor:
         delete_after_archive: bool = True,
         batch_size: int = 1,
         flush_interval_sec: float = 1.0,
+        persisted_uuids: set[str] | None = None,
+        persisted_index_prefix: int = 0,
+        persisted_indices: set[int] | None = None,
     ) -> None:
         self.writer = writer
         self.sample_root = os.path.abspath(str(sample_root))
@@ -117,8 +125,17 @@ class ArchiveProcessor:
         self.delete_after_archive = bool(delete_after_archive)
         self.batch_size = max(1, int(batch_size))
         self.flush_interval_sec = max(0.05, float(flush_interval_sec))
-        self.records_written = 0
-        self.acked_uuids: set[str] = set()
+        # Indexed records use the contiguous prefix plus only the bounded set
+        # of out-of-order durable indices. UUID retention is legacy fallback
+        # for old DATABASE files that predate sample_index.
+        self.acked_uuids: set[str] = {str(item) for item in (persisted_uuids or set())}
+        self.persisted_index_prefix = max(0, int(persisted_index_prefix))
+        self._persisted_indices: set[int] = {
+            int(item) for item in (persisted_indices or set()) if int(item) >= self.persisted_index_prefix
+        }
+        self.records_written = (
+            self.persisted_index_prefix + len(self._persisted_indices) + len(self.acked_uuids)
+        )
         self._batch: list[dict[str, Any]] = []
         self._last_flushed: list[dict[str, Any]] = []
         self._last_flush = time.monotonic()
@@ -133,6 +150,9 @@ class ArchiveProcessor:
         sample_root: str,
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
+        persisted_uuids: set[str] | None = None,
+        persisted_index_prefix: int = 0,
+        persisted_indices: set[int] | None = None,
     ) -> ArchiveProcessor:
         """Build a processor from the Runtime.Archiver-style config map."""
         cfg = dict(ARCHIVER_DEFAULTS)
@@ -146,6 +166,9 @@ class ArchiveProcessor:
             delete_after_archive=bool(cfg.get("delete_after_archive", True)),
             batch_size=int(cfg.get("batch_size", 1)),
             flush_interval_sec=float(cfg.get("flush_interval_sec", 1.0)),
+            persisted_uuids=persisted_uuids,
+            persisted_index_prefix=persisted_index_prefix,
+            persisted_indices=persisted_indices,
         )
 
     def has_pending(self) -> bool:
@@ -190,6 +213,8 @@ class ArchiveProcessor:
 
         batched_writer = isinstance(self.writer, (StreamingHDF5Writer, RollingHDF5Writer))
         previous_records_written = self.records_written
+        previous_prefix = self.persisted_index_prefix
+        previous_indices = set(self._persisted_indices)
         newly_acked: list[str] = []
         if batched_writer:
             self.writer.begin_batch()
@@ -211,6 +236,8 @@ class ArchiveProcessor:
             for uuid in newly_acked:
                 self.acked_uuids.discard(uuid)
             self.records_written = previous_records_written
+            self.persisted_index_prefix = previous_prefix
+            self._persisted_indices = previous_indices
             self._last_flushed = []
             raise
         self._batch.clear()
@@ -221,8 +248,9 @@ class ArchiveProcessor:
         uuid = str(result.get("uuid", "")).strip()
         if not uuid:
             return False
-        if uuid in self.acked_uuids:
-            return True
+        sample_index = self._sample_index(result)
+        if self._is_persisted(uuid, sample_index):
+            return False
 
         staging_path = str(result.get("staging_path") or "").strip()
         save_dir = str(result.get("save_dir") or "").strip()
@@ -263,6 +291,10 @@ class ArchiveProcessor:
         # tree was already packed/pruned — so wait_for_results can complete.
         if isinstance(observables, Mapping) and observables:
             record = dict(observables)
+            record.setdefault("uuid", uuid)
+            if sample_index is not None:
+                record.setdefault("sample_index", sample_index)
+            record.setdefault("status", str(result.get("status") or "Completed"))
             if destination and os.path.isdir(destination):
                 record.setdefault("product_list", list_product_names(destination))
             if bucket_dir:
@@ -271,27 +303,69 @@ class ArchiveProcessor:
                 record.setdefault("bucket_id", result.get("bucket_id"))
             self.writer.add_record(record)
             self.records_written += 1
-            self.acked_uuids.add(uuid)
+            self._mark_persisted(uuid, sample_index)
             return True
 
-        # No observables: still ack if the sample dir exists (artifact-only sample).
+        # No observables: persist a minimal identity/status row even when an
+        # artifact directory exists.  DATABASE—not SAMPLE—is resume truth, so
+        # artifact-only and failed samples must still become durable UUIDs.
         if destination and os.path.isdir(destination):
-            self.acked_uuids.add(uuid)
+            record = {"uuid": uuid, "status": str(result.get("status") or "Completed")}
+            if sample_index is not None:
+                record["sample_index"] = sample_index
+            self.writer.add_record(record)
             self.records_written += 1
+            self._mark_persisted(uuid, sample_index)
             return True
         # Nothing to write and no dir — count as archived failure for the queue
         # item (already popped). Prefer writing a minimal stub so drains finish.
-        self.writer.add_record({"uuid": uuid, "status": str(result.get("status") or "Completed")})
+        record = {"uuid": uuid, "status": str(result.get("status") or "Completed")}
+        if sample_index is not None:
+            record["sample_index"] = sample_index
+        self.writer.add_record(record)
         self.records_written += 1
-        self.acked_uuids.add(uuid)
+        self._mark_persisted(uuid, sample_index)
         return True
 
+    @staticmethod
+    def _sample_index(result: Mapping[str, Any]) -> int | None:
+        raw = result.get("sample_index")
+        try:
+            value = int(raw) if raw is not None else -1
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 0 else None
+
+    def _is_persisted(self, uuid: str, sample_index: int | None) -> bool:
+        if sample_index is None:
+            return uuid in self.acked_uuids
+        return (
+            sample_index < self.persisted_index_prefix
+            or sample_index in self._persisted_indices
+        )
+
+    def _mark_persisted(self, uuid: str, sample_index: int | None) -> None:
+        if sample_index is None:
+            self.acked_uuids.add(uuid)
+            return
+        if sample_index < self.persisted_index_prefix:
+            return
+        if sample_index == self.persisted_index_prefix:
+            self.persisted_index_prefix += 1
+            while self.persisted_index_prefix in self._persisted_indices:
+                self._persisted_indices.remove(self.persisted_index_prefix)
+                self.persisted_index_prefix += 1
+            return
+        self._persisted_indices.add(sample_index)
+
     def persistence_state(self) -> dict[str, Any]:
-        acked = sorted(self.acked_uuids)
+        # O(1) high-water only — align thread-mode with process-mode Archiver
+        # (D21.14). Indexed resume uses ``persisted_prefix``; do not sort or
+        # materialise the full UUID set on the checkpoint hot path.
         return {
-            "acked_uuids": acked,
-            "acked_uuids_highwater": len(acked),
-            "next_sample_index": len(acked),
+            "acked_uuids_highwater": len(self.acked_uuids),
+            "persisted_prefix": int(self.persisted_index_prefix),
+            "pending_persisted_indices": len(self._persisted_indices),
         }
 
 
@@ -308,9 +382,11 @@ class SimpleArchiver:
         poll_timeout: float = 1.0,
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
+        scan_name: str | None = None,
         logger: Any | None = None,
     ) -> None:
         self.redis = redis_queue
+        self.scan_name = str(scan_name or "scan").strip() or "scan"
         self.sample_root = os.path.abspath(str(sample_root))
         self.poll_timeout = max(0.05, float(poll_timeout))
         cfg = dict(ARCHIVER_DEFAULTS)
@@ -320,16 +396,27 @@ class SimpleArchiver:
         self.buckets_packed = 0
         # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
         self._logger = logger or get_jarvis_logger("archiver")
+        writer = RollingHDF5Writer(
+            db_path,
+            max_bytes=int(cfg.get("max_hdf5_bytes", ARCHIVER_DEFAULTS["max_hdf5_bytes"])),
+            logger=self._logger,
+        )
+        database_dir = os.path.dirname(os.path.abspath(db_path))
+        prefix, persisted_indices, legacy_uuids = read_persisted_sample_index_state(
+            database_dir
+        )
         self.processor = ArchiveProcessor.from_config(
-            RollingHDF5Writer(
-                db_path,
-                max_bytes=int(cfg.get("max_hdf5_bytes", ARCHIVER_DEFAULTS["max_hdf5_bytes"])),
-                logger=self._logger,
-            ),
+            writer,
             sample_root=sample_root,
             delete_method=delete_method,
             archiver_config=archiver_config,
+            persisted_uuids=legacy_uuids,
+            persisted_index_prefix=prefix,
+            persisted_indices=persisted_indices,
         )
+        if legacy_uuids:
+            self.redis.add_archived_uuids(self.scan_name, sorted(legacy_uuids))
+        self.redis.set_archived_index_prefix(self.scan_name, prefix)
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
@@ -370,7 +457,23 @@ class SimpleArchiver:
 
     def _note_last_flushed(self) -> None:
         """Tell Redis each freshly written sample is archived (may enqueue pack)."""
-        for item in self.processor.take_last_flushed():
+        flushed = self.processor.take_last_flushed()
+        # Indexed stateless scans publish only the O(1) prefix.  Keep the
+        # legacy UUID set solely for feedback samplers and old DATABASE rows,
+        # where identity-level barrier acknowledgements are still required.
+        uuids = [
+            str(item.get("uuid") or "").strip()
+            for item in flushed
+            if self.processor._sample_index(item) is None
+        ]
+        # ArchiveProcessor returns only after HDF5 commit_batch completed its
+        # flush + fsync.  Publish identities after durability, never before it.
+        self.redis.add_archived_uuids(self.scan_name, uuids)
+        self.redis.set_archived_index_prefix(
+            self.scan_name,
+            self.processor.persisted_index_prefix,
+        )
+        for item in flushed:
             bucket_id = item.get("bucket_id")
             if bucket_id is None:
                 continue
@@ -630,13 +733,26 @@ class ArchiverProcess(Process):
             poll_timeout=self.poll_timeout,
             delete_method=self.delete_method,
             archiver_config=self.archiver_config,
+            scan_name=self.scan_name,
             logger=logger,
         )
         archiver.start()
+        expected_owner = str(self.archiver_config.get("control_lock_owner") or "").strip()
+        next_lease_check = 0.0
         while not self._stop_event.is_set():
             time.sleep(0.1)
             with self.records_written.get_lock():
                 self.records_written.value = int(archiver.records_written)
+            now = time.monotonic()
+            if (
+                expected_owner
+                and now >= next_lease_check
+                and redis.get_control_lock_owner() != expected_owner
+            ):
+                logger.warning("control lease expired; Archiver is shutting down")
+                break
+            if now >= next_lease_check:
+                next_lease_check = now + 1.0
         archiver.stop(wait=True, drain=True)
         with self.records_written.get_lock():
             self.records_written.value = int(archiver.records_written)
@@ -660,13 +776,17 @@ class ArchiverProcess(Process):
             return 0
 
     def persistence_state(self) -> dict[str, Any]:
-        """Control-side checkpoint stub (child owns the real ack set).
-
-        Process-mode Archiver does not share acked_uuids with the parent; resume
-        re-proposes unfinished sampler work. Return an empty persistence bag so
-        ``save_runtime_checkpoint`` / tests share the SimpleArchiver API.
-        """
-        return {"acked_uuids": [], "records_written": int(self.drain())}
+        """Read the durable child prefix in O(1), never ``SMEMBERS``."""
+        redis = RedisQueue(self.redis_config)
+        try:
+            redis.connect()
+            prefix = redis.get_archived_index_prefix(self.scan_name or "scan")
+        finally:
+            redis.close()
+        return {
+            "persisted_prefix": int(prefix),
+            "records_written": int(self.drain()),
+        }
 
     def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> None:
         """Stop the child Archiver.

@@ -110,6 +110,10 @@ class Bridson(FixedSetSampler):
 
     method = "Bridson"
     uuid_prefix = "bridson"
+    _checkpoint_saved_attributes = frozenset({"barinfo"})
+    _checkpoint_excluded_attributes = frozenset(
+        {"_logger", "_P", "_radius", "_k", "_max_inflight"}
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -133,7 +137,7 @@ class Bridson(FixedSetSampler):
         # V1-like backpressure: at most MaxWorker (default = Runtime.workers) in flight.
         self._max_inflight = max(1, int(sampling.get("MaxWorker", workers) or workers))
 
-    def initialize(self) -> None:
+    def initialize(self, *, reset: bool = True) -> None:
         ndim = len(self.vars)
         if ndim < 2 or ndim >= 5:
             raise ValueError("Bridson supports 2d to 4d parameter spaces only")
@@ -150,10 +154,11 @@ class Bridson(FixedSetSampler):
         )
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
-        self._index = 0
-        self._accepted_index = 0
-        # Fresh submit-progress bar for this grid generation.
-        self.barinfo = {}
+        if reset:
+            self._index = 0
+            self._accepted_index = 0
+            # Fresh submit-progress bar for this grid generation.
+            self.barinfo = {}
         self._logger.info(
             "Bridson Sampler obtains %d samples in %.2f sec",
             self.info["NSamples"],
@@ -162,15 +167,11 @@ class Bridson(FixedSetSampler):
 
     def _ensure_grid(self) -> None:
         if self._P is None:
-            self.initialize()
+            self.initialize(reset=False)
 
     def _uuid_for_accepted_index(self, accepted_index: int) -> str:
         # Keep historical Bridson UUID formula (prefix "bridson:").
-        if accepted_index in self._uuid_by_accepted_index:
-            return self._uuid_by_accepted_index[accepted_index]
-        uuid = deterministic_bridson_uuid(seed=self._seed, sample_index=accepted_index)
-        self._uuid_by_accepted_index[accepted_index] = uuid
-        return uuid
+        return deterministic_bridson_uuid(seed=self._seed, sample_index=accepted_index)
 
     def propose_next(self) -> Sample | None:
         self._ensure_grid()
@@ -190,6 +191,7 @@ class Bridson(FixedSetSampler):
             accepted_index = self._accepted_index
             self._accepted_index += 1
             sample = self._build_sample(row_to_u_coords(row, self.vars))
+            sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
             return sample
         return None
@@ -199,6 +201,9 @@ class Bridson(FixedSetSampler):
 
     def _emit_progress(self) -> None:
         """V1 Bridson submit heartbeat: one log line per new ‰ of the grid."""
+        # Local DATABASE prefix replay must not look like real submissions.
+        if bool(getattr(self, "_suppress_submit_progress", False)):
+            return
         total = int(self.info.get("NSamples", 0) or 0)
         if self._P is not None:
             total = max(total, int(len(self._P)))
@@ -235,51 +240,10 @@ class Bridson(FixedSetSampler):
             self.barinfo["permille"] = permille
             _log_progress(permille)
 
-    def repropose_unfinished(self) -> list[str]:
-        if not self._repropose_after_resume:
-            return []
-        pending = [uuid for uuid in self._submitted_uuids if uuid not in self._completed_uuids]
-        if not pending or self._P is None:
-            return []
-        requeued: list[str] = []
-        index_by_uuid = {uuid: idx for idx, uuid in self._uuid_by_accepted_index.items()}
-        for uuid in pending:
-            accepted_index = index_by_uuid.get(uuid)
-            if accepted_index is None:
-                continue
-            row = self._find_row_for_accepted_index(accepted_index)
-            if row is None:
-                continue
-            sample = self._build_sample(row_to_u_coords(row, self.vars))
-            sample.uuid = uuid
-            self._submit(sample)
-            requeued.append(uuid)
-        return requeued
-
-    def _find_row_for_accepted_index(self, target: int) -> np.ndarray | None:
-        assert self._P is not None
-        accepted = 0
-        scan_index = 0
-        while scan_index < len(self._P):
-            row = self._P[scan_index]
-            scan_index += 1
-            physical = map_row_to_physical(row, self.vars)
-            if self._selectionexp and not evaluate_selection(
-                self._selectionexp,
-                physical,
-                context=self._expression_context,
-            ):
-                continue
-            if accepted == target:
-                return row
-            accepted += 1
-        return None
-
     def export_runtime_state(self) -> dict[str, Any]:
         payload = self._common_export_fields()
         payload.update(
             {
-                "grid_points": self._P,
                 "barinfo": deepcopy(self.barinfo),
                 "numpy_random_state": None,
             }
@@ -287,13 +251,8 @@ class Bridson(FixedSetSampler):
         return payload
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        grid = state.get("grid_points")
-        if grid is not None:
-            self._P = np.asarray(grid)
         self._import_common_fields(state)
         self.barinfo = deepcopy(state.get("barinfo", self.barinfo))
-        if self._P is not None:
-            self.info["NSamples"] = int(self._P.shape[0])
 
 
 __all__ = [

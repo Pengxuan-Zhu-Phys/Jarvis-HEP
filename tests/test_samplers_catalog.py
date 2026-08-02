@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import os
+import pickle
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -15,6 +17,7 @@ from jarvishep2.Sampling.bridson import (
     Bridson_sampling,
     hypersphere_surface_sample,
 )
+from jarvishep2.Sampling.csv_sampler import CSVSampler
 from jarvishep2.log_kv import format_duration
 from jarvishep2.Sampling.grid import Grid, grid_sampling
 from jarvishep2.Sampling.randoms import RandomS
@@ -231,7 +234,93 @@ class GridSamplerUnitTests(unittest.TestCase):
         self.assertEqual(actual.uuid, expected.uuid)
         np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
 
-    def test_repropose_unfinished_requeues_pending_uuids(self) -> None:
+    def test_stateless_samples_have_contiguous_logical_indices(self) -> None:
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        sampler.initialize()
+        first = sampler.propose_next()
+        second = sampler.propose_next()
+        assert first is not None and second is not None
+        self.assertEqual((first.sample_index, second.sample_index), (0, 1))
+        self.assertEqual(first.uuid, sampler._uuid_for_accepted_index(0))
+        self.assertEqual(second.uuid, sampler._uuid_for_accepted_index(1))
+
+    def test_resume_fast_forwards_durable_prefix_without_submitting_physics_work(self) -> None:
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        sampler.initialize()
+        self.assertEqual(sampler.advance_to_persisted_prefix(2), 2)
+        next_sample = sampler.propose_next()
+        assert next_sample is not None
+        self.assertEqual(next_sample.sample_index, 2)
+
+    def test_bridson_prefix_replay_suppresses_submit_progress(self) -> None:
+        """D21.14: local resume replay must not log 'samples submited' ‰ lines."""
+        from jarvishep2.Sampling.bridson import Bridson
+
+        sampler = Bridson()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "Bridson",
+                    "Radius": 0.4,
+                    "MaxAttempt": 5,
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0.0, "max": 1.0, "length": 1.0},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0.0, "max": 1.0, "length": 1.0},
+                            },
+                        },
+                    ],
+                },
+                "Runtime": {"Seed": 7},
+            }
+        )
+        sampler.initialize()
+        target = min(5, int(sampler.info.get("NSamples") or 0))
+        self.assertGreater(target, 0)
+        messages: list[str] = []
+
+        def _capture(msg: object, *args: object, **_kwargs: object) -> None:
+            text = str(msg)
+            if args:
+                try:
+                    text = text % args
+                except Exception:
+                    text = f"{text} {args}"
+            messages.append(text)
+
+        with (
+            mock.patch.object(sampler._logger, "info", side_effect=_capture),
+            mock.patch.object(sampler._logger, "warning", side_effect=_capture),
+        ):
+            advanced = sampler.advance_to_persisted_prefix(target)
+        self.assertEqual(advanced, target)
+        self.assertFalse(
+            any("submited" in msg or "submitted" in msg for msg in messages),
+            messages,
+        )
+        self.assertEqual(sampler.barinfo, {})
+        # After replay, normal proposes may emit progress again.
+        messages.clear()
+        with (
+            mock.patch.object(sampler._logger, "info", side_effect=_capture),
+            mock.patch.object(sampler._logger, "warning", side_effect=_capture),
+        ):
+            sample = sampler.propose_next()
+        self.assertIsNotNone(sample)
+        self.assertTrue(any("submited" in msg for msg in messages), messages)
+
+    def test_restore_point_advances_only_after_batch_is_persisted(self) -> None:
         sampler = Grid()
         sampler.set_config(_grid_test_config())
         queue = make_fakeredis_queue()
@@ -239,19 +328,27 @@ class GridSamplerUnitTests(unittest.TestCase):
         sampler.set_redis(queue)
         sampler.set_execution_plan_template(include_likelihood=False)
         sampler.initialize()
-        first = sampler.propose_next()
-        second = sampler.propose_next()
-        assert first is not None and second is not None
-        sampler._submit(first)
-        sampler._submit(second)
-        sampler._submitted_uuids.extend([first.uuid, second.uuid])
-        queue.drain_task_queue()
-        sampler.mark_completed(first.uuid)
-        sampler.set_resume_repropose_hint(True)
+        sampler.configure_checkpoint(checkpoint_file="", save_callback=lambda **_: None)
+        try:
+            first_batch = [sampler.propose_next(), sampler.propose_next()]
+            first_batch = [sample for sample in first_batch if sample is not None]
+            sampler.request_checkpoint_capture()
+            sampler.flush_batch(first_batch)
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 0)
 
-        requeued = sampler.repropose_unfinished()
-        self.assertEqual(requeued, [second.uuid])
-        self.assertEqual(int(queue.r.llen("hep:task_queue")), 1)
+            # A delayed sample index prevents promotion across its gap (D21.12 A8).
+            sampler.set_persisted_prefix(1)
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 0)
+            sampler.set_persisted_prefix(2)
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 2)
+
+            third = sampler.propose_next()
+            assert third is not None
+            sampler.request_checkpoint_capture()
+            sampler.flush_batch([third])
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 2)
+        finally:
+            sampler.shutdown_checkpointing()
 
 
 class BridsonSamplerUnitTests(unittest.TestCase):
@@ -588,6 +685,138 @@ class StatelessDistributedRunTests(unittest.TestCase):
         second.set_config(cfg)
         coords_b = [second.propose_next().u_coords.tolist() for _ in range(4)]
         self.assertEqual(coords_a, coords_b)
+
+
+class CheckpointScalingTests(unittest.TestCase):
+    @staticmethod
+    def _random_config(points: int = 20_000) -> dict:
+        return {
+            "Runtime": {"mode": "redis", "workers": 1, "batch_size": 8},
+            "Sampling": {
+                "Method": "Random",
+                "Point number": points,
+                "Seed": 123,
+                "Variables": [
+                    {
+                        "name": "x",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1, "length": 1},
+                        },
+                    },
+                    {
+                        "name": "y",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1, "length": 1},
+                        },
+                    },
+                ],
+            },
+        }
+
+    def test_random_export_import_restores_the_seeded_generator(self) -> None:
+        sampler = RandomS()
+        sampler.set_config(self._random_config(points=10))
+        sampler.propose_next()
+        sampler.propose_next()
+        state = sampler.export_runtime_state()
+        expected = sampler.propose_next()
+        assert expected is not None
+        restored = RandomS()
+        restored.set_config(self._random_config(points=10))
+        restored.import_runtime_state(state)
+        actual = restored.propose_next()
+        assert actual is not None
+        self.assertEqual(actual.sample_index, expected.sample_index)
+        np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
+
+    def test_stateless_checkpoint_fields_are_all_explicitly_classified(self) -> None:
+        random = RandomS()
+        random.set_config(self._random_config(points=10))
+        random.assert_checkpoint_attribute_contract()
+
+        grid = Grid()
+        grid.set_config(_grid_test_config())
+        grid.initialize()
+        grid.assert_checkpoint_attribute_contract()
+
+        bridson = Bridson()
+        bridson.set_config(
+            {
+                "Runtime": {"mode": "redis", "workers": 1},
+                "Sampling": {
+                    "Method": "Bridson",
+                    "Radius": 0.3,
+                    "MaxAttempt": 8,
+                    "Variables": [
+                        {
+                            "name": name,
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1, "length": 1},
+                            },
+                        }
+                        for name in ("x", "y")
+                    ],
+                },
+            }
+        )
+        bridson.assert_checkpoint_attribute_contract()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = os.path.join(tmpdir, "points.csv")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("uuid,x\nu0,0.2\n")
+            csv_sampler = CSVSampler()
+            csv_sampler.set_config(
+                {
+                    "Runtime": {"mode": "redis", "workers": 1},
+                    "Sampling": {"Method": "CSV", "CSV": {"path": path}},
+                }
+            )
+            csv_sampler.assert_checkpoint_attribute_contract()
+
+    def test_heartbeat_only_requests_a_capture_until_the_next_batch_boundary(self) -> None:
+        sampler = RandomS()
+        sampler.set_config(self._random_config(points=10))
+        calls = 0
+        original = sampler.export_runtime_state
+
+        def counted_export() -> dict:
+            nonlocal calls
+            calls += 1
+            return original()
+
+        sampler.export_runtime_state = counted_export  # type: ignore[method-assign]
+        sampler.configure_checkpoint(checkpoint_file="", save_callback=lambda **_: None)
+        try:
+            calls = 0
+            sampler.request_checkpoint_capture()
+            self.assertEqual(calls, 0)
+            self.assertTrue(sampler.capture_checkpoint_at_batch_boundary())
+            self.assertEqual(calls, 1)
+            self.assertFalse(sampler.capture_checkpoint_at_batch_boundary())
+            self.assertEqual(calls, 1)
+        finally:
+            sampler.shutdown_checkpointing()
+
+    def test_random_checkpoint_payload_is_constant_after_twenty_thousand_samples(self) -> None:
+        """D21.12 P3/P4: no UUID or coordinate history enters the payload."""
+        sampler = RandomS()
+        sampler.set_config(self._random_config())
+        sampler.initialize()
+        before = pickle.dumps(sampler.export_runtime_state(), protocol=pickle.HIGHEST_PROTOCOL)
+        while sampler.propose_next() is not None:
+            pass
+        after_state = sampler.export_runtime_state()
+        after = pickle.dumps(after_state, protocol=pickle.HIGHEST_PROTOCOL)
+        self.assertLess(abs(len(after) - len(before)), 1024)
+        self.assertNotIn("u_by_uuid", after_state)
+        self.assertNotIn("uuid_by_accepted_index", after_state)
+        self.assertNotIn("submitted_uuids", after_state)
+        self.assertFalse(hasattr(sampler, "_u_by_uuid"))
+        self.assertFalse(hasattr(sampler, "_uuid_by_accepted_index"))
 
 
 if __name__ == "__main__":

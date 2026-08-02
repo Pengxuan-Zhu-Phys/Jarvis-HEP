@@ -118,6 +118,10 @@ class Sample:
     sample_artifacts: str = "auto"
     priority: int = 0
     created_at: str | None = None
+    # Monotonic logical proposal index.  Keep this after the historical wire
+    # fields so positional ``Sample(uuid, u_coords, ...)`` callers retain their
+    # established meaning.
+    sample_index: int | None = None
     params: dict[str, Any] = field(default_factory=dict, repr=False)
     info: dict[str, Any] = field(default_factory=dict, repr=False)
     observables: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -167,6 +171,7 @@ class Sample:
         """Light dict for Redis transport (invariant #7, #8)."""
         payload = {
             "uuid": self.uuid,
+            "sample_index": self.sample_index,
             "u_coords": self.u_coords.tolist(),
             "execution_plan": [step.to_dict() for step in self.execution_plan],
             "opera_params": dict(self.opera_params),
@@ -189,6 +194,11 @@ class Sample:
         ]
         return cls(
             uuid=str(data["uuid"]),
+            sample_index=(
+                int(data["sample_index"])
+                if data.get("sample_index") is not None
+                else None
+            ),
             u_coords=_as_float64_array(data.get("u_coords")),
             execution_plan=execution_plan,
             opera_params=dict(data.get("opera_params") or {}),
@@ -203,6 +213,7 @@ class Sample:
         """Result/monitor projection without live handles (invariant #8)."""
         projection: dict[str, Any] = {
             "uuid": self.uuid,
+            "sample_index": self.sample_index,
             "status": self.status,
             "params": dict(self.params),
             "observables": dict(self.observables),
@@ -584,6 +595,7 @@ class Sample:
                 "sample_artifacts",
                 "execution_plan",
                 "priority",
+                "sample_index",
                 "created_at",
             )
             if key in info
