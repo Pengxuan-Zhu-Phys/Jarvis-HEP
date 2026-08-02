@@ -33,6 +33,17 @@ class DiagnosticGuidanceTests(unittest.TestCase):
         self.assertEqual(after.suggestion, before.suggestion)
         self.assertEqual(after.example, before.example)
 
+    def test_var_031_suggestion_names_missing_distribution_parameters(self) -> None:
+        """D21.14: do not fall back to the generic Variables-list suggestion."""
+        path = "Sampling.Variables[0].distribution.parameters"
+        message = "missing required key(s) for type Poisson: lambda"
+        suggestion, _example = guidance_for("JV2-VAR-031", path, message)
+        self.assertIn("lambda", suggestion)
+        self.assertIn("parameter", suggestion.lower())
+        self.assertNotIn("non-empty", suggestion.lower())
+        diagnostic = issue("error", "JV2-VAR-031", path, message)
+        self.assertIn("lambda", diagnostic.suggestion or "")
+
 
 if __name__ == "__main__":
     unittest.main()

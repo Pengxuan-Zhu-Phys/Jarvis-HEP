@@ -15,6 +15,7 @@ from jarvishep2.contracts.common import is_check_modules_mode, sampling_block
 from jarvishep2.contracts.methods import validate_method_sampling
 from jarvishep2.contracts.operational import validate_operational_blocks
 from jarvishep2.contracts.variables import validate_variables
+from jarvishep2.calculator_modes import validate_calculator_modes
 from jarvishep2.diagnostic_guidance import guidance_for
 from jarvishep2.distributor import Distributor
 from jarvishep2.task_schema import validate_task_card_schema
@@ -359,6 +360,15 @@ def validate_task_config(
     report.extend(
         validate_task_card_schema(
             raw_task_card, suppress_additional_property_keys=non_ascii_keys,
+        )
+    )
+    report.extend(
+        issue(
+            item.level, item.code, item.path, item.message,
+            hint=item.hint, suggestion=item.suggestion,
+        )
+        for item in validate_calculator_modes(
+            raw_task_card, resolved_config=config,
         )
     )
 

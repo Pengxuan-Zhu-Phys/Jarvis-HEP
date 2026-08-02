@@ -18,7 +18,7 @@
     },
     "distribution": {
       "type": "object", "x-jarvis-zone": "closed", "required": ["type", "parameters"],
-      "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal"]}, "parameters": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}, "additionalProperties": false
+      "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal", "Binomial", "Poisson", "Beta", "Exponential", "Gamma"]}, "parameters": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}, "additionalProperties": false
     },
     "csv": {
       "type": "object", "x-jarvis-zone": "closed", "required": ["path"],

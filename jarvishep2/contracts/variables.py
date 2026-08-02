@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -12,16 +13,29 @@ if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
 DISTRIBUTION_TYPES: frozenset[str] = frozenset(
-    {"Flat", "Log", "Logit", "Normal", "Log-Normal"}
+    {
+        "Flat", "Log", "Logit", "Normal", "Log-Normal", "Binomial", "Poisson",
+        "Beta", "Exponential", "Gamma",
+    }
 )
+
+# ``num`` and ``length`` describe the sampling method's unit-cube geometry,
+# not the variable probability law.  They are therefore accepted for every
+# distribution and required by Grid / Bridson respectively.
+_METHOD_PARAMETER_KEYS = frozenset({"length", "num"})
 
 # Per-type allowed parameter keys (closed).
 _PARAMS_ALLOWED: dict[str, frozenset[str]] = {
-    "Flat": frozenset({"min", "max", "length", "num"}),
-    "Log": frozenset({"min", "max", "length", "num"}),
-    "Logit": frozenset({"location", "scale"}),
-    "Normal": frozenset({"mean", "stddev"}),
-    "Log-Normal": frozenset({"mean", "stddev"}),
+    "Flat": frozenset({"min", "max"}) | _METHOD_PARAMETER_KEYS,
+    "Log": frozenset({"min", "max"}) | _METHOD_PARAMETER_KEYS,
+    "Logit": frozenset({"location", "scale"}) | _METHOD_PARAMETER_KEYS,
+    "Normal": frozenset({"mean", "stddev"}) | _METHOD_PARAMETER_KEYS,
+    "Log-Normal": frozenset({"mean", "stddev"}) | _METHOD_PARAMETER_KEYS,
+    "Binomial": frozenset({"n", "p"}) | _METHOD_PARAMETER_KEYS,
+    "Poisson": frozenset({"lambda"}) | _METHOD_PARAMETER_KEYS,
+    "Beta": frozenset({"alpha", "beta"}) | _METHOD_PARAMETER_KEYS,
+    "Exponential": frozenset({"rate"}) | _METHOD_PARAMETER_KEYS,
+    "Gamma": frozenset({"shape", "scale"}) | _METHOD_PARAMETER_KEYS,
 }
 
 _PARAMS_REQUIRED: dict[str, frozenset[str]] = {
@@ -30,6 +44,11 @@ _PARAMS_REQUIRED: dict[str, frozenset[str]] = {
     "Logit": frozenset({"location", "scale"}),
     "Normal": frozenset({"mean", "stddev"}),
     "Log-Normal": frozenset({"mean", "stddev"}),
+    "Binomial": frozenset({"n", "p"}),
+    "Poisson": frozenset({"lambda"}),
+    "Beta": frozenset({"alpha", "beta"}),
+    "Exponential": frozenset({"rate"}),
+    "Gamma": frozenset({"shape", "scale"}),
 }
 
 _VARIABLE_ITEM_KEYS = frozenset({"name", "description", "distribution"})
@@ -206,9 +225,9 @@ def validate_variables(
 
         allowed = _PARAMS_ALLOWED[dist_type]
         required = set(_PARAMS_REQUIRED[dist_type])
-        if require_length and dist_type in {"Flat", "Log"}:
+        if require_length:
             required.add("length")
-        if require_num and dist_type in {"Flat", "Log"}:
+        if require_num:
             required.add("num")
 
         missing = sorted(required - set(params.keys()))
@@ -265,32 +284,35 @@ def validate_variables(
                         f"require min < max, got min={lo}, max={hi}",
                     )
                 )
-            if require_length and "length" in params:
-                length = try_float(params.get("length"))
-                if length is None or length <= 0:
-                    issues.append(
-                        issue(
-                            "error",
-                            "JV2-VAR-035",
-                            f"{path}.distribution.parameters.length",
-                            f"Bridson requires positive length, got {params.get('length')!r}",
-                        )
+
+        if require_length and "length" in params:
+            length = try_float(params.get("length"))
+            if length is None or not math.isfinite(length) or length <= 0:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-035",
+                        f"{path}.distribution.parameters.length",
+                        f"Bridson requires positive length, got {params.get('length')!r}",
                     )
-            if require_num and "num" in params:
-                num = params.get("num")
-                try:
-                    num_i = int(num)  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    num_i = -1
-                if isinstance(num, bool) or num_i < 1:
-                    issues.append(
-                        issue(
-                            "error",
-                            "JV2-VAR-036",
-                            f"{path}.distribution.parameters.num",
-                            f"Grid requires integer num ≥ 1, got {num!r}",
-                        )
+                )
+        if require_num and "num" in params:
+            num = params.get("num")
+            num_value = try_float(num)
+            if (
+                num_value is None
+                or not math.isfinite(num_value)
+                or not num_value.is_integer()
+                or num_value < 1
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-036",
+                        f"{path}.distribution.parameters.num",
+                        f"Grid requires integer num ≥ 1, got {num!r}",
                     )
+                )
 
         if dist_type in {"Normal", "Log-Normal"} and "stddev" in params:
             std = try_float(params.get("stddev"))
@@ -301,6 +323,64 @@ def validate_variables(
                         "JV2-VAR-037",
                         f"{path}.distribution.parameters.stddev",
                         f"expected positive number, got {params.get('stddev')!r}",
+                    )
+                )
+
+        if dist_type == "Binomial":
+            n_raw = params.get("n")
+            n_value = try_float(n_raw) if "n" in params else None
+            if (
+                n_value is None
+                or not math.isfinite(n_value)
+                or not n_value.is_integer()
+                or n_value < 0
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-038",
+                        f"{path}.distribution.parameters.n",
+                        f"expected a non-negative integer, got {n_raw!r}",
+                    )
+                )
+            p_raw = params.get("p")
+            p_value = try_float(p_raw) if "p" in params else None
+            if p_value is None or not math.isfinite(p_value) or not 0.0 <= p_value <= 1.0:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-039",
+                        f"{path}.distribution.parameters.p",
+                        f"expected a probability in [0, 1], got {p_raw!r}",
+                    )
+                )
+
+        if dist_type == "Poisson":
+            value = try_float(params.get("lambda")) if "lambda" in params else None
+            if value is None or not math.isfinite(value) or value < 0:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-040",
+                        f"{path}.distribution.parameters.lambda",
+                        f"expected a non-negative number, got {params.get('lambda')!r}",
+                    )
+                )
+
+        positive_pairs = {
+            "Beta": ("alpha", "beta"),
+            "Exponential": ("rate",),
+            "Gamma": ("shape", "scale"),
+        }
+        for parameter in positive_pairs.get(dist_type, ()):
+            value = try_float(params.get(parameter)) if parameter in params else None
+            if value is None or not math.isfinite(value) or value <= 0:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-VAR-041",
+                        f"{path}.distribution.parameters.{parameter}",
+                        f"expected a positive number, got {params.get(parameter)!r}",
                     )
                 )
 

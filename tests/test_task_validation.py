@@ -297,6 +297,13 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ENV-010" for i in report.errors()))
 
+    def test_checkpoint_heartbeat_must_be_a_positive_duration(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["EnvReqs"]["V2"]["checkpoint_heartbeat_sec"] = 0
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        self.assertTrue(any(i.code == "JV2-ENV-012" for i in report.errors()))
+
     def test_bridson_requires_length_and_radius(self) -> None:
         cfg = {
             "Scan": {"name": "b"},

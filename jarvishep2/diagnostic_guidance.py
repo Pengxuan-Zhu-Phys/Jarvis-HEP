@@ -55,6 +55,21 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         return "Set either 'Point number' or point_number to an integer of at least 1.", "Point number: 100"
     if code in {"JV2-MTH-030", "JV2-MTH-031"}:
         return "Provide the path to the fixed-point CSV file.", "CSV:\n  path: points.csv"
+    # Parameter-level codes must win over the Sampling.Variables list prefix
+    # (D21.14: JV2-VAR-031 used to suggest "provide a non-empty variable list").
+    if code == "JV2-VAR-031":
+        missing = re.findall(r"missing required key\(s\) for type \w+:\s*(.+)$", message)
+        keys = missing[0].strip() if missing else "the keys named in the error"
+        return (
+            f"Add the required distribution parameter(s) under parameters: {keys}.",
+            "parameters: {min: 0.0, max: 1.0}",
+        )
+    if code == "JV2-VAR-032":
+        return (
+            "Rename or remove the unknown distribution parameter; only the allowed "
+            "keys listed in the error are valid for this type.",
+            None,
+        )
     for prefix, suggestion, example in _GUIDANCE_BY_PREFIX:
         if path.startswith(prefix):
             return suggestion, example
