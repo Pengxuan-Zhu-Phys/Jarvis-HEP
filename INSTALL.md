@@ -88,7 +88,8 @@ EnvReqs:
     batch_size: 256
 Sampling:
   Method: Random
-  "Point number": 20
+  Bounds:
+    "Point number": 20
   Seed: 7
   Variables:
     - name: x

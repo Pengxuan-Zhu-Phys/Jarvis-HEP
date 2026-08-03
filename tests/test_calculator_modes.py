@@ -47,7 +47,7 @@ def _mode_card() -> dict:
         "Scan": {"name": "mode-test"},
         "Sampling": {
             "Method": "Random",
-            "Point number": 1,
+            "Bounds": {"Point number": 1},
             "Variables": [{
                 "name": "x",
                 "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},

@@ -246,7 +246,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
             operas_expression_functions_required(
                 {
                     "Sampling": {
-                        "AdaptiveBridson": {
+                        "Bounds": {
                             "target_expression": "ns.level(f)",
                         }
                     }
@@ -255,7 +255,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
         )
         self.assertFalse(
             operas_expression_functions_required(
-                {"Sampling": {"selection": "x + y < 1.5", "Radius": 0.3}}
+                {"Sampling": {"selection": "x + y < 1.5", "Bounds": {"Radius": 0.3}}}
             )
         )
 

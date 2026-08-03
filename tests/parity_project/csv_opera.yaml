@@ -6,7 +6,7 @@ EnvReqs:
     batch_size: 4
 Sampling:
   Method: CSV
-  CSV:
+  Bounds:
     path: "&J/data/check_modules_points.csv"
     variables: [x, y]
   LogLikelihood:

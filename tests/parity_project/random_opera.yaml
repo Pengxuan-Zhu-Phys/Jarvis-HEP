@@ -6,8 +6,9 @@ EnvReqs:
     batch_size: 2
 Sampling:
   Method: Random
-  Point number: 6
-  Seed: 11
+  Bounds:
+    Point number: 6
+    Seed: 11
   Variables:
     - name: x
       distribution:

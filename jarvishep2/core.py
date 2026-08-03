@@ -29,7 +29,7 @@ from jarvishep2.database import (
     convert_database_dir,
     read_persisted_outcome_counts,
     read_persisted_sample_index_state,
-    recover_stale_hdf5_write_flag,
+    prepare_hdf5_database_for_writer,
 )
 from jarvishep2.environment_requirements import (
     EnvironmentRequirementError,
@@ -452,6 +452,26 @@ class Jarvis2Core:
         )
         self.set_sampler(sampler)
         self.info["sampler_name"] = str(getattr(sampler, "method", type(sampler).__name__))
+        # Safety net: prepare_resume may have looked up the wrong path before
+        # Method was known.  Re-resolve under the real sampler name and import.
+        if (
+            self._resume_policy == "resume"
+            and self._resume_checkpoint_payload is None
+            and getattr(self, "_resume_checkpoint_preloaded", False)
+        ):
+            path = self.checkpoint_file()
+            if os.path.isfile(path):
+                try:
+                    self._resume_checkpoint_payload = load_checkpoint(path)
+                    if hasattr(sampler, "import_runtime_state"):
+                        sampler.import_runtime_state(
+                            self._resume_checkpoint_payload.get("sampler_state") or {}
+                        )
+                    self._logger.info(
+                        "Loaded resume checkpoint after sampler init → %s", path
+                    )
+                except ValueError as exc:
+                    self._logger.warning("Late checkpoint load rejected → %s", exc)
         return sampler
 
     def bootstrap_distributed_runtime(self) -> None:
@@ -467,8 +487,23 @@ class Jarvis2Core:
             "DATABASE",
             "samples.hdf5",
         )
-        if self._resume_policy == "resume" and recover_stale_hdf5_write_flag(db_path):
-            self._logger.warning("Recovered stale HDF5 writer state before resume: %s", db_path)
+        if self._resume_policy == "resume":
+            try:
+                # Control must not open samples.hdf5 for append (write lock would
+                # block Archiver). Only clear SWMR flags / reclaim stale Archivers.
+                # Logs a single summary line internally when recovery runs.
+                prepare_hdf5_database_for_writer(
+                    db_path,
+                    logger=self._logger,
+                    scan_name=scan_name,
+                    probe_append=False,
+                )
+            except Exception as exc:
+                # Non-fatal at this early stage — Archiver will retry recover on open.
+                self._logger.warning(
+                    "Early HDF5 prepare failed (will retry at Archiver start): %s",
+                    exc,
+                )
         if self._resume_policy == "resume":
             self._load_persisted_database_state(os.path.dirname(db_path))
         self.init_logger()
@@ -503,6 +538,22 @@ class Jarvis2Core:
             self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
         self._init_sample_buckets()
         self.init_factory()
+        # Immediately before Archiver spawn: reclaim orphan Archivers only —
+        # still no append-open in Control (probe_append=False).
+        if self._resume_policy == "resume" and os.path.isfile(db_path):
+            try:
+                # Only re-runs work if the file is still dirty; one summary log max.
+                prepare_hdf5_database_for_writer(
+                    db_path,
+                    logger=self._logger,
+                    scan_name=scan_name,
+                    probe_append=False,
+                )
+            except Exception as exc:
+                self._logger.warning(
+                    "Pre-Archiver HDF5 prepare failed (Archiver will retry): %s",
+                    exc,
+                )
         self.init_archiver(db_path)
         self._load_persisted_database_state(os.path.dirname(db_path))
         if self.sampler is not None and hasattr(self.sampler, "set_persisted_uuids"):
@@ -516,13 +567,33 @@ class Jarvis2Core:
         ):
             self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
         if self._resume_policy == "resume":
-            self._logger.info(
+            self._logger.warning(
                 "Resume DATABASE reconciliation found prefix=%d, "
                 "completed=%d failed=%d, %d legacy UUID(s)",
                 self._persisted_index_prefix,
                 max(0, self._persisted_records_count - self._persisted_failed_count),
                 self._persisted_failed_count,
                 len(self._persisted_uuids),
+            )
+            # Nested / feedback engines: ensure runtime state was applied once Redis
+            # and DATABASE facts exist (idempotent if set_sampler already imported).
+            if (
+                self._resume_checkpoint_payload is not None
+                and self.sampler is not None
+                and hasattr(self.sampler, "import_runtime_state")
+            ):
+                self.sampler.import_runtime_state(
+                    self._resume_checkpoint_payload.get("sampler_state") or {}
+                )
+            # Always arm nested engine resume under --resume, even if state.pkl
+            # is missing: nested_engine.pkl alone is enough to continue.
+            if self.sampler is not None and hasattr(self.sampler, "arm_engine_resume"):
+                self.sampler.arm_engine_resume()
+            ckpt = self.checkpoint_file()
+            self._logger.warning(
+                "Resume checkpoint path → %s (payload=%s)",
+                ckpt,
+                "yes" if self._resume_checkpoint_payload is not None else "MISSING",
             )
         self.start_runtime_checkpoint()
         self._export_workflow_flowchart()
@@ -622,7 +693,15 @@ class Jarvis2Core:
         seed = 0
         try:
             sampling = dict(self.config.get("Sampling") or {})
-            seed = int(sampling.get("Seed") or sampling.get("seed") or 0)
+            bounds = (
+                sampling.get("Bounds")
+                if isinstance(sampling.get("Bounds"), dict)
+                else {}
+            )
+            # Seed lives under Sampling.Bounds only (V2).
+            seed = int(
+                bounds.get("Seed", bounds.get("seed", bounds.get("rseed", 0))) or 0
+            )
         except (TypeError, ValueError):
             seed = 0
         rng = np.random.default_rng(seed if seed else None)
@@ -1224,6 +1303,38 @@ class Jarvis2Core:
         """Return True when the distributed Redis path should be used."""
         return str(self.runtime.get("mode", "auto")).strip().lower() == "redis"
 
+    def _resolve_checkpoint_sampler_name(self) -> str:
+        """Directory name under ``checkpoints/<scan>/``.
+
+        Must match what a running scan writes (``sampler.method``, e.g. ``Dynesty``).
+        ``prepare_resume`` runs **before** ``init_sampler_from_config``, so
+        ``info["sampler_name"]`` is still the placeholder ``SamplingVirtial`` —
+        fall through to YAML ``Sampling.Method`` instead of looking for a
+        non-existent ``…/SamplingVirtial/state.pkl`` (which silently skipped
+        nested engine restore and made Dynesty restart from scratch).
+        """
+        placeholders = {"", "sampler", "samplingvirtial", "samplingvirtual"}
+        candidates: list[str] = []
+        if self.sampler is not None:
+            method = getattr(self.sampler, "method", None)
+            if method:
+                candidates.append(str(method))
+            candidates.append(type(self.sampler).__name__)
+        info_name = str(self.info.get("sampler_name") or "")
+        if info_name:
+            candidates.append(info_name)
+        try:
+            method_from_yaml = sampling_method(self.config)
+        except Exception:
+            method_from_yaml = ""
+        if method_from_yaml:
+            candidates.append(str(method_from_yaml))
+        for name in candidates:
+            text = str(name or "").strip()
+            if text and text.lower() not in placeholders:
+                return text
+        return "sampler"
+
     def checkpoint_file(self) -> str:
         task_root = str(
             self.info.get("task_root")
@@ -1231,10 +1342,7 @@ class Jarvis2Core:
             or os.getcwd()
         )
         scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
-        sampler_name = str(
-            self.info.get("sampler_name")
-            or (type(self.sampler).__name__ if self.sampler is not None else "sampler")
-        )
+        sampler_name = self._resolve_checkpoint_sampler_name()
         return checkpoint_path(
             task_root=task_root,
             scan_name=scan_name,
@@ -1414,8 +1522,19 @@ class Jarvis2Core:
             safe = at_barrier and submitted <= frozenset(
                 getattr(self.sampler, "_persisted_uuids", set())
             )
+        # Nested samplers override checkpoint_runtime_state to always re-export
+        # the live dynesty engine (ignore stale FeedbackSampler barrier copies).
         if hasattr(self.sampler, "checkpoint_runtime_state"):
-            sampler_state = self.sampler.checkpoint_runtime_state(safe=safe)
+            # Interrupt / dynesty_engine_checkpoint: always force a live export
+            # for methods that do not use generation barriers.
+            force_live = str(reason or "") in {
+                "interrupt",
+                "dynesty_engine_checkpoint",
+                "dynesty_finished",
+            } or bool(getattr(self.sampler, "method", "") in {"Dynesty", "MultiNest"})
+            sampler_state = self.sampler.checkpoint_runtime_state(
+                safe=True if force_live else safe
+            )
         else:
             sampler_state = self.sampler.export_runtime_state()
         if indexed:

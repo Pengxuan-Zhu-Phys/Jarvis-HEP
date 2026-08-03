@@ -396,10 +396,28 @@ class SimpleArchiver:
         self.buckets_packed = 0
         # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
         self._logger = logger or get_jarvis_logger("archiver")
+        # Always allow one-shot recovery of SWMR flags / stale OS file locks.
+        # Resume bootstrap also runs prepare_hdf5_database_for_writer; this is
+        # the last line of defence inside the Archiver process itself.
+        from jarvishep2.database import prepare_hdf5_database_for_writer
+
+        try:
+            prepare_hdf5_database_for_writer(
+                db_path,
+                logger=self._logger,
+                scan_name=self.scan_name,
+                probe_append=True,
+                # Parent Control may still appear in lsof briefly; do not kill it.
+                allow_holder_pids=[os.getppid()] if os.getppid() > 1 else None,
+            )
+        except Exception as exc:
+            # RollingHDF5Writer(recover_stale=True) will retry; log for visibility.
+            self._logger.warning("Archiver pre-open HDF5 prepare: %s", exc)
         writer = RollingHDF5Writer(
             db_path,
             max_bytes=int(cfg.get("max_hdf5_bytes", ARCHIVER_DEFAULTS["max_hdf5_bytes"])),
             logger=self._logger,
+            recover_stale=True,
         )
         database_dir = os.path.dirname(os.path.abspath(db_path))
         prefix, persisted_indices, legacy_uuids = read_persisted_sample_index_state(

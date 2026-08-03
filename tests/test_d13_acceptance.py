@@ -264,7 +264,10 @@ class SamplerConfigAcceptanceTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "DRAM",
-                    "Seed": 1,
+                    "Bounds": {"num_chains": 2,
+                        "num_iters": 5,
+                        "dr.steps": 2,
+                        "adapt.enabled": True, "Seed": 1},
                     "Variables": [
                         {
                             "name": "x",
@@ -274,12 +277,6 @@ class SamplerConfigAcceptanceTests(unittest.TestCase):
                             },
                         }
                     ],
-                    "Bounds": {
-                        "num_chains": 2,
-                        "num_iters": 5,
-                        "dr.steps": 2,
-                        "adapt.enabled": True,
-                    },
                 }
             }
         )

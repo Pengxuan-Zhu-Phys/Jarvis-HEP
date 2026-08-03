@@ -3,7 +3,8 @@ Scan:
   name: shared-libraries-skill
 Sampling:
   Method: Random
-  Point number: 1
+  Bounds:
+    Point number: 1
   Variables:
     - name: x
       distribution:

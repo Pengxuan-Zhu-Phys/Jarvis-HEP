@@ -26,13 +26,20 @@ JSON Schema errors are converted into the normal `ValidationReport` as
 `JV2-SCH-*` diagnostics. Therefore `Jarvis2 validate`, `Jarvis2 run`, and
 `Jarvis2 check` present one coherent report.
 
-`EnvReqs.V2.checkpoint_heartbeat_sec` controls the stateless-sampler resume
-checkpoint interval (default: `30`).  A heartbeat only requests a checkpoint;
-the sampler captures its small generator state at the next complete batch.
-The Archiver publishes an HDF5-durable `sample_index` prefix, so the stored
-state is never newer than the contiguous on-disk prefix.  Reducing this value
-reduces the maximum replay window after an interruption without adding a
-per-sample checkpoint cost.
+`EnvReqs.V2.checkpoint_heartbeat_sec` is the **only** user-facing checkpoint
+interval (default: `30` seconds).  It applies to all methods:
+
+* **Stateless / enum samplers** (Random, Grid, Bridson, CSV): heartbeat only
+  *requests* a capture; the sampler writes a small generator snapshot at the
+  next complete batch.  The Archiver’s durable `sample_index` prefix bounds
+  how far a resume may replay.
+* **Dynesty / MultiNest**: the same value is injected as dynesty’s
+  `checkpoint_every` (engine `nested_engine.pkl` + Jarvis `state.pkl`).
+
+Do **not** put `checkpoint_every`, `checkpoint_file`, or `resume` under
+`Sampling.Bounds.run_nested` — those keys are rejected (`JV2-BND-021`).
+Reducing `checkpoint_heartbeat_sec` tightens the interrupt window without a
+per-sample cost.
 
 Every diagnostic also supplies a modification suggestion and, where its schema
 owns a safe minimal fragment, a YAML example. See
@@ -45,7 +52,14 @@ The schema is deliberately strict for the common, user-authored interfaces:
 | Block | Schema responsibility | Python responsibility |
 | --- | --- | --- |
 | `Scan` | name/path scalar shapes and sample-directory structure | resolved output paths and project layout |
-| `Sampling` | method enum, variables and distribution object shapes, method branches | value relations such as `min < max` and method-specific policy |
+| `Sampling` | method enum, variables, and method-specific `Bounds` shapes | value relations such as `min < max` and Bounds policy |
+| `Sampling.Bounds` | method knobs only (Radius, Point number, Seed, CSV path, dynesty/MCMC kwargs, AdaptiveBridson targets, …) | required keys and numerical ranges per Method |
+
+Top-level `Sampling` is cross-cutting only: `Method`, `Variables`, `Bounds`,
+`selection`, `LogLikelihood`, `Nuisance`, `FeedbackReturn` (plus temporary open
+RLTPMCMC keys).  Sampler settings such as `Radius`, `MaxAttempt`,
+`Point number`, `Seed`, `CSV`, or a nested `AdaptiveBridson` block at the
+Sampling root are rejected — place them under `Bounds`.
 | `Calculators.Modules` | module/execution shape, command and I/O list shapes | command resolution, module installation, execution graph |
 | Calculator `input` / `output` | registered format, common fields, and JSON-specific layouts | Portal adapter availability and file contents |
 | `Operas.Modules` | name/operator/call-mode/input/output structure | operator discovery, signatures, expression evaluation |

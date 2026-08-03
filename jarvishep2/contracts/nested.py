@@ -123,10 +123,34 @@ def validate_nested_bounds(
                 )
             )
         else:
-            # ``run_nested`` is forwarded to dynesty.  It is deliberately a
-            # delegated zone: a new dynesty keyword must not be rejected by a
-            # Jarvis2 release that predates it.
-            pass
+            # Checkpoint cadence/path/resume are EnvReqs + runtime owned — not
+            # Sampling.Bounds.  Reject them so Sampling YAML stays science-only.
+            hep_owned = {
+                "checkpoint_every",
+                "checkpoint_file",
+                "resume",
+            }
+            banned = sorted(str(k) for k in run_raw.keys() if str(k) in hep_owned)
+            if banned:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-BND-021",
+                        f"{path}.run_nested",
+                        "key(s) are runtime/resume owned and must not appear under "
+                        f"Sampling.Bounds.run_nested: {', '.join(banned)}. "
+                        "Set EnvReqs.V2.checkpoint_heartbeat_sec for the checkpoint "
+                        "interval (default 30s); engine path and resume are automatic.",
+                        hint=(
+                            "Remove checkpoint_every / checkpoint_file / resume from "
+                            "Bounds.run_nested. Example:\n"
+                            "EnvReqs:\n"
+                            "  V2:\n"
+                            "    checkpoint_heartbeat_sec: 15"
+                        ),
+                    )
+                )
+            # Remaining ``run_nested`` keys are forwarded to dynesty (delegated).
 
     # sampler / constructor blocks
     for block_key in ("sampler", "Sampler", "constructor", "Constructor"):

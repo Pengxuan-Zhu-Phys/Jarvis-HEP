@@ -11,8 +11,6 @@
 
 Sampling:
   Method: "MultiNest"
-  Seed: 21
-
   Variables:
     - name: x
       description: "Replace with your parameters."
@@ -21,6 +19,7 @@ Sampling:
         parameters: {min: 0.0, max: 1.0}
 
   Bounds:
+    Seed: 21
     # --- HEP meta (shared) ---
     nlive: 200
     # rseed: 21

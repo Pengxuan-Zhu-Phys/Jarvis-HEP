@@ -56,12 +56,17 @@ class CSVSampler(CheckpointedSampler):
         super().set_config(config_info)
         sampling = dict(self.config.get("Sampling") or {})
         runtime = get_runtime_block(self.config)
-        csv_cfg = dict(sampling.get("CSV") or {})
+        # CSV path / columns live under Sampling.Bounds (method knobs).
+        csv_cfg = (
+            dict(sampling.get("Bounds") or {})
+            if isinstance(sampling.get("Bounds"), Mapping)
+            else {}
+        )
         if not csv_cfg:
-            raise ValueError("CSV sampler requires Sampling.CSV configuration")
+            raise ValueError("CSV sampler requires Sampling.Bounds configuration")
         raw_path = str(csv_cfg.get("path") or "").strip()
         if not raw_path:
-            raise ValueError("Sampling.CSV.path is required")
+            raise ValueError("Sampling.Bounds.path is required")
         self._csv_path = resolve_sampling_path(self.config, raw_path)
         self._uuid_column_requested = str(csv_cfg.get("uuid_column", "uuid")).strip() or "uuid"
         self._selected_variables = self._normalize_selected_variables(csv_cfg.get("variables"))
@@ -79,7 +84,7 @@ class CSVSampler(CheckpointedSampler):
         if raw_variables is None:
             return None
         if not isinstance(raw_variables, Sequence) or isinstance(raw_variables, (str, bytes)):
-            raise ValueError("Sampling.CSV.variables must be a list of column names")
+            raise ValueError("Sampling.Bounds.variables must be a list of column names")
         cols: list[str] = []
         seen: set[str] = set()
         for item in raw_variables:

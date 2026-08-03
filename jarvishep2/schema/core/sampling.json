@@ -1,17 +1,69 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://jarvis-hep.org/schema/v2/core/sampling.json",
-  "type": "object", "x-jarvis-zone": "closed",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/core/sampling.json",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "description": "Sampling root is cross-cutting only. Method-specific sampler knobs (Radius, Point number, Seed, AdaptiveBridson targets, CSV path, dynesty/MCMC kwargs, …) live exclusively under Bounds.",
   "properties": {
-    "Method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-    "Variables": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/variable"}},
-    "Radius": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"}, "MaxAttempt": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "MaxWorker": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
-    "Point number": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "point_number": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "Seed": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}, "seed": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
-    "CSV": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/csv"},
-    "Bounds": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
-    "selection": {"type": "string"}, "on_failure": {"type": "string"}, "mode": {"type": "string"}, "data": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "points_csv": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-    "LogLikelihood": {"type": "array"}, "loglikelihood": {"type": "array"}, "Nuisance": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}, "nuisance": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
-    "AdaptiveBridson": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/adaptiveBridson"}, "adaptive_bridson": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/adaptiveBridson"},
-    "FeedbackReturn": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}, "feedback_return": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
-    "Control": {"type": "object", "x-jarvis-zone": "open", "x-jarvis-open-reason": "RLTPMCMC controller has not been migrated to the V2 contract."}, "Diagnostics": {"type": "object", "x-jarvis-zone": "open", "x-jarvis-open-reason": "RLTPMCMC diagnostics has not been migrated to the V2 contract."}, "PPO": {"type": "object", "x-jarvis-zone": "open", "x-jarvis-open-reason": "RLTPMCMC PPO settings have not been migrated to the V2 contract."}, "Reward": {"type": "object", "x-jarvis-zone": "open", "x-jarvis-open-reason": "RLTPMCMC reward settings have not been migrated to the V2 contract."}
-  }, "additionalProperties": false
+    "Method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+    "method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+    "Variables": {
+      "type": "array",
+      "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/variable"}
+    },
+    "Bounds": {
+      "type": "object",
+      "x-jarvis-zone": "delegated",
+      "additionalProperties": true,
+      "description": "Method-specific sampler settings (see sampling/methods/*.json)."
+    },
+    "selection": {"type": "string"},
+    "on_failure": {"type": "string"},
+    "mode": {"type": "string"},
+    "data": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+    "points_csv": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+    "LogLikelihood": {"type": "array"},
+    "loglikelihood": {"type": "array"},
+    "Nuisance": {
+      "type": "object",
+      "x-jarvis-zone": "delegated",
+      "additionalProperties": true
+    },
+    "nuisance": {
+      "type": "object",
+      "x-jarvis-zone": "delegated",
+      "additionalProperties": true
+    },
+    "FeedbackReturn": {
+      "type": "object",
+      "x-jarvis-zone": "delegated",
+      "additionalProperties": true
+    },
+    "feedback_return": {
+      "type": "object",
+      "x-jarvis-zone": "delegated",
+      "additionalProperties": true
+    },
+    "Control": {
+      "type": "object",
+      "x-jarvis-zone": "open",
+      "x-jarvis-open-reason": "RLTPMCMC controller has not been migrated to the V2 contract."
+    },
+    "Diagnostics": {
+      "type": "object",
+      "x-jarvis-zone": "open",
+      "x-jarvis-open-reason": "RLTPMCMC diagnostics has not been migrated to the V2 contract."
+    },
+    "PPO": {
+      "type": "object",
+      "x-jarvis-zone": "open",
+      "x-jarvis-open-reason": "RLTPMCMC PPO settings have not been migrated to the V2 contract."
+    },
+    "Reward": {
+      "type": "object",
+      "x-jarvis-zone": "open",
+      "x-jarvis-open-reason": "RLTPMCMC reward settings have not been migrated to the V2 contract."
+    }
+  },
+  "additionalProperties": false
 }

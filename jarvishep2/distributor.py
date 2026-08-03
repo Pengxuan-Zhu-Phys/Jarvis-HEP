@@ -254,7 +254,7 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         "Dynesty",
         create_dynesty,
         stateless=False,
-        resume="partial",  # full native resume progressive under D13.6
+        resume="implemented",  # dynesty native pickle engine + run_nested(resume=True)
         override=override,
     )
     # MultiNest — V1 name for static NestedSampler (same stack as Dynesty).
@@ -264,7 +264,7 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         "MultiNest",
         create_multinest,
         stateless=False,
-        resume="partial",
+        resume="implemented",
         override=override,
     )
 

@@ -6,6 +6,9 @@ Scan:
 
 Sampling:
   Method: "Bridson"
+  Bounds:
+    Radius: 2.0
+    MaxAttempt: 20
   Variables:
     - name: x
       description: "Toy variable x"
@@ -23,8 +26,6 @@ Sampling:
           min: 0.0
           max: 5.0
           length: 40
-  Radius: 2.0
-  MaxAttempt: 20
   LogLikelihood:
     - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
 

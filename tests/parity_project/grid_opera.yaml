@@ -6,7 +6,8 @@ EnvReqs:
     batch_size: 3
 Sampling:
   Method: Grid
-  Seed: 0
+  Bounds:
+    Seed: 0
   Variables:
     - name: x
       distribution:

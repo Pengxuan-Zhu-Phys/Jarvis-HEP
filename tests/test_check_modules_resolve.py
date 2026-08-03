@@ -79,8 +79,8 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Random",
+                        "Bounds": {"Point number": 100},
                         "data": "pts.csv",
-                        "Point number": 100,
                         "Variables": [
                             {
                                 "name": "x",
@@ -126,9 +126,8 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Random",
+                        "Bounds": {"Point number": 100, "Seed": 1},
                         "data": "no_such.csv",
-                        "Point number": 100,
-                        "Seed": 1,
                         "Variables": [
                             {
                                 "name": "x",
@@ -173,7 +172,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Dynesty",
-                        "Seed": 7,
+                        "Bounds": {"Seed": 7},
                         "Variables": [
                             {
                                 "name": "xx",

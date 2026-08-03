@@ -6,7 +6,7 @@ Scan:
 
 Sampling:
   Method: "CSV"
-  CSV:
+  Bounds:
     path: "&J/data/points.csv"
     uuid_column: uuid
   LogLikelihood:

@@ -130,20 +130,31 @@ class Bridson(FixedSetSampler):
         # Do not re-read raw Runtime here — missing batch_size would wrongly fall back
         # to MaxWorker/workers and change Redis pipeline sizing vs Random/Grid.
         sampling = dict(self.config.get("Sampling") or {})
+        bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
+        if not isinstance(bounds, Mapping) or not bounds:
+            raise ValueError(
+                "Bridson requires Sampling.Bounds with Radius and MaxAttempt"
+            )
         runtime = get_runtime_block(self.config)
         workers = int(runtime.get("workers", 1) or 1)
-        self._radius = float(sampling["Radius"])
-        self._k = int(sampling["MaxAttempt"])
-        # V1-like backpressure: at most MaxWorker (default = Runtime.workers) in flight.
-        self._max_inflight = max(1, int(sampling.get("MaxWorker", workers) or workers))
+        if "Radius" not in bounds:
+            raise ValueError("Bridson requires Sampling.Bounds.Radius")
+        if "MaxAttempt" not in bounds:
+            raise ValueError("Bridson requires Sampling.Bounds.MaxAttempt")
+        self._radius = float(bounds["Radius"])
+        self._k = int(bounds["MaxAttempt"])
+        # V1-like backpressure: at most Bounds.MaxWorker (default = Runtime.workers).
+        self._max_inflight = max(1, int(bounds.get("MaxWorker", workers) or workers))
 
     def initialize(self, *, reset: bool = True) -> None:
         ndim = len(self.vars)
         if ndim < 2 or ndim >= 5:
             raise ValueError("Bridson supports 2d to 4d parameter spaces only")
         self._logger.warning("Initializing the Bridson Sampling")
-        if self._seed:
-            np.random.seed(self._seed)
+        # Seed 0 is a valid deterministic seed — do not treat it as "unset"
+        # (``if self._seed`` would skip seeding and break resume: same uuid
+        # stream, different coordinates).
+        np.random.seed(int(self._seed))
         t0 = time.time()
         dims = np.array([float(var.parameters["length"]) for var in self.vars], dtype=np.float64)
         self._P = Bridson_sampling(

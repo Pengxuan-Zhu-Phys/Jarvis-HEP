@@ -33,18 +33,22 @@ class RandomS(FixedSetSampler):
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
         sampling = dict(self.config.get("Sampling") or {})
+        bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
         self._dimensions = len(self.vars)
-        point_number = sampling.get("Point number", sampling.get("point_number"))
+        point_number = bounds.get("Point number", bounds.get("point_number"))
         if point_number is None:
-            raise ValueError("Random sampler requires Sampling['Point number']")
+            raise ValueError(
+                "Random sampler requires Sampling.Bounds['Point number'] "
+                "(or Bounds.point_number)"
+            )
         self._maxp = int(point_number)
         self._index = 0
         self._accepted_index = 0
         self._generator_ready = False
 
     def initialize(self) -> None:
-        if self._seed:
-            np.random.seed(self._seed)
+        # Seed 0 is valid and must reseed for reproducible resume trajectories.
+        np.random.seed(int(self._seed))
         if self._selectionexp:
             probe = map_u_to_physical(np.random.rand(self._dimensions), self.vars)
             try:

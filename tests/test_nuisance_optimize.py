@@ -53,6 +53,7 @@ class RegistryUnitTests(unittest.TestCase):
             "Sampling": {
                 "Nuisance": {
                     "Method": "Profile1D",
+                    "MaxAttempt": 20,
                     "Variables": [
                         {
                             "name": "ratio",
@@ -64,7 +65,6 @@ class RegistryUnitTests(unittest.TestCase):
                     ],
                     "LogLikelihood": [{"name": "L", "expression": "ratio**2"}],
                     "TargetMode": "min",
-                    "MaxAttempt": 20,
                 }
             }
         }
@@ -83,6 +83,7 @@ class Profile1DUnitTests(unittest.TestCase):
             "Sampling": {
                 "Nuisance": {
                     "Method": "Profile1D",
+                    "MaxAttempt": 10,
                     "Variables": [
                         {
                             "name": "ratio",
@@ -94,7 +95,6 @@ class Profile1DUnitTests(unittest.TestCase):
                     ],
                     "LogLikelihood": [{"name": "L", "expression": "ratio**2"}],
                     "TargetMode": "min",
-                    "MaxAttempt": 10,
                 }
             }
         }
@@ -229,6 +229,7 @@ class WorkerNuisanceInProcessTests(unittest.TestCase):
         queue = make_fakeredis_queue()
         nuisance = {
             "Method": "Profile1D",
+            "MaxAttempt": 30,
             "Variables": [
                 {
                     "name": "t",
@@ -240,7 +241,6 @@ class WorkerNuisanceInProcessTests(unittest.TestCase):
             ],
             "LogLikelihood": [{"name": "L", "expression": "(t - 0.25)**2"}],
             "TargetMode": "min",
-            "MaxAttempt": 30,
             "re_run_physics": False,
             "PassCondition": [{"name": "near", "expression": "Abs(t - 0.25) < 0.2"}],
         }
@@ -306,10 +306,7 @@ class CoreNuisanceIntegrationTests(unittest.TestCase):
                     },
                     "Sampling": {
                         "Method": "Bridson",
-                        "Seed": 3,
-                        "Radius": 0.4,
-                        "Point number": 4,
-                        "MaxAttempt": 30,
+                        "Bounds": {"Seed": 3, "Radius": 0.4, "Point number": 4, "MaxAttempt": 30},
                         "Variables": [
                             {
                                 "name": "x",

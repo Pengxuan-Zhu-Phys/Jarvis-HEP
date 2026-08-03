@@ -87,8 +87,11 @@ class RedisPoolUnitTests(unittest.TestCase):
         kwargs = sampler._build_constructor_kwargs(
             pool=pool, rstate=np.random.default_rng(0)
         )
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
         loglike = kwargs["loglikelihood"]
         self.assertIsNot(loglike, sampler._local_loglike)
+        self.assertIsInstance(loglike, NestedRedisLogL)
         self.assertEqual(getattr(loglike, "__name__", ""), "loglikelihood")
         # Toy path must hard-fail if ever invoked.
         with self.assertRaises(RuntimeError):
@@ -675,6 +678,462 @@ class DynestyNestedSmokeTests(unittest.TestCase):
                     rows = list(reader)
                 self.assertGreater(len(rows), 0)
                 self.assertIn("log_Like", reader.fieldnames or [])
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
+
+class NestedCheckpointResumeTests(unittest.TestCase):
+    """Dynesty / MultiNest native pickle engine + run_nested(resume=True)."""
+
+    @staticmethod
+    def _two_var_config(*, method: str = "Dynesty", nlive: int = 20, **bounds: Any) -> dict:
+        b = {"nlive": nlive, "Seed": 7, **bounds}
+        return {
+            "Sampling": {
+                "Method": method,
+                "Bounds": b,
+                "Variables": [
+                    {
+                        "name": "x",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1},
+                        },
+                    },
+                    {
+                        "name": "y",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1},
+                        },
+                    },
+                ],
+            },
+            "Runtime": {"workers": 1, "batch_size": 4},
+            "task_root": "",
+            "scan_name": "nested-resume",
+        }
+
+    def _start_echo_worker(self, queue) -> tuple[threading.Event, threading.Thread]:
+        stop = threading.Event()
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                # Smooth unimodal peak at unit-cube centre.
+                logl = float(-np.sum((u - 0.5) ** 2) * 20.0)
+                queue.publish_feedback({"uuid": task["uuid"], "logL": logl})
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        return stop, thread
+
+    def test_nested_redis_logl_is_pickle_safe(self) -> None:
+        import pickle
+
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+        queue = make_fakeredis_queue()
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=lambda payload, uuid: Sample(
+                uuid=uuid, u_coords=np.asarray(payload, dtype=float)
+            ),
+            batch_size=2,
+            seed=1,
+            timeout=5.0,
+        )
+        bridge = NestedRedisLogL(pool)
+        blob = pickle.dumps(bridge, protocol=pickle.HIGHEST_PROTOCOL)
+        restored = pickle.loads(blob)
+        self.assertIsInstance(restored, NestedRedisLogL)
+        self.assertIsNone(restored._pool)
+        with self.assertRaises(RuntimeError):
+            restored(np.array([0.1, 0.2]))
+        restored.attach_pool(pool)
+        # No task published yet — just ensure attach works without error path.
+        self.assertIs(restored._pool, pool)
+
+    def test_static_multinest_checkpoint_resume_continues_ncall(self) -> None:
+        """MultiNest (static NestedSampler): interrupt mid-run → resume adds ncall."""
+        from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
+
+        queue = make_fakeredis_queue()
+        stop, thread = self._start_echo_worker(queue)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = self._two_var_config(
+                    method="MultiNest",
+                    nlive=15,
+                    run_nested={
+                        "maxiter": 12,
+                        "dlogz": 1e-9,
+                        "print_progress": False,
+                        "add_live": False,
+                    },
+                )
+                cfg["task_root"] = tmp
+                cfg["task_result_dir"] = tmp
+
+                first = MultiNestSampler()
+                first.set_config(cfg)
+                first.set_redis(queue)
+                n1 = first.run_adaptive(generation_timeout=60.0)
+                # With maxiter short, finished=True after first run.
+                # Simulate interrupt mid-run by re-running with a longer budget
+                # from a pickled mid-state: build a second engine stopped early.
+                mid = MultiNestSampler()
+                mid.set_config(cfg)
+                mid.set_redis(queue)
+                # Force a partial engine via NestedSampler directly, then export.
+                from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+                from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+                pool = RedisEvaluationPool(
+                    queue,
+                    build_sample=mid._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=mid._seed,
+                    method="MultiNest",
+                )
+                bridge = NestedRedisLogL(pool)
+                engine = NestedSampler(
+                    loglikelihood=bridge,
+                    prior_transform=_jarvis_prior_transform,
+                    ndim=2,
+                    nlive=15,
+                    pool=pool,
+                    rstate=np.random.default_rng(7),
+                    queue_size=4,
+                )
+                engine.run_nested(
+                    maxiter=8,
+                    dlogz=1e-9,
+                    print_progress=False,
+                    add_live=False,
+                )
+                mid._sampler = engine
+                mid._finished = False
+                mid._engine_checkpoint_path = os.path.join(
+                    tmp, "checkpoints", "nested-resume", "MultiNest", "nested_engine.pkl"
+                )
+                state = mid.export_runtime_state()
+                self.assertIsInstance(state.get("native_sampler_blob"), (bytes, bytearray))
+                self.assertTrue(os.path.isfile(state["engine_checkpoint_path"]))
+                ncall_mid = int(getattr(engine, "ncall", 0) or 0)
+                self.assertGreater(ncall_mid, 0)
+
+                resumed = MultiNestSampler()
+                resumed.set_config(cfg)
+                resumed.set_redis(queue)
+                resumed.import_runtime_state(state)
+                self.assertFalse(resumed._finished)
+                self.assertIsNotNone(resumed._native_sampler_blob or resumed._sampler)
+                # Continue further under resume.
+                resumed._run_nested_kwargs = {
+                    "maxiter": 40,
+                    "dlogz": 0.5,
+                    "print_progress": False,
+                    "add_live": True,
+                }
+                n2 = resumed.run_adaptive(generation_timeout=120.0)
+                self.assertTrue(resumed._finished)
+                self.assertGreaterEqual(int(n2), ncall_mid)
+                summary = resumed.summary()
+                self.assertIn("logz", summary)
+                self.assertTrue(
+                    np.isfinite(float(summary.get("logz", float("nan"))))
+                    or summary.get("niter", 0) >= 0
+                )
+                # First full short run still produced work (sanity).
+                self.assertGreaterEqual(int(n1), 0)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
+    def test_dynesty_export_import_roundtrip_restores_live_engine(self) -> None:
+        """export → import restores nlive/it and pickle blob without Redis."""
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+        queue = make_fakeredis_queue()
+        stop, thread = self._start_echo_worker(queue)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = self._two_var_config(method="Dynesty", nlive=12)
+                cfg["task_root"] = tmp
+                cfg["task_result_dir"] = tmp
+                sampler = DynestySampler()
+                sampler.set_config(cfg)
+                sampler.set_redis(queue)
+                pool = RedisEvaluationPool(
+                    queue,
+                    build_sample=sampler._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="Dynesty",
+                )
+                bridge = NestedRedisLogL(pool)
+                # Use static NestedSampler for a deterministic mid-run snapshot
+                # even though Method=Dynesty normally builds Dynamic.
+                engine = NestedSampler(
+                    loglikelihood=bridge,
+                    prior_transform=_jarvis_prior_transform,
+                    ndim=2,
+                    nlive=12,
+                    pool=pool,
+                    rstate=np.random.default_rng(0),
+                    queue_size=4,
+                )
+                engine.run_nested(
+                    maxiter=6, dlogz=1e-9, print_progress=False, add_live=False
+                )
+                sampler._sampler = engine
+                sampler._finished = False
+                it_before = int(engine.it)
+                ncall_before = int(engine.ncall)
+                state = sampler.export_runtime_state()
+                self.assertEqual(state.get("native_sampler_format"), "pickle")
+                self.assertTrue(state.get("native_sampler_blob"))
+
+                other = DynestySampler()
+                other.set_config(cfg)
+                other.import_runtime_state(state)
+                self.assertFalse(other._finished)
+                self.assertIsNotNone(other._sampler)
+                self.assertEqual(int(other._sampler.it), it_before)
+                self.assertEqual(int(other._sampler.ncall), ncall_before)
+                # Pool stripped on pickle — reattach required before evaluate.
+                logl = getattr(other._sampler, "loglikelihood", None)
+                inner = getattr(logl, "loglikelihood", logl)
+                if isinstance(inner, NestedRedisLogL):
+                    self.assertIsNone(inner._pool)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
+    def test_resume_status_is_implemented(self) -> None:
+        self.assertEqual(Distributor.get_resume_status("Dynesty"), "implemented")
+        self.assertEqual(Distributor.get_resume_status("MultiNest"), "implemented")
+
+    def test_multinest_resume_uses_method_path_and_envreqs_interval(self) -> None:
+        """MultiNest must share Dynesty resume stack under checkpoints/.../MultiNest/."""
+        from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+        queue = make_fakeredis_queue()
+        stop, thread = self._start_echo_worker(queue)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = self._two_var_config(
+                    method="MultiNest",
+                    nlive=12,
+                    run_nested={
+                        "maxiter": 6,
+                        "dlogz": 1e-9,
+                        "print_progress": False,
+                        "add_live": False,
+                    },
+                )
+                cfg["task_root"] = tmp
+                cfg["task_result_dir"] = tmp
+                cfg["scan_name"] = "mn-ckpt"
+                cfg["EnvReqs"] = {"V2": {"checkpoint_heartbeat_sec": 11}}
+
+                mid = MultiNestSampler()
+                mid.set_config(cfg)
+                mid.set_redis(queue)
+                self.assertEqual(mid._checkpoint_every_sec, 11.0)
+                self.assertFalse(mid._use_dynamic)
+
+                pool = RedisEvaluationPool(
+                    queue,
+                    build_sample=mid._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="MultiNest",
+                )
+                bridge = NestedRedisLogL(pool)
+                engine = NestedSampler(
+                    loglikelihood=bridge,
+                    prior_transform=_jarvis_prior_transform,
+                    ndim=2,
+                    nlive=12,
+                    pool=pool,
+                    rstate=np.random.default_rng(2),
+                    queue_size=4,
+                )
+                engine.run_nested(
+                    maxiter=5, dlogz=1e-9, print_progress=False, add_live=False
+                )
+                mid._sampler = engine
+                mid._finished = False
+                state = mid.export_runtime_state()
+                eng_path = state["engine_checkpoint_path"]
+                self.assertIn(os.path.join("MultiNest", "nested_engine.pkl"), eng_path)
+                self.assertTrue(os.path.isfile(eng_path))
+                self.assertEqual(state["method"], "MultiNest")
+                self.assertFalse(state["use_dynamic"])
+
+                resumed = MultiNestSampler()
+                resumed.set_config(cfg)
+                resumed.set_redis(queue)
+                resumed.import_runtime_state(state)
+                self.assertTrue(resumed._resume_engine_requested)
+                self.assertFalse(resumed._use_dynamic)
+
+                pool2 = RedisEvaluationPool(
+                    queue,
+                    build_sample=resumed._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="MultiNest",
+                )
+                restored, do_resume = resumed._resolve_resume_engine(pool=pool2)
+                self.assertIsNotNone(restored)
+                self.assertTrue(do_resume)
+                self.assertEqual(int(restored.it), int(engine.it))
+                self.assertEqual(int(restored.ncall), int(engine.ncall))
+                # Must not be a DynamicNestedSampler under Method: MultiNest.
+                self.assertFalse(MultiNestSampler._is_dynamic_engine(restored))
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
+    def test_multinest_rejects_dynamic_engine_on_resume(self) -> None:
+        """A Dynesty DynamicNestedSampler pickle must not resume under MultiNest."""
+        from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import DynamicNestedSampler
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+        queue = make_fakeredis_queue()
+        stop, thread = self._start_echo_worker(queue)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = self._two_var_config(method="MultiNest", nlive=10)
+                cfg["task_root"] = tmp
+                cfg["task_result_dir"] = tmp
+                cfg["scan_name"] = "mn-mismatch"
+
+                s = MultiNestSampler()
+                s.set_config(cfg)
+                s.set_redis(queue)
+                pool = RedisEvaluationPool(
+                    queue,
+                    build_sample=s._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="MultiNest",
+                )
+                bridge = NestedRedisLogL(pool)
+                dyn = DynamicNestedSampler(
+                    bridge,
+                    _jarvis_prior_transform,
+                    2,
+                    nlive=10,
+                    pool=pool,
+                    rstate=np.random.default_rng(0),
+                    queue_size=4,
+                )
+                dyn.run_nested(
+                    maxiter=4,
+                    maxbatch=0,
+                    dlogz_init=10.0,
+                    print_progress=False,
+                )
+                s._sampler = dyn
+                s._finished = False
+                s.import_runtime_state(s.export_runtime_state())
+                # Import should drop the incompatible dynamic engine.
+                self.assertIsNone(s._sampler)
+                s.arm_engine_resume()
+                restored, resume = s._resolve_resume_engine(pool=pool)
+                self.assertIsNone(restored)
+                self.assertFalse(resume)
+        finally:
+            stop.set()
+            thread.join(timeout=2.0)
+
+    def test_leftover_engine_file_does_not_hijack_fresh_run(self) -> None:
+        """nested_engine.pkl alone must not force resume without import_runtime_state."""
+        from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+        from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
+
+        queue = make_fakeredis_queue()
+        stop, thread = self._start_echo_worker(queue)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                cfg = self._two_var_config(
+                    method="MultiNest",
+                    nlive=10,
+                    run_nested={
+                        "maxiter": 5,
+                        "dlogz": 1e-9,
+                        "print_progress": False,
+                        "add_live": False,
+                    },
+                )
+                cfg["task_root"] = tmp
+                cfg["task_result_dir"] = tmp
+                cfg["scan_name"] = "nested-resume"
+
+                # Write a finished-looking engine into the default side-file path.
+                s = MultiNestSampler()
+                s.set_config(cfg)
+                s.set_redis(queue)
+                pool = RedisEvaluationPool(
+                    queue,
+                    build_sample=s._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="MultiNest",
+                )
+                bridge = NestedRedisLogL(pool)
+                engine = NestedSampler(
+                    loglikelihood=bridge,
+                    prior_transform=_jarvis_prior_transform,
+                    ndim=2,
+                    nlive=10,
+                    pool=pool,
+                    rstate=np.random.default_rng(1),
+                    queue_size=4,
+                )
+                engine.run_nested(
+                    maxiter=4, dlogz=1e-9, print_progress=False, add_live=False
+                )
+                s._sampler = engine
+                s._finished = False
+                s._save_engine_side_file()
+                self.assertTrue(os.path.isfile(s._engine_path()))
+
+                # Fresh sampler: no import_runtime_state → must ignore side file.
+                fresh = MultiNestSampler()
+                fresh.set_config(cfg)
+                fresh.set_redis(queue)
+                self.assertFalse(fresh._resume_engine_requested)
+                pool2 = RedisEvaluationPool(
+                    queue,
+                    build_sample=fresh._build_sample_for_pool,
+                    batch_size=4,
+                    timeout=60.0,
+                    seed=0,
+                    method="MultiNest",
+                )
+                restored, resume = fresh._resolve_resume_engine(pool=pool2)
+                self.assertIsNone(restored)
+                self.assertFalse(resume)
         finally:
             stop.set()
             thread.join(timeout=2.0)

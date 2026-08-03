@@ -32,7 +32,7 @@ _V1_DISTRIBUTIONS = [
 def _random_config(variables: list[dict]) -> dict:
     return {
         "Scan": {"name": "v1-distributions"},
-        "Sampling": {"Method": "Random", "Point number": 8, "Variables": variables},
+        "Sampling": {"Method": "Random", "Bounds": {"Point number": 8}, "Variables": variables},
         "EnvReqs": {"V2": {"workers": 1}},
     }
 

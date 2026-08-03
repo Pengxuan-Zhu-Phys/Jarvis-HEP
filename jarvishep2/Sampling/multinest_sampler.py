@@ -10,6 +10,9 @@ channel + factory pool as Dynesty). V2 keeps that contract:
 * diagnostics: ``DATABASE/multinest_result.csv`` (same column schema as dynesty)
 * plot: Jarvis-PLOT ``dynesty_runplot`` with ``DataSet.name: dynesty`` and path
   pointing at the MultiNest CSV (V1 plot.py parity)
+* **checkpoint / resume**: same stack as :class:`DynestySampler` —
+  ``nested_engine.pkl`` + ``state.pkl`` under ``checkpoints/<scan>/MultiNest/``,
+  cadence from ``EnvReqs.V2.checkpoint_heartbeat_sec`` only (not Sampling YAML).
 """
 
 from __future__ import annotations
@@ -100,9 +103,19 @@ class MultiNestSampler(DynestySampler):
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
         super().import_runtime_state(state)
+        # Super sets _resume_engine_requested; keep static contract absolute.
         self._use_dynamic = False
         path = state.get("multinest_csv_path") or state.get("dynesty_csv_path")
         self._multinest_csv_path = str(path) if path else None
+        # Reject Dynesty-dynamic blobs if they were mixed into this scan's state.
+        if self._sampler is not None and not self._engine_matches_method(self._sampler):
+            self._logger.warning(
+                "MultiNest import: dropping restored engine type %s "
+                "(need static NestedSampler); will try nested_engine.pkl on run",
+                type(self._sampler).__name__,
+            )
+            self._sampler = None
+            self._native_sampler_blob = None
 
 
 def create_multinest() -> MultiNestSampler:

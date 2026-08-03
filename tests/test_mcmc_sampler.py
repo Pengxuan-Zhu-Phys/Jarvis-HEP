@@ -62,6 +62,7 @@ def _mcmc_config(
     }
     if extra_bounds:
         bounds.update(extra_bounds)
+    bounds.setdefault("Seed", seed)
     runtime: dict[str, Any] = {
         "mode": "redis",
         "workers": workers,
@@ -76,9 +77,8 @@ def _mcmc_config(
         "Runtime": runtime,
         "Sampling": {
             "Method": method,
-            "Seed": seed,
-            "Variables": _flat_vars(["x", "y"], 0.0, 5.0),
             "Bounds": bounds,
+            "Variables": _flat_vars(["x", "y"], 0.0, 5.0),
             "LogLikelihood": [
                 {"name": "LogL_Z", "expression": "LogGauss(z, 100, 10)"}
             ],

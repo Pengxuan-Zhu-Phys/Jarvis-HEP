@@ -5,6 +5,10 @@ Scan:
 
 Sampling:
   Method: Bridson
+  Bounds:
+    Radius: 1
+    MaxAttempt: 10
+    Seed: 7
   Variables:
     - name: xx
       distribution:
@@ -20,9 +24,6 @@ Sampling:
           min: 0.0
           max: 5.0
           length: 2
-  Radius: 1
-  MaxAttempt: 10
-  Seed: 7
   LogLikelihood:
     - {name: LogL_Z, expression: "LogGauss(z, 100, 10)"}
 

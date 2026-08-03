@@ -17,7 +17,9 @@ _VARIABLE_EXAMPLE = """Variables:
 
 _METHOD_EXAMPLE = """Sampling:
   Method: Random
-  Point number: 100
+  Bounds:
+    Point number: 100
+    Seed: 0
   Variables:
     - name: x
       distribution:
@@ -25,9 +27,16 @@ _METHOD_EXAMPLE = """Sampling:
         parameters: {min: 0.0, max: 1.0}"""
 
 _GUIDANCE_BY_PREFIX: tuple[tuple[str, str, str | None], ...] = (
-    ("Sampling.Method", "Set Method to one of the methods listed in the error, then add that method's required fields.", _METHOD_EXAMPLE),
+    ("Sampling.Method", "Set Method to one of the methods listed in the error, then add that method's required Bounds fields.", _METHOD_EXAMPLE),
     ("Sampling.Variables", "Provide a non-empty YAML list of variable mappings; each variable needs name and distribution.", _VARIABLE_EXAMPLE),
-    ("Sampling.CSV", "Provide a CSV mapping with a non-empty path.", "CSV:\n  path: points.csv"),
+    ("Sampling.Bounds.path", "Provide the path to the fixed-point CSV file under Bounds.", "Bounds:\n  path: points.csv"),
+    ("Sampling.Bounds", "Put method-specific sampler knobs under Bounds (Radius, Point number, Seed, CSV path, dynesty kwargs, …).", "Bounds:\n  Point number: 100\n  Seed: 0"),
+    ("Sampling.CSV", "CSV settings moved to Sampling.Bounds; use Bounds.path (and optional variables).", "Bounds:\n  path: points.csv"),
+    ("Sampling.Radius", "Radius moved to Sampling.Bounds.Radius.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"),
+    ("Sampling.MaxAttempt", "MaxAttempt moved to Sampling.Bounds.MaxAttempt.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"),
+    ("Sampling.Point number", "Point number moved to Sampling.Bounds['Point number'].", "Bounds:\n  Point number: 100"),
+    ("Sampling.Seed", "Seed moved to Sampling.Bounds.Seed.", "Bounds:\n  Seed: 0"),
+    ("Sampling.AdaptiveBridson", "AdaptiveBridson knobs moved under Sampling.Bounds (no nested AdaptiveBridson block).", "Bounds:\n  target_expression: f\n  target_value: 0.12"),
     ("Calculators.Modules", "Use a module mapping with name; add execution when this module runs an external calculator.", "Modules:\n  - name: MyCalculator\n    execution:\n      path: .\n      commands: [\"./run.sh\"]"),
     ("Operas.Modules", "Use an Opera module mapping with name and operator.", "Modules:\n  - name: likelihood\n    operator: package.module.function"),
     ("EnvReqs.V2.redis", "Use a Redis mapping with host, port, and db only when overriding defaults.", "redis:\n  host: 127.0.0.1\n  port: 6379\n  db: 0"),
@@ -46,15 +55,22 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
             "type: JSON",
         )
     if code in {"JV2-MTH-002", "JV2-MTH-003", "JV2-MTH-040"}:
-        return "Choose an implemented Method, then provide its required configuration fields.", _METHOD_EXAMPLE
+        return "Choose an implemented Method, then provide its required Bounds configuration.", _METHOD_EXAMPLE
+    if code == "JV2-MTH-001":
+        return (
+            "Move this sampler setting under Sampling.Bounds; top-level Sampling no longer accepts method knobs.",
+            "Bounds:\n  Seed: 0",
+        )
     if code in {"JV2-MTH-010", "JV2-MTH-011"}:
-        return "Set Radius to a positive number for Bridson sampling.", "Radius: 0.1"
+        return "Set Sampling.Bounds.Radius to a positive number for Bridson sampling.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"
     if code in {"JV2-MTH-012", "JV2-MTH-013"}:
-        return "Set MaxAttempt to an integer of at least 1 for Bridson sampling.", "MaxAttempt: 30"
+        return "Set Sampling.Bounds.MaxAttempt to an integer of at least 1 for Bridson sampling.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"
     if code in {"JV2-MTH-020", "JV2-MTH-021"}:
-        return "Set either 'Point number' or point_number to an integer of at least 1.", "Point number: 100"
+        return "Set Sampling.Bounds['Point number'] (or point_number) to an integer of at least 1.", "Bounds:\n  Point number: 100"
     if code in {"JV2-MTH-030", "JV2-MTH-031"}:
-        return "Provide the path to the fixed-point CSV file.", "CSV:\n  path: points.csv"
+        return "Provide the path to the fixed-point CSV file under Sampling.Bounds.", "Bounds:\n  path: points.csv"
+    if code in {"JV2-MTH-041", "JV2-MTH-042"}:
+        return "Set target_expression and target_value under Sampling.Bounds for AdaptiveBridson.", "Bounds:\n  target_expression: f\n  target_value: 0.12"
     # Parameter-level codes must win over the Sampling.Variables list prefix
     # (D21.14: JV2-VAR-031 used to suggest "provide a non-empty variable list").
     if code == "JV2-VAR-031":

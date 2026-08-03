@@ -287,7 +287,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
     """Live-band AdaptiveBridson (Method: AdaptiveBridson).
 
     See DESIGN_ADAPTIVE_BRIDSON_LIVE_BAND.md. Config block:
-    ``Sampling.AdaptiveBridson``.
+    ``Sampling.Bounds`` (target expression, radii, generation caps, …).
     """
 
     method = "AdaptiveBridson"
@@ -389,14 +389,21 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             raise ValueError(
                 f"AdaptiveBridson requires 2 ≤ dim ≤ 5, got {self._dim}"
             )
-        block = sampling.get("AdaptiveBridson") or sampling.get("adaptive_bridson") or {}
+        # All AdaptiveBridson knobs live under Sampling.Bounds (not a nested
+        # Sampling.AdaptiveBridson block — that layout is retired).
+        block = sampling.get("Bounds") or {}
         if not isinstance(block, Mapping):
-            raise ValueError("Sampling.AdaptiveBridson must be a mapping")
+            raise ValueError("Sampling.Bounds must be a mapping for AdaptiveBridson")
+        if not block:
+            raise ValueError(
+                "AdaptiveBridson requires Sampling.Bounds with "
+                "target_expression and target_value"
+            )
         self._target_expression = str(block.get("target_expression", "")).strip()
         if not self._target_expression:
-            raise ValueError("AdaptiveBridson.target_expression is required")
+            raise ValueError("Sampling.Bounds.target_expression is required")
         if "target_value" not in block:
-            raise ValueError("AdaptiveBridson.target_value is required")
+            raise ValueError("Sampling.Bounds.target_value is required")
         self._target_value = float(block["target_value"])
         # Public geometry controls are intentionally limited to
         # outer_half_width and min_radius.  Keep historical keys readable so
@@ -584,7 +591,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             block.get("neighbor_graph", "auto")
         ).strip().lower()
         self._selectionexp = sampling.get("selection")
-        seed = int(sampling.get("Seed", sampling.get("seed", 0)) or 0)
+        seed = int(block.get("Seed", block.get("seed", 0)) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         self._init_seed_sequence(seed)
@@ -4117,9 +4124,10 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             self._endpoint_omni_probes = max(
                 2 * self._dim, int(state["endpoint_omni_probes"])
             )
-        # Keep generation aligned with shrink count after resume.
-        self._generation = int(self._n_radius_refines)
+        # Feedback fields first (pending uuids, seed, …); then pin generation to
+        # shrink count so SeedSequence.spawn(generation) matches the live scale.
         self._feedback_import_state(state)
+        self._generation = int(self._n_radius_refines)
         if self._target_expression:
             self._compile_target()
         self._graph = self._make_graph()

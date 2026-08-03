@@ -1,1 +1,28 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/adaptive_bridson.json","type":"object","x-jarvis-zone":"closed","allOf":[{"$ref":"https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},{"properties":{"Method":{"const":"AdaptiveBridson"}},"anyOf":[{"required":["AdaptiveBridson"]},{"required":["adaptive_bridson"]}]},{"anyOf":[{"required":["AdaptiveBridson"],"properties":{"AdaptiveBridson":{"required":["target_expression","target_value"]}}},{"required":["adaptive_bridson"],"properties":{"adaptive_bridson":{"required":["target_expression","target_value"]}}}]}]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/adaptive_bridson.json",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "x-jarvis-example": "Method: AdaptiveBridson\nBounds:\n  target_expression: Omega_h2\n  target_value: 0.12\n  outer_half_width: 0.02\n  min_radius: 0.002\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, length: 1.0}",
+  "allOf": [
+    {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},
+    {
+      "properties": {
+        "Method": {"const": "AdaptiveBridson"},
+        "Bounds": {
+          "allOf": [
+            {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/adaptiveBridson"
+            },
+            {
+              "type": "object",
+              "x-jarvis-zone": "closed",
+              "required": ["target_expression", "target_value"]
+            }
+          ]
+        }
+      },
+      "required": ["Bounds"]
+    }
+  ]
+}

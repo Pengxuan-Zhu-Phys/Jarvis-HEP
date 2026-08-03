@@ -10,8 +10,6 @@
 
 Sampling:
   Method: "MultiNest"
-  Seed: 21
-
   Variables:
     - name: x
       description: "Replace with your parameters."
@@ -25,6 +23,7 @@ Sampling:
     #     parameters: {min: 0.0, max: 1.0}
 
   Bounds:
+    Seed: 21
     nlive: 100
     dlogz: 0.5                 # static NestedSampler evidence stop
 

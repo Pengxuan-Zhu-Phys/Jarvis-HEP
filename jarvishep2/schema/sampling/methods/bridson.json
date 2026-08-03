@@ -1,1 +1,39 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/bridson.json","type":"object","x-jarvis-zone":"closed","x-jarvis-example":"Method: Bridson\nRadius: 0.1\nMaxAttempt: 30\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, length: 1.0}","properties":{"Method":{"const":"Bridson"}},"required":["Variables","Radius","MaxAttempt"]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/bridson.json",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "x-jarvis-example": "Method: Bridson\nBounds:\n  Radius: 0.1\n  MaxAttempt: 30\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, length: 1.0}",
+  "allOf": [
+    {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},
+    {
+      "properties": {
+        "Method": {"const": "Bridson"},
+        "Bounds": {
+          "type": "object",
+          "x-jarvis-zone": "closed",
+          "required": ["Radius", "MaxAttempt"],
+          "properties": {
+            "Radius": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+            },
+            "MaxAttempt": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+            },
+            "MaxWorker": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+            },
+            "Seed": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+            },
+            "seed": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["Bounds"]
+    }
+  ]
+}

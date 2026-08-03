@@ -365,14 +365,18 @@ def _numeric_string_issues(config: Mapping[str, Any]) -> list[Any]:
     from jarvishep2.task_validation import issue
 
     warnings: list[Any] = []
+    # Sampler knobs live under Sampling.Bounds only.
     numeric_paths = (
-        ("Sampling", "Radius"),
-        ("Sampling", "MaxAttempt"),
-        ("Sampling", "MaxWorker"),
-        ("Sampling", "Point number"),
-        ("Sampling", "point_number"),
-        ("Sampling", "Seed"),
-        ("Sampling", "seed"),
+        ("Sampling", "Bounds", "Radius"),
+        ("Sampling", "Bounds", "MaxAttempt"),
+        ("Sampling", "Bounds", "MaxWorker"),
+        ("Sampling", "Bounds", "Point number"),
+        ("Sampling", "Bounds", "point_number"),
+        ("Sampling", "Bounds", "Seed"),
+        ("Sampling", "Bounds", "seed"),
+        ("Sampling", "Bounds", "rseed"),
+        ("Sampling", "Bounds", "nlive"),
+        ("Sampling", "Bounds", "dlogz"),
     )
     for parts in numeric_paths:
         parent: Any = config
@@ -389,10 +393,8 @@ def _numeric_string_issues(config: Mapping[str, Any]) -> list[Any]:
             ))
 
     sampling = config.get("Sampling")
-    adaptive = sampling.get("AdaptiveBridson") if isinstance(sampling, Mapping) else None
-    if not isinstance(adaptive, Mapping) and isinstance(sampling, Mapping):
-        adaptive = sampling.get("adaptive_bridson")
-    if isinstance(adaptive, Mapping):
+    bounds = sampling.get("Bounds") if isinstance(sampling, Mapping) else None
+    if isinstance(bounds, Mapping):
         numeric_keys = {
             "target_value", "outer_half_width", "min_radius", "initial_radius",
             "refinement_factor", "bridge_span_factor", "max_generations",
@@ -402,12 +404,12 @@ def _numeric_string_issues(config: Mapping[str, Any]) -> list[Any]:
             "quiet_fill_passes", "max_fill_passes", "endpoint_stall_passes",
             "endpoint_omni_probes",
         }
-        for key, value in adaptive.items():
+        for key, value in bounds.items():
             if key not in numeric_keys:
                 continue
             if isinstance(value, str) and _NUMERIC_STRING.fullmatch(value):
                 warnings.append(issue(
-                    "warning", "JV2-SCH-003", f"$.Sampling.AdaptiveBridson.{key}",
+                    "warning", "JV2-SCH-003", f"$.Sampling.Bounds.{key}",
                     f"numeric string {value!r} is accepted for compatibility",
                     hint="YAML may parse scientific notation such as 1e-5 as a string.",
                     suggestion=f"Use the canonical numeric form: {value.replace('E', 'e')}",

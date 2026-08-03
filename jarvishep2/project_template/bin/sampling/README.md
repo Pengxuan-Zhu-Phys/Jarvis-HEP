@@ -26,9 +26,9 @@ Validation rejects `Bounds.dynamic` / `Dynamic`. Switch Method instead of a flag
 ```yaml
 Sampling:
   Method: Dynesty   # or MultiNest
-  Seed: 21
   Variables: [...]
   Bounds:
+    Seed: 21
     nlive: 100
     dlogz: 0.5        # Dynesty → dlogz_init; MultiNest → static dlogz
     run_nested:

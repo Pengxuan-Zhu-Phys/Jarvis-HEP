@@ -61,6 +61,87 @@ def _worker_config(tmpdir: str) -> dict[str, Any]:
     }
 
 
+class CheckpointPathResolutionTests(unittest.TestCase):
+    """prepare_resume must resolve Method before sampler init (Dynesty bug)."""
+
+    def test_checkpoint_file_uses_sampling_method_before_sampler_init(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            core = Jarvis2Core(
+                {
+                    "task_root": tmp,
+                    "task_result_dir": tmp,
+                    "scan_name": "EggBox_Dynesty_Operas",
+                    "Sampling": {"Method": "Dynesty"},
+                    "Runtime": {"mode": "redis", "workers": 0},
+                }
+            )
+            # Mirror post-_populate_info_from_config placeholder.
+            core.info["sampler_name"] = "SamplingVirtial"
+            core.sampler = None
+            path = core.checkpoint_file()
+            self.assertTrue(
+                path.endswith(
+                    os.path.join(
+                        "checkpoints",
+                        "EggBox_Dynesty_Operas",
+                        "Dynesty",
+                        "state.pkl",
+                    )
+                ),
+                msg=path,
+            )
+            self.assertNotIn("SamplingVirtial", path)
+
+    def test_preload_resume_finds_dynesty_checkpoint_before_sampler(self) -> None:
+        from jarvishep2.Sampling.runtime_checkpoint import (
+            build_payload,
+            build_run_spec,
+            save_checkpoint,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            core = Jarvis2Core(
+                {
+                    "task_root": tmp,
+                    "task_result_dir": tmp,
+                    "scan_name": "EggBox_Dynesty_Operas",
+                    "Sampling": {"Method": "Dynesty", "Variables": []},
+                    "Runtime": {"mode": "redis", "workers": 0},
+                }
+            )
+            core.info["sampler_name"] = "SamplingVirtial"
+            core.sampler = None
+            # Write a real V2 checkpoint under the Method name (as a finished run would).
+            path = core.checkpoint_file()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            run_spec = build_run_spec(
+                config=core.config,
+                scan_name="EggBox_Dynesty_Operas",
+                task_root=tmp,
+                task_result_dir=tmp,
+                sampler_name="Dynesty",
+            )
+            payload = build_payload(
+                run_spec=run_spec,
+                sampler_state={
+                    "method": "Dynesty",
+                    "finished": False,
+                    "native_sampler_blob": None,
+                    "nlive": 50,
+                },
+                reason="test",
+            )
+            save_checkpoint(path, payload)
+
+            core.prepare_resume(resume=True, fresh=False)
+            self.assertEqual(core._resume_policy, "resume")
+            self.assertIsNotNone(core._resume_checkpoint_payload)
+            state = dict(
+                (core._resume_checkpoint_payload or {}).get("sampler_state") or {}
+            )
+            self.assertEqual(state.get("method"), "Dynesty")
+
+
 def _run_seeded_scan(
     *,
     redis_config: dict[str, Any],
@@ -157,8 +238,7 @@ def _run_crashable_control(
         },
         "Sampling": {
             "Method": "Random",
-            "Point number": int(total_points),
-            "Seed": 29,
+            "Bounds": {"Point number": int(total_points), "Seed": 29},
             "Variables": [
                 {
                     "name": "x",

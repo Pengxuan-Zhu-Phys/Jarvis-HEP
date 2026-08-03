@@ -62,7 +62,7 @@ Besides the required target expression/value, public tuning is two knobs:
 ```yaml
 Sampling:
   Method: AdaptiveBridson
-  AdaptiveBridson:
+  Bounds:
     target_expression: Omega_h2
     target_value: 0.12
     outer_half_width: 0.02   # discovery |f−T| band

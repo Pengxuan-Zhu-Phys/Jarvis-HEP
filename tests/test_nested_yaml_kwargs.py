@@ -107,6 +107,25 @@ class ExtractRunNestedKwargsTests(unittest.TestCase):
         self.assertIn("maxcall", run)
         self.assertNotIn("not_a_dynesty_key", run)
 
+    def test_hep_owned_checkpoint_keys_stripped_from_run_nested(self) -> None:
+        """Checkpoint cadence belongs under EnvReqs.V2, not Sampling.Bounds."""
+        run = extract_run_nested_kwargs(
+            {
+                "run_nested": {
+                    "maxcall": 10,
+                    "checkpoint_every": 5,
+                    "checkpoint_file": "/tmp/x.pkl",
+                    "resume": True,
+                }
+            },
+            dynamic=False,
+            dlogz_default=0.5,
+        )
+        self.assertEqual(run.get("maxcall"), 10)
+        self.assertNotIn("checkpoint_every", run)
+        self.assertNotIn("checkpoint_file", run)
+        self.assertNotIn("resume", run)
+
     def test_static_maps_dlogz_init_alias(self) -> None:
         run = extract_run_nested_kwargs(
             {"run_nested": {"dlogz_init": 0.07}},
@@ -125,6 +144,28 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                 "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}},
             }
         ]
+
+    def test_checkpoint_interval_comes_from_envreqs_not_sampling(self) -> None:
+        from jarvishep2.Sampling.dynesty_sampler import DynestySampler
+
+        s = DynestySampler()
+        s.set_config(
+            {
+                "Sampling": {
+                    "Method": "Dynesty",
+                    "Variables": self._vars(),
+                    "Bounds": {
+                        "nlive": 20,
+                        # Would have been the old override path — must be ignored.
+                        "run_nested": {"dlogz": 0.5, "checkpoint_every": 3},
+                    },
+                },
+                "EnvReqs": {"V2": {"checkpoint_heartbeat_sec": 12}},
+            }
+        )
+        self.assertEqual(s._checkpoint_every_sec, 12.0)
+        self.assertEqual(s._checkpoint_heartbeat_sec, 12.0)
+        self.assertNotIn("checkpoint_every", s._run_nested_kwargs)
 
     def test_dynesty_dynamic_default_and_full_sampler_block(self) -> None:
         s = DynestySampler()

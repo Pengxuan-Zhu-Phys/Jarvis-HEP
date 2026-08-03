@@ -82,7 +82,7 @@ class ResolveSpecTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
-                    "AdaptiveBridson": {"target_expression": "delta_chi2 + LogL"},
+                    "Bounds": {"target_expression": "delta_chi2 + LogL"},
                 }
             }
         )

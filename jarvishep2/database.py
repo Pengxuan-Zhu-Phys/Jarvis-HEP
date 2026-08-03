@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import csv
+import errno
 import glob
 import hashlib
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -209,6 +212,42 @@ def discover_samples_hdf5_shards(database_dir: str) -> list[str]:
     return ordered
 
 
+def _open_hdf5_readonly(path: str) -> h5py.File:
+    """Open DATABASE for control-side reads without blocking the Archiver writer.
+
+    Cross-process note (macOS/HDF5): a reader opened with default file locking
+    holds an advisory lock that makes Archiver's append open fail with
+    ``errno 35 unable to lock file``.  Prefer ``locking=False``.
+
+    Same-process note: if a writer already has the file open with default
+    locking, HDF5 rejects a ``locking=False`` reader (``locking flag values
+    don't match``).  Fall back to the writer's locking mode in that case.
+    """
+    attempts: list[dict[str, Any]] = [
+        {"libver": "latest", "swmr": True, "locking": False},
+        {"libver": "latest", "swmr": True},
+        {"locking": False},
+        {},
+    ]
+    last_error: BaseException | None = None
+    for kwargs in attempts:
+        try:
+            return h5py.File(path, "r", **kwargs)
+        except TypeError as exc:
+            # Older h5py may not accept locking= / swmr=.
+            last_error = exc
+            continue
+        except OSError as exc:
+            last_error = exc
+            text = str(exc).lower()
+            if "locking flag" in text or "swmr" in text:
+                continue
+            # Fall through other OSErrors to try a simpler open once more.
+            continue
+    if last_error is not None:
+        raise last_error
+    return h5py.File(path, "r")
+
 def read_hdf5_uuids(hdf5_path: str) -> set[str]:
     """Read only the UUID field from one JSON-row HDF5 database.
 
@@ -220,11 +259,7 @@ def read_hdf5_uuids(hdf5_path: str) -> set[str]:
     if not os.path.isfile(path):
         return set()
     uuids: set[str] = set()
-    try:
-        handle = h5py.File(path, "r", libver="latest", swmr=True)
-    except OSError:
-        handle = h5py.File(path, "r")
-    with handle:
+    with _open_hdf5_readonly(path) as handle:
         if "records" not in handle:
             return uuids
         for item in handle["records"]:
@@ -265,11 +300,7 @@ def read_hdf5_outcome_counts(hdf5_path: str) -> tuple[int, int]:
         return 0, 0
     completed = 0
     failed = 0
-    try:
-        handle = h5py.File(path, "r", libver="latest", swmr=True)
-    except OSError:
-        handle = h5py.File(path, "r")
-    with handle:
+    with _open_hdf5_readonly(path) as handle:
         if "records" not in handle:
             return 0, 0
         for item in handle["records"]:
@@ -312,11 +343,7 @@ def read_persisted_sample_index_state(
     indices: set[int] = set()
     legacy_uuids: set[str] = set()
     for path in discover_samples_hdf5_shards(database_dir):
-        try:
-            handle = h5py.File(path, "r", libver="latest", swmr=True)
-        except OSError:
-            handle = h5py.File(path, "r")
-        with handle:
+        with _open_hdf5_readonly(path) as handle:
             if "records" not in handle:
                 continue
             for item in handle["records"]:
@@ -449,12 +476,7 @@ class SimpleHDF5Writer:
         if not os.path.exists(self.db_path):
             return []
         rows: list[dict[str, Any]] = []
-        try:
-            handle = h5py.File(self.db_path, "r", libver="latest", swmr=True)
-        except OSError:
-            # Compatibility for HDF5 files created before the SWMR writer.
-            handle = h5py.File(self.db_path, "r")
-        with handle:
+        with _open_hdf5_readonly(self.db_path) as handle:
             if "records" not in handle:
                 return []
             dataset = handle["records"]
@@ -468,59 +490,506 @@ class SimpleHDF5Writer:
         return rows
 
 
-def _is_stale_swmr_write_flag(error: OSError) -> bool:
-    """Whether HDF5 rejected a file solely because a prior SWMR writer crashed."""
+def _is_stale_swmr_write_flag(error: BaseException) -> bool:
+    """Whether HDF5 rejected a file due to a stale superblock write/SWMR flag."""
     text = str(error).lower()
-    return "already open for write" in text and "swmr write" in text
+    if "already open for write" in text:
+        return True
+    if "file consistency" in text or "status_flags" in text:
+        return True
+    if "may use" in text and "h5clear" in text:
+        return True
+    return False
 
 
-def _clear_stale_swmr_write_flag(db_path: str) -> None:
-    """Clear HDF5's stale write-status flag with the HDF5 utility.
+def _is_hdf5_lock_error(error: BaseException) -> bool:
+    """Whether open failed because the OS/HDF5 file lock is held or stale.
 
-    ``h5clear`` ships with the system/HDF5 **command-line tools**, not the
-    ``h5py`` pip wheel.  Install the distro package (e.g. ``hdf5-tools`` on
-    Debian/Ubuntu, ``hdf5`` on Homebrew) so resume can recover a crashed SWMR
-    writer flag.
+    Seen after crash/Ctrl-C as::
+
+        BlockingIOError: [Errno 35] Unable to … open file
+        (unable to lock file, errno = 35, … 'Resource temporarily unavailable')
+
+    Distinct from the SWMR *write consistency flag* message handled by
+    :func:`_is_stale_swmr_write_flag`.
     """
-    h5clear = shutil.which("h5clear")
-    if not h5clear:
-        raise RuntimeError(
-            "h5clear is required to recover a stale HDF5 SWMR write flag "
-            f"({db_path}). It is an HDF5 CLI tool, not part of the h5py wheel — "
-            "install hdf5-tools (apt) / hdf5 (brew), confirm no live Archiver "
-            f"owns the file, then run `h5clear -s {db_path}`"
-        )
-    completed = subprocess.run(
-        [h5clear, "-s", db_path], capture_output=True, text=True, check=False
+    if isinstance(error, BlockingIOError):
+        return True
+    err_no = getattr(error, "errno", None)
+    # Linux EAGAIN/EWOULDBLOCK=11; macOS often reports 35 for the same case.
+    if err_no in {errno.EAGAIN, errno.EWOULDBLOCK, 11, 35}:
+        text = str(error).lower()
+        if "lock" in text or "resource temporarily unavailable" in text:
+            return True
+    text = str(error).lower()
+    return (
+        "unable to lock file" in text
+        or "resource temporarily unavailable" in text
+        or ("lock file" in text and "unavailable" in text)
     )
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or f"exit {completed.returncode}").strip()
-        raise RuntimeError(f"h5clear could not recover {db_path}: {detail}")
 
 
-def recover_stale_hdf5_write_flag(db_path: str) -> bool:
-    """Clear a crashed SWMR writer flag, returning whether recovery occurred.
+def _is_recoverable_hdf5_open_error(error: BaseException) -> bool:
+    return _is_stale_swmr_write_flag(error) or _is_hdf5_lock_error(error)
 
-    Callers must first establish that no live Archiver owns the file.  The
-    resume bootstrap does that by cleaning an exact-name stale runtime before
-    touching DATABASE.
-    """
+
+def _needs_swmr_status_flag_clear(db_path: str) -> bool:
+    """True when append/r+ open fails solely due to a stale write/SWMR flag."""
     path = os.path.abspath(str(db_path))
     if not os.path.isfile(path):
         return False
+    open_attempts: list[dict[str, Any]] = [
+        {"mode": "r+", "libver": "latest", "locking": False},
+        {"mode": "r+", "libver": "latest"},
+        {"mode": "a", "libver": "latest"},
+    ]
+    for kwargs in open_attempts:
+        mode = str(kwargs.pop("mode"))
+        try:
+            with h5py.File(path, mode, **kwargs):
+                return False
+        except TypeError:
+            # Older h5py without locking=
+            try:
+                with h5py.File(path, mode, libver="latest"):
+                    return False
+            except OSError as exc:
+                return _is_stale_swmr_write_flag(exc)
+        except OSError as exc:
+            if _is_stale_swmr_write_flag(exc):
+                return True
+            if _is_hdf5_lock_error(exc):
+                # Locked by a live process — not a superblock flag problem.
+                return False
+            # Try next open style.
+            continue
+    return False
+
+
+def _clear_stale_swmr_write_flag_python(db_path: str) -> None:
+    """Clear stale write/SWMR superblock flags using pure h5py (no ``h5clear``).
+
+    Strategy: SWMR **readers** may still open a file that has the write
+    consistency flag set.  Copy every root attribute and object into a fresh
+    file (clean superblock), then atomically replace the original.  Content is
+    preserved; only the dirty superblock status bits are dropped.
+
+    This intentionally avoids the external ``h5clear`` CLI (not shipped with
+    the h5py wheel) so resume works in a stock ``pip install h5py`` environment.
+    """
+    path = os.path.abspath(str(db_path))
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".samples_swmr_clear_", suffix=".hdf5", dir=parent)
+    os.close(fd)
     try:
-        # A SWMR reader is deliberately allowed to open a file whose writer
-        # consistency flag is set, so read-only probing cannot distinguish a
-        # clean file from a crashed writer.  The resume caller has already
-        # removed the exact-name runtime fleet; an append-capable probe is
-        # therefore both safe and the only reliable way to test this flag.
-        with h5py.File(path, "r+", libver="latest"):
-            return False
-    except OSError as exc:
-        if not _is_stale_swmr_write_flag(exc):
-            raise
-    _clear_stale_swmr_write_flag(path)
+        # Prefer SWMR read + no file locking — allowed while write flag is set.
+        try:
+            src = h5py.File(path, "r", libver="latest", swmr=True, locking=False)
+        except TypeError:
+            src = h5py.File(path, "r", libver="latest", swmr=True)
+        except OSError:
+            try:
+                src = h5py.File(path, "r", locking=False)
+            except TypeError:
+                src = h5py.File(path, "r")
+        try:
+            with h5py.File(tmp, "w", libver="latest") as dst:
+                for key, value in src.attrs.items():
+                    dst.attrs[key] = value
+                for name in src.keys():
+                    src.copy(name, dst, name=name)
+        finally:
+            src.close()
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _clear_stale_swmr_write_flag(db_path: str) -> str:
+    """Clear stale SWMR/write superblock flags; return action label.
+
+    Primary path is pure Python (:func:`_clear_stale_swmr_write_flag_python`).
+    Optional fallback to the system ``h5clear -s`` CLI when the rewrite path
+    fails (e.g. exotic superblock / truncated file).
+    """
+    path = os.path.abspath(str(db_path))
+    try:
+        _clear_stale_swmr_write_flag_python(path)
+        return "swmr_flag_rewrite"
+    except Exception as py_exc:
+        h5clear = shutil.which("h5clear")
+        if not h5clear:
+            raise RuntimeError(
+                "failed to clear stale HDF5 write/SWMR flag with pure Python "
+                f"({path}): {py_exc}"
+            ) from py_exc
+        completed = subprocess.run(
+            [h5clear, "-s", path], capture_output=True, text=True, check=False
+        )
+        if completed.returncode != 0:
+            detail = (
+                completed.stderr or completed.stdout or f"exit {completed.returncode}"
+            ).strip()
+            raise RuntimeError(
+                f"pure-Python SWMR clear failed ({py_exc}); "
+                f"h5clear -s also failed for {path}: {detail}"
+            ) from py_exc
+        return "swmr_flag_h5clear_fallback"
+
+
+def _list_file_holder_pids(path: str) -> list[int]:
+    """Best-effort PIDs that currently have *path* open (via ``lsof``)."""
+    if not shutil.which("lsof"):
+        return []
+    try:
+        completed = subprocess.run(
+            ["lsof", "-t", "--", path],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    pids: list[int] = []
+    for line in (completed.stdout or "").splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            pids.append(int(text))
+        except ValueError:
+            continue
+    return sorted(set(pids))
+
+
+def _pid_is_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists but we cannot signal it — treat as live.
+        return True
+    except OSError:
+        return False
     return True
+
+
+def _remove_sidecar_lock_files(db_path: str) -> list[str]:
+    """Delete known HDF5 sidecar lock files if present (best effort)."""
+    removed: list[str] = []
+    for candidate in (
+        f"{db_path}.lock",
+        f"{db_path}.lck",
+        f"{db_path}__lock",
+    ):
+        try:
+            if os.path.isfile(candidate):
+                os.unlink(candidate)
+                removed.append(candidate)
+        except OSError:
+            pass
+    return removed
+
+
+def _break_stale_file_lock_by_inode_replace(db_path: str) -> None:
+    """Copy+atomic-replace so a new open is not blocked by a stale flock.
+
+    POSIX advisory locks are bound to the open file description / inode.  When
+    a crashed writer left the kernel thinking the file is locked (or a
+    leftover process died without an unlock the VFD still believes), rewriting
+    the path onto a fresh inode lets a new Archiver open it.  **Only** call
+    this after confirming no live process holds the path.
+    """
+    path = os.path.abspath(str(db_path))
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".samples_relock_", suffix=".hdf5", dir=parent)
+    os.close(fd)
+    try:
+        shutil.copy2(path, tmp)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _probe_hdf5_append_open(db_path: str) -> None:
+    """Open for append briefly and close; raises OSError on failure."""
+    with h5py.File(db_path, "a", libver="latest") as handle:
+        # Touch the handle so lazy open failures surface here.
+        _ = handle.id
+
+
+def _process_command(pid: int) -> str:
+    try:
+        completed = subprocess.run(
+            ["ps", "-p", str(int(pid)), "-o", "command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (completed.stdout or "").strip()
+
+
+def _is_reclaimable_hdf5_holder(pid: int, *, scan_name: str | None) -> bool:
+    """True when *pid* is a stale Jarvis Archiver (safe to SIGTERM on resume)."""
+    cmd = _process_command(pid)
+    if not cmd:
+        return False
+    first = cmd.split(None, 1)[0]
+    # Only reclaim Archiver holders automatically — never the live Control.
+    if not first.startswith("Jarvis2-Archiver"):
+        return False
+    if not scan_name:
+        return True
+    return f":{scan_name}" in cmd or cmd.endswith(f":{scan_name}")
+
+
+def _terminate_pids(pids: Sequence[int], *, logger: Any | None = None) -> list[int]:
+    """SIGTERM then SIGKILL reclaimable holders; return pids that exited."""
+    import signal
+
+    gone: list[int] = []
+    for pid in pids:
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except ProcessLookupError:
+            gone.append(int(pid))
+        except OSError:
+            continue
+    deadline = time.monotonic() + 2.0
+    remaining = {int(p) for p in pids if int(p) not in gone}
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.05)
+        for pid in list(remaining):
+            if not _pid_is_alive(pid):
+                remaining.discard(pid)
+                gone.append(pid)
+    for pid in list(remaining):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            gone.append(pid)
+        except OSError:
+            pass
+        if not _pid_is_alive(pid):
+            gone.append(pid)
+    if logger is not None and gone:
+        try:
+            logger.warning("HDF5 recovery: terminated lock holder pid(s) %s", sorted(set(gone)))
+        except Exception:
+            pass
+    return sorted(set(gone))
+
+
+def prepare_hdf5_database_for_writer(
+    db_path: str,
+    *,
+    logger: Any | None = None,
+    retries: int = 8,
+    retry_sleep_sec: float = 0.12,
+    scan_name: str | None = None,
+    probe_append: bool = True,
+    allow_holder_pids: Sequence[int] | None = None,
+) -> list[str]:
+    """Make ``samples.hdf5`` openable for a new Archiver writer.
+
+    Handles both:
+
+    * SWMR / write *file consistency flags* (pure-Python rewrite; optional
+      ``h5clear -s`` fallback only if rewrite fails)
+    * OS/HDF5 *file lock* (``errno 35`` / ``unable to lock file``)
+
+    Callers must first stop any live Archiver/control fleet for this scan
+    (``ensure_scan_name_available(..., cleanup_stale=True)``).  Returns a list
+    of recovery action labels that were applied (empty if already openable).
+    Emits **at most one** summary WARNING when recovery actually ran.
+
+    Parameters
+    ----------
+    probe_append:
+        When False (control bootstrap), only run flag/lock recovery steps and
+        **do not** open the file for append in this process — so the Control
+        never holds a write lock that would block the Archiver child.
+    allow_holder_pids:
+        PIDs that may keep the file open (e.g. parent Control while Archiver
+        starts).  They are not auto-killed; we wait/retry instead.
+    """
+    path = os.path.abspath(str(db_path))
+    if not os.path.isfile(path):
+        return []
+
+    actions: list[str] = []
+    last_error: BaseException | None = None
+    protected = {int(p) for p in (allow_holder_pids or []) if int(p) > 0}
+    protected.add(os.getpid())
+
+    def _log_summary() -> None:
+        if logger is None or not actions:
+            return
+        try:
+            logger.warning(
+                "Recovered HDF5 database (%s): %s",
+                ", ".join(actions),
+                path,
+            )
+        except Exception:
+            pass
+
+    def _try_clear_swmr_flag() -> bool:
+        """Clear superblock write/SWMR flags when present. Return True if ran."""
+        if not _needs_swmr_status_flag_clear(path):
+            return False
+        label = _clear_stale_swmr_write_flag(path)
+        actions.append(label)
+        return True
+
+    for attempt in range(max(1, int(retries))):
+        if probe_append:
+            try:
+                _probe_hdf5_append_open(path)
+                _log_summary()
+                return actions
+            except OSError as exc:
+                last_error = exc
+                if not _is_recoverable_hdf5_open_error(exc):
+                    raise
+        else:
+            # Control bootstrap: never append-open here. Recover only when the
+            # superblock flag is actually dirty, reclaim orphan Archivers, done.
+            if attempt == 0 and not actions:
+                try:
+                    _try_clear_swmr_flag()
+                except RuntimeError as clear_exc:
+                    # Non-fatal for control: Archiver will retry with probe_append.
+                    if logger is not None:
+                        try:
+                            logger.warning(
+                                "HDF5 SWMR flag clear deferred to Archiver: %s",
+                                clear_exc,
+                            )
+                        except Exception:
+                            pass
+                removed = _remove_sidecar_lock_files(path)
+                if removed:
+                    actions.append("removed_sidecar_locks")
+                holders = _list_file_holder_pids(path)
+                reclaimable = [
+                    pid
+                    for pid in holders
+                    if pid not in protected
+                    and _pid_is_alive(pid)
+                    and _is_reclaimable_hdf5_holder(pid, scan_name=scan_name)
+                ]
+                if reclaimable:
+                    killed = _terminate_pids(reclaimable, logger=None)
+                    if killed:
+                        actions.append(
+                            f"killed_holders:{','.join(str(p) for p in killed)}"
+                        )
+                _log_summary()
+                return actions
+            _log_summary()
+            return actions
+
+        # --- recovery steps (ordered, cheapest first) ---
+        if last_error is not None and _is_stale_swmr_write_flag(last_error):
+            try:
+                # Force clear when the open error itself reported the flag.
+                label = _clear_stale_swmr_write_flag(path)
+                if label not in actions:
+                    actions.append(label)
+                continue
+            except RuntimeError as clear_exc:
+                if not _is_hdf5_lock_error(last_error):
+                    raise clear_exc
+        elif attempt == 0:
+            try:
+                if _try_clear_swmr_flag():
+                    continue
+            except RuntimeError:
+                pass
+
+        removed = _remove_sidecar_lock_files(path)
+        if removed:
+            actions.append("removed_sidecar_locks")
+            continue
+
+        holders = _list_file_holder_pids(path)
+        live = [
+            pid
+            for pid in holders
+            if _pid_is_alive(pid) and pid not in protected
+        ]
+        reclaimable = [
+            pid for pid in live if _is_reclaimable_hdf5_holder(pid, scan_name=scan_name)
+        ]
+        if reclaimable:
+            killed = _terminate_pids(reclaimable, logger=None)
+            if killed:
+                actions.append(f"killed_holders:{','.join(str(p) for p in killed)}")
+                continue
+
+        blocking = [pid for pid in live if pid not in reclaimable]
+        if blocking and attempt >= max(1, int(retries) - 2):
+            raise RuntimeError(
+                f"HDF5 database is locked by live process(es) {blocking}: {path}. "
+                "Stop the owning process (e.g. `Jarvis2 kill ZP -y`) then retry. "
+                "Control-side DATABASE reads must use locking=False so they do not "
+                f"block Archiver. Last open error: {last_error}"
+            ) from last_error
+
+        if (
+            not blocking
+            and (attempt >= 1 or (last_error is not None and _is_hdf5_lock_error(last_error)))
+        ):
+            try:
+                _break_stale_file_lock_by_inode_replace(path)
+                actions.append("inode_replace_break_lock")
+                continue
+            except OSError as replace_exc:
+                last_error = replace_exc
+
+        time.sleep(max(0.0, float(retry_sleep_sec)) * (1 + attempt))
+
+    if not probe_append:
+        _log_summary()
+        return actions
+
+    try:
+        _probe_hdf5_append_open(path)
+        _log_summary()
+        return actions
+    except OSError as exc:
+        raise RuntimeError(
+            f"HDF5 database still not openable for append after recovery: {path}. "
+            f"Last error: {exc}. Tried actions: {actions or ['none']}."
+        ) from exc
+
+
+def recover_stale_hdf5_write_flag(db_path: str) -> bool:
+    """Backward-compatible resume probe: recover SWMR flag **and** stale locks.
+
+    Returns True when any recovery action was applied.  Prefer
+    :func:`prepare_hdf5_database_for_writer` for new call sites.
+    """
+    actions = prepare_hdf5_database_for_writer(db_path, probe_append=True)
+    return bool(actions)
 
 
 class StreamingHDF5Writer:
@@ -542,43 +1011,59 @@ class StreamingHDF5Writer:
         self._lock = threading.Lock()
         self._pending: list[Mapping[str, Any]] = []
         self._batch_open = False
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        parent = os.path.dirname(self.db_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         self._handle: h5py.File | None = None
         self._fallback: SimpleHDF5Writer | None = None
-        try:
-            self._handle = h5py.File(self.db_path, "a", libver="latest")
-            SimpleHDF5Writer._ensure_records_dataset(self._handle)
-            self._handle.flush()
-            self._handle.swmr_mode = True
-        except OSError as exc:
-            if not _is_stale_swmr_write_flag(exc):
-                raise
-            if not recover_stale:
-                raise RuntimeError(
-                    "stale HDF5 writer state detected; cleanup the owning runtime "
-                    "before requesting recovery"
-                ) from exc
-            _clear_stale_swmr_write_flag(self.db_path)
-            if self._logger is not None:
-                self._logger.warning(
-                    "Recovered stale HDF5 SWMR write flag; resuming append to %s",
-                    self.db_path,
-                )
-            self._handle = h5py.File(self.db_path, "a", libver="latest")
-            SimpleHDF5Writer._ensure_records_dataset(self._handle)
-            self._handle.flush()
-            self._handle.swmr_mode = True
-        except RuntimeError:
-            # Existing pre-SWMR files cannot change their superblock in place.
-            # Retain compatibility while still writing an entire persistence
-            # batch per open/close cycle instead of one cycle per record.
-            if self._handle is not None:
-                self._handle.close()
-            self._handle = None
-            self._fallback = SimpleHDF5Writer(self.db_path)
+        self._open_streaming_handle(recover_stale=recover_stale)
         self.records_persisted = (
             int(self._handle["records"].shape[0]) if self._handle is not None else 0
         )
+
+    def _try_open_swmr_writer(self) -> None:
+        self._handle = h5py.File(self.db_path, "a", libver="latest")
+        SimpleHDF5Writer._ensure_records_dataset(self._handle)
+        self._handle.flush()
+        self._handle.swmr_mode = True
+
+    def _open_streaming_handle(self, *, recover_stale: bool) -> None:
+        try:
+            self._try_open_swmr_writer()
+            return
+        except OSError as exc:
+            if _is_recoverable_hdf5_open_error(exc):
+                if not recover_stale:
+                    raise RuntimeError(
+                        "stale HDF5 writer state or file lock detected; cleanup "
+                        "the owning runtime before requesting recovery"
+                    ) from exc
+                # prepare_hdf5_database_for_writer emits the single recovery
+                # summary when actions run; do not log again here.
+                prepare_hdf5_database_for_writer(
+                    self.db_path, logger=self._logger
+                )
+                try:
+                    self._try_open_swmr_writer()
+                    return
+                except OSError:
+                    raise
+                except RuntimeError:
+                    # Pre-SWMR superblock — fall through to one-shot writer.
+                    pass
+            else:
+                # Unknown OSError — do not silently swallow.
+                raise
+        except RuntimeError:
+            # Existing pre-SWMR files cannot change their superblock in place.
+            pass
+        if self._handle is not None:
+            try:
+                self._handle.close()
+            except Exception:
+                pass
+        self._handle = None
+        self._fallback = SimpleHDF5Writer(self.db_path)
 
     @staticmethod
     def _fsync_descriptor(vfd_handle: Any) -> None:
@@ -664,12 +1149,16 @@ class RollingHDF5Writer:
         *,
         max_bytes: int = 1024 * 1024 * 1024,
         logger: Any | None = None,
+        recover_stale: bool = True,
     ) -> None:
         self.db_path = os.path.abspath(str(db_path))
         self.max_bytes = max(1, int(max_bytes))
         self._lock = threading.Lock()
         self._logger = logger
-        self._writer = StreamingHDF5Writer(self.db_path, logger=logger)
+        self._recover_stale = bool(recover_stale)
+        self._writer = StreamingHDF5Writer(
+            self.db_path, logger=logger, recover_stale=self._recover_stale
+        )
         self._records_persisted = 0
 
     @property
@@ -701,7 +1190,11 @@ class RollingHDF5Writer:
                     os.unlink(os.path.splitext(self.db_path)[0] + suffix)
                 except FileNotFoundError:
                     pass
-            self._writer = StreamingHDF5Writer(self.db_path, logger=self._logger)
+            self._writer = StreamingHDF5Writer(
+                self.db_path,
+                logger=self._logger,
+                recover_stale=self._recover_stale,
+            )
 
     def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
         with self._lock:
@@ -749,6 +1242,7 @@ __all__ = [
     "read_persisted_outcome_counts",
     "read_persisted_sample_index_state",
     "read_persisted_uuids",
+    "prepare_hdf5_database_for_writer",
     "recover_stale_hdf5_write_flag",
     "ensure_samples_csv_shards",
 ]

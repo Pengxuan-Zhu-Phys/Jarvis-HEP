@@ -318,12 +318,12 @@ def _target_expression_fields(
     sampling: Mapping[str, Any],
     cfg: Mapping[str, Any],
 ) -> list[str]:
-    block = (
-        sampling.get("AdaptiveBridson")
-        or sampling.get("adaptive_bridson")
-        or cfg.get("AdaptiveBridson")
-        or {}
-    )
+    # AdaptiveBridson knobs live under Sampling.Bounds only.
+    block = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
+    if not isinstance(block, Mapping) or not block:
+        # Allow a raw Bounds mapping passed as cfg in unit tests.
+        maybe = cfg.get("Bounds") if isinstance(cfg, Mapping) else None
+        block = maybe if isinstance(maybe, Mapping) else {}
     if not isinstance(block, Mapping):
         return []
     expr = str(

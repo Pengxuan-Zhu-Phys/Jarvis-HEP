@@ -22,7 +22,7 @@ def _card() -> dict:
         "Scan": {"name": "schema-card"},
         "Sampling": {
             "Method": "Random",
-            "Point number": 2,
+            "Bounds": {"Point number": 2},
             "Variables": [
                 {
                     "name": "x",
@@ -88,11 +88,21 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_manifest_dispatches_sampling_and_io_schemas(self) -> None:
         card = _card()
-        del card["Sampling"]["Point number"]
+        del card["Sampling"]["Bounds"]["Point number"]
         card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = "UnknownFormat"
         report = validate_task_config(card)
         errors = report.errors()
-        self.assertTrue(any(issue.code == "JV2-SCH-001" and issue.path == "$.Sampling" for issue in errors))
+        self.assertTrue(
+            any(
+                issue.code == "JV2-SCH-001"
+                and (
+                    issue.path == "$.Sampling.Bounds"
+                    or issue.path == "$.Sampling"
+                    or "Bounds" in issue.path
+                )
+                for issue in errors
+            )
+        )
         self.assertTrue(any(issue.code == "JV2-SCH-002" and issue.path.endswith("input[0].type") for issue in errors))
 
     def test_manifest_gives_each_sampling_method_its_own_schema(self) -> None:
@@ -147,7 +157,7 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_each_reported_error_has_a_correction_suggestion(self) -> None:
         card = _card()
-        del card["Sampling"]["Point number"]
+        del card["Sampling"]["Bounds"]["Point number"]
         card["Sampling"]["Variables"] = []
         card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = "UnknownFormat"
         report = validate_task_config(card)
@@ -174,7 +184,7 @@ class TaskCardSchemaTests(unittest.TestCase):
         card = _card()
         card["Sampling"].update({
             "Method": "AdaptiveBridson",
-            "AdaptiveBridson": {
+            "Bounds": {
                 "target_expression": "x",
                 "target_value": 0.5,
                 "initial_radiuz": 0.1,
@@ -182,16 +192,25 @@ class TaskCardSchemaTests(unittest.TestCase):
             },
         })
         report = validate_task_config(card)
-        issue = next(item for item in report.errors() if item.path == "$.Sampling.AdaptiveBridson")
+        issue = next(
+            item
+            for item in report.errors()
+            if item.path in {"$.Sampling.Bounds", "$.Sampling.Bounds"}
+            or item.path.startswith("$.Sampling.Bounds")
+        )
         self.assertIn("'initial_radiuz' (did you mean 'initial_radius'?)", issue.suggestion or "")
         self.assertIn("'max_pointz' (did you mean 'max_points'?)", issue.suggestion or "")
         self.assertIn("... (+", issue.suggestion or "")
 
     def test_numeric_union_error_is_actionable(self) -> None:
         card = _card()
-        card["Sampling"].update({"Method": "Bridson", "Radius": "abc", "MaxAttempt": 30})
+        card["Sampling"].update({"Method": "Bridson", "Bounds": {"Radius": "abc", "MaxAttempt": 30}})
         report = validate_task_config(card)
-        issue = next(item for item in report.errors() if item.path == "$.Sampling.Radius" and item.code == "JV2-SCH-001")
+        issue = next(
+            item
+            for item in report.errors()
+            if item.path == "$.Sampling.Bounds.Radius" and item.code == "JV2-SCH-001"
+        )
         self.assertEqual(
             issue.message,
             "expected a number (e.g. 0.05 or 1.0e-5), got the string 'abc'",
@@ -200,10 +219,27 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_numeric_string_warns_but_compatibly_passes(self) -> None:
         card = _card()
-        card["Sampling"].update({"Method": "Bridson", "Radius": "1e-1", "MaxAttempt": "30"})
+        card["Sampling"].update({"Method": "Bridson", "Bounds": {"Radius": "1e-1", "MaxAttempt": "30"}})
         report = validate_task_config(card)
-        self.assertFalse([issue for issue in report.errors() if issue.path == "$.Sampling.Radius"])
+        self.assertFalse(
+            [issue for issue in report.errors() if issue.path == "$.Sampling.Bounds.Radius"]
+        )
         self.assertTrue(any(issue.code == "JV2-SCH-003" for issue in report.warnings()))
+
+    def test_retired_sampling_top_level_knobs_are_rejected(self) -> None:
+        card = _card()
+        card["Sampling"]["Radius"] = 0.1
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                issue.code == "JV2-MTH-001" and "Radius" in issue.path
+                for issue in report.errors()
+            )
+            or any(
+                issue.code == "JV2-SCH-001" and issue.path == "$.Sampling"
+                for issue in report.errors()
+            )
+        )
 
     def test_boolean_where_string_is_required_suggests_quoting(self) -> None:
         card = _card()
@@ -222,7 +258,7 @@ class TaskCardSchemaTests(unittest.TestCase):
         card = _card()
         card["Sampling"].update({
             "Method": "AdaptiveBridson",
-            "adaptive_bridson": {"target_expression": "x", "target_value": 0.5},
+            "Bounds": {"target_expression": "x", "target_value": 0.5},
         })
         report = validate_task_config(card)
         self.assertFalse([item for item in report.errors() if item.code == "JV2-SCH-001"])

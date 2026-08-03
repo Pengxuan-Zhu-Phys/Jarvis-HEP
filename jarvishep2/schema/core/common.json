@@ -22,7 +22,13 @@
     },
     "csv": {
       "type": "object", "x-jarvis-zone": "closed", "required": ["path"],
-      "properties": {"path": {"$ref": "#/$defs/nonemptyString"}, "uuid_column": {"$ref": "#/$defs/nonemptyString"}, "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}}}, "additionalProperties": false
+      "properties": {
+        "path": {"$ref": "#/$defs/nonemptyString"},
+        "uuid_column": {"$ref": "#/$defs/nonemptyString"},
+        "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}},
+        "delimiter": {"type": "string"},
+        "encoding": {"type": "string"}
+      }, "additionalProperties": false
     },
     "operasIO": {
       "type": "object", "x-jarvis-zone": "closed", "required": ["name"],
@@ -32,7 +38,8 @@
       "type": "object", "x-jarvis-zone": "closed",
       "properties": {
         "target_expression": {"$ref": "#/$defs/nonemptyString"}, "target_value": {"$ref": "#/$defs/numeric"}, "outer_half_width": {"$ref": "#/$defs/positiveNumeric"}, "min_radius": {"$ref": "#/$defs/positiveNumeric"}, "initial_radius": {"$ref": "#/$defs/positiveNumeric"}, "refinement_factor": {"$ref": "#/$defs/positiveNumeric"}, "bridge_gaps": {"type": "boolean"}, "bridge_span_factor": {"$ref": "#/$defs/positiveNumeric"}, "max_generations": {"$ref": "#/$defs/integerish"}, "max_points": {"$ref": "#/$defs/integerish"}, "max_new_per_generation": {"$ref": "#/$defs/integerish"}, "k_ref": {"$ref": "#/$defs/integerish"}, "neighbor_graph": {"enum": ["auto", "delaunay", "knn"]}, "knn_k": {"$ref": "#/$defs/integerish"},
-        "core_half_width": {"$ref": "#/$defs/positiveNumeric"}, "threshold": {"$ref": "#/$defs/positiveNumeric"}, "function_tolerance": {"$ref": "#/$defs/positiveNumeric"}, "final_half_width": {"$ref": "#/$defs/positiveNumeric"}, "radius_shrink_mode": {"type": "string"}, "outer_shrink_factor": {"$ref": "#/$defs/positiveNumeric"}, "core_spacing_factor": {"$ref": "#/$defs/positiveNumeric"}, "min_cores_for_coverage": {"$ref": "#/$defs/integerish"}, "quiet_fill_passes": {"$ref": "#/$defs/integerish"}, "max_fill_passes": {"$ref": "#/$defs/integerish"}, "endpoint_stall_passes": {"$ref": "#/$defs/integerish"}, "endpoint_omni_probes": {"$ref": "#/$defs/integerish"}, "slice_pairs": {"type": "array"}
+        "core_half_width": {"$ref": "#/$defs/positiveNumeric"}, "threshold": {"$ref": "#/$defs/positiveNumeric"}, "function_tolerance": {"$ref": "#/$defs/positiveNumeric"}, "final_half_width": {"$ref": "#/$defs/positiveNumeric"}, "radius_shrink_mode": {"type": "string"}, "outer_shrink_factor": {"$ref": "#/$defs/positiveNumeric"}, "core_spacing_factor": {"$ref": "#/$defs/positiveNumeric"}, "min_cores_for_coverage": {"$ref": "#/$defs/integerish"}, "quiet_fill_passes": {"$ref": "#/$defs/integerish"}, "max_fill_passes": {"$ref": "#/$defs/integerish"}, "endpoint_stall_passes": {"$ref": "#/$defs/integerish"}, "endpoint_omni_probes": {"$ref": "#/$defs/integerish"}, "slice_pairs": {"type": "array"},
+        "Seed": {"$ref": "#/$defs/integerish"}, "seed": {"$ref": "#/$defs/integerish"}, "MaxWorker": {"$ref": "#/$defs/integerish"}
       }, "additionalProperties": false
     }
   }

@@ -112,9 +112,8 @@ def _als_config(
         },
         "Sampling": {
             "Method": "AdaptiveBridson",
-            "Seed": seed,
+            "Bounds": {**dict(block), "Seed": seed},
             "Variables": _flat_vars(names),
-            "AdaptiveBridson": block,
         },
         "Operas": {
             "Modules": [
@@ -205,18 +204,15 @@ class LiveBandUnitTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
-                    "Seed": 1,
-                    "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r2",
+                    "Bounds": {"target_expression": "r2",
                         "target_value": target,
                         "initial_radius": 0.2,
                         "core_half_width": 0.01,
                         "outer_half_width": 0.05,
                         "threshold": 0.01,
                         "max_generations": 5,
-                        "radius_shrink_mode": "on_fill",
-                    },
+                        "radius_shrink_mode": "on_fill", "Seed": 1},
+                    "Variables": _flat_vars(["x", "y"]),
                 },
                 "Runtime": {"workers": 1},
             }
@@ -1317,7 +1313,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                 "Sampling": {
                     "Method": "AdaptiveBridson",
                     "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
+                    "Bounds": {
                         "target_expression": "r2",
                         "target_value": 0.04,
                         "outer_half_width": 0.02,
@@ -1357,7 +1353,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                                 },
                             }
                         ],
-                        "AdaptiveBridson": {
+                        "Bounds": {
                             "target_expression": "x",
                             "target_value": 0.5,
                             "threshold": 0.01,
@@ -1374,7 +1370,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                     "Sampling": {
                         "Method": "AdaptiveBridson",
                         "Variables": _flat_vars(["x", "y"]),
-                        "AdaptiveBridson": {"target_value": 0.5},
+                        "Bounds": {"target_value": 0.5},
                     }
                 }
             )
@@ -1385,14 +1381,11 @@ class AdaptiveConfigTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
-                    "Seed": 0,
-                    "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r2",
+                    "Bounds": {"target_expression": "r2",
                         "target_value": 0.04,
                         "threshold": 0.02,
-                        "initial_radius": 0.1,
-                    },
+                        "initial_radius": 0.1, "Seed": 0},
+                    "Variables": _flat_vars(["x", "y"]),
                 },
                 "Runtime": {"workers": 1},
             }
@@ -1408,7 +1401,7 @@ class AdaptiveConfigTests(unittest.TestCase):
                 "Sampling": {
                     "Method": "AdaptiveBridson",
                     "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
+                    "Bounds": {
                         "target_expression": "r2",
                         "target_value": 0.04,
                         "initial_radius": 0.004,
@@ -1612,14 +1605,11 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
-                    "Seed": 3,
-                    "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r2",
+                    "Bounds": {"target_expression": "r2",
                         "target_value": 0.04,
                         "threshold": 0.05,
-                        "initial_radius": 0.1,
-                    },
+                        "initial_radius": 0.1, "Seed": 3},
+                    "Variables": _flat_vars(["x", "y"]),
                 },
                 "Runtime": {"workers": 1},
             }
@@ -1661,20 +1651,21 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                 "pending_attempt": False,
             }
         }
+        s._n_radius_refines = 3
+        s._generation = 3
         state = s.export_runtime_state()
+        # Simulate an older checkpoint whose feedback generation drifted.
+        state["generation"] = 99
         s2 = AdaptiveBridsonSampler()
         s2.set_config(
             {
                 "Sampling": {
                     "Method": "AdaptiveBridson",
-                    "Seed": 3,
-                    "Variables": _flat_vars(["x", "y"]),
-                    "AdaptiveBridson": {
-                        "target_expression": "r2",
+                    "Bounds": {"target_expression": "r2",
                         "target_value": 0.04,
                         "threshold": 0.05,
-                        "initial_radius": 0.1,
-                    },
+                        "initial_radius": 0.1, "Seed": 3},
+                    "Variables": _flat_vars(["x", "y"]),
                 },
                 "Runtime": {"workers": 1},
             }
@@ -1682,6 +1673,9 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
         s2.import_runtime_state(state)
         self.assertEqual(len(s2._points), 1)
         self.assertAlmostEqual(s2._radius, 0.05)
+        # Generation must follow shrink count for SeedSequence.spawn(generation).
+        self.assertEqual(s2._n_radius_refines, 3)
+        self.assertEqual(s2._generation, 3)
         self.assertAlmostEqual(float(s2._t_min or 0), 0.03)
         self.assertAlmostEqual(float(s2._t_max or 0), 0.05)
         self.assertIn(s2._u_key(historical), s2._submitted_u_keys)

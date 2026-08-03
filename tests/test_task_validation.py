@@ -97,7 +97,8 @@ class TaskValidationKernelTests(unittest.TestCase):
                 handle.write(
                     "# \u8fd9\u662f\u5141\u8bb8\u7684\u4e2d\u6587\u6ce8\u91ca\n"
                     "Scan:\n  name: ascii-scan\n"
-                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "Sampling:\n  Method: Random\n"
+                    "  Bounds:\n    Point number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -304,6 +305,19 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ENV-012" for i in report.errors()))
 
+    def test_nested_run_nested_rejects_hep_owned_checkpoint_keys(self) -> None:
+        """Checkpoint interval is EnvReqs.V2 only — not Sampling.Bounds.run_nested."""
+        cfg = _minimal_dynesty_config()
+        cfg["Sampling"]["Bounds"]["run_nested"] = {
+            "dlogz": 0.5,
+            "checkpoint_every": 15,
+            "checkpoint_file": "foo.pkl",
+            "resume": True,
+        }
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        self.assertTrue(any(i.code == "JV2-BND-021" for i in report.errors()))
+
     def test_bridson_requires_length_and_radius(self) -> None:
         cfg = {
             "Scan": {"name": "b"},
@@ -492,7 +506,8 @@ class TaskValidationCliTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(
                     "Scan:\n  name: \u6697\u7269\u8d28\n"
-                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "Sampling:\n  Method: Random\n"
+                    "  Bounds:\n    Point number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -510,7 +525,8 @@ class TaskValidationCliTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write(
                     "Scan:\n  name: typo-scan\n"
-                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "Sampling:\n  Method: Random\n"
+                    "  Bounds:\n    Point number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -567,7 +583,8 @@ class TaskValidationCliTests(unittest.TestCase):
                     "Scan:\n  name: v\n"
                     "Sampling:\n"
                     "  Method: Random\n"
-                    "  Point number: 10\n"
+                    "  Bounds:\n"
+                    "    Point number: 10\n"
                     "  Variables:\n"
                     "    - name: x\n"
                     "      description: d\n"

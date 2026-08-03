@@ -17,10 +17,13 @@ class DiagnosticGuidanceTests(unittest.TestCase):
 
     def test_known_method_guidance_is_copyable(self) -> None:
         suggestion, example = guidance_for(
-            "JV2-MTH-020", "Sampling['Point number']", "Random requires a point number"
+            "JV2-MTH-020",
+            "Sampling.Bounds['Point number']",
+            "Random requires a point number",
         )
         self.assertIn("Point number", suggestion)
-        self.assertEqual(example, "Point number: 100")
+        self.assertIn("Bounds", example or "")
+        self.assertIn("Point number: 100", example or "")
 
     def test_warning_promotion_keeps_guidance_and_example(self) -> None:
         report = ValidationReport([issue(

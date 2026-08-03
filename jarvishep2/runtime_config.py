@@ -424,9 +424,32 @@ def get_redis_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return normalized runtime knobs for samplers and Core.
+
+    User-facing YAML lives under ``EnvReqs.V2`` (workers, batch_size,
+    ``checkpoint_heartbeat_sec``, …).  ``load_task_yaml`` projects those into
+    an internal ``Runtime`` adapter; this helper also reads ``EnvReqs.V2``
+    directly so ``set_config`` paths and unit tests that skip the loader still
+    see the same values.  ``EnvReqs.V2`` wins over a bare ``Runtime`` for the
+    supported scheduling scalars.
+    """
     if not isinstance(config, Mapping):
         return dict(RUNTIME_DEFAULTS)
-    return normalize_runtime_block(config.get("Runtime"))
+    payload: dict[str, Any] = {}
+    raw_runtime = config.get("Runtime")
+    if isinstance(raw_runtime, Mapping):
+        payload.update(dict(raw_runtime))
+    envreqs = config.get("EnvReqs")
+    if isinstance(envreqs, Mapping):
+        v2 = envreqs.get("V2")
+        if isinstance(v2, Mapping):
+            for key in ("workers", "batch_size", "checkpoint_heartbeat_sec"):
+                if key in v2:
+                    payload[key] = v2[key]
+            for key in ("redis", "factory", "Factory", "worker"):
+                if key in v2 and key not in payload:
+                    payload[key] = v2[key]
+    return normalize_runtime_block(payload)
 
 
 def workflow_has_calculator(config: Mapping[str, Any] | None) -> bool:

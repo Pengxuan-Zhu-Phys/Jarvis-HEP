@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import h5py
 import numpy as np
 
 from jarvishep2.archive_handoff import move_tree, stage_sample_dir
@@ -37,6 +38,35 @@ from test_worker_calculator import (
 )
 
 
+def _make_dirty_swmr_hdf5(db_path: str, *, records: list[dict] | None = None) -> None:
+    """Create a samples.hdf5 with a stale write/SWMR superblock flag (no h5clear)."""
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    rows = records if records is not None else [{"uuid": "u-seed", "x": 1.0}]
+    with h5py.File(db_path, "a", libver="latest") as handle:
+        payload = np.array(
+            [json.dumps(row, ensure_ascii=False) for row in rows],
+            dtype=h5py.string_dtype(encoding="utf-8"),
+        )
+        handle.create_dataset("records", data=payload, maxshape=(None,))
+        handle.attrs["schema_version"] = 1
+    # Leave the write consistency flag set by hard-exiting a SWMR writer.
+    script = (
+        "import h5py, os\n"
+        f"f = h5py.File({db_path!r}, 'a', libver='latest')\n"
+        "f.flush()\n"
+        "f.swmr_mode = True\n"
+        "os._exit(0)\n"
+    )
+    completed = subprocess.run(
+        [os.environ.get("PYTHON", "python3"), "-c", script],
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"failed to dirty SWMR flag on {db_path}")
+
+
 class ArchiveHandoffUnitTests(unittest.TestCase):
     def test_resume_probe_uses_write_access_before_clearing_stale_flag(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -49,41 +79,135 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 ) as open_hdf5,
                 mock.patch("jarvishep2.database._clear_stale_swmr_write_flag") as clear,
             ):
+                # prepare retries after clear; allow a successful second open.
+                open_hdf5.side_effect = [
+                    OSError("file is already open for write/SWMR write"),
+                    mock.MagicMock(),
+                ]
+                clear.return_value = "swmr_flag_rewrite"
                 self.assertTrue(recover_stale_hdf5_write_flag(db_path))
-            open_hdf5.assert_called_once_with(db_path, "r+", libver="latest")
             clear.assert_called_once_with(db_path)
+
+    def test_prepare_recovers_os_file_lock_via_inode_replace(self) -> None:
+        from jarvishep2.database import prepare_hdf5_database_for_writer
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "samples.hdf5")
+            # Real minimal HDF5 so copy/replace keeps a valid file.
+            with h5py.File(db_path, "a", libver="latest") as handle:
+                handle.create_dataset("records", data=[], maxshape=(None,))
+            lock_err = BlockingIOError(
+                35, "Unable to synchronously open file (unable to lock file)"
+            )
+            # First probe fails with lock; after inode replace, probe succeeds.
+            real_file = h5py.File
+            calls = {"n": 0}
+
+            def _open(path, mode="r", **kwargs):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise lock_err
+                return real_file(path, mode, **kwargs)
+
+            with (
+                mock.patch("jarvishep2.database.h5py.File", side_effect=_open),
+                mock.patch("jarvishep2.database._list_file_holder_pids", return_value=[]),
+                mock.patch(
+                    "jarvishep2.database._clear_stale_swmr_write_flag",
+                    side_effect=RuntimeError("pure-python clear not needed for lock test"),
+                ),
+            ):
+                actions = prepare_hdf5_database_for_writer(db_path, retries=3)
+            self.assertIn("inode_replace_break_lock", actions)
+            # File still openable for real.
+            with real_file(db_path, "a", libver="latest"):
+                pass
+
+    def test_pure_python_clears_stale_swmr_flag_without_h5clear(self) -> None:
+        """Resume recovery rewrites superblock in pure h5py — no external h5clear."""
+        from jarvishep2.database import (
+            _clear_stale_swmr_write_flag_python,
+            _needs_swmr_status_flag_clear,
+            prepare_hdf5_database_for_writer,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "samples.hdf5")
+            _make_dirty_swmr_hdf5(
+                db_path, records=[{"uuid": "u-keep", "x": 3.14, "LogL": -1.0}]
+            )
+            # Dirty flag must block normal append open.
+            with self.assertRaises(OSError):
+                with h5py.File(db_path, "a", libver="latest"):
+                    pass
+            self.assertTrue(_needs_swmr_status_flag_clear(db_path))
+
+            # Pure-Python rewrite must not shell out to h5clear.
+            with (
+                mock.patch(
+                    "jarvishep2.database.shutil.which",
+                    side_effect=AssertionError("must not look up h5clear"),
+                ),
+                mock.patch(
+                    "jarvishep2.database.subprocess.run",
+                    side_effect=AssertionError("must not invoke h5clear"),
+                ),
+            ):
+                _clear_stale_swmr_write_flag_python(db_path)
+
+            self.assertFalse(_needs_swmr_status_flag_clear(db_path))
+            with h5py.File(db_path, "a", libver="latest") as handle:
+                self.assertEqual(int(handle["records"].shape[0]), 1)
+                raw = handle["records"][0]
+                if isinstance(raw, bytes):
+                    raw = raw.decode("utf-8")
+                self.assertEqual(json.loads(raw)["uuid"], "u-keep")
+
+            # prepare_hdf5_database_for_writer on an already-clean file is a no-op.
+            logger = mock.Mock()
+            actions = prepare_hdf5_database_for_writer(db_path, logger=logger)
+            self.assertEqual(actions, [])
+            logger.warning.assert_not_called()
+
+    def test_prepare_logs_single_summary_for_swmr_rewrite(self) -> None:
+        from jarvishep2.database import prepare_hdf5_database_for_writer
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "samples.hdf5")
+            _make_dirty_swmr_hdf5(db_path)
+            logger = mock.Mock()
+            with mock.patch(
+                "jarvishep2.database.shutil.which",
+                return_value=None,  # force pure-Python only (no h5clear fallback)
+            ):
+                actions = prepare_hdf5_database_for_writer(db_path, logger=logger)
+            self.assertEqual(actions, ["swmr_flag_rewrite"])
+            self.assertEqual(logger.warning.call_count, 1)
+            msg = " ".join(str(a) for a in logger.warning.call_args[0])
+            self.assertIn("swmr_flag_rewrite", msg)
+            self.assertIn("Recovered HDF5 database", msg)
+            with h5py.File(db_path, "a", libver="latest"):
+                pass
 
     def test_streaming_writer_recovers_stale_swmr_status_and_logs_warning(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
-            os.makedirs(os.path.dirname(db_path))
-            open(db_path, "wb").close()
-            handle = mock.MagicMock()
-            handle.__contains__.return_value = True
-            handle.__getitem__.return_value.shape = (0,)
+            _make_dirty_swmr_hdf5(db_path)
             logger = mock.Mock()
-            with (
-                mock.patch(
-                    "jarvishep2.database.h5py.File",
-                    side_effect=[
-                        OSError("file is already open for write/SWMR write"),
-                        handle,
-                    ],
-                ) as open_hdf5,
-                mock.patch("jarvishep2.database.shutil.which", return_value="/usr/bin/h5clear"),
-                mock.patch("jarvishep2.database.subprocess.run") as clear,
+            # No h5clear on PATH — pure Python must be enough.
+            with mock.patch(
+                "jarvishep2.database.shutil.which", return_value=None
             ):
-                clear.return_value = subprocess.CompletedProcess([], 0, "", "")
-                writer = StreamingHDF5Writer(db_path, logger=logger, recover_stale=True)
-            self.assertEqual(open_hdf5.call_count, 2)
-            clear.assert_called_once_with(
-                ["/usr/bin/h5clear", "-s", db_path],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            logger.warning.assert_called_once()
+                writer = StreamingHDF5Writer(
+                    db_path, logger=logger, recover_stale=True
+                )
+            self.assertEqual(logger.warning.call_count, 1)
+            msg = " ".join(str(a) for a in logger.warning.call_args[0])
+            self.assertIn("swmr_flag_rewrite", msg)
+            self.assertEqual(writer.records_persisted, 1)
+            writer.add_record({"uuid": "u-new", "x": 2.0})
             writer.close()
+            self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 2)
 
     def test_streaming_writer_publishes_one_fsynced_batch(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
