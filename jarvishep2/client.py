@@ -23,7 +23,6 @@ from rich.text import Text
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
-from jarvishep2.plot_bridge import PlotBridgeError, run_plot
 from jarvishep2.references import render_references
 from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.run_outcome import (
@@ -427,7 +426,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis2 validate TASK.yaml [--strict] [--json]\n"
             "  Jarvis2 convert TASK.yaml\n"
             "  Jarvis2 monitor\n"
-            "  Jarvis2 plot PLOT.yaml\n"
+            "  Jarvis2 plot …              # same CLI as jplot\n"
             "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis2 operas …            # same CLI as jopera\n"
             "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
@@ -551,8 +550,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Running scan reference from `Jarvis2 monitor` (for example R1)",
     )
 
-    plot_p = sub.add_parser("plot", help="Render a JarvisPLOT scene YAML")
-    plot_p.add_argument("plot_yaml", help="Path to plot scene YAML")
+    # ``plot`` is handled by argv passthrough in main(), matching jplot.
+    sub.add_parser("plot", help="Jarvis-PLOT CLI (same as jplot)", add_help=False)
 
     scene_p = sub.add_parser(
         "gen-plot-yaml",
@@ -841,22 +840,22 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         redis.close()
 
 
-def dispatch_plot(plot_yaml: str, *, legacy: bool = False) -> int:
-    if not plot_yaml:
-        print("Plot YAML is required (usage: Jarvis2 plot scene.yaml).", file=sys.stderr)
-        return EXIT_USAGE
-    if legacy:
+def dispatch_plot(plot_argv: list[str] | None = None) -> int:
+    """Forward the complete Jarvis-PLOT CLI without duplicating its surface."""
+    try:
+        from jarvisplot.client import main as plot_main
+    except ImportError as exc:
         print(
-            "warning: `Jarvis2 <plot.yaml> --plot` is deprecated; use `Jarvis2 plot <plot.yaml>`",
+            "Jarvis-PLOT is required for `Jarvis2 plot`. "
+            "Install it with `pip install 'jarvishep2[plot]'` "
+            f"(or `pip install -e ../Jarvis-PLOT`). Detail: {exc}",
             file=sys.stderr,
         )
-    try:
-        return int(run_plot(plot_yaml))
-    except ImportError as exc:
-        print(str(exc), file=sys.stderr)
         return EXIT_USAGE
-    except PlotBridgeError as exc:
-        print(str(exc), file=sys.stderr)
+    try:
+        return int(plot_main(list(plot_argv or [])))
+    except Exception as exc:
+        print(f"Jarvis2 plot failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
 
@@ -1732,9 +1731,7 @@ def dispatch(args: argparse.Namespace) -> int:
     if intent == "monitor":
         return dispatch_monitor(args)
     if intent == "plot":
-        plot_yaml = getattr(args, "plot_yaml", None) or args.task_yaml
-        legacy = getattr(args, "command", None) is None
-        return dispatch_plot(str(plot_yaml or ""), legacy=legacy)
+        return dispatch_plot([])
     if intent == "gen-plot-yaml":
         return dispatch_gen_plot_yaml(str(getattr(args, "task_yaml", "") or ""))
     if intent == "portal":
@@ -1809,6 +1806,9 @@ def main(argv: list[str] | None = None) -> int:
     # Full jportal-compatible surface: do not let argparse eat portal args.
     if normalized and normalized[0] == "portal":
         return dispatch_portal(normalized[1:])
+    # Full jplot-compatible surface: do not let argparse consume its args.
+    if normalized and normalized[0] == "plot":
+        return dispatch_plot(normalized[1:])
     # Full jopera-compatible surface: do not let argparse consume its args.
     if normalized and normalized[0] == "operas":
         return dispatch_operas(normalized[1:])

@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from jarvishep2.client import build_parser, dispatch
+from jarvishep2.client import main, normalize_argv
 from jarvishep2.plot_bridge import PlotBridgeError, run_plot
 
 
@@ -48,30 +48,20 @@ class PlotBridgeUnitTests(unittest.TestCase):
 
 class PlotCliTests(unittest.TestCase):
     def test_parse_plot_flag(self) -> None:
-        args = build_parser().parse_args(["--plot", "scene.yaml"])
-        self.assertTrue(args.plot)
-        self.assertEqual(args.task_yaml, "scene.yaml")
+        self.assertEqual(
+            normalize_argv(["scene.yaml", "--plot"]),
+            ["plot", "scene.yaml"],
+        )
 
-    def test_dispatch_plot_routes_to_bridge(self) -> None:
-        args = build_parser().parse_args(["--plot", "scene.yaml"])
-        with mock.patch("jarvishep2.client.run_plot", return_value=0) as run:
-            code = dispatch(args)
-        self.assertEqual(code, 0)
-        run.assert_called_once_with("scene.yaml")
+    def test_plot_passthrough_forwards_the_complete_jplot_argv(self) -> None:
+        with mock.patch("jarvisplot.client.main", return_value=7) as plot_main:
+            self.assertEqual(main(["plot", "scene.yaml", "--dpi", "300"]), 7)
+        plot_main.assert_called_once_with(["scene.yaml", "--dpi", "300"])
 
-    def test_dispatch_plot_missing_yaml_is_usage(self) -> None:
-        args = build_parser().parse_args(["--plot"])
-        code = dispatch(args)
-        self.assertEqual(code, 2)
-
-    def test_dispatch_plot_missing_package_is_exit_2(self) -> None:
-        args = build_parser().parse_args(["--plot", "scene.yaml"])
-        with mock.patch(
-            "jarvishep2.client.run_plot",
-            side_effect=ImportError("install plot"),
-        ):
-            code = dispatch(args)
-        self.assertEqual(code, 2)
+    def test_legacy_plot_flag_normalizes_to_the_jplot_passthrough(self) -> None:
+        with mock.patch("jarvisplot.client.main", return_value=0) as plot_main:
+            self.assertEqual(main(["scene.yaml", "--plot", "--dpi", "300"]), 0)
+        plot_main.assert_called_once_with(["scene.yaml", "--dpi", "300"])
 
 
 if __name__ == "__main__":
