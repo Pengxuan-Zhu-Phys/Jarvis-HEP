@@ -78,6 +78,24 @@ _PLOT_AXIS_SKIP = frozenset(
 )
 
 
+def _mapper_names_from_config(config: Mapping[str, Any] | None) -> list[str]:
+    """``Sampling.Mapper`` key order (D22 plot-axis preference)."""
+    if not isinstance(config, Mapping):
+        return []
+    sampling = config.get("Sampling")
+    if not isinstance(sampling, Mapping):
+        return []
+    mapper = sampling.get("Mapper")
+    if not isinstance(mapper, Mapping):
+        return []
+    names: list[str] = []
+    for key in mapper:
+        name = str(key).strip()
+        if name:
+            names.append(name)
+    return names
+
+
 def _variable_names_from_config(config: Mapping[str, Any] | None) -> list[str]:
     if not isinstance(config, Mapping):
         return []
@@ -130,6 +148,7 @@ def resolve_plot_axis_keys(
     """Pick scatter / axis column names from levelset, task config, or archive.
 
     Prefer ``levelset.json`` ``variable_names`` (AdaptiveBridson), then
+    ``Sampling.Mapper`` write order (D22 physical axes), then
     ``Sampling.Variables`` order, then numeric-looking archive columns. Falls
     back to the explicit ``x_key`` / ``y_key`` defaults only when nothing else
     matches (legacy Eggbox ``x``/``y`` scans).
@@ -137,6 +156,7 @@ def resolve_plot_axis_keys(
     color = str(color_key or "LogL").strip() or "LogL"
     preferred = (
         _variable_names_from_levelset(levelset)
+        or _mapper_names_from_config(config)
         or _variable_names_from_config(config)
     )
     columns = _columns_from_records(records)

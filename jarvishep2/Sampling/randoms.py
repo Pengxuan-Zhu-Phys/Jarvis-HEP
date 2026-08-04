@@ -11,7 +11,7 @@ from jarvishep2.Sampling.fixed_set_sampler import FixedSetSampler
 from jarvishep2.Sampling.sampling_utils import (
     BoolConversionError,
     evaluate_selection,
-    map_u_to_physical,
+    physical_from_u,
 )
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
@@ -50,7 +50,11 @@ class RandomS(FixedSetSampler):
         # Seed 0 is valid and must reseed for reproducible resume trajectories.
         np.random.seed(int(self._seed))
         if self._selectionexp:
-            probe = map_u_to_physical(np.random.rand(self._dimensions), self.vars)
+            probe = physical_from_u(
+                np.random.rand(self._dimensions),
+                self.vars,
+                self._mapper_pipeline,
+            )
             try:
                 evaluate_selection(
                     self._selectionexp,
@@ -70,7 +74,7 @@ class RandomS(FixedSetSampler):
         while self._index < self._maxp:
             u_coords = np.random.random(self._dimensions).astype(np.float64)
             self._index += 1
-            physical = map_u_to_physical(u_coords, self.vars)
+            physical = physical_from_u(u_coords, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
                 physical,

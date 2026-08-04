@@ -22,17 +22,28 @@ from jarvishep2.runtime_config import (
 
 
 def _default_mapper(cfg: Mapping[str, Any]) -> dict[str, Any]:
-    mapper = cfg.get("Mapper")
-    if isinstance(mapper, Mapping):
-        return dict(mapper)
+    """Build picklable Worker mapper config (D22: MapperPipeline / MapperSpec).
+
+    Top-level ``Mapper`` is not a V2 interface (schema-rejected).  Optional
+    Optional ``Sampling.Mapper`` (name → expression) is folded into a pipeline
+    spec so Workers share the same u→params implementation as the control process.
+    """
     sampling = cfg.get("Sampling") if isinstance(cfg.get("Sampling"), Mapping) else {}
     method = str(sampling.get("Method") or "").strip()
     if method == "CSV":
         return {"type": "none"}
     variables = sampling.get("Variables")
-    if variables:
+    if not variables:
+        return {"type": "identity", "keys": ["x", "y"]}
+    try:
+        from jarvishep2.mapper import MapperSpec, build_mapper_spec_from_config
+
+        spec: MapperSpec = build_mapper_spec_from_config(cfg)
+        return {"type": "pipeline", "spec": spec.to_dict()}
+    except Exception:
+        # Fall back to distribution-only so a Worker can still start if the
+        # card was not re-validated (tests inject partial configs).
         return {"type": "distribution", "variables": list(variables)}
-    return {"type": "identity", "keys": ["x", "y"]}
 
 
 def _config_references_sdir(modules: list[dict[str, Any]]) -> bool:

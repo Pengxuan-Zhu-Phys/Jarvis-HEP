@@ -71,6 +71,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     RESUME_PROMPT,
     build_payload,
     build_run_spec,
+    check_mapper_fingerprint,
     checkpoint_path,
     load_checkpoint,
     prepare_resume,
@@ -1412,6 +1413,19 @@ class Jarvis2Core:
             self._logger.warning("Checkpoint rejected -> %s", exc)
             self._resume_checkpoint_payload = None
             self._resume_policy = "fresh"
+            return
+        # D22.5: refuse resume when Sampling.Mapper / Variables fingerprint drifts.
+        ok_mapper, mapper_reason = check_mapper_fingerprint(payload, self.config)
+        if not ok_mapper:
+            self._logger.error("Checkpoint rejected (starting fresh) -> %s", mapper_reason)
+            self._resume_checkpoint_payload = None
+            self._resume_policy = "fresh"
+            # Drop the stale checkpoint so a subsequent auto-resume cannot
+            # silently rebind uuid → coordinates under a changed Mapper.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
             return
         self._resume_checkpoint_payload = payload
 

@@ -33,7 +33,7 @@ from jarvishep2.Sampling.Source.MCMC.engine_demcmc import DEMCMCChain
 from jarvishep2.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
-from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
+from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
@@ -81,6 +81,7 @@ class MCMCSampler(FeedbackSampler):
         self.method = str(method_name)
         self._logger = get_jarvis_logger(f"sampler.{self.method.lower()}")
         self.vars: list = []
+        self._mapper_pipeline = None
         self._dim = 0
         self._nchains = 1
         self._niters = 1
@@ -120,6 +121,9 @@ class MCMCSampler(FeedbackSampler):
         sampling = dict(self.config.get("Sampling") or {})
         runtime = get_runtime_block(self.config)
         self.vars = load_variables(self.config)
+        from jarvishep2.mapper import MapperPipeline
+
+        self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._dim = len(self.vars)
         if self._dim < 1:
             raise ValueError(f"{self.method} requires at least one Sampling.Variable")
@@ -387,7 +391,7 @@ class MCMCSampler(FeedbackSampler):
         # Selection filter: redraw (selection-only; does not advance iterations).
         if self._selectionexp:
             for _ in range(4096):
-                physical = map_u_to_physical(u, self.vars)
+                physical = physical_from_u(u, self.vars, self._mapper_pipeline)
                 if evaluate_selection(
                     self._selectionexp,
                     physical,

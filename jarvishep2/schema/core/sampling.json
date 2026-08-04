@@ -24,6 +24,16 @@
     "points_csv": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
     "LogLikelihood": {"type": "array"},
     "loglikelihood": {"type": "array"},
+    "Mapper": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "description": "Optional pure u→physical reparameterization after Variables[].distribution (D22). Ordered name → expression map. Omitted → distribution-only mapping (backward compatible). Expressions see Variables and prior Mapper names only (closed namespace).",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      },
+      "x-jarvis-example": "Mapper:\n  x: \"cos(t)\"\n  y: \"sin(t)\""
+    },
     "Nuisance": {
       "type": "object",
       "x-jarvis-zone": "delegated",

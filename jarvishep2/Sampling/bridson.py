@@ -14,7 +14,7 @@ from scipy.special import gammainc
 from jarvishep2.Sampling.fixed_set_sampler import FixedSetSampler
 from jarvishep2.Sampling.sampling_utils import (
     evaluate_selection,
-    map_row_to_physical,
+    physical_from_u,
     row_to_u_coords,
 )
 from jarvishep2.log_kv import format_duration
@@ -192,7 +192,8 @@ class Bridson(FixedSetSampler):
             self._index += 1
             # V1 progress heartbeat: advance on every grid step (even if selection rejects).
             self._emit_progress()
-            physical = map_row_to_physical(row, self.vars)
+            u_coords = row_to_u_coords(row, self.vars)
+            physical = physical_from_u(u_coords, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
                 physical,
@@ -201,7 +202,7 @@ class Bridson(FixedSetSampler):
                 continue
             accepted_index = self._accepted_index
             self._accepted_index += 1
-            sample = self._build_sample(row_to_u_coords(row, self.vars))
+            sample = self._build_sample(u_coords)
             sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
             return sample

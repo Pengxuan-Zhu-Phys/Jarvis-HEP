@@ -37,12 +37,14 @@ class FixedSetSampler(CheckpointedSampler):
         {
             "vars", "_batch_size", "_max_inflight", "_logger",
             "_backpressure_last_log", "_checkpoint_heartbeat_sec",
+            "_mapper_pipeline",
         }
     )
 
     def __init__(self) -> None:
         super().__init__()
         self.vars: list[Variable] = []
+        self._mapper_pipeline = None
         self._index = 0
         self._accepted_index = 0
         self._selectionexp: str | None = None
@@ -59,6 +61,9 @@ class FixedSetSampler(CheckpointedSampler):
         bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
         runtime = get_runtime_block(self.config)
         self.vars = load_variables(self.config)
+        from jarvishep2.mapper import MapperPipeline
+
+        self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._selectionexp = sampling.get("selection")
         # Seed and MaxWorker are method knobs → Sampling.Bounds only.
         self._seed = int(bounds.get("Seed", bounds.get("seed", 0)) or 0)

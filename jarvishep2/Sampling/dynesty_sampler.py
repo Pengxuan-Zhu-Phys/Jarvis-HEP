@@ -33,7 +33,7 @@ import numpy as np
 
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
-from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
+from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
@@ -589,6 +589,7 @@ class DynestySampler(FeedbackSampler):
         super().__init__()
         self._logger = get_jarvis_logger("sampler.dynesty")
         self.vars: list = []
+        self._mapper_pipeline = None
         self._dim = 0
         self._nlive = 100
         self._dlogz = 0.5
@@ -621,6 +622,9 @@ class DynestySampler(FeedbackSampler):
         sampling = dict(self.config.get("Sampling") or {})
         runtime = get_runtime_block(self.config)
         self.vars = load_variables(self.config)
+        from jarvishep2.mapper import MapperPipeline
+
+        self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._dim = len(self.vars)
         if self._dim < 1:
             raise ValueError(f"{self.method} requires at least one Sampling.Variable")
@@ -702,7 +706,7 @@ class DynestySampler(FeedbackSampler):
         sample = self._build_sample(u)
         sample.uuid = uuid
         if self._selectionexp:
-            physical = map_u_to_physical(u, self.vars)
+            physical = physical_from_u(u, self.vars, self._mapper_pipeline)
             if not evaluate_selection(
                 self._selectionexp, physical, context=self._expression_context
             ):

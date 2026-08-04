@@ -40,7 +40,7 @@ import numpy as np
 
 from jarvishep2.Sampling.bridson import Bridson_sampling, hypersphere_surface_sample
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
-from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
+from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.expression import CompiledExpression
@@ -296,6 +296,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         super().__init__()
         self._logger = get_jarvis_logger("sampler.adaptive_bridson")
         self.vars: list = []
+        self._mapper_pipeline = None
         self._dim = 0
         self._target_expression = ""
         self._target_value = 0.0
@@ -384,6 +385,9 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         sampling = dict(self.config.get("Sampling") or {})
         runtime = get_runtime_block(self.config)
         self.vars = load_variables(self.config)
+        from jarvishep2.mapper import MapperPipeline
+
+        self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._dim = len(self.vars)
         if self._dim < 2 or self._dim > 5:
             raise ValueError(
@@ -734,7 +738,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         accepted: list[np.ndarray] = []
         n_reject = 0
         for u in us:
-            physical = map_u_to_physical(u, self.vars)
+            physical = physical_from_u(u, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
                 physical,
@@ -1044,7 +1048,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     continue
                 if not sep_index.far_enough(cand):
                     continue
-                physical = map_u_to_physical(cand, self.vars)
+                physical = physical_from_u(cand, self.vars, self._mapper_pipeline)
                 if self._selectionexp and not evaluate_selection(
                     self._selectionexp,
                     physical,
@@ -2152,7 +2156,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     continue
                 if not sep_index.far_enough(cand):
                     continue
-                physical = map_u_to_physical(cand, self.vars)
+                physical = physical_from_u(cand, self.vars, self._mapper_pipeline)
                 if self._selectionexp and not evaluate_selection(
                     self._selectionexp,
                     physical,
@@ -2524,7 +2528,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             return False
         if not sep_index.far_enough(cand):
             return False
-        physical = map_u_to_physical(cand, self.vars)
+        physical = physical_from_u(cand, self.vars, self._mapper_pipeline)
         if self._selectionexp and not evaluate_selection(
             self._selectionexp,
             physical,
@@ -2745,7 +2749,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         for u in self._filter_blue_noise(us, min_distance=self._radius):
             if self._unique_point_count() >= self._max_points:
                 break
-            physical = map_u_to_physical(u, self.vars)
+            physical = physical_from_u(u, self.vars, self._mapper_pipeline)
             uuid = self._next_uuid()
             point = LevelSetPoint(
                 u=[float(x) for x in u],

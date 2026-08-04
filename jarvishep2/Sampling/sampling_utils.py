@@ -57,9 +57,18 @@ def evaluate_selection(
 
 
 def map_u_to_physical(u_coords, variables: list[Variable]) -> dict[str, float]:
+    """Distribution-only mapping (no derive). Prefer :class:`MapperPipeline.map`.
+
+    Kept as the internal fast path used when a sampler has not yet attached a
+    pipeline, and for unit tests that exercise Variables without Mapper.
+    """
     import numpy as np
 
     coords = np.asarray(u_coords, dtype=np.float64).reshape(-1)
+    if len(coords) != len(variables):
+        raise ValueError(
+            f"u_coords length {len(coords)} must equal variable count {len(variables)}"
+        )
     mapped: dict[str, float] = {}
     for index, var in enumerate(variables):
         mapped[var.name] = var.map_standard_random_to_distribution(float(coords[index]))
@@ -67,6 +76,11 @@ def map_u_to_physical(u_coords, variables: list[Variable]) -> dict[str, float]:
 
 
 def map_row_to_physical(row, variables: list[Variable]) -> dict[str, float]:
+    """Distribution-only row mapping. Prefer pipeline.map(row_to_u_coords(...))."""
+    if len(row) != len(variables):
+        raise ValueError(
+            f"row length {len(row)} must equal variable count {len(variables)}"
+        )
     mapped: dict[str, float] = {}
     for index, var in enumerate(variables):
         length = float(var.parameters.get("length", 1.0) or 1.0)
@@ -85,10 +99,18 @@ def row_to_u_coords(row, variables: list[Variable]):
     return np.asarray(coords, dtype=np.float64)
 
 
+def physical_from_u(u_coords, variables: list[Variable], pipeline=None) -> dict[str, float]:
+    """Map unit-cube coords via pipeline when present, else distribution-only."""
+    if pipeline is not None:
+        return pipeline.map(u_coords)
+    return map_u_to_physical(u_coords, variables)
+
+
 __all__ = [
     "BoolConversionError",
     "evaluate_selection",
     "map_row_to_physical",
     "map_u_to_physical",
+    "physical_from_u",
     "row_to_u_coords",
 ]

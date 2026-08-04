@@ -162,12 +162,16 @@ def build_payload(
     safe_barrier_confirmed: bool = True,
 ) -> dict[str, Any]:
     created_at = utc_now_iso()
+    from jarvishep2.mapper import mapper_block_fingerprint
+
+    normalized = run_spec.get("normalized_config") or {}
     integrity = {
-        "config_hash": stable_json_hash(run_spec.get("normalized_config", {})),
+        "config_hash": stable_json_hash(normalized),
         "variable_signature": list(
-            (run_spec.get("normalized_config") or {}).get("Sampling", {}).get("Variables", [])
-            or []
+            (normalized.get("Sampling") or {}).get("Variables", []) or []
         ),
+        # D22.5: Mapper text fingerprint — resume refuses when derive changes.
+        "mapper_hash": stable_json_hash(mapper_block_fingerprint(normalized)),
         "safe_barrier_confirmed": bool(safe_barrier_confirmed),
         "checkpoint_reason": str(reason or ""),
     }
@@ -200,6 +204,41 @@ def validate_checkpoint_payload(payload: Any) -> tuple[bool, str]:
         return False, "checkpoint payload missing sampler_state"
     if "integrity" in payload and not isinstance(payload.get("integrity"), dict):
         return False, "checkpoint payload missing integrity"
+    return True, "ok"
+
+
+def check_mapper_fingerprint(
+    payload: Mapping[str, Any],
+    config: Mapping[str, Any] | None,
+) -> tuple[bool, str]:
+    """Refuse resume when Sampling.Mapper (or Variables) changed since checkpoint.
+
+    Legacy checkpoints without ``integrity.mapper_hash`` are treated as an empty
+    Mapper so adding a Mapper after the fact is still a hard reject (D22.5).
+    """
+    from jarvishep2.mapper import mapper_block_fingerprint
+
+    integrity = payload.get("integrity") if isinstance(payload.get("integrity"), Mapping) else {}
+    stored = integrity.get("mapper_hash")
+    current = stable_json_hash(mapper_block_fingerprint(config or {}))
+    if stored is None:
+        # Pre-D22.5 checkpoint: only refuse if the current card has a Mapper.
+        current_block = mapper_block_fingerprint(config or {})
+        if current_block.get("mapper"):
+            return (
+                False,
+                "Mapper fingerprint missing from checkpoint but Sampling.Mapper "
+                "is set on the current card — refuse resume (mapper may have changed). "
+                "Start a fresh scan (omit --resume) or restore the original card.",
+            )
+        return True, "ok"
+    if str(stored) != str(current):
+        return (
+            False,
+            "Sampling.Mapper (or Variables used by the mapper) changed since the "
+            "checkpoint was written; resume would rebind uuid → coordinates. "
+            "Start a fresh scan (omit --resume) or restore the original Mapper.",
+        )
     return True, "ok"
 
 
@@ -306,6 +345,7 @@ __all__ = [
     "RESUME_PROMPT",
     "build_payload",
     "build_run_spec",
+    "check_mapper_fingerprint",
     "checkpoint_path",
     "derive_sample_seed",
     "deserialize_seed_sequence",

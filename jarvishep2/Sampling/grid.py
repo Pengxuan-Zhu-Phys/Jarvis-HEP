@@ -10,7 +10,7 @@ from typing import Any, Mapping
 import numpy as np
 
 from jarvishep2.Sampling.fixed_set_sampler import FixedSetSampler
-from jarvishep2.Sampling.sampling_utils import evaluate_selection, map_u_to_physical
+from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 
@@ -70,7 +70,7 @@ class Grid(FixedSetSampler):
         while self._index < len(self._P):
             row = self._P[self._index]
             self._index += 1
-            physical = map_u_to_physical(row, self.vars)
+            physical = physical_from_u(row, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
                 physical,

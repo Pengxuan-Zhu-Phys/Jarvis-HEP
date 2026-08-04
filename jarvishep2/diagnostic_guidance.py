@@ -71,6 +71,12 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         return "Provide the path to the fixed-point CSV file under Sampling.Bounds.", "Bounds:\n  path: points.csv"
     if code in {"JV2-MTH-041", "JV2-MTH-042"}:
         return "Set target_expression and target_value under Sampling.Bounds for AdaptiveBridson.", "Bounds:\n  target_expression: f\n  target_value: 0.12"
+    if code.startswith("JV2-MAP-"):
+        return (
+            "Fix Sampling.Mapper: name → pure expression over Variables "
+            "(and earlier Mapper names only; no observables).",
+            "Mapper:\n  x: \"cos(t)\"\n  y: \"sin(t)\"",
+        )
     # Parameter-level codes must win over the Sampling.Variables list prefix
     # (D21.14: JV2-VAR-031 used to suggest "provide a non-empty variable list").
     if code == "JV2-VAR-031":

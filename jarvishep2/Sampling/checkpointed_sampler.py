@@ -35,6 +35,8 @@ class CheckpointedSampler(SamplingVirtial, ABC):
             "_persisted_uuids", "_persisted_index_prefix", "_last_safe_state",
             "_checkpoint_snapshots", "_checkpoint_requested", "_checkpoint_file",
             "_checkpoint_heartbeat", "_save_checkpoint_callback", "_repropose_after_resume",
+            # D22: rebuilt from task card on every process start (not checkpointed).
+            "_mapper_pipeline",
         }
     )
 

@@ -158,8 +158,15 @@ def _additional_properties_message(keys: list[str]) -> str:
     ) + " were unexpected)"
 
 
-def _root_key_suggestion(key: str) -> str | None:
-    """Return the explicit migration for a removed top-level V1 block."""
+def _root_key_suggestion(key: str, *, path: str = "$") -> str | None:
+    """Return the explicit migration for a removed top-level V1 block.
+
+    Only apply when the unexpected key is at the document root (D22.7).
+    Nested uses such as ``$.Sampling.Mapper`` must not be told to
+    "Remove top-level Mapper".
+    """
+    if path != "$":
+        return None
     return _REMOVED_ROOT_KEYS.get(key)
 
 
@@ -195,7 +202,7 @@ def _schema_error_guidance(
             return "Remove or rename the unexpected key.", example
         if len(keys) == 1:
             key = keys[0]
-            removed = _root_key_suggestion(key) if prefix == "$" else None
+            removed = _root_key_suggestion(key, path=prefix)
             if removed is not None:
                 return removed, example
             close = get_close_matches(key, allowed, n=1, cutoff=0.6) if isinstance(allowed, Mapping) else []
@@ -204,7 +211,7 @@ def _schema_error_guidance(
             return f"Remove or rename {key!r}.{rename}{suffix}", example
         fixes: list[str] = []
         for key in keys:
-            removed = _root_key_suggestion(key) if prefix == "$" else None
+            removed = _root_key_suggestion(key, path=prefix)
             if removed is not None:
                 fixes.append(f"{key!r} ({removed})")
                 continue

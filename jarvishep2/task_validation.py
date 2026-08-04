@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from jarvishep2.contracts.common import is_check_modules_mode, sampling_block
+from jarvishep2.contracts.mapper import validate_mapper
 from jarvishep2.contracts.methods import validate_method_sampling
 from jarvishep2.contracts.operational import validate_operational_blocks
 from jarvishep2.contracts.variables import validate_variables
@@ -491,6 +492,8 @@ def validate_task_config(
     report.extend(validate_operational_blocks(config))
     report.extend(_validate_dead_keys(config))
     report.extend(_validate_operas_call_mode(config))
+    # D22: optional Sampling.Mapper (derive expressions, closed namespace).
+    report.extend(validate_mapper(config, method=method or None))
 
     return _finalize_report(report, strict=strict)
 
