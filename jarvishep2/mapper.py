@@ -3,9 +3,9 @@
 
 Single implementation path: :class:`MapperPipeline` applies
 ``Variables[].distribution`` first, then optional ``Sampling.Mapper``
-expressions (``name: expr`` map). Control-side selection and Worker-side
-``bind_params`` share the same pipeline so uuid ↔ coordinate binding stays
-pure under D21 resume replay.
+list entries (``{name, expression}``). Control-side selection and
+Worker-side ``bind_params`` share the same pipeline so uuid ↔ coordinate
+binding stays pure under D21 resume replay.
 """
 
 from __future__ import annotations
@@ -137,7 +137,12 @@ class MapperSpec:
                 }
                 for v in self.variables
             ],
-            "mapper": {name: self.derive_exprs[name] for name in self.derive_order},
+            # Sorted by name so hash is order-insensitive for equivalent sets;
+            # evaluation order still follows derive_order / DAG.
+            "mapper": [
+                {"name": name, "expression": self.derive_exprs[name]}
+                for name in sorted(self.derive_order)
+            ],
         }
 
 
@@ -264,6 +269,62 @@ def _is_affine_in_sample_vars(expr_text: str, sample_vars: Sequence[str]) -> boo
         return False
 
 
+def _parse_mapper_list(mapper_block: Any) -> dict[str, str]:
+    """Parse ``Sampling.Mapper`` list of ``{name, expression}`` into ordered dict.
+
+    List form keeps JSON Schema keys fixed (``name`` / ``expression``) so user
+    symbols never become object property names.
+    """
+    if isinstance(mapper_block, Mapping):
+        raise MapperError(
+            "Sampling.Mapper must be a list of {name, expression} mappings, "
+            "not a free-form name → expression object "
+            '(example: Mapper: [{name: x, expression: "cos(t)"}])',
+            code="JV2-MAP-001",
+            path="Sampling.Mapper",
+        )
+    if not isinstance(mapper_block, list):
+        raise MapperError(
+            f"Sampling.Mapper must be a list of {{name, expression}} mappings, "
+            f"got {type(mapper_block).__name__}",
+            code="JV2-MAP-001",
+            path="Sampling.Mapper",
+        )
+
+    derive_exprs: dict[str, str] = {}
+    for index, item in enumerate(mapper_block):
+        path = f"Sampling.Mapper[{index}]"
+        if not isinstance(item, Mapping):
+            raise MapperError(
+                f"Mapper entry must be a mapping with name and expression, "
+                f"got {type(item).__name__}",
+                code="JV2-MAP-001",
+                path=path,
+            )
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise MapperError(
+                "Mapper entry name must be a non-empty string",
+                code="JV2-MAP-001",
+                path=f"{path}.name",
+            )
+        raw_expr = item.get("expression")
+        if not isinstance(raw_expr, str) or not str(raw_expr).strip():
+            raise MapperError(
+                f"Mapper entry {name!r} expression must be a non-empty string",
+                code="JV2-MAP-001",
+                path=f"{path}.expression",
+            )
+        if name in derive_exprs:
+            raise MapperError(
+                f"duplicate Mapper name {name!r}",
+                code="JV2-MAP-003",
+                path=f"{path}.name",
+            )
+        derive_exprs[name] = str(raw_expr).strip()
+    return derive_exprs
+
+
 def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
     """Build a :class:`MapperSpec` from a task card (no Mapper ⇒ empty expressions).
 
@@ -271,12 +332,14 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
     Callers that only need distribution mapping with no YAML Mapper still get
     a valid empty-expression spec.
 
-    YAML shape (flat name → expression map)::
+    YAML shape (list of fixed-key mappings)::
 
         Sampling:
           Mapper:
-            x: "cos(t)"
-            y: "sin(t)"
+            - name: x
+              expression: "cos(t)"
+            - name: y
+              expression: "sin(t)"
     """
     variables = _variable_specs_from_config(config)
     sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
@@ -286,14 +349,6 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
     if mapper_block is None:
         return MapperSpec(variables=variables)
 
-    if not isinstance(mapper_block, Mapping):
-        raise MapperError(
-            f"Sampling.Mapper must be a mapping of name → expression, "
-            f"got {type(mapper_block).__name__}",
-            code="JV2-MAP-001",
-            path="Sampling.Mapper",
-        )
-
     if method == "CSV":
         raise MapperError(
             "Sampling.Mapper is not supported for Method CSV in v1 "
@@ -302,26 +357,9 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
             path="Sampling.Mapper",
         )
 
-    if not mapper_block:
+    derive_exprs = _parse_mapper_list(mapper_block)
+    if not derive_exprs:
         return MapperSpec(variables=variables)
-
-    # Preserve YAML key order (Mapper is an ordered name → expression map).
-    derive_exprs: dict[str, str] = {}
-    for key, value in mapper_block.items():
-        name = str(key).strip()
-        if not name:
-            raise MapperError(
-                "Mapper parameter name must be a non-empty string",
-                code="JV2-MAP-001",
-                path="Sampling.Mapper",
-            )
-        if not isinstance(value, str) or not str(value).strip():
-            raise MapperError(
-                f"Mapper entry {name!r} expression must be a non-empty string",
-                code="JV2-MAP-001",
-                path=f"Sampling.Mapper.{name}",
-            )
-        derive_exprs[name] = str(value).strip()
 
     sample_names = [v.name for v in variables]
     sample_set = frozenset(sample_names)
@@ -331,21 +369,21 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
             raise MapperError(
                 f"Mapper name {name!r} conflicts with Sampling.Variables name",
                 code="JV2-MAP-003",
-                path=f"Sampling.Mapper.{name}",
+                path=f"Sampling.Mapper",
             )
         if name in _CONSTANT_RESERVED:
             raise MapperError(
                 f"Mapper name {name!r} is a reserved expression constant "
                 f"({sorted(_CONSTANT_RESERVED)})",
                 code="JV2-MAP-005",
-                path=f"Sampling.Mapper.{name}",
+                path="Sampling.Mapper",
             )
         if name in _DATABASE_RESERVED:
             raise MapperError(
                 f"Mapper name {name!r} is a reserved DATABASE column "
                 f"({sorted(_DATABASE_RESERVED)})",
                 code="JV2-MAP-006",
-                path=f"Sampling.Mapper.{name}",
+                path="Sampling.Mapper",
             )
 
     order, free_by_name = _topo_sort_derive(derive_exprs, sample_var_names=sample_set)
@@ -374,12 +412,17 @@ def mapper_block_fingerprint(config: Mapping[str, Any] | None) -> dict[str, Any]
                     "parameters": dict(dist.get("parameters") or {}),
                 }
             )
-    if not isinstance(mapper, Mapping):
-        return {"variables": variables, "mapper": {}}
-    return {
-        "variables": variables,
-        "mapper": {str(k): str(v) for k, v in mapper.items()},
-    }
+    entries: list[dict[str, str]] = []
+    if isinstance(mapper, list):
+        for item in mapper:
+            if not isinstance(item, Mapping):
+                continue
+            name = str(item.get("name") or "").strip()
+            expr = item.get("expression")
+            if name and isinstance(expr, str) and expr.strip():
+                entries.append({"name": name, "expression": expr.strip()})
+        entries.sort(key=lambda e: e["name"])
+    return {"variables": variables, "mapper": entries}
 
 
 class MapperPipeline:

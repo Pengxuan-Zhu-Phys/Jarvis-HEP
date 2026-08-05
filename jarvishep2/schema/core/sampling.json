@@ -25,14 +25,11 @@
     "LogLikelihood": {"type": "array"},
     "loglikelihood": {"type": "array"},
     "Mapper": {
-      "type": "object",
+      "type": "array",
       "x-jarvis-zone": "closed",
-      "description": "Optional pure u→physical reparameterization after Variables[].distribution (D22). Ordered name → expression map. Omitted → distribution-only mapping (backward compatible). Expressions see Variables and prior Mapper names only (closed namespace).",
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1
-      },
-      "x-jarvis-example": "Mapper:\n  x: \"cos(t)\"\n  y: \"sin(t)\""
+      "description": "Optional pure u→physical reparameterization after Variables[].distribution (D22). Ordered list of {name, expression}. Omitted → distribution-only mapping (backward compatible). Expressions see Variables and prior Mapper names only (closed namespace). List form keeps schema keys fixed (name/expression) instead of user symbols as object keys.",
+      "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/mapperEntry"},
+      "x-jarvis-example": "Mapper:\n  - name: x\n    expression: \"cos(t)\"\n  - name: y\n    expression: \"sin(t)\""
     },
     "Nuisance": {
       "type": "object",

@@ -25,7 +25,7 @@ def _default_mapper(cfg: Mapping[str, Any]) -> dict[str, Any]:
     """Build picklable Worker mapper config (D22: MapperPipeline / MapperSpec).
 
     Top-level ``Mapper`` is not a V2 interface (schema-rejected).  Optional
-    Optional ``Sampling.Mapper`` (name → expression) is folded into a pipeline
+    Optional ``Sampling.Mapper`` (list of ``{name, expression}``) is folded into a pipeline
     spec so Workers share the same u→params implementation as the control process.
     """
     sampling = cfg.get("Sampling") if isinstance(cfg.get("Sampling"), Mapping) else {}

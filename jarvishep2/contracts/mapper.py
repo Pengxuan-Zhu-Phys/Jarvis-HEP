@@ -18,8 +18,10 @@ if TYPE_CHECKING:
 
 _MAPPER_EXAMPLE = """Sampling:
   Mapper:
-    x: "cos(t)"
-    y: "sin(t)" """
+    - name: x
+      expression: "cos(t)"
+    - name: y
+      expression: "sin(t)" """
 
 
 def _opera_output_names(config: Mapping[str, Any]) -> set[str]:
@@ -181,14 +183,18 @@ def validate_mapper(
 def _suggestion_for(code: str) -> str:
     return {
         "JV2-MAP-001": (
-            "Use Sampling.Mapper as a mapping of name → expression string, "
-            'for example: Mapper: {x: "cos(t)", y: "sin(t)"}.'
+            "Use Sampling.Mapper as a list of {name, expression} mappings, "
+            'for example: Mapper: [{name: x, expression: "cos(t)"}]. '
+            "Do not use a free-form name → expression object."
         ),
         "JV2-MAP-002": (
             "Reference only Sampling.Variables names and earlier Mapper names "
             "(observables / LogL / uuid are not visible to Mapper)."
         ),
-        "JV2-MAP-003": "Rename the Mapper parameter so it does not shadow a Variable.",
+        "JV2-MAP-003": (
+            "Rename the Mapper parameter so it does not shadow a Variable "
+            "or duplicate another Mapper name."
+        ),
         "JV2-MAP-004": "Break the cycle among Mapper expressions.",
         "JV2-MAP-005": "Avoid reserved constants Pi/pi/PI/E/Inf as Mapper names.",
         "JV2-MAP-006": "Avoid reserved DATABASE columns uuid/sample_index/status/LogL.",

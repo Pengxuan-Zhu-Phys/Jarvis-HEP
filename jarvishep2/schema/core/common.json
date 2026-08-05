@@ -34,6 +34,17 @@
       "type": "object", "x-jarvis-zone": "closed", "required": ["name"],
       "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "entry": {"$ref": "#/$defs/nonemptyString"}, "expression": {"$ref": "#/$defs/nonemptyString"}}, "additionalProperties": false
     },
+    "mapperEntry": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "expression"],
+      "description": "One Sampling.Mapper list item: fixed keys name + expression (not a free-form map of user keys).",
+      "properties": {
+        "name": {"$ref": "#/$defs/nonemptyString"},
+        "expression": {"$ref": "#/$defs/nonemptyString"}
+      },
+      "additionalProperties": false
+    },
     "adaptiveBridson": {
       "type": "object", "x-jarvis-zone": "closed",
       "properties": {

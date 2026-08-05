@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D22 Sampling.Mapper — optional flat name→expr map, closed namespace, bilateral map."""
+"""D22 Sampling.Mapper — list of {name, expression}, closed namespace, bilateral map."""
 
 from __future__ import annotations
 
@@ -35,6 +35,10 @@ def _clear_schema_cache() -> None:
     task_card_validator.cache_clear()
 
 
+def _mapper_list(*pairs: tuple[str, str]) -> list[dict[str, str]]:
+    return [{"name": name, "expression": expr} for name, expr in pairs]
+
+
 def _base_card(*, method: str = "Bridson", with_mapper: bool = False) -> dict:
     sampling: dict = {
         "Method": method,
@@ -54,10 +58,7 @@ def _base_card(*, method: str = "Bridson", with_mapper: bool = False) -> dict:
     if method == "Dynesty":
         sampling["Bounds"] = {"nlive": 20, "dlogz": 0.5, "Seed": 0}
     if with_mapper:
-        sampling["Mapper"] = {
-            "x": "cos(t)",
-            "y": "sin(t)",
-        }
+        sampling["Mapper"] = _mapper_list(("x", "cos(t)"), ("y", "sin(t)"))
         sampling["selection"] = "y > 0"
     return {
         "Scan": {"name": "mapper-unit"},
@@ -89,11 +90,11 @@ class MapperPipelineUnitTests(unittest.TestCase):
 
     def test_mapper_dag_order_independent_of_yaml_order(self) -> None:
         card = _base_card(method="Random")
-        card["Sampling"]["Mapper"] = {
-            "z": "x + y",
-            "x": "cos(t)",
-            "y": "sin(t)",
-        }
+        card["Sampling"]["Mapper"] = _mapper_list(
+            ("z", "x + y"),
+            ("x", "cos(t)"),
+            ("y", "sin(t)"),
+        )
         pipeline = MapperPipeline.from_config(card)
         mapped = pipeline.map(np.array([0.0]))  # t=0 → x=1, y=0, z=1
         self.assertAlmostEqual(mapped["x"], 1.0, places=12)
@@ -103,10 +104,18 @@ class MapperPipelineUnitTests(unittest.TestCase):
 
     def test_closed_namespace_rejects_observable_symbol(self) -> None:
         card = _base_card(method="Random")
-        card["Sampling"]["Mapper"] = {"x": "sin(t) + LogL"}
+        card["Sampling"]["Mapper"] = _mapper_list(("x", "sin(t) + LogL"))
         with self.assertRaises(MapperError) as ctx:
             build_mapper_spec_from_config(card)
         self.assertEqual(ctx.exception.code, "JV2-MAP-002")
+
+    def test_legacy_name_map_rejected(self) -> None:
+        card = _base_card(method="Random")
+        card["Sampling"]["Mapper"] = {"x": "cos(t)", "y": "sin(t)"}
+        with self.assertRaises(MapperError) as ctx:
+            build_mapper_spec_from_config(card)
+        self.assertEqual(ctx.exception.code, "JV2-MAP-001")
+        self.assertIn("list", ctx.exception.message)
 
     def test_m5_rejects_wrong_u_length(self) -> None:
         card = _base_card(method="Random")
@@ -145,9 +154,21 @@ class MapperValidationTests(unittest.TestCase):
         report = validate_task_config(with_mapper)
         self.assertTrue(report.ok, format_issues(report))
 
+    def test_schema_rejects_legacy_name_map(self) -> None:
+        card = _base_card(method="Random")
+        card["Sampling"]["Mapper"] = {"x": "cos(t)"}
+        report = validate_task_config(card)
+        self.assertFalse(report.ok)
+        # Schema type error and/or JV2-MAP-001 depending on branch order.
+        codes = {i.code for i in report.errors()}
+        self.assertTrue(
+            "JV2-MAP-001" in codes or any(c.startswith("JV2-SCH") for c in codes),
+            msg=format_issues(report),
+        )
+
     def test_closed_namespace_at_validate(self) -> None:
         card = _base_card(method="Random")
-        card["Sampling"]["Mapper"] = {"x": "sin(t) + LogL"}
+        card["Sampling"]["Mapper"] = _mapper_list(("x", "sin(t) + LogL"))
         report = validate_task_config(card)
         self.assertFalse(report.ok)
         codes = {i.code for i in report.errors()}
@@ -155,7 +176,7 @@ class MapperValidationTests(unittest.TestCase):
 
     def test_name_conflict_with_variable(self) -> None:
         card = _base_card(method="Random")
-        card["Sampling"]["Mapper"] = {"t": "t + 1"}
+        card["Sampling"]["Mapper"] = _mapper_list(("t", "t + 1"))
         report = validate_task_config(card)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-MAP-003" for i in report.errors()))
@@ -166,7 +187,7 @@ class MapperValidationTests(unittest.TestCase):
             "Sampling": {
                 "Method": "CSV",
                 "Bounds": {"path": "points.csv"},
-                "Mapper": {"x": "1"},
+                "Mapper": _mapper_list(("x", "1")),
             },
             "EnvReqs": {"V2": {"workers": 1}},
         }
@@ -183,10 +204,10 @@ class MapperValidationTests(unittest.TestCase):
 
     def test_cycle_is_error(self) -> None:
         card = _base_card(method="Random")
-        card["Sampling"]["Mapper"] = {
-            "a": "b + 1",
-            "b": "a + 1",
-        }
+        card["Sampling"]["Mapper"] = _mapper_list(
+            ("a", "b + 1"),
+            ("b", "a + 1"),
+        )
         report = validate_task_config(card)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-MAP-004" for i in report.errors()))
@@ -221,7 +242,7 @@ class MapperCheckpointAndPlotTests(unittest.TestCase):
         ok, _ = check_mapper_fingerprint(payload, card)
         self.assertTrue(ok)
         changed = _base_card(with_mapper=True)
-        changed["Sampling"]["Mapper"]["x"] = "sin(t)"
+        changed["Sampling"]["Mapper"] = _mapper_list(("x", "sin(t)"), ("y", "sin(t)"))
         ok2, reason = check_mapper_fingerprint(payload, changed)
         self.assertFalse(ok2)
         self.assertIn("Mapper", reason)

@@ -545,7 +545,7 @@ def validate_task_config(
     report.extend(_validate_dead_keys(config))
     report.extend(_validate_operas_call_mode(config))
     report.extend(_validate_operas_constant_operators(config))
-    # D22: optional Sampling.Mapper (flat name → expression, closed namespace).
+    # D22: optional Sampling.Mapper (list of {name, expression}, closed namespace).
     report.extend(validate_mapper(config, method=method or None))
 
     return _finalize_report(report, strict=strict)

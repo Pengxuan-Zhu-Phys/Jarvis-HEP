@@ -79,18 +79,20 @@ _PLOT_AXIS_SKIP = frozenset(
 
 
 def _mapper_names_from_config(config: Mapping[str, Any] | None) -> list[str]:
-    """``Sampling.Mapper`` key order (D22 plot-axis preference)."""
+    """``Sampling.Mapper`` list write order (D22 plot-axis preference)."""
     if not isinstance(config, Mapping):
         return []
     sampling = config.get("Sampling")
     if not isinstance(sampling, Mapping):
         return []
     mapper = sampling.get("Mapper")
-    if not isinstance(mapper, Mapping):
+    if not isinstance(mapper, list):
         return []
     names: list[str] = []
-    for key in mapper:
-        name = str(key).strip()
+    for item in mapper:
+        if not isinstance(item, Mapping):
+            continue
+        name = str(item.get("name") or "").strip()
         if name:
             names.append(name)
     return names
