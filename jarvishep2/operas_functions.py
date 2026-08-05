@@ -54,11 +54,20 @@ _QUALIFIED_FUNCTION_CALL = _QUALIFIED_REFERENCE
 
 # Only these mapping keys hold YAML expression text. Command/path strings such as
 # calculator ``cmd`` / ``installation`` must never trigger Operas discovery.
+# ``expression`` also covers Sampling.Mapper list items ({name, expression}).
 _EXPRESSION_TEXT_KEYS = frozenset(
     {
         "expression",
         "selection",
         "target_expression",
+    }
+)
+# Container keys whose *values* are expression-bearing structures even when the
+# container key itself is not an expression field (D23.9: Sampling.Mapper list).
+_EXPRESSION_CONTAINER_KEYS = frozenset(
+    {
+        "Mapper",
+        "mapper",
     }
 )
 
@@ -69,6 +78,24 @@ def _string_uses_operas_reference(text: str) -> bool:
 
 # Pre-D23 alias.
 _string_uses_operas_function = _string_uses_operas_reference
+
+
+def _mapper_block_uses_operas_reference(value: Any) -> bool:
+    """Scan Sampling.Mapper list or legacy name→expr map for qualified refs."""
+    if isinstance(value, str):
+        return _string_uses_operas_reference(value)
+    if isinstance(value, Mapping):
+        # Canonical: {name, expression}; also tolerate legacy free-form map values.
+        if "expression" in value and isinstance(value.get("expression"), str):
+            if _string_uses_operas_reference(str(value.get("expression") or "")):
+                return True
+        for item in value.values():
+            if _mapper_block_uses_operas_reference(item):
+                return True
+        return False
+    if isinstance(value, (list, tuple)):
+        return any(_mapper_block_uses_operas_reference(item) for item in value)
+    return False
 
 
 def expression_uses_operas_reference(
@@ -93,6 +120,10 @@ def expression_uses_operas_reference(
             key_name = str(key)
             if key_name in _EXPRESSION_TEXT_KEYS:
                 if expression_uses_operas_reference(item, _as_expression_text=True):
+                    return True
+            elif key_name in _EXPRESSION_CONTAINER_KEYS:
+                # Mapper list / legacy name→expr map (D23.9).
+                if _mapper_block_uses_operas_reference(item):
                     return True
             elif isinstance(item, (Mapping, list, tuple)):
                 if expression_uses_operas_reference(item, _as_expression_text=False):

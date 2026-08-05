@@ -72,6 +72,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_payload,
     build_run_spec,
     check_mapper_fingerprint,
+    check_operas_constants_fingerprint,
     checkpoint_path,
     load_checkpoint,
     prepare_resume,
@@ -1427,6 +1428,21 @@ class Jarvis2Core:
             except OSError:
                 pass
             return
+        # D23.8: refuse when Operas constant values drifted (outside the card).
+        # D23.13: if Operas is merely unavailable, skip with WARNING — never treat
+        # that as drift (would delete a good checkpoint and re-run from index 0).
+        ok_consts, consts_reason = check_operas_constants_fingerprint(payload)
+        if not ok_consts:
+            self._logger.error("Checkpoint rejected (starting fresh) -> %s", consts_reason)
+            self._resume_checkpoint_payload = None
+            self._resume_policy = "fresh"
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
+        if str(consts_reason).startswith("skip:"):
+            self._logger.warning("%s", consts_reason)
         self._resume_checkpoint_payload = payload
 
     def _load_persisted_database_state(self, database_dir: str) -> None:

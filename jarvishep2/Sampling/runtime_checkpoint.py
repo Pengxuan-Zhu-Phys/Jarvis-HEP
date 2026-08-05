@@ -153,6 +153,25 @@ def build_run_spec(
     }
 
 
+def operas_constants_fingerprint() -> dict[str, float] | None:
+    """Stable name→value table of Jarvis-Operas constants for resume integrity (D23.8).
+
+    Returns ``None`` when Operas cannot be queried (import/registry failure).
+    That is distinct from a legitimate empty table ``{}`` (D23.13): treating
+    unavailability as ``{}`` hashes to a different value than a real constant
+    table and falsely looks like "constants changed".
+    """
+    try:
+        from jarvis_operas import build_constant_dicts
+    except ImportError:
+        return None
+    try:
+        table = build_constant_dicts()
+    except Exception:
+        return None
+    return {str(name): float(value) for name, value in sorted(table.items())}
+
+
 def build_payload(
     *,
     run_spec: Mapping[str, Any],
@@ -165,6 +184,7 @@ def build_payload(
     from jarvishep2.mapper import mapper_block_fingerprint
 
     normalized = run_spec.get("normalized_config") or {}
+    constants_fp = operas_constants_fingerprint()
     integrity = {
         "config_hash": stable_json_hash(normalized),
         "variable_signature": list(
@@ -172,6 +192,12 @@ def build_payload(
         ),
         # D22.5: Mapper text fingerprint — resume refuses when derive changes.
         "mapper_hash": stable_json_hash(mapper_block_fingerprint(normalized)),
+        # D23.8: Operas constant *values* live outside the card; fingerprint them
+        # separately so resume can report "Operas changed" vs "Mapper changed".
+        # None when Operas is unavailable at write time (omit verification later).
+        "operas_constants_hash": (
+            stable_json_hash(constants_fp) if constants_fp is not None else None
+        ),
         "safe_barrier_confirmed": bool(safe_barrier_confirmed),
         "checkpoint_reason": str(reason or ""),
     }
@@ -238,6 +264,46 @@ def check_mapper_fingerprint(
             "Sampling.Mapper (or Variables used by the mapper) changed since the "
             "checkpoint was written; resume would rebind uuid → coordinates. "
             "Start a fresh scan (omit --resume) or restore the original Mapper.",
+        )
+    return True, "ok"
+
+
+def check_operas_constants_fingerprint(
+    payload: Mapping[str, Any],
+) -> tuple[bool, str]:
+    """Refuse resume when Jarvis-Operas constant values drifted (D23.8 / D23.13).
+
+    Constants are not on the task card; upgrading Operas / overrides.json can
+    change selection acceptance and rebind uuid → coordinates under resume
+    replay. Separate field so the error names Operas, not Mapper.
+
+    Returns ``(ok, reason)``:
+    - ``(True, "ok")`` — match or nothing to check
+    - ``(True, "skip: …")`` — Operas unavailable now; **do not** treat as drift
+      and **do not** delete the checkpoint (D23.13)
+    - ``(False, …)`` — real drift; caller may refuse resume
+    """
+    integrity = payload.get("integrity") if isinstance(payload.get("integrity"), Mapping) else {}
+    stored = integrity.get("operas_constants_hash")
+    current_fp = operas_constants_fingerprint()
+    if current_fp is None:
+        # D23.13: cannot distinguish "constants changed" from "Operas missing".
+        return (
+            True,
+            "skip: Jarvis-Operas constants unavailable; cannot verify "
+            "operas_constants_hash (resume continues without this check)",
+        )
+    if stored is None:
+        # Pre-D23.8 checkpoint, or write-time Operas outage: allow resume.
+        return True, "ok"
+    current = stable_json_hash(current_fp)
+    if str(stored) != str(current):
+        return (
+            False,
+            "Jarvis-Operas constant values changed since the checkpoint was written "
+            "(upgrade, overrides.json, or registration drift). Resume would rebind "
+            "uuid → coordinates under selection replay. Start a fresh scan "
+            "(omit --resume) or restore the original Operas constants.",
         )
     return True, "ok"
 
@@ -346,6 +412,8 @@ __all__ = [
     "build_payload",
     "build_run_spec",
     "check_mapper_fingerprint",
+    "check_operas_constants_fingerprint",
+    "operas_constants_fingerprint",
     "checkpoint_path",
     "derive_sample_seed",
     "deserialize_seed_sequence",

@@ -414,6 +414,32 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-OPR-001" for i in report.errors()))
 
+    def test_author_prose_keeps_unicode_in_format_line(self) -> None:
+        """D23.14: suggestion/example/hint keep Unicode; path/message still escape users."""
+        from jarvishep2.task_validation import issue
+
+        item = issue(
+            "error",
+            "JV2-MAP-007",
+            "Sampling.Mapper[0]",
+            "cannot compile Mapper expression",
+            hint="See Operas docs → constants",
+            suggestion="If this uses pdg.mZ, math.add, … check registration.",
+            example='expression: "pdg.mZ * cos(t)"  # ≥ 0',
+        )
+        line = item.format_line()
+        self.assertIn("…", line)
+        self.assertIn("→", line)
+        self.assertIn("≥", line)
+        self.assertNotIn("\\u2026", line)
+        self.assertNotIn("\\u2192", line)
+        self.assertNotIn("\\u2265", line)
+        # Path/message still escape user-provided non-ASCII.
+        weird = issue("error", "JV2-X", "Sampling.变量", "value '测' is invalid")
+        rendered = weird.format_line()
+        self.assertIn("\\u", rendered)
+        self.assertNotIn("测", rendered)
+
     def test_operas_constant_as_module_operator_rejected(self) -> None:
         """D23.4: operator must not name a namespace constant (JV2-OPR-002)."""
         try:

@@ -178,16 +178,70 @@ def _variable_specs_from_config(config: Mapping[str, Any]) -> tuple[VariableSpec
     return tuple(specs)
 
 
+def _mapper_needs_operas_context(derive_exprs: Mapping[str, str]) -> bool:
+    """True when any Mapper expression contains a qualified Operas reference."""
+    if not derive_exprs:
+        return False
+    try:
+        from jarvishep2.operas_functions import _string_uses_operas_reference
+    except Exception:  # pragma: no cover
+        return False
+    return any(_string_uses_operas_reference(str(text)) for text in derive_exprs.values())
+
+
+def _expression_context_for_mapper_exprs(
+    derive_exprs: Mapping[str, str],
+    *,
+    expression_context: ExpressionContext | None = None,
+) -> ExpressionContext:
+    """Return a context that can resolve Operas constants/functions if needed."""
+    if expression_context is not None:
+        return expression_context
+    if not _mapper_needs_operas_context(derive_exprs):
+        return ExpressionContext()
+    try:
+        from jarvishep2.operas_functions import build_operas_expression_context
+
+        return build_operas_expression_context(required=True)
+    except ImportError as exc:
+        raise MapperError(
+            "Mapper expressions reference Jarvis-Operas names but Jarvis-Operas "
+            f"is not importable: {exc}",
+            code="JV2-MAP-007",
+            path="Sampling.Mapper",
+        ) from exc
+
+
+def _compile_mapper_error_message(name: str, expr_text: str, exc: BaseException) -> str:
+    """Prefer actionable Operas-namespace guidance over a bare sympy traceback."""
+    detail = str(exc)
+    # D23.9: bare ExpressionContext turns ``pdg.mZ`` into Symbol.pdg AttributeError.
+    if "has no attribute" in detail or "UndefinedFunction" in detail:
+        return (
+            f"cannot compile Mapper expression for {name!r}: {exc}; "
+            f"expression={expr_text!r}. If this uses a Jarvis-Operas name "
+            f"(e.g. pdg.mZ or math.add(...)), ensure Jarvis-Operas is installed "
+            f"and the name is registered; constants use bare form without ()."
+        )
+    return (
+        f"cannot compile Mapper expression for {name!r}: {exc}; "
+        f"expression={expr_text!r}"
+    )
+
+
 def _topo_sort_derive(
     derive_exprs: Mapping[str, str],
     *,
     sample_var_names: frozenset[str],
+    expression_context: ExpressionContext | None = None,
 ) -> tuple[tuple[str, ...], Mapping[str, tuple[str, ...]]]:
     """Return (evaluate order, name→free-symbol tuple) or raise MapperError."""
     if not derive_exprs:
         return (), {}
 
-    ctx = ExpressionContext()
+    ctx = _expression_context_for_mapper_exprs(
+        derive_exprs, expression_context=expression_context
+    )
     all_derive = frozenset(derive_exprs)
     # Symbols that may appear: sampling vars + all derive names (DAG may reorder).
     declared = tuple(sorted(sample_var_names | all_derive))
@@ -199,8 +253,7 @@ def _topo_sort_derive(
             compiled = ctx.compile(str(expr_text), symbols=declared)
         except Exception as exc:
             raise MapperError(
-                f"cannot compile Mapper expression for {name!r}: {exc}; "
-                f"expression={expr_text!r}",
+                _compile_mapper_error_message(name, str(expr_text), exc),
                 code="JV2-MAP-007",
                 path=f"Sampling.Mapper.{name}",
             ) from exc
@@ -386,7 +439,9 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
                 path="Sampling.Mapper",
             )
 
-    order, free_by_name = _topo_sort_derive(derive_exprs, sample_var_names=sample_set)
+    order, free_by_name = _topo_sort_derive(
+        derive_exprs, sample_var_names=sample_set
+    )
     return MapperSpec(
         variables=variables,
         derive_order=order,
@@ -428,7 +483,12 @@ def mapper_block_fingerprint(config: Mapping[str, Any] | None) -> dict[str, Any]
 class MapperPipeline:
     """Single u→params implementation for control process and Workers."""
 
-    def __init__(self, spec: MapperSpec) -> None:
+    def __init__(
+        self,
+        spec: MapperSpec,
+        *,
+        expression_context: ExpressionContext | None = None,
+    ) -> None:
         self._spec = spec
         self._variables: list[Variable] = [
             Variable(
@@ -439,7 +499,12 @@ class MapperPipeline:
             )
             for v in spec.variables
         ]
-        self._expression_context = ExpressionContext()
+        # D23.9: inject Operas-aware context when Mapper expressions need it
+        # (pdg.mZ, math.add, …). A bare ExpressionContext treats namespaces as
+        # plain Symbols and fails with a misleading AttributeError.
+        self._expression_context = _expression_context_for_mapper_exprs(
+            spec.derive_exprs, expression_context=expression_context
+        )
         self._compiled: dict[str, Any] = {}
         # Pre-declare symbols available at each derive step for cache keys.
         known: list[str] = [v.name for v in self._variables]
@@ -447,19 +512,39 @@ class MapperPipeline:
             expr = spec.derive_exprs[name]
             # Namespace at evaluation: sample vars + prior derives.
             symbols = tuple(known)
-            self._compiled[name] = self._expression_context.compile(
-                expr, symbols=symbols
-            )
+            try:
+                self._compiled[name] = self._expression_context.compile(
+                    expr, symbols=symbols
+                )
+            except Exception as exc:
+                raise MapperError(
+                    _compile_mapper_error_message(name, expr, exc),
+                    code="JV2-MAP-007",
+                    path=f"Sampling.Mapper.{name}",
+                ) from exc
             known.append(name)
         self._output_names = tuple(known)
 
     @classmethod
-    def from_spec(cls, spec: MapperSpec) -> "MapperPipeline":
-        return cls(spec)
+    def from_spec(
+        cls,
+        spec: MapperSpec,
+        *,
+        expression_context: ExpressionContext | None = None,
+    ) -> "MapperPipeline":
+        return cls(spec, expression_context=expression_context)
 
     @classmethod
-    def from_config(cls, config: Mapping[str, Any]) -> "MapperPipeline":
-        return cls.from_spec(build_mapper_spec_from_config(config))
+    def from_config(
+        cls,
+        config: Mapping[str, Any],
+        *,
+        expression_context: ExpressionContext | None = None,
+    ) -> "MapperPipeline":
+        return cls.from_spec(
+            build_mapper_spec_from_config(config),
+            expression_context=expression_context,
+        )
 
     @property
     def spec(self) -> MapperSpec:

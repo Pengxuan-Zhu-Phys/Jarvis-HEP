@@ -26,7 +26,13 @@ Level = Literal["error", "warning"]
 
 
 def _ascii_diagnostic(value: str | None) -> str | None:
-    """Escape user-provided non-ASCII text before it reaches logs or tables."""
+    """Escape text that may embed *user-provided* non-ASCII (paths / messages).
+
+    Author-written guidance (``suggestion`` / ``example`` / ``hint``) must **not**
+    go through this helper — otherwise punctuation such as ``…`` ``→`` ``≥``
+    becomes ``\\u2026`` in CLI output (D23.14).  ``message`` still escapes because
+    it often quotes user YAML values (see JV2-ENC-001).
+    """
     if value is None:
         return None
     return value.encode("ascii", "backslashreplace").decode("ascii")
@@ -45,19 +51,16 @@ class ValidationIssue:
     example: str | None = None
 
     def format_line(self) -> str:
-        code = _ascii_diagnostic(self.code) or self.code
+        # path/message may embed user YAML; suggestion/example/hint are author prose.
         path = _ascii_diagnostic(self.path) or self.path
         message = _ascii_diagnostic(self.message) or self.message
-        hint = _ascii_diagnostic(self.hint)
-        suggestion = _ascii_diagnostic(self.suggestion)
-        example = _ascii_diagnostic(self.example)
-        base = f"  [{self.level}] {code}  {path}\n          {message}"
-        if hint:
-            base += f"\n          hint: {hint}"
-        if suggestion:
-            base += f"\n          suggestion: {suggestion}"
-        if example:
-            base += f"\n          example:\n{_indent_example(example)}"
+        base = f"  [{self.level}] {self.code}  {path}\n          {message}"
+        if self.hint:
+            base += f"\n          hint: {self.hint}"
+        if self.suggestion:
+            base += f"\n          suggestion: {self.suggestion}"
+        if self.example:
+            base += f"\n          example:\n{_indent_example(self.example)}"
         return base
 
 
@@ -124,11 +127,14 @@ def issue(
         if example is None:
             example = automatic_example
     return ValidationIssue(
-        level=level, code=_ascii_diagnostic(code) or code,
+        level=level,
+        code=code,
+        # Path/message may quote user YAML (escape). Guidance fields stay Unicode (D23.14).
         path=_ascii_diagnostic(path) or path,
         message=_ascii_diagnostic(message) or message,
-        hint=_ascii_diagnostic(hint), suggestion=_ascii_diagnostic(suggestion),
-        example=_ascii_diagnostic(example),
+        hint=hint,
+        suggestion=suggestion,
+        example=example,
     )
 
 
@@ -147,7 +153,7 @@ def _format_issue_summary_table(issues: Sequence[ValidationIssue]) -> str:
     rows = [
         (
             str(index),
-            _ascii_diagnostic(item.code) or item.code,
+            item.code,
             _ellipsize(_ascii_diagnostic(item.path) or item.path, 38),
             _ellipsize(_ascii_diagnostic(item.message) or item.message, 72),
         )

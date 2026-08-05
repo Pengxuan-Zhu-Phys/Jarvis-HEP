@@ -6,6 +6,7 @@ from __future__ import annotations
 import math
 import pickle
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -21,8 +22,11 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_payload,
     build_run_spec,
     check_mapper_fingerprint,
+    check_operas_constants_fingerprint,
+    operas_constants_fingerprint,
     stable_json_hash,
 )
+from jarvishep2.operas_functions import operas_expression_references_required
 from jarvishep2.Sampling.sampling_utils import map_u_to_physical, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.task_schema import _schema_catalog, task_card_validator
@@ -269,6 +273,103 @@ class PhysicalFromUHelperTests(unittest.TestCase):
         without = physical_from_u(u, vars_, None)
         self.assertIn("x", with_pipe)
         self.assertNotIn("x", without)
+
+
+class MapperOperasIntegrationTests(unittest.TestCase):
+    """D23.9: Mapper expressions may reference Operas constants/functions."""
+
+    def test_gate_sees_mapper_expression_values(self) -> None:
+        card = _base_card(method="Random")
+        card["Sampling"]["Mapper"] = _mapper_list(
+            ("mz", "pdg.mZ * cos(t)"),
+        )
+        self.assertTrue(operas_expression_references_required(card))
+        # Legacy free-form map still scanned for discovery.
+        legacy = _base_card(method="Random")
+        legacy["Sampling"]["Mapper"] = {"mz": "pdg.mZ * cos(t)"}
+        self.assertTrue(operas_expression_references_required(legacy))
+
+    def test_mapper_can_use_pdg_constant(self) -> None:
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas not installed")
+        if "pdg.mZ" not in build_constant_dicts():
+            self.skipTest("pdg.mZ not registered")
+
+        card = _base_card(method="Random")
+        card["Sampling"]["Mapper"] = _mapper_list(
+            ("mz", "pdg.mZ * cos(t)"),
+        )
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, format_issues(report))
+        pipeline = MapperPipeline.from_config(card)
+        mapped = pipeline.map(np.array([0.0]))  # t=0 → cos=1
+        self.assertAlmostEqual(mapped["mz"], 91.1876, places=9)
+        # Constant folded out of free symbols — only t is a sample var.
+        self.assertEqual(set(pipeline.derive_names), {"mz"})
+
+    def test_operas_constants_hash_in_checkpoint(self) -> None:
+        card = _base_card(with_mapper=True)
+        run_spec = build_run_spec(
+            config=card,
+            scan_name="mapper-unit",
+            task_root="/tmp",
+            task_result_dir="/tmp/out",
+            sampler_name="Bridson",
+        )
+        payload = build_payload(run_spec=run_spec, sampler_state={"index": 0})
+        integrity = payload["integrity"]
+        self.assertIn("operas_constants_hash", integrity)
+        fp = operas_constants_fingerprint()
+        if fp is None:
+            self.assertIsNone(integrity["operas_constants_hash"])
+        else:
+            expected = stable_json_hash(fp)
+            self.assertEqual(integrity["operas_constants_hash"], expected)
+        ok, reason = check_operas_constants_fingerprint(payload)
+        self.assertTrue(ok)
+        self.assertFalse(reason.startswith("skip:"))
+
+    def test_operas_constants_hash_refuses_drift(self) -> None:
+        card = _base_card(with_mapper=True)
+        run_spec = build_run_spec(
+            config=card,
+            scan_name="mapper-unit",
+            task_root="/tmp",
+            task_result_dir="/tmp/out",
+            sampler_name="Bridson",
+        )
+        payload = build_payload(run_spec=run_spec, sampler_state={"index": 0})
+        # Simulate Operas drift by rewriting stored hash.
+        payload["integrity"]["operas_constants_hash"] = "0" * 64
+        ok, reason = check_operas_constants_fingerprint(payload)
+        self.assertFalse(ok)
+        self.assertIn("Operas", reason)
+        self.assertNotIn("Mapper", reason)
+
+    def test_operas_unavailable_skips_fingerprint_not_refuse(self) -> None:
+        """D23.13: missing Operas must not look like constant drift."""
+        card = _base_card(with_mapper=True)
+        run_spec = build_run_spec(
+            config=card,
+            scan_name="mapper-unit",
+            task_root="/tmp",
+            task_result_dir="/tmp/out",
+            sampler_name="Bridson",
+        )
+        payload = build_payload(run_spec=run_spec, sampler_state={"index": 0})
+        # Real hash present; simulate resume-time Operas outage.
+        if payload["integrity"].get("operas_constants_hash") is None:
+            payload["integrity"]["operas_constants_hash"] = "ab" * 32
+        with mock.patch(
+            "jarvishep2.Sampling.runtime_checkpoint.operas_constants_fingerprint",
+            return_value=None,
+        ):
+            ok, reason = check_operas_constants_fingerprint(payload)
+        self.assertTrue(ok, msg=reason)
+        self.assertTrue(reason.startswith("skip:"), msg=reason)
+        self.assertNotIn("changed", reason)
 
 
 def format_issues(report) -> str:

@@ -198,7 +198,11 @@ def _suggestion_for(code: str) -> str:
         "JV2-MAP-004": "Break the cycle among Mapper expressions.",
         "JV2-MAP-005": "Avoid reserved constants Pi/pi/PI/E/Inf as Mapper names.",
         "JV2-MAP-006": "Avoid reserved DATABASE columns uuid/sample_index/status/LogL.",
-        "JV2-MAP-007": "Fix the sympy expression syntax for this Mapper entry.",
+        "JV2-MAP-007": (
+            "If the expression uses Jarvis-Operas names (pdg.mZ, math.add, …), "
+            "check that Jarvis-Operas is installed and the name is registered; "
+            "constants are written without parentheses. Otherwise fix sympy syntax."
+        ),
         "JV2-MAP-010": (
             "Remove Sampling.Mapper for Method CSV (v1); parameters come from CSV columns."
         ),
