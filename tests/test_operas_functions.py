@@ -13,7 +13,10 @@ from jarvishep2.operas import resolve_operator
 from jarvishep2.operas_functions import (
     build_operas_expression_context,
     discover_operas_expression_functions,
+    expression_uses_operas_function,
+    expression_uses_operas_reference,
     operas_expression_functions_required,
+    operas_expression_references_required,
     reset_operas_discovery_for_tests,
 )
 from jarvishep2.Sampling.sampling_utils import evaluate_selection
@@ -176,6 +179,43 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
         self.assertTrue(
             operas_expression_functions_required({"expression": "user.external(x)"})
         )
+        # D23 aliases stay wired.
+        self.assertIs(expression_uses_operas_function, expression_uses_operas_reference)
+        self.assertIs(
+            operas_expression_functions_required,
+            operas_expression_references_required,
+        )
+
+    def test_startup_gate_accepts_bare_qualified_constants(self) -> None:
+        """D23 §8.1 — bare constants trip the discovery gate; path-like dotted strings do not."""
+        cases = [
+            ("(mz - pdg.mZ)/pdg.mZ", True),
+            ("pdg.hbarc", True),
+            ("math.add(x, 2)", True),
+            ("sqrt(pdg.mZ**2)", True),
+            ("/usr/local/bin/foo.sh", False),
+            ("./run.sh", False),
+            ("results/out.dat", False),
+            (r"C:\tools\a.exe", False),
+            ("0.5", False),
+            ("1.5e3", False),
+            ("x*1.0", False),
+            ("sin(t)*2.5", False),
+            ("Pi", False),
+            ("LogGauss(x, 0, 1)", False),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(
+                    expression_uses_operas_reference(text),
+                    expected,
+                    msg=text,
+                )
+                self.assertEqual(
+                    operas_expression_references_required({"expression": text}),
+                    expected,
+                    msg=f"nested {text}",
+                )
 
     def test_startup_gate_ignores_calculator_cmd_and_path_strings(self) -> None:
         """Qualified calls in shell/cmd must not force Operas expression discovery."""
@@ -278,6 +318,93 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(worker["opera_modules"], [module])
         self.assertNotIn("operas_functions", worker)
+
+
+@unittest.skipIf(jarvis_operas is None, "Jarvis-Operas is not installed")
+class NamespaceConstantExpressionTests(unittest.TestCase):
+    """D23: bare pdg.* constants fold into expressions (JO + HEP2 wiring)."""
+
+    def setUp(self) -> None:
+        reset_operas_discovery_for_tests()
+
+    def test_snapshot_includes_constant_table(self) -> None:
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas build_constant_dicts not available")
+        snap = discover_operas_expression_functions(required=True)
+        expected = build_constant_dicts()
+        self.assertIn("pdg.mZ", expected)
+        self.assertEqual(snap.constants.get("pdg.mZ"), expected["pdg.mZ"])
+        self.assertGreaterEqual(len(snap.constants), 1)
+
+    def test_bare_pdg_constant_folds_and_coexists_with_observable(self) -> None:
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas build_constant_dicts not available")
+        if "pdg.mZ" not in build_constant_dicts():
+            self.skipTest("pdg.mZ not registered")
+
+        context = build_operas_expression_context(required=True)
+        compiled = context.compile("(mz - pdg.mZ)/pdg.mZ", symbols=("mz",))
+        self.assertEqual(compiled.variable_names, ("mz",))
+        # mz = 92 → (92 - 91.1876)/91.1876
+        val = compiled.evaluate({"mz": 92.0})
+        self.assertAlmostEqual(val, (92.0 - 91.1876) / 91.1876, places=12)
+
+        # Bare observable mZ and qualified pdg.mZ are distinct free-symbol namespaces.
+        co = context.compile("mZ + pdg.mZ", symbols=("mZ",))
+        self.assertEqual(co.variable_names, ("mZ",))
+        self.assertAlmostEqual(co.evaluate({"mZ": 1.0}), 1.0 + 91.1876, places=12)
+
+    def test_constant_subexpression_algebraically_folds(self) -> None:
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas build_constant_dicts not available")
+        constants = build_constant_dicts()
+        if "pdg.mZ" not in constants or "pdg.mW" not in constants:
+            self.skipTest("pdg masses not registered")
+
+        context = build_operas_expression_context(required=True)
+        compiled = context.compile(
+            "sqrt(pdg.mZ**2 + pdg.mW**2) * x",
+            symbols=("x",),
+        )
+        self.assertEqual(compiled.variable_names, ("x",))
+        expected = (constants["pdg.mZ"] ** 2 + constants["pdg.mW"] ** 2) ** 0.5
+        self.assertAlmostEqual(compiled.evaluate({"x": 1.0}), expected, places=9)
+        # Algebraic fold: only free symbol is x; lambdify consts carry the float.
+        consts = compiled._callable.__code__.co_consts
+        self.assertTrue(
+            any(isinstance(c, float) and abs(c - expected) < 1e-6 for c in consts),
+            msg=f"expected folded float ~{expected} in co_consts={consts}",
+        )
+
+    def test_likelihood_and_selection_see_bare_constants(self) -> None:
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas build_constant_dicts not available")
+        if "pdg.mZ" not in build_constant_dicts():
+            self.skipTest("pdg.mZ not registered")
+
+        likelihood = LogLikelihoodEvaluator(
+            [{"name": "LogL", "expression": "-(mz - pdg.mZ)**2"}]
+        )
+        # Near the pole → near zero logL contribution.
+        near = likelihood.evaluate({"mz": 91.1876})["LogL"]
+        far = likelihood.evaluate({"mz": 100.0})["LogL"]
+        self.assertAlmostEqual(near, 0.0, places=10)
+        self.assertLess(far, near)
+
+        self.assertTrue(
+            evaluate_selection("mz > pdg.mZ", {"mz": 92.0})
+        )
+        self.assertFalse(
+            evaluate_selection("mz > pdg.mZ", {"mz": 90.0})
+        )
 
 
 if __name__ == "__main__":

@@ -414,6 +414,42 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-OPR-001" for i in report.errors()))
 
+    def test_operas_constant_as_module_operator_rejected(self) -> None:
+        """D23.4: operator must not name a namespace constant (JV2-OPR-002)."""
+        try:
+            from jarvis_operas import build_constant_dicts
+        except ImportError:
+            self.skipTest("Jarvis-Operas not installed")
+        constants = build_constant_dicts()
+        if "pdg.mZ" not in constants:
+            self.skipTest("pdg.mZ not registered")
+
+        cfg = _minimal_dynesty_config()
+        cfg["Operas"] = {
+            "Modules": [
+                {
+                    "name": "Const",
+                    "operator": "pdg.mZ",
+                    "call_mode": "call",
+                    "input": [],
+                    "output": [{"name": "m", "entry": "m"}],
+                }
+            ]
+        }
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        errors = [i for i in report.errors() if i.code == "JV2-OPR-002"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("pdg.mZ", errors[0].message)
+        self.assertIn("expression", errors[0].message)
+        # Guidance should point at bare constant form.
+        suggestion = (errors[0].suggestion or "").lower()
+        example = errors[0].example or ""
+        self.assertTrue(
+            "constant" in suggestion or "pdg" in example,
+            msg=f"suggestion={errors[0].suggestion!r} example={example!r}",
+        )
+
 
 class TaskValidationCliTests(unittest.TestCase):
     def test_normalize_argv_validate(self) -> None:

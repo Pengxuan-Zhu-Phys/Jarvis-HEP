@@ -310,6 +310,57 @@ def _validate_operas_call_mode(config: Mapping[str, Any]) -> list[ValidationIssu
     return issues
 
 
+def _operas_constant_full_names() -> frozenset[str]:
+    """Return registered constant full names, or empty if Operas is unavailable."""
+    try:
+        from jarvis_operas import build_constant_dicts
+    except ImportError:
+        return frozenset()
+    try:
+        return frozenset(str(name) for name in build_constant_dicts())
+    except Exception:
+        # Validation must never fail open/closed on a transient registry error.
+        return frozenset()
+
+
+def _validate_operas_constant_operators(
+    config: Mapping[str, Any],
+) -> list[ValidationIssue]:
+    """Reject Modules[].operator that names a Jarvis-Operas constant (D23.4).
+
+    ``operator: pdg.mZ`` + ``call_mode: call`` can run at runtime (arity-0
+    callable), but it is meaningless as a module step — write the constant in
+    an expression instead.
+    """
+    issues: list[ValidationIssue] = []
+    operas = config.get("Operas")
+    if not isinstance(operas, Mapping):
+        return issues
+    modules = operas.get("Modules")
+    if not isinstance(modules, list):
+        return issues
+    constants = _operas_constant_full_names()
+    if not constants:
+        return issues
+    for index, mod in enumerate(modules):
+        if not isinstance(mod, Mapping):
+            continue
+        operator = str(mod.get("operator") or "").strip()
+        if not operator or operator not in constants:
+            continue
+        issues.append(
+            issue(
+                "error",
+                "JV2-OPR-002",
+                f"Operas.Modules[{index}].operator",
+                f"{operator!r} is a Jarvis-Operas constant, not a module operator. "
+                f"Write it directly in an expression (for example "
+                f'expression: "{operator}") instead of Operas.Modules.',
+            )
+        )
+    return issues
+
+
 def _finalize_report(report: ValidationReport, *, strict: bool) -> ValidationReport:
     """Apply the stable CLI ordering after every validation branch."""
     if strict:
@@ -394,6 +445,7 @@ def validate_task_config(
         report.extend(validate_operational_blocks(config))
         report.extend(_validate_dead_keys(config))
         report.extend(_validate_operas_call_mode(config))
+        report.extend(_validate_operas_constant_operators(config))
         return _finalize_report(report, strict=strict)
 
     if not isinstance(sampling, Mapping):
@@ -492,7 +544,8 @@ def validate_task_config(
     report.extend(validate_operational_blocks(config))
     report.extend(_validate_dead_keys(config))
     report.extend(_validate_operas_call_mode(config))
-    # D22: optional Sampling.Mapper (derive expressions, closed namespace).
+    report.extend(_validate_operas_constant_operators(config))
+    # D22: optional Sampling.Mapper (flat name → expression, closed namespace).
     report.extend(validate_mapper(config, method=method or None))
 
     return _finalize_report(report, strict=strict)

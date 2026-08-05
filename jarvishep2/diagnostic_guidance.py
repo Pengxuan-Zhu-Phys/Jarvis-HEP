@@ -77,6 +77,13 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
             "(and earlier Mapper names only; no observables).",
             "Mapper:\n  x: \"cos(t)\"\n  y: \"sin(t)\"",
         )
+    if code == "JV2-OPR-002":
+        return (
+            "Operas.Modules.operator must name a callable operator, not a "
+            "namespace constant. Put constants in expression / selection / "
+            "LogLikelihood text (bare form, no parentheses).",
+            'expression: "(mz - pdg.mZ) / pdg.mZ"',
+        )
     # Parameter-level codes must win over the Sampling.Variables list prefix
     # (D21.14: JV2-VAR-031 used to suggest "provide a non-empty variable list").
     if code == "JV2-VAR-031":

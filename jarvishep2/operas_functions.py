@@ -2,8 +2,10 @@
 """Startup discovery bridge from Jarvis-Operas into HEP expressions.
 
 External functions keep the V1 YAML surface: they are registered in
-Jarvis-Operas and referenced by their full ``namespace.function(...)`` name.
-No HEP-specific function-registration block is added to task YAML.
+Jarvis-Operas and referenced by their full ``namespace.name`` form.
+Constants (D23) use the bare form ``pdg.mZ``; callables keep
+``namespace.function(...)``.  No HEP-specific function-registration block
+is added to task YAML.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ class OperasExpressionSnapshot:
     numeric_functions: Mapping[str, Callable[..., Any]] = field(default_factory=dict)
     registered_names: tuple[str, ...] = ()
     entrypoints_loaded: tuple[str, ...] = ()
+    # D23: diagnostic/log only — not consumed by ExpressionContext.
+    constants: Mapping[str, float] = field(default_factory=dict)
 
     def create_context(self, *, maxsize: int | None = 128) -> ExpressionContext:
         return ExpressionContext(
@@ -36,7 +40,17 @@ class OperasExpressionSnapshot:
 
 _DISCOVERY_LOCK = threading.RLock()
 _DISCOVERED_REGISTRIES: set[int] = set()
-_QUALIFIED_FUNCTION_CALL = re.compile(r"\b[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\s*\(")
+
+# Qualified Operas reference: namespace.short (function call *or* bare constant).
+# Guards reject path-like dotted fragments that would force a ~1 s cold discovery
+# (design §8.1): ``/usr/local/bin/foo.sh``, ``./run.sh``, ``results/out.dat``,
+# ``C:\\tools\\a.exe``.  Residual bare ``run.sh`` is unreachable for config walks
+# because only expression/selection/target_expression keys are scanned.
+_QUALIFIED_REFERENCE = re.compile(
+    r"(?<![/\\.\w])[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?![\w.]*[/\\])"
+)
+# Backward-compatible name (pre-D23 required a trailing ``(``).
+_QUALIFIED_FUNCTION_CALL = _QUALIFIED_REFERENCE
 
 # Only these mapping keys hold YAML expression text. Command/path strings such as
 # calculator ``cmd`` / ``installation`` must never trigger Operas discovery.
@@ -49,39 +63,44 @@ _EXPRESSION_TEXT_KEYS = frozenset(
 )
 
 
-def _string_uses_operas_function(text: str) -> bool:
-    return bool(_QUALIFIED_FUNCTION_CALL.search(text))
+def _string_uses_operas_reference(text: str) -> bool:
+    return bool(_QUALIFIED_REFERENCE.search(text))
 
 
-def expression_uses_operas_function(
+# Pre-D23 alias.
+_string_uses_operas_function = _string_uses_operas_reference
+
+
+def expression_uses_operas_reference(
     value: Any,
     *,
     _as_expression_text: bool = True,
 ) -> bool:
-    """Return whether *expression text* contains a qualified Operas function call.
+    """Return whether *expression text* contains a qualified Operas reference.
 
-    A bare string is treated as expression text only when the caller already holds
-    a single formula (``_as_expression_text=True``, the default) — e.g.
-    ``evaluate_selection`` / Dump. Nested config walks set the flag to ``False``
-    except under expression-bearing keys (``expression`` / ``selection`` /
-    ``target_expression``), so calculator ``cmd`` / ``path`` / install strings
-    never force Operas discovery.
+    Matches both call form (``math.add(x, 2)``) and bare constants
+    (``pdg.mZ``).  A bare string is treated as expression text only when the
+    caller already holds a single formula (``_as_expression_text=True``, the
+    default) — e.g. ``evaluate_selection`` / Dump. Nested config walks set the
+    flag to ``False`` except under expression-bearing keys
+    (``expression`` / ``selection`` / ``target_expression``), so calculator
+    ``cmd`` / ``path`` / install strings never force Operas discovery.
     """
     if isinstance(value, str):
-        return bool(_as_expression_text and _string_uses_operas_function(value))
+        return bool(_as_expression_text and _string_uses_operas_reference(value))
     if isinstance(value, Mapping):
         for key, item in value.items():
             key_name = str(key)
             if key_name in _EXPRESSION_TEXT_KEYS:
-                if expression_uses_operas_function(item, _as_expression_text=True):
+                if expression_uses_operas_reference(item, _as_expression_text=True):
                     return True
             elif isinstance(item, (Mapping, list, tuple)):
-                if expression_uses_operas_function(item, _as_expression_text=False):
+                if expression_uses_operas_reference(item, _as_expression_text=False):
                     return True
         return False
     if isinstance(value, (list, tuple)):
         return any(
-            expression_uses_operas_function(
+            expression_uses_operas_reference(
                 item, _as_expression_text=_as_expression_text
             )
             for item in value
@@ -89,9 +108,17 @@ def expression_uses_operas_function(
     return False
 
 
-def operas_expression_functions_required(expressions: Any) -> bool:
+# Pre-D23 public name kept as alias (exported in ``__all__``).
+expression_uses_operas_function = expression_uses_operas_reference
+
+
+def operas_expression_references_required(expressions: Any) -> bool:
     """Avoid bootstrapping Operas for payloads that only use the internal core."""
-    return expression_uses_operas_function(expressions)
+    return expression_uses_operas_reference(expressions)
+
+
+# Pre-D23 public name kept as alias.
+operas_expression_functions_required = operas_expression_references_required
 
 
 def _discover_entrypoints_once(
@@ -113,7 +140,7 @@ def discover_operas_expression_functions(
     discover_plugins: bool = True,
     required: bool = False,
 ) -> OperasExpressionSnapshot:
-    """Discover registered functions and freeze their numerical implementations."""
+    """Discover registered functions/constants and freeze numerical implementations."""
     try:
         from jarvis_operas import (
             build_register_dicts,
@@ -129,17 +156,35 @@ def discover_operas_expression_functions(
             ) from exc
         return OperasExpressionSnapshot()
 
+    # D23: optional on older Operas installs that lack the constant table API.
+    try:
+        from jarvis_operas import build_constant_dicts
+    except ImportError:  # pragma: no cover - pre-D23 Operas
+        build_constant_dicts = None  # type: ignore[assignment]
+
     target_registry = registry or get_global_operas_registry()
     loaded: tuple[str, ...] = ()
     if discover_plugins:
         loaded = _discover_entrypoints_once(target_registry, discover_entrypoints)
     register_dict = build_register_dicts(target_registry)
-    parse_locals, numeric_functions = build_sympy_dicts(register_dict, include_all=True)
+    if build_constant_dicts is not None:
+        constant_dict = build_constant_dicts(target_registry)
+        parse_locals, numeric_functions = build_sympy_dicts(
+            register_dict,
+            constants=constant_dict,
+            include_all=True,
+        )
+    else:  # pragma: no cover - pre-D23 Operas
+        constant_dict = {}
+        parse_locals, numeric_functions = build_sympy_dicts(
+            register_dict, include_all=True
+        )
     return OperasExpressionSnapshot(
         parse_locals=dict(parse_locals),
         numeric_functions=dict(numeric_functions),
         registered_names=tuple(sorted(register_dict)),
         entrypoints_loaded=loaded,
+        constants=dict(constant_dict),
     )
 
 
@@ -181,6 +226,8 @@ __all__ = [
     "build_operas_expression_context",
     "discover_operas_expression_functions",
     "ensure_operas_registry_discovered",
-    "expression_uses_operas_function",
-    "operas_expression_functions_required",
+    "expression_uses_operas_reference",
+    "expression_uses_operas_function",  # alias
+    "operas_expression_references_required",
+    "operas_expression_functions_required",  # alias
 ]
