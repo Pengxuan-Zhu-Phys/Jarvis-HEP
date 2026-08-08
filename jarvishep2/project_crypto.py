@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Crypto helpers for restricted project packs (used only via Jarvis2 project CLI).
+"""Crypto helpers for restricted project packs (used only via Jarvis project CLI).
 
 End users should **not** run openssl by hand. Supported UX:
 
-- ``Jarvis2 project fetch NAME --key …``  (decrypt + unpack)
-- ``Jarvis2 project pack PATH --encrypt --key …``  (pack then encrypt)
-- ``Jarvis2 project encrypt FILE --key …``  (encrypt an existing tarball)
+- ``Jarvis project fetch NAME --key …``  (decrypt + unpack)
+- ``Jarvis project pack PATH --encrypt --key …``  (pack then encrypt)
+- ``Jarvis project encrypt FILE --key …``  (encrypt an existing tarball)
 
 On-disk format matches OpenSSL ``enc -aes-256-cbc -pbkdf2 -salt`` so archives
 stay interoperable. Backend order: system ``openssl`` if present, else the
@@ -59,7 +59,7 @@ def _crypto_backend_hint() -> str:
     return (
         "Restricted project crypto needs either `openssl` on PATH "
         "(usual on macOS/Linux) or `pip install cryptography`. "
-        "You still only use: Jarvis2 project fetch|pack|encrypt — not raw openssl."
+        "You still only use: Jarvis project fetch|pack|encrypt — not raw openssl."
     )
 
 
@@ -248,7 +248,7 @@ def decrypt_file(
         errors.append(str(exc))
     raise ProjectCryptoError(
         "Could not decrypt project archive (wrong key, or missing crypto backend). "
-        "Use: Jarvis2 project fetch NAME --key YOUR_KEY. "
+        "Use: Jarvis project fetch NAME --key YOUR_KEY. "
         + _crypto_backend_hint()
         + (f" Details: {'; '.join(errors)}" if errors else "")
     )
@@ -296,7 +296,7 @@ def maybe_decrypt_archive(
     if not resolved:
         raise ProjectCryptoError(
             "this project is restricted. Fetch with a key:\n"
-            "  Jarvis2 project fetch NAME --key YOUR_KEY\n"
+            "  Jarvis project fetch NAME --key YOUR_KEY\n"
             f"or set {PROJECT_FETCH_KEY_ENV}."
         )
 

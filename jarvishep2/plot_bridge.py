@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin bridge from Jarvis2 CLI to the Jarvis-PLOT engine.
+"""Thin bridge from Jarvis CLI to the Jarvis-PLOT engine.
 
 Plot algorithms live in the JarvisPLOT package. This module only imports the
 engine, injects argv, and maps failures to process-style exit codes.

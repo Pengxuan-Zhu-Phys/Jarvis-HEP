@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Task YAML loading and path normalization for Jarvis2 CLI runs."""
+"""Task YAML loading and path normalization for Jarvis CLI runs."""
 
 from __future__ import annotations
 
@@ -509,6 +509,17 @@ def resolve_sampling_path(config: Mapping[str, Any], raw: str) -> str:
     return os.path.abspath(os.path.join(anchor, raw))
 
 
+def _coerce_check_timeout_sec(value: Any, *, default: float) -> float:
+    """Return a positive timeout in seconds (minimum 0.1s)."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if parsed <= 0:
+        return float(default)
+    return max(0.1, parsed)
+
+
 def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
     """Return normalized check-modules knobs (task Sampling + EnvReqs.V2 + defaults)."""
     settings = dict(CHECK_MODULES_DEFAULTS)
@@ -523,6 +534,13 @@ def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
                 settings["n_samples"] = max(1, int(block.get("n_samples")))
             except (TypeError, ValueError):
                 pass
+        # Accept timeout_sec (preferred) or timeout as alias.
+        raw_timeout = block.get("timeout_sec", block.get("timeout"))
+        if raw_timeout is not None:
+            settings["timeout_sec"] = _coerce_check_timeout_sec(
+                raw_timeout,
+                default=float(CHECK_MODULES_DEFAULTS["timeout_sec"]),
+            )
     # Task Sampling.data always wins for the CSV path when present.
     sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
     if isinstance(sampling, Mapping):
@@ -578,11 +596,21 @@ def check_modules_n_samples(config: Mapping[str, Any]) -> int:
         return int(CHECK_MODULES_DEFAULTS["n_samples"])
 
 
+def check_modules_timeout_sec(config: Mapping[str, Any]) -> float:
+    """Max seconds to wait for check-modules samples to archive (deadline)."""
+    settings = get_check_modules_settings(config)
+    return _coerce_check_timeout_sec(
+        settings.get("timeout_sec"),
+        default=float(CHECK_MODULES_DEFAULTS["timeout_sec"]),
+    )
+
+
 __all__ = [
     "LoadedTaskConfig",
     "TaskCardLoadError",
     "check_modules_n_samples",
     "check_modules_points_path",
+    "check_modules_timeout_sec",
     "get_check_modules_settings",
     "is_check_modules_task",
     "load_task_yaml",

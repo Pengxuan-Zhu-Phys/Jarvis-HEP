@@ -1,0 +1,46 @@
+# Minimal Calculator + Portal IO card (shipped with Jarvis man example calculator).
+# Run: Jarvis validate bin/quickstart_calculator.yaml
+# Smoke: Jarvis check bin/quickstart_calculator.yaml
+Scan:
+  name: "quickstart_calculator"
+  save_dir: "&J/outputs"
+
+Sampling:
+  Method: "Random"
+  Bounds:
+    Point number: 3
+    Seed: 0
+  mode: check_modules
+  Variables:
+    - name: x
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 1.0}
+  LogLikelihood:
+    - {name: "LogL", expression: "0.0"}
+
+Calculators:
+  Modules:
+    - name: Echo
+      path: "&J/calculators/echo"
+      execution:
+        path: "&J/calculators/echo"
+        commands:
+          - >-
+            python3 -c "import json, pathlib; pathlib.Path('out.json').write_text(json.dumps({'y': 1.0}))"
+        input: []
+        output:
+          - name: out
+            path: out.json
+            type: JSON
+            variables:
+              - {name: y, entry: y}
+
+EnvReqs:
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+  V2:
+    check_modules:
+      n_samples: 3
+      timeout_sec: 60

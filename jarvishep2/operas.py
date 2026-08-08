@@ -382,7 +382,7 @@ class OperasModule:
 
         worker = threading.Thread(
             target=_target,
-            name=f"Jarvis2OperasTimeout:{label}",
+            name=f"JarvisOperasTimeout:{label}",
             daemon=True,
         )
         worker.start()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Standalone project scaffold for ``Jarvis2 project create`` (D12.5 / V1 layout)."""
+"""Standalone project scaffold for ``Jarvis project create`` (D12.5 / V1 layout)."""
 
 from __future__ import annotations
 
@@ -86,10 +86,10 @@ def _bootstrap_minimal_files(project_root: str) -> None:
         with open(readme_path, "w", encoding="utf-8") as handle:
             handle.write(
                 "# Jarvis-HEP V2 Project\n\n"
-                "Create this project via `Jarvis2 project create <name>`.\n"
+                "Create this project via `Jarvis project create <name>`.\n"
                 "Put runnable YAML cards under `bin/` and run with:\n\n"
                 "```bash\n"
-                "Jarvis2 run bin/quickstart_bridson_operas.yaml\n"
+                "Jarvis run bin/quickstart_bridson_operas.yaml\n"
                 "```\n\n"
                 "Runtime artifact directories such as `outputs/`, `logs/`, and "
                 "`images/` are created automatically on first use.\n"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jarvis2 CLI surface: one-intent subcommands + legacy flag aliases (D11.1 / D11.2)."""
+"""Jarvis CLI surface: one-intent subcommands + legacy flag aliases (D11.1 / D11.2)."""
 
 from __future__ import annotations
 
@@ -39,6 +39,7 @@ _SUBCOMMANDS = frozenset(
         "run",
         "check",
         "validate",
+        "man",
         "convert",
         "monitor",
         "plot",
@@ -77,6 +78,7 @@ _COMMAND_HELP_PANELS = {
     "run": "Scan workflow",
     "check": "Scan workflow",
     "validate": "Scan workflow",
+    "man": "Scan workflow",
     "convert": "Data export",
     "gen-plot-yaml": "Plots",
     "plot": "Plots",
@@ -90,6 +92,7 @@ _COMMAND_HELP_PANELS = {
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
     "validate": 10,
+    "man": 15,
     "check": 20,
     "run": 30,
     "convert": 40,
@@ -339,7 +342,7 @@ class JarvisArgumentParser(argparse.ArgumentParser):
         )
 
     def format_help(self) -> str:
-        root_help = self.prog == "Jarvis2"
+        root_help = self.prog == "Jarvis"
         command = self._click_command(include_legacy=not root_help)
         terminal_stdout = sys.stdout
         output = io.StringIO()
@@ -383,7 +386,7 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     """Rewrite legacy bare-YAML invocations into explicit subcommands.
 
     Argparse subparsers treat the first positional as the command name, so
-    ``Jarvis2 task.yaml`` would otherwise fail as an invalid choice.
+    ``Jarvis task.yaml`` would otherwise fail as an invalid choice.
     """
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
@@ -411,37 +414,38 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = JarvisArgumentParser(
-        prog="Jarvis2",
+        prog="Jarvis",
         description=(
             "Run and validate distributed HEP scans, prepare plot YAML, "
             "and manage their local runtime.\n\n"
-            "Command help: Jarvis2 COMMAND -h\n"
-            "See each command's arguments and options, e.g. Jarvis2 run -h"
+            "Command help: Jarvis COMMAND -h\n"
+            "See each command's arguments and options, e.g. Jarvis run -h"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Intents (preferred):\n"
-            "  Jarvis2 run TASK.yaml [--resume]\n"
-            "  Jarvis2 check TASK.yaml\n"
-            "  Jarvis2 validate TASK.yaml [--strict] [--json]\n"
-            "  Jarvis2 convert TASK.yaml\n"
-            "  Jarvis2 monitor\n"
-            "  Jarvis2 plot …              # same CLI as jplot\n"
-            "  Jarvis2 portal …            # same CLI as jportal (V2 registry)\n"
-            "  Jarvis2 operas …            # same CLI as jopera\n"
-            "  Jarvis2 project create|pack|list|browse|fetch|info …\n"
-            "  Jarvis2 ps                  # list running Jarvis* processes\n"
-            "  Jarvis2 kill [--yes]        # kill them (asks for confirmation)\n"
-            "  Jarvis2 -v / --version      # logo + authors + package version\n"
-            "  Jarvis2 --refs              # framework and sampler references\n"
+            "  Jarvis run TASK.yaml [--resume]\n"
+            "  Jarvis check TASK.yaml\n"
+            "  Jarvis validate TASK.yaml [--strict] [--json]\n"
+            "  Jarvis man [yaml|sampler|calculator|…]  # YAML writing manuals\n"
+            "  Jarvis convert TASK.yaml\n"
+            "  Jarvis monitor\n"
+            "  Jarvis plot …              # same CLI as jplot\n"
+            "  Jarvis portal …            # same CLI as jportal (V2 registry)\n"
+            "  Jarvis operas …            # same CLI as jopera\n"
+            "  Jarvis project create|pack|list|browse|fetch|info …\n"
+            "  Jarvis ps                  # list running Jarvis* processes\n"
+            "  Jarvis kill [--yes]        # kill them (asks for confirmation)\n"
+            "  Jarvis -v / --version      # logo + authors + package version\n"
+            "  Jarvis --refs              # framework and sampler references\n"
             "\n"
             "Legacy aliases (still accepted):\n"
-            "  Jarvis2 TASK.yaml [--resume]\n"
-            "  Jarvis2 TASK.yaml --check-modules\n"
-            "  Jarvis2 TASK.yaml --validate\n"
-            "  Jarvis2 TASK.yaml --convert\n"
-            "  Jarvis2 --monitor\n"
-            "  Jarvis2 PLOT.yaml --plot   (deprecated)\n"
+            "  Jarvis TASK.yaml [--resume]\n"
+            "  Jarvis TASK.yaml --check-modules\n"
+            "  Jarvis TASK.yaml --validate\n"
+            "  Jarvis TASK.yaml --convert\n"
+            "  Jarvis --monitor\n"
+            "  Jarvis PLOT.yaml --plot   (deprecated)\n"
         ),
     )
     parser.add_argument(
@@ -516,7 +520,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Treat config validation warnings as errors",
     )
+    check_p.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        metavar="SEC",
+        help=(
+            "Max seconds to wait for smoke samples to archive (deadline; default "
+            "from EnvReqs.V2.check_modules.timeout_sec, else 120)"
+        ),
+    )
     _add_logging_flags(check_p)
+
+    sub.add_parser(
+        "man",
+        help="YAML writing manuals (domains: yaml sampler calculator operas tokens example)",
+        add_help=False,
+    )
 
     validate_p = sub.add_parser(
         "validate",
@@ -547,7 +567,7 @@ def build_parser() -> argparse.ArgumentParser:
     monitor_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Running scan reference from `Jarvis2 monitor` (for example R1)",
+        help="Running scan reference (sticky R1/R2, control PID, or Scan.name)",
     )
 
     # ``plot`` is handled by argv passthrough in main(), matching jplot.
@@ -560,7 +580,7 @@ def build_parser() -> argparse.ArgumentParser:
     scene_p.add_argument("task_yaml", help="Path to the finished scan task YAML")
 
     # ``portal`` is handled by argv passthrough in main() so that
-    # ``Jarvis2 portal man|file|-h|-v`` matches the standalone jportal CLI.
+    # ``Jarvis portal man|file|-h|-v`` matches the standalone jportal CLI.
     sub.add_parser(
         "portal",
         help="Jarvis-Portal CLI (same as jportal; uses V2 format registry)",
@@ -584,7 +604,7 @@ def build_parser() -> argparse.ArgumentParser:
     ps_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Process-group reference from `Jarvis2 ps` (for example R1 or ZP)",
+        help="Process-group reference (sticky R1/R2, Scan.name, control PID, or ZP)",
     )
 
     kill_p = sub.add_parser(
@@ -594,7 +614,7 @@ def build_parser() -> argparse.ArgumentParser:
     kill_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Process-group reference from `Jarvis2 kill` (for example R1 or ZP)",
+        help="Process-group reference (sticky R1/R2, Scan.name, control PID, or ZP)",
     )
     kill_p.add_argument(
         "--yes",
@@ -612,17 +632,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--monitor",
         action="store_true",
-        help="(legacy) List running scans; prefer `Jarvis2 monitor`",
+        help="(legacy) List running scans; prefer `Jarvis monitor`",
     )
     parser.add_argument(
         "--plot",
         action="store_true",
-        help="(legacy) Treat path as plot scene; prefer `Jarvis2 plot`",
+        help="(legacy) Treat path as plot scene; prefer `Jarvis plot`",
     )
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="(legacy) Validate task YAML only; prefer `Jarvis2 validate`",
+        help="(legacy) Validate task YAML only; prefer `Jarvis validate`",
     )
     parser.add_argument(
         "--strict",
@@ -632,12 +652,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--check-modules",
         action="store_true",
-        help="(legacy) Check-modules path; prefer `Jarvis2 check`",
+        help="(legacy) Check-modules path; prefer `Jarvis check`",
     )
     parser.add_argument(
         "--convert",
         action="store_true",
-        help="(legacy) Convert DATABASE HDF5 to CSV; prefer `Jarvis2 convert`",
+        help="(legacy) Convert DATABASE HDF5 to CSV; prefer `Jarvis convert`",
     )
     parser.add_argument(
         "--resume",
@@ -661,7 +681,7 @@ def build_parser() -> argparse.ArgumentParser:
 def build_project_help_parser() -> JarvisArgumentParser:
     """Document project tools without changing their free-form dispatcher."""
     parser = JarvisArgumentParser(
-        prog="Jarvis2 project",
+        prog="Jarvis project",
         description="Create, package, browse, fetch, and inspect standalone Jarvis projects.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -727,7 +747,7 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
     if getattr(args, "pid", None) is not None:
         raise ValueError(
             "--pid is not implemented and has been retired; "
-            "use `Jarvis2 monitor` (Redis) or attach by scan outputs"
+            "use `Jarvis monitor` (Redis) or attach by scan outputs"
         )
 
     command = getattr(args, "command", None)
@@ -757,7 +777,7 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
     raise ValueError(
         "Provide a task YAML or a subcommand "
         "(run|check|validate|convert|monitor|plot|portal|operas|project). "
-        "See Jarvis2 -h."
+        "See Jarvis -h."
     )
 
 
@@ -846,7 +866,7 @@ def dispatch_plot(plot_argv: list[str] | None = None) -> int:
         from jarvisplot.client import main as plot_main
     except ImportError as exc:
         print(
-            "Jarvis-PLOT is required for `Jarvis2 plot`. "
+            "Jarvis-PLOT is required for `Jarvis plot`. "
             "Install it with `pip install 'jarvishep2[plot]'` "
             f"(or `pip install -e ../Jarvis-PLOT`). Detail: {exc}",
             file=sys.stderr,
@@ -855,14 +875,14 @@ def dispatch_plot(plot_argv: list[str] | None = None) -> int:
     try:
         return int(plot_main(list(plot_argv or [])))
     except Exception as exc:
-        print(f"Jarvis2 plot failed: {exc}", file=sys.stderr)
+        print(f"Jarvis plot failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
 
 def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     """Generate (but never render) JarvisPLOT YAML for one finished scan."""
     if not task_yaml:
-        print("Task YAML is required (usage: Jarvis2 gen-plot-yaml TASK.yaml).", file=sys.stderr)
+        print("Task YAML is required (usage: Jarvis gen-plot-yaml TASK.yaml).", file=sys.stderr)
         return EXIT_USAGE
     from jarvishep2.task_config import TaskCardLoadError
 
@@ -910,14 +930,14 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
 
     Interface matches standalone ``jportal``::
 
-        Jarvis2 portal man
-        Jarvis2 portal man json
-        Jarvis2 portal man slha
-        Jarvis2 portal file.yaml
-        Jarvis2 portal -h
-        Jarvis2 portal -v
+        Jarvis portal man
+        Jarvis portal man json
+        Jarvis portal man slha
+        Jarvis portal file.yaml
+        Jarvis portal -h
+        Jarvis portal -v
 
-    Convenience alias: ``Jarvis2 portal formats`` → ``man`` (list formats).
+    Convenience alias: ``Jarvis portal formats`` → ``man`` (list formats).
     """
     argv = list(portal_argv or [])
     if argv == ["formats"]:
@@ -927,7 +947,7 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
         from jarvis_portal.v2 import create_default_registry as v2_registry
     except ImportError as exc:
         print(
-            "Jarvis-Portal is required for `Jarvis2 portal`. "
+            "Jarvis-Portal is required for `Jarvis portal`. "
             "Install with `pip install -U Jarvis-HEP-Portal` "
             f"(or `pip install -e ../Jarvis-Portal`). Detail: {exc}",
             file=sys.stderr,
@@ -938,11 +958,11 @@ def dispatch_portal(portal_argv: list[str] | None = None) -> int:
             portal_main(
                 argv,
                 registry_factory=v2_registry,
-                prog="Jarvis2 portal",
+                prog="Jarvis portal",
             )
         )
     except Exception as exc:
-        print(f"Jarvis2 portal failed: {exc}", file=sys.stderr)
+        print(f"Jarvis portal failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
 
@@ -975,15 +995,15 @@ def _run_project_create(project_name: str) -> int:
     try:
         project_root = create_project_scaffold(project_name, cwd=os.getcwd())
     except ValueError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except FileExistsError as exc:
-        print(f"[Jarvis2] Project directory already exists: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Project directory already exists: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
-    print(f"[Jarvis2] Project scaffold created at: {project_root}")
-    print(f"[Jarvis2] Created folders: {', '.join(PROJECT_SUBDIRS)}")
-    print("[Jarvis2] Try: Jarvis2 run bin/quickstart_bridson_operas.yaml")
+    print(f"[Jarvis] Project scaffold created at: {project_root}")
+    print(f"[Jarvis] Created folders: {', '.join(PROJECT_SUBDIRS)}")
+    print("[Jarvis] Try: Jarvis run bin/quickstart_bridson_operas.yaml")
     return EXIT_OK
 
 
@@ -999,7 +1019,7 @@ def _run_project_pack(
 
     if encrypt and not resolve_fetch_key(key):
         print(
-            "[Jarvis2] --encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
+            "[Jarvis] --encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -1007,10 +1027,10 @@ def _run_project_pack(
     try:
         report = create_project_package(project_root=project_path, profile=profile)
     except ProjectPackError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except Exception as exc:
-        print(f"[Jarvis2] Failed to package project: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to package project: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     archive_path = report.archive_path
@@ -1022,7 +1042,7 @@ def _run_project_pack(
                 encrypted_path = archive_path[: -len(".tar.gz")] + ".tar.gz.jenc"
             encrypt_file(archive_path, encrypted_path, key=str(resolve_fetch_key(key)))
         except ProjectCryptoError as exc:
-            print(f"[Jarvis2] {exc}", file=sys.stderr)
+            print(f"[Jarvis] {exc}", file=sys.stderr)
             return EXIT_RUN_FAILED
 
     rows = [
@@ -1035,8 +1055,8 @@ def _run_project_pack(
     ]
     if encrypted_path:
         rows.append(("Encrypted", encrypted_path))
-        rows.append(("Fetch with", f"Jarvis2 project fetch <name> --key <key>"))
-    _print_kv_block("Jarvis2 project package created", rows)
+        rows.append(("Fetch with", f"Jarvis project fetch <name> --key <key>"))
+    _print_kv_block("Jarvis project package created", rows)
     return EXIT_OK
 
 
@@ -1046,16 +1066,16 @@ def _run_project_encrypt(archive_path: str, *, key: str | None) -> int:
     resolved = resolve_fetch_key(key)
     if not resolved:
         print(
-            "[Jarvis2] encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
+            "[Jarvis] encrypt requires --key KEY or JARVIS_PROJECT_FETCH_KEY",
             file=sys.stderr,
         )
         return EXIT_USAGE
     path = os.path.abspath(os.path.expanduser(archive_path))
     if not os.path.isfile(path):
-        print(f"[Jarvis2] Archive not found: {path}", file=sys.stderr)
+        print(f"[Jarvis] Archive not found: {path}", file=sys.stderr)
         return EXIT_USAGE
     if path.endswith(".jenc"):
-        print("[Jarvis2] File already looks encrypted (.jenc)", file=sys.stderr)
+        print("[Jarvis] File already looks encrypted (.jenc)", file=sys.stderr)
         return EXIT_USAGE
     out = path + ".jenc"
     if path.endswith(".tar.gz"):
@@ -1063,15 +1083,15 @@ def _run_project_encrypt(archive_path: str, *, key: str | None) -> int:
     try:
         encrypt_file(path, out, key=resolved)
     except ProjectCryptoError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
     _print_kv_block(
-        "Jarvis2 project archive encrypted",
+        "Jarvis project archive encrypted",
         [
             ("Input", path),
             ("Encrypted", out),
             ("Scheme", "openssl-aes-256-cbc"),
-            ("Users fetch with", "Jarvis2 project fetch NAME --key …"),
+            ("Users fetch with", "Jarvis project fetch NAME --key …"),
         ],
     )
     return EXIT_OK
@@ -1083,14 +1103,14 @@ def _run_project_pack_manifest(project_path: str | None, profile: str) -> int:
     try:
         report = create_project_pack_manifest(project_root=project_path, profile=profile)
     except ProjectPackError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except Exception as exc:
-        print(f"[Jarvis2] Failed to write project pack manifest: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to write project pack manifest: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     _print_kv_block(
-        "Jarvis2 project pack manifest created",
+        "Jarvis project pack manifest created",
         [
             ("Project root", report.project_root),
             ("Manifest", report.manifest_path),
@@ -1113,14 +1133,14 @@ def _run_project_pack_from_manifest(manifest_path: str) -> int:
     try:
         report = create_project_package_from_manifest(manifest_path)
     except ProjectPackError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except Exception as exc:
-        print(f"[Jarvis2] Failed to package project from manifest: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to package project from manifest: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     _print_kv_block(
-        "Jarvis2 project package created from manifest",
+        "Jarvis project package created from manifest",
         [
             ("Project root", report.project_root),
             ("Archive", report.archive_path),
@@ -1143,14 +1163,14 @@ def _run_project_browse() -> int:
     try:
         projects = list_official_projects()
     except OfficialLibraryError as exc:
-        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     if not projects:
-        print("[Jarvis2] No verified projects are listed in the official library.")
+        print("[Jarvis] No verified projects are listed in the official library.")
         return EXIT_OK
 
-    print("[Jarvis2] Official library (catalog: Jarvis-Examples GitHub JSON)")
+    print("[Jarvis] Official library (catalog: Jarvis-Examples GitHub JSON)")
     print(format_project_list_table(projects))
     return EXIT_OK
 
@@ -1165,24 +1185,24 @@ def _run_project_info(project_name: str) -> int:
     try:
         project = get_official_project(project_name)
     except OfficialProjectNotFoundError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except OfficialLibraryError as exc:
-        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     needs_key = bool(project.get("requires_key"))
-    print(f"[Jarvis2] Official project: {project['name']}")
-    print(f"[Jarvis2] Summary: {project.get('summary') or 'N/A'}")
-    print(f"[Jarvis2] Category: {project.get('category') or 'N/A'}")
-    print(f"[Jarvis2] Access: {project.get('access') or 'public'}")
-    print(f"[Jarvis2] Key required: {'yes' if needs_key else 'no'}")
+    print(f"[Jarvis] Official project: {project['name']}")
+    print(f"[Jarvis] Summary: {project.get('summary') or 'N/A'}")
+    print(f"[Jarvis] Category: {project.get('category') or 'N/A'}")
+    print(f"[Jarvis] Access: {project.get('access') or 'public'}")
+    print(f"[Jarvis] Key required: {'yes' if needs_key else 'no'}")
     if needs_key and project.get("encryption_hint"):
-        print(f"[Jarvis2] Key hint: {project.get('encryption_hint')}")
+        print(f"[Jarvis] Key hint: {project.get('encryption_hint')}")
     if needs_key:
-        print(f"[Jarvis2] Encryption: {project.get('encryption_scheme') or 'openssl-aes-256-cbc'}")
-    print(f"[Jarvis2] Entrypoint: {project.get('entrypoint') or 'N/A'}")
-    print(f"[Jarvis2] Compatibility notes: {project.get('compatibility_notes') or 'None'}")
+        print(f"[Jarvis] Encryption: {project.get('encryption_scheme') or 'openssl-aes-256-cbc'}")
+    print(f"[Jarvis] Entrypoint: {project.get('entrypoint') or 'N/A'}")
+    print(f"[Jarvis] Compatibility notes: {project.get('compatibility_notes') or 'None'}")
     return EXIT_OK
 
 
@@ -1197,20 +1217,20 @@ def _run_project_fetch(project_name: str, *, key: str | None = None) -> int:
     try:
         report = fetch_official_project(project_name, key=key)
     except OfficialProjectNotFoundError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_USAGE
     except OfficialProjectFetchError as exc:
-        print(f"[Jarvis2] {exc}", file=sys.stderr)
+        print(f"[Jarvis] {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
     except OfficialLibraryError as exc:
-        print(f"[Jarvis2] Failed to query the official library: {exc}", file=sys.stderr)
+        print(f"[Jarvis] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
     print(
-        f"[Jarvis2] Official project '{report.project_name}' fetched to: {report.target_dir}"
+        f"[Jarvis] Official project '{report.project_name}' fetched to: {report.target_dir}"
     )
-    print(f"[Jarvis2] Access: {report.access}")
-    print(f"[Jarvis2] Entrypoint: {report.entrypoint or 'N/A'}")
+    print(f"[Jarvis] Access: {report.access}")
+    print(f"[Jarvis] Entrypoint: {report.entrypoint or 'N/A'}")
     return EXIT_OK
 
 
@@ -1218,7 +1238,7 @@ def _parse_fetch_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
     """Parse ``fetch <name> [--key KEY]``."""
     if not tokens or (len(tokens) == 1 and tokens[0] in _HELP_FLAGS):
         print(
-            "usage: Jarvis2 project fetch <name> [--key KEY]\n"
+            "usage: Jarvis project fetch <name> [--key KEY]\n"
             "  restricted projects need --key or JARVIS_PROJECT_FETCH_KEY\n"
         )
         return 0 if tokens and tokens[0] in _HELP_FLAGS else EXIT_USAGE
@@ -1230,7 +1250,7 @@ def _parse_fetch_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
         tok = tokens[i]
         if tok in {"--key", "-k"}:
             if i + 1 >= len(tokens):
-                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                print("[Jarvis] --key requires a value", file=sys.stderr)
                 return EXIT_USAGE
             key = tokens[i + 1]
             i += 2
@@ -1240,17 +1260,17 @@ def _parse_fetch_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
             i += 1
             continue
         if tok.startswith("-"):
-            print(f"[Jarvis2] Unsupported option for project fetch: {tok}", file=sys.stderr)
+            print(f"[Jarvis] Unsupported option for project fetch: {tok}", file=sys.stderr)
             return EXIT_USAGE
         if name is None:
             name = tok
             i += 1
             continue
-        print(f"[Jarvis2] Unexpected argument for project fetch: {tok}", file=sys.stderr)
+        print(f"[Jarvis] Unexpected argument for project fetch: {tok}", file=sys.stderr)
         return EXIT_USAGE
 
     if not name:
-        print("[Jarvis2] Usage: Jarvis2 project fetch <name> [--key KEY]", file=sys.stderr)
+        print("[Jarvis] Usage: Jarvis project fetch <name> [--key KEY]", file=sys.stderr)
         return EXIT_USAGE
     return name, key
 
@@ -1274,9 +1294,9 @@ def _parse_pack_arguments(
         tok = tokens[i]
         if tok in _HELP_FLAGS:
             print(
-                "usage: Jarvis2 project pack [path] [--share|--repro|--full] [--man]\n"
-                "       Jarvis2 project pack [path] --encrypt --key KEY\n"
-                "       Jarvis2 project pack <pack_manifest.yaml>\n"
+                "usage: Jarvis project pack [path] [--share|--repro|--full] [--man]\n"
+                "       Jarvis project pack [path] --encrypt --key KEY\n"
+                "       Jarvis project pack <pack_manifest.yaml>\n"
             )
             return 0
         if tok == _PACK_MANIFEST_FLAG:
@@ -1289,7 +1309,7 @@ def _parse_pack_arguments(
             continue
         if tok in {"--key", "-k"}:
             if i + 1 >= len(tokens):
-                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                print("[Jarvis] --key requires a value", file=sys.stderr)
                 return EXIT_USAGE
             key = tokens[i + 1]
             i += 2
@@ -1301,7 +1321,7 @@ def _parse_pack_arguments(
         if tok in _PACK_MODE_FLAGS:
             if mode_flag is not None:
                 print(
-                    "[Jarvis2] project pack modes are mutually exclusive: "
+                    "[Jarvis] project pack modes are mutually exclusive: "
                     "--share, --repro, --full",
                     file=sys.stderr,
                 )
@@ -1310,18 +1330,18 @@ def _parse_pack_arguments(
             i += 1
             continue
         if tok.startswith("-"):
-            print(f"[Jarvis2] Unsupported option for project pack: {tok}", file=sys.stderr)
+            print(f"[Jarvis] Unsupported option for project pack: {tok}", file=sys.stderr)
             return EXIT_USAGE
         if path is None:
             path = tok
             i += 1
             continue
-        print(f"[Jarvis2] Unexpected argument for project pack: {tok}", file=sys.stderr)
+        print(f"[Jarvis] Unexpected argument for project pack: {tok}", file=sys.stderr)
         return EXIT_USAGE
 
     if manifest_only and _looks_like_yaml_path(path):
         print(
-            "[Jarvis2] --man writes a new manifest from a project path, not from a manifest file",
+            "[Jarvis] --man writes a new manifest from a project path, not from a manifest file",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -1329,14 +1349,14 @@ def _parse_pack_arguments(
     is_manifest_input = _looks_like_yaml_path(path)
     if is_manifest_input and mode_flag is not None:
         print(
-            "[Jarvis2] Manifest packing does not accept --share, --repro, or --full",
+            "[Jarvis] Manifest packing does not accept --share, --repro, or --full",
             file=sys.stderr,
         )
         return EXIT_USAGE
     if is_manifest_input and encrypt:
         print(
-            "[Jarvis2] --encrypt is for packing a project path; "
-            "encrypt a finished archive with: Jarvis2 project encrypt FILE --key K",
+            "[Jarvis] --encrypt is for packing a project path; "
+            "encrypt a finished archive with: Jarvis project encrypt FILE --key K",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -1347,7 +1367,7 @@ def _parse_pack_arguments(
 
 def _parse_encrypt_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
     if not tokens or (len(tokens) == 1 and tokens[0] in _HELP_FLAGS):
-        print("usage: Jarvis2 project encrypt <archive.tar.gz> --key KEY\n")
+        print("usage: Jarvis project encrypt <archive.tar.gz> --key KEY\n")
         return 0 if tokens and tokens[0] in _HELP_FLAGS else EXIT_USAGE
     path: str | None = None
     key: str | None = None
@@ -1356,7 +1376,7 @@ def _parse_encrypt_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
         tok = tokens[i]
         if tok in {"--key", "-k"}:
             if i + 1 >= len(tokens):
-                print("[Jarvis2] --key requires a value", file=sys.stderr)
+                print("[Jarvis] --key requires a value", file=sys.stderr)
                 return EXIT_USAGE
             key = tokens[i + 1]
             i += 2
@@ -1366,17 +1386,17 @@ def _parse_encrypt_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
             i += 1
             continue
         if tok.startswith("-"):
-            print(f"[Jarvis2] Unsupported option for project encrypt: {tok}", file=sys.stderr)
+            print(f"[Jarvis] Unsupported option for project encrypt: {tok}", file=sys.stderr)
             return EXIT_USAGE
         if path is None:
             path = tok
             i += 1
             continue
-        print(f"[Jarvis2] Unexpected argument: {tok}", file=sys.stderr)
+        print(f"[Jarvis] Unexpected argument: {tok}", file=sys.stderr)
         return EXIT_USAGE
     if not path:
         print(
-            "[Jarvis2] Usage: Jarvis2 project encrypt <archive.tar.gz> --key KEY",
+            "[Jarvis] Usage: Jarvis project encrypt <archive.tar.gz> --key KEY",
             file=sys.stderr,
         )
         return EXIT_USAGE
@@ -1384,7 +1404,7 @@ def _parse_encrypt_arguments(tokens: list[str]) -> tuple[str, str | None] | int:
 
 
 def dispatch_project(project_argv: list[str] | None = None) -> int:
-    """Handle ``Jarvis2 project create|pack|browse|fetch|info`` (D12.5)."""
+    """Handle ``Jarvis project create|pack|browse|fetch|info`` (D12.5)."""
     args = list(project_argv or [])
     if not args or args[0] in _HELP_FLAGS:
         _print_project_help()
@@ -1395,16 +1415,16 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
     command = args[0]
     rest = args[1:]
     if command not in _PROJECT_COMMANDS:
-        print(f"[Jarvis2] Unknown project command: {command}", file=sys.stderr)
+        print(f"[Jarvis] Unknown project command: {command}", file=sys.stderr)
         _print_project_help()
         return EXIT_USAGE
 
     if command == "create":
         if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-            print("usage: Jarvis2 project create <name>\n")
+            print("usage: Jarvis project create <name>\n")
             return EXIT_OK
         if len(rest) != 1 or rest[0].startswith("-"):
-            print("[Jarvis2] Usage: Jarvis2 project create <name>", file=sys.stderr)
+            print("[Jarvis] Usage: Jarvis project create <name>", file=sys.stderr)
             return EXIT_USAGE
         return _run_project_create(rest[0])
 
@@ -1429,9 +1449,9 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
     if command in {"browse", "list"}:
         if rest:
             if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-                print("usage: Jarvis2 project list|browse\n")
+                print("usage: Jarvis project list|browse\n")
                 return EXIT_OK
-            print("[Jarvis2] Usage: Jarvis2 project list|browse", file=sys.stderr)
+            print("[Jarvis] Usage: Jarvis project list|browse", file=sys.stderr)
             return EXIT_USAGE
         return _run_project_browse()
 
@@ -1444,10 +1464,10 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
 
     if command == "info":
         if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-            print("usage: Jarvis2 project info <name>\n")
+            print("usage: Jarvis project info <name>\n")
             return EXIT_OK
         if len(rest) != 1 or rest[0].startswith("-"):
-            print("[Jarvis2] Usage: Jarvis2 project info <name>", file=sys.stderr)
+            print("[Jarvis] Usage: Jarvis project info <name>", file=sys.stderr)
             return EXIT_USAGE
         return _run_project_info(rest[0])
 
@@ -1460,7 +1480,7 @@ def dispatch_operas(operas_argv: list[str] | None = None) -> int:
         from jarvis_operas.cli import main as operas_main
     except ImportError as exc:
         print(
-            "Jarvis-Operas is required for `Jarvis2 operas`. "
+            "Jarvis-Operas is required for `Jarvis operas`. "
             f"Detail: {exc}",
             file=sys.stderr,
         )
@@ -1468,7 +1488,7 @@ def dispatch_operas(operas_argv: list[str] | None = None) -> int:
     try:
         return int(operas_main(list(operas_argv or [])))
     except Exception as exc:
-        print(f"Jarvis2 operas failed: {exc}", file=sys.stderr)
+        print(f"Jarvis operas failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
 
@@ -1550,7 +1570,7 @@ def dispatch_validate(
         _emit_load_diagnostic(
             task_yaml=task_yaml, code="JV2-LOAD-001", message=str(exc),
             suggestion="Provide the path to an existing task YAML file.",
-            example="Jarvis2 validate path/to/task.yaml", as_json=as_json,
+            example="Jarvis validate path/to/task.yaml", as_json=as_json,
         )
         return EXIT_RUN_FAILED
     except ValueError as exc:
@@ -1650,6 +1670,7 @@ def dispatch_run(
     debug: bool = False,
     strict: bool = False,
     skip_library_installation: bool = False,
+    check_timeout: float | None = None,
 ) -> int:
     if not task_yaml:
         print("Task YAML is required.", file=sys.stderr)
@@ -1694,7 +1715,7 @@ def dispatch_run(
 
     try:
         if check_modules:
-            outcome = core.check_modules()
+            outcome = core.check_modules(timeout=check_timeout)
         else:
             outcome = core.run(resume=resume)
     except NotImplementedError as exc:
@@ -1755,6 +1776,11 @@ def dispatch(args: argparse.Namespace) -> int:
                 force=not bool(getattr(args, "no_force", False)),
             )
         )
+    if intent == "man":
+        # Handled in main() via argv passthrough (same pattern as portal/operas).
+        from jarvishep2.man import dispatch_man
+
+        return dispatch_man([])
     if intent == "validate":
         task = getattr(args, "task_yaml", None)
         return dispatch_validate(
@@ -1767,6 +1793,15 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_convert(str(task or ""))
     if intent == "check":
         task = getattr(args, "task_yaml", None)
+        raw_timeout = getattr(args, "timeout", None)
+        check_timeout: float | None
+        try:
+            check_timeout = float(raw_timeout) if raw_timeout is not None else None
+        except (TypeError, ValueError):
+            check_timeout = None
+        if check_timeout is not None and check_timeout <= 0:
+            print("--timeout must be a positive number of seconds.", file=sys.stderr)
+            return EXIT_USAGE
         return dispatch_run(
             str(task or ""),
             check_modules=True,
@@ -1775,6 +1810,7 @@ def dispatch(args: argparse.Namespace) -> int:
             silence=bool(getattr(args, "silence", False)),
             strict=bool(getattr(args, "strict", False)),
             skip_library_installation=bool(getattr(args, "skip_library_installation", False)),
+            check_timeout=check_timeout,
         )
     if intent == "run":
         task = getattr(args, "task_yaml", None)
@@ -1800,9 +1836,14 @@ def main(argv: list[str] | None = None) -> int:
     set_process_title(control_title())
     raw = list(sys.argv[1:] if argv is None else argv)
     if raw[:1] == ["refs"]:
-        print("`Jarvis2 refs` has moved to `Jarvis2 --refs`.", file=sys.stderr)
+        print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
         return EXIT_USAGE
     normalized = normalize_argv(raw)
+    # Manual center: own argparse (domains / --json / --code / --type).
+    if normalized and normalized[0] == "man":
+        from jarvishep2.man import dispatch_man
+
+        return dispatch_man(normalized[1:])
     # Full jportal-compatible surface: do not let argparse eat portal args.
     if normalized and normalized[0] == "portal":
         return dispatch_portal(normalized[1:])

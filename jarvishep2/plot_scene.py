@@ -2,7 +2,7 @@
 """Emit JarvisPLOT scene / jplot YAML from scan outputs (D11.5 / D10.3).
 
 HEP owns DATABASE / levelset → plot input mapping only. Rendering stays in JarvisPLOT
-via ``Jarvis2 plot`` or optional post-run auto-render (no PLOT package fork).
+via ``Jarvis plot`` or optional post-run auto-render (no PLOT package fork).
 """
 
 from __future__ import annotations
@@ -485,7 +485,7 @@ def emit_jplot_scan_levelset_yaml(
     Axis expressions use real ``Sampling.Variables`` / levelset ``variable_names``
     (e.g. ``MChi``, ``Y``), not hard-coded ``x``/``y``.
 
-    Consumable by ``Jarvis2 plot path.yaml`` / ``jplot`` without a V2 adapter.
+    Consumable by ``Jarvis plot path.yaml`` / ``jplot`` without a V2 adapter.
     """
     from jarvishep2.base import (
         infer_project_root_from_task_result_dir,

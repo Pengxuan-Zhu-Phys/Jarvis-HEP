@@ -99,7 +99,7 @@ def write_redis_conf(
 
 @dataclass
 class ManagedRedisServer:
-    """Owns an optional redis-server child started by Jarvis2."""
+    """Owns an optional redis-server child started by Jarvis."""
 
     host: str = "127.0.0.1"
     port: int = 6379

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jarvis2 control-process orchestrator for the distributed runtime."""
+"""Jarvis control-process orchestrator for the distributed runtime."""
 
 from __future__ import annotations
 
@@ -91,6 +91,7 @@ from jarvishep2.Module.runtime_preparer import (
 )
 from jarvishep2.task_config import (
     check_modules_n_samples,
+    check_modules_timeout_sec,
     is_check_modules_task,
     load_task_yaml,
     resolve_check_modules_csv,
@@ -840,21 +841,34 @@ class Jarvis2Core:
     def run_check_modules(
         self,
         *,
-        timeout: float = 120.0,
+        timeout: float | None = None,
         verify_golden: Mapping[str, Any] | None = None,
     ) -> int:
-        """Run the calculator/opera smoke path (CSV fixed points or N sampler draws)."""
+        """Run the calculator/opera smoke path (CSV fixed points or N sampler draws).
+
+        ``timeout`` is a wait deadline (seconds) for samples to archive, not a
+        fixed sleep. Default comes from ``EnvReqs.V2.check_modules.timeout_sec``
+        (120s); CLI ``Jarvis check --timeout SEC`` can override.
+        """
+        wait_timeout = (
+            float(timeout)
+            if timeout is not None
+            else check_modules_timeout_sec(self.config)
+        )
+        if wait_timeout <= 0:
+            wait_timeout = check_modules_timeout_sec(self.config)
         sample_root = self._resolve_sample_root()
         self._logger.warning(
             "Start check-modules smoke (assembly-line test) "
-            "workers=1 sample_root=%s layout=flat-uuid pack=off",
+            "workers=1 sample_root=%s layout=flat-uuid pack=off timeout_sec=%.1f",
             sample_root,
+            wait_timeout,
         )
         samples = self._build_check_module_samples()
         if not samples:
             raise RuntimeError("check-modules produced an empty sample list")
         self.submit_samples(samples)
-        self.wait_for_results(len(samples), timeout=timeout)
+        self.wait_for_results(len(samples), timeout=wait_timeout)
         self._finalize_sample_buckets()
         if verify_golden is not None:
             task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
@@ -1128,7 +1142,7 @@ class Jarvis2Core:
                     jplot = written.get(key)
                     if jplot and label not in written:
                         self._logger.info(
-                            "jplot YAML ready (render with: Jarvis2 plot %s)", jplot
+                            "jplot YAML ready (render with: Jarvis plot %s)", jplot
                         )
         except Exception as exc:
             self._logger.warning("plot scene emit failed -> %s", exc)
@@ -1200,6 +1214,7 @@ class Jarvis2Core:
         check_modules: bool = False,
         verify_golden: Mapping[str, Any] | None = None,
         write_run_summary: bool = True,
+        check_timeout: float | None = None,
     ) -> RunOutcome:
         """Execute a distributed scan; return a truthful :class:`RunOutcome` (D11.1)."""
         self.prepare_resume(resume=resume, fresh=False)
@@ -1213,7 +1228,10 @@ class Jarvis2Core:
             self.bootstrap_distributed_runtime()
             method = sampling_method(self.config)
             if is_check:
-                submitted = self.run_check_modules(verify_golden=verify_golden)
+                submitted = self.run_check_modules(
+                    timeout=check_timeout,
+                    verify_golden=verify_golden,
+                )
             elif method in STATELESS_METHODS:
                 submitted = self.run_distributed_scan()
             elif method:
@@ -1297,9 +1315,18 @@ class Jarvis2Core:
             finally:
                 self._restore_control_signal_handlers()
 
-    def check_modules(self, *, verify_golden: Mapping[str, Any] | None = None) -> RunOutcome:
-        """CLI entry for ``Jarvis2 check <task>.yaml`` / ``--check-modules``."""
-        return self.run(check_modules=True, verify_golden=verify_golden)
+    def check_modules(
+        self,
+        *,
+        verify_golden: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> RunOutcome:
+        """CLI entry for ``Jarvis check <task>.yaml`` / ``--check-modules``."""
+        return self.run(
+            check_modules=True,
+            verify_golden=verify_golden,
+            check_timeout=timeout,
+        )
 
     def is_redis_runtime(self) -> bool:
         """Return True when the distributed Redis path should be used."""
@@ -1595,7 +1622,7 @@ class Jarvis2Core:
                 try:
                     self._logger.warning(
                         "interrupt checkpoint written → %s "
-                        "(resume: Jarvis2 run <task.yaml> --resume)",
+                        "(resume: Jarvis run <task.yaml> --resume)",
                         path,
                     )
                 except Exception:
@@ -1744,7 +1771,7 @@ class Jarvis2Core:
         return list(dict.fromkeys(names))
 
     def _claim_redis_control_lock(self) -> None:
-        """Refuse to start if another Jarvis2 still holds the Redis control lease."""
+        """Refuse to start if another Jarvis still holds the Redis control lease."""
         if self.redis is None:
             raise RuntimeError("init_redis() must run before claiming the control lock")
         owner = self._control_lock_owner_id()
@@ -1775,8 +1802,8 @@ class Jarvis2Core:
                     )
                     return
         raise RuntimeError(
-            "another Jarvis2 instance already holds the Redis control lock "
-            f"({current!r}). Stop residual Jarvis2/HEP2-Worker processes "
+            "another Jarvis instance already holds the Redis control lock "
+            f"({current!r}). Stop residual Jarvis/HEP2-Worker processes "
             "(do not leave runs suspended with ^Z), then retry. "
             "Emergency: redis-cli DEL hep:control:lock"
         )
@@ -1804,7 +1831,7 @@ class Jarvis2Core:
         thread = threading.Thread(
             target=self._control_lease_loop,
             args=(stop, owner),
-            name="Jarvis2-ControlLease",
+            name="Jarvis-ControlLease",
             daemon=True,
         )
         self._control_lease_stop = stop

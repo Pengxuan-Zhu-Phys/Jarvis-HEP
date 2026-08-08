@@ -25,24 +25,24 @@ def set_process_title(title: str) -> bool:
 
 def control_title(*, scan_name: str | None = None) -> str:
     scan = str(scan_name or "").strip()
-    return f"Jarvis2:{scan}" if scan else "Jarvis2"
+    return f"Jarvis:{scan}" if scan else "Jarvis"
 
 
 def worker_title(worker_id: int, *, scan_name: str | None = None) -> str:
     scan = str(scan_name or "").strip()
-    base = f"Jarvis2-Worker-{int(worker_id)}"
+    base = f"Jarvis-Worker-{int(worker_id)}"
     return f"{base}:{scan}" if scan else base
 
 
 def archiver_title(*, scan_name: str | None = None) -> str:
     scan = str(scan_name or "").strip()
-    return f"Jarvis2-Archiver:{scan}" if scan else "Jarvis2-Archiver"
+    return f"Jarvis-Archiver:{scan}" if scan else "Jarvis-Archiver"
 
 
 def file_operation_title(*, scan_name: str | None = None) -> str:
     """OS title for a Worker-owned file-operation child process."""
     scan = str(scan_name or "").strip()
-    return f"Jarvis2-FileOperation:{scan}" if scan else "Jarvis2-FileOperation"
+    return f"Jarvis-FileOperation:{scan}" if scan else "Jarvis-FileOperation"
 
 
 def redis_title(*, scan_name: str | None = None, port: int | None = None, db: int = 0) -> str:

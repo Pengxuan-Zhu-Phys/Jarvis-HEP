@@ -3,6 +3,7 @@
   "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/csv.json",
   "type": "object",
   "x-jarvis-zone": "closed",
+  "description": "Replay fixed points from a CSV file under Sampling.Bounds.",
   "x-jarvis-example": "Method: CSV\nBounds:\n  path: points.csv\n  variables: [x, y]",
   "properties": {
     "Method": {"const": "CSV"},

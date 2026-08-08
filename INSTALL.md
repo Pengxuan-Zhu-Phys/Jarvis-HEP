@@ -1,6 +1,6 @@
 # Jarvis-HEP V2 — Installation
 
-Quick install guide for the V2 distributed runtime (`jarvishep2`, CLI `Jarvis2`).
+Quick install guide for the V2 distributed runtime (`jarvishep2`, CLI `Jarvis`).
 For the architecture see
 `~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/DESIGN_2.0_DISTRIBUTED.md`;
 for the task-YAML schema see
@@ -49,9 +49,10 @@ Extras:
 python3 -m pip install -e '.[distributed,plot,dev]'
 ```
 
-**Side-by-side with V1.** V2 uses a distinct distribution (`jarvishep2`) and CLI entry
-(`Jarvis2`), so it installs alongside the frozen V1 line (`Jarvis-HEP` / `Jarvis` 1.7.4)
-in the same environment without clobbering it. Do not import `jarvishep` from V2 code.
+**CLI ownership.** The product command is **`Jarvis`** (this package). V1
+(`Jarvis-HEP` / `jarvishep`) is retired from the CLI: it no longer installs a
+console script. The old **`Jarvis2`** command is removed. Do not import
+`jarvishep` from V2 code.
 
 ## Redis
 
@@ -114,30 +115,30 @@ Operas:
 Run and inspect:
 
 ```bash
-Jarvis2 -v                            # logo + authors + package version
-Jarvis2 --version
-Jarvis2 --refs                        # framework and bundled-sampler citations
+Jarvis -v                            # logo + authors + package version
+Jarvis --version
+Jarvis --refs                        # framework and bundled-sampler citations
 
-Jarvis2 run quickstart.yaml           # preferred
-Jarvis2 run quickstart.yaml --console-level WARNING
-Jarvis2 run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
-Jarvis2 quickstart.yaml               # legacy alias → run
-Jarvis2 check path/to/check.yaml      # fixed-point calculator smoke
-Jarvis2 monitor                       # one read-only status snapshot
-Jarvis2 plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
-Jarvis2 portal man                    # list Portal formats (same as jportal man)
-Jarvis2 portal man slha               # format manual
-Jarvis2 portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
-Jarvis2 operas list                   # list Operas operators
+Jarvis run quickstart.yaml           # preferred
+Jarvis run quickstart.yaml --console-level WARNING
+Jarvis run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
+Jarvis quickstart.yaml               # legacy alias → run
+Jarvis check path/to/check.yaml      # fixed-point calculator smoke
+Jarvis monitor                       # one read-only status snapshot
+Jarvis plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
+Jarvis portal man                    # list Portal formats (same as jportal man)
+Jarvis portal man slha               # format manual
+Jarvis portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
+Jarvis operas list                   # list Operas operators
 
 # while a scan is running (another terminal), or after a hard kill:
-Jarvis2 ps                            # running Jarvis2* / Jarvis-Redis* processes
-Jarvis2 kill                          # list + confirm [y/N], then terminate
-Jarvis2 kill --yes                    # non-interactive kill
+Jarvis ps                            # running Jarvis* / Jarvis-Redis* processes
+Jarvis kill                          # list + confirm [y/N], then terminate
+Jarvis kill --yes                    # non-interactive kill
 
 # legacy (still work):
-Jarvis2 quickstart.yaml --resume
-Jarvis2 path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis2 plot`
+Jarvis quickstart.yaml --resume
+Jarvis path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis plot`
 ```
 
 ## Project tools (scaffold, catalog, public / restricted packs)
@@ -150,14 +151,14 @@ by hand. Design notes:
 ### Local project
 
 ```bash
-Jarvis2 project create MyScan
+Jarvis project create MyScan
 cd MyScan
-Jarvis2 run bin/quickstart_bridson_operas.yaml
+Jarvis run bin/quickstart_bridson_operas.yaml
 
-Jarvis2 project pack . --share          # plain tarball
-Jarvis2 project pack . --repro
-Jarvis2 project pack . --full
-Jarvis2 project pack . --man            # write pack manifest only
+Jarvis project pack . --share          # plain tarball
+Jarvis project pack . --repro
+Jarvis project pack . --full
+Jarvis project pack . --man            # write pack manifest only
 ```
 
 ### Official library (GitHub JSON catalog — no PyPI package)
@@ -170,38 +171,38 @@ https://raw.githubusercontent.com/Pengxuan-Zhu-Phys/Jarvis-Examples/main/catalog
 
 ```bash
 # List projects; columns include Access (public|restricted) and Key (no|required)
-Jarvis2 project list
+Jarvis project list
 
-Jarvis2 project info Eggbox
-Jarvis2 project fetch Eggbox            # public — no key
+Jarvis project info Eggbox
+Jarvis project fetch Eggbox            # public — no key
 ```
 
 ### Restricted (encrypted) projects — fetch
 
 ```bash
 # See Key: required in the list
-Jarvis2 project list
+Jarvis project list
 
 # Decrypt + unpack (preferred)
-Jarvis2 project fetch SecretName --key 'YOUR_KEY'
+Jarvis project fetch SecretName --key 'YOUR_KEY'
 
 # Or set the key once
 export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
-Jarvis2 project fetch SecretName
+Jarvis project fetch SecretName
 ```
 
-Backend: OpenSSL-compatible AES-256-CBC (PBKDF2). Jarvis2 uses system `openssl` if
+Backend: OpenSSL-compatible AES-256-CBC (PBKDF2). Jarvis uses system `openssl` if
 available, otherwise optional `pip install cryptography`. **You still only call
-`Jarvis2 project fetch`.**
+`Jarvis project fetch`.**
 
 ### Restricted projects — maintainers (encrypt)
 
 ```bash
 # Pack then encrypt → *.tar.gz.jenc
-Jarvis2 project pack MyPrivate --repro --encrypt --key 'YOUR_KEY'
+Jarvis project pack MyPrivate --repro --encrypt --key 'YOUR_KEY'
 
 # Or encrypt an existing archive
-Jarvis2 project encrypt MyPrivate_repro_….tar.gz --key 'YOUR_KEY'
+Jarvis project encrypt MyPrivate_repro_….tar.gz --key 'YOUR_KEY'
 ```
 
 Upload the `.jenc`, register it in `Jarvis-Examples/catalog/official_project_library.json`
@@ -215,7 +216,7 @@ export JARVIS_OFFICIAL_LIBRARY_INDEX_URL=file:///path/to/catalog.json   # local 
 export JARVIS_OFFICIAL_LIBRARY_TIMEOUT_SEC=30
 ```
 
-Stop a running scan with **Ctrl+C** (SIGINT). Jarvis2 will shut down Workers, Archiver,
+Stop a running scan with **Ctrl+C** (SIGINT). Jarvis will shut down Workers, Archiver,
 and any managed `Jarvis-Redis:<scan>` it started. Prefer not to use **Ctrl+Z** — suspend
 leaves the job half-alive; Ctrl+Z is ignored during a scan for that reason.
 
@@ -223,7 +224,7 @@ Exit codes: **0** success (also version / empty `ps`); **1** any sample failed (
 kill incomplete, or runtime error; **2** usage/config; **130** interrupted.
 
 `--plot` currently expects a **JarvisPLOT YAML**, not the scan task YAML (scan-driven plot
-scenes are partial). Portal / Operas / project tools are native `Jarvis2` subcommands.
+scenes are partial). Portal / Operas / project tools are native `Jarvis` subcommands.
 
 Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 
@@ -234,7 +235,7 @@ Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 - Console / main log ends with a **`[Scan Performance]`** block (`samples / sec`, `avg sample (sec)`, …)
 - Logs under `logs/<scan>/` by component: `core.log`, `worker-00.log`…, `archiver.log`
   (style from packaged `jarvishep2/card/logging.yaml`; per-sample detail in `SAMPLE/.../Sample_running.log`)
-- Console: default **INFO** on screen; `Jarvis2 run … --console-level WARNING`; `--silence` / `-s` turns screen off
+- Console: default **INFO** on screen; `Jarvis run … --console-level WARNING`; `--silence` / `-s` turns screen off
 - Checkpoints: `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
 
 ## Uninstall

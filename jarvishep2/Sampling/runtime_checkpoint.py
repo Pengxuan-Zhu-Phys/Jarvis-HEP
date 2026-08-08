@@ -383,7 +383,7 @@ class CheckpointHeartbeat:
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._loop,
-            name="Jarvis2-CheckpointHeartbeat",
+            name="Jarvis-CheckpointHeartbeat",
             daemon=True,
         )
         self._thread.start()

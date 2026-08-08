@@ -1,5 +1,5 @@
 # Scaffold CSV sampling + Operas card.
-# Run: Jarvis2 run bin/quickstart_csv_operas.yaml
+# Run: Jarvis run bin/quickstart_csv_operas.yaml
 Scan:
   name: "quickstart_csv_operas"
   save_dir: "&J/outputs"

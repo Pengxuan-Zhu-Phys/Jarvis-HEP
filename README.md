@@ -3,13 +3,13 @@
 Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + spawn Workers).
 
 **Where we are (2026-08-02):** D0–D7 runtime, D11 UI, and D12–D13 foundations are in
-(including `Jarvis2 project …`, Examples catalog, restricted pack crypto via CLI). Recent
+(including `Jarvis project …`, Examples catalog, restricted pack crypto via CLI). Recent
 as-built: **FileOperation** SAMPLE save, component logs under `logs/<scan>/`, file-driven
 log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `ps` / `kill`**.
 **Agent bridge (D8) is parked.** Authoritative ledger:
 `Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
 
-- Installation + CLI: [INSTALL.md](INSTALL.md) (includes `Jarvis2 -v`, `ps`, `kill`, logging flags)
+- Installation + CLI: [INSTALL.md](INSTALL.md) (includes `Jarvis -v`, `ps`, `kill`, logging flags)
 - Project catalog & **encrypt/decrypt usage**:
   - [INSTALL.md § Project tools](INSTALL.md#project-tools-scaffold-catalog-public--restricted-packs)
   - Design: `Jarvis-Books/Jarvis-HEP V2/components/project_tools.md`
@@ -26,7 +26,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 |---------|------------|--------|
 | Jarvis-HEP-Portal | `io_portal.py` calculator **formats** (variable R/W) | **core dependency** |
 | Jarvis-Operas | `operas.py` operator registry + expression functions | **core dependency** (D12.0) |
-| JarvisPLOT | `plot_bridge.py` / `Jarvis2 plot` | optional extra `[plot]` |
+| JarvisPLOT | `plot_bridge.py` / `Jarvis plot` | optional extra `[plot]` |
 
 **Runtime defaults worth knowing:**
 
@@ -37,17 +37,18 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | Cleanup / handoff | `direct` (no `staging/` hop; optional `mv_to_staging`) |
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
-| Process titles | `Jarvis2:<scan>`, `Jarvis2-Worker-N`, `Jarvis2-Archiver`, `Jarvis-Redis:<scan>` |
+| Process titles | `Jarvis:<scan>`, `Jarvis-Worker-N`, `Jarvis-Archiver`, `Jarvis-Redis:<scan>` |
 | Component logs | `logs/<scan>/core.log`, `factory.log`, `sampler.log`, `archiver.log`, `datarecorder.log`, `worker-NN.log` |
-| CLI version | `Jarvis2 -v` / `--version` → logo + Author + Version |
-| Citations | `Jarvis2 --refs` → framework and bundled sampler references |
-| Process inspect | `Jarvis2 ps` / `Jarvis2 kill` (interactive confirm; `--yes` for scripts) |
+| CLI version | `Jarvis -v` / `--version` → logo + Author + Version |
+| Citations | `Jarvis --refs` → framework and bundled sampler references |
+| Process inspect | `Jarvis ps` / `Jarvis kill` (interactive confirm; `--yes` for scripts) |
 | Console | default INFO; `--console-level`; `--silence` / `-s` |
 | AdaptiveBridson tuning | public knobs: `outer_half_width`, `min_radius`; core/stop width = `outer_half_width / 8` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
-| Restricted packs | `Jarvis2 project fetch NAME --key …` / `pack --encrypt --key …` |
+| Restricted packs | `Jarvis project fetch NAME --key …` / `pack --encrypt --key …` |
 
-V1 (`jarvishep`) is frozen and must not be imported from this package.
+V1 (`jarvishep`) is frozen, **CLI-retired** (no console script), and must not be
+imported from this package. Use **`Jarvis`** only (`Jarvis2` is no longer installed).
 
 ## AdaptiveBridson
 
@@ -84,4 +85,4 @@ DataRecorder reports DATABASE progress every 500 rows (plus the forced final
 count). Archiver keeps process start/final summaries at `INFO`; per-bucket pack,
 loop, drain, and process-exit details are `DEBUG`.
 
-Post-run CSV: `Jarvis2 convert path/to/task.yaml` (HDF5 → `DATABASE/samples.csv`).
+Post-run CSV: `Jarvis convert path/to/task.yaml` (HDF5 → `DATABASE/samples.csv`).

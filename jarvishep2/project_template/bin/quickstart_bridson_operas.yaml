@@ -1,5 +1,5 @@
 # Scaffold quickstart: Bridson + Jarvis-Operas (no external calculator).
-# Run: Jarvis2 run bin/quickstart_bridson_operas.yaml
+# Run: Jarvis run bin/quickstart_bridson_operas.yaml
 Scan:
   name: "quickstart_bridson_operas"
   save_dir: "&J/outputs"

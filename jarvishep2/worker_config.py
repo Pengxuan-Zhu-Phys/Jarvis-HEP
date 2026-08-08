@@ -104,7 +104,7 @@ def build_worker_config(
     sample_config = dict(extra_payload.pop("sample_config", {}) or {})
     sample_config.setdefault("task_result_dir", task_result_dir)
     sample_config.setdefault("sample_dirs", sample_root)
-    # Used by Worker OS process title (Jarvis2-Worker-N:scan).
+    # Used by Worker OS process title (Jarvis-Worker-N:scan).
     scan_name = str(cfg.get("scan_name") or sample_config.get("scan_name") or "").strip()
     if scan_name:
         sample_config.setdefault("scan_name", scan_name)

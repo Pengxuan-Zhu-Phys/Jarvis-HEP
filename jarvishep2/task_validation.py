@@ -126,6 +126,14 @@ def issue(
         suggestion, automatic_example = guidance_for(code, path, message)
         if example is None:
             example = automatic_example
+    # D24.10: every diagnostic carries an executable Jarvis man command.
+    if hint is None or (isinstance(hint, str) and "docs/" in hint):
+        try:
+            from jarvishep2.man_codes import man_command_for
+
+            hint = man_command_for(code, path)
+        except Exception:
+            hint = hint or "Run: Jarvis man"
     return ValidationIssue(
         level=level,
         code=code,

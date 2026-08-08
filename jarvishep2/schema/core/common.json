@@ -2,56 +2,818 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/core/common.json",
   "$defs": {
-    "nonemptyString": {"type": "string", "minLength": 1},
-    "numeric": {"oneOf": [{"type": "number"}, {"type": "string", "pattern": "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"}], "x-jarvis-numeric": true},
-    "positiveNumeric": {"oneOf": [{"type": "number", "exclusiveMinimum": 0}, {"type": "string", "pattern": "^(?!\\+?0+(?:\\.0*)?(?:[eE][+-]?\\d+)?$)\\+?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"}], "x-jarvis-numeric": true},
-    "integerish": {"oneOf": [{"type": "integer"}, {"type": "string", "pattern": "^[+-]?\\d+$"}], "x-jarvis-numeric": true},
-    "command": {
-      "type": "object", "x-jarvis-zone": "closed",
-      "properties": {"cmd": {"$ref": "#/$defs/nonemptyString"}, "command": {"$ref": "#/$defs/nonemptyString"}, "cwd": {"$ref": "#/$defs/nonemptyString"}},
-      "anyOf": [{"required": ["cmd"]}, {"required": ["command"]}], "additionalProperties": false
+    "nonemptyString": {
+      "type": "string",
+      "minLength": 1
     },
-    "commandList": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"type": "array", "items": {"oneOf": [{"$ref": "#/$defs/nonemptyString"}, {"$ref": "#/$defs/command"}]}}]},
+    "numeric": {
+      "oneOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "string",
+          "pattern": "^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+        }
+      ],
+      "x-jarvis-numeric": true
+    },
+    "positiveNumeric": {
+      "oneOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^(?!\\+?0+(?:\\.0*)?(?:[eE][+-]?\\d+)?$)\\+?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?$"
+        }
+      ],
+      "x-jarvis-numeric": true
+    },
+    "integerish": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string",
+          "pattern": "^[+-]?\\d+$"
+        }
+      ],
+      "x-jarvis-numeric": true
+    },
+    "command": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "properties": {
+        "cmd": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "command": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "cwd": {
+          "$ref": "#/$defs/nonemptyString"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "cmd"
+          ]
+        },
+        {
+          "required": [
+            "command"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "commandList": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/nonemptyString"
+              },
+              {
+                "$ref": "#/$defs/command"
+              }
+            ]
+          }
+        }
+      ]
+    },
     "variable": {
-      "type": "object", "x-jarvis-zone": "closed", "required": ["name", "distribution"],
-      "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "description": {"type": "string"}, "distribution": {"$ref": "#/$defs/distribution"}}, "additionalProperties": false
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": [
+        "name",
+        "distribution"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "description": {
+          "type": "string"
+        },
+        "distribution": {
+          "$ref": "#/$defs/distribution"
+        }
+      },
+      "additionalProperties": false,
+      "description": "One Sampling.Variables list item: name + distribution (+ optional description)."
     },
     "distribution": {
-      "type": "object", "x-jarvis-zone": "closed", "required": ["type", "parameters"],
-      "properties": {"type": {"enum": ["Flat", "Log", "Logit", "Normal", "Log-Normal", "Binomial", "Poisson", "Beta", "Exponential", "Gamma"]}, "parameters": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}}, "additionalProperties": false
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "description": "Probability law for one Sampling.Variables entry.",
+      "required": [
+        "type",
+        "parameters"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "Flat",
+            "Log",
+            "Logit",
+            "Normal",
+            "Log-Normal",
+            "Binomial",
+            "Poisson",
+            "Beta",
+            "Exponential",
+            "Gamma"
+          ],
+          "description": "Distribution family name."
+        },
+        "parameters": {
+          "type": "object",
+          "x-jarvis-zone": "closed",
+          "description": "Distribution parameters. Required keys depend on type; optional method geometry keys: length, num.",
+          "properties": {
+            "min": {
+              "$ref": "#/$defs/numeric",
+              "description": "Lower edge (Flat/Log)."
+            },
+            "max": {
+              "$ref": "#/$defs/numeric",
+              "description": "Upper edge (Flat/Log)."
+            },
+            "location": {
+              "$ref": "#/$defs/numeric",
+              "description": "Location (Logit)."
+            },
+            "scale": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Scale (Logit/Gamma)."
+            },
+            "mean": {
+              "$ref": "#/$defs/numeric",
+              "description": "Mean (Normal/Log-Normal)."
+            },
+            "stddev": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Standard deviation (Normal/Log-Normal)."
+            },
+            "n": {
+              "$ref": "#/$defs/integerish",
+              "description": "Trial count (Binomial)."
+            },
+            "p": {
+              "$ref": "#/$defs/numeric",
+              "description": "Success probability in [0,1] (Binomial)."
+            },
+            "lambda": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Rate parameter (Poisson)."
+            },
+            "alpha": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Alpha shape (Beta)."
+            },
+            "beta": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Beta shape (Beta)."
+            },
+            "rate": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Rate (Exponential)."
+            },
+            "shape": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Shape (Gamma)."
+            },
+            "length": {
+              "$ref": "#/$defs/positiveNumeric",
+              "description": "Unit-cube edge length for Bridson-style methods."
+            },
+            "num": {
+              "$ref": "#/$defs/integerish",
+              "description": "Grid points along this axis (Grid)."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Flat"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "min",
+                  "max"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Log"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "min",
+                  "max"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Logit"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "location",
+                  "scale"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Normal"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "mean",
+                  "stddev"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Log-Normal"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "mean",
+                  "stddev"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Binomial"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "n",
+                  "p"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Poisson"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "lambda"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Beta"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "alpha",
+                  "beta"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Exponential"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "rate"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "Gamma"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "required": [
+                  "shape",
+                  "scale"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
     },
     "csv": {
-      "type": "object", "x-jarvis-zone": "closed", "required": ["path"],
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": [
+        "path"
+      ],
       "properties": {
-        "path": {"$ref": "#/$defs/nonemptyString"},
-        "uuid_column": {"$ref": "#/$defs/nonemptyString"},
-        "variables": {"type": "array", "items": {"$ref": "#/$defs/nonemptyString"}},
-        "delimiter": {"type": "string"},
-        "encoding": {"type": "string"}
-      }, "additionalProperties": false
+        "path": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "CSV file path (may use &J/ tokens)."
+        },
+        "uuid_column": {
+          "$ref": "#/$defs/nonemptyString",
+          "description": "Optional column name for sample UUIDs."
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nonemptyString"
+          },
+          "description": "Ordered list of variable column names to load."
+        },
+        "delimiter": {
+          "type": "string",
+          "description": "Field delimiter (default comma)."
+        },
+        "encoding": {
+          "type": "string",
+          "description": "Text encoding (default utf-8)."
+        }
+      },
+      "additionalProperties": false,
+      "description": "CSV sampler Bounds: path to a points table and optional column mapping."
     },
     "operasIO": {
-      "type": "object", "x-jarvis-zone": "closed", "required": ["name"],
-      "properties": {"name": {"$ref": "#/$defs/nonemptyString"}, "entry": {"$ref": "#/$defs/nonemptyString"}, "expression": {"$ref": "#/$defs/nonemptyString"}}, "additionalProperties": false
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "entry": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "expression": {
+          "$ref": "#/$defs/nonemptyString"
+        }
+      },
+      "additionalProperties": false
     },
     "mapperEntry": {
       "type": "object",
       "x-jarvis-zone": "closed",
-      "required": ["name", "expression"],
+      "required": [
+        "name",
+        "expression"
+      ],
       "description": "One Sampling.Mapper list item: fixed keys name + expression (not a free-form map of user keys).",
       "properties": {
-        "name": {"$ref": "#/$defs/nonemptyString"},
-        "expression": {"$ref": "#/$defs/nonemptyString"}
+        "name": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "expression": {
+          "$ref": "#/$defs/nonemptyString"
+        }
       },
       "additionalProperties": false
     },
     "adaptiveBridson": {
-      "type": "object", "x-jarvis-zone": "closed",
+      "type": "object",
+      "x-jarvis-zone": "closed",
       "properties": {
-        "target_expression": {"$ref": "#/$defs/nonemptyString"}, "target_value": {"$ref": "#/$defs/numeric"}, "outer_half_width": {"$ref": "#/$defs/positiveNumeric"}, "min_radius": {"$ref": "#/$defs/positiveNumeric"}, "initial_radius": {"$ref": "#/$defs/positiveNumeric"}, "refinement_factor": {"$ref": "#/$defs/positiveNumeric"}, "bridge_gaps": {"type": "boolean"}, "bridge_span_factor": {"$ref": "#/$defs/positiveNumeric"}, "max_generations": {"$ref": "#/$defs/integerish"}, "max_points": {"$ref": "#/$defs/integerish"}, "max_new_per_generation": {"$ref": "#/$defs/integerish"}, "k_ref": {"$ref": "#/$defs/integerish"}, "neighbor_graph": {"enum": ["auto", "delaunay", "knn"]}, "knn_k": {"$ref": "#/$defs/integerish"},
-        "core_half_width": {"$ref": "#/$defs/positiveNumeric"}, "threshold": {"$ref": "#/$defs/positiveNumeric"}, "function_tolerance": {"$ref": "#/$defs/positiveNumeric"}, "final_half_width": {"$ref": "#/$defs/positiveNumeric"}, "radius_shrink_mode": {"type": "string"}, "outer_shrink_factor": {"$ref": "#/$defs/positiveNumeric"}, "core_spacing_factor": {"$ref": "#/$defs/positiveNumeric"}, "min_cores_for_coverage": {"$ref": "#/$defs/integerish"}, "quiet_fill_passes": {"$ref": "#/$defs/integerish"}, "max_fill_passes": {"$ref": "#/$defs/integerish"}, "endpoint_stall_passes": {"$ref": "#/$defs/integerish"}, "endpoint_omni_probes": {"$ref": "#/$defs/integerish"}, "slice_pairs": {"type": "array"},
-        "Seed": {"$ref": "#/$defs/integerish"}, "seed": {"$ref": "#/$defs/integerish"}, "MaxWorker": {"$ref": "#/$defs/integerish"}
-      }, "additionalProperties": false
+        "target_expression": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "target_value": {
+          "$ref": "#/$defs/numeric"
+        },
+        "outer_half_width": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "min_radius": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "initial_radius": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "refinement_factor": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "bridge_gaps": {
+          "type": "boolean"
+        },
+        "bridge_span_factor": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "max_generations": {
+          "$ref": "#/$defs/integerish"
+        },
+        "max_points": {
+          "$ref": "#/$defs/integerish"
+        },
+        "max_new_per_generation": {
+          "$ref": "#/$defs/integerish"
+        },
+        "k_ref": {
+          "$ref": "#/$defs/integerish"
+        },
+        "neighbor_graph": {
+          "enum": [
+            "auto",
+            "delaunay",
+            "knn"
+          ]
+        },
+        "knn_k": {
+          "$ref": "#/$defs/integerish"
+        },
+        "core_half_width": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "threshold": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "function_tolerance": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "final_half_width": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "radius_shrink_mode": {
+          "type": "string"
+        },
+        "outer_shrink_factor": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "core_spacing_factor": {
+          "$ref": "#/$defs/positiveNumeric"
+        },
+        "min_cores_for_coverage": {
+          "$ref": "#/$defs/integerish"
+        },
+        "quiet_fill_passes": {
+          "$ref": "#/$defs/integerish"
+        },
+        "max_fill_passes": {
+          "$ref": "#/$defs/integerish"
+        },
+        "endpoint_stall_passes": {
+          "$ref": "#/$defs/integerish"
+        },
+        "endpoint_omni_probes": {
+          "$ref": "#/$defs/integerish"
+        },
+        "slice_pairs": {
+          "type": "array"
+        },
+        "Seed": {
+          "$ref": "#/$defs/integerish"
+        },
+        "seed": {
+          "$ref": "#/$defs/integerish"
+        },
+        "MaxWorker": {
+          "$ref": "#/$defs/integerish"
+        }
+      },
+      "additionalProperties": false
+    },
+    "nestedBounds": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "description": "Dynesty/MultiNest Bounds: official constructor keys plus nlive/Seed/dlogz and optional run_nested/sampler pass-through maps. Closed at top level.",
+      "properties": {
+        "Constructor": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Alias of sampler."
+        },
+        "Sampler": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Alias of sampler."
+        },
+        "Seed": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "RNG seed (aliases: seed, rseed)."
+        },
+        "blob": {
+          "type": "boolean",
+          "description": "Dynesty constructor flag: blob."
+        },
+        "bootstrap": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.bootstrap."
+        },
+        "bound": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Nested Bounds.bound."
+        },
+        "constructor": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Alias of sampler."
+        },
+        "dlogz": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/numeric",
+          "description": "Evidence stopping tolerance for static nested sampling."
+        },
+        "dlogz_init": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/numeric",
+          "description": "Initial dlogz for DynamicNestedSampler (Dynesty)."
+        },
+        "enlarge": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/numeric",
+          "description": "Nested Bounds.enlarge."
+        },
+        "facc": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/numeric",
+          "description": "Nested Bounds.facc."
+        },
+        "first_update": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.first_update (engine kwargs)."
+        },
+        "history_filename": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Nested Bounds.history_filename."
+        },
+        "live_points": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.live_points (engine kwargs)."
+        },
+        "logl_args": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.logl_args (engine kwargs)."
+        },
+        "logl_kwargs": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.logl_kwargs (engine kwargs)."
+        },
+        "n_live": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Alias of nlive."
+        },
+        "ncdim": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.ncdim."
+        },
+        "nlive": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Number of live points (alias: n_live)."
+        },
+        "periodic": {
+          "description": "Nested Bounds.periodic.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ptform_args": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.ptform_args (engine kwargs)."
+        },
+        "ptform_kwargs": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.ptform_kwargs (engine kwargs)."
+        },
+        "queue_size": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.queue_size."
+        },
+        "reflective": {
+          "description": "Nested Bounds.reflective.",
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "additionalProperties": true
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rseed": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Alias of Seed."
+        },
+        "run_nested": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through kwargs for NestedSampler.run_nested / DynamicNestedSampler.run_nested."
+        },
+        "sample": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Nested Bounds.sample."
+        },
+        "sampler": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through constructor kwargs (alias: Sampler)."
+        },
+        "save_evaluation_history": {
+          "type": "boolean",
+          "description": "Dynesty constructor flag: save_evaluation_history."
+        },
+        "seed": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Alias of Seed."
+        },
+        "slices": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.slices."
+        },
+        "update_interval": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.update_interval."
+        },
+        "use_pool": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "additionalProperties": true,
+          "description": "Pass-through mapping for Bounds.use_pool (engine kwargs)."
+        },
+        "walks": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+          "description": "Nested Bounds.walks."
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

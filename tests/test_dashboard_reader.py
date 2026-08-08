@@ -98,7 +98,7 @@ class DashboardReaderTests(unittest.TestCase):
 
 class ClientMonitorTests(unittest.TestCase):
     def test_client_main_without_reference_lists_scan_choices(self) -> None:
-        """Legacy ``Jarvis2 --monitor`` lists scan choices before attaching."""
+        """Legacy ``Jarvis --monitor`` lists scan choices before attaching."""
         from jarvishep2.client import main
 
         queue = make_fakeredis_queue()

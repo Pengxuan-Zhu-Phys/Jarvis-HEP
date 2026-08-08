@@ -3,7 +3,7 @@
 Created with:
 
 ```bash
-Jarvis2 project create <name>
+Jarvis project create <name>
 ```
 
 ## Layout
@@ -23,15 +23,15 @@ Runtime directories (`outputs/`, `logs/`, `images/`, `checkpoints/`) appear on f
 
 ```bash
 cd <project>
-Jarvis2 run bin/quickstart_bridson_operas.yaml
+Jarvis run bin/quickstart_bridson_operas.yaml
 # or
-Jarvis2 bin/quickstart_bridson_operas.yaml
+Jarvis bin/quickstart_bridson_operas.yaml
 ```
 
 CSV operas smoke:
 
 ```bash
-Jarvis2 run bin/quickstart_csv_operas.yaml
+Jarvis run bin/quickstart_csv_operas.yaml
 ```
 
 ### Nested sampling templates
@@ -58,10 +58,10 @@ block on V2 — use `EnvReqs.V2` instead.
 ## Package for sharing
 
 ```bash
-Jarvis2 project pack . --share
-Jarvis2 project pack . --repro
-Jarvis2 project pack . --full
-Jarvis2 project pack . --man    # write a pack manifest only
+Jarvis project pack . --share
+Jarvis project pack . --repro
+Jarvis project pack . --full
+Jarvis project pack . --man    # write a pack manifest only
 ```
 
 ### Restricted (encrypted) release — CLI only
@@ -70,17 +70,17 @@ Do **not** run `openssl` by hand. Use:
 
 ```bash
 # Pack + encrypt → *.tar.gz.jenc
-Jarvis2 project pack . --repro --encrypt --key 'YOUR_KEY'
+Jarvis project pack . --repro --encrypt --key 'YOUR_KEY'
 
 # Or encrypt an existing tarball
-Jarvis2 project encrypt path/to/archive.tar.gz --key 'YOUR_KEY'
+Jarvis project encrypt path/to/archive.tar.gz --key 'YOUR_KEY'
 ```
 
 Collaborators fetch with:
 
 ```bash
-Jarvis2 project list
-Jarvis2 project fetch YourProjectName --key 'YOUR_KEY'
+Jarvis project list
+Jarvis project fetch YourProjectName --key 'YOUR_KEY'
 # or: export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
 ```
 

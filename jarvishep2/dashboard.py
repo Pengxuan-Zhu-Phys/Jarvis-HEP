@@ -93,7 +93,7 @@ def attach_reader(
 
 def format_monitor_view(view: MonitorView) -> str:
     lines = [
-        "Jarvis2 Monitor Snapshot",
+        "Jarvis Monitor Snapshot",
         f"timestamp: {view.timestamp}",
         f"workers: {view.factory.get('workers_alive', 0)}/{view.factory.get('workers_total', 0)} alive",
         f"task_queue_length: {view.queues.get('task_queue_length', 0)}",

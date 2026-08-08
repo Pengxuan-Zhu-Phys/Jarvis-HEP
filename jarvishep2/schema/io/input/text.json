@@ -10,21 +10,26 @@
   ],
   "properties": {
     "name": {
-      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+      "description": "Logical name of this IO slot."
     },
     "path": {
-      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+      "description": "File path relative to the calculator execution directory."
     },
     "type": {
-      "const": "Text"
+      "const": "Text",
+      "description": "Portal format name for this IO entry."
     },
     "save": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Keep the file after the sample finishes when true."
     },
     "content": {
       "type": "string"
     }
   },
   "additionalProperties": true,
-  "x-jarvis-zone": "delegated"
+  "x-jarvis-zone": "delegated",
+  "description": "Portal input format Text: YAML field vocabulary for execution.input[]."
 }

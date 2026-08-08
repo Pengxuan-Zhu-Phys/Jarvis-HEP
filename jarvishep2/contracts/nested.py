@@ -23,7 +23,7 @@ _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
         "seed",
         "Seed",
         # Bounds.dynamic / Dynamic removed: Method selects the engine
-        # (Dynesty → always DynamicNestedSampler, MultiNest → always static).
+        # (Dynesty -> always DynamicNestedSampler, MultiNest -> always static).
         "dlogz",
         "dlogz_init",
         "run_nested",
@@ -36,6 +36,10 @@ _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
 
 # Flat constructor keys may also appear at Bounds top level (official dynesty style).
 _BOUNDS_TOP_ALLOWED: frozenset[str] = _BOUNDS_META_ALLOWED | NESTED_CONSTRUCTOR_USER_KEYS
+
+# D24 public surface for man / schema consistency tests.
+BOUNDS_META_ALLOWED: frozenset[str] = _BOUNDS_META_ALLOWED
+BOUNDS_TOP_ALLOWED: frozenset[str] = _BOUNDS_TOP_ALLOWED
 
 def validate_nested_bounds(
     bounds: Mapping[str, Any],
@@ -181,7 +185,7 @@ def validate_nested_bounds(
                 )
             )
         # ``sampler`` is also forwarded to dynesty, whereas the explicit
-        # constructor aliases remain a Jarvis2-owned compatibility surface.
+        # constructor aliases remain a Jarvis-owned compatibility surface.
         if block_key.lower() == "sampler":
             continue
         block_extra = unknown_keys(block, NESTED_CONSTRUCTOR_USER_KEYS)

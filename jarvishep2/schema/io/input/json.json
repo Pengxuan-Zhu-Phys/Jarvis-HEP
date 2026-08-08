@@ -10,16 +10,20 @@
   ],
   "properties": {
     "name": {
-      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+      "description": "Logical name of this IO slot."
     },
     "path": {
-      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+      "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+      "description": "File path relative to the calculator execution directory."
     },
     "type": {
-      "const": "JSON"
+      "const": "JSON",
+      "description": "Portal format name for this IO entry."
     },
     "save": {
-      "type": "boolean"
+      "type": "boolean",
+      "description": "Keep the file after the sample finishes when true."
     },
     "actions": {
       "type": "array",
@@ -31,7 +35,8 @@
         ],
         "properties": {
           "type": {
-            "const": "Dump"
+            "const": "Dump",
+            "description": "Portal format name for this IO entry."
           },
           "variables": {
             "type": "array",
@@ -43,25 +48,31 @@
               ],
               "properties": {
                 "name": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+                  "description": "Logical name of this IO slot."
                 },
                 "expression": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+                  "description": "Expression evaluated in the sample namespace."
                 },
                 "entry": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+                  "description": "Key or path inside the file payload."
                 }
               },
               "additionalProperties": false,
               "x-jarvis-zone": "delegated"
-            }
+            },
+            "description": "Variable bindings for this action."
           }
         },
         "additionalProperties": false,
         "x-jarvis-zone": "delegated"
-      }
+      },
+      "description": "Ordered Portal actions (Dump/Load/...) for this file."
     }
   },
   "additionalProperties": false,
-  "x-jarvis-zone": "delegated"
+  "x-jarvis-zone": "delegated",
+  "description": "Portal input format JSON: YAML field vocabulary for execution.input[]."
 }

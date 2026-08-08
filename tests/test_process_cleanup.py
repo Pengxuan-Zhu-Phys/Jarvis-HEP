@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
-import signal
 import io
+import os
+import signal
+import tempfile
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest import mock
 
 from jarvishep2.process_cleanup import (
@@ -23,18 +26,44 @@ from jarvishep2.process_cleanup import (
 )
 
 
+class _StickyRefTestCase(unittest.TestCase):
+    """Isolate sticky R1/R2 registry so tests do not touch ~/.jarvis."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self._registry = Path(self._tmp.name) / "scan_refs.json"
+        self._env = mock.patch.dict(
+            os.environ, {"JARVIS_SCAN_REF_REGISTRY": str(self._registry)}
+        )
+        self._env.start()
+
+    def tearDown(self) -> None:
+        self._env.stop()
+        self._tmp.cleanup()
+
+
 class CommandMatchTests(unittest.TestCase):
     def test_matches_known_titles(self) -> None:
-        self.assertTrue(_command_is_jarvis("Jarvis2:EggBox_Bridson_V2"))
-        self.assertTrue(_command_is_jarvis("Jarvis2-Worker-3:scan"))
-        self.assertTrue(_command_is_jarvis("Jarvis2-Archiver:scan"))
-        self.assertTrue(_command_is_jarvis("Jarvis2-FileOperation"))
+        self.assertTrue(_command_is_jarvis("Jarvis:EggBox_Bridson_V2"))
+        self.assertTrue(_command_is_jarvis("Jarvis-Worker-3:scan"))
+        self.assertTrue(_command_is_jarvis("Jarvis-Archiver:scan"))
+        self.assertTrue(_command_is_jarvis("Jarvis-FileOperation"))
         self.assertTrue(_command_is_jarvis("Jarvis-Redis:scan"))
+
+    def test_rejects_retired_jarvis2_titles(self) -> None:
+        """Old Jarvis2* process titles are no longer managed by ps/kill."""
+        self.assertFalse(_command_is_jarvis("Jarvis2:EggBox_Bridson_V2"))
+        self.assertFalse(_command_is_jarvis("Jarvis2-Worker-3:scan"))
+        self.assertFalse(_command_is_jarvis("Jarvis2-Archiver:scan"))
+        self.assertFalse(_command_is_jarvis("Jarvis2-FileOperation"))
+        self.assertFalse(_command_is_jarvis("Jarvis2"))
 
     def test_rejects_unrelated(self) -> None:
         self.assertFalse(_command_is_jarvis("python3 -m pytest"))
         self.assertFalse(_command_is_jarvis("redis-server"))
         self.assertFalse(_command_is_jarvis(""))
+        self.assertFalse(_command_is_jarvis("Jarvis-HEP@oldscan"))
+        self.assertFalse(_command_is_jarvis("JarvisHelper"))
 
     def test_excludes_jarvis_lit_titles_and_paths(self) -> None:
         self.assertFalse(_command_is_jarvis("Jarvis-Lit:serve"))
@@ -53,39 +82,60 @@ class CommandMatchTests(unittest.TestCase):
         )
 
 
-class ListProcessesTests(unittest.TestCase):
+class ListProcessesTests(_StickyRefTestCase):
     def test_groups_running_processes_into_scan_references(self) -> None:
         scans = list_running_scans(
             [
-                JarvisProcess(pid=20, command="Jarvis2:Beta"),
-                JarvisProcess(pid=10, command="Jarvis2:Alpha"),
-                JarvisProcess(pid=11, command="Jarvis2-Worker-0:Alpha"),
+                JarvisProcess(pid=20, command="Jarvis:Beta"),
+                JarvisProcess(pid=10, command="Jarvis:Alpha"),
+                JarvisProcess(pid=11, command="Jarvis-Worker-0:Alpha"),
                 JarvisProcess(pid=12, command="Jarvis-Redis:Alpha"),
-                JarvisProcess(pid=13, command="Jarvis2-FileOperation:Alpha"),
+                JarvisProcess(pid=13, command="Jarvis-FileOperation:Alpha"),
             ]
         )
-        self.assertEqual([(scan.reference, scan.name) for scan in scans], [("R1", "Alpha"), ("R2", "Beta")])
+        # Sticky R1/R2 by first-seen control PID order (lower PID first on cold start).
+        self.assertEqual(
+            [(scan.reference, scan.name) for scan in scans],
+            [("R1", "Alpha"), ("R2", "Beta")],
+        )
         self.assertEqual([proc.pid for proc in scans[0].processes], [10, 11, 12, 13])
         self.assertIs(resolve_scan_reference("R1", scans), scans[0])
+        self.assertIs(resolve_scan_reference("10", scans), scans[0])
         self.assertIs(resolve_scan_reference("Beta", scans), scans[1])
-        self.assertIn("Jarvis2 kill R1", format_scan_table(scans))
+        self.assertIn("Jarvis kill R1", format_scan_table(scans))
+
+    def test_sticky_ref_does_not_shift_when_another_scan_appears(self) -> None:
+        """Regression: ephemeral dense R# renumbered and made kill R2 hit the wrong task."""
+        beta_only = list_active_scans([JarvisProcess(pid=20, command="Jarvis:Beta")])
+        self.assertEqual(beta_only[0].reference, "R1")
+        both = list_active_scans(
+            [
+                JarvisProcess(pid=10, command="Jarvis:Alpha"),  # new; must not steal R1
+                JarvisProcess(pid=20, command="Jarvis:Beta"),
+            ]
+        )
+        by_name = {scan.name: scan.reference for scan in both}
+        self.assertEqual(by_name["Beta"], "R1")
+        self.assertEqual(by_name["Alpha"], "R2")
+        self.assertEqual(resolve_scan_reference("R1", both).name, "Beta")
+        self.assertEqual(resolve_scan_reference("20", both).name, "Beta")
 
     def test_file_operation_has_a_scan_role(self) -> None:
         role, detail = _process_role_and_detail(
-            JarvisProcess(pid=13, command="Jarvis2-FileOperation:Alpha"), "Alpha"
+            JarvisProcess(pid=13, command="Jarvis-FileOperation:Alpha"), "Alpha"
         )
         self.assertEqual(role, "FileOperation")
         self.assertIn("save / copy / delete", detail)
 
     def test_unscoped_components_use_zp_not_scan_references(self) -> None:
         processes = [
-            JarvisProcess(pid=10, command="Jarvis2"),
-            JarvisProcess(pid=11, command="Jarvis2-Worker-0"),
-            JarvisProcess(pid=12, command="Jarvis2-Archiver"),
-            JarvisProcess(pid=13, command="Jarvis2-FileOperation"),
+            JarvisProcess(pid=10, command="Jarvis"),
+            JarvisProcess(pid=11, command="Jarvis-Worker-0"),
+            JarvisProcess(pid=12, command="Jarvis-Archiver"),
+            JarvisProcess(pid=13, command="Jarvis-FileOperation"),
             JarvisProcess(pid=14, command="Jarvis-Redis@6379/0"),
-            JarvisProcess(pid=15, command="Jarvis2-Worker-1:Alpha"),
-            JarvisProcess(pid=16, command="Jarvis2Helper"),
+            JarvisProcess(pid=15, command="Jarvis-Worker-1:Alpha"),
+            JarvisProcess(pid=16, command="JarvisHelper"),
         ]
         self.assertEqual(list_running_scans(processes)[0].name, "Alpha")
         self.assertEqual(list_active_scans(processes), [])
@@ -93,7 +143,7 @@ class ListProcessesTests(unittest.TestCase):
         self.assertEqual([proc.pid for proc in zombies], [10, 11, 12, 13, 14, 15])
 
     def test_orphan_with_stale_scan_suffix_is_zp_not_r_reference(self) -> None:
-        processes = [JarvisProcess(pid=19264, command="Jarvis2-Archiver:scan")]
+        processes = [JarvisProcess(pid=19264, command="Jarvis-Archiver:scan")]
         self.assertEqual(list_active_scans(processes), [])
         self.assertEqual(
             [proc.pid for proc in list_zombie_processes(processes)],
@@ -102,25 +152,25 @@ class ListProcessesTests(unittest.TestCase):
 
     def test_stale_groups_do_not_consume_active_r_references(self) -> None:
         processes = [
-            JarvisProcess(pid=10, command="Jarvis2-Archiver:Alpha"),
-            JarvisProcess(pid=20, command="Jarvis2:Beta"),
-            JarvisProcess(pid=21, command="Jarvis2-Worker-0:Beta"),
+            JarvisProcess(pid=10, command="Jarvis-Archiver:Alpha"),
+            JarvisProcess(pid=20, command="Jarvis:Beta"),
+            JarvisProcess(pid=21, command="Jarvis-Worker-0:Beta"),
         ]
         active = list_active_scans(processes)
         self.assertEqual([(scan.reference, scan.name) for scan in active], [("R1", "Beta")])
         self.assertEqual([proc.pid for proc in list_zombie_processes(processes)], [10])
 
     def test_zp_is_a_fixed_extra_row_in_process_table(self) -> None:
-        zombies = [JarvisProcess(pid=13, command="Jarvis2-FileOperation")]
+        zombies = [JarvisProcess(pid=13, command="Jarvis-FileOperation")]
         text = format_scan_table([], zombies)
         self.assertIn("ZP", text)
         self.assertIn("Zambie Process", text)
-        self.assertIn("Jarvis2 kill ZP -y", text)
+        self.assertIn("Jarvis kill ZP -y", text)
 
     def test_rejects_duplicate_live_scan_controller(self) -> None:
         from jarvishep2.process_cleanup import ensure_scan_name_available
 
-        fake = [JarvisProcess(pid=10, command="Jarvis2:Alpha")]
+        fake = [JarvisProcess(pid=10, command="Jarvis:Alpha")]
         with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
             with self.assertRaisesRegex(RuntimeError, "already running"):
                 ensure_scan_name_available("Alpha")
@@ -128,7 +178,7 @@ class ListProcessesTests(unittest.TestCase):
     def test_requires_cleanup_when_only_orphan_worker_remains(self) -> None:
         from jarvishep2.process_cleanup import ensure_scan_name_available
 
-        fake = [JarvisProcess(pid=10, command="Jarvis2-Worker-0:Alpha")]
+        fake = [JarvisProcess(pid=10, command="Jarvis-Worker-0:Alpha")]
         with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
             with self.assertRaisesRegex(RuntimeError, "stale Jarvis runtime"):
                 ensure_scan_name_available("Alpha")
@@ -136,7 +186,7 @@ class ListProcessesTests(unittest.TestCase):
     def test_resume_cleans_same_name_orphan_runtime(self) -> None:
         from jarvishep2.process_cleanup import ensure_scan_name_available
 
-        fake = [JarvisProcess(pid=10, command="Jarvis2-Worker-0:Alpha")]
+        fake = [JarvisProcess(pid=10, command="Jarvis-Worker-0:Alpha")]
         with (
             mock.patch(
                 "jarvishep2.process_cleanup.list_jarvis_processes",
@@ -156,8 +206,8 @@ class ListProcessesTests(unittest.TestCase):
     def test_parses_ps_output_and_skips_self(self) -> None:
         fake = (
             "  111 python3 -m pytest\n"
-            "  222 Jarvis2:DemoScan\n"
-            "  333 Jarvis2-Worker-0:DemoScan\n"
+            "  222 Jarvis:DemoScan\n"
+            "  333 Jarvis-Worker-0:DemoScan\n"
             "  444 Jarvis-Redis:DemoScan\n"
             "  555 /Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve\n"
         )
@@ -169,8 +219,8 @@ class ListProcessesTests(unittest.TestCase):
         self.assertEqual(
             titles,
             [
-                "Jarvis2:DemoScan",
-                "Jarvis2-Worker-0:DemoScan",
+                "Jarvis:DemoScan",
+                "Jarvis-Worker-0:DemoScan",
                 "Jarvis-Redis:DemoScan",
             ],
         )
@@ -181,10 +231,10 @@ class ListProcessesTests(unittest.TestCase):
 
     def test_format_rows(self) -> None:
         text = format_process_table(
-            [JarvisProcess(pid=42, command="Jarvis2:x")]
+            [JarvisProcess(pid=42, command="Jarvis:x")]
         )
         self.assertIn("42", text)
-        self.assertIn("Jarvis2:x", text)
+        self.assertIn("Jarvis:x", text)
 
 
 class KillOrderTests(unittest.TestCase):
@@ -193,9 +243,9 @@ class KillOrderTests(unittest.TestCase):
 
         procs = [
             JarvisProcess(pid=10, command="Jarvis-Redis:s"),
-            JarvisProcess(pid=20, command="Jarvis2:s"),
-            JarvisProcess(pid=30, command="Jarvis2-Worker-0:s"),
-            JarvisProcess(pid=40, command="Jarvis2-Archiver:s"),
+            JarvisProcess(pid=20, command="Jarvis:s"),
+            JarvisProcess(pid=30, command="Jarvis-Worker-0:s"),
+            JarvisProcess(pid=40, command="Jarvis-Archiver:s"),
         ]
         calls: list[tuple[int, int]] = []
 
@@ -218,11 +268,11 @@ class KillOrderTests(unittest.TestCase):
         self.assertEqual(set(kill_pids), {30, 40, 20, 10})
 
 
-class CliPsKillTests(unittest.TestCase):
+class CliPsKillTests(_StickyRefTestCase):
     def test_ps_subcommand_lists_scan_choices(self) -> None:
         from jarvishep2.client import main
 
-        fake = [JarvisProcess(pid=99, command="Jarvis2:Demo")]
+        fake = [JarvisProcess(pid=99, command="Jarvis:Demo")]
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
             return_value=fake,
@@ -238,8 +288,8 @@ class CliPsKillTests(unittest.TestCase):
         from jarvishep2.client import main
 
         fake = [
-            JarvisProcess(pid=10, command="Jarvis2:Alpha"),
-            JarvisProcess(pid=20, command="Jarvis2:Beta"),
+            JarvisProcess(pid=10, command="Jarvis:Alpha"),
+            JarvisProcess(pid=20, command="Jarvis:Beta"),
         ]
         with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
             output = io.StringIO()
@@ -253,8 +303,8 @@ class CliPsKillTests(unittest.TestCase):
         from jarvishep2.client import main
 
         fake = [
-            JarvisProcess(pid=10, command="Jarvis2:Alpha"),
-            JarvisProcess(pid=20, command="Jarvis2-FileOperation"),
+            JarvisProcess(pid=10, command="Jarvis:Alpha"),
+            JarvisProcess(pid=20, command="Jarvis-FileOperation"),
         ]
         with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
             choices = io.StringIO()
@@ -271,7 +321,7 @@ class CliPsKillTests(unittest.TestCase):
     def test_kill_without_reference_only_lists_choices(self) -> None:
         from jarvishep2.client import main
 
-        fake = [JarvisProcess(pid=99, command="Jarvis2:Demo")]
+        fake = [JarvisProcess(pid=99, command="Jarvis:Demo")]
         with mock.patch("jarvishep2.process_cleanup.list_jarvis_processes", return_value=fake):
             with mock.patch("jarvishep2.process_cleanup.kill_jarvis_processes") as kill_fn:
                 self.assertEqual(main(["kill"]), 0)
@@ -280,7 +330,7 @@ class CliPsKillTests(unittest.TestCase):
     def test_kill_aborts_without_confirm(self) -> None:
         from jarvishep2.client import main
 
-        fake = [JarvisProcess(pid=99, command="Jarvis2:x")]
+        fake = [JarvisProcess(pid=99, command="Jarvis:x")]
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
             return_value=fake,
@@ -299,7 +349,7 @@ class CliPsKillTests(unittest.TestCase):
     def test_kill_yes_skips_confirm(self) -> None:
         from jarvishep2.client import main
 
-        fake = [JarvisProcess(pid=99, command="Jarvis2:x")]
+        fake = [JarvisProcess(pid=99, command="Jarvis:x")]
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
             side_effect=[fake, []],
@@ -321,12 +371,12 @@ class CliPsKillTests(unittest.TestCase):
         from jarvishep2.client import main
 
         fake = [
-            JarvisProcess(pid=10, command="Jarvis2:Alpha"),
-            JarvisProcess(pid=20, command="Jarvis2-FileOperation"),
-            JarvisProcess(pid=21, command="Jarvis2-Worker-0"),
+            JarvisProcess(pid=10, command="Jarvis:Alpha"),
+            JarvisProcess(pid=20, command="Jarvis-FileOperation"),
+            JarvisProcess(pid=21, command="Jarvis-Worker-0"),
             JarvisProcess(pid=22, command="Jarvis-Redis"),
-            JarvisProcess(pid=23, command="Jarvis2Helper"),
-            JarvisProcess(pid=24, command="Jarvis2-Archiver:stale"),
+            JarvisProcess(pid=23, command="JarvisHelper"),
+            JarvisProcess(pid=24, command="Jarvis-Archiver:stale"),
         ]
         with mock.patch(
             "jarvishep2.process_cleanup.list_jarvis_processes",
@@ -355,7 +405,7 @@ class CliPsKillTests(unittest.TestCase):
         self.assertIn("No ZP", output.getvalue())
 
     def test_format_says_running_not_leftover(self) -> None:
-        text = format_process_table([JarvisProcess(pid=1, command="Jarvis2:a")])
+        text = format_process_table([JarvisProcess(pid=1, command="Jarvis:a")])
         self.assertIn("Running Jarvis processes", text)
         self.assertNotIn("leftover", text.lower())
 

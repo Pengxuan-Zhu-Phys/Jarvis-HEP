@@ -25,6 +25,7 @@ DISTRIBUTION_TYPES: frozenset[str] = frozenset(
 _METHOD_PARAMETER_KEYS = frozenset({"length", "num"})
 
 # Per-type allowed parameter keys (closed).
+# Public aliases (D24): man / tools import PARAMS_* without touching private names.
 _PARAMS_ALLOWED: dict[str, frozenset[str]] = {
     "Flat": frozenset({"min", "max"}) | _METHOD_PARAMETER_KEYS,
     "Log": frozenset({"min", "max"}) | _METHOD_PARAMETER_KEYS,
@@ -50,6 +51,10 @@ _PARAMS_REQUIRED: dict[str, frozenset[str]] = {
     "Exponential": frozenset({"rate"}),
     "Gamma": frozenset({"shape", "scale"}),
 }
+
+# D24 public surface for ``Jarvis man`` (same objects; do not mutate).
+PARAMS_ALLOWED: dict[str, frozenset[str]] = _PARAMS_ALLOWED
+PARAMS_REQUIRED: dict[str, frozenset[str]] = _PARAMS_REQUIRED
 
 _VARIABLE_ITEM_KEYS = frozenset({"name", "description", "distribution"})
 _DISTRIBUTION_KEYS = frozenset({"type", "parameters"})

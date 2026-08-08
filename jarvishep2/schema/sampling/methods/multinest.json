@@ -1,1 +1,26 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/multinest.json","allOf":[{"$ref":"https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},{"properties":{"Method":{"const":"MultiNest"}}}]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/multinest.json",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "description": "MultiNest: nested sampling via vendored dynesty. Method selects the engine (Dynesty=dynamic, MultiNest=static).",
+  "x-jarvis-example": "Method: MultiNest\nBounds:\n  nlive: 200\n  dlogz: 0.5\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
+  "allOf": [
+    {
+      "$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"
+    },
+    {
+      "properties": {
+        "Method": {
+          "const": "MultiNest"
+        },
+        "Bounds": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nestedBounds"
+        }
+      },
+      "required": [
+        "Bounds"
+      ]
+    }
+  ]
+}

@@ -83,7 +83,7 @@ class FileOperationService:
                 self.scan_name,
                 os.getpid(),
             ),
-            name="Jarvis2-FileOperation",
+            name="Jarvis-FileOperation",
             daemon=True,
         )
         try:
@@ -293,7 +293,7 @@ def _file_operation_main(
         owner_watch = threading.Thread(
             target=_watch_owner_process,
             args=(int(owner_pid), owner_watch_stop, owns_process_group),
-            name="Jarvis2-FileOperationOwnerWatch",
+            name="Jarvis-FileOperationOwnerWatch",
             daemon=True,
         )
         owner_watch.start()

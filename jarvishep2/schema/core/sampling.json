@@ -3,7 +3,7 @@
   "$id": "https://jarvis-hep.org/schema/v2/core/sampling.json",
   "type": "object",
   "x-jarvis-zone": "closed",
-  "description": "Sampling root is cross-cutting only. Method-specific sampler knobs (Radius, Point number, Seed, AdaptiveBridson targets, CSV path, dynesty/MCMC kwargs, …) live exclusively under Bounds.",
+  "description": "Sampling root is cross-cutting only. Method-specific sampler knobs (Radius, Point number, Seed, AdaptiveBridson targets, CSV path, dynesty/MCMC kwargs, ...) live exclusively under Bounds.",
   "properties": {
     "Method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
     "method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
@@ -27,7 +27,7 @@
     "Mapper": {
       "type": "array",
       "x-jarvis-zone": "closed",
-      "description": "Optional pure u→physical reparameterization after Variables[].distribution (D22). Ordered list of {name, expression}. Omitted → distribution-only mapping (backward compatible). Expressions see Variables and prior Mapper names only (closed namespace). List form keeps schema keys fixed (name/expression) instead of user symbols as object keys.",
+      "description": "Optional pure u->physical reparameterization after Variables[].distribution (D22). Ordered list of {name, expression}. Omitted -> distribution-only mapping (backward compatible). Expressions see Variables and prior Mapper names only (closed namespace). List form keeps schema keys fixed (name/expression) instead of user symbols as object keys.",
       "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/mapperEntry"},
       "x-jarvis-example": "Mapper:\n  - name: x\n    expression: \"cos(t)\"\n  - name: y\n    expression: \"sin(t)\""
     },

@@ -753,7 +753,7 @@ def _is_reclaimable_hdf5_holder(pid: int, *, scan_name: str | None) -> bool:
         return False
     first = cmd.split(None, 1)[0]
     # Only reclaim Archiver holders automatically — never the live Control.
-    if not first.startswith("Jarvis2-Archiver"):
+    if not first.startswith("Jarvis-Archiver"):
         return False
     if not scan_name:
         return True
@@ -949,7 +949,7 @@ def prepare_hdf5_database_for_writer(
         if blocking and attempt >= max(1, int(retries) - 2):
             raise RuntimeError(
                 f"HDF5 database is locked by live process(es) {blocking}: {path}. "
-                "Stop the owning process (e.g. `Jarvis2 kill ZP -y`) then retry. "
+                "Stop the owning process (e.g. `Jarvis kill ZP -y`) then retry. "
                 "Control-side DATABASE reads must use locking=False so they do not "
                 f"block Archiver. Last open error: {last_error}"
             ) from last_error

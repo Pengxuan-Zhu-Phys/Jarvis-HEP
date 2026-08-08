@@ -43,7 +43,7 @@ EnvReqs:
       max_hdf5_bytes: 1073741824
       delete_after_archive: true
 
-    # Per-project Redis broker. If this port is occupied, Jarvis2 selects a
+    # Per-project Redis broker. If this port is occupied, Jarvis selects a
     # free replacement and writes it back here before the scan begins.
     redis:
       host: 127.0.0.1
@@ -62,10 +62,12 @@ EnvReqs:
     #   force_serial_layers: false
     #   sample_artifacts: auto
 
-    # Jarvis2 check / --check-modules:
+    # Jarvis check / --check-modules:
     #   1) Prefer this CSV when the file exists (task Sampling.data overrides).
     #   2) If missing, draw n_samples points from Sampling.Method (V1-like smoke).
+    #   3) timeout_sec: max wait for samples to archive (deadline; CLI --timeout overrides).
     # Runtime policy (always, not YAML): workers=1, SAMPLE/test/, pack=off.
     check_modules:
       data: "&J/data/check_modules_points.csv"
       n_samples: 10
+      timeout_sec: 120

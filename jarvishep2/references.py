@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Citable references for Jarvis2 and its bundled samplers."""
+"""Citable references for Jarvis and its bundled samplers."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ SAMPLER_REFERENCES: tuple[Reference, ...] = (
 
 
 def render_references() -> str:
-    """Return the stable text emitted by ``Jarvis2 refs``.
+    """Return the stable text emitted by ``Jarvis refs``.
 
     Random, Grid, and CSV are native proposal/input strategies rather than
     bundled external algorithms, so they deliberately have no separate paper
@@ -97,7 +97,7 @@ def render_references() -> str:
         sections.extend((reference.format(number), ""))
         number += 1
     sections.append(
-        "Random, Grid, and CSV are native Jarvis2 proposal/input strategies; no external sampler citation is required."
+        "Random, Grid, and CSV are native Jarvis proposal/input strategies; no external sampler citation is required."
     )
     return "\n".join(sections).rstrip() + "\n"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JSON Schema coverage for the stable Jarvis2 task-card surface."""
+"""JSON Schema coverage for the stable Jarvis task-card surface."""
 
 from __future__ import annotations
 

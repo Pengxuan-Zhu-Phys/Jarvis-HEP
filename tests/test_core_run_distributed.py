@@ -120,7 +120,7 @@ class CoreRunDistributedTests(unittest.TestCase):
             strict=False,
             check_modules=True,
         )
-        core.check_modules.assert_called_once_with()
+        core.check_modules.assert_called_once_with(timeout=None)
 
 
 if __name__ == "__main__":

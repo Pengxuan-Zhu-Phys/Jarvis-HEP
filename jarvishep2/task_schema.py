@@ -1,4 +1,4 @@
-"""File-composed JSON Schema validation for the stable Jarvis2 card surface."""
+"""File-composed JSON Schema validation for the stable Jarvis card surface."""
 
 from __future__ import annotations
 
@@ -32,12 +32,24 @@ _REMOVED_ROOT_KEYS: dict[str, str] = {
 }
 
 
+def _is_ascii_text(value: Any) -> bool:
+    if not isinstance(value, str):
+        return True
+    try:
+        value.encode("ascii")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def schema_catalog_lint_errors() -> list[str]:
     """Return authoring errors in the bundled schema catalog.
 
     ``x-jarvis-zone`` documents who owns an object surface.  Keeping this
     check next to the loader makes a missing zone a CI failure, rather than a
     silent weakening of the strict-card boundary.
+
+    D24.3 also enforces that man prose annotations stay pure ASCII (K6).
     """
     with MANIFEST_PATH.open(encoding="utf-8") as handle:
         manifest = json.load(handle)
@@ -52,6 +64,12 @@ def schema_catalog_lint_errors() -> list[str]:
                 errors.append(f"{location}: invalid x-jarvis-zone {zone!r}")
             if zone == "open" and not isinstance(node.get("x-jarvis-open-reason"), str):
                 errors.append(f"{location}: open zone has no x-jarvis-open-reason")
+            status = node.get("x-jarvis-status")
+            if status is not None and status not in {"stable", "unstable"}:
+                errors.append(f"{location}: invalid x-jarvis-status {status!r}")
+            for prose_key in ("description", "title", "x-jarvis-example"):
+                if prose_key in node and not _is_ascii_text(node.get(prose_key)):
+                    errors.append(f"{location}: {prose_key} must be pure ASCII (Jarvis man K6)")
             for key, child in node.items():
                 walk(child, f"{location}/{key}")
         elif isinstance(node, list):
@@ -72,7 +90,7 @@ def _schema_catalog() -> tuple[dict[str, Any], Registry]:
         manifest = json.load(handle)
     lint_errors = schema_catalog_lint_errors()
     if lint_errors:
-        raise RuntimeError("Invalid Jarvis2 schema catalog:\n" + "\n".join(lint_errors))
+        raise RuntimeError("Invalid Jarvis schema catalog:\n" + "\n".join(lint_errors))
 
     schemas: list[dict[str, Any]] = []
     for relative_name in manifest["schema_files"]:
@@ -87,6 +105,58 @@ def _schema_catalog() -> tuple[dict[str, Any], Registry]:
         for schema in schemas
     )
     return manifest, registry
+
+
+def schema_manifest() -> dict[str, Any]:
+    """Return the bundled schema manifest (read-only view for man / tools)."""
+    manifest, _ = _schema_catalog()
+    return dict(manifest)
+
+
+def schema_by_id(schema_id: str) -> dict[str, Any]:
+    """Return one schema document by its ``$id`` URI."""
+    _, registry = _schema_catalog()
+    return dict(registry.contents(str(schema_id)))
+
+
+def resolve_schema_ref(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``schema`` with a top-level ``$ref`` expanded once (if present)."""
+    if not isinstance(schema, Mapping):
+        return {}
+    ref = schema.get("$ref")
+    if not isinstance(ref, str) or not ref:
+        return dict(schema)
+    # Fragment-only refs into common.json defs.
+    if ref.startswith("#/"):
+        # Cannot resolve without a base document; leave as-is for callers.
+        return dict(schema)
+    if "#/" in ref:
+        base, frag = ref.split("#/", 1)
+        doc = schema_by_id(base)
+        node: Any = doc
+        for part in frag.split("/"):
+            part = part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(node, Mapping) or part not in node:
+                return dict(schema)
+            node = node[part]
+        if isinstance(node, Mapping):
+            merged = dict(node)
+            for key, value in schema.items():
+                if key == "$ref":
+                    continue
+                merged[key] = value
+            return merged
+        return dict(schema)
+    try:
+        target = schema_by_id(ref)
+    except Exception:
+        return dict(schema)
+    merged = dict(target)
+    for key, value in schema.items():
+        if key == "$ref":
+            continue
+        merged[key] = value
+    return merged
 
 
 @lru_cache(maxsize=1)
@@ -286,9 +356,12 @@ def _issues_for(
         suggestion, example = _schema_error_guidance(
             error, prefix, additional_property_keys=retained_additional_keys,
         )
+        issue_path = _path(error.absolute_path, prefix)
+        from jarvishep2.man_codes import man_command_for
+
         issues.append(issue(
-            "error", "JV2-SCH-001", _path(error.absolute_path, prefix), message,
-            hint="See docs/task-card-schema.md for the strict card interface.",
+            "error", "JV2-SCH-001", issue_path, message,
+            hint=man_command_for("JV2-SCH-001", issue_path),
             suggestion=suggestion, example=example,
         ))
     return issues
@@ -303,7 +376,7 @@ def _validate_selected_io(
 
     Portal owns supported format names.  The manifest is intentionally only an
     optional local refinement layer, so a newer Portal format cannot be
-    rejected merely because Jarvis2 has not yet bundled a detailed schema.
+    rejected merely because Jarvis has not yet bundled a detailed schema.
     """
     from jarvishep2.task_validation import issue
     from jarvishep2.io_portal import available_io_formats
@@ -356,7 +429,7 @@ def _validate_selected_io(
                         ))
                         continue
                     if not isinstance(schema_uri, str):
-                        # Portal accepts it; a detailed Jarvis2 schema is optional.
+                        # Portal accepts it; a detailed Jarvis schema is optional.
                         continue
                     normalized_entry = dict(entry)
                     normalized_entry["type"] = kind
@@ -443,7 +516,7 @@ def _open_zone_issues(config: Mapping[str, Any]) -> list[Any]:
     return [issue(
         "warning", "JV2-SCH-004", "$.Sampling." + ", ".join(present),
         "open validation zone: " + " ".join(reasons[key] for key in present),
-        hint="Their nested keys are passed through without Jarvis2 schema checking.",
+        hint="Their nested keys are passed through without Jarvis schema checking.",
         suggestion="Use the documented sampler settings, or migrate these blocks before relying on strict validation.",
     )]
 

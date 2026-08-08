@@ -459,7 +459,7 @@ class SimpleArchiver:
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_loop,
-            name="Jarvis2-SimpleArchiver",
+            name="Jarvis-SimpleArchiver",
             daemon=True,
         )
         self._thread.start()
@@ -686,7 +686,7 @@ class ArchiverProcess(Process):
         delete_method: str = DEFAULT_DELETE_METHOD,
         archiver_config: Mapping[str, Any] | None = None,
         poll_timeout: float = 1.0,
-        name: str = "Jarvis2-Archiver",
+        name: str = "Jarvis-Archiver",
         scan_name: str | None = None,
         log_dir: str | None = None,
         log_path: str | None = None,

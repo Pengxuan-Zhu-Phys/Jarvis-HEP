@@ -37,7 +37,7 @@ BUCKET_META = "hep:sample:bucket:meta"
 BUCKET_STATE = "hep:sample:bucket:state:{id}"
 BUCKET_READY_QUEUE = "hep:sample:bucket:ready"
 BUCKET_LOCK = "hep:sample:bucket:lock"
-# Single control-process lease for one Redis DB (hard guard against stacked Jarvis2 runs).
+# Single control-process lease for one Redis DB (hard guard against stacked Jarvis runs).
 CONTROL_LOCK = "hep:control:lock"
 CONTROL_LOCK_TTL_SEC = 30
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})

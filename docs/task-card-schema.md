@@ -2,7 +2,7 @@
 
 ## Goal
 
-Jarvis2 task cards remain YAML documents, but their stable user-facing
+Jarvis task cards remain YAML documents, but their stable user-facing
 structure is validated by a versioned JSON Schema before the existing Python
 contracts run. This gives editors useful completion and type diagnostics while
 preserving the V2 runtime's richer semantic checks.
@@ -23,8 +23,8 @@ YAML parse
 ```
 
 JSON Schema errors are converted into the normal `ValidationReport` as
-`JV2-SCH-*` diagnostics. Therefore `Jarvis2 validate`, `Jarvis2 run`, and
-`Jarvis2 check` present one coherent report.
+`JV2-SCH-*` diagnostics. Therefore `Jarvis validate`, `Jarvis run`, and
+`Jarvis check` present one coherent report.
 
 `EnvReqs.V2.checkpoint_heartbeat_sec` is the **only** user-facing checkpoint
 interval (default: `30` seconds).  It applies to all methods:
@@ -154,8 +154,8 @@ catalog loads:
 
 | Zone | Meaning |
 | --- | --- |
-| `closed` | Jarvis2 owns the interface; an unknown key is an error. |
-| `delegated` | A downstream component owns its keywords; Jarvis2 validates only its own declared envelope. |
+| `closed` | Jarvis owns the interface; an unknown key is an error. |
+| `delegated` | A downstream component owns its keywords; Jarvis validates only its own declared envelope. |
 | `open` | An identified, un-migrated surface; nested keys pass through with one warning and an explicit reason. |
 
 The task-card root is closed: `Scan`, `Sampling`, `Calculators`, `Operas`,
@@ -206,7 +206,7 @@ The supported static tokens are `${LibDeps:path}`, `${LibDeps:make_paraller}`,
 control file's `reinstall` value to `true` to rebuild all libraries on the next
 run; V2 deliberately has no interactive reinstall prompt.
 
-Use `Jarvis2 run TASK.yaml --skip-library-installation` (or `check`) only when
+Use `Jarvis run TASK.yaml --skip-library-installation` (or `check`) only when
 every declared installation path already exists. The command emits a warning,
 does not build anything, and fails before Redis if a path is missing. Module
 command output is recorded under `logs/<scan>/library-<module>.log`.
@@ -275,7 +275,7 @@ save: false
 `type` is owned by the live Portal registry, not by the manifest. The names
 are case-sensitive after surrounding whitespace is normalised. A manifest
 entry is optional enrichment: if Portal supports a format without a bundled
-Jarvis2 schema it is accepted and delegated to Portal; if Portal does not
+Jarvis schema it is accepted and delegated to Portal; if Portal does not
 support the format, `JV2-SCH-002` lists the formats valid for that direction.
 
 JSON has the first strict format-specific layout:
@@ -287,7 +287,7 @@ JSON has the first strict format-specific layout:
 
 Bundled formats have their own input and/or output schema file. Unknown format
 names are `JV2-SCH-002` structural errors. Adding a Portal adapter does not
-require a synchronous schema release; add a local schema later when Jarvis2
+require a synchronous schema release; add a local schema later when Jarvis
 can usefully validate format-specific fields.
 
 ## Compatibility policy

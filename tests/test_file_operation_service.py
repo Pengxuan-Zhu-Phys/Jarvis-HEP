@@ -88,7 +88,7 @@ class SaveIoCopyTests(unittest.TestCase):
 
 class FileOperationServiceTests(unittest.TestCase):
     def test_file_operation_title_includes_scan_name(self) -> None:
-        self.assertEqual(file_operation_title(scan_name="Demo"), "Jarvis2-FileOperation:Demo")
+        self.assertEqual(file_operation_title(scan_name="Demo"), "Jarvis-FileOperation:Demo")
 
     def test_inline_save_and_delete(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

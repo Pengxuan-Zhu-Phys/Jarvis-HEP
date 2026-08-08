@@ -14,6 +14,7 @@ from jarvishep2.core import Jarvis2Core
 from jarvishep2.sample import Sample
 from jarvishep2.task_config import (
     check_modules_n_samples,
+    check_modules_timeout_sec,
     get_check_modules_settings,
     resolve_check_modules_csv,
 )
@@ -32,7 +33,20 @@ class CheckModulesResolveTests(unittest.TestCase):
     def test_settings_default_n_samples(self) -> None:
         settings = get_check_modules_settings({})
         self.assertEqual(settings["n_samples"], 10)
+        self.assertEqual(settings["timeout_sec"], 120.0)
         self.assertIn("check_modules_points.csv", settings["data"])
+
+    def test_timeout_sec_from_envreqs(self) -> None:
+        cfg = {"EnvReqs": {"V2": {"check_modules": {"timeout_sec": 30}}}}
+        self.assertEqual(get_check_modules_settings(cfg)["timeout_sec"], 30.0)
+        self.assertEqual(check_modules_timeout_sec(cfg), 30.0)
+
+    def test_timeout_alias_and_invalid_fallback(self) -> None:
+        alias = {"EnvReqs": {"V2": {"check_modules": {"timeout": 45.5}}}}
+        self.assertEqual(check_modules_timeout_sec(alias), 45.5)
+        bad = {"EnvReqs": {"V2": {"check_modules": {"timeout_sec": -1}}}}
+        self.assertEqual(check_modules_timeout_sec(bad), 120.0)
+        self.assertEqual(check_modules_timeout_sec({}), 120.0)
 
     def test_resolve_csv_exists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,6 +78,31 @@ class CheckModulesResolveTests(unittest.TestCase):
     def test_n_samples_from_envreqs(self) -> None:
         cfg = {"EnvReqs": {"V2": {"check_modules": {"n_samples": 3}}}}
         self.assertEqual(check_modules_n_samples(cfg), 3)
+
+    def test_run_check_modules_uses_config_timeout(self) -> None:
+        core = Jarvis2Core(
+            {"EnvReqs": {"V2": {"check_modules": {"timeout_sec": 12.5}}}}
+        )
+        core._resolve_sample_root = mock.Mock(return_value="/tmp/sample")  # type: ignore[method-assign]
+        core._build_check_module_samples = mock.Mock(return_value=[Sample(uuid="u1")])  # type: ignore[method-assign]
+        core.submit_samples = mock.Mock()  # type: ignore[method-assign]
+        core.wait_for_results = mock.Mock()  # type: ignore[method-assign]
+        core._finalize_sample_buckets = mock.Mock()  # type: ignore[method-assign]
+        count = core.run_check_modules()
+        self.assertEqual(count, 1)
+        core.wait_for_results.assert_called_once_with(1, timeout=12.5)
+
+    def test_run_check_modules_cli_timeout_overrides_config(self) -> None:
+        core = Jarvis2Core(
+            {"EnvReqs": {"V2": {"check_modules": {"timeout_sec": 12.5}}}}
+        )
+        core._resolve_sample_root = mock.Mock(return_value="/tmp/sample")  # type: ignore[method-assign]
+        core._build_check_module_samples = mock.Mock(return_value=[Sample(uuid="u1")])  # type: ignore[method-assign]
+        core.submit_samples = mock.Mock()  # type: ignore[method-assign]
+        core.wait_for_results = mock.Mock()  # type: ignore[method-assign]
+        core._finalize_sample_buckets = mock.Mock()  # type: ignore[method-assign]
+        core.run_check_modules(timeout=3.0)
+        core.wait_for_results.assert_called_once_with(1, timeout=3.0)
 
 
 class CheckModulesBuildSamplesTests(unittest.TestCase):

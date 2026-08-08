@@ -76,11 +76,13 @@ SUPPORTED_ENVREQS_V2_KEYS = frozenset(
     }
 )
 
-# Defaults for ``Jarvis2 check`` / ``--check-modules`` (overridable via EnvReqs.V2).
+# Defaults for ``Jarvis check`` / ``--check-modules`` (overridable via EnvReqs.V2).
 CHECK_MODULES_DEFAULTS: dict[str, Any] = {
     # Prefer project data CSV; if missing at runtime, sampler draws n_samples points.
     "data": "&J/data/check_modules_points.csv",
     "n_samples": 10,
+    # Max seconds to wait for smoke samples to archive (deadline, not a fixed sleep).
+    "timeout_sec": 120.0,
 }
 
 

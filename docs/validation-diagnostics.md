@@ -10,7 +10,7 @@ Every task-card validation failure is a stable `JV2-*` error code followed by:
 This also applies before schema validation: malformed task, default-environment,
 or runtime-default YAML is reported as `JV2-YAML-001`; a non-mapping task
 document is `JV2-YAML-002`; and a missing task file is `JV2-LOAD-001`.
-`Jarvis2 validate --json` exposes the same `suggestion` and `example` fields as
+`Jarvis validate --json` exposes the same `suggestion` and `example` fields as
 the human-readable output.
 
 `JV2-ENC-001` scans the original parsed task YAML before normalisation and

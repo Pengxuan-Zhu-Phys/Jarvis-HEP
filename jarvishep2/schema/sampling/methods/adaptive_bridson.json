@@ -3,6 +3,7 @@
   "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/adaptive_bridson.json",
   "type": "object",
   "x-jarvis-zone": "closed",
+  "description": "Adaptive Bridson contour search around a target observable band.",
   "x-jarvis-example": "Method: AdaptiveBridson\nBounds:\n  target_expression: Omega_h2\n  target_value: 0.12\n  outer_half_width: 0.02\n  min_radius: 0.002\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, length: 1.0}",
   "allOf": [
     {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},

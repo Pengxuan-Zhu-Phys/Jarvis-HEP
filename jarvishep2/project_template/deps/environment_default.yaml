@@ -2,7 +2,7 @@
 # Loaded via EnvReqs.Check_default_dependencies.default_yaml_path.
 EnvReqs:
   # V1-compatible preflight checks.  Set CERN_ROOT.required to true for
-  # calculators that use ROOT; Jarvis2 then checks root-config/version before
+  # calculators that use ROOT; Jarvis then checks root-config/version before
   # Redis, Workers, or Archiver are started.
   Python:
     version: ">=3.10"
@@ -40,15 +40,17 @@ EnvReqs:
       max_hdf5_bytes: 1073741824
       delete_after_archive: true
 
-    # Per-project Redis broker. If this port is occupied, Jarvis2 selects a
+    # Per-project Redis broker. If this port is occupied, Jarvis selects a
     # free replacement and writes it back here before the scan begins.
     redis:
       host: 127.0.0.1
       port: 6379
       db: 0
 
-    # Jarvis2 check / --check-modules (CSV fixed points, else n_samples from Method).
+    # Jarvis check / --check-modules (CSV fixed points, else n_samples from Method).
+    # timeout_sec: max wait for samples to archive (deadline; Jarvis check --timeout overrides).
     # Runtime always forces workers=1, SAMPLE/test/, no tar pack.
     check_modules:
       data: "&J/data/check_modules_points.csv"
       n_samples: 10
+      timeout_sec: 120

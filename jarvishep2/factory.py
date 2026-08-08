@@ -159,7 +159,7 @@ class _MonitorLoop:
 
         self._thread = threading.Thread(
             target=_loop,
-            name="Jarvis2-FactoryMonitor",
+            name="Jarvis-FactoryMonitor",
             daemon=True,
         )
         self._thread.start()
@@ -212,7 +212,7 @@ class _Watchdog:
 
         self._thread = threading.Thread(
             target=_loop,
-            name="Jarvis2-FactoryWatchdog",
+            name="Jarvis-FactoryWatchdog",
             daemon=True,
         )
         self._thread.start()

@@ -1,1 +1,18 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://jarvis-hep.org/schema/v2/sampling/methods/ptensemble.json","allOf":[{"$ref":"https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},{"properties":{"Method":{"const":"PTEnsemble"}}}]}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/ptensemble.json",
+  "x-jarvis-status": "unstable",
+  "description": "PTEnsemble Bounds knobs are not finalised. Jarvis man marks this method STATUS: not finalised; validate does not yet reject unknown Bounds keys.",
+  "allOf": [
+    {
+      "$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"
+    },
+    {
+      "properties": {
+        "Method": {
+          "const": "PTEnsemble"
+        }
+      }
+    }
+  ]
+}

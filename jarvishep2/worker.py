@@ -53,7 +53,7 @@ class Worker(Process):
         redis: RedisQueue | Mapping[str, Any],
         worker_config: Mapping[str, Any],
     ) -> None:
-        super().__init__(name=f"Jarvis2-Worker-{worker_id}", daemon=False)
+        super().__init__(name=f"Jarvis-Worker-{worker_id}", daemon=False)
         self.worker_id = int(worker_id)
         self.redis_config = RedisQueue.extract_connection_config(redis)
         self.worker_config = dict(worker_config)

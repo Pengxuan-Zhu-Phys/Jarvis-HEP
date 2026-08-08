@@ -3,6 +3,7 @@
   "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/bridson.json",
   "type": "object",
   "x-jarvis-zone": "closed",
+  "description": "Bridson Poisson-disk sampling over the unit cube.",
   "x-jarvis-example": "Method: Bridson\nBounds:\n  Radius: 0.1\n  MaxAttempt: 30\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, length: 1.0}",
   "allOf": [
     {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},
@@ -12,22 +13,28 @@
         "Bounds": {
           "type": "object",
           "x-jarvis-zone": "closed",
+          "description": "Method-specific Bridson knobs. Closed: unknown keys are rejected.",
           "required": ["Radius", "MaxAttempt"],
           "properties": {
             "Radius": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric",
+              "description": "Poisson-disk minimum separation in unit-cube coordinates."
             },
             "MaxAttempt": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+              "description": "Bridson k: candidate attempts per accepted point."
             },
             "MaxWorker": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+              "description": "Optional worker hint for parallel proposal (runtime may ignore)."
             },
             "Seed": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+              "description": "RNG seed (alias: seed)."
             },
             "seed": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
+              "description": "Alias of Seed."
             }
           },
           "additionalProperties": false

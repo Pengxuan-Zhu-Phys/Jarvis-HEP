@@ -234,7 +234,7 @@ def _normalize_catalog(payload: object) -> dict:
         if major > SUPPORTED_SCHEMA_MAJOR:
             raise OfficialCatalogError(
                 f"Official library catalog schema_version {schema_version} is newer "
-                "than this Jarvis2 supports; please upgrade Jarvis-HEP-v2."
+                "than this Jarvis supports; please upgrade Jarvis-HEP-v2."
             )
 
     projects = payload.get("projects")
@@ -310,7 +310,7 @@ def get_official_project(project_name: str, index_url: str | None = None) -> dic
 
 
 def format_project_list_table(projects: list[dict]) -> str:
-    """Human table for ``Jarvis2 project list|browse`` (shows key requirements)."""
+    """Human table for ``Jarvis project list|browse`` (shows key requirements)."""
     headers = ("Name", "Access", "Key", "Category", "Summary")
     rows: list[tuple[str, str, str, str, str]] = []
     for project in projects:
@@ -477,7 +477,7 @@ def fetch_official_project(
             hint = project.get("encryption_hint") or ""
             msg = (
                 f"Project '{project['name']}' is restricted. Fetch with:\n"
-                f"  Jarvis2 project fetch {project['name']} --key YOUR_KEY\n"
+                f"  Jarvis project fetch {project['name']} --key YOUR_KEY\n"
                 f"or set {PROJECT_FETCH_KEY_ENV}."
             )
             if hint:

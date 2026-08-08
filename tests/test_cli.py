@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Jarvis2 CLI parse + dispatch routing tests (D11.1 / D11.2)."""
+"""Jarvis CLI parse + dispatch routing tests (D11.1 / D11.2)."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class CliNormalizeArgvTests(unittest.TestCase):
         )
 
     def test_legacy_top_level_monitor_flag(self) -> None:
-        """``Jarvis2 --monitor`` keeps the top-level flag (resolve_intent → monitor)."""
+        """``Jarvis --monitor`` keeps the top-level flag (resolve_intent → monitor)."""
         self.assertEqual(normalize_argv(["--monitor"]), ["--monitor"])
 
 
@@ -74,7 +74,7 @@ class CliParseTests(unittest.TestCase):
 
     def test_run_help_explains_console_level_values(self) -> None:
         help_text = build_parser()._subparsers._group_actions[0].choices["run"].format_help()
-        self.assertIn("Usage: Jarvis2 run [OPTIONS] <task_yaml>", help_text)
+        self.assertIn("Usage: Jarvis run [OPTIONS] <task_yaml>", help_text)
         self.assertIn("--console-level <str>", help_text)
         for level in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
             self.assertIn(level, help_text)
@@ -94,8 +94,8 @@ class CliParseTests(unittest.TestCase):
 
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
-        self.assertIn("Usage: Jarvis2 [OPTIONS] COMMAND [ARGS]...", help_text)
-        self.assertIn("Command help: Jarvis2 COMMAND -h", help_text)
+        self.assertIn("Usage: Jarvis [OPTIONS] COMMAND [ARGS]...", help_text)
+        self.assertIn("Command help: Jarvis COMMAND -h", help_text)
         self.assertIn("See each command's arguments and options", help_text)
         self.assertIn("╭─ Scan workflow", help_text)
         self.assertIn("╭─ Data export", help_text)
@@ -219,7 +219,7 @@ class CliReferencesTests(unittest.TestCase):
         with contextlib.redirect_stderr(stderr):
             code = main(["refs"])
         self.assertEqual(code, EXIT_USAGE)
-        self.assertIn("Jarvis2 --refs", stderr.getvalue())
+        self.assertIn("Jarvis --refs", stderr.getvalue())
 
     def test_refs_prints_framework_and_supported_sampler_citations(self) -> None:
         stdout = io.StringIO()
@@ -258,7 +258,7 @@ class CliDispatchTests(unittest.TestCase):
             strict=False,
             check_modules=True,
         )
-        core.check_modules.assert_called_once_with()
+        core.check_modules.assert_called_once_with(timeout=None)
         core.run.assert_not_called()
 
     def test_dispatch_routes_resume_run_to_core(self) -> None:
