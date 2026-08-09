@@ -295,7 +295,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
         )
         self.assertFalse(
             operas_expression_functions_required(
-                {"Sampling": {"selection": "x + y < 1.5", "Bounds": {"Radius": 0.3}}}
+                {"Sampling": {"selection": "x + y < 1.5", "Bounds": {"radius": 0.3}}}
             )
         )
 
@@ -312,7 +312,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
             "output": [{"name": "z", "entry": "z"}],
         }
         worker = build_worker_config(
-            {"Operas": {"make_paraller": 16, "Modules": [module]}},
+            {"Operas": {"make_parallel": 16, "Modules": [module]}},
             task_result_dir="/tmp/result",
         )
 

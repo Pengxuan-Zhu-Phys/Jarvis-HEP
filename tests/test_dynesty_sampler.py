@@ -688,7 +688,7 @@ class NestedCheckpointResumeTests(unittest.TestCase):
 
     @staticmethod
     def _two_var_config(*, method: str = "Dynesty", nlive: int = 20, **bounds: Any) -> dict:
-        b = {"nlive": nlive, "Seed": 7, **bounds}
+        b = {"nlive": nlive, "seed": 7, **bounds}
         return {
             "Sampling": {
                 "Method": method,

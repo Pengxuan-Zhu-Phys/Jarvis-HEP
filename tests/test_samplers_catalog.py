@@ -173,7 +173,7 @@ def _grid_test_config(**overrides: object) -> dict:
         "Runtime": {"mode": "redis", "workers": 1},
         "Sampling": {
             "Method": "Grid",
-            "Bounds": {"Seed": 0},
+            "Bounds": {"seed": 0},
             "Variables": [
                 {
                     "name": "x",
@@ -263,7 +263,7 @@ class GridSamplerUnitTests(unittest.TestCase):
             {
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.4, "MaxAttempt": 5, "Seed": 7},
+                    "Bounds": {"radius": 0.4, "max_attempt": 5, "seed": 7},
                     "Variables": [
                         {
                             "name": "x",
@@ -356,12 +356,12 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         self.assertEqual(format_duration(0.0)[:8], "00:00:00")
 
     def test_bridson_seed_zero_resume_restores_coordinates(self) -> None:
-        """Seed 0 must reseed (not skip); otherwise uuid matches but physics drifts."""
+        """seed 0 must reseed (not skip); otherwise uuid matches but physics drifts."""
         cfg = {
             "EnvReqs": {"V2": {"workers": 1, "checkpoint_heartbeat_sec": 10}},
             "Sampling": {
                 "Method": "Bridson",
-                "Bounds": {"Seed": 0, "Radius": 0.35, "MaxAttempt": 12},
+                "Bounds": {"seed": 0, "radius": 0.35, "max_attempt": 12},
                 "Variables": [
                     {
                         "name": "x",
@@ -403,7 +403,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
             "EnvReqs": {"V2": {"workers": 1}},
             "Sampling": {
                 "Method": "Random",
-                "Bounds": {"Seed": 0, "Point number": 5},
+                "Bounds": {"seed": 0, "point_number": 5},
                 "Variables": [
                     {
                         "name": "x",
@@ -425,14 +425,14 @@ class BridsonSamplerUnitTests(unittest.TestCase):
             np.testing.assert_allclose(pa, pb, atol=1e-12)
 
     def test_batch_size_uses_normalized_runtime_default(self) -> None:
-        """Missing Runtime.batch_size must keep FixedSetSampler/runtime default (256), not MaxWorker."""
+        """Missing Runtime.batch_size must keep FixedSetSampler/runtime default (256), not max_worker."""
         sampler = Bridson()
         sampler.set_config(
             {
                 "Runtime": {"mode": "redis", "workers": 2},
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.35, "MaxAttempt": 30, "MaxWorker": 2, "Seed": 1},
+                    "Bounds": {"radius": 0.35, "max_attempt": 30, "max_worker": 2, "seed": 1},
                     "Variables": [
                         {
                             "name": "x",
@@ -463,7 +463,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
                 "Runtime": {"mode": "redis", "workers": 2, "batch_size": 8},
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.12, "MaxAttempt": 30, "MaxWorker": 2, "Seed": 3},
+                    "Bounds": {"radius": 0.12, "max_attempt": 30, "max_worker": 2, "seed": 3},
                     "Variables": [
                         {
                             "name": "x",
@@ -536,7 +536,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
                 "Sampling": {
                     "Method": "Bridson",
                     # Smaller radius → denser grid → multiple ‰ heartbeats.
-                    "Bounds": {"Radius": 0.08, "MaxAttempt": 30, "Seed": 7},
+                    "Bounds": {"radius": 0.08, "max_attempt": 30, "seed": 7},
                     "Variables": [
                         {
                             "name": "x",
@@ -599,7 +599,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
                 "Runtime": {"mode": "redis", "workers": 1},
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.35, "MaxAttempt": 30, "Seed": 42},
+                    "Bounds": {"radius": 0.35, "max_attempt": 30, "seed": 42},
                     "Variables": [
                         {
                             "name": "x",
@@ -716,7 +716,7 @@ class StatelessDistributedRunTests(unittest.TestCase):
             "Runtime": {"mode": "redis", "workers": 1},
             "Sampling": {
                 "Method": "Random",
-                "Bounds": {"Point number": 4, "Seed": 99},
+                "Bounds": {"point_number": 4, "seed": 99},
                 "Variables": [
                     {
                         "name": "x",
@@ -751,7 +751,7 @@ class CheckpointScalingTests(unittest.TestCase):
             "Runtime": {"mode": "redis", "workers": 1, "batch_size": 8},
             "Sampling": {
                 "Method": "Random",
-                "Bounds": {"Point number": points, "Seed": 123},
+                "Bounds": {"point_number": points, "seed": 123},
                 "Variables": [
                     {
                         "name": "x",
@@ -803,7 +803,7 @@ class CheckpointScalingTests(unittest.TestCase):
                 "Runtime": {"mode": "redis", "workers": 1},
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.3, "MaxAttempt": 8},
+                    "Bounds": {"radius": 0.3, "max_attempt": 8},
                     "Variables": [
                         {
                             "name": name,

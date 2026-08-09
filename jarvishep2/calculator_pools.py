@@ -27,14 +27,14 @@ def resolve_calculator_pools(worker_config: Mapping[str, Any] | None) -> dict[st
         for name, count in explicit.items()
         if str(name).strip()
     } if isinstance(explicit, Mapping) and explicit else {}
-    global_parallel = worker_config.get("calculator_make_paraller")
+    global_parallel = worker_config.get("calculator_make_parallel")
     pools: dict[str, int] = {}
     for item in _modules(worker_config):
         info = mode_info(item)
         name = info[0] if info is not None else str(item.get("name", "")).strip()
         if not name:
             continue
-        slots = explicit_pools.get(name, item.get("make_paraller", global_parallel or 1))
+        slots = explicit_pools.get(name, item.get("make_parallel", global_parallel or 1))
         pools[name] = max(1, int(slots or 1))
     # Preserve legacy explicit-only behavior for a worker blueprint with no
     # modules, while rejecting impossible mode keys at task-card validation.

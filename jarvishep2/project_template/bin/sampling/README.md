@@ -28,7 +28,7 @@ Sampling:
   Method: Dynesty   # or MultiNest
   Variables: [...]
   Bounds:
-    Seed: 21
+    seed: 21
     nlive: 100
     dlogz: 0.5        # Dynesty → dlogz_init; MultiNest → static dlogz
     run_nested:

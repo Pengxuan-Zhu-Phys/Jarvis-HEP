@@ -364,9 +364,9 @@ def _build_libdeps_context(
     paths: dict[str, str] = {}
     base = decode_path(str(libdeps.get("path", project_root)), project_root=project_root)
     values: dict[str, str] = {"path": base}
-    make_parallel = libdeps.get("make_paraller")
+    make_parallel = libdeps.get("make_parallel")
     if make_parallel is not None:
-        values["make_paraller"] = str(make_parallel)
+        values["make_parallel"] = str(make_parallel)
     modules = libdeps.get("Modules") or []
     if not isinstance(modules, Sequence):
         return paths, values

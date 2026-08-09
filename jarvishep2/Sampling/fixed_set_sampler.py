@@ -65,14 +65,14 @@ class FixedSetSampler(CheckpointedSampler):
 
         self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._selectionexp = sampling.get("selection")
-        # Seed and MaxWorker are method knobs → Sampling.Bounds only.
-        self._seed = int(bounds.get("Seed", bounds.get("seed", 0)) or 0)
+        # seed and max_worker are method knobs → Sampling.Bounds only.
+        self._seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         self._checkpoint_heartbeat_sec = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
         # Default backpressure: keep the pipeline full but bounded.
-        # Subclasses (e.g. Bridson) may override with Bounds.MaxWorker.
-        explicit = runtime.get("max_inflight", bounds.get("MaxWorker"))
+        # Subclasses (e.g. Bridson) may override with Bounds.max_worker.
+        explicit = runtime.get("max_inflight", bounds.get("max_worker"))
         if explicit is not None:
             self._max_inflight = max(1, int(explicit or 1))
         else:

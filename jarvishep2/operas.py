@@ -218,9 +218,7 @@ class OperasModule:
         self.output = list(config.get("output", []) or [])
         self.kwargs = dict(config.get("kwargs", {}) or {})
         self.call_mode = normalize_call_mode(config.get("call_mode", "call"))
-        self.timeout_sec = self._normalize_timeout(
-            config.get("timeout_sec", config.get("timeout"))
-        )
+        self.timeout_sec = self._normalize_timeout(config.get("timeout_sec"))
         self._func: Callable[..., Any] | None = None
         self._bound_signature: inspect.Signature | None = None
         if expression_context is None:

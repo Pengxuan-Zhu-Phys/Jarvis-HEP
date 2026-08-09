@@ -59,7 +59,7 @@ def _cfg(
     }
     if extra_bounds:
         bounds.update(extra_bounds)
-    bounds.setdefault("Seed", seed)
+    bounds.setdefault("seed", seed)
     runtime: dict[str, Any] = {
         "mode": "redis",
         "workers": workers,

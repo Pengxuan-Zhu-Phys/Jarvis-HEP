@@ -242,12 +242,7 @@ def resolve_feedback_return(
     sampling = cfg.get("Sampling") if isinstance(cfg.get("Sampling"), Mapping) else {}
     sampling = dict(sampling or {})
 
-    explicit = (
-        sampling.get("FeedbackReturn")
-        or sampling.get("feedback_return")
-        or cfg.get("FeedbackReturn")
-        or cfg.get("feedback_return")
-    )
+    explicit = sampling.get("FeedbackReturn")
     if isinstance(explicit, Mapping) and explicit:
         return _normalize_spec(dict(explicit))
 
@@ -263,7 +258,6 @@ def resolve_feedback_return(
         method
         or getattr(sampler, "method", "")
         or sampling.get("Method")
-        or sampling.get("method")
         or ""
     ).strip()
     return _normalize_spec(_default_spec_for_method(method_name, sampling=sampling, cfg=cfg))

@@ -5,7 +5,7 @@
   "x-jarvis-zone": "closed",
   "properties": {
     "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-    "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+    "make_parallel": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
     "Modules": {
       "type": "array",
       "items": {

@@ -76,7 +76,7 @@ def _v1_eggbox_module(runtime_root: str, source: str) -> dict:
             "rm -f output.json",
         ],
         "modes": False,
-        "make_paraller": 4,
+        "make_parallel": 4,
         "execution": {
             "path": slot,
             "commands": ["./eggbox.py"],
@@ -131,7 +131,7 @@ class CalculatorSpecV1YamlTests(unittest.TestCase):
                     "output": [{"name": "out", "type": "JSON"}],
                 },
                 "modes": False,
-                "make_paraller": 16,
+                "make_parallel": 16,
                 "required_modules": [],
             },
         )
@@ -151,7 +151,7 @@ class CalculatorSpecV1YamlTests(unittest.TestCase):
         self.assertEqual(len(spec.output_specs), 1)
         # V1 unused keys tolerated and preserved in raw.
         self.assertIn("modes", spec.raw)
-        self.assertEqual(spec.raw.get("make_paraller"), 16)
+        self.assertEqual(spec.raw.get("make_parallel"), 16)
 
     def test_execution_path_is_the_default_command_cwd(self) -> None:
         spec = CalculatorSpec.from_config(
@@ -322,13 +322,13 @@ class CalculatorSelectionExecuteTests(unittest.TestCase):
 
 
 class CalculatorMakeParallerConfigTests(unittest.TestCase):
-    def test_top_level_make_paraller_feeds_pool_resolution(self) -> None:
+    def test_top_level_make_parallel_feeds_pool_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             worker = build_worker_config(
                 {
                     "project_root": tmpdir,
                     "Calculators": {
-                        "make_paraller": 16,
+                        "make_parallel": 16,
                         "path": "&J/calculators/runtime/program",
                         "Modules": [
                             {
@@ -341,7 +341,7 @@ class CalculatorMakeParallerConfigTests(unittest.TestCase):
                 },
                 task_result_dir=tmpdir,
             )
-            self.assertEqual(worker["calculator_make_paraller"], 16)
+            self.assertEqual(worker["calculator_make_parallel"], 16)
             self.assertEqual(
                 worker["sample_config"].get("calculators_path"),
                 os.path.join(tmpdir, "calculators", "runtime", "program"),
@@ -351,11 +351,11 @@ class CalculatorMakeParallerConfigTests(unittest.TestCase):
                 {"EggBox": 16},
             )
 
-    def test_module_make_paraller_overrides_global(self) -> None:
+    def test_module_make_parallel_overrides_global(self) -> None:
         pools = resolve_calculator_pools(
             {
-                "calculator_make_paraller": 16,
-                "calculator_modules": [{"name": "EggBox", "make_paraller": 3}],
+                "calculator_make_parallel": 16,
+                "calculator_modules": [{"name": "EggBox", "make_parallel": 3}],
             }
         )
         self.assertEqual(pools, {"EggBox": 3})
@@ -509,7 +509,7 @@ class V1ProcessCardYamlLoadTests(unittest.TestCase):
         self.assertIn("@PackID", spec.basepath)
         # Top-level Calculators keys survive YAML load for worker_config.
         calc = config["Calculators"]
-        self.assertEqual(calc.get("make_paraller"), 16)
+        self.assertEqual(calc.get("make_parallel"), 16)
         self.assertIn("path", calc)
 
 

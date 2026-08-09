@@ -7,8 +7,8 @@ EnvReqs:
 Sampling:
   Method: Random
   Bounds:
-    Point number: 6
-    Seed: 11
+    point_number: 6
+    seed: 11
   Variables:
     - name: x
       distribution:

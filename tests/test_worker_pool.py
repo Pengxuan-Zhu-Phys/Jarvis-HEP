@@ -52,7 +52,7 @@ class CalculatorPoolConfigTests(unittest.TestCase):
     def test_resolve_calculator_pools_from_modules(self) -> None:
         config = {
             "calculator_modules": [
-                {"name": "EggBox", "make_paraller": 3},
+                {"name": "EggBox", "make_parallel": 3},
             ]
         }
         self.assertEqual(resolve_calculator_pools(config), {"EggBox": 3})
@@ -60,7 +60,7 @@ class CalculatorPoolConfigTests(unittest.TestCase):
     def test_explicit_calculator_pools_override(self) -> None:
         config = {
             "calculator_pools": {"EggBox": 2},
-            "calculator_modules": [{"name": "EggBox", "make_paraller": 9}],
+            "calculator_modules": [{"name": "EggBox", "make_parallel": 9}],
         }
         self.assertEqual(resolve_calculator_pools(config), {"EggBox": 2})
 

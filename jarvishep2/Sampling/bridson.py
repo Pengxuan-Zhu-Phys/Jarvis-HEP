@@ -128,30 +128,30 @@ class Bridson(FixedSetSampler):
         super().set_config(config_info)
         # FixedSetSampler already set _batch_size from get_runtime_block (default 256).
         # Do not re-read raw Runtime here — missing batch_size would wrongly fall back
-        # to MaxWorker/workers and change Redis pipeline sizing vs Random/Grid.
+        # to max_worker/workers and change Redis pipeline sizing vs Random/Grid.
         sampling = dict(self.config.get("Sampling") or {})
         bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
         if not isinstance(bounds, Mapping) or not bounds:
             raise ValueError(
-                "Bridson requires Sampling.Bounds with Radius and MaxAttempt"
+                "Bridson requires Sampling.Bounds with radius and max_attempt"
             )
         runtime = get_runtime_block(self.config)
         workers = int(runtime.get("workers", 1) or 1)
-        if "Radius" not in bounds:
-            raise ValueError("Bridson requires Sampling.Bounds.Radius")
-        if "MaxAttempt" not in bounds:
-            raise ValueError("Bridson requires Sampling.Bounds.MaxAttempt")
-        self._radius = float(bounds["Radius"])
-        self._k = int(bounds["MaxAttempt"])
-        # V1-like backpressure: at most Bounds.MaxWorker (default = Runtime.workers).
-        self._max_inflight = max(1, int(bounds.get("MaxWorker", workers) or workers))
+        if "radius" not in bounds:
+            raise ValueError("Bridson requires Sampling.Bounds.radius")
+        if "max_attempt" not in bounds:
+            raise ValueError("Bridson requires Sampling.Bounds.max_attempt")
+        self._radius = float(bounds["radius"])
+        self._k = int(bounds["max_attempt"])
+        # V2 backpressure: at most Bounds.max_worker (default = Runtime.workers).
+        self._max_inflight = max(1, int(bounds.get("max_worker", workers) or workers))
 
     def initialize(self, *, reset: bool = True) -> None:
         ndim = len(self.vars)
         if ndim < 2 or ndim >= 5:
             raise ValueError("Bridson supports 2d to 4d parameter spaces only")
         self._logger.warning("Initializing the Bridson Sampling")
-        # Seed 0 is a valid deterministic seed — do not treat it as "unset"
+        # seed 0 is a valid deterministic seed — do not treat it as "unset"
         # (``if self._seed`` would skip seeding and break resume: same uuid
         # stream, different coordinates).
         np.random.seed(int(self._seed))

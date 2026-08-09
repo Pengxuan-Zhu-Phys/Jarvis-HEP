@@ -38,7 +38,7 @@ def _minimal_dynesty_config(**overrides) -> dict:
             ],
             "Bounds": {
                 "nlive": 50,
-                "rseed": 1,
+                "seed": 1,
                 "dlogz": 0.5,
                 "run_nested": {"print_progress": True},
             },
@@ -99,7 +99,7 @@ class TaskValidationKernelTests(unittest.TestCase):
                     "# \u8fd9\u662f\u5141\u8bb8\u7684\u4e2d\u6587\u6ce8\u91ca\n"
                     "Scan:\n  name: ascii-scan\n"
                     "Sampling:\n  Method: Random\n"
-                    "  Bounds:\n    Point number: 1\n"
+                    "  Bounds:\n    point_number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -157,7 +157,7 @@ class TaskValidationKernelTests(unittest.TestCase):
         cfg = _minimal_dynesty_config()
         cfg["LibDeps"] = {
             "path": "deps/library",
-            "make_paraller": 2,
+            "make_parallel": 2,
             "Modules": [{
                 "name": "Tool",
                 "installed": False,
@@ -353,7 +353,7 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         codes = {i.code for i in report.errors()}
         self.assertIn("JV2-VAR-031", codes)  # missing length on x
-        self.assertIn("JV2-MTH-010", codes)  # missing Radius
+        self.assertIn("JV2-MTH-010", codes)  # missing radius
 
     def test_check_modules_accepts_csv_only_card(self) -> None:
         cfg = {
@@ -545,14 +545,14 @@ class TaskValidationCliTests(unittest.TestCase):
             self.assertEqual(code, 2)
             issues = json.loads(stdout.getvalue())["issues"]
             random_issue = next(item for item in issues if item["code"] == "JV2-MTH-020")
-            self.assertIn("Point number", random_issue["suggestion"])
-            self.assertIn("Point number: 100", random_issue["example"])
+            self.assertIn("point_number", random_issue["suggestion"])
+            self.assertIn("point_number: 100", random_issue["example"])
 
     def test_dispatch_validate_reports_yaml_syntax_with_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "broken.yaml")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("Sampling:\n  Method: Random\n    Point number: 10\n")
+                handle.write("Sampling:\n  Method: Random\n    point_number: 10\n")
             stdout = io.StringIO()
             with contextlib.redirect_stdout(stdout):
                 code = dispatch_validate(path, as_json=True)
@@ -566,7 +566,7 @@ class TaskValidationCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "broken.yaml")
             with open(path, "w", encoding="utf-8") as handle:
-                handle.write("Sampling:\n  Method: Random\n    Point number: 10\n")
+                handle.write("Sampling:\n  Method: Random\n    point_number: 10\n")
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
                 code = dispatch_run(path)
@@ -581,7 +581,7 @@ class TaskValidationCliTests(unittest.TestCase):
                 handle.write(
                     "Scan:\n  name: \u6697\u7269\u8d28\n"
                     "Sampling:\n  Method: Random\n"
-                    "  Bounds:\n    Point number: 1\n"
+                    "  Bounds:\n    point_number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -602,7 +602,7 @@ class TaskValidationCliTests(unittest.TestCase):
                 handle.write(
                     "Scan:\n  name: typo-scan\n"
                     "Sampling:\n  Method: Random\n"
-                    "  Bounds:\n    Point number: 1\n"
+                    "  Bounds:\n    point_number: 1\n"
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
@@ -635,22 +635,18 @@ class TaskValidationCliTests(unittest.TestCase):
             self.assertEqual(ctx.exception.code, "JV2-YAML-001")
             self.assertIn("default environment YAML", str(ctx.exception))
 
-    def test_referenced_runtime_yaml_syntax_has_the_same_diagnostic(self) -> None:
+    def test_referenced_runtime_yaml_interface_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             task_path = os.path.join(tmp, "task.yaml")
-            default_path = os.path.join(tmp, "runtime.yaml")
-            with open(default_path, "w", encoding="utf-8") as handle:
-                handle.write("Runtime:\n  workers: 2\n    batch_size: 1\n")
             with open(task_path, "w", encoding="utf-8") as handle:
                 handle.write(
                     "EnvReqs:\n"
                     "  Runtime:\n"
-                    "    default_runtime_settings: runtime.yaml\n"
+                    "    workers: 2\n"
                 )
-            with self.assertRaises(TaskCardLoadError) as ctx:
+            with self.assertRaises(ValueError) as ctx:
                 load_task_yaml(task_path)
-            self.assertEqual(ctx.exception.code, "JV2-YAML-001")
-            self.assertIn("runtime default YAML", str(ctx.exception))
+            self.assertIn("EnvReqs.Runtime", str(ctx.exception))
 
     def test_main_validate_subcommand(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -661,7 +657,7 @@ class TaskValidationCliTests(unittest.TestCase):
                     "Sampling:\n"
                     "  Method: Random\n"
                     "  Bounds:\n"
-                    "    Point number: 10\n"
+                    "    point_number: 10\n"
                     "  Variables:\n"
                     "    - name: x\n"
                     "      description: d\n"

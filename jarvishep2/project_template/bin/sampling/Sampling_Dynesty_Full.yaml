@@ -5,7 +5,7 @@
 # For static NestedSampler use Sampling_MultiNest_Full.yaml / Method: MultiNest.
 #
 # Do NOT set (HEP injects): loglikelihood, prior_transform, ndim, pool, rstate
-# Do NOT set: Bounds.dynamic  (rejected by validation)
+# Engine selection is fixed by Method; there is no Bounds.dynamic switch.
 # =============================================================================
 
 Sampling:
@@ -18,10 +18,9 @@ Sampling:
         parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    Seed: 21
+    seed: 21
     # --- HEP meta (shared) ---
     nlive: 100                 # default for nlive_init / constructor nlive
-    # rseed: 21                # optional; Seed above is enough
     dlogz: 0.5                 # convenience alias → run_nested.dlogz_init
 
     # --- constructor (prefer nested block; flat Bounds.bound also OK) ---

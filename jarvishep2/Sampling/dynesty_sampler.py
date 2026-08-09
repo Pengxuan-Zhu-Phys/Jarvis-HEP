@@ -129,19 +129,11 @@ HEP_OWNED_RUN_NESTED_KEYS: frozenset[str] = frozenset(
 _BOUNDS_META_KEYS: frozenset[str] = frozenset(
     {
         "nlive",
-        "n_live",
-        "rseed",
         "seed",
-        "Seed",
-        "dynamic",
-        "Dynamic",
         "dlogz",
         "dlogz_init",
         "run_nested",
         "sampler",
-        "Sampler",
-        "constructor",
-        "Constructor",
     }
 )
 
@@ -247,7 +239,7 @@ def extract_nested_constructor_kwargs(
     Sources (later wins):
 
     1. Flat ``Bounds.<constructor_key>`` (official names: bound, sample, walks, …)
-    2. Nested ``Bounds.sampler`` / ``Bounds.constructor`` block (preferred)
+    2. Nested ``Bounds.sampler`` block (preferred)
 
     HEP-injected keys (loglikelihood, pool, …) are stripped. ``nlive`` is left
     in so callers can still override via sampler block if desired.
@@ -259,7 +251,7 @@ def extract_nested_constructor_kwargs(
             continue
         if name in NESTED_CONSTRUCTOR_USER_KEYS:
             raw[name] = value
-    for block_key in ("sampler", "Sampler", "constructor", "Constructor"):
+    for block_key in ("sampler",):
         block = bounds.get(block_key)
         if isinstance(block, Mapping):
             for key, value in block.items():
@@ -633,17 +625,15 @@ class DynestySampler(FeedbackSampler):
             bounds = {}
 
         # --- meta / HEP-owned ---
-        self._nlive = max(2, int(bounds.get("nlive", bounds.get("n_live", 100)) or 100))
+        self._nlive = max(2, int(bounds.get("nlive", 100) or 100))
         if bounds.get("dlogz") is not None:
             self._dlogz = float(bounds.get("dlogz"))
         elif bounds.get("dlogz_init") is not None:
             self._dlogz = float(bounds.get("dlogz_init"))
         else:
             self._dlogz = 0.5
-        # Seed lives under Bounds only (rseed / Seed / seed).
-        self._rseed = int(
-            bounds.get("rseed", bounds.get("Seed", bounds.get("seed", 0))) or 0
-        )
+        # seed lives under Bounds only.
+        self._rseed = int(bounds.get("seed", 0) or 0)
         self._init_seed_sequence(self._rseed)
         self._selectionexp = sampling.get("selection")
         workers = int(runtime.get("workers", 1) or 1)
@@ -654,16 +644,8 @@ class DynestySampler(FeedbackSampler):
         self._checkpoint_every_sec = max(1.0, heartbeat)
         self._checkpoint_heartbeat_sec = self._checkpoint_every_sec
 
-        # Engine fixed by Method (Dynesty=dynamic, MultiNest=static). Ignore any
-        # leftover Bounds.dynamic / Dynamic keys (validation rejects them).
+        # Engine is fixed by Method (Dynesty=dynamic, MultiNest=static).
         self._use_dynamic = bool(self.default_dynamic)
-        if "dynamic" in bounds or "Dynamic" in bounds:
-            self._logger.warning(
-                "%s ignores Bounds.dynamic/Dynamic (engine is fixed by Method: "
-                "Dynesty=DynamicNestedSampler, MultiNest=NestedSampler static); "
-                "remove the key from the task YAML",
-                self.method,
-            )
 
         # --- official constructor kwargs ---
         self._constructor_kwargs = extract_nested_constructor_kwargs(

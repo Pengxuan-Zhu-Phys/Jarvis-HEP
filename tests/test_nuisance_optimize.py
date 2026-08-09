@@ -52,9 +52,9 @@ class RegistryUnitTests(unittest.TestCase):
         cfg = {
             "Sampling": {
                 "Nuisance": {
-                    "Method": "Profile1D",
-                    "MaxAttempt": 20,
-                    "Variables": [
+                    "method": "Profile1D",
+                    "max_attempt": 20,
+                    "variables": [
                         {
                             "name": "ratio",
                             "distribution": {
@@ -63,8 +63,8 @@ class RegistryUnitTests(unittest.TestCase):
                             },
                         }
                     ],
-                    "LogLikelihood": [{"name": "L", "expression": "ratio**2"}],
-                    "TargetMode": "min",
+                    "log_likelihood": [{"name": "L", "expression": "ratio**2"}],
+                    "target_mode": "min",
                 }
             }
         }
@@ -82,9 +82,9 @@ class Profile1DUnitTests(unittest.TestCase):
         cfg = {
             "Sampling": {
                 "Nuisance": {
-                    "Method": "Profile1D",
-                    "MaxAttempt": 10,
-                    "Variables": [
+                    "method": "Profile1D",
+                    "max_attempt": 10,
+                    "variables": [
                         {
                             "name": "ratio",
                             "distribution": {
@@ -93,15 +93,15 @@ class Profile1DUnitTests(unittest.TestCase):
                             },
                         }
                     ],
-                    "LogLikelihood": [{"name": "L", "expression": "ratio**2"}],
-                    "TargetMode": "min",
+                    "log_likelihood": [{"name": "L", "expression": "ratio**2"}],
+                    "target_mode": "min",
                 }
             }
         }
         profiler = Profile1DProfiler.from_config(cfg)
         assert profiler is not None
         self.assertTrue(profiler.re_run_physics)
-        cfg["Sampling"]["Nuisance"]["re_run_physics"] = False
+        cfg["Sampling"]["Nuisance"]["rerun_physics"] = False
         profiler_off = Profile1DProfiler.from_config(cfg)
         assert profiler_off is not None
         self.assertFalse(profiler_off.re_run_physics)
@@ -200,8 +200,8 @@ class FlowchartNuisanceTests(unittest.TestCase):
             },
             "Sampling": {
                 "Nuisance": {
-                    "Method": "Profile1D",
-                    "Variables": [
+                    "method": "Profile1D",
+                    "variables": [
                         {
                             "name": "t",
                             "distribution": {
@@ -210,7 +210,7 @@ class FlowchartNuisanceTests(unittest.TestCase):
                             },
                         }
                     ],
-                    "LogLikelihood": [{"name": "L", "expression": "t**2"}],
+                    "log_likelihood": [{"name": "L", "expression": "t**2"}],
                 }
             },
         }
@@ -228,9 +228,9 @@ class WorkerNuisanceInProcessTests(unittest.TestCase):
 
         queue = make_fakeredis_queue()
         nuisance = {
-            "Method": "Profile1D",
-            "MaxAttempt": 30,
-            "Variables": [
+            "method": "Profile1D",
+            "max_attempt": 30,
+            "variables": [
                 {
                     "name": "t",
                     "distribution": {
@@ -239,10 +239,10 @@ class WorkerNuisanceInProcessTests(unittest.TestCase):
                     },
                 }
             ],
-            "LogLikelihood": [{"name": "L", "expression": "(t - 0.25)**2"}],
-            "TargetMode": "min",
-            "re_run_physics": False,
-            "PassCondition": [{"name": "near", "expression": "Abs(t - 0.25) < 0.2"}],
+            "log_likelihood": [{"name": "L", "expression": "(t - 0.25)**2"}],
+            "target_mode": "min",
+            "rerun_physics": False,
+            "pass_condition": [{"name": "near", "expression": "Abs(t - 0.25) < 0.2"}],
         }
         worker = Worker(
             0,
@@ -306,7 +306,7 @@ class CoreNuisanceIntegrationTests(unittest.TestCase):
                     },
                     "Sampling": {
                         "Method": "Bridson",
-                        "Bounds": {"Seed": 3, "Radius": 0.4, "Point number": 4, "MaxAttempt": 30},
+                        "Bounds": {"seed": 3, "radius": 0.4, "point_number": 4, "max_attempt": 30},
                         "Variables": [
                             {
                                 "name": "x",
@@ -335,8 +335,8 @@ class CoreNuisanceIntegrationTests(unittest.TestCase):
                             {"name": "LogL_z", "expression": "LogGauss(z, 1, 1)"}
                         ],
                         "Nuisance": {
-                            "Method": "Profile1D",
-                            "Variables": [
+                            "method": "Profile1D",
+                            "variables": [
                                 {
                                     "name": "shift",
                                     "distribution": {
@@ -345,16 +345,16 @@ class CoreNuisanceIntegrationTests(unittest.TestCase):
                                     },
                                 }
                             ],
-                            "LogLikelihood": [
+                            "log_likelihood": [
                                 {
                                     "name": "LogLNP",
                                     "expression": "(shift - 0.1)**2",
                                 }
                             ],
-                            "TargetMode": "min",
-                            "MaxAttempt": 20,
-                            "re_run_physics": False,
-                            "PassCondition": [
+                            "target_mode": "min",
+                            "max_attempt": 20,
+                            "rerun_physics": False,
+                            "pass_condition": [
                                 {"name": "ok", "expression": "Abs(shift - 0.1) < 0.3"}
                             ],
                         },

@@ -35,12 +35,9 @@ class RandomS(FixedSetSampler):
         sampling = dict(self.config.get("Sampling") or {})
         bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
         self._dimensions = len(self.vars)
-        point_number = bounds.get("Point number", bounds.get("point_number"))
+        point_number = bounds.get("point_number")
         if point_number is None:
-            raise ValueError(
-                "Random sampler requires Sampling.Bounds['Point number'] "
-                "(or Bounds.point_number)"
-            )
+            raise ValueError("Random sampler requires Sampling.Bounds.point_number")
         self._maxp = int(point_number)
         self._index = 0
         self._accepted_index = 0

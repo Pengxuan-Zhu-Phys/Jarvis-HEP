@@ -127,15 +127,17 @@ class NuisancePassConditionRegistry:
 
 
 def extract_nuisance_config(config: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """Return the Nuisance block from Sampling.Nuisance or top-level Nuisance."""
+    """Return the YAML Nuisance block or an already-normalized internal block."""
     if not isinstance(config, Mapping):
         return None
+    # Worker construction passes the normalized Nuisance mapping directly.
+    # This is an internal shape, not an additional YAML location or alias.
+    if any(key in config for key in ("method", "variables", "log_likelihood", "pass_condition")):
+        return dict(config)
     sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
     block = None
     if isinstance(sampling, Mapping):
-        block = sampling.get("Nuisance") or sampling.get("nuisance")
-    if block is None:
-        block = config.get("Nuisance") or config.get("nuisance")
+        block = sampling.get("Nuisance")
     if not isinstance(block, Mapping):
         return None
     return dict(block)
@@ -143,12 +145,12 @@ def extract_nuisance_config(config: Mapping[str, Any] | None) -> dict[str, Any] 
 
 def parse_nuisance_variable(block: Mapping[str, Any]) -> tuple[str, float, float]:
     """Return (name, zmin, zmax) for the first nuisance variable (Profile1D)."""
-    vars_list = block.get("Variables") or block.get("variables") or []
+    vars_list = block.get("variables") or []
     if not isinstance(vars_list, list) or not vars_list:
-        raise ValueError("Nuisance.Variables must contain at least one variable")
+        raise ValueError("Nuisance.variables must contain at least one variable")
     var = vars_list[0]
     if not isinstance(var, Mapping):
-        raise ValueError("Nuisance.Variables[0] must be a mapping")
+        raise ValueError("Nuisance.variables[0] must be a mapping")
     name = str(var.get("name") or "nuisance").strip()
     dist = var.get("distribution") if isinstance(var.get("distribution"), Mapping) else {}
     params = dist.get("parameters") if isinstance(dist.get("parameters"), Mapping) else {}

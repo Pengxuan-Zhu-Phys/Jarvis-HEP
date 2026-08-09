@@ -88,7 +88,7 @@ class LibraryInstallerTests(unittest.TestCase):
             "task_result_dir": root,
             "LibDeps": {
                 "path": libdeps_path,
-                "make_paraller": 2,
+                "make_parallel": 2,
                 "Modules": modules,
             },
         }

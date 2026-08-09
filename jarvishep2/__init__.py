@@ -51,4 +51,4 @@ __all__ = [
     "setup_jarvis_logging",
     "shutdown_jarvis_logging",
 ]
-__version__ = "2.0.0.dev0"
+__version__ = "2.0.0"

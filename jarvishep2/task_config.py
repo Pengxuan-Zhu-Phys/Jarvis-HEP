@@ -56,7 +56,7 @@ def _load_yaml_document(path: str, *, label: str) -> Any:
             "JV2-YAML-001",
             f"invalid YAML syntax in {label} {path}{location}: {problem}",
             "Check indentation, list markers, quoting, and ':' placement near the reported location.",
-            "Sampling:\n  Method: Random\n  Point number: 100",
+            "Sampling:\n  Method: Random\n  Bounds:\n    point_number: 100",
         ) from exc
 
 def _deep_merge(defaults: Mapping[str, Any], overrides: Mapping[str, Any]) -> dict[str, Any]:
@@ -79,29 +79,12 @@ def _is_enabled(value: Any) -> bool:
 
 
 def _canonicalize_v2_settings(settings: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize the singular ``worker`` count spelling before merging.
-
-    ``EnvReqs.V2.worker`` is dual-purpose (D12.4):
-
-    * **scalar** (``worker: 4``) — compatibility alias for ``workers``
-    * **mapping** (``worker: {force_serial_layers: …}``) — Worker policy group
-
-    A scalar ``worker`` cannot coexist with ``workers``. A mapping ``worker``
-    group may sit alongside ``workers``.
-    """
+    """Validate the canonical ``EnvReqs.V2.worker`` policy mapping."""
     normalized = deepcopy(dict(settings))
-    if "worker" in normalized:
-        worker_value = normalized["worker"]
-        if isinstance(worker_value, Mapping):
-            # Keep the Worker policy group under EnvReqs.V2.worker.
-            pass
-        else:
-            if "workers" in normalized:
-                raise ValueError(
-                    "EnvReqs.V2 accepts either workers or worker (count), not both; "
-                    "use workers: N plus worker: {…} for the policy group"
-                )
-            normalized["workers"] = normalized.pop("worker")
+    if "worker" in normalized and not isinstance(normalized["worker"], Mapping):
+        raise ValueError(
+            "EnvReqs.V2.worker is a policy mapping; use workers: N for the worker count"
+        )
     return normalized
 
 def _v2_defaults_from_envreqs(
@@ -294,34 +277,6 @@ def update_default_redis_port(defaults_path: str, port: int) -> None:
         raise
 
 
-def _runtime_defaults_from_envreqs(
-    config: Mapping[str, Any], *, project_root: str, yaml_dir: str
-) -> dict[str, Any]:
-    """Load V1-shaped ``EnvReqs.Runtime.default_runtime_settings`` when present."""
-    envreqs = config.get("EnvReqs")
-    if not isinstance(envreqs, Mapping):
-        return {}
-    runtime_reference = envreqs.get("Runtime")
-    if runtime_reference is None:
-        return {}
-    if not isinstance(runtime_reference, Mapping):
-        raise ValueError("EnvReqs.Runtime must be a mapping")
-    raw_path = runtime_reference.get("default_runtime_settings")
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        raise ValueError("EnvReqs.Runtime.default_runtime_settings is required")
-
-    defaults_path = decode_path(raw_path, project_root=project_root, base_dir=yaml_dir)
-    if not os.path.isfile(defaults_path):
-        raise FileNotFoundError(f"runtime default YAML not found: {defaults_path}")
-    defaults_document = _load_yaml_document(defaults_path, label="runtime default YAML")
-    if not isinstance(defaults_document, Mapping):
-        raise ValueError(f"runtime default YAML must contain a mapping: {defaults_path}")
-    runtime_defaults = defaults_document.get("Runtime", defaults_document)
-    if not isinstance(runtime_defaults, Mapping):
-        raise ValueError(f"Runtime in default YAML must be a mapping: {defaults_path}")
-    return _canonicalize_v2_settings(runtime_defaults)
-
-
 def load_task_yaml(path: str) -> dict[str, Any]:
     """Load a task YAML file and attach normalized layout metadata."""
     task_path = os.path.abspath(str(path))
@@ -349,6 +304,10 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     if task_envreqs is not None and not isinstance(task_envreqs, Mapping):
         raise ValueError("EnvReqs must be a mapping")
     task_envreqs = task_envreqs if isinstance(task_envreqs, Mapping) else {}
+    if "Runtime" in task_envreqs:
+        raise ValueError(
+            "EnvReqs.Runtime is no longer a V2 YAML interface; use EnvReqs.V2"
+        )
     task_v2 = task_envreqs.get("V2")
     if task_v2 is not None and not isinstance(task_v2, Mapping):
         raise ValueError("EnvReqs.V2 must be a mapping")
@@ -362,16 +321,6 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     legacy_environment_defaults = _legacy_environment_requirements_from_defaults(
         loaded, project_root=project_root, yaml_dir=yaml_dir
     )
-    # Legacy EnvReqs.Runtime defaults may include V1 Runtime keys (mode, …);
-    # only V2 knobs are retained so old defaults files do not hard-fail.
-    runtime_defaults_raw = _runtime_defaults_from_envreqs(
-        loaded, project_root=project_root, yaml_dir=yaml_dir
-    )
-    runtime_defaults = {
-        key: value
-        for key, value in runtime_defaults_raw.items()
-        if key in SUPPORTED_ENVREQS_V2_KEYS
-    }
     task_v2_settings = _canonicalize_v2_settings(task_v2) if isinstance(task_v2, Mapping) else {}
 
     for source_name, source in (
@@ -387,7 +336,7 @@ def load_task_yaml(path: str) -> dict[str, Any]:
                 f"supported settings are {supported}"
             )
 
-    v2_settings = _deep_merge(_deep_merge(v2_defaults, runtime_defaults), task_v2_settings)
+    v2_settings = _deep_merge(v2_defaults, task_v2_settings)
 
     config = LoadedTaskConfig(deepcopy(loaded))
     # Validation must identify text the user actually wrote, not values derived
@@ -521,8 +470,7 @@ def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
                 settings["n_samples"] = max(1, int(block.get("n_samples")))
             except (TypeError, ValueError):
                 pass
-        # Accept timeout_sec (preferred) or timeout as alias.
-        raw_timeout = block.get("timeout_sec", block.get("timeout"))
+        raw_timeout = block.get("timeout_sec")
         if raw_timeout is not None:
             settings["timeout_sec"] = _coerce_check_timeout_sec(
                 raw_timeout,

@@ -121,11 +121,10 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     "JV2-ENV-050": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-051": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-052": {"kind": "yaml", "path": "EnvReqs"},
-    # Load / encoding / dead keys / yaml parse
+    # Load / encoding / yaml parse
     "JV2-LOAD-001": {"kind": "center"},
     "JV2-LOAD-002": {"kind": "center"},
     "JV2-ENC-001": {"kind": "center"},
-    "JV2-DEAD-001": {"kind": "yaml", "path": None},
     "JV2-YAML-001": {"kind": "center"},
     "JV2-YAML-002": {"kind": "center"},
 }

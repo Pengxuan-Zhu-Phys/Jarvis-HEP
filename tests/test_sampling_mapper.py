@@ -46,7 +46,7 @@ def _mapper_list(*pairs: tuple[str, str]) -> list[dict[str, str]]:
 def _base_card(*, method: str = "Bridson", with_mapper: bool = False) -> dict:
     sampling: dict = {
         "Method": method,
-        "Bounds": {"Radius": 0.05, "MaxAttempt": 10, "Seed": 0},
+        "Bounds": {"radius": 0.05, "max_attempt": 10, "seed": 0},
         "Variables": [
             {
                 "name": "t",
@@ -58,9 +58,9 @@ def _base_card(*, method: str = "Bridson", with_mapper: bool = False) -> dict:
         ],
     }
     if method == "Random":
-        sampling["Bounds"] = {"Point number": 20, "Seed": 0}
+        sampling["Bounds"] = {"point_number": 20, "seed": 0}
     if method == "Dynesty":
-        sampling["Bounds"] = {"nlive": 20, "dlogz": 0.5, "Seed": 0}
+        sampling["Bounds"] = {"nlive": 20, "dlogz": 0.5, "seed": 0}
     if with_mapper:
         sampling["Mapper"] = _mapper_list(("x", "cos(t)"), ("y", "sin(t)"))
         sampling["selection"] = "y > 0"
@@ -68,6 +68,7 @@ def _base_card(*, method: str = "Bridson", with_mapper: bool = False) -> dict:
         "Scan": {"name": "mapper-unit"},
         "Sampling": sampling,
         "EnvReqs": {"V2": {"workers": 1}},
+        "Calculators": {},
     }
 
 

@@ -4,7 +4,7 @@
   "type": "object",
   "x-jarvis-zone": "closed",
   "description": "Independent random proposals in the unit cube.",
-  "x-jarvis-example": "Method: Random\nBounds:\n  Point number: 100\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
+  "x-jarvis-example": "Method: Random\nBounds:\n  point_number: 100\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
   "allOf": [
     {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},
     {
@@ -15,27 +15,16 @@
           "x-jarvis-zone": "closed",
           "description": "Random-method knobs. Closed: unknown keys are rejected.",
           "properties": {
-            "Point number": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "How many independent points to propose (alias: point_number)."
-            },
             "point_number": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "Alias of Point number."
-            },
-            "Seed": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "RNG seed (alias: seed)."
+              "description": "How many independent points to propose."
             },
             "seed": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "Alias of Seed."
+              "description": "RNG seed."
             }
           },
-          "anyOf": [
-            {"required": ["Point number"]},
-            {"required": ["point_number"]}
-          ],
+          "required": ["point_number"],
           "additionalProperties": false
         }
       },

@@ -39,7 +39,6 @@ _CALC_MODULE_FIELD_HELP: dict[str, str] = {
     "name": "Module id (no dots). Used in required_modules and mode references.",
     "path": "Install / pack path for this calculator (tokens allowed, quote &J/...).",
     "source": "Optional source tree copied or linked into path.",
-    "deps_source": "Optional dependency source path (V1 layout).",
     "clone_shadow": "When true, use a shadow clone of the pack for this sample.",
     "required_modules": "Other Calculators.Modules names that must run first.",
     "installation": "One-time install commands (string or {cmd,cwd}).",
@@ -48,7 +47,7 @@ _CALC_MODULE_FIELD_HELP: dict[str, str] = {
     "symlink_name": "Optional symlink name inside the sample workdir.",
     "env_setup": "Environment setup commands or maps before commands run.",
     "selection": "Optional expression gate; false skips this module.",
-    "make_paraller": "Legacy concurrency hint (spelling preserved); prefer Pools.",
+    "make_parallel": "Legacy concurrency hint; prefer Pools for per-module concurrency.",
     "execution": "Run block: path, commands, input (list), output (list) (Portal IO).",
     "modes": "Named alternate execution profiles (multimode); exclusive with execution.",
 }
@@ -63,8 +62,7 @@ _OPERAS_FIELD_HELP: dict[str, str] = {
     "selection": "Optional expression; false skips this Opera for the sample.",
     "required_modules": "Calculator/Opera names that must finish first.",
     "kwargs": "Static keyword args merged into the operator call.",
-    "timeout": "Optional timeout seconds (alias: timeout_sec).",
-    "timeout_sec": "Optional timeout seconds (alias: timeout).",
+    "timeout_sec": "Optional timeout seconds.",
     "input": (
         "List of {name, expression} or {name, entry}. expression is sympy over "
         "params/observables; entry copies an existing observable by name."
@@ -122,10 +120,6 @@ _ENVREQS_TOP_HELP: dict[str, str] = {
     "V2": (
         "User-facing V2 runtime overlay. Jarvis project supplies defaults; task "
         "values override only the settings that need changing."
-    ),
-    "Runtime": (
-        "Legacy V1 default-runtime reference. Do not add a top-level Runtime block "
-        "to a V2 task card."
     ),
 }
 
@@ -185,11 +179,6 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
             "Dependencies": "ROOT feature checks such as minuit2 (list).",
         },
         "CERN_ROOT:\n  required: false\n  version: \">=6.20\"",
-    ),
-    "runtime": (
-        "Legacy V1 compatibility reference. V2 task cards should use EnvReqs.V2 instead of a top-level Runtime block.",
-        {"default_runtime_settings": "Path to a legacy runtime-default YAML file."},
-        "EnvReqs:\n  Runtime:\n    default_runtime_settings: \"&J/deps/runtime_default.yaml\"",
     ),
     "sample_directory": (
         "Sample bucket layout inherited from the project default V2 YAML.",
@@ -274,7 +263,6 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
 _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "required": "boolean",
     "default_yaml_path": "string",
-    "default_runtime_settings": "string",
     "version": "string",
     "Dependencies": "list",
     "path": "string",
@@ -838,7 +826,7 @@ def _required_keys(
     for item in node.get("allOf") or []:
         if isinstance(item, Mapping):
             required |= _required_keys(item, base=base)
-    # anyOf required alternatives (e.g. Point number | point_number)
+    # anyOf required alternatives (method-specific schemas may define them).
     for item in node.get("anyOf") or []:
         if isinstance(item, Mapping):
             for name in item.get("required") or []:
@@ -1275,7 +1263,6 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
             _env_key("Python", "mapping", _ENVREQS_TOP_HELP["Python"], man="Jarvis man yaml.EnvReqs.Python"),
             _env_key("CERN_ROOT", "mapping", _ENVREQS_TOP_HELP["CERN_ROOT"], man="Jarvis man yaml.EnvReqs.CERN_ROOT"),
             _env_key("V2", "mapping", _ENVREQS_TOP_HELP["V2"], man="Jarvis man yaml.EnvReqs.V2"),
-            _env_key("Runtime", "mapping", _ENVREQS_TOP_HELP["Runtime"], man="Jarvis man yaml.EnvReqs.Runtime"),
         ]
         task_overlay = (
             "EnvReqs:\n"
@@ -1302,7 +1289,7 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
                 "• Loading: Check_default_dependencies loads the file and deep-merges V2.\n"
                 "• Override: task values override the inherited defaults.\n"
                 "• Inheritance: Python and CERN_ROOT are also commonly inherited.\n"
-                "• V2 rule: do not add a top-level Runtime block to a V2 task card."
+                "• V2 rule: runtime settings belong under EnvReqs.V2."
             ),
             "keys": keys,
             "examples": examples,
@@ -1367,21 +1354,124 @@ def _path_page(path: str) -> dict[str, Any]:
             "further_reading": None,
         }
     if len(parts) >= 2 and parts[0].casefold() == "sampling" and parts[1].casefold() == "variables":
-        from jarvishep2.contracts.variables import DISTRIBUTION_TYPES, PARAMS_REQUIRED
+        from jarvishep2.contracts.variables import (
+            DISTRIBUTION_TYPES,
+            PARAMS_ALLOWED,
+            PARAMS_REQUIRED,
+        )
 
-        keys = []
-        for dtype in sorted(DISTRIBUTION_TYPES):
+        parameter_examples: dict[str, dict[str, Any]] = {
+            "Beta": {"alpha": 2.0, "beta": 5.0},
+            "Binomial": {"n": 10, "p": 0.5},
+            "Exponential": {"rate": 1.0},
+            "Flat": {"min": 0.0, "max": 1.0},
+            "Gamma": {"shape": 2.0, "scale": 1.0},
+            "Log": {"min": 1.0e-3, "max": 1.0e3},
+            "Log-Normal": {"mean": 0.0, "stddev": 1.0},
+            "Logit": {"location": 0.0, "scale": 1.0},
+            "Normal": {"mean": 0.0, "stddev": 1.0},
+            "Poisson": {"lambda": 1.0},
+        }
+        value_rules: dict[str, list[str]] = {
+            "Beta": ["alpha > 0", "beta > 0"],
+            "Binomial": ["n is a non-negative integer", "0 <= p <= 1"],
+            "Exponential": ["rate > 0"],
+            "Flat": ["min < max"],
+            "Gamma": ["shape > 0", "scale > 0"],
+            "Log": ["min < max"],
+            "Log-Normal": ["stddev > 0"],
+            "Logit": [],
+            "Normal": ["stddev > 0"],
+            "Poisson": ["lambda >= 0"],
+        }
+
+        distribution_types = sorted(DISTRIBUTION_TYPES)
+        list_rows = []
+        distribution_variants = []
+        for dtype in distribution_types:
             req = sorted(PARAMS_REQUIRED.get(dtype, ()))
-            keys.append(
+            allowed = sorted(PARAMS_ALLOWED.get(dtype, ()))
+            optional = sorted(set(allowed) - set(req))
+            rule_text = value_rules.get(dtype) or []
+            description = (
+                f"Required parameters: {', '.join(req)}. "
+                f"Allowed parameters: {', '.join(allowed)}."
+            )
+            if rule_text:
+                description += " Value rules: " + "; ".join(rule_text) + "."
+            list_rows.append(
                 {
                     "name": f"distribution.type={dtype}",
-                    "type": "object",
-                    "required": True,
+                    "type": "choice",
+                    "required": False,
                     "default": None,
                     "aliases": [],
-                    "description": "Required parameters: " + ", ".join(req),
+                    "description": description,
+                    "distribution_type": dtype,
+                    "required_parameters": req,
+                    "allowed_parameters": allowed,
+                    "optional_parameters": optional,
+                    "parameter_example": parameter_examples[dtype],
                 }
             )
+            distribution_variants.append(
+                {
+                    "type": dtype,
+                    "parameters": {
+                        "required": req,
+                        "allowed": allowed,
+                        "optional": optional,
+                        "example": parameter_examples[dtype],
+                        "value_rules": rule_text,
+                    },
+                }
+            )
+
+        item_schema = {
+            "type": "object",
+            "required": ["name", "distribution"],
+            "additionalProperties": False,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Sampling variable name; required and non-empty.",
+                },
+                "description": {
+                    "type": "string",
+                    "required": False,
+                    "description": "Optional human-readable variable description.",
+                },
+                "distribution": {
+                    "type": "object",
+                    "required": ["type", "parameters"],
+                    "additionalProperties": False,
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": distribution_types,
+                            "description": "Case-sensitive distribution name.",
+                        },
+                        "parameters": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "description": "Parameter names depend on distribution.type.",
+                        },
+                    },
+                },
+            },
+            "distribution_variants": distribution_variants,
+            "method_parameter_overrides": {
+                "Bridson": {
+                    "required_parameters": ["length"],
+                    "value_rules": ["length > 0"],
+                },
+                "Grid": {
+                    "required_parameters": ["num"],
+                    "value_rules": ["num is an integer >= 1"],
+                },
+            },
+        }
         return {
             "path": "$.Sampling.Variables",
             "context": {},
@@ -1389,11 +1479,14 @@ def _path_page(path: str) -> dict[str, Any]:
             "status": "stable",
             "summary": (
                 "• Scope: list of sampling variables.\n"
-                "• Item shape: each item has name + distribution."
+                "• Item shape: name required; description optional; distribution.type and distribution.parameters required.\n"
+                "• Choices: every supported distribution and its complete parameter vocabulary is listed below.\n"
+                "• Method additions: Bridson requires parameters.length; Grid requires parameters.num."
             ),
             "list_title": "Distributions",
-            "list_rows": keys,
+            "list_rows": list_rows,
             "keys": [],
+            "item_schema": item_schema,
             "examples": [
                 "Variables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}"
             ],
@@ -1558,7 +1651,7 @@ def _calculator_yaml_path_page(parts: list[str]) -> dict[str, Any]:
             if len(parts) >= 4:
                 direction = parts[3].casefold()
                 if direction in {"input", "output"}:
-                    # Optional format in a later segment is not required.
+                    # Optional file type in a later segment is not required.
                     return _calculator_page(
                         "execution",
                         io_type=None,
@@ -1574,8 +1667,10 @@ def _calculator_yaml_path_page(parts: list[str]) -> dict[str, Any]:
             "installation",
             "required_modules",
         }:
-            # Field of module — still show full module vocabulary.
-            return _calculator_page("module")
+            raise KeyError(
+                f"Calculators.Modules.{third} is a leaf field; "
+                "use Jarvis man calculator.module to read its Description"
+            )
         return _calculator_page("module")
     # Unknown under Calculators: fall through via generic error
     raise KeyError(".".join(parts))
@@ -1587,7 +1682,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         raise KeyError(f"direction must be input|output, got {direction!r}")
     manifest = schema_manifest()
     io_map = dict((manifest.get("io") or {}).get(direction) or {})
-    # Runtime format list (A10): Portal may expose formats beyond the catalog.
+    # Runtime file-type list (A10): Portal may expose types beyond the catalog.
     runtime_names: set[str] = set()
     try:
         from jarvishep2.io_portal import available_io_formats
@@ -1611,23 +1706,23 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
 
     known_directions = _PORTAL_IO_GUIDANCE.get(canonical, {})
     if known_directions and direction not in known_directions and uri is None:
-        raise KeyError(f"Portal format {canonical} does not support {direction}.")
+        raise KeyError(f"Portal file type {canonical} does not support {direction}.")
 
     keys: list[dict[str, Any]] = []
     example = None
-    summary = f"{direction} format {canonical}"
+    summary = f"{direction} file type {canonical}"
     guidance = _PORTAL_IO_GUIDANCE.get(canonical, {}).get(direction, {})
     further = {
         "command": f"Jarvis portal man {canonical}",
         "topic": (
-            "Portal runtime adapter behaviour for this format. "
+            "Portal runtime adapter behaviour for this file type. "
             "Jarvis man only lists YAML keys needed to write the card."
         ),
     }
     status = "stable"
     if uri is None:
         summary = (
-            f"Format {canonical!r} is available from Portal at runtime, but this Jarvis "
+            f"File type {canonical!r} is available from Portal at runtime, but this Jarvis "
             "build has no bundled field schema for it (field manual missing in this build)."
         )
     else:
@@ -1635,7 +1730,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         _IO_FALLBACK = {
             "name": "Logical name of this IO slot.",
             "path": "File path relative to execution.path (quote tokens like \"&J/...\").",
-            "type": f"Portal format name ({canonical}).",
+            "type": f"Portal file type name ({canonical}).",
             "save": "When true, keep the file after the sample finishes.",
             "actions": "Ordered write actions (input). Dump + variables with expression.",
             "variables": (
@@ -1659,6 +1754,8 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         field_name = str(key.get("name") or "")
         if field_name in field_help:
             key["description"] = str(field_help[field_name])
+        if field_name == "type":
+            key["description"] = f"Portal file type name ({canonical})."
     existing_names = {str(key.get("name") or "") for key in keys}
     for field_name, field_type in (guidance.get("extra_fields") or {}).items():
         if field_name in existing_names:
@@ -1680,7 +1777,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         example = str(guidance["example"])
     other = "output" if direction == "input" else "input"
     if uri is None:
-        summary = f"• Format: {summary}"
+        summary = f"• File type: {summary}"
     else:
         summary = f"• Schema: {summary}"
     if guidance.get("summary"):
@@ -1689,7 +1786,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         schema_summary = _clean_man_prose(
             schema.get("description")
             if uri is not None
-            else str(summary).removeprefix("• Format: ")
+            else str(summary).removeprefix("• File type: ")
         )
         adapter_summary = str(guidance["summary"])
         summary = (
@@ -1715,7 +1812,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
             f"Jarvis portal man {canonical}",
         ],
         "further_reading": further,
-        "runtime_formats": sorted(runtime_names),
+        "runtime_types": sorted(runtime_names),
         "action_help": list(guidance.get("actions") or []),
         "action_rows": list(guidance.get("action_rows") or []),
     }
@@ -1759,7 +1856,7 @@ def _io_format_both_directions(fmt: str) -> dict[str, Any]:
         "zone": "delegated",
         "status": "stable",
         "summary": (
-            f"• Format: Portal {canonical}.\n"
+            f"• File type: Portal {canonical}.\n"
             "• Vocabularies: input and output YAML keys differ.\n"
             "• Keys: combined rows are prefixed with input./output.\n"
             f"• Details: prefer Jarvis man calculator.execution.input|output --type {canonical}."
@@ -1776,7 +1873,7 @@ def _io_format_both_directions(fmt: str) -> dict[str, Any]:
         ],
         "further_reading": {
             "command": f"Jarvis portal man {canonical}",
-            "topic": "Portal runtime adapter (not a substitute for YAML field lists)",
+            "topic": "Portal runtime file-type behaviour (not a substitute for YAML field lists)",
         },
     }
 
@@ -1839,11 +1936,11 @@ def _calculator_page(
             ],
             "further_reading": {
                 "command": "Jarvis portal man",
-                "topic": "Portal IO adapter runtime (formats, read/write behaviour)",
+            "topic": "Portal IO adapter runtime (file types and read/write behaviour)",
             },
             "chain": [
                 "1. Calculators.Modules list entries declare name/path/execution",
-                "2. execution.input list writes files via Portal formats (JSON, SLHA, ...)",
+                "2. execution.input list writes files via Portal file types (JSON, SLHA, ...)",
                 "3. execution.commands list runs the external program",
                 "4. execution.output list reads files back into observables",
                 "5. Operas.Modules list entries consume observables (optional)",
@@ -1855,18 +1952,18 @@ def _calculator_page(
             if direction:
                 return _io_format_page(str(direction), io_type)
             return _io_format_both_directions(io_type)
-        # List formats from runtime + catalog
+        # List file types from runtime + catalog
         try:
             from jarvishep2.io_portal import available_io_formats
 
-            input_fmts = sorted(available_io_formats("input") or [])
-            output_fmts = sorted(available_io_formats("output") or [])
+            input_types = sorted(available_io_formats("input") or [])
+            output_types = sorted(available_io_formats("output") or [])
         except Exception:
             manifest = schema_manifest()
-            input_fmts = sorted((manifest.get("io") or {}).get("input") or {})
-            output_fmts = sorted((manifest.get("io") or {}).get("output") or {})
+            input_types = sorted((manifest.get("io") or {}).get("input") or {})
+            output_types = sorted((manifest.get("io") or {}).get("output") or {})
         if direction in {"input", "output"}:
-            formats = input_fmts if direction == "input" else output_fmts
+            types = input_types if direction == "input" else output_types
             return {
                 "path": f"$.Calculators.Modules.execution.{direction}",
                 "context": {"direction": direction},
@@ -1874,30 +1971,30 @@ def _calculator_page(
                 "status": "stable",
                 "summary": (
                     f"• Purpose: execution.{direction} is a list of Portal file specifications.\n"
-                    "• Formats: supported formats are listed in the Formats table below.\n"
-                    f"• Details: run Jarvis man calculator.execution.{direction} --type FORMAT."
+                    "• File types: supported types are listed in the File types table below.\n"
+                    f"• Details: run Jarvis man calculator.execution.{direction} --type TYPE."
                 ),
                 "keys": [
                     {
-                        "name": "format",
+                        "name": "type",
                         "type": "choice",
                         "required": True,
                         "default": None,
                         "aliases": [],
-                        "description": "Portal format for each list item; choose from the Formats table below.",
+                        "description": "Portal file type for each list item; choose from the File types table below.",
                         "nav": False,
                     }
                 ],
                 "examples": [],
-                "format_rows": [
+                "type_rows": [
                     {
-                        "format": fmt,
-                        "command": f"Jarvis man calculator.execution.{direction} --type {fmt}",
+                        "type": file_type,
+                        "command": f"Jarvis man calculator.execution.{direction} --type {file_type}",
                         "description": (
-                            f"Open the {fmt} Keys and Actions tables for this {direction} list."
+                            f"Open the {file_type} Keys table for this {direction} list."
                         ),
                     }
-                    for fmt in formats
+                    for file_type in types
                 ],
                 "diagnostics": ["JV2-SCH-002"],
                 "see_also": [
@@ -1907,10 +2004,10 @@ def _calculator_page(
                 ],
                 "further_reading": {
                     "command": "Jarvis portal man",
-                    "topic": "Portal runtime format behaviour",
+                    "topic": "Portal runtime file-type behaviour",
                 },
-                "input_formats": input_fmts,
-                "output_formats": output_fmts,
+                "input_types": input_types,
+                "output_types": output_types,
             }
         return {
             "path": "$.Calculators.Modules.execution",
@@ -1920,7 +2017,7 @@ def _calculator_page(
             "summary": (
                 "• Fields: path, commands, input list, and output list.\n"
                 "• Paths: quote token paths, for example path: \"&J/calculators/echo\".\n"
-                "• Portal: Use --type FMT --direction input|output for Portal field tables."
+                "• Portal: Use --type TYPE --direction input|output for Portal file-type tables."
             ),
             "keys": _annotate_nav(
                 [
@@ -1950,8 +2047,8 @@ def _calculator_page(
                         "default": None,
                         "aliases": [],
                         "description": (
-                            "Portal input file specs (Dump + expression). Formats: "
-                            + ", ".join(input_fmts)
+                            "Portal input file specs (Dump + expression). File types: "
+                            + ", ".join(input_types)
                         ),
                     },
                     {
@@ -1962,7 +2059,7 @@ def _calculator_page(
                         "aliases": [],
                         "description": (
                             "Portal output file specs (variables + entry, not Load actions). "
-                            "Formats: " + ", ".join(output_fmts)
+                            "File types: " + ", ".join(output_types)
                         ),
                     },
                 ],
@@ -1984,8 +2081,8 @@ def _calculator_page(
                 "command": "Jarvis portal man JSON",
                 "topic": "How Portal reads/writes JSON at runtime",
             },
-            "input_formats": input_fmts,
-            "output_formats": output_fmts,
+            "input_types": input_types,
+            "output_types": output_types,
         }
     if topic_l == "module":
         calc = schema_by_id(_CALC_SCHEMA_ID)
@@ -2027,7 +2124,7 @@ def _calculator_page(
             ],
             "further_reading": {
                 "command": "Jarvis portal man",
-                "topic": "Portal IO formats used under execution.input/output",
+                "topic": "Portal file types used under execution.input/output",
             },
         }
     if topic_l == "modes":
@@ -2393,7 +2490,9 @@ def resolve_man_request(
             return _root_overview()
         try:
             return _path_page(".".join(rest))
-        except KeyError:
+        except KeyError as exc:
+            if "is a leaf field" in str(exc):
+                raise
             choices = list(_ROOT_BLOCKS) + [
                 "Bounds",
                 "Variables",
@@ -2413,9 +2512,14 @@ def resolve_man_request(
         return _method_page(rest[0])
     if head == "calculator":
         topic_name = rest[0] if rest else None
+        if topic_name and topic_name.casefold() == "module" and len(rest) > 1:
+            raise KeyError(
+                f"calculator.module.{rest[1]} is a leaf field; "
+                "use Jarvis man calculator.module to read its Description"
+            )
         path_direction = direction
         path_type = io_type
-        # calculator.execution.input.<FMT>
+        # calculator.execution.input.<TYPE>
         if topic_name and topic_name.casefold() == "execution" and len(rest) >= 2:
             if rest[1].casefold() in {"input", "output"}:
                 path_direction = path_direction or rest[1].casefold()
@@ -2476,12 +2580,13 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             "blocks",
             "chain",
             "capabilities",
-            "input_formats",
-            "output_formats",
-            "runtime_formats",
-            "format_rows",
+            "input_types",
+            "output_types",
+            "runtime_types",
+            "type_rows",
             "list_title",
             "list_rows",
+            "item_schema",
             "action_help",
             "action_rows",
             "body",
@@ -2515,14 +2620,14 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         )
     )
 
-    format_rows = list(page.get("format_rows") or [])
-    if format_rows:
-        table = Table(title=f"Formats · {title}", box=box.SIMPLE_HEAVY, show_header=True)
-        table.add_column("Format")
+    type_rows = list(page.get("type_rows") or [])
+    if type_rows:
+        table = Table(title=f"File types · {title}", box=box.SIMPLE_HEAVY, show_header=True)
+        table.add_column("Type")
         table.add_column("Description", overflow="fold")
-        for row in format_rows:
+        for row in type_rows:
             table.add_row(
-                str(row.get("format") or "—"),
+                str(row.get("type") or "—"),
                 str(row.get("description") or "—"),
             )
         console.print(table)
@@ -2756,7 +2861,7 @@ def _print_man_help() -> None:
         ("-h, --help", "Show this card."),
         ("--json", "Emit a machine-readable page; preferred for coding agents."),
         ("--code JV2-XXX-NNN", "Jump from a diagnostic code to its relevant man page."),
-        ("--type FMT", "Open a Portal format field table, for example --type JSON."),
+        ("--type TYPE", "Open a Portal file-type table, for example --type JSON."),
         (
             "--direction input|output",
             "Select Portal input or output vocabulary; prefer the direction in the dotted topic.",
@@ -2817,8 +2922,8 @@ def build_man_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--type",
         dest="io_type",
-        metavar="FMT",
-        help="Portal format for calculator.execution field tables (e.g. JSON)",
+        metavar="TYPE",
+        help="Portal file type for calculator.execution field tables (e.g. JSON)",
     )
     parser.add_argument(
         "--direction",
@@ -2844,7 +2949,9 @@ def dispatch_man(argv: list[str] | None = None) -> int:
             code=getattr(args, "code", None),
         )
     except KeyError as exc:
-        print(f"Unknown man topic: {exc}", file=sys.stderr)
+        message = str(exc.args[0]) if exc.args else str(exc)
+        label = "Man topic is a leaf field" if "is a leaf field" in message else "Unknown man topic"
+        print(f"{label}: {message}", file=sys.stderr)
         print("Try: Jarvis man   or   Jarvis man sampler.Bridson", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - defensive

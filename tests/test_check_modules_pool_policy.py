@@ -13,7 +13,7 @@ from jarvishep2.worker_config import build_worker_config
 
 
 class CheckModulesPoolPolicyTests(unittest.TestCase):
-    def test_check_policy_pins_make_paraller_and_pools_to_one(self) -> None:
+    def test_check_policy_pins_make_parallel_and_pools_to_one(self) -> None:
         core = Jarvis2Core.__new__(Jarvis2Core)
         core.config = {
             "Runtime": {"workers": 8},
@@ -25,18 +25,18 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
             },
             "Scan": {"name": "smoke"},
             "Calculators": {
-                "make_paraller": 8,
+                "make_parallel": 8,
                 "Pools": {"MicroOMEGAs_Vector": 8},
                 "Modules": [
                     {
                         "name": "MicroOMEGAs_Vector",
-                        "make_paraller": 8,
+                        "make_parallel": 8,
                         "path": "&J/calculators/microOMEGAs/@PackID",
                     }
                 ],
                 "Archiver": {"pack_buckets": True},
             },
-            "Operas": {"make_paraller": 4},
+            "Operas": {"make_parallel": 4},
         }
         core.runtime = {}
         core.info = {}
@@ -46,13 +46,13 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
             core._apply_check_modules_runtime_policy()
 
             calc = core.config["Calculators"]
-            self.assertEqual(calc["make_paraller"], 1)
-            self.assertEqual(calc["Modules"][0]["make_paraller"], 1)
+            self.assertEqual(calc["make_parallel"], 1)
+            self.assertEqual(calc["Modules"][0]["make_parallel"], 1)
             self.assertEqual(calc["Pools"]["MicroOMEGAs_Vector"], 1)
             self.assertFalse(calc["Archiver"]["pack_buckets"])
             self.assertEqual(core.config["Runtime"]["workers"], 1)
             self.assertEqual(core.config["EnvReqs"]["V2"]["workers"], 1)
-            self.assertEqual(core.config["Operas"]["make_paraller"], 1)
+            self.assertEqual(core.config["Operas"]["make_parallel"], 1)
 
             worker = build_worker_config(core.config, task_result_dir=tmpdir)
             pools = resolve_calculator_pools(worker)

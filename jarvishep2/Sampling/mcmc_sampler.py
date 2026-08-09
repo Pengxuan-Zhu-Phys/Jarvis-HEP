@@ -133,10 +133,8 @@ class MCMCSampler(FeedbackSampler):
         self._nchains, self._niters = parse_common_chain_counts(bounds)
         self._proposal_scales = parse_proposal_scale_value(bounds, default=0.1)
         self._selectionexp = sampling.get("selection")
-        # Seed lives under Bounds only (Seed / seed / rseed).
-        seed = int(
-            bounds.get("Seed", bounds.get("seed", bounds.get("rseed", 0))) or 0
-        )
+        # seed lives under Bounds only.
+        seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         self._init_seed_sequence(seed)

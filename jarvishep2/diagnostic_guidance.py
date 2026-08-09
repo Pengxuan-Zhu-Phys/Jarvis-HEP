@@ -18,8 +18,8 @@ _VARIABLE_EXAMPLE = """Variables:
 _METHOD_EXAMPLE = """Sampling:
   Method: Random
   Bounds:
-    Point number: 100
-    Seed: 0
+    point_number: 100
+    seed: 0
   Variables:
     - name: x
       distribution:
@@ -30,12 +30,12 @@ _GUIDANCE_BY_PREFIX: tuple[tuple[str, str, str | None], ...] = (
     ("Sampling.Method", "Set Method to one of the methods listed in the error, then add that method's required Bounds fields.", _METHOD_EXAMPLE),
     ("Sampling.Variables", "Provide a non-empty YAML list of variable mappings; each variable needs name and distribution.", _VARIABLE_EXAMPLE),
     ("Sampling.Bounds.path", "Provide the path to the fixed-point CSV file under Bounds.", "Bounds:\n  path: points.csv"),
-    ("Sampling.Bounds", "Put method-specific sampler knobs under Bounds (Radius, Point number, Seed, CSV path, dynesty kwargs, …).", "Bounds:\n  Point number: 100\n  Seed: 0"),
+    ("Sampling.Bounds", "Put method-specific sampler knobs under Bounds (radius, point_number, seed, CSV path, dynesty kwargs, …).", "Bounds:\n  point_number: 100\n  seed: 0"),
     ("Sampling.CSV", "CSV settings moved to Sampling.Bounds; use Bounds.path (and optional variables).", "Bounds:\n  path: points.csv"),
-    ("Sampling.Radius", "Radius moved to Sampling.Bounds.Radius.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"),
-    ("Sampling.MaxAttempt", "MaxAttempt moved to Sampling.Bounds.MaxAttempt.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"),
-    ("Sampling.Point number", "Point number moved to Sampling.Bounds['Point number'].", "Bounds:\n  Point number: 100"),
-    ("Sampling.Seed", "Seed moved to Sampling.Bounds.Seed.", "Bounds:\n  Seed: 0"),
+    ("Sampling.Radius", "radius moved to Sampling.Bounds.radius.", "Bounds:\n  radius: 0.1\n  max_attempt: 30"),
+    ("Sampling.MaxAttempt", "max_attempt moved to Sampling.Bounds.max_attempt.", "Bounds:\n  radius: 0.1\n  max_attempt: 30"),
+    ("Sampling.Point number", "point_number moved to Sampling.Bounds.point_number.", "Bounds:\n  point_number: 100"),
+    ("Sampling.Seed", "seed moved to Sampling.Bounds.seed.", "Bounds:\n  seed: 0"),
     ("Sampling.AdaptiveBridson", "AdaptiveBridson knobs moved under Sampling.Bounds (no nested AdaptiveBridson block).", "Bounds:\n  target_expression: f\n  target_value: 0.12"),
     ("Calculators.Modules", "Use a module mapping with name; add execution when this module runs an external calculator.", "Modules:\n  - name: MyCalculator\n    execution:\n      path: .\n      commands: [\"./run.sh\"]"),
     ("Operas.Modules", "Use an Opera module mapping with name and operator.", "Modules:\n  - name: likelihood\n    operator: package.module.function"),
@@ -59,14 +59,14 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
     if code == "JV2-MTH-001":
         return (
             "Move this sampler setting under Sampling.Bounds; top-level Sampling no longer accepts method knobs.",
-            "Bounds:\n  Seed: 0",
+            "Bounds:\n  seed: 0",
         )
     if code in {"JV2-MTH-010", "JV2-MTH-011"}:
-        return "Set Sampling.Bounds.Radius to a positive number for Bridson sampling.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"
+        return "Set Sampling.Bounds.radius to a positive number for Bridson sampling.", "Bounds:\n  radius: 0.1\n  max_attempt: 30"
     if code in {"JV2-MTH-012", "JV2-MTH-013"}:
-        return "Set Sampling.Bounds.MaxAttempt to an integer of at least 1 for Bridson sampling.", "Bounds:\n  Radius: 0.1\n  MaxAttempt: 30"
+        return "Set Sampling.Bounds.max_attempt to an integer of at least 1 for Bridson sampling.", "Bounds:\n  radius: 0.1\n  max_attempt: 30"
     if code in {"JV2-MTH-020", "JV2-MTH-021"}:
-        return "Set Sampling.Bounds['Point number'] (or point_number) to an integer of at least 1.", "Bounds:\n  Point number: 100"
+        return "Set Sampling.Bounds.point_number to an integer of at least 1.", "Bounds:\n  point_number: 100"
     if code in {"JV2-MTH-030", "JV2-MTH-031"}:
         return "Provide the path to the fixed-point CSV file under Sampling.Bounds.", "Bounds:\n  path: points.csv"
     if code in {"JV2-MTH-041", "JV2-MTH-042"}:

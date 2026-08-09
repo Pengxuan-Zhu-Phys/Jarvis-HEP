@@ -114,7 +114,16 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                     )
 
             worker = v2.get("worker")
-            if isinstance(worker, Mapping):
+            if worker is not None and not isinstance(worker, Mapping):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-ENV-019",
+                        "EnvReqs.V2.worker",
+                        "worker is a policy mapping; use workers for the worker count",
+                    )
+                )
+            elif isinstance(worker, Mapping):
                 w_extra = unknown_keys(worker, _WORKER_POLICY_KEYS)
                 if w_extra:
                     issues.append(
@@ -197,6 +206,17 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                     )
                                 )
 
+            check_modules = v2.get("check_modules")
+            if isinstance(check_modules, Mapping) and "timeout" in check_modules:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-ENV-060",
+                        "EnvReqs.V2.check_modules.timeout",
+                        "timeout is a removed alias; use timeout_sec",
+                        suggestion="Replace timeout with timeout_sec and remove the old key.",
+                    )
+                )
             redis = v2.get("redis")
             if redis is not None:
                 if not isinstance(redis, Mapping):
@@ -280,7 +300,7 @@ def _validate_sample_directory(raw: Any, path: str) -> list[ValidationIssue]:
                 "JV2-ENV-051",
                 path,
                 f"unknown key(s): {', '.join(extra)}; "
-                f"allowed: {', '.join(sorted(_SAMPLE_DIR_KEYS_WITH_ALIASES))}",
+                f"allowed: {', '.join(sorted(_SAMPLE_DIR_KEYS))}",
             )
         )
     for key in ("limit", "width", "start_bucket"):

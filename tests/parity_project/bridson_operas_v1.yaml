@@ -5,9 +5,9 @@ Scan:
 Sampling:
   Method: Bridson
   Bounds:
-    Radius: 1
-    MaxAttempt: 10
-    Seed: 7
+    radius: 1
+    max_attempt: 10
+    seed: 7
   Variables:
     - name: xx
       distribution:
@@ -27,7 +27,7 @@ Sampling:
     - {name: LogL_Z, expression: "LogGauss(z, 100, 10)"}
 
 Operas:
-  make_paraller: 2
+  make_parallel: 2
   Modules:
     - name: EggBox
       operator: helper.eggbox2d

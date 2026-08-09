@@ -97,22 +97,22 @@ class Profile1DProfiler:
         block = extract_nuisance_config(config)
         if block is None:
             return None
-        method = str(block.get("Method") or block.get("method") or "Profile1D").strip()
+        method = str(block.get("method") or "Profile1D").strip()
         if method and method not in ("Profile1D", "profile1d", "profile_1d"):
             # Only Profile1D ships in D13.4; unknown methods still try Profile1D shape.
             pass
         ctx = context or ExpressionContext()
         logl_reg = NuisanceExpressionRegistry(ctx)
         pass_reg = NuisancePassConditionRegistry(ctx)
-        logl_reg.load_from_config(block.get("LogLikelihood") or block.get("loglikelihood"))
-        pass_reg.load_from_config(block.get("PassCondition") or block.get("pass_condition"))
+        logl_reg.load_from_config(block.get("log_likelihood"))
+        pass_reg.load_from_config(block.get("pass_condition"))
         name, zmin, zmax = parse_nuisance_variable(block)
-        mode = str(block.get("TargetMode") or block.get("target_mode") or "min")
-        max_attempt = int(block.get("MaxAttempt") or block.get("max_attempt") or 50)
-        # Default True: V1 re-executed each probe as a full sample (NAttempt
-        # card). Set re_run_physics/rerun_physics: false for pure expression
+        mode = str(block.get("target_mode") or "min")
+        max_attempt = int(block.get("max_attempt") or 50)
+        # Default True: V1 re-executed each probe as a full sample (max_attempt
+        # card). Set rerun_physics: false for pure expression
         # nuisances that do not feed calculators/Operas.
-        re_run = block.get("re_run_physics", block.get("rerun_physics", True))
+        re_run = block.get("rerun_physics", True)
         return cls(
             var_name=name,
             zmin=zmin,
@@ -125,7 +125,7 @@ class Profile1DProfiler:
         )
 
     def _prefer(self, a: float, b: float) -> bool:
-        """Return True if score ``a`` is better than ``b`` under TargetMode."""
+        """Return True if score ``a`` is better than ``b`` under target_mode."""
         if self.mode in ("max", "maximize"):
             return a > b
         return a < b
@@ -161,7 +161,7 @@ class Profile1DProfiler:
         tol = 1e-12 * max(1.0, abs(a), abs(b))
 
         while attempts < self.max_attempt and abs(b - a) > tol:
-            # V1: gn = -fn for TargetMode=max, else gn = fn; if gn[c] < gn[d] keep [a,d].
+            # V1: gn = -fn for target_mode=max, else gn = fn; if gn[c] < gn[d] keep [a,d].
             if self.mode in ("max", "maximize"):
                 gn_c, gn_d = -fc.logl, -fd.logl
             else:

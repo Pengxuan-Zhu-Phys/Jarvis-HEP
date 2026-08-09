@@ -595,7 +595,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             block.get("neighbor_graph", "auto")
         ).strip().lower()
         self._selectionexp = sampling.get("selection")
-        seed = int(block.get("Seed", block.get("seed", 0)) or 0)
+        seed = int(block.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         self._init_seed_sequence(seed)

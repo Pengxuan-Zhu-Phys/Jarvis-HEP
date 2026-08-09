@@ -218,23 +218,6 @@ def raise_if_errors(report: ValidationReport) -> None:
         raise ConfigValidationError(report)
 
 
-def _validate_dead_keys(config: Mapping[str, Any]) -> list[ValidationIssue]:
-    """Known dead / ignored user-facing keys (warnings)."""
-    issues: list[ValidationIssue] = []
-    runtime = config.get("Runtime")
-    if isinstance(runtime, Mapping) and "Subprocess" in runtime:
-        issues.append(
-            issue(
-                "warning",
-                "JV2-DEAD-001",
-                "Runtime.Subprocess",
-                "key is ignored in V2 (internal dead key)",
-            )
-        )
-
-    return issues
-
-
 def _yaml_path_part(path: str, part: Any) -> str:
     """Append one parsed YAML key or list position to a diagnostic path."""
     return f"{path}[{part}]" if isinstance(part, int) else f"{path}.{part}"
@@ -457,7 +440,6 @@ def validate_task_config(
             )
         # Operational checks still useful.
         report.extend(validate_operational_blocks(config))
-        report.extend(_validate_dead_keys(config))
         report.extend(_validate_operas_call_mode(config))
         report.extend(_validate_operas_constant_operators(config))
         return _finalize_report(report, strict=strict)
@@ -556,7 +538,6 @@ def validate_task_config(
                 report.extend(validate_method_sampling(sampling, method=method))
 
     report.extend(validate_operational_blocks(config))
-    report.extend(_validate_dead_keys(config))
     report.extend(_validate_operas_call_mode(config))
     report.extend(_validate_operas_constant_operators(config))
     # D22: optional Sampling.Mapper (list of {name, expression}, closed namespace).

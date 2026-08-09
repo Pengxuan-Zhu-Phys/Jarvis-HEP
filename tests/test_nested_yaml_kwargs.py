@@ -20,7 +20,7 @@ class ExtractConstructorKwargsTests(unittest.TestCase):
     def test_flat_and_nested_sampler_block(self) -> None:
         bounds = {
             "nlive": 200,
-            "rseed": 1,
+            "seed": 1,
             "bound": "single",  # flat official key
             "walks": 10,
             "sampler": {
@@ -42,8 +42,8 @@ class ExtractConstructorKwargsTests(unittest.TestCase):
         self.assertNotIn("unknown_flat", ctor)
         self.assertNotIn("nlive", ctor)  # nlive is meta; set by sampler
 
-    def test_constructor_block_alias(self) -> None:
-        bounds = {"constructor": {"bound": "balls", "slices": 3}}
+    def test_sampler_constructor_block(self) -> None:
+        bounds = {"sampler": {"bound": "balls", "slices": 3}}
         ctor = extract_nested_constructor_kwargs(bounds)
         self.assertEqual(ctor["bound"], "balls")
         self.assertEqual(ctor["slices"], 3)
@@ -176,7 +176,7 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                     "Variables": self._vars(),
                     "Bounds": {
                         "nlive": 80,
-                        "rseed": 9,
+                        "seed": 9,
                         "dlogz": 0.25,
                         "sampler": {
                             "bound": "multi",
@@ -262,7 +262,7 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                     "Variables": self._vars(),
                     "Bounds": {
                         "nlive": 1600,
-                        "rseed": 21,
+                        "seed": 21,
                         "dlogz": 0.1,
                         "run_nested": {
                             "print_progress": True,

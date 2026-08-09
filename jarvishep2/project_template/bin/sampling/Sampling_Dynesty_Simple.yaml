@@ -22,7 +22,7 @@ Sampling:
     #     parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    Seed: 21
+    seed: 21
     nlive: 100                 # live points (also Dynamic nlive_init default)
     dlogz: 0.5                 # → run_nested.dlogz_init (initial-phase stop)
 

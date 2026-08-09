@@ -45,7 +45,7 @@ class MultiNestConfigTests(unittest.TestCase):
                     "Bounds": {
                         "nlive": 20,
                         "dlogz": 1.0,
-                        "rseed": 3,
+                        "seed": 3,
                     },
                 },
             }

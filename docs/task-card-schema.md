@@ -53,12 +53,12 @@ The schema is deliberately strict for the common, user-authored interfaces:
 | --- | --- | --- |
 | `Scan` | name/path scalar shapes and sample-directory structure | resolved output paths and project layout |
 | `Sampling` | method enum, variables, and method-specific `Bounds` shapes | value relations such as `min < max` and Bounds policy |
-| `Sampling.Bounds` | method knobs only (Radius, Point number, Seed, CSV path, dynesty/MCMC kwargs, AdaptiveBridson targets, …) | required keys and numerical ranges per Method |
+| `Sampling.Bounds` | method knobs only (radius, point_number, seed, CSV path, dynesty/MCMC kwargs, AdaptiveBridson targets, …) | required keys and numerical ranges per Method |
 
 Top-level `Sampling` is cross-cutting only: `Method`, `Variables`, `Bounds`,
 `selection`, `LogLikelihood`, `Nuisance`, `FeedbackReturn` (plus temporary open
-RLTPMCMC keys).  Sampler settings such as `Radius`, `MaxAttempt`,
-`Point number`, `Seed`, `CSV`, or a nested `AdaptiveBridson` block at the
+RLTPMCMC keys).  Sampler settings such as `radius`, `max_attempt`,
+`point_number`, `seed`, `CSV`, or a nested `AdaptiveBridson` block at the
 Sampling root are rejected — place them under `Bounds`.
 | `Calculators.Modules` | module/execution shape, command and I/O list shapes | command resolution, module installation, execution graph |
 | Calculator `input` / `output` | registered format, common fields, and JSON-specific layouts | Portal adapter availability and file contents |
@@ -110,8 +110,8 @@ rebuild and written only after success, so an interrupted rebuild never looks
 healthy.  `clone_shadow: true` and a parent path containing `@PackID` are
 required for a multi-mode calculator.
 
-The parent owns the shared physical settings: `source`, `deps_source`,
-`clone_shadow`, `make_paraller`, and `symlink_name` cannot be overridden by a
+The parent owns the shared physical settings: `source`, `clone_shadow`,
+`make_parallel`, and `symlink_name` cannot be overridden by a
 mode. A mode may override `env_setup`, `timeout`, `selection`, and
 `required_modules`. It may also specify an execution directory: the precedence
 is `mode.execution.path` > `mode.path` > parent `path`. Parent `path` remains
@@ -167,7 +167,7 @@ expressions belong in `Sampling.LogLikelihood`; top-level `Likelihood`,
 `Utils` and migrate
 `Utils.interpolations_1D` to Jarvis-Operas with `interp1.*` for custom curves
 or `dmddxe.*` for built-in direct-detection limits. `Calculators.path`,
-`Modules[].deps_source`, and `Operas.Modules[].selection` are documented V1
+`Operas.Modules[].selection` is a documented V1
 compatibility fields rather than accidental exceptions. `EnvReqs` sibling V1
 blocks, Portal I/O payloads,
 Opera `kwargs`, and dynesty pass-through blocks are delegated. The legacy
@@ -179,12 +179,12 @@ open; their presence emits `JV2-SCH-004`.
 `LibDeps` is a closed, V1-compatible declaration for shared native libraries.
 `Modules` are installed once by the control process after environment preflight
 and before Redis or Workers start. `required_modules` defines the build order;
-independent modules may build concurrently up to `make_paraller`.
+independent modules may build concurrently up to `make_parallel`.
 
 ```yaml
 LibDeps:
   path: "&J/deps/library"
-  make_paraller: 4
+  make_parallel: 4
   Modules:
     - name: ExampleLibrary
       required_modules: []
@@ -195,10 +195,10 @@ LibDeps:
         commands:
           - "cd ${LibDeps:path}"
           - "mkdir -p ${path}"
-          - "make -j${LibDeps:make_paraller}"
+          - "make -j${LibDeps:make_parallel}"
 ```
 
-The supported static tokens are `${LibDeps:path}`, `${LibDeps:make_paraller}`,
+The supported static tokens are `${LibDeps:path}`, `${LibDeps:make_parallel}`,
 `${LibDeps:<module name>}`, and `@{ROOT path}`. The ROOT token requires
 `EnvReqs.CERN_ROOT.path` or `get_path_command`. Each successful module writes
 `<installation path>/.jarvis_install_stamp.json`; the graph control file is

@@ -7,8 +7,8 @@ Scan:
 Sampling:
   Method: "Random"
   Bounds:
-    Point number: 3
-    Seed: 0
+    point_number: 3
+    seed: 0
   mode: check_modules
   Variables:
     - name: x

@@ -22,7 +22,7 @@ def _card() -> dict:
         "Scan": {"name": "schema-card"},
         "Sampling": {
             "Method": "Random",
-            "Bounds": {"Point number": 2},
+            "Bounds": {"point_number": 2},
             "Variables": [
                 {
                     "name": "x",
@@ -137,7 +137,7 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_manifest_dispatches_sampling_and_io_schemas(self) -> None:
         card = _card()
-        del card["Sampling"]["Bounds"]["Point number"]
+        del card["Sampling"]["Bounds"]["point_number"]
         card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = "UnknownFormat"
         report = validate_task_config(card)
         errors = report.errors()
@@ -206,15 +206,15 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_each_reported_error_has_a_correction_suggestion(self) -> None:
         card = _card()
-        del card["Sampling"]["Bounds"]["Point number"]
+        del card["Sampling"]["Bounds"]["point_number"]
         card["Sampling"]["Variables"] = []
         card["Calculators"]["Modules"][0]["execution"]["input"][0]["type"] = "UnknownFormat"
         report = validate_task_config(card)
         self.assertTrue(report.errors())
         self.assertTrue(all(issue.suggestion for issue in report.errors()))
         random_error = next(issue for issue in report.errors() if issue.code == "JV2-MTH-020")
-        self.assertIn("Point number", random_error.suggestion or "")
-        self.assertIn("Point number: 100", random_error.example or "")
+        self.assertIn("point_number", random_error.suggestion or "")
+        self.assertIn("point_number: 100", random_error.example or "")
 
     def test_strict_user_blocks_reject_typos(self) -> None:
         card = _card()
@@ -253,12 +253,12 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_numeric_union_error_is_actionable(self) -> None:
         card = _card()
-        card["Sampling"].update({"Method": "Bridson", "Bounds": {"Radius": "abc", "MaxAttempt": 30}})
+        card["Sampling"].update({"Method": "Bridson", "Bounds": {"radius": "abc", "max_attempt": 30}})
         report = validate_task_config(card)
         issue = next(
             item
             for item in report.errors()
-            if item.path == "$.Sampling.Bounds.Radius" and item.code == "JV2-SCH-001"
+            if item.path == "$.Sampling.Bounds.radius" and item.code == "JV2-SCH-001"
         )
         self.assertEqual(
             issue.message,
@@ -268,10 +268,10 @@ class TaskCardSchemaTests(unittest.TestCase):
 
     def test_numeric_string_warns_but_compatibly_passes(self) -> None:
         card = _card()
-        card["Sampling"].update({"Method": "Bridson", "Bounds": {"Radius": "1e-1", "MaxAttempt": "30"}})
+        card["Sampling"].update({"Method": "Bridson", "Bounds": {"radius": "1e-1", "max_attempt": "30"}})
         report = validate_task_config(card)
         self.assertFalse(
-            [issue for issue in report.errors() if issue.path == "$.Sampling.Bounds.Radius"]
+            [issue for issue in report.errors() if issue.path == "$.Sampling.Bounds.radius"]
         )
         self.assertTrue(any(issue.code == "JV2-SCH-003" for issue in report.warnings()))
 
@@ -288,7 +288,26 @@ class TaskCardSchemaTests(unittest.TestCase):
                 issue.code == "JV2-SCH-001" and issue.path == "$.Sampling"
                 for issue in report.errors()
             )
-        )
+            )
+
+    def test_removed_yaml_aliases_are_rejected(self) -> None:
+        mutations = {
+            "Sampling.Bounds.Seed": lambda card: card["Sampling"]["Bounds"].__setitem__("Seed", 2),
+            "Sampling.Bounds.Point number": lambda card: card["Sampling"]["Bounds"].__setitem__("Point number", 2),
+            "Sampling.Nuisance.TargetMode": lambda card: card["Sampling"].__setitem__("Nuisance", {"TargetMode": "min"}),
+            "Operas.Modules.timeout": lambda card: card["Operas"]["Modules"][0].__setitem__("timeout", 1),
+            "Calculators.Modules.deps_source": lambda card: card["Calculators"]["Modules"][0].__setitem__("deps_source", "x"),
+            "Calculators.Modules.make_paraller": lambda card: card["Calculators"]["Modules"][0].__setitem__("make_paraller", 1),
+            "top-level Runtime": lambda card: card.__setitem__("Runtime", {}),
+            "top-level Likelihood": lambda card: card.__setitem__("Likelihood", []),
+        }
+        for path, mutate in mutations.items():
+            card = _card()
+            mutate(card)
+            self.assertTrue(
+                validate_task_config(card).errors(),
+                msg=f"removed YAML alias unexpectedly accepted: {path}",
+            )
 
     def test_boolean_where_string_is_required_suggests_quoting(self) -> None:
         card = _card()

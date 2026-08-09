@@ -137,49 +137,49 @@ def validate_method_sampling(
                     "error",
                     "JV2-MTH-010",
                     "Sampling.Bounds",
-                    "Bridson requires Sampling.Bounds with Radius and MaxAttempt",
+                    "Bridson requires Sampling.Bounds with radius and max_attempt",
                 )
             )
         else:
             assert bounds_map is not None
-            if "Radius" not in bounds_map:
+            if "radius" not in bounds_map:
                 issues.append(
                     issue(
                         "error",
                         "JV2-MTH-010",
-                        "Sampling.Bounds.Radius",
-                        "Bridson requires Sampling.Bounds.Radius (positive number)",
+                        "Sampling.Bounds.radius",
+                        "Bridson requires Sampling.Bounds.radius (positive number)",
                     )
                 )
             else:
-                radius = try_float(bounds_map.get("Radius"))
+                radius = try_float(bounds_map.get("radius"))
                 if radius is None or radius <= 0:
                     issues.append(
                         issue(
                             "error",
                             "JV2-MTH-011",
-                            "Sampling.Bounds.Radius",
-                            f"expected positive number, got {bounds_map.get('Radius')!r}",
+                            "Sampling.Bounds.radius",
+                            f"expected positive number, got {bounds_map.get('radius')!r}",
                         )
                     )
-            if "MaxAttempt" not in bounds_map:
+            if "max_attempt" not in bounds_map:
                 issues.append(
                     issue(
                         "error",
                         "JV2-MTH-012",
-                        "Sampling.Bounds.MaxAttempt",
-                        "Bridson requires Sampling.Bounds.MaxAttempt (integer ≥ 1)",
+                        "Sampling.Bounds.max_attempt",
+                        "Bridson requires Sampling.Bounds.max_attempt (integer ≥ 1)",
                     )
                 )
             else:
-                k = try_int(bounds_map.get("MaxAttempt"))
+                k = try_int(bounds_map.get("max_attempt"))
                 if k is None or k < 1:
                     issues.append(
                         issue(
                             "error",
                             "JV2-MTH-013",
-                            "Sampling.Bounds.MaxAttempt",
-                            f"expected integer ≥ 1, got {bounds_map.get('MaxAttempt')!r}",
+                            "Sampling.Bounds.max_attempt",
+                            f"expected integer ≥ 1, got {bounds_map.get('max_attempt')!r}",
                         )
                     )
 
@@ -190,21 +190,19 @@ def validate_method_sampling(
                     "error",
                     "JV2-MTH-020",
                     "Sampling.Bounds",
-                    "Random requires Sampling.Bounds with 'Point number' (or point_number)",
+                    "Random requires Sampling.Bounds.point_number",
                 )
             )
         else:
             assert bounds_map is not None
-            point_number = bounds_map.get(
-                "Point number", bounds_map.get("point_number")
-            )
+            point_number = bounds_map.get("point_number")
             if point_number is None:
                 issues.append(
                     issue(
                         "error",
                         "JV2-MTH-020",
-                        "Sampling.Bounds['Point number']",
-                        "Random requires Sampling.Bounds['Point number'] (or point_number)",
+                        "Sampling.Bounds.point_number",
+                        "Random requires Sampling.Bounds.point_number",
                     )
                 )
             else:
@@ -214,7 +212,7 @@ def validate_method_sampling(
                         issue(
                             "error",
                             "JV2-MTH-021",
-                            "Sampling.Bounds['Point number']",
+                            "Sampling.Bounds.point_number",
                             f"expected integer ≥ 1, got {point_number!r}",
                         )
                     )

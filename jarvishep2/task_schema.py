@@ -447,14 +447,11 @@ def _numeric_string_issues(config: Mapping[str, Any]) -> list[Any]:
     warnings: list[Any] = []
     # Sampler knobs live under Sampling.Bounds only.
     numeric_paths = (
-        ("Sampling", "Bounds", "Radius"),
-        ("Sampling", "Bounds", "MaxAttempt"),
-        ("Sampling", "Bounds", "MaxWorker"),
-        ("Sampling", "Bounds", "Point number"),
         ("Sampling", "Bounds", "point_number"),
-        ("Sampling", "Bounds", "Seed"),
         ("Sampling", "Bounds", "seed"),
-        ("Sampling", "Bounds", "rseed"),
+        ("Sampling", "Bounds", "radius"),
+        ("Sampling", "Bounds", "max_attempt"),
+        ("Sampling", "Bounds", "max_worker"),
         ("Sampling", "Bounds", "nlive"),
         ("Sampling", "Bounds", "dlogz"),
     )

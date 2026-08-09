@@ -529,7 +529,7 @@ def _likelihood_module_from_config(config: Mapping[str, Any]) -> dict[str, Any] 
     sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
     entries = []
     if isinstance(sampling, Mapping):
-        raw = sampling.get("LogLikelihood") or sampling.get("loglikelihood") or []
+        raw = sampling.get("LogLikelihood") or []
         if isinstance(raw, list):
             entries = [item for item in raw if isinstance(item, Mapping)]
     if not entries:
@@ -640,7 +640,7 @@ def _collect_modules_and_layers(
     nuisance_block = extract_nuisance_config(config)
     if isinstance(nuisance_block, Mapping) and nuisance_block:
         nuis_layer = last_module_layer + 1
-        method = str(nuisance_block.get("Method") or "Profile1D")
+        method = str(nuisance_block.get("method") or "Profile1D")
         specs["NuisanceOptimize"] = {
             "name": "NuisanceOptimize",
             "type": "Nuisance",

@@ -4,7 +4,7 @@ Scan:
 Sampling:
   Method: Random
   Bounds:
-    Point number: 1
+    point_number: 1
   Variables:
     - name: x
       distribution:
@@ -14,7 +14,7 @@ Sampling:
           max: 1.0
 LibDeps:
   path: "&J/deps/library"
-  make_paraller: 4
+  make_parallel: 4
   Modules:
     - name: ExampleSharedLibrary
       required_modules: []

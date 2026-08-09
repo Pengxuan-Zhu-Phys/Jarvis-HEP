@@ -18,16 +18,16 @@ class DiagnosticGuidanceTests(unittest.TestCase):
     def test_known_method_guidance_is_copyable(self) -> None:
         suggestion, example = guidance_for(
             "JV2-MTH-020",
-            "Sampling.Bounds['Point number']",
+            "Sampling.Bounds['point_number']",
             "Random requires a point number",
         )
-        self.assertIn("Point number", suggestion)
+        self.assertIn("point_number", suggestion)
         self.assertIn("Bounds", example or "")
-        self.assertIn("Point number: 100", example or "")
+        self.assertIn("point_number: 100", example or "")
 
     def test_warning_promotion_keeps_guidance_and_example(self) -> None:
         report = ValidationReport([issue(
-            "warning", "JV2-DEAD-001", "Runtime.Subprocess", "key is ignored in V2"
+            "warning", "JV2-FUTURE-001", "EnvReqs.V2.future", "future setting is not active"
         )])
         before = report.issues[0]
         report.promote_warnings_to_errors()

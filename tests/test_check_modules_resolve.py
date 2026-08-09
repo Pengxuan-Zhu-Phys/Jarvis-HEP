@@ -41,9 +41,9 @@ class CheckModulesResolveTests(unittest.TestCase):
         self.assertEqual(get_check_modules_settings(cfg)["timeout_sec"], 30.0)
         self.assertEqual(check_modules_timeout_sec(cfg), 30.0)
 
-    def test_timeout_alias_and_invalid_fallback(self) -> None:
-        alias = {"EnvReqs": {"V2": {"check_modules": {"timeout": 45.5}}}}
-        self.assertEqual(check_modules_timeout_sec(alias), 45.5)
+    def test_timeout_alias_is_removed_and_invalid_fallback(self) -> None:
+        retired = {"EnvReqs": {"V2": {"check_modules": {"timeout": 45.5}}}}
+        self.assertEqual(check_modules_timeout_sec(retired), 120.0)
         bad = {"EnvReqs": {"V2": {"check_modules": {"timeout_sec": -1}}}}
         self.assertEqual(check_modules_timeout_sec(bad), 120.0)
         self.assertEqual(check_modules_timeout_sec({}), 120.0)
@@ -118,7 +118,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Random",
-                        "Bounds": {"Point number": 100},
+                        "Bounds": {"point_number": 100},
                         "data": "pts.csv",
                         "Variables": [
                             {
@@ -165,7 +165,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Random",
-                        "Bounds": {"Point number": 100, "Seed": 1},
+                        "Bounds": {"point_number": 100, "seed": 1},
                         "data": "no_such.csv",
                         "Variables": [
                             {
@@ -211,7 +211,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "task_yaml": os.path.join(tmp, "task.yaml"),
                     "Sampling": {
                         "Method": "Dynesty",
-                        "Bounds": {"Seed": 7},
+                        "Bounds": {"seed": 7},
                         "Variables": [
                             {
                                 "name": "xx",

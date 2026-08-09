@@ -6,8 +6,8 @@ Scan:
 Sampling:
   Method: "Bridson"
   Bounds:
-    Radius: 2.0
-    MaxAttempt: 20
+    radius: 2.0
+    max_attempt: 20
   Variables:
     - name: x
       description: "Toy variable x"
@@ -42,7 +42,7 @@ EnvReqs:
   #   workers: 2
 
 Operas:
-  make_paraller: 4
+  make_parallel: 4
   Modules:
     - name: EggBox
       operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"

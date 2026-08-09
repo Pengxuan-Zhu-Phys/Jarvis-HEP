@@ -701,10 +701,8 @@ class Jarvis2Core:
                 if isinstance(sampling.get("Bounds"), dict)
                 else {}
             )
-            # Seed lives under Sampling.Bounds only (V2).
-            seed = int(
-                bounds.get("Seed", bounds.get("seed", bounds.get("rseed", 0))) or 0
-            )
+            # seed lives under Sampling.Bounds only (V2).
+            seed = int(bounds.get("seed", 0) or 0)
         except (TypeError, ValueError):
             seed = 0
         rng = np.random.default_rng(seed if seed else None)
@@ -922,11 +920,11 @@ class Jarvis2Core:
         calculators["Archiver"] = archiver
         # --- One calculator PackID only ---
         # Workers=1 alone is not enough: Redis still registers N slots from
-        # ``make_paraller`` / Pools. Free-list rotation then hands sample 1 → 001,
+        # ``make_parallel`` / Pools. Free-list rotation then hands sample 1 → 001,
         # sample 2 → 002, … and each new PackID runs a full clone_shadow install
         # (e.g. full micrOMEGAs copy+make). Check is a smoke: pin pool size to 1
         # so every point reuses ``001`` after the first install.
-        calculators["make_paraller"] = 1
+        calculators["make_parallel"] = 1
         if "Pools" in calculators:
             pools = calculators.get("Pools")
             if isinstance(pools, Mapping):
@@ -945,7 +943,7 @@ class Jarvis2Core:
             for item in modules:
                 if isinstance(item, Mapping):
                     mod = dict(item)
-                    mod["make_paraller"] = 1
+                    mod["make_parallel"] = 1
                     pinned_modules.append(mod)
                 else:
                     pinned_modules.append(item)
@@ -956,8 +954,8 @@ class Jarvis2Core:
         operas = self.config.get("Operas")
         if isinstance(operas, Mapping):
             operas = dict(operas)
-            if "make_paraller" in operas:
-                operas["make_paraller"] = 1
+            if "make_parallel" in operas:
+                operas["make_parallel"] = 1
             self.config["Operas"] = operas
 
         # Layout flag: SAMPLE/test instead of SAMPLE/

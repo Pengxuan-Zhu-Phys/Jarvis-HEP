@@ -238,7 +238,7 @@ def _run_crashable_control(
         },
         "Sampling": {
             "Method": "Random",
-            "Bounds": {"Point number": int(total_points), "Seed": 29},
+            "Bounds": {"point_number": int(total_points), "seed": 29},
             "Variables": [
                 {
                     "name": "x",

@@ -389,7 +389,7 @@ class LibraryInstaller:
         os.makedirs(self.libdeps_path, exist_ok=True)
         state, epoch, reinstall_requested = self._control_state()
         del state
-        max_workers = max(1, int(self.libdeps.get("make_paraller", 1) or 1))
+        max_workers = max(1, int(self.libdeps.get("make_parallel", 1) or 1))
         results: dict[str, dict[str, Any]] = {}
         for _layer, specs in sorted(self._layers().items()):
             with ThreadPoolExecutor(max_workers=min(max_workers, len(specs))) as executor:

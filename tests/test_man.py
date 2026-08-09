@@ -57,9 +57,9 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         rendered = out.getvalue()
         self.assertIn("Keys · $.Calculators.Modules.execution", rendered)
-        self.assertIn("Use --type FMT --direction", rendered)
+        self.assertIn("Use --type TYPE --direction", rendered)
         self.assertIn("input|output", rendered)
-        self.assertIn("Portal field tables.", rendered)
+        self.assertIn("file-type", rendered)
 
     def test_portal_io_actions_are_direction_and_format_specific(self) -> None:
         json_input = resolve_man_request(
@@ -148,32 +148,32 @@ class ManCliTests(unittest.TestCase):
         self.assertNotIn("Actions · $.Calculators.Modules.execution.output", rendered)
         self.assertNotIn("No input actions on output", rendered)
 
-    def test_execution_direction_lists_formats_and_type_commands(self) -> None:
+    def test_execution_direction_lists_file_types_and_type_commands(self) -> None:
         page = resolve_man_request(["calculator.execution.input"])
-        formats = [row["format"] for row in page["format_rows"]]
+        file_types = [row["type"] for row in page["type_rows"]]
         self.assertEqual(
-            formats,
+            file_types,
             ["CSV", "DAT", "JSON", "SLHA", "TSV", "Text", "Wolfram"],
         )
         self.assertIn(
             "Jarvis man calculator.execution.input --type JSON",
-            {row["command"] for row in page["format_rows"]},
+            {row["command"] for row in page["type_rows"]},
         )
         self.assertIn("• Purpose:", page["summary"])
-        self.assertIn("• Formats:", page["summary"])
+        self.assertIn("• File types:", page["summary"])
         self.assertIn("• Details:", page["summary"])
-        self.assertIn("--type FORMAT", page["summary"])
+        self.assertIn("--type TYPE", page["summary"])
 
         out = io.StringIO()
         with redirect_stdout(out):
             code = main(["man", "calculator.execution.input"])
         self.assertEqual(code, 0)
         rendered = out.getvalue()
-        self.assertIn("Formats · $.Calculators.Modules.execution.input · input", rendered)
-        self.assertIn("Format", rendered)
+        self.assertIn("File types · $.Calculators.Modules.execution.input · input", rendered)
+        self.assertIn("Type", rendered)
         self.assertIn("Description", rendered)
         self.assertNotIn("Open with --type", rendered)
-        self.assertIn("calculator.execution.input --type FORMAT", rendered)
+        self.assertIn("calculator.execution.input --type TYPE", rendered)
 
     def test_center_page_lists_domains(self) -> None:
         out = io.StringIO()
@@ -276,8 +276,8 @@ class ManCliTests(unittest.TestCase):
         page = resolve_man_request(["sampler.Bridson"])
         self.assertEqual(page["status"], "stable")
         names = {k["name"] for k in page["keys"]}
-        self.assertIn("Radius", names)
-        radius = next(k for k in page["keys"] if k["name"] == "Radius")
+        self.assertIn("radius", names)
+        radius = next(k for k in page["keys"] if k["name"] == "radius")
         self.assertTrue(radius["description"])
         self.assertTrue(radius["description"].isascii())
         self.assertEqual(radius["type"], "number >0")
@@ -316,6 +316,27 @@ class ManCliTests(unittest.TestCase):
         for dtype, req in PARAMS_REQUIRED.items():
             for key in req:
                 self.assertIn(key, text, msg=f"{dtype} missing {key}")
+        item_schema = page["item_schema"]
+        self.assertEqual(item_schema["required"], ["name", "distribution"])
+        self.assertEqual(
+            set(item_schema["properties"]["distribution"]["properties"]["type"]["enum"]),
+            set(PARAMS_REQUIRED),
+        )
+        variants = {variant["type"]: variant for variant in item_schema["distribution_variants"]}
+        self.assertEqual(set(variants), set(PARAMS_REQUIRED))
+        for dtype, req in PARAMS_REQUIRED.items():
+            params = variants[dtype]["parameters"]
+            self.assertEqual(set(params["required"]), set(req), msg=dtype)
+            self.assertTrue(set(req) <= set(params["allowed"]), msg=dtype)
+            self.assertTrue(params["example"], msg=dtype)
+        self.assertEqual(
+            item_schema["method_parameter_overrides"]["Bridson"]["required_parameters"],
+            ["length"],
+        )
+        self.assertEqual(
+            item_schema["method_parameter_overrides"]["Grid"]["required_parameters"],
+            ["num"],
+        )
 
     def test_calculator_execution_type_json_self_contained(self) -> None:
         # Default --type without --direction shows both vocabularies.
@@ -350,7 +371,7 @@ class ManCliTests(unittest.TestCase):
                 io_type="FakeFmt",
                 direction="input",
             )
-        self.assertIn("FakeFmt", page.get("runtime_formats") or [])
+        self.assertIn("FakeFmt", page.get("runtime_types") or [])
         self.assertIn("no bundled field schema", page["summary"].lower())
         self.assertTrue(page.get("further_reading"))
 
@@ -386,7 +407,7 @@ class ManCliTests(unittest.TestCase):
         self.assertNotIn("type: Load", ex)
         input_page = resolve_man_request(["yaml.Calculators.Modules.execution.input"])
         self.assertEqual(input_page["path"], "$.Calculators.Modules.execution.input")
-        self.assertEqual(input_page["keys"][0]["name"], "format")
+        self.assertEqual(input_page["keys"][0]["name"], "type")
 
     def test_calculator_module_fields_have_descriptions(self) -> None:
         page = resolve_man_request(["calculator.module"])
@@ -414,6 +435,20 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(center["keys"], [])
         self.assertTrue(all(k.get("nav") for k in center["list_rows"]))
         self.assertTrue(all(k.get("man") for k in center["list_rows"]))
+
+    def test_leaf_topics_explain_that_the_parent_page_is_required(self) -> None:
+        for topic in ("calculator.module.path", "yaml.Calculators.Modules.path"):
+            with self.assertRaises(KeyError) as raised:
+                resolve_man_request([topic])
+            self.assertIn("leaf field", str(raised.exception))
+            self.assertIn("calculator.module", str(raised.exception))
+
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            code = main(["man", "calculator.module.path"])
+        self.assertEqual(code, 2)
+        self.assertIn("Man topic is a leaf field", err.getvalue())
+        self.assertNotIn("Unknown man topic: '", err.getvalue())
 
     def test_example_catalog_and_calculator_card_validate(self) -> None:
         page = resolve_man_request(["example"])
@@ -459,7 +494,7 @@ class ManCliTests(unittest.TestCase):
                 "Scan": {"name": "t"},
                 "Sampling": {
                     "Method": "Bridson",
-                    "Bounds": {"Radius": 0.1, "MaxAttempt": 30, "totally_bogus": 1},
+                    "Bounds": {"radius": 0.1, "max_attempt": 30, "totally_bogus": 1},
                     "Variables": [
                         {
                             "name": "x",

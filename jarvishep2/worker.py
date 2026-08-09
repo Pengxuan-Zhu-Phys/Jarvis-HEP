@@ -216,9 +216,9 @@ class Worker(Process):
         if isinstance(nuisance_cfg, Mapping) and nuisance_cfg:
             from jarvishep2.Module.profile1d import Profile1DProfiler
 
-            # Synthetic top-level config so from_config sees Nuisance block.
+            # Wrap the normalized internal block in its canonical YAML location.
             self._nuisance_profiler = Profile1DProfiler.from_config(
-                {"Nuisance": dict(nuisance_cfg)},
+                {"Sampling": {"Nuisance": dict(nuisance_cfg)}},
                 context=expression_context,
             )
         else:

@@ -6,7 +6,7 @@
 #
 # Product: DATABASE/multinest_result.csv
 # Do NOT set (HEP injects): loglikelihood, prior_transform, ndim, pool, rstate
-# Do NOT set: Bounds.dynamic  (rejected by validation)
+# Engine selection is fixed by Method; there is no Bounds.dynamic switch.
 # =============================================================================
 
 Sampling:
@@ -19,10 +19,9 @@ Sampling:
         parameters: {min: 0.0, max: 1.0}
 
   Bounds:
-    Seed: 21
+    seed: 21
     # --- HEP meta (shared) ---
     nlive: 200
-    # rseed: 21
     dlogz: 0.5                 # static NestedSampler evidence stop
 
     # --- NestedSampler constructor ---

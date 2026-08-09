@@ -18,19 +18,13 @@ from jarvishep2.Sampling.dynesty_sampler import NESTED_CONSTRUCTOR_USER_KEYS
 _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
     {
         "nlive",
-        "n_live",
-        "rseed",
         "seed",
-        "Seed",
         # Bounds.dynamic / Dynamic removed: Method selects the engine
         # (Dynesty -> always DynamicNestedSampler, MultiNest -> always static).
         "dlogz",
         "dlogz_init",
         "run_nested",
         "sampler",
-        "Sampler",
-        "constructor",
-        "Constructor",
     }
 )
 
@@ -86,8 +80,8 @@ def validate_nested_bounds(
         )
 
     # nlive
-    if "nlive" in bounds or "n_live" in bounds:
-        raw_nlive = bounds.get("nlive", bounds.get("n_live"))
+    if "nlive" in bounds:
+        raw_nlive = bounds.get("nlive")
         nlive = try_int(raw_nlive)
         if nlive is None or nlive < 2:
             issues.append(
@@ -156,8 +150,8 @@ def validate_nested_bounds(
                 )
             # Remaining ``run_nested`` keys are forwarded to dynesty (delegated).
 
-    # sampler / constructor blocks
-    for block_key in ("sampler", "Sampler", "constructor", "Constructor"):
+    # sampler block
+    for block_key in ("sampler",):
         block = bounds.get(block_key)
         if block is None:
             continue

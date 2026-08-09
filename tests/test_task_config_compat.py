@@ -65,7 +65,7 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
                     "    required: true\n"
                     "    default_yaml_path: '&J/deps/environment_default.yaml'\n"
                     "  V2:\n"
-                    "    worker: 4\n"
+                    "    workers: 4\n"
                 )
 
             config = load_task_yaml(task_path)
@@ -285,39 +285,21 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported.*not_a_real_knob"):
                 load_task_yaml(task_path)
 
-    def test_legacy_runtime_defaults_file_strips_unknown_keys(self) -> None:
-        """EnvReqs.Runtime defaults may carry V1 Runtime keys; only V2 knobs apply."""
+    def test_envreqs_runtime_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as root:
-            os.makedirs(os.path.join(root, "bin"))
-            os.makedirs(os.path.join(root, "deps"))
-            with open(os.path.join(root, "jarvis.project.yaml"), "w", encoding="utf-8") as handle:
-                handle.write("project: legacy-runtime\n")
-            defaults = os.path.join(root, "deps", "runtime_defaults.yaml")
-            with open(defaults, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Runtime:\n"
-                    "  mode: redis\n"
-                    "  workers: 6\n"
-                    "  batch_size: 64\n"
-                    "  Subprocess:\n"
-                    "    timeout: 1\n"
-                )
-            task_path = os.path.join(root, "bin", "task.yaml")
+            task_path = os.path.join(root, "task.yaml")
             with open(task_path, "w", encoding="utf-8") as handle:
                 handle.write(
                     "EnvReqs:\n"
                     "  Runtime:\n"
-                    "    default_runtime_settings: '&J/deps/runtime_defaults.yaml'\n"
+                    "    workers: 6\n"
                     "Scan:\n"
-                    "  name: legacy\n"
+                    "  name: removed-runtime\n"
                     "Sampling:\n"
                     "  Method: Bridson\n"
                 )
-            config = load_task_yaml(task_path)
-
-        self.assertEqual(config["Runtime"]["workers"], 6)
-        self.assertEqual(config["Runtime"]["batch_size"], 64)
-        self.assertEqual(config["Runtime"]["mode"], "redis")
+            with self.assertRaisesRegex(ValueError, "EnvReqs.Runtime"):
+                load_task_yaml(task_path)
 
 
 if __name__ == "__main__":

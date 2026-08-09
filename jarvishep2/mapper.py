@@ -396,7 +396,7 @@ def build_mapper_spec_from_config(config: Mapping[str, Any]) -> MapperSpec:
     """
     variables = _variable_specs_from_config(config)
     sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
-    method = str(sampling.get("Method") or sampling.get("method") or "").strip()
+    method = str(sampling.get("Method") or "").strip()
     mapper_block = sampling.get("Mapper") if isinstance(sampling, Mapping) else None
 
     if mapper_block is None:

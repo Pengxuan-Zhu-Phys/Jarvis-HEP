@@ -7,7 +7,7 @@ EnvReqs:
 Sampling:
   Method: Grid
   Bounds:
-    Seed: 0
+    seed: 0
   Variables:
     - name: x
       distribution:

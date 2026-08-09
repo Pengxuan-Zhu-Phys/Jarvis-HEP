@@ -4,7 +4,7 @@
   "type": "object",
   "x-jarvis-zone": "closed",
   "description": "Regular grid over Variables (each variable uses parameters.num).",
-  "x-jarvis-example": "Method: Grid\nBounds:\n  Seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, num: 10}",
+  "x-jarvis-example": "Method: Grid\nBounds:\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0, num: 10}",
   "allOf": [
     {"$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"},
     {
@@ -15,13 +15,9 @@
           "x-jarvis-zone": "closed",
           "description": "Grid-method knobs. Grid size comes from Variables[].distribution.parameters.num.",
           "properties": {
-            "Seed": {
-              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "RNG seed (alias: seed)."
-            },
             "seed": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-              "description": "Alias of Seed."
+              "description": "RNG seed."
             }
           },
           "additionalProperties": false

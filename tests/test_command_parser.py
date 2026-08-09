@@ -62,7 +62,7 @@ class CommandParserUnitTests(unittest.TestCase):
             "Scan": {"name": "eggbox-scan"},
             "LibDeps": {
                 "path": self.libdeps_root,
-                "make_paraller": 6,
+                "make_parallel": 6,
                 "Modules": [
                     {
                         "name": "EggBoxSafe",
@@ -121,7 +121,7 @@ class CommandParserUnitTests(unittest.TestCase):
 
     def test_resolve_static_expands_libdeps_base_and_parallel_tokens(self) -> None:
         resolved = self.parser.resolve_static(
-            "${LibDeps:path}/build -j${LibDeps:make_paraller}"
+            "${LibDeps:path}/build -j${LibDeps:make_parallel}"
         )
         self.assertEqual(resolved, f"{self.libdeps_root}/build -j6")
 

@@ -47,12 +47,13 @@ def _mode_card() -> dict:
         "Scan": {"name": "mode-test"},
         "Sampling": {
             "Method": "Random",
-            "Bounds": {"Point number": 1},
+            "Bounds": {"point_number": 1},
             "Variables": [{
                 "name": "x",
                 "distribution": {"type": "Flat", "parameters": {"min": 0.0, "max": 1.0}},
             }],
         },
+        "EnvReqs": {},
         "Calculators": {"Modules": [
             {
                 "name": "Prep",
@@ -101,7 +102,7 @@ class CalculatorModesTests(unittest.TestCase):
         single = {
             "name": "Single",
             "path": "runtime/Single/@PackID",
-            "make_paraller": 3,
+            "make_parallel": 3,
             "execution": {"commands": ["single"], "output": []},
         }
         self.assertEqual(expand_calculator_modes([single]), [single])
@@ -306,8 +307,9 @@ class CalculatorModesTests(unittest.TestCase):
             with open(task_path, "w", encoding="ascii") as handle:
                 handle.write(
                     "Scan:\n  name: modes\n"
-                    "Sampling:\n  Method: Random\n  Point number: 1\n"
+                    "Sampling:\n  Method: Random\n  Bounds:\n    point_number: 1\n"
                     "  Variables:\n    - name: x\n      distribution:\n        type: Flat\n        parameters: {min: 0.0, max: 1.0}\n"
+                    "EnvReqs: {}\n"
                     "Calculators:\n  Modules:\n    - name: Tool\n      path: runtime/Tool/@PackID\n      clone_shadow: true\n      modes:\n        - name: a\n          execution: {commands: [a], output: []}\n        - name: b\n          execution: {commands: [b], output: []}\n"
                 )
             core = Jarvis2Core()

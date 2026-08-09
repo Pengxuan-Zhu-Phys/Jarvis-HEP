@@ -91,7 +91,7 @@ def validate_mapper(
     method_name = (
         str(method).strip()
         if method is not None
-        else str(sampling.get("Method") or sampling.get("method") or "").strip()
+        else str(sampling.get("Method") or "").strip()
     )
 
     try:

@@ -587,13 +587,10 @@
         "slice_pairs": {
           "type": "array"
         },
-        "Seed": {
-          "$ref": "#/$defs/integerish"
-        },
         "seed": {
           "$ref": "#/$defs/integerish"
         },
-        "MaxWorker": {
+        "max_worker": {
           "$ref": "#/$defs/integerish"
         }
       },
@@ -602,23 +599,11 @@
     "nestedBounds": {
       "type": "object",
       "x-jarvis-zone": "closed",
-      "description": "Dynesty/MultiNest Bounds: official constructor keys plus nlive/Seed/dlogz and optional run_nested/sampler pass-through maps. Closed at top level.",
+      "description": "Dynesty/MultiNest Bounds: official constructor keys plus nlive/seed/dlogz and optional run_nested/sampler pass-through maps. Closed at top level.",
       "properties": {
-        "Constructor": {
-          "type": "object",
-          "x-jarvis-zone": "delegated",
-          "additionalProperties": true,
-          "description": "Alias of sampler."
-        },
-        "Sampler": {
-          "type": "object",
-          "x-jarvis-zone": "delegated",
-          "additionalProperties": true,
-          "description": "Alias of sampler."
-        },
-        "Seed": {
+        "seed": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-          "description": "RNG seed (aliases: seed, rseed)."
+          "description": "RNG seed."
         },
         "blob": {
           "type": "boolean",
@@ -631,12 +616,6 @@
         "bound": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
           "description": "Nested Bounds.bound."
-        },
-        "constructor": {
-          "type": "object",
-          "x-jarvis-zone": "delegated",
-          "additionalProperties": true,
-          "description": "Alias of sampler."
         },
         "dlogz": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/numeric",
@@ -682,17 +661,13 @@
           "additionalProperties": true,
           "description": "Pass-through mapping for Bounds.logl_kwargs (engine kwargs)."
         },
-        "n_live": {
-          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-          "description": "Alias of nlive."
-        },
         "ncdim": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
           "description": "Nested Bounds.ncdim."
         },
         "nlive": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-          "description": "Number of live points (alias: n_live)."
+          "description": "Number of live points."
         },
         "periodic": {
           "description": "Nested Bounds.periodic.",
@@ -766,10 +741,6 @@
             }
           ]
         },
-        "rseed": {
-          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-          "description": "Alias of Seed."
-        },
         "run_nested": {
           "type": "object",
           "x-jarvis-zone": "delegated",
@@ -784,15 +755,11 @@
           "type": "object",
           "x-jarvis-zone": "delegated",
           "additionalProperties": true,
-          "description": "Pass-through constructor kwargs (alias: Sampler)."
+          "description": "Pass-through constructor kwargs."
         },
         "save_evaluation_history": {
           "type": "boolean",
           "description": "Dynesty constructor flag: save_evaluation_history."
-        },
-        "seed": {
-          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
-          "description": "Alias of Seed."
         },
         "slices": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",

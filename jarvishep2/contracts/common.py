@@ -36,15 +36,14 @@ def sampling_bounds(sampling: Mapping[str, Any] | None) -> Mapping[str, Any]:
 
 
 def bounds_seed(bounds: Mapping[str, Any] | None, default: int = 0) -> int:
-    """Read Seed / seed / rseed from Bounds (canonical V2 location)."""
+    """Read the canonical ``seed`` value from Bounds."""
     if not isinstance(bounds, Mapping):
         return int(default)
-    for key in ("Seed", "seed", "rseed"):
-        if key in bounds and bounds.get(key) is not None:
-            try:
-                return int(bounds.get(key) or 0)
-            except (TypeError, ValueError):
-                return int(default)
+    if "seed" in bounds and bounds.get("seed") is not None:
+        try:
+            return int(bounds.get("seed") or 0)
+        except (TypeError, ValueError):
+            return int(default)
     return int(default)
 
 
@@ -56,12 +55,12 @@ def is_check_modules_mode(config: Mapping[str, Any]) -> bool:
 
 # Retired Sampling top-level keys (pre-Bounds placement).  Completely rejected.
 RETIRED_SAMPLING_TOP_LEVEL: dict[str, str] = {
-    "Radius": "Sampling.Bounds.Radius",
-    "MaxAttempt": "Sampling.Bounds.MaxAttempt",
-    "MaxWorker": "Sampling.Bounds.MaxWorker",
-    "Point number": "Sampling.Bounds['Point number']",
+    "Radius": "Sampling.Bounds.radius",
+    "MaxAttempt": "Sampling.Bounds.max_attempt",
+    "MaxWorker": "Sampling.Bounds.max_worker",
+    "Point number": "Sampling.Bounds.point_number",
     "point_number": "Sampling.Bounds.point_number",
-    "Seed": "Sampling.Bounds.Seed",
+    "Seed": "Sampling.Bounds.seed",
     "seed": "Sampling.Bounds.seed",
     "CSV": "Sampling.Bounds (path / uuid_column / variables)",
     "AdaptiveBridson": "Sampling.Bounds",

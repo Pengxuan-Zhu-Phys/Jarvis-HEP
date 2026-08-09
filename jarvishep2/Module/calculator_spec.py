@@ -158,8 +158,8 @@ class CalculatorSpec:
         symlink = str(cfg.get("symlink_name", module_name)).strip() or module_name
         basepath = str(cfg.get("path", execution.get("path", ".")) or ".")
         execution_path = str(execution.get("path") or basepath)
-        # V1 tolerates unused keys: modes, make_paraller (module-level), required_modules, …
-        # They remain in ``raw``; pools consume make_paraller via worker_config.
+        # V2 module fields are already closed by the task schema; pools consume
+        # make_parallel via worker_config.
         selection_raw = cfg.get("selection")
         selection: str | None
         if selection_raw is None or selection_raw is False:

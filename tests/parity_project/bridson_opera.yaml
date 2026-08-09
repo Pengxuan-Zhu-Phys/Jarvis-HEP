@@ -8,9 +8,9 @@ EnvReqs:
 Sampling:
   Method: Bridson
   Bounds:
-    Radius: 0.35
-    MaxAttempt: 30
-    Seed: 42
+    radius: 0.35
+    max_attempt: 30
+    seed: 42
   Variables:
     - name: x
       description: flat x

@@ -24,11 +24,11 @@ PARENT_INSTALLATION = "_parent_installation"
 MODE_INSTALLATION = "_mode_installation"
 
 _MODE_INHERITED_FIELDS = frozenset({
-    "path", "source", "deps_source", "clone_shadow", "env_setup", "timeout",
-    "make_paraller", "selection", "required_modules", "symlink_name",
+    "path", "source", "clone_shadow", "env_setup", "timeout",
+    "make_parallel", "selection", "required_modules", "symlink_name",
 })
 _MODE_PHYSICAL_FIELDS = frozenset({
-    "source", "deps_source", "clone_shadow", "make_paraller", "symlink_name",
+    "source", "clone_shadow", "make_parallel", "symlink_name",
 })
 
 
@@ -395,14 +395,14 @@ def validate_calculator_modes(
             except (TypeError, ValueError):
                 workers = 0
     pool_map = pools if isinstance(pools, Mapping) else {}
-    global_slots = calculators.get("make_paraller", 1)
+    global_slots = calculators.get("make_parallel", 1)
     for parent_index, parent in enumerate(modules):
         parent_name = str(parent.get("name") or "").strip()
         mode_children = children.get(parent_name, [])
         if not parent_name or mode_children == [parent_name] or not mode_children:
             continue
         raw_slots = pool_map.get(
-            parent_name, parent.get("make_paraller", global_slots),
+            parent_name, parent.get("make_parallel", global_slots),
         )
         try:
             slots = max(1, int(raw_slots or 1))

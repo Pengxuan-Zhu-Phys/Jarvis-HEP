@@ -267,7 +267,7 @@ class SamplerConfigAcceptanceTests(unittest.TestCase):
                     "Bounds": {"num_chains": 2,
                         "num_iters": 5,
                         "dr.steps": 2,
-                        "adapt.enabled": True, "Seed": 1},
+                        "adapt.enabled": True, "seed": 1},
                     "Variables": [
                         {
                             "name": "x",

@@ -7,7 +7,7 @@
     "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString", "description": "V1 layout metadata; modules carry their own path."},
     "Modules": {"type": "array", "items": {"$ref": "#/$defs/module"}},
     "Pools": {"type": "object", "x-jarvis-zone": "closed", "additionalProperties": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}},
-    "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+    "make_parallel": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
     "Archiver": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
     "Cleanup": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}
   },
@@ -38,7 +38,6 @@
         "name": {"$ref": "#/$defs/moduleName"},
         "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
         "source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-        "deps_source": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString", "description": "V1 module dependency source path."},
         "clone_shadow": {"type": "boolean"},
         "required_modules": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}},
         "installation": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/commandList"},
@@ -47,7 +46,7 @@
         "symlink_name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
         "env_setup": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}]}},
         "selection": {"oneOf": [{"type": "string"}, {"type": "boolean"}]},
-        "make_paraller": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+        "make_parallel": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
         "execution": {"$ref": "#/$defs/execution"},
         "modes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/mode"}}
       },
