@@ -30,10 +30,6 @@ _WATCHDOG_KEYS = frozenset(
 _ARCHIVER_KEYS = frozenset(ARCHIVER_DEFAULTS.keys())
 _CLEANUP_KEYS = frozenset(CLEANUP_DEFAULTS.keys())
 _SAMPLE_DIR_KEYS = frozenset(SAMPLE_DIRECTORY_DEFAULTS.keys())
-# V1 archive_* aliases sometimes appear under sample_directory.
-_SAMPLE_DIR_KEYS_WITH_ALIASES = _SAMPLE_DIR_KEYS | frozenset(
-    {"archive_samples", "archive_prune"}
-)
 
 _VALID_ARCHIVER_STRATEGY = frozenset({"move", "copy"})
 
@@ -251,13 +247,6 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
             if sample_dir is not None:
                 issues.extend(_validate_sample_directory(sample_dir, "EnvReqs.V2.sample_directory"))
 
-    # Scan.sample_directory
-    scan = config.get("Scan")
-    if isinstance(scan, Mapping):
-        sd = scan.get("sample_directory")
-        if sd is not None:
-            issues.extend(_validate_sample_directory(sd, "Scan.sample_directory"))
-
     calculators = config.get("Calculators")
     if isinstance(calculators, Mapping):
         archiver = calculators.get("Archiver")
@@ -283,7 +272,7 @@ def _validate_sample_directory(raw: Any, path: str) -> list[ValidationIssue]:
                 f"expected a mapping, got {type(raw).__name__}",
             )
         ]
-    extra = unknown_keys(raw, _SAMPLE_DIR_KEYS_WITH_ALIASES)
+    extra = unknown_keys(raw, _SAMPLE_DIR_KEYS)
     if extra:
         issues.append(
             issue(

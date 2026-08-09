@@ -405,15 +405,6 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         config["EnvReqs"] = resolved_envreqs
     scan_block = config.get("Scan") if isinstance(config.get("Scan"), Mapping) else {}
     scan_block = dict(scan_block)
-    # Apply EnvReqs.V2 sample_directory defaults unless Scan already defines them.
-    sample_directory = v2_settings.get("sample_directory")
-    if isinstance(sample_directory, Mapping):
-        existing = scan_block.get("sample_directory")
-        if isinstance(existing, Mapping):
-            scan_block["sample_directory"] = _deep_merge(sample_directory, existing)
-        else:
-            scan_block["sample_directory"] = deepcopy(sample_directory)
-        config["Scan"] = scan_block
     # Map Cleanup / Archiver defaults into Calculators.* (task YAML wins).
     calculators = config.get("Calculators")
     calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
@@ -466,10 +457,6 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         runtime_payload["force_serial_layers"] = worker_norm["force_serial_layers"]
 
     runtime = normalize_runtime_block(runtime_payload)
-    if isinstance(sample_directory, Mapping):
-        runtime["sample_directory"] = deepcopy(
-            scan_block.get("sample_directory") or sample_directory
-        )
     config["Runtime"] = runtime
     config["task_yaml"] = task_path
     if defaults_path is not None:

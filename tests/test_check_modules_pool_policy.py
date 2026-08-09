@@ -17,11 +17,13 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
         core = Jarvis2Core.__new__(Jarvis2Core)
         core.config = {
             "Runtime": {"workers": 8},
-            "EnvReqs": {"V2": {"workers": 8}},
-            "Scan": {
-                "name": "smoke",
-                "sample_directory": {"pack": True, "enabled": True},
+            "EnvReqs": {
+                "V2": {
+                    "workers": 8,
+                    "sample_directory": {"pack": True, "enabled": True},
+                }
             },
+            "Scan": {"name": "smoke"},
             "Calculators": {
                 "make_paraller": 8,
                 "Pools": {"MicroOMEGAs_Vector": 8},

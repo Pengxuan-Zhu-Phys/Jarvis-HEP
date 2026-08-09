@@ -124,12 +124,20 @@ Jarvis run quickstart.yaml --console-level WARNING
 Jarvis run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
 Jarvis quickstart.yaml               # legacy alias → run
 Jarvis check path/to/check.yaml      # fixed-point calculator smoke
+Jarvis validate path/to/task.yaml    # schema + contract gate
+Jarvis man                           # YAML writing manuals (keys, paths, examples)
+Jarvis man calculator.execution.output --type JSON
+Jarvis man operas                    # Operas.Modules list YAML shape
+Jarvis man yaml.Calculators.Modules.execution
+Jarvis man yaml.EnvReqs.V2
+# List-valued fields use their field name alone; man reports type `list`.
 Jarvis monitor                       # one read-only status snapshot
 Jarvis plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
-Jarvis portal man                    # list Portal formats (same as jportal man)
-Jarvis portal man slha               # format manual
+Jarvis portal man                    # Portal format *runtime* manuals (same as jportal man)
+Jarvis portal man slha               # format runtime manual
 Jarvis portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
-Jarvis operas list                   # list Operas operators
+Jarvis operas list                   # Operas operator catalog
+Jarvis operas info helper.eggbox2d   # operator signature / return shape
 
 # while a scan is running (another terminal), or after a hard kill:
 Jarvis ps                            # running Jarvis* / Jarvis-Redis* processes

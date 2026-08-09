@@ -913,15 +913,6 @@ class Jarvis2Core:
         envreqs["V2"] = v2
         self.config["EnvReqs"] = envreqs
 
-        scan = self.config.get("Scan")
-        scan = dict(scan) if isinstance(scan, Mapping) else {}
-        scan_sd = scan.get("sample_directory")
-        scan_sd = dict(scan_sd) if isinstance(scan_sd, Mapping) else {}
-        scan_sd["pack"] = False
-        scan_sd["enabled"] = False
-        scan["sample_directory"] = scan_sd
-        self.config["Scan"] = scan
-
         # --- Archiver: no bucket tar.gz ---
         calculators = self.config.get("Calculators")
         calculators = dict(calculators) if isinstance(calculators, Mapping) else {}

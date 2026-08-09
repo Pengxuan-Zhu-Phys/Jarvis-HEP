@@ -41,7 +41,7 @@ _GUIDANCE_BY_PREFIX: tuple[tuple[str, str, str | None], ...] = (
     ("Operas.Modules", "Use an Opera module mapping with name and operator.", "Modules:\n  - name: likelihood\n    operator: package.module.function"),
     ("EnvReqs.V2.redis", "Use a Redis mapping with host, port, and db only when overriding defaults.", "redis:\n  host: 127.0.0.1\n  port: 6379\n  db: 0"),
     ("EnvReqs.V2", "Use a mapping and keep only documented V2 runtime settings.", "V2:\n  workers: 4\n  batch_size: 1"),
-    ("Scan.sample_directory", "Use a mapping; numeric bucket settings must be positive integers.", "sample_directory:\n  enabled: true\n  limit: 200\n  width: 6"),
+    ("EnvReqs.V2.sample_directory", "Use the V2 mapping; numeric bucket settings must be positive integers.", "EnvReqs:\n  V2:\n    sample_directory:\n      enabled: true\n      limit: 200\n      width: 6"),
     ("Calculators.Archiver", "Use an Archiver mapping and choose a supported mode.", "Archiver:\n  mode: rolling"),
     ("Calculators.Cleanup", "Use a Cleanup mapping and choose a supported strategy.", "Cleanup:\n  strategy: never"),
 )

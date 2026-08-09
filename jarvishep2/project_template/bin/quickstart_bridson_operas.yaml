@@ -2,7 +2,6 @@
 # Run: Jarvis run bin/quickstart_bridson_operas.yaml
 Scan:
   name: "quickstart_bridson_operas"
-  save_dir: "&J/outputs"
 
 Sampling:
   Method: "Bridson"
@@ -48,7 +47,6 @@ Operas:
     - name: EggBox
       operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"
       call_mode: call
-      required_modules: []
       input:
         - {name: x, expression: "x"}
         - {name: y, expression: "y"}

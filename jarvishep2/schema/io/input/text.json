@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/io/input/text.json",
   "type": "object",
-  "x-jarvis-example": "name: input\npath: input.txt\ntype: Text\ncontent: '{{ x }}'",
+  "x-jarvis-example": "name: input\npath: input.txt\ntype: Text",
   "required": [
     "name",
     "path",
@@ -24,9 +24,6 @@
     "save": {
       "type": "boolean",
       "description": "Keep the file after the sample finishes when true."
-    },
-    "content": {
-      "type": "string"
     }
   },
   "additionalProperties": true,

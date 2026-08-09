@@ -58,13 +58,17 @@ class PortalV2SlhaTests(unittest.TestCase):
                         "name": "card",
                         "type": "SLHA",
                         "path": path,
-                        "operations": [
+                        "actions": [
                             {
-                                "op": "set",
-                                "name": "mH",
-                                "block": "MASS",
-                                "entry": 25,
-                                "value": 130.0,
+                                "type": "SLHA",
+                                "variables": [
+                                    {
+                                        "name": "mH",
+                                        "block": "MASS",
+                                        "entry": 25,
+                                        "value": 130.0,
+                                    }
+                                ],
                             }
                         ],
                     },

@@ -34,6 +34,23 @@ CSV operas smoke:
 Jarvis run bin/quickstart_csv_operas.yaml
 ```
 
+### Look up YAML while editing
+
+`Jarvis man` documents **task-card YAML** (keys, paths, copy-paste examples that should validate).
+List-valued YAML fields are queried by field name alone; the Keys table reports `list`.
+For Portal adapter runtime or Operas operator catalogs, use their CLIs:
+
+```bash
+Jarvis man yaml.Calculators.Modules.execution
+Jarvis man calculator.execution.output --type JSON
+Jarvis man operas
+Jarvis man example.calculator
+Jarvis man yaml.EnvReqs.V2
+Jarvis portal man JSON          # runtime adapter behaviour
+Jarvis operas info helper.eggbox2d
+Jarvis validate bin/quickstart_bridson_operas.yaml
+```
+
 ### Nested sampling templates
 
 Under `bin/sampling/` (copy the `Sampling:` block into your card):

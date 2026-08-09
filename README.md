@@ -40,6 +40,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | Process titles | `Jarvis:<scan>`, `Jarvis-Worker-N`, `Jarvis-Archiver`, `Jarvis-Redis:<scan>` |
 | Component logs | `logs/<scan>/core.log`, `factory.log`, `sampler.log`, `archiver.log`, `datarecorder.log`, `worker-NN.log` |
 | CLI version | `Jarvis -v` / `--version` → logo + Author + Version |
+| YAML manuals | `Jarvis man` (task-card keys/paths/examples); Portal/Operas runtime via `Jarvis portal man` / `Jarvis operas info` |
 | Citations | `Jarvis --refs` → framework and bundled sampler references |
 | Process inspect | `Jarvis ps` / `Jarvis kill` (interactive confirm; `--yes` for scripts) |
 | Console | default INFO; `--console-level`; `--silence` / `-s` |

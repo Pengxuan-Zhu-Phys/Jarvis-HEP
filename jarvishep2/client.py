@@ -78,7 +78,7 @@ _COMMAND_HELP_PANELS = {
     "run": "Scan workflow",
     "check": "Scan workflow",
     "validate": "Scan workflow",
-    "man": "Scan workflow",
+    "man": "YAML authoring",
     "convert": "Data export",
     "gen-plot-yaml": "Plots",
     "plot": "Plots",
@@ -91,8 +91,8 @@ _COMMAND_HELP_PANELS = {
 }
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
+    "man": 5,
     "validate": 10,
-    "man": 15,
     "check": 20,
     "run": 30,
     "convert": 40,
@@ -534,7 +534,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "man",
-        help="YAML writing manuals (domains: yaml sampler calculator operas tokens example)",
+        help=(
+            "YAML writing manuals; coding agents: use --json for structured keys, "
+            "requirements, examples, and actions"
+        ),
         add_help=False,
     )
 

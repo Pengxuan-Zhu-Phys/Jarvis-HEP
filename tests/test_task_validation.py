@@ -44,6 +44,7 @@ def _minimal_dynesty_config(**overrides) -> dict:
             },
         },
         "EnvReqs": {"V2": {"workers": 2, "batch_size": 16}},
+        "Calculators": {},
     }
     cfg = deepcopy(base)
     for key, value in overrides.items():
@@ -102,6 +103,8 @@ class TaskValidationKernelTests(unittest.TestCase):
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
+                    "EnvReqs: {}\n"
+                    "Calculators: {}\n"
                 )
             report = validate_task_config(load_task_yaml(path))
         self.assertFalse([issue for issue in report.errors() if issue.code == "JV2-ENC-001"])
@@ -142,10 +145,13 @@ class TaskValidationKernelTests(unittest.TestCase):
                     item for item in validate_task_config(cfg).errors()
                     if item.code == "JV2-SCH-001"
                 ]
-                self.assertEqual(len(schema), 1)
-                self.assertEqual(schema[0].path, "$")
-                self.assertIn(typo, schema[0].message)
-                self.assertIn(f"Did you mean {canonical!r}?", schema[0].suggestion or "")
+                matching = [
+                    item for item in schema
+                    if typo in item.message
+                    and f"Did you mean {canonical!r}?" in (item.suggestion or "")
+                ]
+                self.assertEqual(len(matching), 1)
+                self.assertEqual(matching[0].path, "$")
 
     def test_libdeps_is_a_declared_closed_top_level_block(self) -> None:
         cfg = _minimal_dynesty_config()
@@ -357,6 +363,8 @@ class TaskValidationKernelTests(unittest.TestCase):
                 "Method": "NotARealMethod",
                 "data": "points.csv",
             },
+            "EnvReqs": {},
+            "Calculators": {},
         }
         # Leftover invalid Method is OK when CSV path is configured.
         report = validate_task_config(cfg, check_modules=True)
@@ -369,6 +377,8 @@ class TaskValidationKernelTests(unittest.TestCase):
         cfg = {
             "Scan": {"name": "cm"},
             "Sampling": {"mode": "check_modules"},
+            "EnvReqs": {},
+            "Calculators": {},
         }
         report = validate_task_config(cfg)
         self.assertTrue(report.ok, [i.format_line() for i in report.errors()])
@@ -500,6 +510,8 @@ class TaskValidationCliTests(unittest.TestCase):
                     "        parameters: {min: 0.0, max: 1.0}\n"
                     "  Bounds:\n"
                     "    nlive: 20\n"
+                    "EnvReqs: {}\n"
+                    "Calculators: {}\n"
                 )
             code = dispatch_validate(path, as_json=True)
             self.assertEqual(code, 0)
@@ -573,6 +585,8 @@ class TaskValidationCliTests(unittest.TestCase):
                     "  Variables:\n    - name: x\n"
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
+                    "EnvReqs: {}\n"
+                    "Calculators: {}\n"
                 )
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
@@ -593,6 +607,7 @@ class TaskValidationCliTests(unittest.TestCase):
                     "      distribution:\n        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
                     "Calculater:\n  Modules: []\n"
+                    "EnvReqs: {}\n"
                 )
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
@@ -653,6 +668,8 @@ class TaskValidationCliTests(unittest.TestCase):
                     "      distribution:\n"
                     "        type: Flat\n"
                     "        parameters: {min: 0.0, max: 1.0}\n"
+                    "EnvReqs: {}\n"
+                    "Calculators: {}\n"
                 )
             code = main(["validate", path, "--json"])
             self.assertEqual(code, 0)
@@ -706,6 +723,10 @@ class SamplingTemplateGateTests(unittest.TestCase):
             cfg = {
                 "Scan": {"name": "tpl"},
                 "Sampling": fragment.get("Sampling") or fragment,
+                "Calculators": {},
+                "Operas": {},
+                "EnvReqs": {},
+                "LibDeps": {},
             }
             report = validate_task_config(cfg)
             self.assertTrue(

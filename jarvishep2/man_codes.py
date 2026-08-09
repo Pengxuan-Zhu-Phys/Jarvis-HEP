@@ -148,19 +148,21 @@ def man_command_for(code: str, path: str | None = None) -> str:
         p = str(path or "").strip()
         if p:
             if p.startswith("$."):
-                return f"Run: Jarvis man yaml {p}"
-            return f"Run: Jarvis man yaml $.{p}" if not p.startswith("$") else f"Run: Jarvis man yaml {p}"
+                p = p[2:]
+            elif p.startswith("$"):
+                p = p[1:].lstrip(".")
+            return f"Run: Jarvis man yaml.{p}"
         return "Run: Jarvis man"
     kind = entry.get("kind")
     if kind == "sampler":
         method = entry.get("method")
         if method:
-            return f"Run: Jarvis man sampler {method}"
+            return f"Run: Jarvis man sampler.{method}"
         return "Run: Jarvis man sampler"
     if kind == "calculator":
         topic = entry.get("topic")
         if topic:
-            return f"Run: Jarvis man calculator {topic}"
+            return f"Run: Jarvis man calculator.{topic}"
         return "Run: Jarvis man calculator"
     if kind == "operas":
         return "Run: Jarvis man operas"
@@ -170,36 +172,39 @@ def man_command_for(code: str, path: str | None = None) -> str:
         p = entry.get("path") or path
         if p:
             p = str(p)
-            if not p.startswith("$"):
-                p = f"$.{p}" if not p.startswith("$.") else p
-            # strip leading $. for man yaml path tokens (accepts both)
-            return f"Run: Jarvis man yaml {p}"
+            if p.startswith("$."):
+                p = p[2:]
+            elif p.startswith("$"):
+                p = p[1:].lstrip(".")
+            return f"Run: Jarvis man yaml.{p}"
         if path:
             p = str(path)
             if p.startswith("$."):
-                return f"Run: Jarvis man yaml {p}"
-            return f"Run: Jarvis man yaml $.{p.lstrip('$').lstrip('.')}"
+                p = p[2:]
+            elif p.startswith("$"):
+                p = p[1:].lstrip(".")
+            return f"Run: Jarvis man yaml.{p}"
         return "Run: Jarvis man yaml"
     return "Run: Jarvis man"
 
 
 def resolve_tokens_for_code(code: str, path: str | None = None) -> list[str]:
-    """Argv tokens for ``resolve_man_request`` / ``dispatch_man``."""
+    """Argv tokens for ``resolve_man_request`` / ``dispatch_man`` (dotted topic)."""
     entry = man_target_for_code(code)
     if entry is None:
         if path:
             p = str(path)
             if p.startswith("$."):
                 p = p[2:]
-            return ["yaml", p]
+            return [f"yaml.{p}"]
         return []
     kind = entry.get("kind")
     if kind == "sampler":
         method = entry.get("method")
-        return ["sampler", method] if method else ["sampler"]
+        return [f"sampler.{method}"] if method else ["sampler"]
     if kind == "calculator":
         topic = entry.get("topic")
-        return ["calculator", topic] if topic else ["calculator"]
+        return [f"calculator.{topic}"] if topic else ["calculator"]
     if kind == "operas":
         return ["operas"]
     if kind == "tokens":
@@ -211,7 +216,7 @@ def resolve_tokens_for_code(code: str, path: str | None = None) -> list[str]:
         p = str(p)
         if p.startswith("$."):
             p = p[2:]
-        return ["yaml", p]
+        return [f"yaml.{p}"]
     return []
 
 

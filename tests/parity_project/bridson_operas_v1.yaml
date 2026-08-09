@@ -1,7 +1,6 @@
 # V1-shaped Eggbox/Operas compatibility smoke: intentionally no Runtime block.
 Scan:
   name: v1-eggbox-bridson-operas
-  save_dir: "&J/outputs"
 
 Sampling:
   Method: Bridson
@@ -39,3 +38,5 @@ Operas:
         - {name: y, expression: "yy * Pi"}
       output:
         - {name: z, entry: z}
+
+EnvReqs: {}

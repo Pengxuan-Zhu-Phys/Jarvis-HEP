@@ -76,6 +76,7 @@ def _card() -> dict:
                 }
             ]
         },
+        "EnvReqs": {},
     }
 
 
@@ -85,6 +86,54 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertTrue(MANIFEST_PATH.is_file())
         self.assertEqual(list(task_card_validator().iter_errors(_card())), [])
         self.assertEqual(schema_catalog_lint_errors(), [])
+
+    def test_scan_name_is_required(self) -> None:
+        card = _card()
+        del card["Scan"]["name"]
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-SCH-001"
+                and item.path == "$.Scan"
+                and "required" in item.message
+                for item in report.errors()
+            )
+        )
+
+    def test_calculator_or_operas_block_is_required(self) -> None:
+        card = _card()
+        del card["Calculators"]
+        del card["Operas"]
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(item.code == "JV2-SCH-001" and item.path == "$" for item in report.errors())
+        )
+
+    def test_scan_save_dir_is_not_a_v2_field(self) -> None:
+        card = _card()
+        card["Scan"]["save_dir"] = "outputs/custom"
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-SCH-001"
+                and item.path == "$.Scan"
+                and "save_dir" in item.message
+                for item in report.errors()
+            )
+        )
+
+    def test_scan_sample_directory_is_not_a_v2_field(self) -> None:
+        card = _card()
+        card["Scan"]["sample_directory"] = {"enabled": True, "limit": 10}
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-SCH-001"
+                and item.path == "$.Scan"
+                and "sample_directory" in item.message
+                for item in report.errors()
+            )
+        )
 
     def test_manifest_dispatches_sampling_and_io_schemas(self) -> None:
         card = _card()

@@ -31,7 +31,7 @@ SAMPLE_DIRECTORY_DEFAULTS: dict[str, Any] = {
 
 
 def normalize_sample_directory(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize Scan/EnvReqs sample_directory settings."""
+    """Normalize the EnvReqs.V2.sample_directory settings."""
     cfg = dict(SAMPLE_DIRECTORY_DEFAULTS)
     if not isinstance(raw, Mapping):
         return cfg

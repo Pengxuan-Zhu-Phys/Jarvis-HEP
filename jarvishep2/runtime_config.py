@@ -337,15 +337,9 @@ def handoff_to_staging_enabled(config: Mapping[str, Any] | None) -> bool:
 
 
 def get_sample_directory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Return normalized SAMPLE bucket settings (Scan or EnvReqs.V2)."""
+    """Return normalized SAMPLE bucket settings from EnvReqs.V2 only."""
     if not isinstance(config, Mapping):
         return normalize_sample_directory(None)
-    scan = config.get("Scan") if isinstance(config.get("Scan"), Mapping) else {}
-    if isinstance(scan, Mapping) and isinstance(scan.get("sample_directory"), Mapping):
-        return normalize_sample_directory(scan.get("sample_directory"))
-    runtime = config.get("Runtime") if isinstance(config.get("Runtime"), Mapping) else {}
-    if isinstance(runtime, Mapping) and isinstance(runtime.get("sample_directory"), Mapping):
-        return normalize_sample_directory(runtime.get("sample_directory"))
     envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
     v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
     if isinstance(v2, Mapping) and isinstance(v2.get("sample_directory"), Mapping):
@@ -358,9 +352,11 @@ def pack_buckets_enabled(config: Mapping[str, Any] | None) -> bool:
     if not bool(sample_dir.get("enabled", True)):
         return False
     archiver = get_archiver_config(config)
-    if "pack_buckets" in archiver:
-        return bool(archiver.get("pack_buckets"))
-    return bool(sample_dir.get("pack", True))
+    # Both V2 gates must allow packing: sample_directory owns the layout policy,
+    # while archiver owns whether the archiver performs the pack step.
+    return bool(sample_dir.get("pack", True)) and bool(
+        archiver.get("pack_buckets", True)
+    )
 
 
 def get_delete_method(config: Mapping[str, Any] | None) -> str:

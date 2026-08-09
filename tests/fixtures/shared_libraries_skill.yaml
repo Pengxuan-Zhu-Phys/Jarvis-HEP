@@ -24,3 +24,6 @@ LibDeps:
         commands:
           - "mkdir -p ${path}"
           - "true"
+
+EnvReqs: {}
+Calculators: {}

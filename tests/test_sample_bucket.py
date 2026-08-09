@@ -63,11 +63,32 @@ class SampleBucketDefaultsTests(unittest.TestCase):
                     "Sampling:\n  Method: Random\n"
                 )
             config = load_task_yaml(task_path)
-        self.assertEqual(config["Scan"]["sample_directory"]["limit"], 3)
-        self.assertEqual(config["Scan"]["sample_directory"]["width"], 4)
+        self.assertEqual(config["EnvReqs"]["V2"]["sample_directory"]["limit"], 3)
+        self.assertEqual(config["EnvReqs"]["V2"]["sample_directory"]["width"], 4)
+        self.assertNotIn("sample_directory", config["Scan"])
         self.assertEqual(config["Calculators"]["Cleanup"]["strategy"], "direct")
         self.assertEqual(config["Calculators"]["Archiver"]["handoff"], "direct")
         self.assertTrue(config["Calculators"]["Archiver"]["pack_buckets"])
+
+    def test_envreqs_v2_is_the_only_sample_directory_source(self) -> None:
+        config = {
+            "Scan": {
+                "name": "ignored-scan-setting",
+                "sample_directory": {"limit": 1},
+            },
+            "EnvReqs": {
+                "V2": {"sample_directory": {"limit": 9, "width": 4}},
+            },
+        }
+        sample_dir = get_sample_directory_config(config)
+        self.assertEqual(sample_dir["limit"], 9)
+        self.assertEqual(sample_dir["width"], 4)
+
+    def test_envreqs_v2_sample_pack_gate_is_effective(self) -> None:
+        config = {
+            "EnvReqs": {"V2": {"sample_directory": {"pack": False}}},
+        }
+        self.assertFalse(pack_buckets_enabled(config))
 
 
 class SampleBucketRedisTests(unittest.TestCase):
