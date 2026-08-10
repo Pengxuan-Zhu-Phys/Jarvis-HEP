@@ -16,10 +16,11 @@ When CLAUDE.md conflicts with code, trust the code. When docs/ conflicts with co
 
 Jarvis-HEP is a YAML-driven orchestration framework for likelihood-based High Energy Physics (HEP) parameter space scans. It coordinates expensive external calculators, explores parameter spaces with various sampling algorithms, and persists structured outputs in HDF5/CSV format.
 
-- **Version**: 1.6.11
+- **Version**: 1.7.5 (frozen)
 - **Python**: 3.10+
 - **License**: MIT
-- **Entry point**: `Jarvis` CLI → `jarvishep.client:main`
+- **CLI status**: **retired** — the `Jarvis` console script is owned by Jarvis-HEP V2 (`jarvishep2`). This package no longer installs a CLI entry point.
+- **Library entry**: `jarvishep.client:main` remains importable for archival/library use only
 
 ---
 

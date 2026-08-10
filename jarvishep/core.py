@@ -1115,8 +1115,12 @@ class Core(Base):
         if isinstance(sampler_info, dict):
             sampler_sample = sampler_info.get("sample")
             if isinstance(sampler_sample, dict):
-                return deepcopy(sampler_sample)
-        return deepcopy(self.info['sample'])
+                sample_config = deepcopy(sampler_sample)
+                sample_config["sample_console"] = True
+                return sample_config
+        sample_config = deepcopy(self.info['sample'])
+        sample_config["sample_console"] = True
+        return sample_config
 
     def _check_modules_uses_nuisance(self, sample):
         return bool(

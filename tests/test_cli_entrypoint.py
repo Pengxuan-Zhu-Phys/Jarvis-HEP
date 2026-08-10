@@ -127,12 +127,23 @@ class CliEntrypointTests(unittest.TestCase):
 
         self.assertTrue(callable(main))
 
-    def test_pyproject_jarvis_entrypoint(self):
+    def test_pyproject_jarvis_entrypoint_retired(self):
+        """V1 no longer owns the `Jarvis` console script (transferred to jarvishep2)."""
         pyproject = os.path.join(PROJECT_ROOT, "pyproject.toml")
         with open(pyproject, "r", encoding="utf-8") as f1:
             content = f1.read()
-        self.assertIn('[project.scripts]', content)
-        self.assertIn('Jarvis = "jarvishep.client:main"', content)
+        # Active entry-point ownership must not reappear under V1.
+        self.assertNotRegex(
+            content,
+            r'(?m)^\[project\.scripts\]\s*$',
+            msg="V1 must not declare [project.scripts]; Jarvis is owned by jarvishep2",
+        )
+        self.assertNotRegex(
+            content,
+            r'(?m)^Jarvis\s*=\s*"jarvishep\.client:main"\s*$',
+            msg="V1 must not install Jarvis console script",
+        )
+        self.assertIn("CLI retired", content)
 
     def test_help_contract_parser_excludes_removed_flags(self):
         parser = self._build_argparser()

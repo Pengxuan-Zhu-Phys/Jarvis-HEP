@@ -47,7 +47,15 @@ class _FakeRelayModule:
         self.name = "CalcB"
         self.type = "Calculator"
         self.required_modules = []
-        self.input = ["y"]
+        self.input = [
+            {
+                "name": "upstream_file",
+                "type": "SLHA",
+                "path": "/tmp/upstream.slha",
+                "variables": {"output_file": {"name": "output_file"}},
+            },
+            "y",
+        ]
         self.output = []
         self.inputs = {"y": None}
         self.outputs = {"z": None}
@@ -69,6 +77,13 @@ class _FakeSelectionModule:
 
 
 class FlowchartSemanticExportTests(unittest.TestCase):
+    def test_file_output_name_is_not_an_observable_by_default(self):
+        names = Workflow._flowchart_output_names(
+            {"name": "result_file", "variables": [{"name": "mass"}]}
+        )
+
+        self.assertEqual(names, ["mass"])
+
     def test_export_writes_typed_graph_without_renderer_geometry(self):
         workflow = Workflow()
 
@@ -142,6 +157,22 @@ class FlowchartSemanticExportTests(unittest.TestCase):
             any(
                 edge["source"]["node"] == "var::x"
                 and edge["target"]["node"] == "file::CalcA::input::input_file"
+                and edge["role"] == "fileflow"
+                for edge in edges
+            )
+        )
+        self.assertTrue(
+            any(
+                edge["source"]["node"] == "file::CalcA::output::output_file"
+                and edge["target"]["node"] == "var::output_file"
+                and edge["role"] == "fileflow"
+                for edge in edges
+            )
+        )
+        self.assertTrue(
+            any(
+                edge["source"]["node"] == "var::output_file"
+                and edge["target"]["node"] == "file::CalcB::input::upstream_file"
                 and edge["role"] == "fileflow"
                 for edge in edges
             )

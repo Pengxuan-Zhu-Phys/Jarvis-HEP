@@ -14,14 +14,15 @@ from uuid import uuid4
 from jarvishep.inner_func import update_const, update_funcs
 
 
-def _make_lazy_sample_logger(*, module: str) -> BufferedSampleLogger:
+def _make_lazy_sample_logger(*, module: str, console: bool = False) -> BufferedSampleLogger:
     return BufferedSampleLogger(
         extra={
             "module": module,
             "to_console": True,
             "Jarvis": True,
             "_log_domain": "jarvis_hep",
-        }
+        },
+        console=console,
     )
 
 
@@ -119,7 +120,10 @@ class Sample(Base):
         sample_root = self._resolve_sample_root(self.info)
         logger_name = f"Sample@{self.uuid}"
 
-        lazy_logger = _make_lazy_sample_logger(module=logger_name)
+        lazy_logger = _make_lazy_sample_logger(
+            module=logger_name,
+            console=bool(self.info.get("sample_console", False)),
+        )
         self.info.update({
             "uuid": self.uuid,
             "params": self.params,
@@ -198,6 +202,7 @@ class Sample(Base):
                 "Jarvis": True,
                 "_log_domain": "jarvis_hep",
             },
+            console=bool(self.info.get("sample_console", False)),
         )
         if announce_creation:
             self.logger.info("Sample created into the Disk")
@@ -208,7 +213,10 @@ class Sample(Base):
         if self._materialized:
             self._open_sample_logger()
         else:
-            lazy_logger = _make_lazy_sample_logger(module=self.info.get("logger_name", f"Sample@{self.uuid}"))
+            lazy_logger = _make_lazy_sample_logger(
+                module=self.info.get("logger_name", f"Sample@{self.uuid}"),
+                console=bool(self.info.get("sample_console", False)),
+            )
             self._sync_logger_handles(lazy_logger)
     
     def custom_format(self, record):

@@ -3,6 +3,7 @@ import asyncio
 import os
 import signal
 import time
+from types import SimpleNamespace
 
 import sympy as sp
 from loguru import logger
@@ -292,23 +293,13 @@ class CalculatorModule(Module):
             await self._terminate_process_with_fallback(process)
             rc = await process.wait()
         stdout_bytes, stderr_bytes = await asyncio.gather(out_task, err_task)
-        if self.logger is not None:
-            timeout_tag = " timeout=1" if timed_out else ""
-            done_message = "Command done [{}#{:05}] rc={} out={}B err={}B".format(
-                stage,
-                command_index,
-                rc,
-                int(stdout_bytes),
-                int(stderr_bytes),
-            ) + timeout_tag
-            if stage == "install":
-                self.logger.bind(raw=True).info(done_message)
-            else:
-                self.logger.info(done_message)
-        if int(rc) != 0 or timed_out:
-            raise RuntimeError(
-                f"Command failed [{stage}#{command_index:05}] rc={rc} timeout={timed_out} cmd={command['cmd']}"
-            )
+        return SimpleNamespace(
+            returncode=int(rc),
+            timed_out=bool(timed_out),
+            stdout_bytes=int(stdout_bytes),
+            stderr_bytes=int(stderr_bytes),
+            ok=int(rc) == 0 and not bool(timed_out),
+        )
 
 
     async def install(self):
@@ -321,10 +312,6 @@ class CalculatorModule(Module):
             else:
                 command = dict(cmd)
 
-            if self.logger is not None:
-                self.logger.info(
-                    f" Run command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> "
-                )
             command_index = self._next_command_index()
             await self.run_command(command=command, stage="install", command_index=command_index)
         
@@ -332,6 +319,63 @@ class CalculatorModule(Module):
         del self.handlers['install']
         self.logger = None
         self.is_installed = True
+
+    def _command_stage_display(self, stage):
+        return {
+            "install": "installation",
+            "initialize": "initialize",
+            "execution": "execution",
+        }.get(stage, stage)
+
+    def _format_command_header_log(
+        self,
+        command,
+        stage,
+    ):
+        return (
+            f" Run {self._command_stage_display(stage)} command -> \n"
+            f"\t{command['cmd']} \n"
+            f" in path -> \n"
+            f"\t{command['cwd']} \n"
+            f" Screen output -> \n"
+        )
+
+    def _format_command_summary_raw(
+        self,
+        stage,
+        command_index,
+        returncode,
+        duration_sec,
+        stdout_bytes,
+        stderr_bytes,
+        timed_out=False,
+    ):
+        timeout_tag = " \t timeout -> 1" if timed_out else ""
+        return (
+            f" Command Summary -> [{stage}#{command_index:05}] \n"
+            f"\t rc -> {int(returncode)} \t dur -> {float(duration_sec):.3f}s "
+            f"\tout -> {int(stdout_bytes)}B \terr -> {int(stderr_bytes)}B"
+            f"{timeout_tag}"
+        )
+
+    def _log_command_header(self, command, stage):
+        if self.logger is None:
+            return
+        self.logger.info(self._format_command_header_log(command, stage))
+
+    def _log_command_summary_raw(self, stage, command_index, result, duration_sec):
+        if self.logger is None:
+            return
+        message = self._format_command_summary_raw(
+            stage=stage,
+            command_index=command_index,
+            returncode=getattr(result, "returncode", 0),
+            duration_sec=duration_sec,
+            stdout_bytes=getattr(result, "stdout_bytes", 0),
+            stderr_bytes=getattr(result, "stderr_bytes", 0),
+            timed_out=getattr(result, "timed_out", False),
+        )
+        self.logger.bind(raw=True).info(message)
 
     async def run_command(self, command, stage="execution", command_index=0, timeout_sec=None):
         cmd_text = self._resolve_sample_runtime_tokens(
@@ -361,14 +405,30 @@ class CalculatorModule(Module):
             # The shared subprocess scheduler logs to its own domain, so keeping install
             # stage on the local drain path preserves the expected log file routing.
             if stage == "install" or self.subprocess_scheduler is None:
-                await self._run_command_local(
+                self._log_command_header(command, stage)
+                result = await self._run_command_local(
                     command,
                     stage=stage,
                     command_index=command_index,
                     timeout_sec=timeout_sec,
                 )
                 duration_sec = max(0.0, time.monotonic() - started_monotonic)
-                ok = True
+                if result is None:
+                    result = SimpleNamespace(
+                        returncode=0,
+                        timed_out=False,
+                        stdout_bytes=0,
+                        stderr_bytes=0,
+                        ok=True,
+                    )
+                timed_out = bool(getattr(result, "timed_out", False))
+                ok = bool(getattr(result, "ok", int(getattr(result, "returncode", 0)) == 0 and not timed_out))
+                self._log_command_summary_raw(stage, command_index, result, duration_sec)
+                if not ok:
+                    raise RuntimeError(
+                        f"Command failed [{stage}#{command_index:05}] "
+                        f"rc={getattr(result, 'returncode', 0)} timeout={timed_out} cmd={command['cmd']}"
+                    )
                 return
 
             task_id = f"{self.name}-{self.PackID or 'NA'}-{stage}-{command_index:05}"
@@ -388,6 +448,8 @@ class CalculatorModule(Module):
                     "command_index": int(command_index),
                     "sample_uuid": self.sample_info.get("uuid") if isinstance(self.sample_info, dict) else None,
                     "cwd": command.get("cwd"),
+                    "command_log_to_stream": True,
+                    "emit_command_summary": True,
                 },
             )
             try:
@@ -403,20 +465,6 @@ class CalculatorModule(Module):
 
             duration_sec = float(result.duration_sec)
             timed_out = bool(result.timed_out)
-
-            if self.logger is not None:
-                timeout_tag = " timeout=1" if bool(result.timed_out) else ""
-                self.logger.info(
-                    "Command done [{}#{:05}] rc={} dur={:.3f}s out={}B err={}B{}".format(
-                        stage,
-                        command_index,
-                        result.returncode,
-                        float(result.duration_sec),
-                        int(result.stdout_bytes),
-                        int(result.stderr_bytes),
-                        timeout_tag,
-                    )
-                )
             if not result.ok:
                 raise RuntimeError(
                     "Command failed [{}#{:05}] rc={} timeout={} cmd={}".format(
@@ -445,10 +493,6 @@ class CalculatorModule(Module):
             else:
                 command = dict(command)
 
-            if self.logger is not None:
-                self.logger.info(
-                    f" Run initialize command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> \n"
-                )
             command_index = self._next_command_index()
             await self.run_command(command=command, stage="initialize", command_index=command_index)
 
@@ -487,10 +531,6 @@ class CalculatorModule(Module):
 
             command_timeout = self._remaining_execution_timeout(deadline)
 
-            if self.logger is not None:
-                self.logger.info(
-                    f" Run execution command -> \n\t{command['cmd']} \n in path -> \n\t{command['cwd']} \n Screen output -> "
-                )
             command_index = self._next_command_index()
             await self.run_command(
                 command=command,

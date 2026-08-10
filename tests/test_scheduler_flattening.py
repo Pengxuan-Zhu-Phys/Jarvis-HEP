@@ -6,6 +6,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -154,29 +155,30 @@ class SchedulerFlatteningUnitTests(unittest.TestCase):
                 instance.installation_event.set()
             return instance
 
-        module = CalculatorModule(
-            "DemoCalc",
-            {
-                "modes": False,
-                "required_modules": [],
-                "clone_shadow": False,
-                "installation": [],
-                "initialization": [],
-                "execution": {"commands": [], "input": [], "output": []},
-                "path": "/tmp/demo",
-            },
-        )
-        pool = ModulePool(module, max_workers=2)
-        pool.set_logger()
-        pool.set_funcs({})
+        with tempfile.TemporaryDirectory(prefix="jarvis-demo-calc-") as tmp_dir:
+            module = CalculatorModule(
+                "DemoCalc",
+                {
+                    "modes": False,
+                    "required_modules": [],
+                    "clone_shadow": False,
+                    "installation": [],
+                    "initialization": [],
+                    "execution": {"commands": [], "input": [], "output": []},
+                    "path": os.path.join(tmp_dir, "@PackID"),
+                },
+            )
+            pool = ModulePool(module, max_workers=2)
+            pool.set_logger()
+            pool.set_funcs({})
 
-        with mock.patch.object(ModulePool, "install_instance", side_effect=_record_install):
-            with mock.patch.object(
-                CalculatorModule,
-                "execute",
-                return_value={"x": 1.0},
-            ):
-                pool.execute({"x": 1.0}, {"uuid": "install-thread", "logger": _NoopLogger()})
+            with mock.patch.object(ModulePool, "install_instance", side_effect=_record_install):
+                with mock.patch.object(
+                    CalculatorModule,
+                    "execute",
+                    return_value={"x": 1.0},
+                ):
+                    pool.execute({"x": 1.0}, {"uuid": "install-thread", "logger": _NoopLogger()})
 
         self.assertEqual(len(install_threads), 1)
         self.assertNotIn("ThreadPoolExecutor", install_threads[0])

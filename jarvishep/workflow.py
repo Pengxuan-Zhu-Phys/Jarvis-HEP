@@ -383,6 +383,13 @@ class Workflow(Base):
         edges = []
         edge_keys = set()
         variable_nodes = {}
+        file_input_names = {
+            source_name
+            for module in self.modules.values()
+            for spec in self._flowchart_module_specs(module)["inputs"]
+            if spec["kind"] == "file"
+            for source_name in spec["source_names"]
+        }
 
         def ensure_variable_node(variable_name, layer, role="observable", metadata=None):
             node_id = f"var::{variable_name}"
@@ -657,7 +664,10 @@ class Workflow(Base):
                             "fileflow",
                             metadata={"module": module_name, "output": spec["id"], "direction": "output"},
                         )
-                        for target_name in spec["produced_names"]:
+                        produced_names = list(spec["produced_names"])
+                        if spec["id"] in file_input_names:
+                            produced_names.append(spec["id"])
+                        for target_name in self._flowchart_unique_names(produced_names):
                             target_node = get_variable_node(
                                 target_name,
                                 layer_id,

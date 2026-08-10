@@ -180,21 +180,26 @@ class ModulePool:
             # Reserve the instance immediately to avoid double-rent races.
             instance.is_busy = True
 
-        if install_now:
-            self.install_instance(instance)
-        elif not instance.is_installed:
-            # Another worker is installing this instance; wait for completion.
-            instance.installation_event.wait()
-            if not instance.is_installed:
-                with self._inst_lock:
-                    instance.is_busy = False
-                raise RuntimeError(
-                    f"Installation failed for Module {self.name} instance {getattr(instance, 'PackID', 'UNKNOWN')}"
-                )
-            # Only now persist installation state (to avoid reloading half-installed instances)
-            self.update_instances_info_file()
-
         try:
+            if install_now:
+                self.install_instance(instance)
+                if not instance.is_installed:
+                    raise RuntimeError(
+                        f"Installation failed for Module {self.name} instance {getattr(instance, 'PackID', 'UNKNOWN')}"
+                    )
+                # Persist first-time installs before execution so the next
+                # process can reuse the successfully installed PackID.
+                self.update_instances_info_file()
+            elif not instance.is_installed:
+                # Another worker is installing this instance; wait for completion.
+                instance.installation_event.wait()
+                if not instance.is_installed:
+                    raise RuntimeError(
+                        f"Installation failed for Module {self.name} instance {getattr(instance, 'PackID', 'UNKNOWN')}"
+                    )
+                # Only now persist installation state (to avoid reloading half-installed instances)
+                self.update_instances_info_file()
+
             self._maybe_call(instance, "set_subprocess_scheduler", self._subprocess_scheduler)
             self._maybe_call(instance, "set_io_manager", self._io_manager)
             self._maybe_call(instance, "set_run_summary_collector", self._run_summary_collector)

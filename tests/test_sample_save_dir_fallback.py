@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from io import StringIO
 from datetime import datetime
 
 
@@ -102,6 +103,49 @@ class SampleSaveDirFallbackTests(unittest.TestCase):
                         "warn"
                     ),
                 )
+
+    def test_sample_logger_console_is_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "Sample_running.log")
+            stream = StringIO()
+            logger = SampleLogger.open(
+                log_path,
+                module="Sample@test-uuid",
+                console_stream=stream,
+            )
+            logger.info("file only")
+            logger.close()
+
+            self.assertEqual(stream.getvalue(), "")
+            with open(log_path, "r", encoding="utf-8") as handle:
+                self.assertIn("file only", handle.read())
+
+    def test_sample_logger_console_writes_without_loguru(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "Sample_running.log")
+            stream = StringIO()
+            fixed_dt = datetime(2026, 1, 2, 3, 4, 5, 678000)
+            logger = SampleLogger.open(
+                log_path,
+                module="Sample@test-uuid",
+                time_provider=lambda: fixed_dt,
+                console=True,
+                console_stream=stream,
+            )
+
+            logger.info("header block")
+            logger.bind(raw=True).info("raw line")
+            logger.close()
+
+            self.assertEqual(
+                stream.getvalue(),
+                (
+                    "\n·•· Sample@test-uuid \n"
+                    "\t-> 01-02 03:04:05.678 - [INFO] >>> \n"
+                    "header block\n"
+                    "raw line\n"
+                ),
+            )
 
     def test_sample_logger_inserts_blank_line_between_formatted_blocks(self):
         with tempfile.TemporaryDirectory() as tmpdir:

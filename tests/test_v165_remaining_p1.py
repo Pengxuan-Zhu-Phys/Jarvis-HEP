@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -17,6 +19,7 @@ if PROJECT_ROOT not in sys.path:
 from jarvishep.Sampling.grid import grid_sampling  # noqa: E402
 from jarvishep.Sampling.variables import Variable  # noqa: E402
 from jarvishep.modulePool import ModulePool  # noqa: E402
+from jarvishep.Module.calculator import CalculatorModule  # noqa: E402
 
 
 class _NoopLogger:
@@ -35,6 +38,18 @@ class _FakeModule:
         self.name = "FakeModule"
         self.type = "Calculator"
         self.config = {"path": os.path.join(base_dir, "@PackID")}
+
+
+def _calculator_config(base_dir):
+    return {
+        "modes": False,
+        "required_modules": [],
+        "clone_shadow": False,
+        "installation": [],
+        "initialization": [],
+        "execution": {"commands": [], "input": [], "output": []},
+        "path": os.path.join(base_dir, "@PackID"),
+    }
 
 
 class _FakeInstance:
@@ -69,6 +84,53 @@ class TestV165RemainingP1(unittest.TestCase):
             self.assertTrue(out["ok"])
             self.assertEqual(inst.calls, 1)
             self.assertFalse(inst.is_busy)
+
+    def test_modulepool_persists_first_installed_instance(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-modulepool-") as tmp_dir:
+            module = CalculatorModule("DemoCalc", _calculator_config(tmp_dir))
+            pool = ModulePool(module, max_workers=2)
+            pool.logger = _NoopLogger()
+            pool.init_instances_info_file()
+
+            def _install(instance):
+                instance.is_installed = True
+                instance.installation_event.set()
+                return instance
+
+            with mock.patch.object(ModulePool, "install_instance", side_effect=_install):
+                with mock.patch.object(CalculatorModule, "execute", return_value={"ok": True}):
+                    out = pool.execute({"x": 1.0}, {"uuid": "sample-1"})
+
+            with open(pool.instances_info_file, "r") as handle:
+                saved = json.load(handle)
+
+            self.assertTrue(out["ok"])
+            self.assertEqual(saved["installed_instances"], {"001": {"is_installed": True}})
+            self.assertFalse(pool.instances[0].is_busy)
+
+    def test_modulepool_install_failure_does_not_execute(self):
+        with tempfile.TemporaryDirectory(prefix="jarvis-modulepool-") as tmp_dir:
+            module = CalculatorModule("DemoCalc", _calculator_config(tmp_dir))
+            pool = ModulePool(module, max_workers=2)
+            pool.logger = _NoopLogger()
+            pool.init_instances_info_file()
+
+            def _failed_install(instance):
+                instance.is_installed = False
+                instance.installation_event.set()
+                return instance
+
+            with mock.patch.object(ModulePool, "install_instance", side_effect=_failed_install):
+                with mock.patch.object(CalculatorModule, "execute", return_value={"ok": True}) as execute_mock:
+                    with self.assertRaisesRegex(RuntimeError, "Installation failed"):
+                        pool.execute({"x": 1.0}, {"uuid": "sample-1"})
+
+            with open(pool.instances_info_file, "r") as handle:
+                saved = json.load(handle)
+
+            execute_mock.assert_not_called()
+            self.assertEqual(saved["installed_instances"], {})
+            self.assertFalse(pool.instances[0].is_busy)
 
     def test_grid_sampling_open_interval_endpoints(self):
         pts = grid_sampling(np.array([3, 4]))

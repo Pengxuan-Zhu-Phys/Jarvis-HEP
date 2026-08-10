@@ -165,6 +165,8 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
         self.assertEqual(submitted.log_policy, "logger")
         self.assertIsNone(submitted.log_dir)
         self.assertIs(submitted.stream_logger, module.logger)
+        self.assertTrue(submitted.meta["command_log_to_stream"])
+        self.assertTrue(submitted.meta["emit_command_summary"])
 
     def test_install_stage_uses_install_log_even_when_scheduler_exists(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
@@ -218,8 +220,16 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
             self.assertEqual(fake_scheduler.jobs, [])
             with open(install_log, "r", encoding="utf-8") as handle:
                 contents = handle.read()
+            lines = contents.splitlines()
             self.assertIn("install output line", contents)
-            self.assertNotIn("[install#", contents)
+            self.assertIn("Command Summary -> [install#00001]", contents)
+            raw_lines = [
+                line
+                for line in lines
+                if "install output line" in line or line.lstrip().startswith("Command Summary -> [install#")
+            ]
+            self.assertTrue(raw_lines)
+            self.assertTrue(all("·•·" not in line for line in raw_lines))
 
     def test_install_local_output_is_written_raw_without_formatter_prefix(self):
         module = CalculatorModule("DemoCalc", _minimal_calc_config())
@@ -230,7 +240,7 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
 
             try:
                 _run_async(
-                    module._run_command_local(
+                    module.run_command(
                         {
                             "cmd": "printf 'install output line\\n'",
                             "cwd": tmpdir,
@@ -256,9 +266,11 @@ class CalculatorRuntimeSampleIDTests(unittest.TestCase):
             self.assertTrue(all("·•·" not in line for line in output_lines))
             self.assertTrue(all("[install#" not in line for line in output_lines))
 
-            done_lines = [line for line in lines if line.startswith("Command done [install#")]
-            self.assertTrue(done_lines)
-            self.assertTrue(all("·•·" not in line for line in done_lines))
+            summary_lines = [line for line in lines if line.lstrip().startswith("Command Summary -> [install#")]
+            self.assertTrue(summary_lines)
+            self.assertTrue(all("·•·" not in line for line in summary_lines))
+            self.assertTrue(any("\t rc -> 0 " in line for line in lines))
+            self.assertFalse(any(line.startswith("Command done [install#") for line in lines))
 
     def test_calculator_timeout_is_normalized_from_module_config(self):
         config = _minimal_calc_config()

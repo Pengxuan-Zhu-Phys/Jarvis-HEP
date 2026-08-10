@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 
 
@@ -286,6 +287,65 @@ class TestAsyncSubprocessScheduler(unittest.TestCase):
         self.assertIn("hello", contents)
         self.assertIn("err", contents)
         self.assertTrue(all("NTools-001" not in line for line in contents))
+
+    def test_sample_logger_console_receives_calculator_command_stream(self):
+        cfg = SubprocessRuntimeConfig(
+            max_concurrency=1,
+            max_pending=4,
+            queue_put_timeout_sec=5.0,
+            per_task_timeout_sec=None,
+            terminate_grace_sec=0.2,
+            log_policy="logger",
+            progress_interval_sec=999.0,
+            diagnostics_enabled=False,
+            diagnostics_interval_sec=1.0,
+        )
+        caplog = _CaptureLogger()
+        self.scheduler = AsyncSubprocessScheduler(
+            config=cfg,
+            logger=caplog,
+            status_path=str(self.tmpdir / "status.jsonl"),
+        )
+
+        console = StringIO()
+        sample_log_path = self.tmpdir / "sample-console.log"
+        sample_logger = SampleLogger.open(
+            str(sample_log_path),
+            module="Sample@test-uuid",
+            console=True,
+            console_stream=console,
+        )
+        try:
+            result = self.scheduler.run(
+                SubprocessJob(
+                    cmd=[sys.executable, "-c", "print('hello')"],
+                    shell=False,
+                    task_id="logger-console-001",
+                    stream_logger=sample_logger,
+                    meta={
+                        "module": "DemoCalc",
+                        "pack_id": "001",
+                        "stage": "execution",
+                        "command_index": 7,
+                        "command_log_to_stream": True,
+                        "emit_command_summary": True,
+                    },
+                ),
+                timeout=10.0,
+            )
+        finally:
+            sample_logger.close()
+
+        self.assertTrue(result.ok)
+        rendered = console.getvalue()
+        self.assertIn("Run execution command ->", rendered)
+        self.assertIn("hello", rendered)
+        self.assertIn("Command Summary -> [execution#00007]", rendered)
+        self.assertNotIn("Jarvis-HEP.Subprocess", rendered)
+
+        global_rendered = "\n".join(caplog.info_lines)
+        self.assertNotIn("Run execution command ->", global_rendered)
+        self.assertNotIn("hello", global_rendered)
 
 
 if __name__ == "__main__":

@@ -47,8 +47,10 @@ legacy = [
   "sqlalchemy>=2.0.29"
 ]
 
-[project.scripts]
-Jarvis = "jarvishep.client:main"
+# CLI retired: the `Jarvis` console script is now owned by jarvishep2 (Jarvis-HEP V2).
+# This package remains installable as a library / historical archive only.
+# [project.scripts]
+# Jarvis = "jarvishep.client:main"
 
 [project.urls]
 Homepage = "https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP"

@@ -5,11 +5,13 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 import os
+import sys
 import threading
 from typing import Any, Deque, Iterable
 
 
 DEFAULT_BUFFER_MAX_EVENTS = 2048
+_CONSOLE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -21,13 +23,42 @@ class SampleLogEvent:
     raw: bool
 
 
+def _format_sample_log_text(
+    *,
+    module: str,
+    level: str,
+    message: Any,
+    raw: bool,
+    timestamp: str,
+    has_written: bool,
+    last_ended_newline: bool,
+) -> str:
+    text = str(message)
+    if not raw:
+        prefix = "\n"
+        if has_written and not last_ended_newline:
+            prefix = "\n\n"
+        return (
+            f"{prefix}·•· {module} \n"
+            f"\t-> {timestamp} - [{level}] >>> \n"
+            f"{text}"
+        )
+    if has_written and not last_ended_newline and not text.startswith("\n"):
+        text = "\n" + text
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
 class _SampleLogBackend:
     """Sample-local file sink with exact legacy sample-log formatting."""
 
-    def __init__(self, path: str, *, time_provider=None) -> None:
+    def __init__(self, path: str, *, time_provider=None, console: bool = False, console_stream=None) -> None:
         self.path = os.path.abspath(path)
         self._time_provider = time_provider or datetime.now
         self._lock = threading.Lock()
+        self._console = bool(console)
+        self._console_stream = console_stream
         self._closed = False
         self._has_written = False
         self._last_ended_newline = False
@@ -49,22 +80,15 @@ class _SampleLogBackend:
         if self._closed:
             return
 
-        text = str(message)
-        if not raw:
-            prefix = "\n"
-            if self._has_written and not self._last_ended_newline:
-                prefix = "\n\n"
-            ts = timestamp if timestamp is not None else self._timestamp()
-            text = (
-                f"{prefix}·•· {module} \n"
-                f"\t-> {ts} - [{level}] >>> \n"
-                f"{text}"
-            )
-        else:
-            if self._has_written and not self._last_ended_newline and not text.startswith("\n"):
-                text = "\n" + text
-            if not text.endswith("\n"):
-                text += "\n"
+        text = _format_sample_log_text(
+            module=module,
+            level=level,
+            message=message,
+            raw=raw,
+            timestamp=timestamp if timestamp is not None else self._timestamp(),
+            has_written=self._has_written,
+            last_ended_newline=self._last_ended_newline,
+        )
 
         with self._lock:
             if self._closed:
@@ -73,6 +97,14 @@ class _SampleLogBackend:
             self._handle.flush()
             self._has_written = True
             self._last_ended_newline = text.endswith("\n")
+        if self._console:
+            self._write_console(text)
+
+    def _write_console(self, text: str) -> None:
+        stream = self._console_stream or sys.stderr
+        with _CONSOLE_LOCK:
+            stream.write(text)
+            stream.flush()
 
     def close(self) -> None:
         with self._lock:
@@ -87,8 +119,15 @@ def replay_sample_log_events(
     events: Iterable[SampleLogEvent],
     *,
     time_provider=None,
+    console: bool = False,
+    console_stream=None,
 ) -> None:
-    backend = _SampleLogBackend(path, time_provider=time_provider)
+    backend = _SampleLogBackend(
+        path,
+        time_provider=time_provider,
+        console=console,
+        console_stream=console_stream,
+    )
     try:
         for event in events:
             backend.write(
@@ -123,10 +162,17 @@ class SampleLogger:
         module: str,
         time_provider=None,
         extra: dict[str, Any] | None = None,
+        console: bool = False,
+        console_stream=None,
     ) -> "SampleLogger":
         merged = dict(extra or {})
         merged.setdefault("module", module)
-        backend = _SampleLogBackend(path, time_provider=time_provider)
+        backend = _SampleLogBackend(
+            path,
+            time_provider=time_provider,
+            console=console,
+            console_stream=console_stream,
+        )
         return cls(backend, extra=merged)
 
     def bind(self, **extra: Any) -> "SampleLogger":
@@ -192,11 +238,17 @@ class BufferedSampleLogger:
         events: Deque[SampleLogEvent] | None = None,
         max_events: int = DEFAULT_BUFFER_MAX_EVENTS,
         time_provider=None,
+        console: bool = False,
+        console_stream=None,
     ) -> None:
         self._extra = dict(extra or {})
         self._max_events = max(1, int(max_events))
         self._events = events if events is not None else deque(maxlen=self._max_events)
         self._time_provider = time_provider or datetime.now
+        self._console = bool(console)
+        self._console_stream = console_stream
+        self._console_has_written = False
+        self._console_last_ended_newline = False
         self._closed = False
         self._options = (None, None, None, None, None, None, None, None, self._extra)
 
@@ -216,6 +268,8 @@ class BufferedSampleLogger:
             events=self._events,
             max_events=self._max_events,
             time_provider=self._time_provider,
+            console=self._console,
+            console_stream=self._console_stream,
         )
 
     def close(self) -> None:
@@ -235,15 +289,33 @@ class BufferedSampleLogger:
         raw = "raw" in self._extra
         rendered = SampleLogger._render_message(message, *args, **kwargs)
         timestamp = self._time_provider().strftime("%m-%d %H:%M:%S.%f")[:-3]
-        self._events.append(
-            SampleLogEvent(
-                timestamp=timestamp,
-                module=module,
-                level=SampleLogger._normalize_level(level),
-                message=rendered,
-                raw=raw,
-            )
+        event = SampleLogEvent(
+            timestamp=timestamp,
+            module=module,
+            level=SampleLogger._normalize_level(level),
+            message=rendered,
+            raw=raw,
         )
+        self._events.append(event)
+        if self._console:
+            self._write_console_event(event)
+
+    def _write_console_event(self, event: SampleLogEvent) -> None:
+        text = _format_sample_log_text(
+            module=event.module,
+            level=event.level,
+            message=event.message,
+            raw=event.raw,
+            timestamp=event.timestamp,
+            has_written=self._console_has_written,
+            last_ended_newline=self._console_last_ended_newline,
+        )
+        stream = self._console_stream or sys.stderr
+        with _CONSOLE_LOCK:
+            stream.write(text)
+            stream.flush()
+        self._console_has_written = True
+        self._console_last_ended_newline = text.endswith("\n")
 
     def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:
         self.log("DEBUG", message, *args, **kwargs)

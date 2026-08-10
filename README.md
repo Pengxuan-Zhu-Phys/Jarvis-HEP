@@ -15,6 +15,11 @@ Run external calculators, explore difficult parameter spaces, persist structured
 
 </div>
 
+> **CLI status (2026-08):** The `Jarvis` command is now provided by **Jarvis-HEP V2**
+> (`jarvishep2`). This V1 package no longer installs a console script. Use
+> `pip install -e ../Jarvis-HEP-v2` (or the V2 distribution) and run `Jarvis -v`.
+> V1 remains installable as a **library / historical archive** only.
+
 ## Why Jarvis-HEP
 
 Jarvis-HEP is built for scan workflows that are painful to manage by hand:
@@ -294,6 +299,13 @@ Calculators:
 ```
 
 `make_paraller` keeps its legacy spelling for compatibility.
+
+Calculator installation state is persisted next to the calculator root in
+`<module-name>_instance_info.json`.  The file starts as
+`{"installed_instances": {}}` and is updated after a PackID installs
+successfully, for example `{"001": {"is_installed": true}}`.  Only successful
+installs are persisted; failed installs must stop before execution so a later
+run does not reload a half-installed calculator.
 
 ## Subprocess Runtime
 

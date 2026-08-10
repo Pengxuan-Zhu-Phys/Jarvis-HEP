@@ -278,6 +278,7 @@ class ExecutionPathSmokeTests(unittest.TestCase):
         sample.set_config(self.core._sample_config_for_check_modules())
 
         self.assertEqual(sample.info["task_result_dir"], "/tmp/sampler-sample-root")
+        self.assertTrue(sample.info["sample_console"])
         self.assertEqual(sample.info["params"]["ratio"], -2.381966011250105)
         self.assertEqual(sample.info["observables"]["ratio"], -2.381966011250105)
         self.assertEqual(sample.info["NAttempt"], 1)
