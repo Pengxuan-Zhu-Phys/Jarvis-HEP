@@ -33,5 +33,8 @@ build/
 .venv/
 venv/
 
+# Local PyPI release helper (keep out of the repo)
+/jhrel
+
 # macOS
 .DS_Store
