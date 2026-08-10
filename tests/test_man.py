@@ -332,6 +332,60 @@ class ManCliTests(unittest.TestCase):
         self.assertTrue(radius["description"].isascii())
         self.assertEqual(radius["type"], "number >0")
 
+    def test_sampler_index_defaults_to_stable_and_full_includes_all(self) -> None:
+        stable = resolve_man_request(["sampler"])
+        stable_names = {row["method"] for row in stable["methods"]}
+        self.assertIn("Bridson", stable_names)
+        self.assertNotIn("AM", stable_names)
+        self.assertTrue(all("status" not in row for row in stable["methods"]))
+        stable_types = {row["method"]: row["type"] for row in stable["methods"]}
+        self.assertEqual(stable_types["CSV"], "simple")
+        self.assertEqual(stable_types["Grid"], "simple")
+        self.assertEqual(stable_types["AdaptiveBridson"], "adaptive")
+        self.assertEqual(stable_types["Dynesty"], "nested")
+        self.assertEqual(stable_types["MultiNest"], "nested")
+        self.assertIn("Jarvis man sampler --full", stable["see_also"])
+
+        full = resolve_man_request(["sampler"], full=True)
+        full_names = {row["method"] for row in full["methods"]}
+        self.assertIn("AM", full_names)
+        self.assertGreater(len(full_names), len(stable_names))
+        self.assertTrue(all("status" in row for row in full["methods"]))
+        full_types = {row["method"]: row["type"] for row in full["methods"]}
+        self.assertEqual(full_types["AM"], "MCMC")
+        self.assertEqual(full_types["PT"], "MCMC")
+        self.assertNotIn("Jarvis man sampler --full", full["see_also"])
+
+        mcmc_page = resolve_man_request(["sampler.MCMC"])
+        self.assertEqual(mcmc_page["capabilities"]["type"], "MCMC")
+        self.assertNotIn("stateless", mcmc_page["capabilities"])
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "sampler", "--json"]), 0)
+        self.assertNotIn(
+            "AM",
+            {row["method"] for row in json.loads(out.getvalue())["methods"]},
+        )
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "sampler"]), 0)
+        self.assertNotIn("Status", out.getvalue())
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "sampler", "--full", "--json"]), 0)
+        self.assertIn(
+            "AM",
+            {row["method"] for row in json.loads(out.getvalue())["methods"]},
+        )
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "sampler", "--full"]), 0)
+        self.assertIn("Status", out.getvalue())
+
     def test_mcmc_family_marked_unstable(self) -> None:
         page = resolve_man_request(["sampler.AMMCMC"])
         self.assertEqual(page["status"], "unstable")
@@ -545,10 +599,28 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(page["context"].get("method"), "Bridson")
         page2 = resolve_man_request([], code="JV2-OPR-002")
         self.assertEqual(page2["path"], "$.Operas.Modules")
+        env_page = resolve_man_request([], code="JV2-ENV-019")
+        self.assertEqual(env_page["path"], "$.EnvReqs.V2.worker")
+        self.assertEqual(env_page["diagnostics"][0], "JV2-ENV-019")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "--code", "JV2-ENV-019", "--json"]), 0)
+        self.assertEqual(json.loads(out.getvalue())["diagnostics"][0], "JV2-ENV-019")
         for code in known_diagnostic_codes():
             self.assertIsNotNone(man_target_for_code(code), msg=code)
             cmd = man_command_for(code)
             self.assertTrue(cmd.startswith("Run: Jarvis man"), msg=f"{code} -> {cmd}")
+
+    def test_unknown_diagnostic_code_is_explicit(self) -> None:
+        with self.assertRaises(KeyError) as raised:
+            resolve_man_request([], code="JV2-ENV-999")
+        self.assertEqual(str(raised.exception.args[0]), "unknown diagnostic code: JV2-ENV-999")
+
+        err = io.StringIO()
+        with mock.patch("sys.stderr", err):
+            code = main(["man", "--code", "JV2-ENV-999", "--json"])
+        self.assertEqual(code, 2)
+        self.assertIn("Unknown diagnostic code: JV2-ENV-999", err.getvalue())
 
     def test_validate_hints_are_executable_man_commands(self) -> None:
         iss = issue("error", "JV2-VAR-001", "Sampling.Variables", "missing variables")

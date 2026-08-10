@@ -953,9 +953,35 @@ def _bounds_schema_for_method(method: str) -> tuple[dict[str, Any], str]:
     return {}, method
 
 
-def _method_page(method: str) -> dict[str, Any]:
-    from jarvishep2.distributor import Distributor
+_NESTED_SAMPLER_METHODS = frozenset({"Dynesty", "MultiNest"})
+_MCMC_SAMPLER_METHODS = frozenset(
+    {
+        "MCMC",
+        "AMMCMC",
+        "AM",
+        "DRAM",
+        "EnsembleMCMC",
+        "Ensemble",
+        "DEMCMC",
+        "PTMCMC",
+        "PT",
+        "PTEnsemble",
+    }
+)
 
+
+def _sampler_type(method: str) -> str:
+    """Return the public sampler family shown by ``Jarvis man sampler``."""
+    if method == "AdaptiveBridson":
+        return "adaptive"
+    if method in _NESTED_SAMPLER_METHODS:
+        return "nested"
+    if method in _MCMC_SAMPLER_METHODS:
+        return "MCMC"
+    return "simple"
+
+
+def _method_page(method: str) -> dict[str, Any]:
     manifest = schema_manifest()
     methods = dict(manifest.get("sampling_methods") or {})
     uri = None
@@ -972,13 +998,11 @@ def _method_page(method: str) -> dict[str, Any]:
     bounds_schema, _ = _bounds_schema_for_method(canonical)
     keys = _key_entries(bounds_schema) if status == "stable" else []
     try:
-        from jarvishep2.distributor import STATELESS_METHODS, Distributor as Dist
+        from jarvishep2.distributor import Distributor as Dist
 
         resume = Dist.get_resume_status(canonical)
-        is_stateless = canonical in STATELESS_METHODS
     except Exception:
         resume = "unknown"
-        is_stateless = False
 
     summary = _clean_man_prose(root.get("description") or f"Sampling.Method = {canonical}")
     if status == "unstable":
@@ -1002,41 +1026,50 @@ def _method_page(method: str) -> dict[str, Any]:
         ],
         "further_reading": None,
         "capabilities": {
-            "stateless": is_stateless,
+            "type": _sampler_type(canonical),
             "resume": resume,
         },
     }
     return page
 
 
-def _sampler_index() -> dict[str, Any]:
-    from jarvishep2.distributor import STATELESS_METHODS, Distributor
+def _sampler_index(*, full: bool = False) -> dict[str, Any]:
+    from jarvishep2.distributor import Distributor
 
     manifest = schema_manifest()
     rows = []
     for name in sorted(manifest.get("sampling_methods") or {}):
         root = schema_by_id(str(manifest["sampling_methods"][name]))
         status = _schema_status(root)
-        rows.append(
-            {
-                "method": name,
-                "status": status,
-                "stateless": name in STATELESS_METHODS,
-                "resume": Distributor.get_resume_status(name),
-                "summary": str(root.get("description") or ""),
-            }
-        )
+        if not full and status != "stable":
+            continue
+        row = {
+            "method": name,
+            "type": _sampler_type(name),
+            "resume": Distributor.get_resume_status(name),
+            "summary": str(root.get("description") or ""),
+        }
+        if full:
+            row["status"] = status
+        rows.append(row)
+    see_also = ["Jarvis man sampler.Bridson", "Jarvis man yaml.Sampling"]
+    if not full:
+        see_also.append("Jarvis man sampler --full")
     return {
         "path": "$.Sampling.Method",
         "context": {},
         "zone": "closed",
         "status": "stable",
-        "summary": "Sampling methods registered in the schema catalog.",
+        "summary": (
+            "All sampling methods registered in the schema catalog."
+            if full
+            else "Stable sampling methods registered in the schema catalog."
+        ),
         "keys": [],
         "methods": rows,
         "examples": [],
         "diagnostics": [],
-        "see_also": ["Jarvis man sampler.Bridson", "Jarvis man yaml.Sampling"],
+        "see_also": see_also,
         "further_reading": None,
     }
 
@@ -2537,6 +2570,7 @@ def resolve_man_request(
     io_type: str | None = None,
     direction: str | None = None,
     code: str | None = None,
+    full: bool = False,
 ) -> dict[str, Any]:
     """Resolve argv tokens after ``man`` into a page dict.
 
@@ -2559,11 +2593,25 @@ def resolve_man_request(
     if code:
         from jarvishep2.man_codes import man_target_for_code, resolve_tokens_for_code
 
-        entry = man_target_for_code(str(code))
+        requested_code = str(code).strip().upper()
+        entry = man_target_for_code(requested_code)
         if entry is None:
-            raise KeyError(code)
-        tokens = resolve_tokens_for_code(str(code))
-        # Fall through to normal token resolution.
+            raise KeyError(f"unknown diagnostic code: {requested_code or code}")
+        page = resolve_man_request(
+            resolve_tokens_for_code(requested_code),
+            io_type=io_type,
+            direction=direction,
+            full=full,
+        )
+        # The target page may have a default diagnostic of its own.  A
+        # diagnostic-code lookup must identify the code that caused the jump;
+        # retain any page-level diagnostics after it for additional context.
+        diagnostics = list(page.get("diagnostics") or [])
+        page["diagnostics"] = [
+            requested_code,
+            *[diagnostic for diagnostic in diagnostics if diagnostic != requested_code],
+        ]
+        return page
 
     args = [str(t) for t in tokens if str(t).strip()]
     if not args:
@@ -2615,7 +2663,7 @@ def resolve_man_request(
             ) from None
     if head == "sampler":
         if not rest:
-            return _sampler_index()
+            return _sampler_index(full=full)
         return _method_page(rest[0])
     if head == "calculator":
         topic_name = rest[0] if rest else None
@@ -2792,20 +2840,28 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         table = man_table("Methods")
         table.add_column("", justify="center", width=1, no_wrap=True)
         table.add_column("Method")
-        table.add_column("Status")
-        table.add_column("Stateless")
+        show_method_status = any("status" in row for row in page["methods"])
+        if show_method_status:
+            table.add_column("Status")
+        table.add_column("Type")
         table.add_column("Resume")
         table.add_column("Summary", overflow="fold")
         for row in page["methods"]:
             method_name = str(row.get("method") or "")
-            table.add_row(
+            cells = [
                 Text(_NAV_EXPAND, style=_NAV_EXPAND_STYLE),
                 Text(method_name, style=_NAV_EXPAND_STYLE),
-                str(row.get("status")),
-                "yes" if row.get("stateless") else "no",
-                str(row.get("resume")),
-                str(row.get("summary") or ""),
+            ]
+            if show_method_status:
+                cells.append(str(row.get("status")))
+            cells.extend(
+                [
+                    str(row.get("type") or "—"),
+                    str(row.get("resume")),
+                    str(row.get("summary") or ""),
+                ]
             )
+            table.add_row(*cells)
         console.print(table)
         console.print(
             Text(
@@ -2828,7 +2884,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         console.print(
             Panel(
                 _bullet_panel_text(
-                    f"stateless: {cap.get('stateless')}\nresume: {cap.get('resume')}"
+                    f"type: {cap.get('type')}\nresume: {cap.get('resume')}"
                 ),
                 title="Capabilities",
                 box=box.ROUNDED,
@@ -2985,6 +3041,10 @@ def _print_man_help() -> None:
             "--direction input|output",
             "Select Portal input or output vocabulary; prefer the direction in the dotted topic.",
         ),
+        (
+            "--full",
+            "For sampler, include methods whose YAML configuration is not finalised.",
+        ),
     ):
         options.add_row(option, description)
     console.print(Panel(options, title="Options", box=box.ROUNDED, border_style="cyan"))
@@ -2995,6 +3055,7 @@ def _print_man_help() -> None:
         "Jarvis man calculator.execution.input --type JSON",
         "Jarvis man calculator.execution.input --type JSON --json  # coding agent",
         "Jarvis man sampler.Bridson",
+        "Jarvis man sampler --full",
         "Jarvis man yaml.Calculators.Modules.execution",
         "Jarvis man example.calculator",
     ]
@@ -3050,6 +3111,11 @@ def build_man_parser() -> argparse.ArgumentParser:
         default=None,
         help="Portal direction (prefer calculator.execution.input|output in the topic path)",
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="For sampler, include methods whose YAML configuration is not finalised",
+    )
     return parser
 
 
@@ -3066,10 +3132,17 @@ def dispatch_man(argv: list[str] | None = None) -> int:
             io_type=getattr(args, "io_type", None),
             direction=getattr(args, "direction", None),
             code=getattr(args, "code", None),
+            full=getattr(args, "full", False),
         )
     except KeyError as exc:
         message = str(exc.args[0]) if exc.args else str(exc)
-        label = "Man topic is a leaf field" if "is a leaf field" in message else "Unknown man topic"
+        if "unknown diagnostic code:" in message:
+            label = "Unknown diagnostic code"
+            message = message.split(":", 1)[1].strip()
+        elif "is a leaf field" in message:
+            label = "Man topic is a leaf field"
+        else:
+            label = "Unknown man topic"
         print(f"{label}: {message}", file=sys.stderr)
         print("Try: Jarvis man   or   Jarvis man sampler.Bridson", file=sys.stderr)
         return 2
