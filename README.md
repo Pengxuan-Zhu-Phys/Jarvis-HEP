@@ -1,110 +1,215 @@
-# Jarvis-HEP V2 (`jarvishep2`)
+# Jarvis-HEP V2
 
-Independent Python package for the Jarvis-HEP 2.0 distributed runtime (Redis + spawn Workers).
+Jarvis-HEP V2 is a distributed runtime for high-energy-physics parameter scans.
+You describe a scan as a validated YAML task card; Jarvis generates parameter
+points, evaluates external calculators and/or Python operators in parallel, and
+archives observables, sample artifacts, logs, and run summaries.
 
-**Where we are (2026-08-02):** D0–D7 runtime, D11 UI, and D12–D13 foundations are in
-(including `Jarvis project …`, Examples catalog, restricted pack crypto via CLI). Recent
-as-built: **FileOperation** SAMPLE save, component logs under `logs/<scan>/`, file-driven
-log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `ps` / `kill`**.
-**Agent bridge (D8) is parked.** Authoritative ledger:
-`Jarvis-Books/Jarvis-HEP V2/V2_DISTRIBUTED_PLAN.md`.
+The Python distribution is named `jarvishep2` (current version `2.0.0`) and
+exposes a single user-facing command: `Jarvis`.
 
-- Installation + CLI: [INSTALL.md](INSTALL.md) (includes `Jarvis -v`, `ps`, `kill`, logging flags)
-- Project catalog & **encrypt/decrypt usage**:
-  - [INSTALL.md § Project tools](INSTALL.md#project-tools-scaffold-catalog-public--restricted-packs)
-  - Design: `Jarvis-Books/Jarvis-HEP V2/components/project_tools.md`
-  - Catalog source: `Jarvis-Examples/catalog/README.md`
-- Design docs: `~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/`
-- Task-YAML reference: `Jarvis-Books/Jarvis-HEP V2/YAML_REFERENCE_2.0.md`
-- Portal IO + FileOperation: `Jarvis-Books/Jarvis-HEP V2/DESIGN_PORTAL_IO_2.0.md`,
-  `components/io_system.md`
-- Run summary / monitor: `components/monitor.md`
+## What V2 provides
 
-**Plugin packages** (upgrade them to extend HEP without a HEP release):
+| Capability | V2 implementation |
+| --- | --- |
+| Distributed execution | Redis-backed queue with Python `spawn` Workers |
+| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `Dynesty`, and `MultiNest` |
+| HEP calculator integration | [Jarvis-HEP-Portal](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Portal) for calculator file I/O |
+| Python operators | [Jarvis-Operas](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Operas) for registered operators and expressions |
+| Reliability | Checkpoints, resume, graceful shutdown, and per-sample failure artifacts |
+| Observability | Validation diagnostics, monitor snapshots, component logs, and performance summaries |
+| Project workflow | Scaffold, validate, run, package, fetch, and inspect standalone projects |
 
-| Package | HEP bridge | Install |
-|---------|------------|--------|
-| Jarvis-HEP-Portal | `io_portal.py` calculator file **types** (variable R/W) | **core dependency** |
-| Jarvis-Operas | `operas.py` operator registry + expression functions | **core dependency** (D12.0) |
-| JarvisPLOT | `plot_bridge.py` / `Jarvis plot` | optional extra `[plot]` |
+The execution model is deliberately simple:
 
-**Runtime defaults worth knowing:**
-
-| Area | Default |
-|------|---------|
-| Archiver | `mode: process`, `pack_buckets: true`, log `logs/<scan>/archiver.log` |
-| FileOperation | per-Worker process; YAML `save: true` → SAMPLE (not Portal) |
-| SAMPLE writes | Files are written directly under `SAMPLE/<bucket>/<uuid>/` |
-| SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
-| DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
-| Process titles | `Jarvis:<scan>`, `Jarvis-Worker-N`, `Jarvis-Archiver`, `Jarvis-Redis:<scan>` |
-| Component logs | `logs/<scan>/core.log`, `factory.log`, `sampler.log`, `archiver.log`, `datarecorder.log`, `worker-NN.log` |
-| CLI version | `Jarvis -v` / `--version` → logo + Author + Version |
-| YAML manuals | `Jarvis man` (task-card keys/paths/examples); Portal/Operas runtime via `Jarvis portal man` / `Jarvis operas info` |
-| Citations | `Jarvis --refs` → framework and bundled sampler references |
-| Process inspect | `Jarvis ps` / `Jarvis kill` (interactive confirm; `--yes` for scripts) |
-| Console | default INFO; `--console-level`; `--silence` / `-s` |
-| AdaptiveBridson tuning | public knobs: `outer_half_width`, `min_radius`; core/stop width = `outer_half_width / 8` |
-| Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
-| Restricted packs | `Jarvis project fetch NAME --key …` / `pack --encrypt --key …` |
-
-## Stable task-card rules
-
-The V2 task-card contract is intentionally closed and is shared by `Jarvis
-validate`, `Jarvis run`, `Jarvis check`, and `Jarvis man`:
-
-- `Scan.name`, `Sampling.Method`, and `EnvReqs` are required; at least one of
-  `Calculators` or `Operas` is required. `LibDeps` is optional.
-- Sampler-specific settings belong under `Sampling.Bounds` and use lower
-  `snake_case`; `Sampling.Method` is the only method selector.
-- Runtime policy belongs under `EnvReqs.V2`. The named compatibility envelope
-  contains `Check_default_dependencies`, `Python`, `OS`, `CERN_ROOT`, and `V2`.
-  `EnvReqs.OS` is the migrated V1-compatible host preflight list: each item has
-  `name` and `version` (`>=X.Y`), and an empty list disables the restriction.
-- `Jarvis check TASK.yaml` is the only check entry point. Its optional fixed
-  points CSV is `EnvReqs.V2.check_modules.data`.
-- Sample files are written directly to `SAMPLE/`. `cleanup.strategy` and
-  `archiver.handoff` are not task-card keys.
-
-Use `Jarvis man` for the authoring surface and `Jarvis portal man` or
-`Jarvis operas info` for delegated runtime behavior.
-
-V1 (`jarvishep`) is frozen, **CLI-retired** (no console script), and must not be
-imported from this package. Use **`Jarvis`** only (`Jarvis2` is no longer installed).
-
-## AdaptiveBridson
-
-**Final algorithm** (complete flow + YAML recipes):
-
-- Design: `Jarvis-Books/Jarvis-HEP V2/DESIGN_ADAPTIVE_BRIDSON_LIVE_BAND.md`
-- YAML examples (minimal + full): `Jarvis-Books/Jarvis-HEP V2/YAML-Example/ADAPTIVE_BRIDSON.md`
-- Reference §6.9: `Jarvis-Books/Jarvis-HEP V2/YAML_REFERENCE_2.0.md`
-
-Besides the required target expression/value, public tuning is two knobs:
-
-```yaml
-Sampling:
-  Method: AdaptiveBridson
-  Bounds:
-    target_expression: Omega_h2
-    target_value: 0.12
-    outer_half_width: 0.02   # discovery |f−T| band
-    min_radius: 0.002        # u-space resolution floor
+```text
+Task YAML → sampler → Redis → Workers → Archiver
+                                      ├─ DATABASE/samples.hdf5
+                                      ├─ SAMPLE/<bucket>/<uuid>/
+                                      └─ logs/<scan>/ + run_summary.*
 ```
 
-Derived: `core_half_width = threshold = outer_half_width / 8`. Control flow in
-short: gen-0 Bridson → same-\(r_g\) fill (root-corr / endpoints / bridge /
-local densify) → if \(t_{\max}-t_{\min}\) on the \(2\,r_g\) ball about best is
-thin and cores cover the contour, stop; else shrink \(r_g\) and continue.
-Historical advanced keys remain readable for checkpoints; new cards should use
-the two-knob interface.
+## Installation
 
-At default `INFO`, AdaptiveBridson logs start, \(r_g\) transitions, and a final
-summary. Fill-pass diagnostics, endpoints, bridging, and densify timing are
-`DEBUG`.
+Requirements:
 
-DataRecorder reports DATABASE progress every 500 rows (plus the forced final
-count). Archiver keeps process start/final summaries at `INFO`; per-bucket pack,
-loop, drain, and process-exit details are `DEBUG`.
+- Python 3.10 or newer
+- Redis for distributed runs; V2 uses the local `127.0.0.1:6379` service
 
-Post-run CSV: `Jarvis convert path/to/task.yaml` (HDF5 → `DATABASE/samples.csv`).
+From a source checkout:
+
+```bash
+python3 -m pip install -e '.[distributed]'
+```
+
+For development and tests:
+
+```bash
+python3 -m pip install -e '.[distributed,dev]'
+```
+
+Start Redis before a real scan. For example, on macOS:
+
+```bash
+brew install redis
+brew services start redis
+redis-cli ping       # PONG
+```
+
+The optional extras are:
+
+- `distributed`: Redis, `msgpack`, and `aiofiles`
+- `plot`: [JarvisPLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT)
+- `dev`: pytest, fakeredis, and colorlog
+
+For the complete installation guide, Redis options, and project-packaging
+workflow, see [INSTALL.md](INSTALL.md).
+
+## First run
+
+The project scaffold includes a runnable Bridson + Operas example that does not
+need an external calculator:
+
+```bash
+Jarvis project create MyScan
+cd MyScan
+
+Jarvis validate bin/quickstart_bridson_operas.yaml
+Jarvis run bin/quickstart_bridson_operas.yaml
+```
+
+The scaffold also contains calculator, CSV, Dynesty, and MultiNest examples.
+List the built-in examples with:
+
+```bash
+Jarvis man example
+```
+
+## Task-card contract
+
+V2 task cards use one closed, consistent vocabulary across `validate`, `check`,
+`run`, and `man`:
+
+- Required top-level blocks: `Scan`, `Sampling`, and `EnvReqs`.
+- Declare at least one execution backend: `Calculators` or `Operas`.
+- Put method-specific sampler settings under `Sampling.Bounds` and use lower
+  `snake_case` keys.
+- Put V2 runtime settings such as worker count and checkpoint heartbeat under
+  `EnvReqs.V2`.
+- Use `Jarvis check TASK.yaml` for the fixed-point calculator smoke test.
+- Outputs are written to the project output tree; `cleanup.strategy` and
+  `archiver.handoff` are not V2 task-card interfaces.
+
+A card starts with this shape:
+
+```yaml
+Scan:
+  name: my_scan
+
+Sampling:
+  Method: Random
+  Bounds:
+    point_number: 100
+    seed: 7
+  Variables:
+    - name: x
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 1.0}
+
+EnvReqs:
+  V2:
+    workers: 2
+
+Operas:
+  Modules:
+    - name: my_operator
+      operator: my_package.my_function
+```
+
+Use the generated manuals instead of guessing field names:
+
+```bash
+Jarvis man                         # interactive YAML authoring guide
+Jarvis man --json                  # structured output for tooling and agents
+Jarvis man sampler                 # sampler catalog
+Jarvis man yaml.EnvReqs.V2         # one YAML section
+Jarvis man calculator.execution.output --type JSON
+```
+
+`Jarvis validate` performs schema and semantic checks without starting Redis or
+Workers. It is the recommended gate before `run`.
+
+## CLI workflow
+
+```bash
+Jarvis validate TASK.yaml          # validate only
+Jarvis check TASK.yaml             # fixed-point calculator smoke test
+Jarvis run TASK.yaml               # execute a distributed scan
+Jarvis run TASK.yaml --resume      # resume from a checkpoint
+Jarvis convert TASK.yaml           # refresh DATABASE/samples.csv from HDF5
+Jarvis monitor                     # read one live monitor snapshot
+Jarvis ps                          # list Jarvis process groups
+Jarvis kill --yes                  # terminate selected runtime processes
+Jarvis --refs                      # print framework and sampler references
+```
+
+Additional integrations are available through native subcommands:
+
+```bash
+Jarvis project create MyScan
+Jarvis project list
+Jarvis project fetch Eggbox
+Jarvis portal man
+Jarvis operas list
+Jarvis gen-plot-yaml TASK.yaml
+Jarvis plot path/to/plot.yaml      # install the [plot] extra first
+```
+
+Use `Jarvis COMMAND -h` for command-specific options. Screen logging defaults
+to `WARNING`; use `--console-level INFO`, `--debug`, or `--silence` as needed.
+File logs remain available under `logs/<scan>/`.
+
+## Outputs
+
+For a scan named `my_scan`, the project root typically contains:
+
+```text
+outputs/my_scan/
+├── DATABASE/
+│   ├── samples.hdf5              # archived observables
+│   └── samples.csv               # CSV snapshot after `Jarvis convert`
+├── SAMPLE/
+│   ├── 000001/<uuid>/             # per-sample files when retained
+│   └── 000001.tar.gz              # packed sample bucket when enabled
+├── run_summary.json
+├── run_summary.csv
+└── run_summary.txt
+
+logs/my_scan/
+├── core.log
+├── sampler.log
+├── archiver.log
+└── worker-00.log ...
+```
+
+Checkpoints are stored under
+`checkpoints/<scan>/<sampler>/state.pkl`. Press `Ctrl+C` to stop a scan cleanly;
+Jarvis shuts down its Workers, Archiver, and any Redis process it manages.
+
+## Development
+
+```bash
+python3 -m pip install -e '.[distributed,dev]'
+python3 -m pytest -q
+```
+
+Useful repository documentation:
+
+- [INSTALL.md](INSTALL.md) — installation, CLI details, Redis, projects, and packaging
+- [Task-card schema](docs/task-card-schema.md) — validation layers and V2 configuration rules
+- [Validation diagnostics](docs/validation-diagnostics.md) — actionable `JV2-*` error codes
+- [Project template](jarvishep2/project_template/README.md) — standalone project layout
+
+V1 (`jarvishep`) is frozen and CLI-retired. V2 uses `jarvishep2` and the
+`Jarvis` command; `Jarvis2` is not installed.
