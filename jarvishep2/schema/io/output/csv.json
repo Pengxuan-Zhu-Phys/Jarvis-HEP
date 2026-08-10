@@ -19,7 +19,7 @@
     },
     "type": {
       "const": "CSV",
-      "description": "Portal format name for this IO entry."
+      "description": "Portal file type name for this IO entry."
     },
     "save": {
       "type": "boolean",
@@ -28,5 +28,5 @@
   },
   "additionalProperties": true,
   "x-jarvis-zone": "delegated",
-  "description": "Portal output format CSV: YAML field vocabulary for execution.output[]."
+  "description": "Portal output file type CSV: YAML field vocabulary for execution.output[]."
 }

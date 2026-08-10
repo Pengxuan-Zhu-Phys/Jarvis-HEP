@@ -469,9 +469,10 @@ class ArchiveHandoffIntegrationTests(unittest.TestCase):
                             "workers": 1,
                             "redis": redis_config,
                         },
-                        "Calculators": {
-                            "Cleanup": {"strategy": "mv_to_staging"},
-                            "Archiver": {"mode": "thread", "batch_size": 1},
+                        "EnvReqs": {
+                            "V2": {
+                                "archiver": {"mode": "thread", "batch_size": 1}
+                            }
                         },
                         "task_result_dir": tmpdir,
                     }
@@ -526,9 +527,10 @@ class ArchiveHandoffIntegrationTests(unittest.TestCase):
                 core = Jarvis2Core(
                     {
                         "Runtime": {"mode": "redis", "workers": 1, "redis": redis_config},
-                        "Calculators": {
-                            "Cleanup": {"strategy": "mv_to_staging"},
-                            "Archiver": {"mode": "process", "batch_size": 1},
+                        "EnvReqs": {
+                            "V2": {
+                                "archiver": {"mode": "process", "batch_size": 1}
+                            }
                         },
                         "task_result_dir": tmpdir,
                     }

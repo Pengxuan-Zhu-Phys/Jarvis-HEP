@@ -312,7 +312,7 @@ class OperasModulesYamlCompatibilityTests(unittest.TestCase):
             "output": [{"name": "z", "entry": "z"}],
         }
         worker = build_worker_config(
-            {"Operas": {"make_parallel": 16, "Modules": [module]}},
+            {"Operas": {"Modules": [module]}},
             task_result_dir="/tmp/result",
         )
 

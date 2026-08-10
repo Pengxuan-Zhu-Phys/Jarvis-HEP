@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://jarvis-hep.org/schema/v2/core/operas.json",
-  "type": "object", "x-jarvis-zone": "delegated",
+  "type": "object", "x-jarvis-zone": "closed",
   "properties": {"Modules": {"type": "array", "items": {"type": "object", "x-jarvis-zone": "closed", "required": ["name", "operator"], "properties": {"name": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "operator": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}, "call_mode": {"enum": ["call", "acall"]}, "selection": {"oneOf": [{"type": "string"}, {"type": "boolean"}]}, "required_modules": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"}}, "kwargs": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}, "timeout_sec": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"}, "input": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/operasIO"}}, "output": {"type": "array", "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/operasIO"}}}, "additionalProperties": false}}},
-  "additionalProperties": true
+  "additionalProperties": false
 }

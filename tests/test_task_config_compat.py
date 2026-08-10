@@ -48,6 +48,9 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
             ) as handle:
                 handle.write(
                     "EnvReqs:\n"
+                    "  OS:\n"
+                    "    - name: Linux\n"
+                    "      version: '>=3.10'\n"
                     "  Python:\n"
                     "    version: '>=3.10'\n"
                     "  CERN_ROOT:\n"
@@ -75,8 +78,38 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
         self.assertEqual(config["Runtime"]["batch_size"], 32)
         self.assertEqual(config["EnvReqs"]["V2"], {"workers": 4, "batch_size": 32})
         self.assertTrue(config["EnvReqs"]["Check_default_dependencies"]["required"])
+        self.assertEqual(config["EnvReqs"]["OS"][0]["name"], "Linux")
         self.assertEqual(config["EnvReqs"]["Python"]["version"], ">=3.10")
         self.assertEqual(config["EnvReqs"]["CERN_ROOT"]["version"], ">=6.20")
+
+    def test_task_os_requirement_overrides_default_os_list(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "bin"))
+            os.makedirs(os.path.join(root, "deps"))
+            with open(os.path.join(root, "jarvis.project.yaml"), "w", encoding="utf-8") as handle:
+                handle.write("project: os-compatibility-test\n")
+            with open(os.path.join(root, "deps", "environment_default.yaml"), "w", encoding="utf-8") as handle:
+                handle.write(
+                    "EnvReqs:\n"
+                    "  OS:\n"
+                    "    - {name: Linux, version: '>=3.10'}\n"
+                    "  V2:\n"
+                    "    workers: 2\n"
+                )
+            task_path = os.path.join(root, "bin", "task.yaml")
+            with open(task_path, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "EnvReqs:\n"
+                    "  Check_default_dependencies:\n"
+                    "    required: true\n"
+                    "    default_yaml_path: '&J/deps/environment_default.yaml'\n"
+                    "  OS:\n"
+                    "    - {name: Darwin, version: '>=10.14'}\n"
+                )
+
+            config = load_task_yaml(task_path)
+
+        self.assertEqual(config["EnvReqs"]["OS"], [{"name": "Darwin", "version": ">=10.14"}])
 
     def test_required_v1_default_yaml_must_exist(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -129,8 +162,9 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
                     "    redis:\n"
                     "      host: 10.0.0.5\n"
                     "      port: 6381\n"
+                    "    monitor:\n"
+                    "      hz: 60\n"
                     "    factory:\n"
-                    "      monitor_hz: 60\n"
                     "      watchdog:\n"
                     "        enabled: false\n"
                     "        stale_sec: 12\n"
@@ -164,8 +198,9 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
         self.assertEqual(config["Runtime"]["sample_artifacts"], "always")
         self.assertTrue(config["Runtime"]["force_serial_layers"])
 
+        self.assertEqual(config["EnvReqs"]["V2"]["monitor"]["hz"], 60)
         factory = get_factory_config(config)
-        self.assertEqual(factory["monitor_hz"], 60.0)
+        self.assertEqual(sorted(factory), ["watchdog"])
         watchdog = get_watchdog_config(config)
         self.assertFalse(watchdog["enabled"])
         self.assertEqual(watchdog["stale_sec"], 12.0)

@@ -12,19 +12,18 @@ import fakeredis
 
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime_config import (
-    get_cleanup_config,
+    get_archiver_config,
     get_sample_directory_config,
-    handoff_to_staging_enabled,
+    normalize_archiver_block,
     pack_buckets_enabled,
 )
-from jarvishep2.sample_bucket import pack_bucket_dir
+from jarvishep2.sample_bucket import normalize_sample_directory, pack_bucket_dir
 from jarvishep2.task_config import load_task_yaml
 
 
 class SampleBucketDefaultsTests(unittest.TestCase):
-    def test_defaults_are_direct_handoff_and_bucket_pack(self) -> None:
-        self.assertEqual(get_cleanup_config({})["strategy"], "direct")
-        self.assertFalse(handoff_to_staging_enabled({}))
+    def test_defaults_write_directly_and_pack_buckets(self) -> None:
+        self.assertNotIn("handoff", get_archiver_config({}))
         sample_dir = get_sample_directory_config({})
         self.assertTrue(sample_dir["enabled"])
         self.assertEqual(sample_dir["limit"], 200)
@@ -46,10 +45,7 @@ class SampleBucketDefaultsTests(unittest.TestCase):
                     "      limit: 3\n"
                     "      width: 4\n"
                     "      pack: true\n"
-                    "    cleanup:\n"
-                    "      strategy: direct\n"
                     "    archiver:\n"
-                    "      handoff: direct\n"
                     "      pack_buckets: true\n"
                 )
             task_path = os.path.join(root, "bin", "task.yaml")
@@ -66,9 +62,10 @@ class SampleBucketDefaultsTests(unittest.TestCase):
         self.assertEqual(config["EnvReqs"]["V2"]["sample_directory"]["limit"], 3)
         self.assertEqual(config["EnvReqs"]["V2"]["sample_directory"]["width"], 4)
         self.assertNotIn("sample_directory", config["Scan"])
-        self.assertEqual(config["Calculators"]["Cleanup"]["strategy"], "direct")
-        self.assertEqual(config["Calculators"]["Archiver"]["handoff"], "direct")
-        self.assertTrue(config["Calculators"]["Archiver"]["pack_buckets"])
+        self.assertNotIn("Archiver", config.get("Calculators", {}))
+        self.assertNotIn("handoff", config["EnvReqs"]["V2"]["archiver"])
+        self.assertTrue(config["EnvReqs"]["V2"]["archiver"]["pack_buckets"])
+        self.assertTrue(get_archiver_config(config)["pack_buckets"])
 
     def test_envreqs_v2_is_the_only_sample_directory_source(self) -> None:
         config = {
@@ -89,6 +86,16 @@ class SampleBucketDefaultsTests(unittest.TestCase):
             "EnvReqs": {"V2": {"sample_directory": {"pack": False}}},
         }
         self.assertFalse(pack_buckets_enabled(config))
+
+    def test_string_booleans_are_rejected_before_pack_or_delete_policy(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sample_directory.enabled"):
+            normalize_sample_directory({"enabled": "false"})
+        with self.assertRaisesRegex(ValueError, "sample_directory.pack"):
+            normalize_sample_directory({"pack": "false"})
+        with self.assertRaisesRegex(ValueError, "archiver.delete_after_archive"):
+            normalize_archiver_block({"delete_after_archive": "false"})
+        with self.assertRaisesRegex(ValueError, "archiver.pack_buckets"):
+            normalize_archiver_block({"pack_buckets": "false"})
 
 
 class SampleBucketRedisTests(unittest.TestCase):

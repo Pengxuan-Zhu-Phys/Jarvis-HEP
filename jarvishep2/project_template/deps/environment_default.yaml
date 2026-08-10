@@ -27,12 +27,8 @@ EnvReqs:
       pack: true
       start_bucket: 1
 
-    cleanup:
-      strategy: direct
-
     archiver:
       mode: process
-      handoff: direct
       pack_buckets: true
       batch_size: 200
       flush_interval_sec: 1.0
@@ -47,7 +43,11 @@ EnvReqs:
       port: 6379
       db: 0
 
-    # Jarvis check / --check-modules (CSV fixed points, else n_samples from Method).
+    # Reserved monitor interface; runtime monitor behavior is not active yet.
+    monitor:
+      hz: 120
+
+    # Jarvis check (CSV fixed points, else n_samples from Method).
     # timeout_sec: max wait for samples to archive (deadline; Jarvis check --timeout overrides).
     # Runtime always forces workers=1, SAMPLE/test/, no tar pack.
     check_modules:

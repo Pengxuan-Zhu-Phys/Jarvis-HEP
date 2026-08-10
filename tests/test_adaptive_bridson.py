@@ -154,7 +154,10 @@ def _run_adaptive_resume_control(
     )
     config["task_root"] = tmpdir
     config["Runtime"]["max_inflight"] = 8
-    config["Runtime"]["Archiver"] = {"mode": "process", "batch_size": 4}
+    config.setdefault("EnvReqs", {}).setdefault("V2", {})["archiver"] = {
+        "mode": "process",
+        "batch_size": 4,
+    }
     outcome = Jarvis2Core(config).run(resume=resume, write_run_summary=False)
     outcome_queue.put(
         {

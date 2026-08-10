@@ -5,12 +5,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from jarvishep2.archive_handoff import normalize_move_strategy, resolve_staging_dir
+from jarvishep2.archive_handoff import normalize_move_strategy
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
 from jarvishep2.sample_bucket import (
     SAMPLE_DIRECTORY_DEFAULTS,
     normalize_sample_directory,
 )
+from jarvishep2.yaml_types import require_bool
 
 
 RUNTIME_DEFAULTS: dict[str, Any] = {
@@ -23,15 +24,11 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
 
 VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
-VALID_CLEANUP_STRATEGIES = frozenset({"mv_to_staging", "direct"})
 VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
-VALID_HANDOFF_MODES = frozenset({"direct", "staging"})
 # Backward-compatible private aliases (tests / older imports).
 _VALID_SAMPLE_ARTIFACTS = VALID_SAMPLE_ARTIFACTS
 _VALID_RUNTIME_MODES = VALID_RUNTIME_MODES
-_VALID_CLEANUP_STRATEGIES = VALID_CLEANUP_STRATEGIES
 _VALID_ARCHIVER_MODES = VALID_ARCHIVER_MODES
-_VALID_HANDOFF_MODES = VALID_HANDOFF_MODES
 
 ARCHIVER_DEFAULTS: dict[str, Any] = {
     "mode": "process",
@@ -41,15 +38,8 @@ ARCHIVER_DEFAULTS: dict[str, Any] = {
     "max_hdf5_bytes": 1024 * 1024 * 1024,
     "strategy": "move",
     "delete_after_archive": True,
-    # Default: no staging hop — Worker lands products under SAMPLE/<bucket>/<uuid>.
-    "handoff": "direct",
     # Default: pack sealed SAMPLE buckets into <bucket>.tar.gz (V1 parity).
     "pack_buckets": True,
-}
-CLEANUP_DEFAULTS: dict[str, Any] = {
-    # Default: skip staging; optional mv_to_staging retained for heavy-archive paths.
-    "strategy": "direct",
-    "staging_dir": None,
 }
 WATCHDOG_DEFAULTS: dict[str, Any] = {
     "enabled": True,
@@ -57,18 +47,16 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "poll_interval_sec": 1.0,
     "max_sample_retries": 3,
 }
-FACTORY_DEFAULTS: dict[str, Any] = {
-    "monitor_hz": 120.0,
-}
+FACTORY_DEFAULTS: dict[str, Any] = {}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
 SUPPORTED_ENVREQS_V2_KEYS = frozenset(
     {
         "workers",
         "batch_size",
         "sample_directory",
-        "cleanup",
         "archiver",
         "redis",
+        "monitor",
         "factory",
         "worker",
         "check_modules",
@@ -76,7 +64,7 @@ SUPPORTED_ENVREQS_V2_KEYS = frozenset(
     }
 )
 
-# Defaults for ``Jarvis check`` / ``--check-modules`` (overridable via EnvReqs.V2).
+# Defaults for ``Jarvis check`` (overridable via EnvReqs.V2.check_modules).
 CHECK_MODULES_DEFAULTS: dict[str, Any] = {
     # Prefer project data CSV; if missing at runtime, sampler draws n_samples points.
     "data": "&J/data/check_modules_points.csv",
@@ -129,24 +117,12 @@ def normalize_redis_config(raw: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def normalize_factory_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize ``EnvReqs.V2.factory`` (monitor + watchdog knobs)."""
+    """Normalize ``EnvReqs.V2.factory`` watchdog policy."""
     factory = dict(FACTORY_DEFAULTS)
     if not isinstance(raw, Mapping):
         return factory
 
-    monitor = raw.get("monitor")
-    hz_raw = raw.get("monitor_hz")
-    if hz_raw is None and isinstance(monitor, Mapping):
-        hz_raw = monitor.get("hz", monitor.get("update_hz"))
-    if hz_raw is not None:
-        try:
-            factory["monitor_hz"] = max(1.0, float(hz_raw))
-        except (TypeError, ValueError):
-            factory["monitor_hz"] = FACTORY_DEFAULTS["monitor_hz"]
-
     watchdog = raw.get("watchdog")
-    if watchdog is None:
-        watchdog = raw.get("Watchdog")
     if isinstance(watchdog, Mapping):
         factory["watchdog"] = normalize_watchdog_block(watchdog)
     return factory
@@ -162,7 +138,10 @@ def normalize_worker_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         return worker
 
     if "force_serial_layers" in raw:
-        worker["force_serial_layers"] = bool(raw.get("force_serial_layers"))
+        worker["force_serial_layers"] = require_bool(
+            raw.get("force_serial_layers"),
+            field="EnvReqs.V2.worker.force_serial_layers",
+        )
 
     sample_artifacts = str(
         raw.get("sample_artifacts", worker["sample_artifacts"])
@@ -234,27 +213,8 @@ def normalize_file_operation(raw: Mapping[str, Any] | None) -> dict[str, str]:
     }
 
 
-def normalize_cleanup_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize ``Calculators.Cleanup`` settings."""
-    cleanup = dict(CLEANUP_DEFAULTS)
-    if not isinstance(raw, Mapping):
-        return cleanup
-    strategy = str(raw.get("strategy", cleanup["strategy"])).strip().lower()
-    # Accept legacy handoff alias from Archiver.handoff when cleanup uses it.
-    if strategy in {"staging", "mv_to_staging"}:
-        strategy = "mv_to_staging"
-    elif strategy in {"direct", "none", "off"}:
-        strategy = "direct"
-    cleanup["strategy"] = (
-        strategy if strategy in _VALID_CLEANUP_STRATEGIES else CLEANUP_DEFAULTS["strategy"]
-    )
-    staging_dir = raw.get("staging_dir")
-    cleanup["staging_dir"] = str(staging_dir).strip() if staging_dir else None
-    return cleanup
-
-
 def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize ``Calculators.Archiver`` settings."""
+    """Normalize the internal Archiver adapter sourced from EnvReqs.V2.archiver."""
     archiver = dict(ARCHIVER_DEFAULTS)
     if not isinstance(raw, Mapping):
         return archiver
@@ -275,65 +235,26 @@ def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         max_hdf5_bytes if max_hdf5_bytes > 0 else ARCHIVER_DEFAULTS["max_hdf5_bytes"]
     )
     archiver["strategy"] = normalize_move_strategy(raw.get("strategy", archiver["strategy"]))
-    archiver["delete_after_archive"] = bool(
-        raw.get("delete_after_archive", archiver["delete_after_archive"])
-    )
-    handoff = str(raw.get("handoff", archiver["handoff"])).strip().lower()
-    if handoff in {"staging", "mv_to_staging"}:
-        handoff = "staging"
-    elif handoff in {"direct", "none", "off"}:
-        handoff = "direct"
-    archiver["handoff"] = handoff if handoff in _VALID_HANDOFF_MODES else ARCHIVER_DEFAULTS["handoff"]
+    if "delete_after_archive" in raw:
+        archiver["delete_after_archive"] = require_bool(
+            raw.get("delete_after_archive"),
+            field="EnvReqs.V2.archiver.delete_after_archive",
+        )
     if "pack_buckets" in raw:
-        archiver["pack_buckets"] = bool(raw.get("pack_buckets"))
+        archiver["pack_buckets"] = require_bool(
+            raw.get("pack_buckets"),
+            field="EnvReqs.V2.archiver.pack_buckets",
+        )
     return archiver
 
 
-def get_calculators_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    if not isinstance(config, Mapping):
-        return {}
-    calculators = config.get("Calculators") or {}
-    return dict(calculators) if isinstance(calculators, Mapping) else {}
-
-
-def get_cleanup_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    calculators = get_calculators_block(config)
-    return normalize_cleanup_block(calculators.get("Cleanup"))
-
-
 def get_archiver_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    calculators = get_calculators_block(config)
-    return normalize_archiver_block(calculators.get("Archiver"))
-
-
-def get_staging_dir(
-    config: Mapping[str, Any] | None,
-    *,
-    task_result_dir: str,
-    create: bool | None = None,
-) -> str:
-    """Resolve staging root path.
-
-    When ``create`` is None, create only if staging handoff is enabled for this
-    config (never mkdir for default direct handoff).
-    """
-    cleanup = get_cleanup_config(config)
-    if create is None:
-        create = handoff_to_staging_enabled(config)
-    return resolve_staging_dir(
-        task_result_dir,
-        configured=cleanup.get("staging_dir"),
-        create=bool(create),
-    )
-
-
-def handoff_to_staging_enabled(config: Mapping[str, Any] | None) -> bool:
-    """True only when Cleanup/Archiver explicitly request the staging hop."""
-    cleanup = get_cleanup_config(config)
-    if cleanup.get("strategy") == "mv_to_staging":
-        return True
-    archiver = get_archiver_config(config)
-    return str(archiver.get("handoff", "direct")).strip().lower() == "staging"
+    if not isinstance(config, Mapping):
+        return normalize_archiver_block(None)
+    envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
+    v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
+    archiver = v2.get("archiver") if isinstance(v2, Mapping) else None
+    return normalize_archiver_block(archiver if isinstance(archiver, Mapping) else None)
 
 
 def get_sample_directory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -373,7 +294,10 @@ def normalize_watchdog_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     watchdog = dict(WATCHDOG_DEFAULTS)
     if not isinstance(raw, Mapping):
         return watchdog
-    watchdog["enabled"] = bool(raw.get("enabled", watchdog["enabled"]))
+    if "enabled" in raw:
+        watchdog["enabled"] = require_bool(
+            raw.get("enabled"), field="EnvReqs.V2.factory.watchdog.enabled"
+        )
     stale_sec = raw.get("stale_sec", watchdog["stale_sec"])
     try:
         watchdog["stale_sec"] = max(1.0, float(stale_sec))
@@ -404,7 +328,7 @@ def get_watchdog_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def get_factory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Return monitor/watchdog factory knobs (``Runtime.Factory`` / EnvReqs.V2.factory)."""
+    """Return watchdog policy from ``EnvReqs.V2.factory``."""
     runtime = get_runtime_block(config)
     factory = runtime.get("Factory")
     if isinstance(factory, Mapping):
@@ -444,7 +368,7 @@ def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
             for key in ("workers", "batch_size", "checkpoint_heartbeat_sec"):
                 if key in v2:
                     payload[key] = v2[key]
-            for key in ("redis", "factory", "Factory", "worker"):
+            for key in ("redis", "factory", "worker"):
                 if key in v2 and key not in payload:
                     payload[key] = v2[key]
     return normalize_runtime_block(payload)

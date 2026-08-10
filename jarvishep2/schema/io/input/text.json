@@ -19,7 +19,7 @@
     },
     "type": {
       "const": "Text",
-      "description": "Portal format name for this IO entry."
+      "description": "Portal file type name for this IO entry."
     },
     "save": {
       "type": "boolean",
@@ -28,5 +28,5 @@
   },
   "additionalProperties": true,
   "x-jarvis-zone": "delegated",
-  "description": "Portal input format Text: YAML field vocabulary for execution.input[]."
+  "description": "Portal input file type Text: YAML field vocabulary for execution.input[]."
 }

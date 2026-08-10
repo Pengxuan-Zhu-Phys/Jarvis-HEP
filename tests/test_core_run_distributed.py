@@ -64,10 +64,11 @@ class CoreRunDistributedTests(unittest.TestCase):
                     expected_files = json.load(handle)
 
                 core = Jarvis2Core()
-                core.load_task_yaml(CHECK_MODULES_YAML)
+                core.load_task_yaml(CHECK_MODULES_YAML, check_modules=True)
                 core.config["task_result_dir"] = tmpdir
                 core.config["Runtime"]["redis"] = redis_config
                 core.runtime = core.config["Runtime"]
+                core._ensure_managed_redis = mock.Mock()  # type: ignore[method-assign]
                 core._populate_info_from_config()
 
                 golden = {
@@ -112,7 +113,7 @@ class CoreRunDistributedTests(unittest.TestCase):
         with mock.patch("jarvishep2.client.Jarvis2Core") as core_cls:
             core = core_cls.return_value
             core.check_modules.return_value = 10
-            code = main([CHECK_MODULES_YAML, "--check-modules"])
+            code = main(["check", CHECK_MODULES_YAML])
         self.assertEqual(code, 0)
         core.load_task_yaml.assert_called_once_with(
             CHECK_MODULES_YAML,

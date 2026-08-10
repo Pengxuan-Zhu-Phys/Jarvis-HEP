@@ -11,11 +11,8 @@ from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
 from jarvishep2.calculator_modes import expand_calculator_modes
 from jarvishep2.runtime_config import (
     get_archiver_config,
-    get_cleanup_config,
     get_delete_method,
     get_sample_directory_config,
-    get_staging_dir,
-    handoff_to_staging_enabled,
     workflow_has_calculator,
     workflow_references_sdir,
 )
@@ -167,22 +164,17 @@ def build_worker_config(
         "nuisance_config": nuisance_cfg,
         "pull_timeout": 1,
         "delete_method": get_delete_method(cfg),
-        "cleanup_config": get_cleanup_config(cfg),
         "archiver_config": get_archiver_config(cfg),
         "sample_directory": get_sample_directory_config(cfg),
         "command_parser": command_parser.to_picklable(),
         "publish_feedback": publish_feedback,
         "feedback_return": feedback_return,
     }
-    # Only resolve/create staging when the staging hop is actually enabled.
-    handoff = handoff_to_staging_enabled(cfg)
-    worker_config["handoff_to_staging"] = handoff
-    if handoff:
-        worker_config["staging_dir"] = get_staging_dir(
-            cfg, task_result_dir=task_result_dir, create=True
-        )
-    else:
-        worker_config["staging_dir"] = ""
+    # V2 writes calculator products directly under SAMPLE/<bucket>/<uuid>.
+    # The former Cleanup.strategy / Archiver.handoff staging hop is no longer
+    # a task-card interface, so worker blueprints always use direct handoff.
+    worker_config["handoff_to_staging"] = False
+    worker_config["staging_dir"] = ""
     if scan_name:
         worker_config.setdefault("scan_name", scan_name)
     # Component logs: always <task_root>/logs/<scan>/worker-NN.log (never cwd jarvis_worker_PID).

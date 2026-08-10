@@ -9,7 +9,6 @@ Sampling:
   Bounds:
     point_number: 3
     seed: 0
-  mode: check_modules
   Variables:
     - name: x
       distribution:

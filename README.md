@@ -24,7 +24,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 
 | Package | HEP bridge | Install |
 |---------|------------|--------|
-| Jarvis-HEP-Portal | `io_portal.py` calculator **formats** (variable R/W) | **core dependency** |
+| Jarvis-HEP-Portal | `io_portal.py` calculator file **types** (variable R/W) | **core dependency** |
 | Jarvis-Operas | `operas.py` operator registry + expression functions | **core dependency** (D12.0) |
 | JarvisPLOT | `plot_bridge.py` / `Jarvis plot` | optional extra `[plot]` |
 
@@ -34,7 +34,7 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 |------|---------|
 | Archiver | `mode: process`, `pack_buckets: true`, log `logs/<scan>/archiver.log` |
 | FileOperation | per-Worker process; YAML `save: true` → SAMPLE (not Portal) |
-| Cleanup / handoff | `direct` (no `staging/` hop; optional `mv_to_staging`) |
+| SAMPLE writes | Files are written directly under `SAMPLE/<bucket>/<uuid>/` |
 | SAMPLE layout | buckets of 200 → `SAMPLE/000001/<uuid>/` then tar after archive |
 | DATABASE | `samples.hdf5` full observables JSON rows; `samples.csv` full-column export |
 | Process titles | `Jarvis:<scan>`, `Jarvis-Worker-N`, `Jarvis-Archiver`, `Jarvis-Redis:<scan>` |
@@ -47,6 +47,27 @@ log style (`card/logging.yaml`), **[Scan Performance]** summary, CLI **`-v` / `p
 | AdaptiveBridson tuning | public knobs: `outer_half_width`, `min_radius`; core/stop width = `outer_half_width / 8` |
 | Official catalog | GitHub JSON in Jarvis-Examples (no PyPI catalog package) |
 | Restricted packs | `Jarvis project fetch NAME --key …` / `pack --encrypt --key …` |
+
+## Stable task-card rules
+
+The V2 task-card contract is intentionally closed and is shared by `Jarvis
+validate`, `Jarvis run`, `Jarvis check`, and `Jarvis man`:
+
+- `Scan.name`, `Sampling.Method`, and `EnvReqs` are required; at least one of
+  `Calculators` or `Operas` is required. `LibDeps` is optional.
+- Sampler-specific settings belong under `Sampling.Bounds` and use lower
+  `snake_case`; `Sampling.Method` is the only method selector.
+- Runtime policy belongs under `EnvReqs.V2`. The named compatibility envelope
+  contains `Check_default_dependencies`, `Python`, `OS`, `CERN_ROOT`, and `V2`.
+  `EnvReqs.OS` is the migrated V1-compatible host preflight list: each item has
+  `name` and `version` (`>=X.Y`), and an empty list disables the restriction.
+- `Jarvis check TASK.yaml` is the only check entry point. Its optional fixed
+  points CSV is `EnvReqs.V2.check_modules.data`.
+- Sample files are written directly to `SAMPLE/`. `cleanup.strategy` and
+  `archiver.handoff` are not task-card keys.
+
+Use `Jarvis man` for the authoring surface and `Jarvis portal man` or
+`Jarvis operas info` for delegated runtime behavior.
 
 V1 (`jarvishep`) is frozen, **CLI-retired** (no console script), and must not be
 imported from this package. Use **`Jarvis`** only (`Jarvis2` is no longer installed).

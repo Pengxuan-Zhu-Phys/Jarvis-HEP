@@ -3,6 +3,7 @@
   "$id": "https://jarvis-hep.org/schema/v2/core/sampling.json",
   "type": "object",
   "x-jarvis-zone": "closed",
+  "required": ["Method"],
   "description": "Sampling root is cross-cutting only. Method-specific sampler knobs (radius, point_number, seed, AdaptiveBridson targets, CSV path, dynesty/MCMC kwargs, ...) live exclusively under Bounds.",
   "properties": {
     "Method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
@@ -18,10 +19,29 @@
     },
     "selection": {"type": "string"},
     "on_failure": {"type": "string"},
-    "mode": {"type": "string"},
-    "data": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-    "points_csv": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
-    "LogLikelihood": {"type": "array"},
+    "LogLikelihood": {
+      "type": "array",
+      "x-jarvis-zone": "closed",
+      "minItems": 1,
+      "description": "Ordered log-likelihood terms evaluated after Calculator and Operas observables are available.",
+      "x-jarvis-example": "LogLikelihood:\n  - name: LogL_signal\n    expression: \"LogGauss(signal, 1.0, 0.1)\"\n  - name: LogL_total\n    expression: \"LogL_signal + LogL_constraint\"",
+      "items": {
+        "type": "object",
+        "x-jarvis-zone": "closed",
+        "required": ["name", "expression"],
+        "properties": {
+          "name": {
+            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+            "description": "Name written for this likelihood term; use LogL for an explicit total."
+          },
+          "expression": {
+            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+            "description": "Expression evaluated in the final sample observable namespace."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "Mapper": {
       "type": "array",
       "x-jarvis-zone": "closed",
@@ -76,26 +96,6 @@
       "type": "object",
       "x-jarvis-zone": "delegated",
       "additionalProperties": true
-    },
-    "Control": {
-      "type": "object",
-      "x-jarvis-zone": "open",
-      "x-jarvis-open-reason": "RLTPMCMC controller has not been migrated to the V2 contract."
-    },
-    "Diagnostics": {
-      "type": "object",
-      "x-jarvis-zone": "open",
-      "x-jarvis-open-reason": "RLTPMCMC diagnostics has not been migrated to the V2 contract."
-    },
-    "PPO": {
-      "type": "object",
-      "x-jarvis-zone": "open",
-      "x-jarvis-open-reason": "RLTPMCMC PPO settings have not been migrated to the V2 contract."
-    },
-    "Reward": {
-      "type": "object",
-      "x-jarvis-zone": "open",
-      "x-jarvis-open-reason": "RLTPMCMC reward settings have not been migrated to the V2 contract."
     }
   },
   "additionalProperties": false

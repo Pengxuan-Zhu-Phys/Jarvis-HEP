@@ -21,13 +21,13 @@ from jarvishep2.task_config import (
 
 
 class CheckModulesResolveTests(unittest.TestCase):
-    def test_settings_prefer_sampling_data(self) -> None:
+    def test_settings_use_envreqs_v2_data_only(self) -> None:
         cfg = {
             "Sampling": {"data": "&J/data/mine.csv"},
             "EnvReqs": {"V2": {"check_modules": {"data": "&J/data/default.csv", "n_samples": 7}}},
         }
         settings = get_check_modules_settings(cfg)
-        self.assertEqual(settings["data"], "&J/data/mine.csv")
+        self.assertEqual(settings["data"], "&J/data/default.csv")
         self.assertEqual(settings["n_samples"], 7)
 
     def test_settings_default_n_samples(self) -> None:
@@ -57,7 +57,7 @@ class CheckModulesResolveTests(unittest.TestCase):
                 "project_root": tmp,
                 "task_root": tmp,
                 "task_yaml": os.path.join(tmp, "task.yaml"),
-                "Sampling": {"data": "pts.csv"},
+                "EnvReqs": {"V2": {"check_modules": {"data": "pts.csv"}}},
             }
             path, raw = resolve_check_modules_csv(cfg)
             self.assertEqual(raw, "pts.csv")
@@ -69,7 +69,7 @@ class CheckModulesResolveTests(unittest.TestCase):
                 "project_root": tmp,
                 "task_root": tmp,
                 "task_yaml": os.path.join(tmp, "task.yaml"),
-                "Sampling": {"data": "missing.csv"},
+                "EnvReqs": {"V2": {"check_modules": {"data": "missing.csv"}}},
             }
             path, raw = resolve_check_modules_csv(cfg)
             self.assertIsNone(path)
@@ -119,7 +119,6 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "Sampling": {
                         "Method": "Random",
                         "Bounds": {"point_number": 100},
-                        "data": "pts.csv",
                         "Variables": [
                             {
                                 "name": "x",
@@ -139,6 +138,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                             },
                         ],
                     },
+                    "EnvReqs": {"V2": {"check_modules": {"data": "pts.csv"}}},
                 }
             )
             from jarvishep2.Sampling.randoms import RandomS
@@ -166,7 +166,6 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                     "Sampling": {
                         "Method": "Random",
                         "Bounds": {"point_number": 100, "seed": 1},
-                        "data": "no_such.csv",
                         "Variables": [
                             {
                                 "name": "x",
@@ -186,7 +185,7 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                             },
                         ],
                     },
-                    "EnvReqs": {"V2": {"check_modules": {"n_samples": 3}}},
+                    "EnvReqs": {"V2": {"check_modules": {"data": "no_such.csv", "n_samples": 3}}},
                 }
             )
             from jarvishep2.Sampling.randoms import RandomS

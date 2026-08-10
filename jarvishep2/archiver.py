@@ -154,7 +154,7 @@ class ArchiveProcessor:
         persisted_index_prefix: int = 0,
         persisted_indices: set[int] | None = None,
     ) -> ArchiveProcessor:
-        """Build a processor from the Runtime.Archiver-style config map."""
+        """Build a processor from the normalized EnvReqs.V2.archiver config map."""
         cfg = dict(ARCHIVER_DEFAULTS)
         if isinstance(archiver_config, Mapping):
             cfg.update(archiver_config)

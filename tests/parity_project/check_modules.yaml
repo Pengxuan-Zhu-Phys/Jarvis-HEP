@@ -4,9 +4,9 @@ Scan:
 EnvReqs:
   V2:
     workers: 1
+    check_modules:
+      data: "&J/data/check_modules_points.csv"
 Sampling:
-  mode: check_modules
-  data: "&J/data/check_modules_points.csv"
   LogLikelihood:
     - name: LogL
       expression: LogGauss(z, z, 1.0)

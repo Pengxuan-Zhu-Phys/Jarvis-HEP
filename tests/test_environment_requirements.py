@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""V1 EnvReqs Python/CERN_ROOT compatibility tests."""
+"""V1-compatible EnvReqs OS/Python/CERN_ROOT tests."""
 
 from __future__ import annotations
 
@@ -12,6 +12,48 @@ from jarvishep2.environment_requirements import check_environment_requirements
 
 
 class EnvironmentRequirementsTests(unittest.TestCase):
+    def test_os_requirement_matches_v1_semantics(self) -> None:
+        config = {
+            "EnvReqs": {
+                "OS": [
+                    {"name": "linux", "version": ">=3.10.0"},
+                    {"name": "Darwin", "version": ">=10.14"},
+                ]
+            }
+        }
+        with (
+            mock.patch("jarvishep2.environment_requirements.platform.system", return_value="Linux"),
+            mock.patch("jarvishep2.environment_requirements.platform.release", return_value="6.8.0-31-generic"),
+        ):
+            report = check_environment_requirements(config)
+        self.assertTrue(report.ok)
+        self.assertEqual(report.summary["OS"], "Linux-6.8.0-31-generic")
+
+    def test_os_requirement_rejects_missing_or_old_platform(self) -> None:
+        with self.subTest(reason="missing OS"):
+            with mock.patch("jarvishep2.environment_requirements.platform.system", return_value="Windows"):
+                report = check_environment_requirements(
+                    {"EnvReqs": {"OS": [{"name": "Linux", "version": ">=3.10"}]}}
+                )
+            self.assertFalse(report.ok)
+            self.assertIn("is not listed", report.errors[0])
+
+        with self.subTest(reason="old release"):
+            with (
+                mock.patch("jarvishep2.environment_requirements.platform.system", return_value="Linux"),
+                mock.patch("jarvishep2.environment_requirements.platform.release", return_value="3.9.0"),
+            ):
+                report = check_environment_requirements(
+                    {"EnvReqs": {"OS": [{"name": "linux", "version": ">=3.10.0"}]}}
+                )
+            self.assertFalse(report.ok)
+            self.assertIn("does not meet", report.errors[0])
+
+    def test_empty_os_requirement_disables_restriction(self) -> None:
+        report = check_environment_requirements({"EnvReqs": {"OS": []}})
+        self.assertTrue(report.ok)
+        self.assertIn("OS", report.summary)
+
     def test_python_version_and_package_requirement_pass(self) -> None:
         config = {
             "EnvReqs": {

@@ -140,7 +140,7 @@ def _v2_defaults_from_envreqs(
 def _legacy_environment_requirements_from_defaults(
     config: Mapping[str, Any], *, project_root: str, yaml_dir: str
 ) -> dict[str, Any]:
-    """Load V1 Python/ROOT requirements from the selected default environment YAML."""
+    """Load V1 OS/Python/ROOT requirements from the selected default YAML."""
     defaults_path = _default_environment_yaml_path(
         config, project_root=project_root, yaml_dir=yaml_dir
     )
@@ -152,11 +152,14 @@ def _legacy_environment_requirements_from_defaults(
     envreqs = document.get("EnvReqs")
     if not isinstance(envreqs, Mapping):
         return {}
-    return {
+    defaults: dict[str, Any] = {
         key: deepcopy(envreqs[key])
         for key in ("Python", "CERN_ROOT")
         if isinstance(envreqs.get(key), Mapping)
     }
+    if isinstance(envreqs.get("OS"), list):
+        defaults["OS"] = deepcopy(envreqs["OS"])
+    return defaults
 
 
 def _default_environment_yaml_path(
@@ -344,36 +347,18 @@ def load_task_yaml(path: str) -> dict[str, Any]:
     config.raw_task_card = deepcopy(loaded)
     resolved_envreqs = deepcopy(dict(task_envreqs))
     for key, default in legacy_environment_defaults.items():
-        existing = resolved_envreqs.get(key)
-        resolved_envreqs[key] = (
-            _deep_merge(default, existing) if isinstance(existing, Mapping) else default
-        )
+        if key not in resolved_envreqs:
+            resolved_envreqs[key] = default
+            continue
+        existing = resolved_envreqs[key]
+        if isinstance(default, Mapping) and isinstance(existing, Mapping):
+            resolved_envreqs[key] = _deep_merge(default, existing)
     if v2_settings:
         resolved_envreqs["V2"] = v2_settings
     if resolved_envreqs:
         config["EnvReqs"] = resolved_envreqs
     scan_block = config.get("Scan") if isinstance(config.get("Scan"), Mapping) else {}
     scan_block = dict(scan_block)
-    # Map Cleanup / Archiver defaults into Calculators.* (task YAML wins).
-    calculators = config.get("Calculators")
-    calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
-    cleanup_defaults = v2_settings.get("cleanup")
-    if isinstance(cleanup_defaults, Mapping):
-        existing_cleanup = calculators.get("Cleanup")
-        if isinstance(existing_cleanup, Mapping):
-            calculators["Cleanup"] = _deep_merge(cleanup_defaults, existing_cleanup)
-        else:
-            calculators["Cleanup"] = deepcopy(cleanup_defaults)
-    archiver_defaults = v2_settings.get("archiver")
-    if isinstance(archiver_defaults, Mapping):
-        existing_archiver = calculators.get("Archiver")
-        if isinstance(existing_archiver, Mapping):
-            calculators["Archiver"] = _deep_merge(archiver_defaults, existing_archiver)
-        else:
-            calculators["Archiver"] = deepcopy(archiver_defaults)
-    if calculators:
-        config["Calculators"] = calculators
-
     scan_name = str(scan_block.get("name") or config.get("scan_name") or "default").strip() or "default"
     task_result_dir = str(
         config.get("task_result_dir")
@@ -426,12 +411,6 @@ def sampling_method(config: Mapping[str, Any]) -> str:
     return str(sampling.get("Method") or "").strip()
 
 
-def is_check_modules_task(config: Mapping[str, Any]) -> bool:
-    sampling = dict(config.get("Sampling") or {})
-    mode = str(sampling.get("mode") or "").strip().lower()
-    return mode in {"check_modules", "check-modules"}
-
-
 def resolve_sampling_path(config: Mapping[str, Any], raw: str) -> str:
     project_root = str(config.get("project_root") or config.get("task_root") or os.getcwd())
     if raw.startswith("&J/") or raw.startswith("&J"):
@@ -457,7 +436,7 @@ def _coerce_check_timeout_sec(value: Any, *, default: float) -> float:
 
 
 def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Return normalized check-modules knobs (task Sampling + EnvReqs.V2 + defaults)."""
+    """Return normalized check settings from EnvReqs.V2 plus built-in defaults."""
     settings = dict(CHECK_MODULES_DEFAULTS)
     envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
     v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
@@ -476,17 +455,11 @@ def get_check_modules_settings(config: Mapping[str, Any]) -> dict[str, Any]:
                 raw_timeout,
                 default=float(CHECK_MODULES_DEFAULTS["timeout_sec"]),
             )
-    # Task Sampling.data always wins for the CSV path when present.
-    sampling = config.get("Sampling") if isinstance(config.get("Sampling"), Mapping) else {}
-    if isinstance(sampling, Mapping):
-        raw = sampling.get("data") or sampling.get("points_csv")
-        if raw is not None and str(raw).strip():
-            settings["data"] = str(raw).strip()
     return settings
 
 
 def resolve_check_modules_csv(config: Mapping[str, Any]) -> tuple[str | None, str]:
-    """Resolve the check-modules CSV path.
+    """Resolve the ``Jarvis check`` CSV path.
 
     Returns
     -------
@@ -506,7 +479,7 @@ def resolve_check_modules_csv(config: Mapping[str, Any]) -> tuple[str | None, st
 
 
 def check_modules_points_path(config: Mapping[str, Any]) -> str:
-    """Return an existing check-modules CSV path or raise.
+    """Return an existing ``Jarvis check`` CSV path or raise.
 
     Prefer :func:`resolve_check_modules_csv` when a missing file should fall back
     to sampler-drawn smoke points.
@@ -514,9 +487,9 @@ def check_modules_points_path(config: Mapping[str, Any]) -> str:
     path, raw = resolve_check_modules_csv(config)
     if path is None:
         raise ValueError(
-            "check-modules CSV not found"
+            "Jarvis check CSV not found"
             + (f" (configured: {raw!r})" if raw else "")
-            + "; set Sampling.data / EnvReqs.V2.check_modules.data or rely on "
+            + "; set EnvReqs.V2.check_modules.data or rely on "
             "sampler fallback (n_samples)"
         )
     return path
@@ -532,7 +505,7 @@ def check_modules_n_samples(config: Mapping[str, Any]) -> int:
 
 
 def check_modules_timeout_sec(config: Mapping[str, Any]) -> float:
-    """Max seconds to wait for check-modules samples to archive (deadline)."""
+    """Max seconds to wait for ``Jarvis check`` samples to archive (deadline)."""
     settings = get_check_modules_settings(config)
     return _coerce_check_timeout_sec(
         settings.get("timeout_sec"),
@@ -547,7 +520,6 @@ __all__ = [
     "check_modules_points_path",
     "check_modules_timeout_sec",
     "get_check_modules_settings",
-    "is_check_modules_task",
     "load_task_yaml",
     "resolve_check_modules_csv",
     "resolve_sampling_path",

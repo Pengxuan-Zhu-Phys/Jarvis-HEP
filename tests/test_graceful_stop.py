@@ -90,9 +90,6 @@ class InterruptCheckpointTests(unittest.TestCase):
         ), mock.patch(
             "jarvishep2.core.STATELESS_METHODS",
             frozenset({"Bridson"}),
-        ), mock.patch(
-            "jarvishep2.core.is_check_modules_task",
-            return_value=False,
         ):
             outcome = core.run(write_run_summary=True)
 
@@ -126,7 +123,6 @@ class FinalArchiveVerificationTests(unittest.TestCase):
         with (
             mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
             mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
-            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
         ):
             outcome = core.run(write_run_summary=False)
 
@@ -146,7 +142,6 @@ class FinalArchiveVerificationTests(unittest.TestCase):
         with (
             mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
             mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
-            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
         ):
             outcome = core.run(write_run_summary=False)
 
@@ -170,7 +165,6 @@ class FinalArchiveVerificationTests(unittest.TestCase):
         with (
             mock.patch("jarvishep2.core.sampling_method", return_value="Bridson"),
             mock.patch("jarvishep2.core.STATELESS_METHODS", frozenset({"Bridson"})),
-            mock.patch("jarvishep2.core.is_check_modules_task", return_value=False),
         ):
             outcome = core.run()
 
@@ -188,8 +182,7 @@ class FinalArchiveVerificationTests(unittest.TestCase):
             return_value=RunOutcome(submitted=1, completed=1, archived=1)
         )
 
-        with mock.patch("jarvishep2.core.is_check_modules_task", return_value=True):
-            outcome = core.run()
+        outcome = core.run(check_modules=True)
 
         self.assertTrue(outcome.ok)
         core._wait_for_archive_caught_up.assert_not_called()

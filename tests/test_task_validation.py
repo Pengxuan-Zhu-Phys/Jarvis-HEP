@@ -278,24 +278,58 @@ class TaskValidationKernelTests(unittest.TestCase):
 
     def test_archiver_unknown_mode(self) -> None:
         cfg = _minimal_dynesty_config()
-        cfg["Calculators"] = {"Archiver": {"mode": "turbo"}}
+        cfg["EnvReqs"]["V2"]["archiver"] = {"mode": "turbo"}
         report = validate_task_config(cfg)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ARC-010" for i in report.errors()))
 
     def test_archiver_unknown_key(self) -> None:
         cfg = _minimal_dynesty_config()
-        cfg["Calculators"] = {"Archiver": {"mode": "process", "async_io": True}}
+        cfg["EnvReqs"]["V2"]["archiver"] = {"mode": "process", "async_io": True}
         report = validate_task_config(cfg)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ARC-002" for i in report.errors()))
 
     def test_archiver_shard_limit_is_validated(self) -> None:
         cfg = _minimal_dynesty_config()
-        cfg["Calculators"] = {"Archiver": {"max_hdf5_bytes": 0}}
+        cfg["EnvReqs"]["V2"]["archiver"] = {"max_hdf5_bytes": 0}
         report = validate_task_config(cfg)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ARC-014" for i in report.errors()))
+
+    def test_envreqs_boolean_fields_reject_strings(self) -> None:
+        cases = (
+            (
+                "EnvReqs.V2.sample_directory.enabled",
+                {"sample_directory": {"enabled": "false"}},
+                "JV2-ENV-053",
+            ),
+            (
+                "EnvReqs.V2.sample_directory.pack",
+                {"sample_directory": {"pack": "false"}},
+                "JV2-ENV-053",
+            ),
+            (
+                "EnvReqs.V2.archiver.delete_after_archive",
+                {"archiver": {"delete_after_archive": "false"}},
+                "JV2-ARC-015",
+            ),
+            (
+                "EnvReqs.V2.archiver.pack_buckets",
+                {"archiver": {"pack_buckets": "false"}},
+                "JV2-ARC-015",
+            ),
+        )
+        for path, value, code in cases:
+            with self.subTest(path=path):
+                cfg = _minimal_dynesty_config()
+                cfg["EnvReqs"]["V2"] = value
+                report = validate_task_config(cfg)
+                self.assertFalse(report.ok)
+                self.assertTrue(
+                    any(item.code == code and item.path == path for item in report.errors()),
+                    [item.format_line() for item in report.errors()],
+                )
 
     def test_workers_illegal_present_value(self) -> None:
         cfg = _minimal_dynesty_config()
@@ -359,35 +393,48 @@ class TaskValidationKernelTests(unittest.TestCase):
         cfg = {
             "Scan": {"name": "cm"},
             "Sampling": {
-                "mode": "check_modules",
                 "Method": "NotARealMethod",
-                "data": "points.csv",
             },
-            "EnvReqs": {},
+            "EnvReqs": {"V2": {"check_modules": {"data": "points.csv"}}},
             "Calculators": {},
         }
         # Leftover invalid Method is OK when CSV path is configured.
         report = validate_task_config(cfg, check_modules=True)
         self.assertTrue(report.ok)
         report2 = validate_task_config(cfg)
-        self.assertTrue(report2.ok)
+        self.assertFalse(report2.ok)
 
-    def test_check_modules_mode_without_method_ok_via_default_data(self) -> None:
-        """Default EnvReqs.V2.check_modules.data is always available as a path spec."""
+    def test_check_command_without_method_uses_default_data(self) -> None:
+        """Only the explicit Jarvis check validation path enables check mode."""
         cfg = {
             "Scan": {"name": "cm"},
-            "Sampling": {"mode": "check_modules"},
+            "Sampling": {},
             "EnvReqs": {},
             "Calculators": {},
         }
-        report = validate_task_config(cfg)
+        report = validate_task_config(cfg, check_modules=True)
         self.assertTrue(report.ok, [i.format_line() for i in report.errors()])
+        self.assertFalse(validate_task_config(cfg).ok)
 
     def test_check_flag_on_scan_card_allows_method_smoke(self) -> None:
         """CLI `check` on a normal Dynesty/MultiNest card may use sampler smoke points."""
         cfg = _minimal_dynesty_config()
         report = validate_task_config(cfg, check_modules=True)
         self.assertTrue(report.ok, [i.format_line() for i in report.errors()])
+
+    def test_check_modules_settings_are_closed_and_typed(self) -> None:
+        cases = (
+            ({"unknown": True}, "JV2-ENV-061"),
+            ({"data": ""}, "JV2-ENV-062"),
+            ({"n_samples": 0}, "JV2-ENV-063"),
+            ({"timeout_sec": 0}, "JV2-ENV-064"),
+        )
+        for block, code in cases:
+            with self.subTest(block=block):
+                cfg = _minimal_dynesty_config()
+                cfg["EnvReqs"]["V2"]["check_modules"] = block
+                report = validate_task_config(cfg, check_modules=True)
+                self.assertTrue(any(item.code == code for item in report.errors()))
 
     def test_io_save_key_is_valid_in_strict_mode(self) -> None:
         cfg = _minimal_dynesty_config()

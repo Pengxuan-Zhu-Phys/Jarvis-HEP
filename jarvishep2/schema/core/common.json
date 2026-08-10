@@ -43,6 +43,20 @@
       ],
       "x-jarvis-numeric": true
     },
+    "osRequirement": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"$ref": "#/$defs/nonemptyString"},
+        "version": {
+          "type": "string",
+          "pattern": "^\\s*>=\\s*\\d+(?:\\.\\d+)*\\s*$"
+        }
+      },
+      "additionalProperties": false,
+      "description": "V1-compatible operating-system requirement matched against platform.system() and platform.release()."
+    },
     "command": {
       "type": "object",
       "x-jarvis-zone": "closed",

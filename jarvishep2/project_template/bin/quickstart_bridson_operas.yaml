@@ -29,11 +29,6 @@ Sampling:
     - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
 
 EnvReqs:
-  OS:
-    - name: linux
-      version: ">=3.10.0"
-    - name: Darwin
-      version: ">=10.14"
   Check_default_dependencies:
     required: true
     default_yaml_path: "&J/deps/environment_default.yaml"
@@ -42,7 +37,6 @@ EnvReqs:
   #   workers: 2
 
 Operas:
-  make_parallel: 4
   Modules:
     - name: EggBox
       operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"

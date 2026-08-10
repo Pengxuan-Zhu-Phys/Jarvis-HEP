@@ -32,10 +32,10 @@ class CliNormalizeArgvTests(unittest.TestCase):
             ["run", CHECK_MODULES_YAML, "--resume"],
         )
 
-    def test_legacy_check_modules_flag(self) -> None:
+    def test_removed_check_modules_flag_is_not_rewritten(self) -> None:
         self.assertEqual(
             normalize_argv([CHECK_MODULES_YAML, "--check-modules"]),
-            ["check", CHECK_MODULES_YAML],
+            ["run", CHECK_MODULES_YAML, "--check-modules"],
         )
 
     def test_legacy_plot_flag(self) -> None:
@@ -247,7 +247,7 @@ class CliDispatchTests(unittest.TestCase):
 
     def test_dispatch_routes_check_modules_to_core(self) -> None:
         args = build_parser().parse_args(
-            normalize_argv([CHECK_MODULES_YAML, "--check-modules"])
+            ["check", CHECK_MODULES_YAML]
         )
         core = mock.Mock()
         core.check_modules.return_value = RunOutcome(

@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
-"""EnvReqs.V2 / Archiver / Cleanup / sample_directory contracts (D14 L3)."""
+"""EnvReqs.V2 / Archiver / sample_directory contracts (D14 L3)."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from jarvishep2.contracts.common import try_float, try_int, unknown_keys
+from jarvishep2.contracts.common import try_bool, try_float, try_int, unknown_keys
 from jarvishep2.runtime_config import (
     ARCHIVER_DEFAULTS,
-    CLEANUP_DEFAULTS,
     SUPPORTED_ENVREQS_V2_KEYS,
     VALID_ARCHIVER_MODES,
-    VALID_CLEANUP_STRATEGIES,
-    VALID_HANDOFF_MODES,
     VALID_SAMPLE_ARTIFACTS,
 )
 from jarvishep2.sample_bucket import SAMPLE_DIRECTORY_DEFAULTS
@@ -22,13 +19,14 @@ if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
 _WORKER_POLICY_KEYS = frozenset({"force_serial_layers", "sample_artifacts"})
-_FACTORY_KEYS = frozenset({"monitor_hz", "monitor", "watchdog", "Watchdog"})
+_FACTORY_KEYS = frozenset({"watchdog"})
+_MONITOR_KEYS = frozenset({"hz"})
 _REDIS_KEYS = frozenset({"host", "port", "db"})
+_CHECK_MODULES_KEYS = frozenset({"data", "n_samples", "timeout_sec"})
 _WATCHDOG_KEYS = frozenset(
     {"enabled", "stale_sec", "poll_interval_sec", "max_sample_retries"}
 )
 _ARCHIVER_KEYS = frozenset(ARCHIVER_DEFAULTS.keys())
-_CLEANUP_KEYS = frozenset(CLEANUP_DEFAULTS.keys())
 _SAMPLE_DIR_KEYS = frozenset(SAMPLE_DIRECTORY_DEFAULTS.keys())
 
 _VALID_ARCHIVER_STRATEGY = frozenset({"move", "copy"})
@@ -113,6 +111,40 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                         )
                     )
 
+            monitor = v2.get("monitor")
+            if monitor is not None and not isinstance(monitor, Mapping):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-ENV-035",
+                        "EnvReqs.V2.monitor",
+                        f"expected a mapping, got {type(monitor).__name__}",
+                    )
+                )
+            elif isinstance(monitor, Mapping):
+                monitor_extra = unknown_keys(monitor, _MONITOR_KEYS)
+                if monitor_extra:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-035",
+                            "EnvReqs.V2.monitor",
+                            f"unknown key(s): {', '.join(monitor_extra)}; "
+                            f"allowed: {', '.join(sorted(_MONITOR_KEYS))}",
+                        )
+                    )
+                if "hz" in monitor:
+                    hz = try_float(monitor.get("hz"))
+                    if hz is None or hz < 1.0:
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-ENV-036",
+                                "EnvReqs.V2.monitor.hz",
+                                f"expected number ≥ 1, got {monitor.get('hz')!r}",
+                            )
+                        )
+
             worker = v2.get("worker")
             if worker is not None and not isinstance(worker, Mapping):
                 issues.append(
@@ -147,6 +179,15 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                 f"expected one of: {', '.join(sorted(VALID_SAMPLE_ARTIFACTS))}",
                             )
                         )
+                if "force_serial_layers" in worker and try_bool(worker.get("force_serial_layers")) is None:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-022",
+                            "EnvReqs.V2.worker.force_serial_layers",
+                            f"expected boolean true/false, got {worker.get('force_serial_layers')!r}",
+                        )
+                    )
 
             factory = v2.get("factory")
             if factory is not None:
@@ -170,18 +211,7 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                 f"unknown key(s): {', '.join(f_extra)}",
                             )
                         )
-                    if "monitor_hz" in factory:
-                        hz = try_float(factory.get("monitor_hz"))
-                        if hz is None or hz < 1.0:
-                            issues.append(
-                                issue(
-                                    "error",
-                                    "JV2-ENV-032",
-                                    "EnvReqs.V2.factory.monitor_hz",
-                                    f"expected number ≥ 1, got {factory.get('monitor_hz')!r}",
-                                )
-                            )
-                    for wd_key in ("watchdog", "Watchdog"):
+                    for wd_key in ("watchdog",):
                         wd = factory.get(wd_key)
                         if wd is None:
                             continue
@@ -205,18 +235,87 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                         f"unknown key(s): {', '.join(wd_extra)}",
                                     )
                                 )
+                            if "enabled" in wd and try_bool(wd.get("enabled")) is None:
+                                issues.append(
+                                    issue(
+                                        "error",
+                                        "JV2-ENV-037",
+                                        f"EnvReqs.V2.factory.{wd_key}.enabled",
+                                        f"expected boolean true/false, got {wd.get('enabled')!r}",
+                                    )
+                                )
 
             check_modules = v2.get("check_modules")
-            if isinstance(check_modules, Mapping) and "timeout" in check_modules:
+            if check_modules is not None and not isinstance(check_modules, Mapping):
                 issues.append(
                     issue(
                         "error",
-                        "JV2-ENV-060",
-                        "EnvReqs.V2.check_modules.timeout",
-                        "timeout is a removed alias; use timeout_sec",
-                        suggestion="Replace timeout with timeout_sec and remove the old key.",
+                        "JV2-ENV-061",
+                        "EnvReqs.V2.check_modules",
+                        f"expected a mapping, got {type(check_modules).__name__}",
                     )
                 )
+            elif isinstance(check_modules, Mapping):
+                if "timeout" in check_modules:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-060",
+                            "EnvReqs.V2.check_modules.timeout",
+                            "timeout is a removed alias; use timeout_sec",
+                            suggestion="Replace timeout with timeout_sec and remove the old key.",
+                        )
+                    )
+                cm_extra = [
+                    key
+                    for key in unknown_keys(check_modules, _CHECK_MODULES_KEYS)
+                    if key != "timeout"
+                ]
+                if cm_extra:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-061",
+                            "EnvReqs.V2.check_modules",
+                            f"unknown key(s): {', '.join(cm_extra)}; "
+                            f"allowed: {', '.join(sorted(_CHECK_MODULES_KEYS))}",
+                        )
+                    )
+                if "data" in check_modules:
+                    data = check_modules.get("data")
+                    if not isinstance(data, str) or not data.strip():
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-ENV-062",
+                                "EnvReqs.V2.check_modules.data",
+                                f"expected a non-empty CSV path string, got {data!r}",
+                            )
+                        )
+                if "n_samples" in check_modules:
+                    n_samples = try_int(check_modules.get("n_samples"))
+                    if n_samples is None or n_samples < 1:
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-ENV-063",
+                                "EnvReqs.V2.check_modules.n_samples",
+                                "expected integer >= 1, got "
+                                f"{check_modules.get('n_samples')!r}",
+                            )
+                        )
+                if "timeout_sec" in check_modules:
+                    timeout_sec = try_float(check_modules.get("timeout_sec"))
+                    if timeout_sec is None or timeout_sec <= 0:
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-ENV-064",
+                                "EnvReqs.V2.check_modules.timeout_sec",
+                                "expected a positive number of seconds, got "
+                                f"{check_modules.get('timeout_sec')!r}",
+                            )
+                        )
             redis = v2.get("redis")
             if redis is not None:
                 if not isinstance(redis, Mapping):
@@ -266,15 +365,9 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
             sample_dir = v2.get("sample_directory")
             if sample_dir is not None:
                 issues.extend(_validate_sample_directory(sample_dir, "EnvReqs.V2.sample_directory"))
-
-    calculators = config.get("Calculators")
-    if isinstance(calculators, Mapping):
-        archiver = calculators.get("Archiver")
-        if archiver is not None:
-            issues.extend(_validate_archiver(archiver))
-        cleanup = calculators.get("Cleanup")
-        if cleanup is not None:
-            issues.extend(_validate_cleanup(cleanup))
+            archiver = v2.get("archiver")
+            if archiver is not None:
+                issues.extend(_validate_archiver(archiver, "EnvReqs.V2.archiver"))
 
     return issues
 
@@ -303,6 +396,16 @@ def _validate_sample_directory(raw: Any, path: str) -> list[ValidationIssue]:
                 f"allowed: {', '.join(sorted(_SAMPLE_DIR_KEYS))}",
             )
         )
+    for key in ("enabled", "pack"):
+        if key in raw and try_bool(raw.get(key)) is None:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-ENV-053",
+                    f"{path}.{key}",
+                    f"expected boolean true/false, got {raw.get(key)!r}",
+                )
+            )
     for key in ("limit", "width", "start_bucket"):
         if key not in raw:
             continue
@@ -319,11 +422,10 @@ def _validate_sample_directory(raw: Any, path: str) -> list[ValidationIssue]:
     return issues
 
 
-def _validate_archiver(raw: Any) -> list[ValidationIssue]:
+def _validate_archiver(raw: Any, path: str) -> list[ValidationIssue]:
     from jarvishep2.task_validation import issue
 
     issues: list[ValidationIssue] = []
-    path = "Calculators.Archiver"
     if not isinstance(raw, Mapping):
         return [
             issue(
@@ -401,66 +503,14 @@ def _validate_archiver(raw: Any) -> list[ValidationIssue]:
                     f"{', '.join(sorted(_VALID_ARCHIVER_STRATEGY))}",
                 )
             )
-    if "handoff" in raw:
-        handoff = str(raw.get("handoff")).strip().lower()
-        # Accept documented aliases, then map to canonical.
-        if handoff in {"staging", "mv_to_staging"}:
-            handoff = "staging"
-        elif handoff in {"direct", "none", "off"}:
-            handoff = "direct"
-        if handoff not in VALID_HANDOFF_MODES:
+    for key in ("delete_after_archive", "pack_buckets"):
+        if key in raw and try_bool(raw.get(key)) is None:
             issues.append(
                 issue(
                     "error",
-                    "JV2-ARC-014",
-                    f"{path}.handoff",
-                    f"{raw.get('handoff')!r} invalid; expected one of: "
-                    f"{', '.join(sorted(VALID_HANDOFF_MODES))} "
-                    f"(aliases: staging/mv_to_staging, direct/none/off)",
-                )
-            )
-    return issues
-
-
-def _validate_cleanup(raw: Any) -> list[ValidationIssue]:
-    from jarvishep2.task_validation import issue
-
-    issues: list[ValidationIssue] = []
-    path = "Calculators.Cleanup"
-    if not isinstance(raw, Mapping):
-        return [
-            issue(
-                "error",
-                "JV2-ARC-020",
-                path,
-                f"expected a mapping, got {type(raw).__name__}",
-            )
-        ]
-    extra = unknown_keys(raw, _CLEANUP_KEYS)
-    if extra:
-        issues.append(
-            issue(
-                "error",
-                "JV2-ARC-021",
-                path,
-                f"unknown key(s): {', '.join(extra)}; "
-                f"allowed: {', '.join(sorted(_CLEANUP_KEYS))}",
-            )
-        )
-    if "strategy" in raw:
-        strategy = str(raw.get("strategy")).strip().lower()
-        if strategy in {"staging", "mv_to_staging"}:
-            strategy = "mv_to_staging"
-        elif strategy in {"direct", "none", "off"}:
-            strategy = "direct"
-        if strategy not in VALID_CLEANUP_STRATEGIES:
-            issues.append(
-                issue(
-                    "error",
-                    "JV2-ARC-022",
-                    f"{path}.strategy",
-                    f"{raw.get('strategy')!r} invalid; expected one of: "
-                    f"{', '.join(sorted(VALID_CLEANUP_STRATEGIES))}",
+                    "JV2-ARC-015",
+                    f"{path}.{key}",
+                    f"expected boolean true/false, got {raw.get(key)!r}",
                 )
             )
     return issues

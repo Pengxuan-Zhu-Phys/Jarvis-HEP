@@ -54,13 +54,12 @@ class ArchiverBatchParityTests(unittest.TestCase):
                 core = Jarvis2Core(
                     {
                         "Runtime": {"mode": "redis", "workers": 1, "redis": redis_config},
-                        "Calculators": {
-                            "Cleanup": {"strategy": "mv_to_staging"},
-                            "Archiver": {
+                        "EnvReqs": {
+                            "V2": {"archiver": {
                                 "mode": "thread",
                                 "batch_size": 3,
                                 "flush_interval_sec": 30.0,
-                            },
+                            }},
                         },
                         "task_result_dir": tmpdir,
                     }

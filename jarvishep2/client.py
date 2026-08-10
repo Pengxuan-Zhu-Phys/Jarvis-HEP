@@ -68,7 +68,6 @@ _LEGACY_OPTION_DESTS = frozenset(
         "plot",
         "validate",
         "strict",
-        "check_modules",
         "convert",
         "resume",
         "skip_draw_flowchart",
@@ -399,9 +398,6 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     if "--plot" in args:
         rest = [a for a in args[1:] if a != "--plot"]
         return ["plot", head, *rest]
-    if "--check-modules" in args:
-        rest = [a for a in args[1:] if a != "--check-modules"]
-        return ["check", head, *rest]
     if "--validate" in args:
         rest = [a for a in args[1:] if a != "--validate"]
         return ["validate", head, *rest]
@@ -441,7 +437,6 @@ def build_parser() -> argparse.ArgumentParser:
             "\n"
             "Legacy aliases (still accepted):\n"
             "  Jarvis TASK.yaml [--resume]\n"
-            "  Jarvis TASK.yaml --check-modules\n"
             "  Jarvis TASK.yaml --validate\n"
             "  Jarvis TASK.yaml --convert\n"
             "  Jarvis --monitor\n"
@@ -508,8 +503,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Enable DEBUG logs on the console",
     )
 
-    check_p = sub.add_parser("check", help="Run fixed-point calculator smoke (check-modules)")
-    check_p.add_argument("task_yaml", help="Path to check-modules task YAML")
+    check_p = sub.add_parser("check", help="Run fixed-point calculator smoke")
+    check_p.add_argument("task_yaml", help="Path to the task YAML to smoke-test")
     check_p.add_argument(
         "--skip-library-installation",
         action="store_true",
@@ -653,11 +648,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="(legacy/global) Treat config validation warnings as errors",
     )
     parser.add_argument(
-        "--check-modules",
-        action="store_true",
-        help="(legacy) Check-modules path; prefer `Jarvis check`",
-    )
-    parser.add_argument(
         "--convert",
         action="store_true",
         help="(legacy) Convert DATABASE HDF5 to CSV; prefer `Jarvis convert`",
@@ -759,8 +749,6 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
         legacy_modes.append("monitor")
     if args.plot:
         legacy_modes.append("plot")
-    if args.check_modules:
-        legacy_modes.append("check")
     if getattr(args, "validate", False):
         legacy_modes.append("validate")
     if getattr(args, "convert", False):

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import platform
 import re
 import shlex
 import subprocess
@@ -50,7 +51,7 @@ class EnvironmentRequirementReport:
 
 
 class EnvironmentRequirementError(RuntimeError):
-    """Raised when required Python or CERN ROOT requirements are not met."""
+    """Raised when declared OS, Python, or CERN ROOT requirements are not met."""
 
     def __init__(self, report: EnvironmentRequirementReport) -> None:
         self.report = report
@@ -103,6 +104,47 @@ def _check_python(requirement: Mapping[str, Any], report: EnvironmentRequirement
         if minimum and not _meets_minimum(version, minimum):
             message = f"Python package {name}=={version} does not meet the requirement >= {minimum}"
             (report.errors if required else report.warnings).append(message)
+
+
+def _check_os(requirements: Sequence[Any], report: EnvironmentRequirementReport) -> None:
+    """Check the V1 ``EnvReqs.OS`` list against the current platform.
+
+    V1 matched ``platform.system()`` case-insensitively and compared the
+    numeric portions of ``platform.release()`` with a ``>=`` requirement.
+    Keep that behavior, but return diagnostics instead of terminating the
+    process so callers can render one complete preflight report.
+    """
+    current_os = platform.system()
+    current_version = platform.release()
+    report.summary["OS"] = f"{current_os}-{current_version}"
+    if not requirements:
+        return
+
+    matching: Mapping[str, Any] | None = None
+    for item in requirements:
+        if not isinstance(item, Mapping):
+            report.warnings.append("OS requirement entry is not a mapping; skipping it")
+            continue
+        if str(item.get("name") or "").strip().casefold() == current_os.casefold():
+            matching = item
+            break
+
+    if matching is None:
+        report.errors.append(
+            f"Operating system {current_os} is not listed in EnvReqs.OS"
+        )
+        return
+
+    minimum = _minimum_version(matching.get("version"))
+    if minimum is None:
+        report.errors.append(
+            f"OS requirement for {current_os} must use a supported >= version"
+        )
+        return
+    if not _meets_minimum(current_version, minimum):
+        report.errors.append(
+            f"OS {current_os} release {current_version} does not meet the requirement >= {minimum}"
+        )
 
 
 def _check_root(requirement: Mapping[str, Any], report: EnvironmentRequirementReport) -> None:
@@ -180,7 +222,7 @@ def _check_root(requirement: Mapping[str, Any], report: EnvironmentRequirementRe
 
 
 def check_environment_requirements(config: Mapping[str, Any]) -> EnvironmentRequirementReport:
-    """Check V1-compatible ``EnvReqs.Python`` and ``EnvReqs.CERN_ROOT`` blocks."""
+    """Check V1-compatible OS, Python, and CERN ROOT requirement blocks."""
     report = EnvironmentRequirementReport()
     envreqs = config.get("EnvReqs")
     if not isinstance(envreqs, Mapping):
@@ -188,6 +230,9 @@ def check_environment_requirements(config: Mapping[str, Any]) -> EnvironmentRequ
     python = envreqs.get("Python")
     if isinstance(python, Mapping):
         _check_python(python, report)
+    operating_system = envreqs.get("OS")
+    if isinstance(operating_system, Sequence) and not isinstance(operating_system, (str, bytes)):
+        _check_os(operating_system, report)
     root = envreqs.get("CERN_ROOT")
     if isinstance(root, Mapping):
         _check_root(root, report)

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/io/output/json.json",
   "type": "object",
-  "x-jarvis-example": "name: output\npath: output.json\ntype: JSON\nvariables:\n  - name: result\n    entry: result",
+  "x-jarvis-example": "name: output\npath: output.json\ntype: JSON\nvariables:\n  - {name: result}\n  - {name: log_likelihood, entry: fit.log_likelihood}",
   "required": [
     "name",
     "path",
@@ -19,7 +19,7 @@
     },
     "type": {
       "const": "JSON",
-      "description": "Portal format name for this IO entry."
+      "description": "Portal file type name for this IO entry."
     },
     "save": {
       "type": "boolean",
@@ -28,27 +28,45 @@
     "variables": {
       "type": "array",
       "items": {
-        "type": "object",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
-            "description": "Logical name of this IO slot."
-          },
-          "entry": {
-            "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
-            "description": "Key or path inside the file payload."
-          }
-        },
-        "additionalProperties": false,
-        "x-jarvis-zone": "delegated"
+        "oneOf": [
+          {"$ref": "#/$defs/rootVariable"},
+          {"$ref": "#/$defs/entryVariable"}
+        ]
       },
-      "description": "Variable bindings for this action."
+      "description": "Output bindings; each item reads either a same-named root key or an explicit dotted entry path."
+    }
+  },
+  "$defs": {
+    "rootVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Observable name and same-named key at the JSON root."
+        }
+      },
+      "additionalProperties": false
+    },
+    "entryVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "entry"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Observable name returned to the sample namespace."
+        },
+        "entry": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Required dotted source path inside the JSON object."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
   "x-jarvis-zone": "delegated",
-  "description": "Portal output format JSON: YAML field vocabulary for execution.output[]."
+  "description": "Portal output file type JSON: YAML field vocabulary for execution.output[]."
 }

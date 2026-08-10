@@ -136,12 +136,10 @@ class Worker(Process):
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
         else:
-            cleanup = self.worker_config.get("cleanup_config") or {}
-            strategy = str(cleanup.get("strategy", "direct")).strip().lower()
-            self._handoff_to_staging = strategy == "mv_to_staging"
-            archiver_cfg = self.worker_config.get("archiver_config") or {}
-            if str(archiver_cfg.get("handoff", "direct")).strip().lower() == "staging":
-                self._handoff_to_staging = True
+            # Direct SAMPLE handoff is the only V2 task-card behavior. Tests
+            # and internal callers may still opt into the low-level staging
+            # helper explicitly with ``handoff_to_staging``.
+            self._handoff_to_staging = False
         # Never mkdir staging/ for direct handoff (default).
         self._staging_dir = str(self.worker_config.get("staging_dir") or "").strip()
         if self._handoff_to_staging and not self._staging_dir:

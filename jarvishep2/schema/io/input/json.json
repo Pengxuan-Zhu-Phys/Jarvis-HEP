@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/io/input/json.json",
   "type": "object",
-  "x-jarvis-example": "name: input\npath: input.json\ntype: JSON\nactions:\n  - type: Dump\n    variables:\n      - name: x\n        expression: x",
+  "x-jarvis-example": "name: input\npath: input.json\ntype: JSON\nactions:\n  - type: Dump\n    variables:\n      - {name: x}\n      - {name: scaled_x, expression: \"2 * x\"}\n      - {name: mass, entry: parameters.mass}\n      - {name: derived_mass, expression: \"sqrt(m2)\", entry: parameters.derived_mass}",
   "required": [
     "name",
     "path",
@@ -19,7 +19,7 @@
     },
     "type": {
       "const": "JSON",
-      "description": "Portal format name for this IO entry."
+      "description": "Portal file type name for this IO entry."
     },
     "save": {
       "type": "boolean",
@@ -36,43 +36,94 @@
         "properties": {
           "type": {
             "const": "Dump",
-            "description": "Portal format name for this IO entry."
+            "description": "JSON input action name; the supported value is Dump."
           },
           "variables": {
             "type": "array",
             "items": {
-              "type": "object",
-              "required": [
-                "name",
-                "expression"
-              ],
-              "properties": {
-                "name": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
-                  "description": "Logical name of this IO slot."
-                },
-                "expression": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
-                  "description": "Expression evaluated in the sample namespace."
-                },
-                "entry": {
-                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
-                  "description": "Key or path inside the file payload."
-                }
-              },
-              "additionalProperties": false,
-              "x-jarvis-zone": "delegated"
+              "oneOf": [
+                {"$ref": "#/$defs/directRootVariable"},
+                {"$ref": "#/$defs/directEntryVariable"},
+                {"$ref": "#/$defs/expressionRootVariable"},
+                {"$ref": "#/$defs/expressionEntryVariable"}
+              ]
             },
             "description": "Variable bindings for this action."
           }
         },
         "additionalProperties": false,
-        "x-jarvis-zone": "delegated"
+        "x-jarvis-zone": "closed"
       },
-      "description": "Ordered Portal actions (Dump/Load/...) for this file."
+      "description": "Ordered JSON input Dump actions for this file."
+    }
+  },
+  "$defs": {
+    "directRootVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Read this same-named value directly from the sample namespace and write it at the JSON root."
+        }
+      },
+      "additionalProperties": false
+    },
+    "directEntryVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "entry"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Read this same-named value directly from the sample namespace."
+        },
+        "entry": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Required dotted destination path inside the JSON object."
+        }
+      },
+      "additionalProperties": false
+    },
+    "expressionRootVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "expression"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Logical name recorded for the computed value."
+        },
+        "expression": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Expression evaluated in the sample namespace and written at the JSON root."
+        }
+      },
+      "additionalProperties": false
+    },
+    "expressionEntryVariable": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": ["name", "expression", "entry"],
+      "properties": {
+        "name": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Logical name recorded for the computed value."
+        },
+        "expression": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Expression evaluated in the sample namespace."
+        },
+        "entry": {
+          "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString",
+          "description": "Required dotted destination path inside the JSON object."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,
   "x-jarvis-zone": "delegated",
-  "description": "Portal input format JSON: YAML field vocabulary for execution.input[]."
+  "description": "Portal input file type JSON: YAML field vocabulary for execution.input[]."
 }

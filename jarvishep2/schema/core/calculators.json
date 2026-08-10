@@ -7,9 +7,7 @@
     "path": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString", "description": "V1 layout metadata; modules carry their own path."},
     "Modules": {"type": "array", "items": {"$ref": "#/$defs/module"}},
     "Pools": {"type": "object", "x-jarvis-zone": "closed", "additionalProperties": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}},
-    "make_parallel": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
-    "Archiver": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
-    "Cleanup": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true}
+    "make_parallel": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"}
   },
   "additionalProperties": false,
   "$defs": {

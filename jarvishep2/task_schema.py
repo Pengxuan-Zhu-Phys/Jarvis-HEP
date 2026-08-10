@@ -494,40 +494,28 @@ def _numeric_string_issues(config: Mapping[str, Any]) -> list[Any]:
     return warnings
 
 
-def _open_zone_issues(config: Mapping[str, Any]) -> list[Any]:
-    """Make intentionally unfinished surfaces visible without rejecting cards."""
-    from jarvishep2.task_validation import issue
-
-    sampling = config.get("Sampling")
-    if not isinstance(sampling, Mapping):
-        return []
-    reasons = {
-        "Control": "RLTPMCMC controller has not been migrated to the V2 contract.",
-        "Diagnostics": "RLTPMCMC diagnostics has not been migrated to the V2 contract.",
-        "PPO": "RLTPMCMC PPO settings have not been migrated to the V2 contract.",
-        "Reward": "RLTPMCMC reward settings have not been migrated to the V2 contract.",
-    }
-    present = [key for key in reasons if key in sampling]
-    if not present:
-        return []
-    return [issue(
-        "warning", "JV2-SCH-004", "$.Sampling." + ", ".join(present),
-        "open validation zone: " + " ".join(reasons[key] for key in present),
-        hint="Their nested keys are passed through without Jarvis schema checking.",
-        suggestion="Use the documented sampler settings, or migrate these blocks before relying on strict validation.",
-    )]
-
-
 def validate_task_card_schema(
     config: Mapping[str, Any],
     *,
     suppress_additional_property_keys: frozenset[str] = frozenset(),
+    check_modules: bool = False,
 ) -> list[Any]:
     """Return normal V2 diagnostics from the root and selected local schemas."""
     issues = _issues_for(
         task_card_validator(), dict(config), "$",
         suppress_additional_property_keys=suppress_additional_property_keys,
     )
+    if check_modules:
+        # Jarvis check may use only EnvReqs.V2.check_modules.data as its fixed
+        # point source. Normal scan cards still require Sampling.Method in the
+        # bundled schema and in the Python contract.
+        issues = [
+            item for item in issues
+            if not (
+                item.path == "$.Sampling"
+                and "'Method' is a required property" in item.message
+            )
+        ]
     manifest, _ = _schema_catalog()
 
     sampling = config.get("Sampling")
@@ -547,7 +535,6 @@ def validate_task_card_schema(
         config, suppress_additional_property_keys=suppress_additional_property_keys,
     ))
     issues.extend(_numeric_string_issues(config))
-    issues.extend(_open_zone_issues(config))
     return issues
 
 

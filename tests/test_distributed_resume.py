@@ -234,7 +234,9 @@ def _run_crashable_control(
             "max_inflight": 8,
             "redis": dict(redis_config, managed=False),
             "Watchdog": {"enabled": False},
-            "Archiver": {"mode": "process", "batch_size": 4},
+        },
+        "EnvReqs": {
+            "V2": {"archiver": {"mode": "process", "batch_size": 4}}
         },
         "Sampling": {
             "Method": "Random",

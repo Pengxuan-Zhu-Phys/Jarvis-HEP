@@ -59,7 +59,6 @@ from jarvishep2.runtime_metadata import write_scan_metadata
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
-    get_factory_config,
     get_redis_config,
     get_runtime_block,
     get_sample_directory_config,
@@ -92,7 +91,6 @@ from jarvishep2.Module.runtime_preparer import (
 from jarvishep2.task_config import (
     check_modules_n_samples,
     check_modules_timeout_sec,
-    is_check_modules_task,
     load_task_yaml,
     resolve_check_modules_csv,
     sampling_method,
@@ -207,7 +205,7 @@ class Jarvis2Core:
             pass
 
     def check_environment_requirements(self) -> None:
-        """Log and enforce V1-compatible Python and CERN ROOT requirements."""
+        """Log and enforce V1-compatible OS, Python, and CERN ROOT requirements."""
         report = check_environment_requirements(self.config)
         self._environment_summary = dict(report.summary)
         if not report.summary and not report.warnings and not report.errors:
@@ -272,6 +270,19 @@ class Jarvis2Core:
                             child=True,
                         )
                     )
+
+        os_requirements = envreqs.get("OS")
+        if isinstance(os_requirements, Sequence) and not isinstance(os_requirements, (str, bytes)):
+            detected = str(report.summary.get("OS") or "not detected")
+            passed = not any(error.startswith(("Operating system ", "OS ")) for error in report.errors)
+            lines.append(
+                format_check(
+                    "OS",
+                    "configured" if os_requirements else "none",
+                    detected,
+                    "PASS" if passed else "FAIL",
+                )
+            )
 
         root_requirement = envreqs.get("CERN_ROOT")
         if isinstance(root_requirement, Mapping):
@@ -613,9 +624,8 @@ class Jarvis2Core:
 
         Resolution order for the CSV path:
 
-        1. ``Sampling.data`` / ``points_csv`` (task YAML)
-        2. ``EnvReqs.V2.check_modules.data`` (default environment YAML)
-        3. Built-in default ``&J/data/check_modules_points.csv``
+        1. ``EnvReqs.V2.check_modules.data`` (task or default environment YAML)
+        2. Built-in default ``&J/data/check_modules_points.csv``
 
         When the resolved file is missing, fall back to
         ``EnvReqs.V2.check_modules.n_samples`` (default 10) points drawn from
@@ -626,7 +636,7 @@ class Jarvis2Core:
         csv_path, raw_spec = resolve_check_modules_csv(self.config)
         if csv_path is not None:
             self._logger.warning(
-                "check-modules: using fixed points from CSV -> %s (configured as %r)",
+                "Jarvis check: using fixed points from CSV -> %s (configured as %r)",
                 csv_path,
                 raw_spec,
             )
@@ -638,14 +648,14 @@ class Jarvis2Core:
                 csv_fieldnames=fieldnames,
             )
             self._logger.warning(
-                "check-modules: loaded %d fixed point(s) from CSV", len(samples)
+                "Jarvis check: loaded %d fixed point(s) from CSV", len(samples)
             )
             return samples
 
         n_samples = check_modules_n_samples(self.config)
         method = sampling_method(self.config) or type(self.sampler).__name__
         self._logger.warning(
-            "check-modules: CSV not found (configured as %r); "
+            "Jarvis check: CSV not found (configured as %r); "
             "drawing %d smoke point(s) from Sampling.Method=%r",
             raw_spec or "(none)",
             n_samples,
@@ -653,7 +663,7 @@ class Jarvis2Core:
         )
         samples = self._sample_check_module_points_from_sampler(n_samples)
         self._logger.warning(
-            "check-modules: prepared %d sampler-drawn smoke point(s)", len(samples)
+            "Jarvis check: prepared %d sampler-drawn smoke point(s)", len(samples)
         )
         return samples
 
@@ -670,7 +680,7 @@ class Jarvis2Core:
                     sample = propose()
                 except Exception as exc:
                     self._logger.warning(
-                        "check-modules: propose_next failed after %d sample(s) -> %s; "
+                        "Jarvis check: propose_next failed after %d sample(s) -> %s; "
                         "falling back to unit-cube draws",
                         len(samples),
                         exc,
@@ -712,7 +722,7 @@ class Jarvis2Core:
 
         if not samples:
             raise RuntimeError(
-                "check-modules could not build any smoke samples: "
+                "Jarvis check could not build any smoke samples: "
                 "CSV missing and sampler produced no points"
             )
         return samples
@@ -857,14 +867,14 @@ class Jarvis2Core:
             wait_timeout = check_modules_timeout_sec(self.config)
         sample_root = self._resolve_sample_root()
         self._logger.warning(
-            "Start check-modules smoke (assembly-line test) "
+            "Start Jarvis check smoke (assembly-line test) "
             "workers=1 sample_root=%s layout=flat-uuid pack=off timeout_sec=%.1f",
             sample_root,
             wait_timeout,
         )
         samples = self._build_check_module_samples()
         if not samples:
-            raise RuntimeError("check-modules produced an empty sample list")
+            raise RuntimeError("Jarvis check produced an empty sample list")
         self.submit_samples(samples)
         self.wait_for_results(len(samples), timeout=wait_timeout)
         self._finalize_sample_buckets()
@@ -872,7 +882,7 @@ class Jarvis2Core:
             task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
         self._logger.warning(
-            "check-modules finished: submitted %d sample(s) "
+            "Jarvis check finished: submitted %d sample(s) "
             "(pipeline smoke only — not a full MultiNest/Dynesty evidence run; "
             "inspect artifacts under %s)",
             len(samples),
@@ -908,17 +918,16 @@ class Jarvis2Core:
             v2["sample_directory"] = merged_sd
         else:
             v2["sample_directory"] = {"pack": False, "enabled": False}
+        archiver = v2.get("archiver")
+        archiver = dict(archiver) if isinstance(archiver, Mapping) else {}
+        archiver["pack_buckets"] = False
+        v2["archiver"] = archiver
         envreqs["V2"] = v2
         self.config["EnvReqs"] = envreqs
 
-        # --- Archiver: no bucket tar.gz ---
+        # --- One calculator PackID only ---
         calculators = self.config.get("Calculators")
         calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
-        archiver = calculators.get("Archiver")
-        archiver = dict(archiver) if isinstance(archiver, Mapping) else {}
-        archiver["pack_buckets"] = False
-        calculators["Archiver"] = archiver
-        # --- One calculator PackID only ---
         # Workers=1 alone is not enough: Redis still registers N slots from
         # ``make_parallel`` / Pools. Free-list rotation then hands sample 1 → 001,
         # sample 2 → 002, … and each new PackID runs a full clone_shadow install
@@ -950,14 +959,6 @@ class Jarvis2Core:
             calculators["Modules"] = pinned_modules
         self.config["Calculators"] = calculators
 
-        # Operas layer width is independent of PackID install, but keep smoke serial.
-        operas = self.config.get("Operas")
-        if isinstance(operas, Mapping):
-            operas = dict(operas)
-            if "make_parallel" in operas:
-                operas["make_parallel"] = 1
-            self.config["Operas"] = operas
-
         # Layout flag: SAMPLE/test instead of SAMPLE/
         self.config["_check_modules_sample_layout"] = True
         # Eager path so logging / helpers work even before _init_sample_buckets.
@@ -967,7 +968,7 @@ class Jarvis2Core:
         self.info["check_modules"] = True
 
     def _resolve_sample_root(self) -> str:
-        """Return SAMPLE root; check-modules uses ``SAMPLE/test`` (no tar pack)."""
+        """Return SAMPLE root; ``Jarvis check`` uses ``SAMPLE/test`` (no tar pack)."""
         task_result_dir = str(
             self.info.get("task_result_dir")
             or self.config.get("task_result_dir")
@@ -1210,7 +1211,7 @@ class Jarvis2Core:
         self._install_control_signal_handlers()
         submitted = 0
         outcome: RunOutcome | None = None
-        is_check = bool(check_modules or is_check_modules_task(self.config))
+        is_check = bool(check_modules)
         if is_check:
             self._apply_check_modules_runtime_policy()
         try:
@@ -1228,9 +1229,8 @@ class Jarvis2Core:
                 submitted = self.run_adaptive_scan()
             else:
                 raise NotImplementedError(
-                    "Unsupported task: configure Sampling.mode: check_modules, "
-                    "Sampling.Method (Bridson|AdaptiveBridson|Dynesty|…), "
-                    "or pass --check-modules."
+                    "Unsupported task: configure Sampling.Method "
+                    "(Bridson|AdaptiveBridson|Dynesty|…), or run Jarvis check TASK.yaml."
                 )
             outcome = self._capture_run_outcome(submitted=submitted)
             if not is_check and not self._interrupt_requested:
@@ -1249,7 +1249,7 @@ class Jarvis2Core:
             if not self._interrupt_requested:
                 if is_check:
                     self._logger.warning(
-                        "check-modules smoke complete (submitted=%d); "
+                        "Jarvis check smoke complete (submitted=%d); "
                         "skipping nested result CSV export and plot scenes",
                         submitted,
                     )
@@ -1310,7 +1310,7 @@ class Jarvis2Core:
         verify_golden: Mapping[str, Any] | None = None,
         timeout: float | None = None,
     ) -> RunOutcome:
-        """CLI entry for ``Jarvis check <task>.yaml`` / ``--check-modules``."""
+        """CLI entry for ``Jarvis check <task>.yaml``."""
         return self.run(
             check_modules=True,
             verify_golden=verify_golden,
@@ -1946,7 +1946,7 @@ class Jarvis2Core:
         # Stamp active sampler into feedback_return resolution (D13.8).
         if "sampler" not in extra and self.sampler is not None:
             extra["sampler"] = self.sampler
-        # Prefer check-modules SAMPLE/test (or any resolved sample_root) over SAMPLE/.
+        # Prefer Jarvis check SAMPLE/test (or any resolved sample_root) over SAMPLE/.
         sample_dirs = extra.pop("sample_dirs", None)
         if sample_dirs is None:
             sample_dirs = self._resolve_sample_root()
@@ -2012,8 +2012,7 @@ class Jarvis2Core:
                 persisted_failed=self._persisted_failed_count,
             )
         self.factory.start_workers(workers, **merged_config)
-        factory_cfg = get_factory_config(self.config)
-        self.factory.start_monitor(update_hz=float(factory_cfg.get("monitor_hz", 120.0)))
+        self.factory.start_monitor()
         watchdog = get_watchdog_config(self.config)
         self.factory.start_watchdog(**watchdog)
         self._logger.info("TaskFactory started with %d worker(s)", workers)

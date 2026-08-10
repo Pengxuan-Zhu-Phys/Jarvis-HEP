@@ -27,15 +27,9 @@ EnvReqs:
       pack: true
       start_bucket: 1
 
-    # Handoff: default direct — no staging/ intermediate hop.
-    # Set strategy: mv_to_staging only when a heavy/out-of-process Archiver needs it.
-    cleanup:
-      strategy: direct
-
     # Layer-2 archive: DATABASE writes + sealed-bucket tar.gz packing.
     archiver:
       mode: process
-      handoff: direct
       pack_buckets: true
       batch_size: 200
       flush_interval_sec: 1.0
@@ -50,9 +44,12 @@ EnvReqs:
       port: 6379
       db: 0
 
+    # Reserved monitor interface; runtime monitor behavior is not active yet.
+    monitor:
+      hz: 120
+
     # Optional factory / worker policy (defaults match code).
     # factory:
-    #   monitor_hz: 120
     #   watchdog:
     #     enabled: true
     #     stale_sec: 30
@@ -62,8 +59,8 @@ EnvReqs:
     #   force_serial_layers: false
     #   sample_artifacts: auto
 
-    # Jarvis check / --check-modules:
-    #   1) Prefer this CSV when the file exists (task Sampling.data overrides).
+    # Jarvis check:
+    #   1) Use this CSV when the file exists.
     #   2) If missing, draw n_samples points from Sampling.Method (V1-like smoke).
     #   3) timeout_sec: max wait for samples to archive (deadline; CLI --timeout overrides).
     # Runtime policy (always, not YAML): workers=1, SAMPLE/test/, pack=off.

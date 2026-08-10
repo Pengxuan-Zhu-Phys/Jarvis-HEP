@@ -55,9 +55,11 @@ The schema is deliberately strict for the common, user-authored interfaces:
 | `Sampling` | method enum, variables, and method-specific `Bounds` shapes | value relations such as `min < max` and Bounds policy |
 | `Sampling.Bounds` | method knobs only (radius, point_number, seed, CSV path, dynesty/MCMC kwargs, AdaptiveBridson targets, …) | required keys and numerical ranges per Method |
 
-Top-level `Sampling` is cross-cutting only: `Method`, `Variables`, `Bounds`,
-`selection`, `LogLikelihood`, `Nuisance`, `FeedbackReturn` (plus temporary open
-RLTPMCMC keys).  Sampler settings such as `radius`, `max_attempt`,
+Top-level `Sampling` is cross-cutting only: required `Method`, `Variables`,
+`Bounds`, `selection`, `LogLikelihood`, `Nuisance`, and `FeedbackReturn`.
+The unfinished RLTPMCMC auxiliary blocks (`Control`, `Diagnostics`, `PPO`, and
+`Reward`) are not part of the public V2 vocabulary; MCMC method migration is
+deferred. Sampler settings such as `radius`, `max_attempt`,
 `point_number`, `seed`, `CSV`, or a nested `AdaptiveBridson` block at the
 Sampling root are rejected — place them under `Bounds`.
 | `Calculators.Modules` | module/execution shape, command and I/O list shapes | command resolution, module installation, execution graph |
@@ -170,9 +172,13 @@ or `dmddxe.*` for built-in direct-detection limits. `Calculators.path`,
 `Operas.Modules[].selection` is a documented V1
 compatibility fields rather than accidental exceptions. `EnvReqs` sibling V1
 blocks, Portal I/O payloads,
-Opera `kwargs`, and dynesty pass-through blocks are delegated. The legacy
-RLTPMCMC `Control`, `Reward`, `PPO`, and `Diagnostics` blocks are temporarily
-open; their presence emits `JV2-SCH-004`.
+Opera `kwargs`, and dynesty pass-through blocks are delegated. The `EnvReqs`
+envelope is closed: `Check_default_dependencies`, `Python`, `OS`, and
+`CERN_ROOT` remain named compatibility blocks, while runtime settings belong
+under `EnvReqs.V2`. `EnvReqs.OS` is the migrated V1-compatible host preflight
+list; each item requires `name` and `version` (`>=X.Y`), and an empty list
+disables the restriction. `Operas` has no root-level concurrency key;
+concurrency belongs to calculator/library declarations where it is consumed.
 
 ## LibDeps
 
@@ -280,9 +286,11 @@ support the format, `JV2-SCH-002` lists the formats valid for that direction.
 
 JSON has the first strict format-specific layout:
 
-* JSON input: `actions` with `Dump` actions and variables containing
-  `name`/`expression`.
-* JSON output: `variables` containing `name`/`entry`.
+* JSON input: `actions` with `Dump` actions. Each variable uses one of four
+  exact `oneOf` shapes: `{name}`, `{name, entry}`, `{name, expression}`, or
+  `{name, expression, entry}`.
+* JSON output: `variables` uses either `{name}` for a same-named root key or
+  `{name, entry}` for an explicit dotted source path.
 * Text is an input-only Portal format and requires `type: Text`.
 
 Bundled formats have their own input and/or output schema file. Unknown format

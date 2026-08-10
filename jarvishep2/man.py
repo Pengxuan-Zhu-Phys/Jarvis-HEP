@@ -85,7 +85,8 @@ execution:
       actions:
         - type: Dump
           variables:
-            - {name: x, expression: x}
+            - {name: x}
+            - {name: scaled_x, expression: "2 * x"}
   output:
     - name: out
       path: '@Sdir/out.json'
@@ -117,6 +118,11 @@ _ENVREQS_TOP_HELP: dict[str, str] = {
         "CERN ROOT requirement block. Usually inherited from the project default "
         "environment YAML; set required true only when the task needs ROOT."
     ),
+    "OS": (
+        "V1-compatible operating-system requirement list. Jarvis matches name "
+        "case-insensitively against platform.system() and checks platform.release() "
+        "against version >= minimum; an empty list imposes no OS restriction."
+    ),
     "V2": (
         "User-facing V2 runtime overlay. Jarvis project supplies defaults; task "
         "values override only the settings that need changing."
@@ -126,24 +132,26 @@ _ENVREQS_TOP_HELP: dict[str, str] = {
 _ENVREQS_V2_HELP: dict[str, str] = {
     "workers": "Worker count. Project default: 4; Jarvis check forces 1 at runtime.",
     "batch_size": "Runtime batch size. Project default: 256.",
+    "monitor": "Reserved monitor configuration. The interface is reserved; runtime monitor behavior is not active yet.",
     "sample_directory": (
         "Sample bucket layout: enabled, limit, width, pack, start_bucket. "
         "Configure it only under EnvReqs.V2; project defaults are inherited there."
     ),
-    "cleanup": "Cleanup policy: strategy direct or mv_to_staging, plus staging_dir.",
     "archiver": (
         "Archiver policy: mode, batch_size, flush_interval_sec, max_hdf5_bytes, "
-        "delete_after_archive, handoff, and pack_buckets."
+        "strategy, delete_after_archive, and pack_buckets. Products are written "
+        "directly under SAMPLE/<bucket>/<uuid>."
     ),
     "redis": (
         "Per-project Redis host/port/db. Jarvis may select a free port and write it "
         "back to the project default YAML."
     ),
-    "factory": "Factory monitor and watchdog policy.",
+    "factory": "Factory watchdog policy.",
     "worker": "Worker policy: force_serial_layers and sample_artifacts.",
     "check_modules": (
-        "Jarvis check settings: data, n_samples, timeout_sec. Check overrides "
-        "workers and archive layout while it runs."
+        "Jarvis check settings: data, n_samples, timeout_sec. This is the only "
+        "YAML location for the check CSV. Jarvis check overrides workers and "
+        "archive layout while it runs."
     ),
     "checkpoint_heartbeat_sec": (
         "Checkpoint heartbeat interval in seconds; minimum 1. Project runtime "
@@ -183,21 +191,13 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
     "sample_directory": (
         "Sample bucket layout inherited from the project default V2 YAML.",
         {
-            "enabled": "Enable SAMPLE bucket directories.",
+            "enabled": "Enable SAMPLE bucket directories; use YAML true or false, not a quoted string.",
             "limit": "Maximum samples per bucket.",
             "width": "Zero-padding width for bucket names.",
-            "pack": "Pack sealed buckets into tar.gz archives.",
+            "pack": "Pack sealed buckets into tar.gz archives; use YAML true or false, not a quoted string.",
             "start_bucket": "First bucket number.",
         },
         "sample_directory:\n  enabled: true\n  limit: 200\n  width: 6\n  pack: true\n  start_bucket: 1",
-    ),
-    "cleanup": (
-        "Cleanup policy inherited from EnvReqs.V2 in the project default YAML.",
-        {
-            "strategy": "direct or mv_to_staging.",
-            "staging_dir": "Optional staging directory when using mv_to_staging.",
-        },
-        "cleanup:\n  strategy: direct",
     ),
     "archiver": (
         "Archive policy inherited from EnvReqs.V2 in the project default YAML.",
@@ -206,10 +206,9 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
             "batch_size": "Number of samples handled per archive batch.",
             "flush_interval_sec": "Maximum archive flush interval in seconds.",
             "max_hdf5_bytes": "Seal an HDF5 shard after this many bytes.",
-            "strategy": "move or copy for the archive handoff.",
-            "delete_after_archive": "Delete source sample files after archiving.",
-            "handoff": "direct or staging.",
-            "pack_buckets": "Pack sealed SAMPLE buckets into tar.gz archives.",
+            "strategy": "move or copy for the archive transfer.",
+            "delete_after_archive": "Delete source sample files after archiving; use YAML true or false, not a quoted string.",
+            "pack_buckets": "Pack sealed SAMPLE buckets into tar.gz archives; use YAML true or false, not a quoted string.",
         },
         "archiver:\n  mode: process\n  batch_size: 200\n  pack_buckets: true",
     ),
@@ -222,14 +221,19 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
         },
         "redis:\n  host: 127.0.0.1\n  port: 6379\n  db: 0",
     ),
-    "factory": (
-        "Factory monitor and watchdog policy.",
+    "monitor": (
+        "Reserved monitor configuration. It is accepted as YAML structure but is not active yet.",
         {
-            "monitor_hz": "Factory monitor frequency; project default: 120.",
-            "monitor": "Legacy monitor mapping; hz or update_hz supplies the frequency.",
+            "hz": "Reserved monitor frequency in Hz.",
+        },
+        "monitor:\n  hz: 120",
+    ),
+    "factory": (
+        "Factory watchdog policy.",
+        {
             "watchdog": "Watchdog policy mapping.",
         },
-        "factory:\n  monitor_hz: 120\n  watchdog:\n    enabled: true",
+        "factory:\n  watchdog:\n    enabled: true",
     ),
     "worker": (
         "Per-worker execution policy.",
@@ -240,7 +244,7 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
         "worker:\n  force_serial_layers: false\n  sample_artifacts: auto",
     ),
     "check_modules": (
-        "Fixed-point Calculator smoke settings. Jarvis check forces its own worker and archive policy while running.",
+        "Fixed-point Calculator smoke settings. EnvReqs.V2.check_modules.data is the only check CSV source, and only Jarvis check activates this mode.",
         {
             "data": "CSV path, normally &J/data/check_modules_points.csv.",
             "n_samples": "Number of smoke samples when data is not used.",
@@ -272,19 +276,16 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "width": "integer",
     "start_bucket": "integer",
     "strategy": "enum",
-    "staging_dir": "string",
     "mode": "enum",
     "batch_size": "integer",
     "flush_interval_sec": "number",
     "max_hdf5_bytes": "integer",
     "delete_after_archive": "boolean",
-    "handoff": "enum",
     "pack_buckets": "boolean",
     "host": "string",
     "port": "integer",
     "db": "integer",
-    "monitor_hz": "number",
-    "monitor": "mapping",
+    "hz": "number",
     "watchdog": "mapping",
     "force_serial_layers": "boolean",
     "sample_artifacts": "enum",
@@ -350,8 +351,8 @@ _PORTAL_IO_GUIDANCE: dict[str, dict[str, dict[str, Any]]] = {
             "fields": {
                 "actions": (
                     "Input-only action list. Supported action: Dump. Each Dump "
-                    "variable requires name; expression computes a value from the "
-                    "sample namespace; entry is an optional dotted JSON path."
+                    "variable uses one of four exact shapes: {name}, {name, entry}, "
+                    "{name, expression}, or {name, expression, entry}."
                 ),
             },
             "actions": [
@@ -362,25 +363,25 @@ _PORTAL_IO_GUIDANCE: dict[str, dict[str, dict[str, Any]]] = {
                 {
                     "name": "Dump",
                     "fields": "variables list",
-                    "description": "Each item: name required; expression optional; entry optional dotted JSON path.",
+                    "description": "OneOf four shapes: direct or expression value, each at the root or at a dotted entry path.",
                 }
             ],
         },
         "output": {
             "summary": "Output reads selected values from a JSON object; it does not run input actions.",
             "fields": {
-                "variables": "Output bindings: name is required; entry is an optional dotted JSON path and defaults to name.",
+                "variables": "Output bindings use one of two exact shapes: {name} reads a same-named root key; {name, entry} reads a dotted JSON path.",
             },
             "example": """name: output
 path: output.json
 type: JSON
 variables:
-  - {name: result,   entry: result}
+  - {name: result}
   - {name: mass,     entry: observables.mass}
-  - {name: status,   entry: status}
+  - {name: status}
   - {name: best_fit, entry: results.best_fit}
   - {name: errors,   entry: results.errors}
-  - {name: labels,   entry: labels}""",
+  - {name: labels}""",
         },
     },
     "CSV": {},
@@ -1161,6 +1162,7 @@ def _envreqs_nested_page(
     example: str,
     *,
     diagnostic: str = "JV2-ENV-001",
+    zone: str = "delegated",
 ) -> dict[str, Any]:
     keys = []
     for name, description in fields.items():
@@ -1169,7 +1171,7 @@ def _envreqs_nested_page(
     return {
         "path": path,
         "context": {},
-        "zone": "delegated",
+        "zone": zone,
         "status": "stable",
         "summary": title,
         "keys": keys,
@@ -1180,14 +1182,74 @@ def _envreqs_nested_page(
     }
 
 
+def _envreqs_os_page() -> dict[str, Any]:
+    """Return the closed list-item manual for the migrated V1 OS block."""
+    item_schema = {
+        "type": "object",
+        "x-jarvis-zone": "closed",
+        "required": ["name", "version"],
+        "properties": {
+            "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "OS name matched case-insensitively against platform.system().",
+            },
+            "version": {
+                "type": "string",
+                "pattern": r"^\s*>=\s*\d+(?:\.\d+)*\s*$",
+                "description": "Minimum platform.release() version in >=X.Y form.",
+            },
+        },
+        "additionalProperties": False,
+    }
+    return {
+        "path": "$.EnvReqs.OS",
+        "context": {},
+        "zone": "closed",
+        "status": "stable",
+        "summary": (
+            "• Shape: EnvReqs.OS is a list of operating-system requirement mappings.\n"
+            "• Match: name is case-insensitive and is compared with platform.system().\n"
+            "• Version: version must be >=X.Y; Jarvis compares it with platform.release().\n"
+            "• Empty: [] means no OS restriction; a non-empty list must include the current OS."
+        ),
+        "list_title": "OS requirement fields",
+        "list_rows": [
+            _env_key(
+                "name",
+                "string",
+                "OS name matched case-insensitively against platform.system().",
+                required=True,
+            ),
+            _env_key(
+                "version",
+                "string",
+                "Minimum platform.release() version; use a >=X.Y or >=X.Y.Z value.",
+                required=True,
+            ),
+        ],
+        "keys": [],
+        "item_schema": item_schema,
+        "examples": [
+            "EnvReqs:\n"
+            "  OS:\n"
+            "    - {name: linux, version: \">=3.10.0\"}\n"
+            "    - {name: Darwin, version: \">=10.14\"}"
+        ],
+        "diagnostics": ["JV2-ENV-001"],
+        "see_also": ["Jarvis man yaml.EnvReqs", "Jarvis validate TASK.yaml"],
+        "further_reading": None,
+    }
+
+
 def _envreqs_v2_page() -> dict[str, Any]:
     nav = {
         name: f"Jarvis man yaml.EnvReqs.V2.{name}"
         for name in (
             "sample_directory",
-            "cleanup",
             "archiver",
             "redis",
+            "monitor",
             "factory",
             "worker",
             "check_modules",
@@ -1197,9 +1259,9 @@ def _envreqs_v2_page() -> dict[str, Any]:
         _env_key("workers", "integer", _ENVREQS_V2_HELP["workers"], default=4),
         _env_key("batch_size", "integer", _ENVREQS_V2_HELP["batch_size"], default=256),
         _env_key("sample_directory", "mapping", _ENVREQS_V2_HELP["sample_directory"], man=nav["sample_directory"]),
-        _env_key("cleanup", "mapping", _ENVREQS_V2_HELP["cleanup"], man=nav["cleanup"]),
         _env_key("archiver", "mapping", _ENVREQS_V2_HELP["archiver"], man=nav["archiver"]),
         _env_key("redis", "mapping", _ENVREQS_V2_HELP["redis"], man=nav["redis"]),
+        _env_key("monitor", "mapping", _ENVREQS_V2_HELP["monitor"], man=nav["monitor"]),
         _env_key("factory", "mapping", _ENVREQS_V2_HELP["factory"], man=nav["factory"]),
         _env_key("worker", "mapping", _ENVREQS_V2_HELP["worker"], man=nav["worker"]),
         _env_key("check_modules", "mapping", _ENVREQS_V2_HELP["check_modules"], man=nav["check_modules"]),
@@ -1225,7 +1287,7 @@ def _envreqs_v2_page() -> dict[str, Any]:
     return {
         "path": "$.EnvReqs.V2",
         "context": {},
-        "zone": "delegated",
+        "zone": "closed",
         "status": "stable",
         "summary": (
             "• Role: V2 runtime settings are an overlay, not normally a hand-written full block.\n"
@@ -1262,6 +1324,7 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
             ),
             _env_key("Python", "mapping", _ENVREQS_TOP_HELP["Python"], man="Jarvis man yaml.EnvReqs.Python"),
             _env_key("CERN_ROOT", "mapping", _ENVREQS_TOP_HELP["CERN_ROOT"], man="Jarvis man yaml.EnvReqs.CERN_ROOT"),
+            _env_key("OS", "list", _ENVREQS_TOP_HELP["OS"], man="Jarvis man yaml.EnvReqs.OS"),
             _env_key("V2", "mapping", _ENVREQS_TOP_HELP["V2"], man="Jarvis man yaml.EnvReqs.V2"),
         ]
         task_overlay = (
@@ -1269,6 +1332,9 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
             "  Check_default_dependencies:\n"
             "    required: true\n"
             "    default_yaml_path: \"&J/deps/environment_default.yaml\"\n"
+            "  OS:\n"
+            "    - {name: linux, version: \">=3.10.0\"}\n"
+            "    - {name: Darwin, version: \">=10.14\"}\n"
             "  V2:\n"
             "    check_modules:\n"
             "      n_samples: 10\n"
@@ -1281,15 +1347,17 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
         return {
             "path": "$.EnvReqs",
             "context": {},
-            "zone": "delegated",
+            "zone": "closed",
             "status": "stable",
             "summary": (
-                "• Ownership: EnvReqs is delegated to project/runtime policy.\n"
+                "• Ownership: Jarvis owns the EnvReqs envelope; declared child blocks delegate their payloads.\n"
                 "• Defaults: Jarvis project create writes deps/environment_default.yaml.\n"
                 "• Loading: Check_default_dependencies loads the file and deep-merges V2.\n"
                 "• Override: task values override the inherited defaults.\n"
-                "• Inheritance: Python and CERN_ROOT are also commonly inherited.\n"
-                "• V2 rule: runtime settings belong under EnvReqs.V2."
+                "• Inheritance: Python, OS, and CERN_ROOT are also commonly inherited.\n"
+                "• OS rule: EnvReqs.OS is a V1-compatible preflight restriction; an empty list disables it.\n"
+                "• V2 rule: runtime settings belong under EnvReqs.V2.\n"
+                "• Closed envelope: unknown EnvReqs siblings are rejected."
             ),
             "keys": keys,
             "examples": examples,
@@ -1318,7 +1386,11 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
                 title,
                 fields,
                 example,
+                zone="closed",
             )
+
+    if len(lowered) == 1 and lowered[0] == "os":
+        return _envreqs_os_page()
 
     nested_key = lowered[0]
     if len(lowered) == 1 and nested_key in _ENVREQS_NESTED_PAGES:
@@ -1329,7 +1401,12 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
     raise KeyError("EnvReqs." + ".".join(parts))
 
 
-def _path_page(path: str) -> dict[str, Any]:
+def _path_page(
+    path: str,
+    *,
+    io_type: str | None = None,
+    direction: str | None = None,
+) -> dict[str, Any]:
     """Resolve a YAML path against the root card schema (best-effort)."""
     norm = normalize_yaml_path(path)
     parts = [p for p in norm[2:].split(".") if p] if norm.startswith("$.") else []
@@ -1497,7 +1574,7 @@ def _path_page(path: str) -> dict[str, Any]:
 
     # Route well-known Calculator / Operas paths to curated pages (richer examples).
     if parts and parts[0].casefold() == "calculators":
-        return _calculator_yaml_path_page(parts)
+        return _calculator_yaml_path_page(parts, io_type=io_type, direction=direction)
     if parts and parts[0].casefold() == "operas":
         if len(parts) == 1:
             return _operas_page()
@@ -1599,9 +1676,24 @@ def _path_page(path: str) -> dict[str, Any]:
         }
     elif match.casefold() == "operas":
         fallback = _OPERAS_FIELD_HELP
-    keys = _key_entries(
-        cursor, base=base_doc, fallback_help=fallback, nav_map=nav_map
-    )
+    elif match.casefold() == "sampling":
+        nav_map = {
+            "Variables": "Jarvis man yaml.Sampling.Variables",
+            "Bounds": "Jarvis man yaml.Sampling.Bounds",
+            "LogLikelihood": "Jarvis man yaml.Sampling.LogLikelihood",
+            "Mapper": "Jarvis man yaml.Sampling.Mapper",
+            "Nuisance": "Jarvis man yaml.Sampling.Nuisance",
+        }
+    item_schema: dict[str, Any] | None = None
+    list_rows: list[dict[str, Any]] | None = None
+    if cursor.get("type") == "array" and isinstance(cursor.get("items"), Mapping):
+        item_schema = _expand_schema(cursor["items"], base=base_doc)
+        list_rows = _key_entries(item_schema, base=base_doc)
+        keys: list[dict[str, Any]] = []
+    else:
+        keys = _key_entries(
+            cursor, base=base_doc, fallback_help=fallback, nav_map=nav_map
+        )
     see = ["Jarvis man yaml"]
     further = None
     if match.casefold() == "calculators":
@@ -1620,7 +1712,7 @@ def _path_page(path: str) -> dict[str, Any]:
             "command": "Jarvis operas info helper.eggbox2d",
             "topic": "Operator signature and return shape (must be a mapping)",
         }
-    return {
+    page = {
         "path": "$." + ".".join(trail),
         "context": {},
         "zone": str(cursor.get("x-jarvis-zone") or "delegated"),
@@ -1634,9 +1726,16 @@ def _path_page(path: str) -> dict[str, Any]:
         "see_also": see,
         "further_reading": further,
     }
+    if item_schema is not None:
+        page["list_title"] = "List item fields"
+        page["list_rows"] = list_rows or []
+        page["item_schema"] = item_schema
+    return page
 
 
-def _calculator_yaml_path_page(parts: list[str]) -> dict[str, Any]:
+def _calculator_yaml_path_page(
+    parts: list[str], *, io_type: str | None = None, direction: str | None = None
+) -> dict[str, Any]:
     """Map Calculators.* paths onto calculator man pages (stable for agents)."""
     if len(parts) == 1:
         return _calculator_page(None)
@@ -1649,15 +1748,19 @@ def _calculator_yaml_path_page(parts: list[str]) -> dict[str, Any]:
         third = parts[2].casefold()
         if third == "execution":
             if len(parts) >= 4:
-                direction = parts[3].casefold()
-                if direction in {"input", "output"}:
-                    # Optional file type in a later segment is not required.
+                path_direction = parts[3].casefold()
+                if path_direction in {"input", "output"}:
+                    path_type = io_type
+                    if len(parts) >= 5 and not path_type:
+                        path_type = parts[4]
                     return _calculator_page(
                         "execution",
-                        io_type=None,
-                        direction=direction if direction in {"input", "output"} else None,
+                        io_type=path_type,
+                        direction=direction or path_direction,
                     )
-            return _calculator_page("execution")
+            return _calculator_page(
+                "execution", io_type=io_type, direction=direction
+            )
         if third == "modes":
             return _calculator_page("modes")
         if third in _CALC_MODULE_FIELD_HELP or third in {
@@ -1709,6 +1812,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         raise KeyError(f"Portal file type {canonical} does not support {direction}.")
 
     keys: list[dict[str, Any]] = []
+    schema: dict[str, Any] = {}
     example = None
     summary = f"{direction} file type {canonical}"
     guidance = _PORTAL_IO_GUIDANCE.get(canonical, {}).get(direction, {})
@@ -1732,7 +1836,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
             "path": "File path relative to execution.path (quote tokens like \"&J/...\").",
             "type": f"Portal file type name ({canonical}).",
             "save": "When true, keep the file after the sample finishes.",
-            "actions": "Ordered write actions (input). Dump + variables with expression.",
+            "actions": "Ordered write actions (input). Dump variables may use a direct name or an expression.",
             "variables": (
                 "Output bindings: {name, entry} map file payload keys into observables. "
                 "Input Dump actions use variables with expression instead."
@@ -1815,6 +1919,7 @@ def _io_format_page(direction: str, fmt: str) -> dict[str, Any]:
         "runtime_types": sorted(runtime_names),
         "action_help": list(guidance.get("actions") or []),
         "action_rows": list(guidance.get("action_rows") or []),
+        "item_schema": schema,
     }
 
 
@@ -2467,7 +2572,7 @@ def resolve_man_request(
     topic = _coerce_man_topic(args)
     # Bare $.… path → yaml walker
     if topic.startswith("$"):
-        return _path_page(topic)
+        return _path_page(topic, io_type=io_type, direction=direction)
 
     segments = [p for p in topic.split(".") if p]
     if not segments:
@@ -2489,7 +2594,9 @@ def resolve_man_request(
         if not rest:
             return _root_overview()
         try:
-            return _path_page(".".join(rest))
+            return _path_page(
+                ".".join(rest), io_type=io_type, direction=direction
+            )
         except KeyError as exc:
             if "is a leaf field" in str(exc):
                 raise
@@ -2540,7 +2647,7 @@ def resolve_man_request(
 
     # Bare card path (Sampling.Bounds, Calculators.Modules, …)
     try:
-        return _path_page(topic)
+        return _path_page(topic, io_type=io_type, direction=direction)
     except KeyError:
         choices = (
             list(_DOMAINS)
@@ -2599,6 +2706,18 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         return
 
     console = _console()
+
+    def man_table(table_title: str) -> Table:
+        """Create a man-page table with consistent caption styling."""
+        return Table(
+            title=table_title,
+            title_justify="center",
+            title_style="bold",
+            box=box.SIMPLE_HEAVY,
+            show_header=True,
+            expand=True,
+        )
+
     title = str(page.get("path") or "Jarvis man")
     ctx = page.get("context") or {}
     if ctx.get("method"):
@@ -2622,7 +2741,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
 
     type_rows = list(page.get("type_rows") or [])
     if type_rows:
-        table = Table(title=f"File types · {title}", box=box.SIMPLE_HEAVY, show_header=True)
+        table = man_table(f"File types · {title}")
         table.add_column("Type")
         table.add_column("Description", overflow="fold")
         for row in type_rows:
@@ -2635,7 +2754,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
     list_rows = list(page.get("list_rows") or [])
     if list_rows:
         list_title = str(page.get("list_title") or "List")
-        table = Table(title=f"{list_title} · {title}", box=box.SIMPLE_HEAVY, show_header=True)
+        table = man_table(f"{list_title} · {title}")
         table.add_column("", justify="center", width=1, no_wrap=True)
         table.add_column("Name")
         table.add_column("Type")
@@ -2670,7 +2789,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             )
 
     if page.get("methods"):
-        table = Table(title="Methods", box=box.SIMPLE_HEAVY, show_header=True)
+        table = man_table("Methods")
         table.add_column("", justify="center", width=1, no_wrap=True)
         table.add_column("Method")
         table.add_column("Status")
@@ -2718,7 +2837,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
 
     keys = list(page.get("keys") or [])
     if keys:
-        table = Table(title=f"Keys · {title}", box=box.SIMPLE_HEAVY, show_header=True)
+        table = man_table(f"Keys · {title}")
         table.add_column("", justify="center", width=1, no_wrap=True)
         table.add_column("Name")
         table.add_column("Type")
@@ -2772,7 +2891,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
 
     action_rows = list(page.get("action_rows") or [])
     if action_rows:
-        table = Table(title=f"Actions · {title}", box=box.SIMPLE_HEAVY, show_header=True)
+        table = man_table(f"Actions · {title}")
         table.add_column("Action")
         table.add_column("Fields")
         table.add_column("Description", overflow="fold")

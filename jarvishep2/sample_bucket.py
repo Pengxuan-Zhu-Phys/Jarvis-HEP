@@ -20,6 +20,8 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+from jarvishep2.yaml_types import require_bool
+
 
 SAMPLE_DIRECTORY_DEFAULTS: dict[str, Any] = {
     "enabled": True,
@@ -36,9 +38,13 @@ def normalize_sample_directory(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         return cfg
     if "enabled" in raw:
-        cfg["enabled"] = bool(raw.get("enabled"))
+        cfg["enabled"] = require_bool(
+            raw.get("enabled"), field="EnvReqs.V2.sample_directory.enabled"
+        )
     if "pack" in raw:
-        cfg["pack"] = bool(raw.get("pack"))
+        cfg["pack"] = require_bool(
+            raw.get("pack"), field="EnvReqs.V2.sample_directory.pack"
+        )
     for key, default in (("limit", 200), ("width", 6), ("start_bucket", 1)):
         if key not in raw:
             continue

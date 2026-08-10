@@ -27,7 +27,6 @@ Sampling:
     - {name: LogL_Z, expression: "LogGauss(z, 100, 10)"}
 
 Operas:
-  make_parallel: 2
   Modules:
     - name: EggBox
       operator: helper.eggbox2d

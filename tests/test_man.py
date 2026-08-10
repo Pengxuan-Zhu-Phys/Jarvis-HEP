@@ -34,6 +34,34 @@ class ManPathTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_yaml_path("$.Calculators.Modules[0].execution.input[0]")
 
+    def test_log_likelihood_page_exposes_list_item_schema(self) -> None:
+        sampling_page = resolve_man_request(["yaml.Sampling"])
+        log_likelihood_row = next(
+            row for row in sampling_page["keys"] if row["name"] == "LogLikelihood"
+        )
+        self.assertTrue(log_likelihood_row["nav"])
+        self.assertEqual(
+            log_likelihood_row["man"],
+            "Jarvis man yaml.Sampling.LogLikelihood",
+        )
+
+        page = resolve_man_request(["yaml.Sampling.LogLikelihood"])
+        self.assertEqual(page["path"], "$.Sampling.LogLikelihood")
+        self.assertEqual(page["keys"], [])
+        self.assertEqual(
+            [row["name"] for row in page["list_rows"]],
+            ["name", "expression"],
+        )
+        self.assertEqual(page["item_schema"]["required"], ["name", "expression"])
+
+    def test_envreqs_v2_pages_are_closed(self) -> None:
+        self.assertEqual(resolve_man_request(["yaml.EnvReqs.V2"])["zone"], "closed")
+        self.assertEqual(
+            resolve_man_request(["yaml.EnvReqs.V2.check_modules"])["zone"],
+            "closed",
+        )
+        self.assertEqual(resolve_man_request(["yaml.EnvReqs"])["zone"], "closed")
+
 
 class ManCliTests(unittest.TestCase):
     def test_man_help_uses_man_cards_and_coding_agent_hint(self) -> None:
@@ -67,6 +95,8 @@ class ManCliTests(unittest.TestCase):
         )
         self.assertTrue(any("Dump:" in line for line in json_input["action_help"]))
         self.assertIn("actions:", json_input["examples"][0])
+        variable_schema = json_input["item_schema"]["properties"]["actions"]["items"]["properties"]["variables"]["items"]
+        self.assertEqual(len(variable_schema["oneOf"]), 4)
         self.assertIn(
             "entry",
             next(key for key in json_input["keys"] if key["name"] == "actions")["description"],
@@ -76,6 +106,8 @@ class ManCliTests(unittest.TestCase):
             ["calculator.execution.output"], io_type="JSON"
         )
         self.assertEqual(json_output["action_help"], [])
+        output_variable_schema = json_output["item_schema"]["properties"]["variables"]["items"]
+        self.assertEqual(len(output_variable_schema["oneOf"]), 2)
         self.assertIn(
             "dotted JSON path",
             next(key for key in json_output["keys"] if key["name"] == "variables")["description"],
@@ -238,6 +270,24 @@ class ManCliTests(unittest.TestCase):
         self.assertFalse(
             next(key for key in page["keys"] if key["name"] == "LibDeps")["required"]
         )
+
+    def test_sampling_method_is_required_in_man(self) -> None:
+        page = resolve_man_request(["yaml.Sampling"])
+        method = next(key for key in page["keys"] if key["name"] == "Method")
+        self.assertTrue(method["required"])
+
+    def test_envreqs_envelope_is_closed_in_man(self) -> None:
+        page = resolve_man_request(["yaml.EnvReqs"])
+        self.assertEqual(page["zone"], "closed")
+        self.assertIn("OS", {key["name"] for key in page["keys"]})
+        self.assertIn("preflight", page["summary"])
+
+    def test_envreqs_os_page_exposes_list_item_schema(self) -> None:
+        page = resolve_man_request(["yaml.EnvReqs.OS"])
+        self.assertEqual(page["path"], "$.EnvReqs.OS")
+        self.assertEqual({row["name"] for row in page["list_rows"]}, {"name", "version"})
+        self.assertEqual(page["item_schema"]["required"], ["name", "version"])
+        self.assertFalse(page["item_schema"]["additionalProperties"])
 
     def test_generic_yaml_path_summary_keeps_jsonpath_dot(self) -> None:
         page = resolve_man_request(["yaml.Scan"])
@@ -409,6 +459,23 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(input_page["path"], "$.Calculators.Modules.execution.input")
         self.assertEqual(input_page["keys"][0]["name"], "type")
 
+    def test_yaml_calculator_paths_preserve_portal_type_details(self) -> None:
+        for direction in ("input", "output"):
+            with self.subTest(direction=direction):
+                direct = resolve_man_request(
+                    [f"calculator.execution.{direction}"], io_type="JSON"
+                )
+                yaml_path = resolve_man_request(
+                    [f"yaml.Calculators.Modules.execution.{direction}"],
+                    io_type="JSON",
+                )
+                self.assertEqual(yaml_path["path"], direct["path"])
+                self.assertEqual(yaml_path["context"], direct["context"])
+                self.assertEqual(yaml_path["keys"], direct["keys"])
+                self.assertEqual(
+                    yaml_path.get("action_rows"), direct.get("action_rows")
+                )
+
     def test_calculator_module_fields_have_descriptions(self) -> None:
         page = resolve_man_request(["calculator.module"])
         self.assertTrue(page["keys"])
@@ -521,7 +588,7 @@ class ManCliTests(unittest.TestCase):
         self.assertIn("EnvReqs:", top["default_yaml"])
         self.assertIn("V2:", top["default_yaml"])
         names = {key["name"] for key in top["keys"]}
-        self.assertTrue({"Check_default_dependencies", "V2", "Python", "CERN_ROOT"} <= names)
+        self.assertTrue({"Check_default_dependencies", "V2", "Python", "CERN_ROOT", "OS"} <= names)
 
         v2 = resolve_man_request(["yaml.EnvReqs.V2"])
         self.assertEqual(v2["path"], "$.EnvReqs.V2")
@@ -539,7 +606,6 @@ class ManCliTests(unittest.TestCase):
 
         for topic in (
             "sample_directory",
-            "cleanup",
             "archiver",
             "redis",
             "factory",

@@ -47,12 +47,6 @@ def bounds_seed(bounds: Mapping[str, Any] | None, default: int = 0) -> int:
     return int(default)
 
 
-def is_check_modules_mode(config: Mapping[str, Any]) -> bool:
-    sampling = sampling_block(config) or {}
-    mode = str(sampling.get("mode") or "").strip().lower()
-    return mode in {"check_modules", "check-modules"}
-
-
 # Retired Sampling top-level keys (pre-Bounds placement).  Completely rejected.
 RETIRED_SAMPLING_TOP_LEVEL: dict[str, str] = {
     "Radius": "Sampling.Bounds.radius",
@@ -95,12 +89,7 @@ def try_float(value: Any) -> float | None:
 
 
 def try_bool(value: Any) -> bool | None:
+    """Return a native YAML boolean; reject truthy/falsy strings."""
     if isinstance(value, bool):
         return value
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in {"1", "true", "yes", "on"}:
-            return True
-        if text in {"0", "false", "no", "off"}:
-            return False
     return None

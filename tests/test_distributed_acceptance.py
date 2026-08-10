@@ -222,13 +222,12 @@ class DistributedAcceptanceTests(unittest.TestCase):
                             "redis": redis_config,
                             "Watchdog": {"enabled": False},
                         },
-                        "Calculators": {
-                            "Cleanup": {"strategy": "mv_to_staging"},
-                            "Archiver": {
+                        "EnvReqs": {
+                            "V2": {"archiver": {
                                 "mode": "thread",
                                 "batch_size": 6,
                                 "flush_interval_sec": 30.0,
-                            },
+                            }},
                         },
                         "task_result_dir": tmpdir,
                     }

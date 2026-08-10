@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from jarvishep2.contracts.common import is_check_modules_mode, sampling_block
+from jarvishep2.contracts.common import sampling_block
 from jarvishep2.contracts.mapper import validate_mapper
 from jarvishep2.contracts.methods import validate_method_sampling
 from jarvishep2.contracts.operational import validate_operational_blocks
@@ -382,8 +382,7 @@ def validate_task_config(
     strict:
         Promote warnings to errors.
     check_modules:
-        When True, treat as check-modules mode (ignore Sampling.Method).
-        When None, detect from ``Sampling.mode``.
+        Internal flag set only by the ``Jarvis check`` command.
     """
     report = ValidationReport()
     if not isinstance(config, Mapping):
@@ -408,7 +407,9 @@ def validate_task_config(
     # than runtime-only fields injected by ``load_task_yaml``.
     report.extend(
         validate_task_card_schema(
-            raw_task_card, suppress_additional_property_keys=non_ascii_keys,
+            raw_task_card,
+            suppress_additional_property_keys=non_ascii_keys,
+            check_modules=bool(check_modules),
         )
     )
     report.extend(
@@ -421,11 +422,7 @@ def validate_task_config(
         )
     )
 
-    cm = (
-        bool(check_modules)
-        if check_modules is not None
-        else is_check_modules_mode(config)
-    )
+    cm = bool(check_modules)
 
     sampling = sampling_block(config)
     if sampling is None:
@@ -460,12 +457,9 @@ def validate_task_config(
     method = str(method_raw).strip() if method_raw is not None else ""
 
     if cm:
-        # check-modules: CSV fixed points (optional) OR sampler-drawn smoke points.
+        # Jarvis check: CSV fixed points (optional) OR sampler-drawn smoke points.
         # Prefer validating Method when present so fallback sampling can run.
-        data = str(sampling.get("data") or sampling.get("points_csv") or "").strip()
-        settings = get_check_modules_settings(
-            {"EnvReqs": config.get("EnvReqs"), "Sampling": sampling}
-        )
+        settings = get_check_modules_settings(config)
         default_data = str(settings.get("data") or "").strip()
 
         if method:
@@ -473,14 +467,14 @@ def validate_task_config(
             if method not in available_list:
                 # Invalid Method is only fatal if there is also no CSV path configured;
                 # a dedicated check card may leave a leftover Method and still use CSV.
-                if not data and not default_data:
+                if not default_data:
                     report.add(
                         issue(
                             "error",
                             "JV2-MTH-003",
                             "Sampling.Method",
-                            f"{method!r} is not implemented; for check-modules either "
-                            f"fix Method or set Sampling.data / EnvReqs.V2.check_modules.data. "
+                            f"{method!r} is not implemented; for Jarvis check either "
+                            f"fix Method or set EnvReqs.V2.check_modules.data. "
                             f"Available: {', '.join(available_list) or 'none'}",
                         )
                     )
@@ -496,17 +490,17 @@ def validate_task_config(
                 )
             )
 
-        if not method and not data and not default_data:
+        if not method and not default_data:
             report.add(
                 issue(
                     "error",
                     "JV2-MTH-040",
-                    "Sampling.data",
-                    "check-modules needs either Sampling.Method (sampler smoke points) "
-                    "or Sampling.data / EnvReqs.V2.check_modules.data (CSV fixed points)",
+                    "EnvReqs.V2.check_modules.data",
+                    "Jarvis check needs either Sampling.Method (sampler smoke points) "
+                    "or EnvReqs.V2.check_modules.data (CSV fixed points)",
                     hint=(
                         "Add Sampling.Method for V1-like N-point smoke, or set "
-                        "Sampling.data / EnvReqs.V2.check_modules.data to a CSV path."
+                        "EnvReqs.V2.check_modules.data to a CSV path."
                     ),
                 )
             )

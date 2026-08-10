@@ -21,6 +21,7 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
                 "V2": {
                     "workers": 8,
                     "sample_directory": {"pack": True, "enabled": True},
+                    "archiver": {"pack_buckets": True},
                 }
             },
             "Scan": {"name": "smoke"},
@@ -34,9 +35,8 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
                         "path": "&J/calculators/microOMEGAs/@PackID",
                     }
                 ],
-                "Archiver": {"pack_buckets": True},
             },
-            "Operas": {"make_parallel": 4},
+            "Operas": {"Modules": []},
         }
         core.runtime = {}
         core.info = {}
@@ -49,10 +49,10 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
             self.assertEqual(calc["make_parallel"], 1)
             self.assertEqual(calc["Modules"][0]["make_parallel"], 1)
             self.assertEqual(calc["Pools"]["MicroOMEGAs_Vector"], 1)
-            self.assertFalse(calc["Archiver"]["pack_buckets"])
+            self.assertNotIn("Archiver", calc)
             self.assertEqual(core.config["Runtime"]["workers"], 1)
             self.assertEqual(core.config["EnvReqs"]["V2"]["workers"], 1)
-            self.assertEqual(core.config["Operas"]["make_parallel"], 1)
+            self.assertFalse(core.config["EnvReqs"]["V2"]["archiver"]["pack_buckets"])
 
             worker = build_worker_config(core.config, task_result_dir=tmpdir)
             pools = resolve_calculator_pools(worker)

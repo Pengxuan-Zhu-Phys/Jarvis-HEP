@@ -49,6 +49,27 @@ Extras:
 python3 -m pip install -e '.[distributed,plot,dev]'
 ```
 
+## Task-card contract
+
+Use the same contract for every task card and every CLI path:
+
+- Required: `Scan.name`, `Sampling.Method`, and `EnvReqs`.
+- Conditional: at least one of `Calculators` or `Operas`.
+- Optional: `LibDeps`.
+- Method-specific sampler settings are under `Sampling.Bounds` and use lower
+  `snake_case` keys.
+- Runtime settings are under `EnvReqs.V2`. `EnvReqs.OS` is the supported
+  V1-compatible host preflight list; each item uses `name` and `version`
+  (`>=X.Y`), while an empty list imposes no OS restriction. Other undeclared
+  siblings are rejected.
+- `Jarvis check TASK.yaml` is the only check entry point. The only fixed-point
+  CSV setting is `EnvReqs.V2.check_modules.data`.
+- Outputs go directly to `SAMPLE/`; task YAML has no `cleanup.strategy` or
+  `archiver.handoff` interface.
+
+`Jarvis man`, `Jarvis validate`, `Jarvis run`, and `Jarvis check` use this same
+vocabulary. Use `Jarvis man` before writing or editing a card.
+
 **CLI ownership.** The product command is **`Jarvis`** (this package). V1
 (`Jarvis-HEP` / `jarvishep`) is retired from the CLI: it no longer installs a
 console script. The old **`Jarvis2`** command is removed. Do not import
@@ -80,7 +101,6 @@ python3 -m pytest -q tests/test_d0_integration.py tests/test_worker_mvp.py   # q
 Save as `quickstart.yaml` (any directory; outputs land in `<project-root>/outputs/<scan-name>/`):
 
 ```yaml
-project_name: quickstart
 Scan:
   name: quickstart
 EnvReqs:
@@ -90,8 +110,8 @@ EnvReqs:
 Sampling:
   Method: Random
   Bounds:
-    "Point number": 20
-  Seed: 7
+    point_number: 20
+    seed: 7
   Variables:
     - name: x
       distribution: {type: Flat, parameters: {min: 0.0, max: 1.0}}
@@ -123,7 +143,7 @@ Jarvis run quickstart.yaml           # preferred
 Jarvis run quickstart.yaml --console-level WARNING
 Jarvis run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
 Jarvis quickstart.yaml               # legacy alias → run
-Jarvis check path/to/check.yaml      # fixed-point calculator smoke
+Jarvis check path/to/check.yaml      # fixed-point calculator smoke (only check entry point)
 Jarvis validate path/to/task.yaml    # schema + contract gate
 Jarvis man                           # YAML writing manuals (keys, paths, examples)
 Jarvis man calculator.execution.output --type JSON
@@ -144,7 +164,7 @@ Jarvis ps                            # running Jarvis* / Jarvis-Redis* processes
 Jarvis kill                          # list + confirm [y/N], then terminate
 Jarvis kill --yes                    # non-interactive kill
 
-# legacy (still work):
+# legacy run/plot aliases (not YAML validation interfaces):
 Jarvis quickstart.yaml --resume
 Jarvis path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis plot`
 ```

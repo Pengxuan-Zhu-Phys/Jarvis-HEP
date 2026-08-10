@@ -100,6 +100,59 @@ class TaskCardSchemaTests(unittest.TestCase):
             )
         )
 
+    def test_sampling_method_is_required_for_normal_cards(self) -> None:
+        card = _card()
+        del card["Sampling"]["Method"]
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-SCH-001"
+                and item.path == "$.Sampling"
+                and "Method" in item.message
+                for item in report.errors()
+            )
+        )
+
+    def test_envreqs_v2_rejects_unknown_top_level_key(self) -> None:
+        card = _card()
+        card["EnvReqs"] = {"V2": {"future_setting": True}}
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-SCH-001"
+                and item.path == "$.EnvReqs.V2"
+                and "future_setting" in item.message
+                for item in report.errors()
+            )
+        )
+
+    def test_envreqs_os_uses_v1_compatible_closed_list_items(self) -> None:
+        card = _card()
+        card["EnvReqs"] = {
+            "OS": [
+                {"name": "linux", "version": ">=3.10.0"},
+                {"name": "Darwin", "version": ">=10.14"},
+            ]
+        }
+        self.assertFalse(
+            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+        )
+
+        card["EnvReqs"]["OS"][0]["typo"] = True
+        self.assertTrue(
+            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+        )
+
+    def test_check_card_may_omit_sampling_method(self) -> None:
+        card = _card()
+        card["Sampling"] = {}
+        card["EnvReqs"] = {"V2": {"check_modules": {"data": "points.csv"}}}
+        report = validate_task_config(card, check_modules=True)
+        self.assertFalse(
+            any(item.code == "JV2-SCH-001" and item.path == "$.Sampling" for item in report.errors()),
+            [item.format_line() for item in report.errors()],
+        )
+
     def test_calculator_or_operas_block_is_required(self) -> None:
         card = _card()
         del card["Calculators"]
@@ -107,6 +160,116 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(card)
         self.assertTrue(
             any(item.code == "JV2-SCH-001" and item.path == "$" for item in report.errors())
+        )
+
+    def test_log_likelihood_has_closed_list_item_schema(self) -> None:
+        for invalid in (
+            [42],
+            [{"name": "LogL"}],
+            [{"expression": "x"}],
+            [{"name": "LogL", "expression": "x", "typo": True}],
+            [],
+        ):
+            with self.subTest(invalid=invalid):
+                card = _card()
+                card["Sampling"]["LogLikelihood"] = invalid
+                report = validate_task_config(card)
+                self.assertTrue(
+                    [issue for issue in report.errors() if issue.code == "JV2-SCH-001"]
+                )
+
+    def test_log_likelihood_name_and_expression_are_valid(self) -> None:
+        card = _card()
+        card["Sampling"]["LogLikelihood"] = [
+            {"name": "LogL_signal", "expression": "x"},
+            {"name": "LogL", "expression": "LogL_signal"},
+        ]
+        self.assertFalse(
+            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+        )
+
+    def test_json_input_dump_supports_direct_and_expression_variants(self) -> None:
+        variants = (
+            {"name": "x"},
+            {"name": "x", "entry": "parameters.x"},
+            {"name": "scaled_x", "expression": "2 * x"},
+            {"name": "scaled_x", "expression": "2 * x", "entry": "parameters.x"},
+        )
+        for variable in variants:
+            with self.subTest(variable=variable):
+                card = _card()
+                card["Calculators"]["Modules"][0]["execution"]["input"][0]["actions"][0]["variables"] = [variable]
+                self.assertFalse(
+                    [
+                        issue
+                        for issue in validate_task_config(card).errors()
+                        if issue.code == "JV2-SCH-001"
+                    ]
+                )
+
+    def test_json_input_dump_rejects_unknown_variable_shape(self) -> None:
+        card = _card()
+        card["Calculators"]["Modules"][0]["execution"]["input"][0]["actions"][0]["variables"] = [
+            {"name": "x", "value": 1.0}
+        ]
+        self.assertTrue(
+            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+        )
+
+    def test_json_output_supports_root_and_entry_variants(self) -> None:
+        for variable in ({"name": "z"}, {"name": "log_likelihood", "entry": "fit.log_likelihood"}):
+            with self.subTest(variable=variable):
+                card = _card()
+                card["Calculators"]["Modules"][0]["execution"]["output"][0]["variables"] = [variable]
+                self.assertFalse(
+                    [
+                        issue
+                        for issue in validate_task_config(card).errors()
+                        if issue.code == "JV2-SCH-001"
+                    ]
+                )
+
+    def test_json_output_rejects_unknown_variable_shape(self) -> None:
+        card = _card()
+        card["Calculators"]["Modules"][0]["execution"]["output"][0]["variables"] = [
+            {"name": "z", "expression": "z"}
+        ]
+        self.assertTrue(
+            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+        )
+
+    def test_operas_root_rejects_unknown_key(self) -> None:
+        card = _card()
+        card["Operas"]["typo"] = True
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(issue.code == "JV2-SCH-001" and issue.path == "$.Operas" for issue in report.errors())
+        )
+
+    def test_removed_sampling_check_fields_are_rejected(self) -> None:
+        for key, value in (
+            ("mode", "check_modules"),
+            ("data", "points.csv"),
+            ("points_csv", "points.csv"),
+        ):
+            with self.subTest(key=key):
+                card = _card()
+                card["Sampling"][key] = value
+                self.assertTrue(
+                    [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
+                )
+
+    def test_calculators_archiver_is_not_a_user_yaml_field(self) -> None:
+        card = _card()
+        card["Calculators"]["Archiver"] = {"mode": "process"}
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                issue.code == "JV2-SCH-001"
+                and issue.path == "$.Calculators"
+                and "Archiver" in issue.message
+                for issue in report.errors()
+            )
         )
 
     def test_scan_save_dir_is_not_a_v2_field(self) -> None:
@@ -316,11 +479,20 @@ class TaskCardSchemaTests(unittest.TestCase):
         problem = next(issue for issue in report.errors() if issue.path == "$.Scan.name")
         self.assertIn("Quote YAML boolean-like", problem.suggestion or "")
 
-    def test_open_legacy_sampling_zone_warns_once(self) -> None:
-        card = _card()
-        card["Sampling"].update({"Control": {"future_key": 1}, "PPO": {"future_key": 2}})
-        report = validate_task_config(card)
-        self.assertEqual([item.code for item in report.warnings()].count("JV2-SCH-004"), 1)
+    def test_unmigrated_rltpmcmc_blocks_are_rejected(self) -> None:
+        for field in ("Control", "Diagnostics", "PPO", "Reward"):
+            with self.subTest(field=field):
+                card = _card()
+                card["Sampling"][field] = {"future_key": 1}
+                report = validate_task_config(card)
+                self.assertTrue(
+                    any(
+                        item.code == "JV2-SCH-001"
+                        and item.path == "$.Sampling"
+                        and field in item.message
+                        for item in report.errors()
+                    )
+                )
 
     def test_adaptive_bridson_lowercase_block_alias_is_valid(self) -> None:
         card = _card()

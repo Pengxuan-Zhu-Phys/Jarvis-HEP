@@ -10,7 +10,90 @@
     "Sampling": {"$ref": "https://jarvis-hep.org/schema/v2/core/sampling.json"},
     "Calculators": {"$ref": "https://jarvis-hep.org/schema/v2/core/calculators.json"},
     "Operas": {"$ref": "https://jarvis-hep.org/schema/v2/core/operas.json"},
-    "EnvReqs": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
+    "EnvReqs": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "description": "Jarvis-owned EnvReqs envelope. The declared compatibility blocks are Check_default_dependencies, Python, OS, and CERN_ROOT; V2 runtime settings belong under EnvReqs.V2.",
+      "properties": {
+        "Check_default_dependencies": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "properties": {
+            "required": {"type": "boolean"}
+          },
+          "additionalProperties": true
+        },
+        "Python": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
+        "CERN_ROOT": {
+          "type": "object",
+          "x-jarvis-zone": "delegated",
+          "properties": {
+            "required": {"type": "boolean"}
+          },
+          "additionalProperties": true
+        },
+        "OS": {
+          "type": "array",
+          "items": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/osRequirement"},
+          "description": "Operating-system requirements checked before a scan starts. An empty list imposes no OS restriction."
+        },
+        "V2": {
+          "type": "object",
+          "x-jarvis-zone": "closed",
+          "properties": {
+            "workers": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+            "batch_size": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+            "sample_directory": {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "pack": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            },
+            "archiver": {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "properties": {
+                "delete_after_archive": {"type": "boolean"},
+                "pack_buckets": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            },
+            "redis": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
+            "monitor": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
+            "factory": {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "properties": {
+                "watchdog": {
+                  "type": "object",
+                  "x-jarvis-zone": "delegated",
+                  "properties": {
+                    "enabled": {"type": "boolean"}
+                  },
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": true
+            },
+            "worker": {
+              "type": "object",
+              "x-jarvis-zone": "delegated",
+              "properties": {
+                "force_serial_layers": {"type": "boolean"}
+              },
+              "additionalProperties": true
+            },
+            "check_modules": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
+            "checkpoint_heartbeat_sec": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"}
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "LibDeps": {"$ref": "https://jarvis-hep.org/schema/v2/core/libdeps.json"}
   },
   "anyOf": [
