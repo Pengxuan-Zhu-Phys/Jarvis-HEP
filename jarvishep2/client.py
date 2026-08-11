@@ -858,7 +858,7 @@ def dispatch_plot(plot_argv: list[str] | None = None) -> int:
     except ImportError as exc:
         print(
             "Jarvis-PLOT is required for `Jarvis plot`. "
-            "Install it with `pip install 'Jarvis-HEP[plot]'` "
+            "Install it with `pip install -U Jarvis-PLOT` "
             f"(or `pip install -e ../Jarvis-PLOT`). Detail: {exc}",
             file=sys.stderr,
         )

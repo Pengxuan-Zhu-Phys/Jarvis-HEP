@@ -82,10 +82,12 @@ Debian/Ubuntu, Fedora/RHEL, Amazon Linux, Arch, openSUSE, Alpine, Gentoo, Void,
 NixOS and other package-manager families. The check marker is stored at
 `~/.jarvis/redis-install-check-v1`.
 
-The optional extras are:
+The default install includes the current compatible releases of
+`Jarvis-HEP-Portal`, `Jarvis-Operas`, and `Jarvis-PLOT`. The optional extras
+are:
 
 - `distributed`: Redis, `msgpack`, and `aiofiles`
-- `plot`: [JarvisPLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT)
+- `plot`: compatibility alias for the default [Jarvis-PLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT) dependency
 - `dev`: pytest, fakeredis, and colorlog
 
 For the complete installation guide, Redis options, and project-packaging
@@ -189,7 +191,7 @@ Jarvis project fetch Eggbox
 Jarvis portal man
 Jarvis operas list
 Jarvis gen-plot-yaml TASK.yaml
-Jarvis plot path/to/plot.yaml      # install the [plot] extra first
+Jarvis plot path/to/plot.yaml      # Jarvis-PLOT is installed by default
 ```
 
 Use `Jarvis COMMAND -h` for command-specific options. Screen logging defaults

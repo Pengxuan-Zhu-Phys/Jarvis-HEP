@@ -47,6 +47,11 @@ Core runtime depends on:
 
 - **`Jarvis-HEP-Portal`** — calculator I/O formats (JSON, CSV, TSV, DAT, Wolfram, …)
 - **`Jarvis-Operas`** — operator registry and qualified expression functions (e.g. `helper.eggbox2d`)
+- **`Jarvis-PLOT`** — YAML-driven plotting and flowchart rendering
+
+These three packages are core dependencies. Their minimum versions track the
+current PyPI releases so a fresh `pip install Jarvis-HEP` resolves the latest
+compatible release available from the index.
 
 Local editable installs of those packages are fine during development:
 
@@ -59,12 +64,12 @@ python3 -m pip install -e '.[distributed,dev]'
 Extras:
 
 - `distributed` = `redis`, `msgpack`, `aiofiles`
-- `plot` = `JarvisPLOT` (YAML-driven plotting; CLI bridge)
+- `plot` = **compatibility alias** for the core `Jarvis-PLOT` dependency
 - `dev` = `pytest`, `fakeredis`, `colorlog`
 - `operas` = **deprecated no-op alias** (Operas is core since D12.0; kept for old install scripts)
 
 ```bash
-python3 -m pip install -e '.[distributed,plot,dev]'
+python3 -m pip install -e '.[distributed,dev]'
 ```
 
 ## Task-card contract
@@ -259,7 +264,7 @@ Jarvis man yaml.Calculators.Modules.execution
 Jarvis man yaml.EnvReqs.V2
 # List-valued fields use their field name alone; man reports type `list`.
 Jarvis monitor                       # one read-only status snapshot
-Jarvis plot path/to/scene.yaml       # render JarvisPLOT scene (plot extra)
+Jarvis plot path/to/scene.yaml       # render Jarvis-PLOT scene (core dependency)
 Jarvis portal man                    # Portal format *runtime* manuals (same as jportal man)
 Jarvis portal man slha               # format runtime manual
 Jarvis portal path/to/io.yaml        # run Portal IO YAML (same as jportal file)
