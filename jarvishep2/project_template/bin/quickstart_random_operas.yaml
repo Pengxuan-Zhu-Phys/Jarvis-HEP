@@ -1,0 +1,41 @@
+# Complete Random + Jarvis-Operas task card.
+# Run: Jarvis run bin/quickstart_random_operas.yaml
+Scan:
+  name: "quickstart_random_operas"
+
+Sampling:
+  Method: "Random"
+  Bounds:
+    point_number: 100
+    seed: 7
+  Variables:
+    - name: x
+      description: "EggBox x coordinate"
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 5.0}
+    - name: y
+      description: "EggBox y coordinate"
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 5.0}
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+  V2:
+    workers: 2
+
+Operas:
+  Modules:
+    - name: EggBox
+      operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"
+      call_mode: call
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}

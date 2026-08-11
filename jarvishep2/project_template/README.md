@@ -45,10 +45,21 @@ Jarvis man yaml.Calculators.Modules.execution
 Jarvis man calculator.execution.output --type JSON
 Jarvis man operas
 Jarvis man example.calculator
+Jarvis man example.random --json
+Jarvis man example.random-operas --json
+Jarvis man example.random-calculator --json
 Jarvis man yaml.EnvReqs.V2
 Jarvis portal man JSON          # runtime adapter behaviour
 Jarvis operas info helper.eggbox2d
 Jarvis validate bin/quickstart_bridson_operas.yaml
+```
+
+Random migration examples:
+
+```bash
+Jarvis validate bin/quickstart_random.yaml
+Jarvis validate bin/quickstart_random_operas.yaml
+Jarvis check bin/quickstart_random_calculator.yaml
 ```
 
 ### Nested sampling templates

@@ -376,9 +376,11 @@ class ManCliTests(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler", "--full", "--json"]), 0)
-        self.assertIn(
-            "AM",
-            {row["method"] for row in json.loads(out.getvalue())["methods"]},
+        full_json_methods = json.loads(out.getvalue())["methods"]
+        self.assertIn("AM", {row["method"] for row in full_json_methods})
+        self.assertEqual(
+            next(row for row in full_json_methods if row["method"] == "MCMC")["status"],
+            "unstable",
         )
 
         out = io.StringIO()
@@ -391,6 +393,38 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(page["status"], "unstable")
         self.assertIn("not finalised", page["summary"].lower().replace("finalized", "finalised"))
         self.assertEqual(page["keys"], [])
+
+    def test_sampler_example_links_only_point_to_complete_cards(self) -> None:
+        for method in schema_manifest()["sampling_methods"]:
+            page = resolve_man_request([f"sampler.{method}"])
+            links = [
+                str(item)
+                for item in page.get("see_also") or []
+                if str(item).startswith("Jarvis man example.")
+            ]
+            for link in links:
+                topic = link.removeprefix("Jarvis man ")
+                linked = resolve_man_request([topic])
+                self.assertEqual(linked.get("status"), "stable", msg=link)
+                self.assertTrue(linked.get("body"), msg=link)
+
+        mcmc = resolve_man_request(["sampler.MCMC"])
+        self.assertFalse(
+            any(str(item).startswith("Jarvis man example.") for item in mcmc["see_also"])
+        )
+
+    def test_random_sampler_exposes_complete_example_refs(self) -> None:
+        page = resolve_man_request(["sampler.Random"])
+        refs = page.get("example_refs") or []
+        self.assertEqual(
+            {ref["topic"] for ref in refs},
+            {
+                "example.random",
+                "example.random-operas",
+                "example.random-calculator",
+            },
+        )
+        self.assertTrue(all(ref["kind"] == "complete_task_card" for ref in refs))
 
     def test_all_methods_have_page(self) -> None:
         methods = schema_manifest()["sampling_methods"]
@@ -494,6 +528,11 @@ class ManCliTests(unittest.TestCase):
         self.assertIn("entry: z", example)
         self.assertNotIn("math.add", example)
         self.assertTrue(all(str(k.get("description") or "").strip() for k in operas["keys"]))
+        operator_example = operas["operator_example"]
+        self.assertEqual(operator_example["call_mode"], "call")
+        self.assertIn("signature", operator_example)
+        self.assertIn("yaml", operator_example)
+        self.assertEqual(operator_example["output"], [{"name": "z", "entry": "z"}])
 
     def test_calculator_yaml_paths_resolve(self) -> None:
         modules = resolve_man_request(["yaml.Calculators.Modules"])
@@ -576,10 +615,24 @@ class ManCliTests(unittest.TestCase):
         names = {k["name"] for k in page["list_rows"]}
         self.assertIn("calculator", names)
         self.assertIn("bridson", names)
+        self.assertTrue(
+            {
+                "random",
+                "random-operas",
+                "random-calculator",
+            } <= names
+        )
         calc = resolve_man_request(["example.calculator"])
         self.assertIn("Calculators:", calc["examples"][0])
+        random = resolve_man_request(["example.random"])
+        self.assertIn("Scan:", random["examples"][0])
+        self.assertIn("Operas:", random["examples"][0])
+        self.assertEqual(random["artifact"]["kind"], "complete_task_card")
         root = Path(__file__).resolve().parents[1] / "jarvishep2" / "project_template"
         for key, rel in {
+            "random": "bin/quickstart_random.yaml",
+            "random-operas": "bin/quickstart_random_operas.yaml",
+            "random-calculator": "bin/quickstart_random_calculator.yaml",
             "bridson": "bin/quickstart_bridson_operas.yaml",
             "csv": "bin/quickstart_csv_operas.yaml",
             "calculator": "bin/quickstart_calculator.yaml",
@@ -591,7 +644,7 @@ class ManCliTests(unittest.TestCase):
                 # Sampling files are fragments copied into a full task card.
                 continue
             core = Jarvis2Core()
-            check = key == "calculator"
+            check = key in {"calculator", "random-calculator"}
             core.load_task_yaml(str(path), validate=True, check_modules=check if check else None)
 
     def test_code_lookup_and_index_coverage(self) -> None:
@@ -605,7 +658,9 @@ class ManCliTests(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(main(["man", "--code", "JV2-ENV-019", "--json"]), 0)
-        self.assertEqual(json.loads(out.getvalue())["diagnostics"][0], "JV2-ENV-019")
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["diagnostics"], [])
+        self.assertEqual(payload["related_diagnostics"][0], "JV2-ENV-019")
         for code in known_diagnostic_codes():
             self.assertIsNotNone(man_target_for_code(code), msg=code)
             cmd = man_command_for(code)
@@ -616,11 +671,14 @@ class ManCliTests(unittest.TestCase):
             resolve_man_request([], code="JV2-ENV-999")
         self.assertEqual(str(raised.exception.args[0]), "unknown diagnostic code: JV2-ENV-999")
 
-        err = io.StringIO()
-        with mock.patch("sys.stderr", err):
+        out = io.StringIO()
+        with redirect_stdout(out):
             code = main(["man", "--code", "JV2-ENV-999", "--json"])
         self.assertEqual(code, 2)
-        self.assertIn("Unknown diagnostic code: JV2-ENV-999", err.getvalue())
+        error_payload = json.loads(out.getvalue())
+        self.assertFalse(error_payload["ok"])
+        self.assertEqual(error_payload["diagnostics"][0]["code"], "JV2-MAN-001")
+        self.assertIn("JV2-ENV-999", error_payload["summary"])
 
     def test_validate_hints_are_executable_man_commands(self) -> None:
         iss = issue("error", "JV2-VAR-001", "Sampling.Variables", "missing variables")
@@ -737,6 +795,7 @@ class ManCliTests(unittest.TestCase):
             "keys",
             "examples",
             "diagnostics",
+            "related_diagnostics",
             "see_also",
             "further_reading",
         ):

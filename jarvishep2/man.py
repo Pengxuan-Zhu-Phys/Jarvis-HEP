@@ -75,7 +75,7 @@ _OPERAS_FIELD_HELP: dict[str, str] = {
 
 _EXECUTION_EXAMPLE = """\
 execution:
-  path: "&J/calculators/echo"
+  path: "&J/bin"
   commands:
     - python3 -c "import json, pathlib; pathlib.Path('@Sdir/out.json').write_text(json.dumps({'y': 1.0}))"
   input:
@@ -332,6 +332,9 @@ _DOMAINS = frozenset({"yaml", "sampler", "calculator", "operas", "tokens", "exam
 _ROOT_BLOCKS = ("Scan", "Sampling", "Calculators", "Operas", "EnvReqs", "LibDeps")
 _CALC_TOPICS = ("module", "execution", "modes", "pools")
 _EXAMPLE_CATALOG: dict[str, str] = {
+    "random": "bin/quickstart_random.yaml",
+    "random-operas": "bin/quickstart_random_operas.yaml",
+    "random-calculator": "bin/quickstart_random_calculator.yaml",
     "bridson": "bin/quickstart_bridson_operas.yaml",
     "csv": "bin/quickstart_csv_operas.yaml",
     "dynesty": "bin/sampling/Sampling_Dynesty_Simple.yaml",
@@ -339,6 +342,14 @@ _EXAMPLE_CATALOG: dict[str, str] = {
     "multinest": "bin/sampling/Sampling_MultiNest_Simple.yaml",
     "multinest-full": "bin/sampling/Sampling_MultiNest_Full.yaml",
     "calculator": "bin/quickstart_calculator.yaml",
+}
+
+_METHOD_EXAMPLE_TOPICS: dict[str, tuple[str, ...]] = {
+    "Random": ("random", "random-operas", "random-calculator"),
+    "Bridson": ("bridson",),
+    "CSV": ("csv",),
+    "Dynesty": ("dynesty",),
+    "MultiNest": ("multinest",),
 }
 
 # Portal owns the adapter implementation, while Jarvis man owns the task-card
@@ -981,6 +992,36 @@ def _sampler_type(method: str) -> str:
     return "simple"
 
 
+def _example_topics_for_method(method: str) -> tuple[str, ...]:
+    """Return only complete, shipped task-card examples for *method*.
+
+    Sampler schema examples are local fragments.  This separate catalog is the
+    source of truth for navigable examples that an agent can copy as a full
+    task card.  In particular, do not manufacture ``example.<method>`` links
+    for methods that have no shipped card yet.
+    """
+    canonical = next(
+        (name for name in _METHOD_EXAMPLE_TOPICS if name.casefold() == str(method).casefold()),
+        None,
+    )
+    if canonical is None:
+        return ()
+    return tuple(
+        topic for topic in _METHOD_EXAMPLE_TOPICS[canonical] if topic in _EXAMPLE_CATALOG
+    )
+
+
+def _example_descriptor(topic: str) -> dict[str, str]:
+    """Describe a complete task-card example in machine-readable form."""
+    rel = _EXAMPLE_CATALOG[topic]
+    return {
+        "topic": f"example.{topic}",
+        "command": f"Jarvis man example.{topic} --json",
+        "path": rel,
+        "kind": "complete_task_card",
+    }
+
+
 def _method_page(method: str) -> dict[str, Any]:
     manifest = schema_manifest()
     methods = dict(manifest.get("sampling_methods") or {})
@@ -1010,6 +1051,12 @@ def _method_page(method: str) -> dict[str, Any]:
             f"STATUS: not finalised — {canonical} Bounds knobs are not locked yet. "
             "Jarvis validate does not reject unknown Bounds keys for this method."
         )
+    example_topics = _example_topics_for_method(canonical)
+    see_also = [
+        "Jarvis man sampler",
+        "Jarvis man yaml.Sampling.Variables",
+    ]
+    see_also.extend(f"Jarvis man example.{topic}" for topic in example_topics)
     page = {
         "path": "$.Sampling.Bounds",
         "context": {"method": canonical},
@@ -1019,17 +1066,15 @@ def _method_page(method: str) -> dict[str, Any]:
         "keys": keys,
         "examples": [str(root.get("x-jarvis-example"))] if root.get("x-jarvis-example") else [],
         "diagnostics": list(_METHOD_DIAGNOSTICS.get(canonical, [])),
-        "see_also": [
-            "Jarvis man sampler",
-            "Jarvis man yaml.Sampling.Variables",
-            f"Jarvis man example.{canonical.casefold()}",
-        ],
+        "see_also": see_also,
         "further_reading": None,
         "capabilities": {
             "type": _sampler_type(canonical),
             "resume": resume,
         },
     }
+    if example_topics:
+        page["example_refs"] = [_example_descriptor(topic) for topic in example_topics]
     return page
 
 
@@ -2154,7 +2199,7 @@ def _calculator_page(
             "status": "stable",
             "summary": (
                 "• Fields: path, commands, input list, and output list.\n"
-                "• Paths: quote token paths, for example path: \"&J/calculators/echo\".\n"
+                "• Paths: quote token paths, for example path: \"&J/bin\".\n"
                 "• Portal: Use --type TYPE --direction input|output for Portal file-type tables."
             ),
             "keys": _annotate_nav(
@@ -2167,7 +2212,8 @@ def _calculator_page(
                         "aliases": [],
                         "description": (
                             "Working directory for commands. Quote &J/... tokens so YAML "
-                            "does not treat them as anchors."
+                            "does not treat them as anchors. The scaffold calculator "
+                            "example uses the existing &J/bin directory."
                         ),
                     },
                     {
@@ -2247,9 +2293,9 @@ def _calculator_page(
             "examples": [
                 "Modules:\n"
                 "  - name: Echo\n"
-                '    path: "&J/calculators/echo"\n'
+                '    path: "&J/bin"\n'
                 "    execution:\n"
-                '      path: "&J/calculators/echo"\n'
+                '      path: "&J/bin"\n'
                 "      commands:\n"
                 "        - python3 -c \"print(1)\"\n"
                 "      # input and output are optional lists"
@@ -2356,6 +2402,18 @@ def _operas_page() -> dict[str, Any]:
             "command": "Jarvis operas info helper.eggbox2d",
             "topic": "Operator signature, flags, and return shape (mapping required)",
         },
+        "operator_example": {
+            "operator": "helper.eggbox2d",
+            "signature": "(x, y, **_params)",
+            "signature_command": "Jarvis operas info helper.eggbox2d --json",
+            "call_mode": "call",
+            "input": [
+                {"name": "x", "expression": "x"},
+                {"name": "y", "expression": "y"},
+            ],
+            "output": [{"name": "z", "entry": "z"}],
+            "yaml": _OPERAS_EXAMPLE,
+        },
     }
 
 
@@ -2393,7 +2451,7 @@ def _example_page(name: str | None) -> dict[str, Any]:
             "context": {"domain": "example"},
             "zone": "open",
             "status": "stable",
-            "summary": "Minimal task cards shipped with the package (same files as project create).",
+            "summary": "Complete task cards shipped with the package (same files as project create).",
             "list_title": "Examples",
             "list_rows": _annotate_nav(
                 [
@@ -2403,7 +2461,9 @@ def _example_page(name: str | None) -> dict[str, Any]:
                         "required": False,
                         "default": None,
                         "aliases": [],
-                        "description": rel,
+                        "description": f"Complete task card: {rel}",
+                        "path": rel,
+                        "kind": "complete_task_card",
                     }
                     for key, rel in _EXAMPLE_CATALOG.items()
                 ],
@@ -2415,7 +2475,11 @@ def _example_page(name: str | None) -> dict[str, Any]:
             "keys": [],
             "examples": [],
             "diagnostics": [],
-            "see_also": ["Jarvis man example.bridson"],
+            "see_also": [
+                "Jarvis man example.random",
+                "Jarvis man example.random-operas",
+                "Jarvis man example.random-calculator",
+            ],
             "further_reading": None,
         }
     key = name.casefold()
@@ -2436,6 +2500,12 @@ def _example_page(name: str | None) -> dict[str, Any]:
         "see_also": ["Jarvis man yaml", "Jarvis validate"],
         "further_reading": None,
         "body": text,
+        "artifact": {
+            "kind": "complete_task_card",
+            "format": "yaml",
+            "path": rel,
+            "command": f"Jarvis man example.{key} --json",
+        },
     }
 
 
@@ -2717,6 +2787,11 @@ def resolve_man_request(
 
 def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
     if as_json:
+        # ``diagnostics`` is reserved for command failures.  Page-level
+        # validation codes are related context, not evidence that this man
+        # lookup failed.  Keep an empty diagnostics list for compatibility
+        # with existing consumers while exposing the corrected name.
+        related_diagnostics = list(page.get("related_diagnostics") or page.get("diagnostics") or [])
         # Stable public keys only (+ optional extras for indexes)
         payload = {
             "path": page.get("path"),
@@ -2726,7 +2801,8 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             "summary": page.get("summary"),
             "keys": page.get("keys") or [],
             "examples": page.get("examples") or [],
-            "diagnostics": page.get("diagnostics") or [],
+            "diagnostics": [],
+            "related_diagnostics": related_diagnostics,
             "see_also": page.get("see_also") or [],
             "further_reading": page.get("further_reading"),
         }
@@ -2745,6 +2821,9 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             "action_help",
             "action_rows",
             "body",
+            "artifact",
+            "example_refs",
+            "operator_example",
             "default_yaml",
         ):
             if extra in page:
@@ -2978,12 +3057,12 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             )
         )
 
-    diags = list(page.get("diagnostics") or [])
+    diags = list(page.get("related_diagnostics") or page.get("diagnostics") or [])
     if diags:
         console.print(
             Panel(
                 _bullet_panel_text(diags),
-                title="Diagnostics that fire here",
+                title="Related diagnostics",
                 box=box.ROUNDED,
             )
         )
@@ -3058,6 +3137,8 @@ def _print_man_help() -> None:
         "Jarvis man sampler --full",
         "Jarvis man yaml.Calculators.Modules.execution",
         "Jarvis man example.calculator",
+        "Jarvis man example.random --json",
+        "Jarvis man example.random-calculator --json",
     ]
     console.print(
         Panel(
@@ -3087,6 +3168,8 @@ def build_man_parser() -> argparse.ArgumentParser:
             "  Jarvis man sampler.Bridson\n"
             "  Jarvis man yaml.Calculators.Modules.execution\n"
             "  Jarvis man example.calculator\n"
+            "  Jarvis man example.random --json\n"
+            "  Jarvis man example.random-calculator --json\n"
             "List fields use the field name alone; their Keys type is list.\n"
             "Not: Jarvis man calculator execution input"
         ),
@@ -3143,6 +3226,34 @@ def dispatch_man(argv: list[str] | None = None) -> int:
             label = "Man topic is a leaf field"
         else:
             label = "Unknown man topic"
+        if bool(getattr(args, "json", False)):
+            json.dump(
+                {
+                    "ok": False,
+                    "path": None,
+                    "context": {},
+                    "zone": None,
+                    "status": "error",
+                    "summary": f"{label}: {message}",
+                    "keys": [],
+                    "examples": [],
+                    "diagnostics": [
+                        {
+                            "code": "JV2-MAN-001",
+                            "level": "error",
+                            "message": f"{label}: {message}",
+                        }
+                    ],
+                    "related_diagnostics": [],
+                    "see_also": ["Jarvis man", "Jarvis man sampler.Bridson"],
+                    "further_reading": None,
+                },
+                sys.stdout,
+                indent=2,
+                sort_keys=True,
+            )
+            sys.stdout.write("\n")
+            return 2
         print(f"{label}: {message}", file=sys.stderr)
         print("Try: Jarvis man   or   Jarvis man sampler.Bridson", file=sys.stderr)
         return 2

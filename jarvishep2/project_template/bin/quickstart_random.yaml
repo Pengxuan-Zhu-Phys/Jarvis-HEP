@@ -1,0 +1,39 @@
+# Minimal complete Random task card.
+# Run: Jarvis run bin/quickstart_random.yaml
+Scan:
+  name: "quickstart_random"
+
+Sampling:
+  Method: "Random"
+  Bounds:
+    point_number: 10
+    seed: 0
+  Variables:
+    - name: x
+      description: "Toy variable x"
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 1.0}
+    - name: y
+      description: "Toy variable y"
+      distribution:
+        type: Flat
+        parameters: {min: 0.0, max: 1.0}
+  LogLikelihood:
+    - {name: "LogL_Z", expression: "LogGauss(z, 100, 10)"}
+
+EnvReqs:
+  Check_default_dependencies:
+    required: true
+    default_yaml_path: "&J/deps/environment_default.yaml"
+
+Operas:
+  Modules:
+    - name: EggBox
+      operator: "jarvishep2.testing.eggbox.eggbox2d_numpy"
+      call_mode: call
+      input:
+        - {name: x, expression: "x"}
+        - {name: y, expression: "y"}
+      output:
+        - {name: z, entry: z}

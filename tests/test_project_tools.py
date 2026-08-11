@@ -51,8 +51,18 @@ class ProjectScaffoldTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(root, PROJECT_DESCRIPTOR_NAME)))
             quick = os.path.join(root, "bin", "quickstart_bridson_operas.yaml")
             self.assertTrue(os.path.isfile(quick))
+            for name in (
+                "quickstart_random.yaml",
+                "quickstart_random_operas.yaml",
+                "quickstart_random_calculator.yaml",
+            ):
+                self.assertTrue(os.path.isfile(os.path.join(root, "bin", name)))
             defaults = os.path.join(root, "deps", "environment_default.yaml")
             self.assertTrue(os.path.isfile(defaults))
+
+            calculator = os.path.join(root, "bin", "quickstart_calculator.yaml")
+            with open(calculator, encoding="utf-8") as handle:
+                self.assertNotIn("calculators/echo", handle.read())
 
             config = load_task_yaml(quick)
             self.assertEqual(config["Runtime"]["mode"], "redis")

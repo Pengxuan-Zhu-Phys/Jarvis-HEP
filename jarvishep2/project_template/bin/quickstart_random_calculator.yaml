@@ -1,8 +1,8 @@
-# Minimal Calculator + Portal IO card (shipped with Jarvis man example calculator).
-# Run: Jarvis validate bin/quickstart_calculator.yaml
-# Smoke: Jarvis check bin/quickstart_calculator.yaml
+# Complete Random + Calculator + Portal JSON task card.
+# Run: Jarvis validate bin/quickstart_random_calculator.yaml
+# Smoke: Jarvis check bin/quickstart_random_calculator.yaml
 Scan:
-  name: "quickstart_calculator"
+  name: "quickstart_random_calculator"
 
 Sampling:
   Method: "Random"
@@ -20,17 +20,25 @@ Sampling:
 Calculators:
   Modules:
     - name: Echo
-      # This synthetic example uses the project's existing bin/ directory;
-      # no external calculator pack is created by project create.
+      # This demo uses the project's existing bin/ directory as its working
+      # directory; no external calculator pack is required.
       path: "&J/bin"
       execution:
         path: "&J/bin"
+        input:
+          - name: input
+            path: "@Sdir/input.json"
+            type: JSON
+            actions:
+              - type: Dump
+                variables:
+                  - {name: x}
         commands:
           - >-
             python3 -c "import json, pathlib; pathlib.Path('@Sdir/out.json').write_text(json.dumps({'y': 1.0}))"
         output:
           - name: out
-            path: '@Sdir/out.json'
+            path: "@Sdir/out.json"
             type: JSON
             variables:
               - {name: y, entry: y}
