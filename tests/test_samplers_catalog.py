@@ -632,6 +632,69 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
 
 
+class RandomSamplerProgressTests(unittest.TestCase):
+    @staticmethod
+    def _config(*, points: int = 1000) -> dict:
+        return {
+            "Runtime": {"mode": "redis", "workers": 1},
+            "Sampling": {
+                "Method": "Random",
+                "Bounds": {"point_number": points, "seed": 7},
+                "Variables": [
+                    {
+                        "name": "x",
+                        "distribution": {
+                            "type": "Flat",
+                            "parameters": {"min": 0, "max": 1, "length": 1},
+                        },
+                    },
+                ],
+            },
+        }
+
+    def test_logs_each_permille_and_warns_at_each_percent(self) -> None:
+        sampler = RandomS()
+        sampler.set_config(self._config())
+        info_messages: list[str] = []
+        warning_messages: list[str] = []
+
+        class _Capture:
+            def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                info_messages.append(str(msg) % args if args else str(msg))
+
+            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                warning_messages.append(str(msg) % args if args else str(msg))
+
+        sampler._logger = _Capture()  # type: ignore[assignment]
+        for _ in range(10):
+            self.assertIsNotNone(sampler.propose_next())
+
+        self.assertTrue(any(line.startswith("0‰ of 0/1000") for line in info_messages))
+        for permille in range(1, 10):
+            self.assertTrue(
+                any(line.startswith(f"{permille}‰ of {permille}/1000") for line in info_messages),
+                f"missing info heartbeat for {permille}‰",
+            )
+        self.assertTrue(any(line.startswith("10‰ of 10/1000") for line in warning_messages))
+        self.assertFalse(any(line.startswith("10‰") for line in info_messages))
+
+    def test_prefix_replay_does_not_emit_sampling_progress(self) -> None:
+        sampler = RandomS()
+        sampler.set_config(self._config())
+        messages: list[str] = []
+
+        class _Capture:
+            def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                messages.append(str(msg) % args if args else str(msg))
+
+            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                messages.append(str(msg) % args if args else str(msg))
+
+        sampler._logger = _Capture()  # type: ignore[assignment]
+        self.assertEqual(sampler.advance_to_persisted_prefix(10), 10)
+        self.assertFalse(any("random candidates sampled" in line for line in messages))
+
+
 class StatelessDistributedRunTests(unittest.TestCase):
     def setUp(self) -> None:
         _stop_factory_workers()

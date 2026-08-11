@@ -13,6 +13,7 @@ from jarvishep2.Sampling.sampling_utils import (
     evaluate_selection,
     physical_from_u,
 )
+from jarvishep2.log_kv import PermilleProgress
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 
@@ -21,7 +22,9 @@ class RandomS(FixedSetSampler):
     method = "Random"
     uuid_prefix = "random"
     _checkpoint_saved_attributes = frozenset({"_maxp"})
-    _checkpoint_excluded_attributes = frozenset({"_logger", "_dimensions", "_generator_ready"})
+    _checkpoint_excluded_attributes = frozenset(
+        {"_logger", "_dimensions", "_generator_ready", "_submit_progress"}
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -29,6 +32,7 @@ class RandomS(FixedSetSampler):
         self._maxp = 0
         self._dimensions = 0
         self._generator_ready = False
+        self._submit_progress: PermilleProgress | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -42,6 +46,7 @@ class RandomS(FixedSetSampler):
         self._index = 0
         self._accepted_index = 0
         self._generator_ready = False
+        self._submit_progress = None
 
     def initialize(self) -> None:
         # Seed 0 is valid and must reseed for reproducible resume trajectories.
@@ -61,6 +66,13 @@ class RandomS(FixedSetSampler):
             except BoolConversionError as exc:
                 raise ValueError(f"Invalid selection expression: {self._selectionexp}") from exc
         self._generator_ready = True
+        self._submit_progress = PermilleProgress(
+            self._logger,
+            total=self._maxp,
+            label="random candidates sampled",
+        )
+        if not bool(getattr(self, "_suppress_submit_progress", False)):
+            self._submit_progress.update(0, force=True)
 
     def _ensure_ready(self) -> None:
         if not self._generator_ready:
@@ -71,6 +83,7 @@ class RandomS(FixedSetSampler):
         while self._index < self._maxp:
             u_coords = np.random.random(self._dimensions).astype(np.float64)
             self._index += 1
+            self._emit_progress()
             physical = physical_from_u(u_coords, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
@@ -85,6 +98,19 @@ class RandomS(FixedSetSampler):
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
             return sample
         return None
+
+    def _emit_progress(self) -> None:
+        """Log every new 1‰ of the configured draws; warn at whole percents."""
+        # DATABASE prefix replay is local bookkeeping, not fresh sampling work.
+        if bool(getattr(self, "_suppress_submit_progress", False)):
+            return
+        if self._submit_progress is None:
+            self._submit_progress = PermilleProgress(
+                self._logger,
+                total=self._maxp,
+                label="random candidates sampled",
+            )
+        self._submit_progress.update(self._index)
 
     def _stream_exhausted(self) -> bool:
         return self._index >= self._maxp
@@ -109,6 +135,9 @@ class RandomS(FixedSetSampler):
         if np_state is not None:
             np.random.set_state(np_state)
             self._generator_ready = True
+        # Logging state is process-local. The first new proposal reports the
+        # restored cursor without adding mutable progress data to checkpoints.
+        self._submit_progress = None
 
 
 __all__ = ["RandomS"]
