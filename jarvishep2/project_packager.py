@@ -83,9 +83,12 @@ class ProjectPackManifestReport:
 
 
 def _jarvis_version() -> str:
-    for candidate in ("jarvishep2", "Jarvis-HEP-v2", "Jarvis-HEP", "jarvis-hep"):
+    for candidate in ("Jarvis-HEP", "jarvishep2"):
         try:
-            return str(importlib_metadata.version(candidate))
+            release = str(importlib_metadata.version(candidate))
+            if candidate == "Jarvis-HEP" and int(release.split(".", 1)[0]) < 2:
+                continue
+            return release
         except importlib_metadata.PackageNotFoundError:
             continue
         except Exception:

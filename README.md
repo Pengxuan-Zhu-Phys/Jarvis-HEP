@@ -5,8 +5,9 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The Python distribution is named `jarvishep2` (current version `2.0.0`) and
-exposes a single user-facing command: `Jarvis`.
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.0`). Its
+Python import package remains `jarvishep2`, and it exposes a single user-facing
+command: `Jarvis`.
 
 ## What V2 provides
 
@@ -35,6 +36,21 @@ Requirements:
 
 - Python 3.10 or newer
 - Redis for distributed runs; V2 uses the local `127.0.0.1:6379` service
+
+From PyPI:
+
+```bash
+python3 -m pip install 'Jarvis-HEP[distributed]'
+```
+
+If the short-lived `jarvishep2` distribution was installed previously, remove
+it before installing V2 from `Jarvis-HEP`; both distributions provide the same
+`jarvishep2` import package and should not be installed together:
+
+```bash
+python3 -m pip uninstall jarvishep2
+python3 -m pip install --upgrade 'Jarvis-HEP[distributed]'
+```
 
 From a source checkout:
 
@@ -203,6 +219,10 @@ Jarvis shuts down its Workers, Archiver, and any Redis process it manages.
 python3 -m pip install -e '.[distributed,dev]'
 python3 -m pytest -q
 ```
+
+The long-running AdaptiveBridson integration tests are skipped by default;
+run them explicitly with `python3 -m pytest -q tests/test_adaptive_bridson.py`
+when changing that sampler.
 
 Useful repository documentation:
 

@@ -1,14 +1,17 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jarvishep2"
+name = "Jarvis-HEP"
 version = "2.0.0"
 description = "Jarvis-HEP V2 distributed runtime (Redis + spawn Workers)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+authors = [
+    { name = "Jarvis-HEP Developers" },
+]
 dependencies = [
     "h5py>=3.8",
     "jsonschema>=4.18",
@@ -45,6 +48,12 @@ dev = [
     "colorlog>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP"
+Documentation = "https://pengxuan-zhu-phys.github.io/Jarvis-Docs/"
+Repository = "https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP"
+Issues = "https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/issues"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["jarvishep2*"]
@@ -61,3 +70,4 @@ jarvishep2 = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["--ignore=tests/test_adaptive_bridson.py"]

@@ -88,9 +88,16 @@ def get_runtime_version() -> str:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
-            return version("jarvishep2")
+            release = version("Jarvis-HEP")
+            # A source checkout can coexist with an installed Jarvis-HEP V1.
+            # Never report that unrelated 1.x distribution as the V2 runtime.
+            if int(release.split(".", 1)[0]) >= 2:
+                return release
         except PackageNotFoundError:
-            return version("Jarvis-HEP-v2")
+            pass
+        # Compatibility for environments that still have the temporary V2
+        # distribution name installed.
+        return version("jarvishep2")
     except Exception:
         pass
 

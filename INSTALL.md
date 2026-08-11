@@ -1,6 +1,7 @@
 # Jarvis-HEP V2 — Installation
 
-Quick install guide for the V2 distributed runtime (`jarvishep2`, CLI `Jarvis`).
+Quick install guide for the V2 distributed runtime (PyPI distribution
+`Jarvis-HEP`, Python package `jarvishep2`, CLI `Jarvis`).
 For the architecture see
 `~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/DESIGN_2.0_DISTRIBUTED.md`;
 for the task-YAML schema see
@@ -15,8 +16,25 @@ for the task-YAML schema see
 
 ## Install
 
+From PyPI:
+
 ```bash
-cd ~/Jarvis-Workshop/Jarvis-HEP-v2
+python3 -m pip install 'Jarvis-HEP[distributed]'
+```
+
+If you previously installed the short-lived `jarvishep2` distribution, remove
+it first. It contains the same Python import package as `Jarvis-HEP` V2 and the
+two distributions should not be installed together:
+
+```bash
+python3 -m pip uninstall jarvishep2
+python3 -m pip install --upgrade 'Jarvis-HEP[distributed]'
+```
+
+From a source checkout:
+
+```bash
+cd ~/Jarvis-Workshop/Jarvis-HEP
 
 # runtime + real-Redis extras (recommended)
 python3 -m pip install -e '.[distributed]'
@@ -94,6 +112,14 @@ redis-cli ping        # → PONG
 ```bash
 python3 -m pytest -q          # full suite; fakeredis opens a local test socket
 python3 -m pytest -q tests/test_d0_integration.py tests/test_worker_mvp.py   # quick subset
+```
+
+`tests/test_adaptive_bridson.py` is excluded from the default suite because it
+contains long-running process/resume integration tests. Run it explicitly when
+working on AdaptiveBridson:
+
+```bash
+python3 -m pytest -q tests/test_adaptive_bridson.py
 ```
 
 ## Quickstart
@@ -269,5 +295,5 @@ Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 ## Uninstall
 
 ```bash
-python3 -m pip uninstall jarvishep2
+python3 -m pip uninstall Jarvis-HEP
 ```

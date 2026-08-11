@@ -185,7 +185,7 @@ def resolve_operator(operator: str, *, call_mode: str = "call") -> Callable[...,
     except ImportError:
         operas_hint = (
             "Jarvis-Operas is not installed; registry names are unavailable. "
-            "Install with `pip install 'jarvishep2[operas]'` or use a Python dotted path."
+            "Install with `pip install 'Jarvis-HEP[operas]'` or use a Python dotted path."
         )
     raise ValueError(
         f"Cannot resolve Operas operator {name!r}: {import_error}. {operas_hint}"

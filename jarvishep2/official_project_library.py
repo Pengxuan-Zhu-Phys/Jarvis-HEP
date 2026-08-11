@@ -234,7 +234,7 @@ def _normalize_catalog(payload: object) -> dict:
         if major > SUPPORTED_SCHEMA_MAJOR:
             raise OfficialCatalogError(
                 f"Official library catalog schema_version {schema_version} is newer "
-                "than this Jarvis supports; please upgrade Jarvis-HEP-v2."
+                "than this Jarvis supports; please upgrade Jarvis-HEP."
             )
 
     projects = payload.get("projects")
