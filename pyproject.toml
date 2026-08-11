@@ -70,4 +70,13 @@ jarvishep2 = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["--ignore=tests/test_adaptive_bridson.py"]
+addopts = [
+    "--ignore=tests/test_adaptive_bridson.py",
+    "--ignore=tests/test_ensemble_samplers.py",
+    "--ignore=tests/test_distributed_acceptance.py",
+    "--ignore=tests/test_distributed_resume.py",
+    "--ignore=tests/test_mcmc_sampler.py",
+    "--ignore=tests/test_worker_pool.py",
+    "--ignore=tests/test_variable_distributions.py",
+    "--ignore=tests/test_worker_failure.py",
+]

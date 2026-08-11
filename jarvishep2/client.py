@@ -1825,29 +1825,42 @@ def main(argv: list[str] | None = None) -> int:
     from jarvishep2.proc_title import control_title, set_process_title
 
     set_process_title(control_title())
-    raw = list(sys.argv[1:] if argv is None else argv)
-    if raw[:1] == ["refs"]:
-        print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
-        return EXIT_USAGE
-    normalized = normalize_argv(raw)
-    # Manual center: own argparse (domains / --json / --code / --type).
-    if normalized and normalized[0] == "man":
-        from jarvishep2.man import dispatch_man
+    try:
+        raw = list(sys.argv[1:] if argv is None else argv)
+        if raw[:1] == ["refs"]:
+            print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
+            return EXIT_USAGE
+        normalized = normalize_argv(raw)
+        # Manual center: own argparse (domains / --json / --code / --type).
+        if normalized and normalized[0] == "man":
+            from jarvishep2.man import dispatch_man
 
-        return dispatch_man(normalized[1:])
-    # Full jportal-compatible surface: do not let argparse eat portal args.
-    if normalized and normalized[0] == "portal":
-        return dispatch_portal(normalized[1:])
-    # Full jplot-compatible surface: do not let argparse consume its args.
-    if normalized and normalized[0] == "plot":
-        return dispatch_plot(normalized[1:])
-    # Full jopera-compatible surface: do not let argparse consume its args.
-    if normalized and normalized[0] == "operas":
-        return dispatch_operas(normalized[1:])
-    # Project pack flags are free-form; pass through like portal.
-    if normalized and normalized[0] == "project":
-        return dispatch_project(normalized[1:])
-    return dispatch(build_parser().parse_args(normalized))
+            return dispatch_man(normalized[1:])
+        # Full jportal-compatible surface: do not let argparse eat portal args.
+        if normalized and normalized[0] == "portal":
+            return dispatch_portal(normalized[1:])
+        # Full jplot-compatible surface: do not let argparse consume its args.
+        if normalized and normalized[0] == "plot":
+            return dispatch_plot(normalized[1:])
+        # Full jopera-compatible surface: do not let argparse consume its args.
+        if normalized and normalized[0] == "operas":
+            return dispatch_operas(normalized[1:])
+        # Project pack flags are free-form; pass through like portal.
+        if normalized and normalized[0] == "project":
+            return dispatch_project(normalized[1:])
+        return dispatch(build_parser().parse_args(normalized))
+    finally:
+        # Keep the onboarding hint after all normal command output. It is a
+        # stderr diagnostic so commands such as ``Jarvis validate --json`` keep
+        # stdout valid for scripts and other tools.
+        try:
+            from jarvishep2.redis_notice import emit_first_run_redis_notice
+
+            emit_first_run_redis_notice()
+        except Exception:
+            # A best-effort environment hint must never change Jarvis's exit
+            # status or mask the real command error.
+            pass
 
 
 if __name__ == "__main__":

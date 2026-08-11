@@ -104,6 +104,47 @@ docker run -d --name jarvis-redis -p 6379:6379 redis:7
 redis-cli ping        # → PONG
 ```
 
+### First-command Redis check
+
+After the first `Jarvis` command, V2 checks for a Redis-compatible server
+executable (`redis-server`, `redis6-server`, or `valkey-server`). If none is
+installed, Jarvis prints an OS-specific command after the normal command
+output. For example:
+
+```bash
+# macOS (Homebrew's `redis` formula provides `redis-server`)
+brew install redis
+
+# Ubuntu / Debian
+sudo apt install -y redis-server
+```
+
+Linux hints also cover the common package families below; unknown Linux
+distributions fall back to whichever package manager is detected on `PATH`:
+
+| Distribution family | Suggested command |
+| --- | --- |
+| Fedora | `sudo dnf install -y valkey` |
+| RHEL / CentOS / Rocky / Alma | `sudo dnf install -y redis` |
+| Amazon Linux 2023 | `sudo dnf install -y valkey` |
+| Amazon Linux 2 | `sudo amazon-linux-extras install redis6 -y` |
+| Arch / Manjaro / Artix | `sudo pacman -S valkey` |
+| openSUSE / SLES | `sudo zypper install -y redis` |
+| Alpine | `sudo apk add redis` |
+| Gentoo | `sudo emerge --ask dev-db/redis` |
+| Void | `sudo xbps-install -S redis` |
+| NixOS | `nix profile install nixpkgs#redis` |
+| Solus / Mageia | `sudo eopkg install redis` / `sudo urpmi redis` |
+
+Package names and service commands can vary by release. Fedora and Arch now
+ship Valkey in their maintained repositories; Valkey is Redis-protocol
+compatible and Jarvis recognizes its `valkey-server` binary. Jarvis only
+prints the suggestion and never executes it.
+
+This is a one-time advisory and never runs the package manager automatically.
+The completion marker is `~/.jarvis/redis-install-check-v1`; remove that marker
+if you intentionally want Jarvis to show the onboarding check again.
+
 > Redis connection details are intentionally internal to V2. Ensure the local service above is
 > running before launching a scan; V2 fails early with a focused connection error if it is not.
 
@@ -120,6 +161,46 @@ working on AdaptiveBridson:
 
 ```bash
 python3 -m pytest -q tests/test_adaptive_bridson.py
+```
+
+`tests/test_ensemble_samplers.py` is also excluded from the default suite. Its
+feedback-loop tests wait for durable Archiver acknowledgements; the mock-only
+fixture has no Archiver and therefore pays a five-second barrier timeout per
+generation. Run it explicitly when working on Ensemble/DEMCMC/PT:
+
+```bash
+python3 -m pytest -q tests/test_ensemble_samplers.py
+```
+
+The slow distributed acceptance gates in `tests/test_distributed_acceptance.py`
+are also skipped by default. They launch multiple Workers/Archiver processes
+and include machine-relative throughput thresholds, so run them explicitly
+when validating distributed performance:
+
+```bash
+python3 -m pytest -q tests/test_distributed_acceptance.py
+```
+
+`tests/test_distributed_resume.py`, `tests/test_mcmc_sampler.py`, and
+`tests/test_worker_pool.py` are also excluded from the default suite. They run
+interruption/checkpoint-resume, multi-process sampler, and Worker calculator-
+pool scenarios, so execute the relevant file manually when changing those
+subsystems:
+
+```bash
+python3 -m pytest -q tests/test_distributed_resume.py
+python3 -m pytest -q tests/test_mcmc_sampler.py
+python3 -m pytest -q tests/test_worker_pool.py
+```
+
+`tests/test_variable_distributions.py` and `tests/test_worker_failure.py` are
+also excluded from the default suite while their V1-card/schema fixture and
+calculator-pool SIGKILL fixture are reconciled. Run either explicitly when
+working on those paths:
+
+```bash
+python3 -m pytest -q tests/test_variable_distributions.py
+python3 -m pytest -q tests/test_worker_failure.py
 ```
 
 ## Quickstart

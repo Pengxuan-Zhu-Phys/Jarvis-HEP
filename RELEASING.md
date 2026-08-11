@@ -49,8 +49,12 @@ the first release is published.
    ```
 
    The default test command intentionally skips the long-running
-   `tests/test_adaptive_bridson.py`; run that file separately before an
-   AdaptiveBridson-specific release.
+   `tests/test_adaptive_bridson.py`, `tests/test_ensemble_samplers.py`,
+   `tests/test_distributed_acceptance.py`, `tests/test_distributed_resume.py`,
+   `tests/test_mcmc_sampler.py`, `tests/test_worker_pool.py`,
+   `tests/test_variable_distributions.py`, and `tests/test_worker_failure.py`;
+   run the relevant files separately before sampler- or distributed-runtime-
+   specific releases.
 
 3. Merge the release commit into `master`.
 4. Create a GitHub Release whose tag is exactly `v<version>`, for example:

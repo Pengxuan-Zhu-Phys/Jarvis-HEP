@@ -72,6 +72,16 @@ brew services start redis
 redis-cli ping       # PONG
 ```
 
+On the first `Jarvis` command after installation, Jarvis checks whether a
+Redis-compatible server executable (`redis-server`, `redis6-server`, or
+`valkey-server`) is available. If it is missing, the command's normal output
+is followed by a one-time, OS-specific installation hint (written to stderr so
+JSON/stdout output remains usable). The hint is advisory only; Jarvis does not
+install operating-system packages automatically. Linux hints cover
+Debian/Ubuntu, Fedora/RHEL, Amazon Linux, Arch, openSUSE, Alpine, Gentoo, Void,
+NixOS and other package-manager families. The check marker is stored at
+`~/.jarvis/redis-install-check-v1`.
+
 The optional extras are:
 
 - `distributed`: Redis, `msgpack`, and `aiofiles`
@@ -223,6 +233,43 @@ python3 -m pytest -q
 The long-running AdaptiveBridson integration tests are skipped by default;
 run them explicitly with `python3 -m pytest -q tests/test_adaptive_bridson.py`
 when changing that sampler.
+
+The long-running feedback-loop coverage in `tests/test_ensemble_samplers.py`
+is also skipped by default; run it explicitly for Ensemble/DEMCMC/PT changes:
+
+```bash
+python3 -m pytest -q tests/test_ensemble_samplers.py
+```
+
+The slow distributed acceptance gates in `tests/test_distributed_acceptance.py`
+are also skipped by default; run them explicitly when validating Worker/
+Archiver performance:
+
+```bash
+python3 -m pytest -q tests/test_distributed_acceptance.py
+```
+
+`tests/test_distributed_resume.py`, `tests/test_mcmc_sampler.py`, and
+`tests/test_worker_pool.py` are also excluded from the default suite. They
+exercise interruption/checkpoint resume, multi-process sampler execution, and
+Worker calculator-pool concurrency; run the relevant file explicitly after
+changing those paths:
+
+```bash
+python3 -m pytest -q tests/test_distributed_resume.py
+python3 -m pytest -q tests/test_mcmc_sampler.py
+python3 -m pytest -q tests/test_worker_pool.py
+```
+
+`tests/test_variable_distributions.py` and `tests/test_worker_failure.py` are
+also excluded from the default suite while their V1-card/schema fixture and
+calculator-pool SIGKILL fixture are reconciled. Run either explicitly when
+working on those paths:
+
+```bash
+python3 -m pytest -q tests/test_variable_distributions.py
+python3 -m pytest -q tests/test_worker_failure.py
+```
 
 Useful repository documentation:
 

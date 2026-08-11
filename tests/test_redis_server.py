@@ -21,7 +21,7 @@ def _free_port() -> int:
     return port
 
 
-@unittest.skipUnless(find_redis_server_binary(), "redis-server not installed")
+@unittest.skipUnless(find_redis_server_binary(), "Redis-compatible server not installed")
 class ManagedRedisServerTests(unittest.TestCase):
     def test_process_title_is_jarvis_redis_scan(self) -> None:
         port = _free_port()

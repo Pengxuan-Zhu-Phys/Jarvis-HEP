@@ -27,6 +27,9 @@ from typing import Any
 from jarvishep2.proc_title import redis_title
 
 
+_REDIS_SERVER_BINARIES = ("redis-server", "redis6-server", "valkey-server")
+
+
 def redis_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
     """Return True when a TCP connect to host:port succeeds."""
     try:
@@ -58,8 +61,11 @@ def find_available_redis_port(host: str, start_port: int, *, attempts: int = 100
 
 
 def find_redis_server_binary() -> str | None:
-    path = shutil.which("redis-server")
-    return path if path else None
+    for executable in _REDIS_SERVER_BINARIES:
+        path = shutil.which(executable)
+        if path:
+            return path
+    return None
 
 
 def write_redis_conf(
