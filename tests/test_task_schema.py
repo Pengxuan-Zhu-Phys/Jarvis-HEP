@@ -324,6 +324,40 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
         self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
 
+    def test_toymcmc_schema_and_same_scale_contract(self) -> None:
+        card = _card()
+        card["Sampling"] = {
+            "Method": "ToyMCMC",
+            "Bounds": {
+                "num_chains": 4,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "seed": 7,
+            },
+            "Variables": card["Sampling"]["Variables"],
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.2, 0.3]
+        report = validate_task_config(card)
+        self.assertTrue(
+            any(
+                item.code == "JV2-MTH-054"
+                and item.path == "Sampling.Bounds.proposal_scale"
+                for item in report.errors()
+            )
+        )
+
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.2, 0.2, 0.2]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-055" for item in report.errors()))
+
+        card["Sampling"]["Bounds"]["proposal_scale"] = 0.2
+        card["Sampling"]["Bounds"]["seed"] = -1
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-056" for item in report.errors()))
+
     def test_manifest_matches_builtin_portal_formats(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
             manifest = json.load(handle)

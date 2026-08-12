@@ -36,6 +36,7 @@ STATISTICAL_METHODS: frozenset[str] = frozenset(
         "Dynesty",
         "MultiNest",
         "MCMC",
+        "ToyMCMC",
         "AMMCMC",
         "AM",
         "DRAM",

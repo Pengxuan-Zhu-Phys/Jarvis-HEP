@@ -70,6 +70,24 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         return "Provide the path to the fixed-point CSV file under Sampling.Bounds.", "Bounds:\n  path: points.csv"
     if code in {"JV2-MTH-041", "JV2-MTH-042"}:
         return "Set target_expression and target_value under Sampling.Bounds for AdaptiveBridson.", "Bounds:\n  target_expression: f\n  target_value: 0.12"
+    if code == "JV2-MTH-050":
+        return (
+            "Add num_chains, num_iters, and one shared proposal_scale under Sampling.Bounds for ToyMCMC.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2",
+        )
+    if code in {"JV2-MTH-051", "JV2-MTH-052"}:
+        return "Set the ToyMCMC chain count and iteration count to positive integers.", "Bounds:\n  num_chains: 4\n  num_iters: 2000"
+    if code == "JV2-MTH-053":
+        return "Set proposal_scale to one positive number, or a list containing that same value for every chain.", "Bounds:\n  proposal_scale: 0.2"
+    if code == "JV2-MTH-054":
+        return "Use the same proposal_scale value for every ToyMCMC chain.", "Bounds:\n  proposal_scale: 0.2"
+    if code == "JV2-MTH-055":
+        return (
+            "Use one broadcast proposal_scale value or exactly one value per ToyMCMC chain.",
+            "Bounds:\n  num_chains: 4\n  proposal_scale: [0.2, 0.2, 0.2, 0.2]",
+        )
+    if code == "JV2-MTH-056":
+        return "Use a non-negative integer seed for ToyMCMC.", "Bounds:\n  seed: 0"
     if code.startswith("JV2-MAP-"):
         return (
             "Fix Sampling.Mapper: list of {name, expression} over Variables "

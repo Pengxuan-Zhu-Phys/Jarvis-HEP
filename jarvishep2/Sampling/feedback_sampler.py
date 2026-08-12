@@ -123,12 +123,71 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         return n
 
     # --------------------------------------------------------- feedback drain
-    def wait_for_generation(self, *, timeout: float) -> list[dict[str, Any]]:
-        """Drain ``hep:feedback`` until every pending uuid has a record.
+    def wait_for_any_feedback(
+        self,
+        *,
+        timeout: float,
+        queues: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Block until one pending uuid returns on the feedback channel(s).
+
+        Used by independent-chain MCMC: advance a single chain as soon as its
+        evaluation completes, without waiting for a generation barrier.
+
+        ``queues`` selects one or more Redis feedback lists (default
+        ``hep:feedback``). Per-chain shards use multi-key BLPOP so the control
+        process wakes on whichever chain finishes first.
+        """
+        if not self._pending_uuids:
+            raise RuntimeError(
+                f"{type(self).__name__}.wait_for_any_feedback called with no pending uuids"
+            )
+        redis = self._require_redis(f"{type(self).__name__}.wait_for_any_feedback")
+        deadline = time.monotonic() + max(1.0, float(timeout))
+        while self._pending_uuids:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"{type(self).__name__} feedback wait timed out "
+                    f"with {len(self._pending_uuids)} pending sample(s) "
+                    f"(generation={self._generation})"
+                )
+            wait = max(1, min(5, int(remaining)))
+            record = redis.pull_feedback(timeout=wait, queues=queues)
+            if record is None:
+                continue
+            uuid = str(record.get("uuid", ""))
+            if uuid not in self._pending_uuids:
+                self._logger.warning(
+                    "dropping unmatched hep:feedback uuid=%s "
+                    "(pending=%d generation=%d logL=%s)",
+                    uuid or "<empty>",
+                    len(self._pending_uuids),
+                    self._generation,
+                    record.get("logL", ""),
+                )
+                continue
+            self._clear_pending(uuid)
+            self._on_feedback_record(record)
+            return dict(record)
+        raise RuntimeError(
+            f"{type(self).__name__}.wait_for_any_feedback: pending set emptied mid-wait"
+        )
+
+    def wait_for_generation(
+        self,
+        *,
+        timeout: float,
+        queues: Sequence[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Drain feedback until every pending uuid has a record.
 
         Returns the matched feedback records (order = arrival order). Unrelated
         uuids on the channel are ignored (watchdog re-queues stay transparent:
         the barrier waits on uuids, not workers).
+
+        ``queues`` may list per-chain feedback shards; when omitted the default
+        ``hep:feedback`` list is used.
         """
         redis = self._require_redis(f"{type(self).__name__}.wait_for_generation")
         deadline = time.monotonic() + max(1.0, float(timeout))
@@ -141,7 +200,7 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                     f"with {len(self._pending_uuids)} pending sample(s)"
                 )
             wait = max(1, min(5, int(remaining)))
-            record = redis.pull_feedback(timeout=wait)
+            record = redis.pull_feedback(timeout=wait, queues=queues)
             if record is None:
                 continue
             uuid = str(record.get("uuid", ""))

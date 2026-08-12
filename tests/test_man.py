@@ -360,6 +360,22 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(mcmc_page["capabilities"]["type"], "MCMC")
         self.assertNotIn("stateless", mcmc_page["capabilities"])
 
+        toy_page = resolve_man_request(["sampler.ToyMCMC"])
+        toy_keys = {key["name"]: key for key in toy_page["keys"]}
+        self.assertEqual(toy_keys["num_chains"]["type"], "integer")
+        self.assertEqual(toy_keys["num_chains"]["minimum"], 1)
+        self.assertEqual(toy_keys["seed"]["minimum"], 0)
+        self.assertEqual(
+            toy_page["capabilities"]["pipeline"],
+            "async_independent",
+        )
+        self.assertEqual(
+            toy_page["capabilities"]["feedback_queue"],
+            "hep:feedback:chain:{chain_id}",
+        )
+        self.assertIn("Jarvis man sampler.mcmc-runtime", toy_page["see_also"])
+        self.assertIn("JV2-MTH-050", toy_page["diagnostics"])
+
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler", "--json"]), 0)
@@ -393,6 +409,33 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(page["status"], "unstable")
         self.assertIn("not finalised", page["summary"].lower().replace("finalized", "finalised"))
         self.assertEqual(page["keys"], [])
+        self.assertEqual(page["capabilities"]["pipeline"], "async_independent")
+        self.assertIn("Jarvis man sampler.mcmc-runtime", page["see_also"])
+
+    def test_mcmc_runtime_design_page(self) -> None:
+        for topic in ("sampler.mcmc-runtime", "sampler.mcmc_family"):
+            page = resolve_man_request([topic])
+            self.assertEqual(page["status"], "stable")
+            self.assertEqual(page["context"].get("topic"), "mcmc-runtime")
+            self.assertEqual(
+                page["capabilities"]["pipeline"],
+                "async_independent",
+            )
+            self.assertIn("hep:task_queue", page["summary"])
+            self.assertIn("hep:feedback:chain:{chain_id}", page["summary"])
+            self.assertTrue(page.get("chain"))
+            self.assertIn("Jarvis man sampler.ToyMCMC", page["see_also"])
+
+        ensemble = resolve_man_request(["sampler.EnsembleMCMC"])
+        self.assertEqual(ensemble["capabilities"]["pipeline"], "barrier_coupled")
+        self.assertEqual(ensemble["capabilities"]["feedback_queue"], "hep:feedback")
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(["man", "sampler.mcmc-runtime"]), 0)
+        text = out.getvalue()
+        self.assertIn("async_independent", text)
+        self.assertIn("hep:feedback:chain", text)
 
     def test_sampler_example_links_only_point_to_complete_cards(self) -> None:
         for method in schema_manifest()["sampling_methods"]:

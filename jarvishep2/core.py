@@ -260,7 +260,7 @@ class Jarvis2Core:
                     status = "FAIL" if failed else "WARN" if warned else "PASS"
                     found_text = str(found_version) if found_version is not None else "not installed"
                     requirement_label = f">={required_version.removeprefix('>=').strip()}" if required_version != "any" else "any"
-                    label = f"package {name}" + (" (optional)" if not is_required else "")
+                    label = f"PyPI·{name}" + (" (optional)" if not is_required else "")
                     lines.append(
                         format_check(
                             label,
@@ -1932,7 +1932,18 @@ class Jarvis2Core:
         )
         # Propagate CLI console policy to every Worker process.
         overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
-        overrides.setdefault("console_level", str(getattr(self, "_console_level", "WARNING")))
+        console_level = str(getattr(self, "_console_level", "WARNING")).strip().upper()
+        overrides.setdefault("console_level", console_level)
+        sample_config = dict(overrides.get("sample_config") or {})
+        sample_config.setdefault(
+            "sample_console_level",
+            "DEBUG" if console_level == "DEBUG" else "ERROR",
+        )
+        sample_config.setdefault(
+            "sample_log_silence",
+            bool(getattr(self, "_log_silence", False)),
+        )
+        overrides["sample_config"] = sample_config
         # Prefer control-resolved scan logs dir so Workers never land in cwd/logs/jarvis_worker_*.
         if self.info.get("logs_dir"):
             overrides.setdefault("logs_dir", str(self.info["logs_dir"]))

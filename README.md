@@ -83,11 +83,12 @@ NixOS and other package-manager families. The check marker is stored at
 `~/.jarvis/redis-install-check-v1`.
 
 The default install includes the current compatible releases of
-`Jarvis-HEP-Portal`, `Jarvis-Operas`, and `Jarvis-PLOT`. The optional extras
+`Jarvis-HEP-Portal`, `Jarvis-Operas`, and the `JarvisPLOT` distribution
+(product name: Jarvis-PLOT). The optional extras
 are:
 
 - `distributed`: Redis, `msgpack`, and `aiofiles`
-- `plot`: compatibility alias for the default [Jarvis-PLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT) dependency
+- `plot`: compatibility alias for the default [Jarvis-PLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT) dependency (`JarvisPLOT` on PyPI)
 - `dev`: pytest, fakeredis, and colorlog
 
 For the complete installation guide, Redis options, and project-packaging
@@ -161,6 +162,8 @@ Use the generated manuals instead of guessing field names:
 Jarvis man                         # interactive YAML authoring guide
 Jarvis man --json                  # structured output for tooling and agents
 Jarvis man sampler                 # sampler catalog
+Jarvis man sampler.ToyMCMC         # reference independent-chain MCMC Bounds
+Jarvis man sampler.mcmc-runtime    # MCMC multi-chain Redis pipeline design
 Jarvis man yaml.EnvReqs.V2         # one YAML section
 Jarvis man calculator.execution.output --type JSON
 ```

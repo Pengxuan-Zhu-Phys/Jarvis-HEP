@@ -756,8 +756,17 @@ class Worker(Process):
                 "include_logl": True,
                 "fields": [],
             }
+            # Route feedback to the task-selected list when present so
+            # independent MCMC chains can shard hep:feedback without splitting
+            # the shared task queue.
+            feedback_queue = None
+            if isinstance(self._current_task, Mapping):
+                feedback_queue = self._current_task.get("feedback_queue")
+            if not feedback_queue and getattr(sample, "feedback_queue", None):
+                feedback_queue = sample.feedback_queue
             self._redis.publish_feedback(
-                build_feedback_record(sample, spec=spec)
+                build_feedback_record(sample, spec=spec),
+                queue=str(feedback_queue) if feedback_queue else None,
             )
 
     def process_task(self, task: Mapping[str, Any]) -> None:
@@ -803,6 +812,23 @@ class Worker(Process):
             sample_config["bucket_id"] = payload["bucket_id"]
         if payload.get("bucket_name"):
             sample_config["bucket_name"] = payload["bucket_name"]
+        # Sample detail is terminal-visible at ERROR for normal runs and at
+        # DEBUG for ``check`` (which propagates console_level=DEBUG).
+        sample_config.setdefault("_sample_worker_id", self.worker_id)
+        sample_config.setdefault(
+            "sample_log_to_console",
+            not bool(self.worker_config.get("log_silence", False)),
+        )
+        sample_config.setdefault(
+            "sample_log_silence",
+            bool(self.worker_config.get("log_silence", False)),
+        )
+        sample_config.setdefault(
+            "sample_console_level",
+            "DEBUG"
+            if str(self.worker_config.get("console_level") or "WARNING").upper() == "DEBUG"
+            else "ERROR",
+        )
         sample.set_config(sample_config)
         sample.start()
         try:

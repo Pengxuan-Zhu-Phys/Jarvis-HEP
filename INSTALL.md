@@ -47,7 +47,7 @@ Core runtime depends on:
 
 - **`Jarvis-HEP-Portal`** — calculator I/O formats (JSON, CSV, TSV, DAT, Wolfram, …)
 - **`Jarvis-Operas`** — operator registry and qualified expression functions (e.g. `helper.eggbox2d`)
-- **`Jarvis-PLOT`** — YAML-driven plotting and flowchart rendering
+- **`JarvisPLOT`** (product name: **Jarvis-PLOT**) — YAML-driven plotting and flowchart rendering
 
 These three packages are core dependencies. Their minimum versions track the
 current PyPI releases so a fresh `pip install Jarvis-HEP` resolves the latest
@@ -64,7 +64,7 @@ python3 -m pip install -e '.[distributed,dev]'
 Extras:
 
 - `distributed` = `redis`, `msgpack`, `aiofiles`
-- `plot` = **compatibility alias** for the core `Jarvis-PLOT` dependency
+- `plot` = **compatibility alias** for the core `JarvisPLOT` dependency
 - `dev` = `pytest`, `fakeredis`, `colorlog`
 - `operas` = **deprecated no-op alias** (Operas is core since D12.0; kept for old install scripts)
 

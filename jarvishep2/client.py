@@ -23,6 +23,7 @@ from rich.text import Text
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.dashboard import attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
+from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.references import render_references
 from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.run_outcome import (
@@ -458,16 +459,18 @@ def build_parser() -> argparse.ArgumentParser:
         dest="command", required=False, parser_class=JarvisArgumentParser
     )
 
-    def _add_logging_flags(p: argparse.ArgumentParser) -> None:
+    def _add_logging_flags(
+        p: argparse.ArgumentParser, *, default_console_level: str = "WARNING"
+    ) -> None:
         p.add_argument(
             "--console-level",
-            default="WARNING",
+            default=default_console_level,
             metavar="LEVEL",
             choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
             help=(
                 "Minimum screen severity: [cyan]DEBUG[/cyan], [green]INFO[/green], "
                 "[yellow]WARNING[/yellow], [red]ERROR[/red], or [bold red]CRITICAL[/bold red] "
-                "(default: WARNING). Files always retain DEBUG and above."
+                f"(default: {default_console_level}). Files always retain DEBUG and above."
             ),
         )
         p.add_argument(
@@ -525,7 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
             "from EnvReqs.V2.check_modules.timeout_sec, else 120)"
         ),
     )
-    _add_logging_flags(check_p)
+    _add_logging_flags(check_p, default_console_level="DEBUG")
 
     sub.add_parser(
         "man",
@@ -857,8 +860,8 @@ def dispatch_plot(plot_argv: list[str] | None = None) -> int:
         from jarvisplot.client import main as plot_main
     except ImportError as exc:
         print(
-            "Jarvis-PLOT is required for `Jarvis plot`. "
-            "Install it with `pip install -U Jarvis-PLOT` "
+            "JarvisPLOT is required for `Jarvis plot`. "
+            "Install it with `pip install -U JarvisPLOT` "
             f"(or `pip install -e ../Jarvis-PLOT`). Detail: {exc}",
             file=sys.stderr,
         )
@@ -1483,22 +1486,26 @@ def dispatch_operas(operas_argv: list[str] | None = None) -> int:
         return EXIT_RUN_FAILED
 
 
-def _print_outcome(outcome: RunOutcome) -> None:
-    """Human-readable one-line summary on stderr (stdout stays clean for pipes)."""
+def _log_outcome(outcome: RunOutcome) -> None:
+    """Write the final run summary through the configured process logger."""
+    logger = get_jarvis_logger("core")
     ncall = None
     if isinstance(outcome.extras, dict):
         ncall = outcome.extras.get("ncall")
     ncall_bit = f" ncall={ncall}" if ncall is not None else ""
-    print(
+    logger.warning(
         f"RunOutcome status={outcome.status} "
         f"submitted={outcome.submitted} completed={outcome.completed} "
         f"failed={outcome.failed} archived={outcome.archived}"
         f"{ncall_bit} "
         f"exit={outcome.exit_code}",
-        file=sys.stderr,
     )
     if outcome.error:
-        print(f"  error_type={outcome.error_type} error={outcome.error}", file=sys.stderr)
+        logger.error(
+            "RunOutcome error_type=%s error=%s",
+            outcome.error_type,
+            outcome.error,
+        )
 
 
 def _emit_load_diagnostic(
@@ -1724,7 +1731,7 @@ def dispatch_run(
             count = 0
         return EXIT_OK if count > 0 else EXIT_RUN_FAILED
 
-    _print_outcome(outcome)
+    _log_outcome(outcome)
     return int(outcome.exit_code)
 
 
@@ -1797,7 +1804,7 @@ def dispatch(args: argparse.Namespace) -> int:
             str(task or ""),
             check_modules=True,
             skip_draw_flowchart=bool(getattr(args, "skip_draw_flowchart", False)),
-            console_level=str(getattr(args, "console_level", "WARNING") or "WARNING"),
+            console_level=str(getattr(args, "console_level", "DEBUG") or "DEBUG"),
             silence=bool(getattr(args, "silence", False)),
             strict=bool(getattr(args, "strict", False)),
             skip_library_installation=bool(getattr(args, "skip_library_installation", False)),

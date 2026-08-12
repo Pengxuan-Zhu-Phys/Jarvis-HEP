@@ -25,7 +25,8 @@ from jarvishep2.Sampling.dynesty_sampler import (
     _jarvis_prior_transform,
     export_dynesty_results_csv,
 )
-from jarvishep2.Sampling.mcmc_sampler import MCMCSampler, _effective_sample_size
+from jarvishep2.Sampling.dram import DRAMSampler
+from jarvishep2.Sampling.mcmc_sampler import MCMCBaseSampler, _effective_sample_size
 from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
 from jarvishep2.distributor import STATELESS_METHODS, Distributor
 
@@ -33,6 +34,7 @@ from jarvishep2.distributor import STATELESS_METHODS, Distributor
 # Full D13 method surface (aliases included).
 D13_METHODS = (
     "MCMC",
+    "ToyMCMC",
     "AMMCMC",
     "AM",
     "DRAM",
@@ -258,8 +260,8 @@ class DynamicNestedUuidAcceptanceTests(unittest.TestCase):
 
 class SamplerConfigAcceptanceTests(unittest.TestCase):
     def test_mcmc_bounds_surface(self) -> None:
-        s = MCMCSampler()
-        s.method = "DRAM"
+        s = DRAMSampler()
+        self.assertIsInstance(s, MCMCBaseSampler)
         s.set_config(
             {
                 "Sampling": {

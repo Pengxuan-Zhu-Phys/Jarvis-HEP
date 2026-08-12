@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -295,6 +297,61 @@ class TopLevelLoggingTests(unittest.TestCase):
             self.assertNotIn("detailed calculator trace", top_text)
             self.assertIn("detailed calculator trace", sample_text)
             self.assertNotIn("start sample", sample_text)
+
+    def test_sample_terminal_default_threshold_is_error(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            terminal = io.StringIO()
+            with redirect_stderr(terminal):
+                setup_jarvis_logging(
+                    log_dir=tmpdir,
+                    role="worker",
+                    console=True,
+                    console_level="WARNING",
+                    use_queue=False,
+                )
+                sample_logger = SampleLogger.open(
+                    os.path.join(tmpdir, "sample.log"),
+                    module="Sample@abc-123",
+                    extra={
+                        "to_console": True,
+                        "sample_console_level": "ERROR",
+                    },
+                )
+                sample_logger.info("sample info hidden")
+                sample_logger.warning("sample warning hidden")
+                sample_logger.error("sample error visible")
+                sample_logger.close()
+                shutdown_jarvis_logging()
+
+            text = terminal.getvalue()
+            self.assertNotIn("sample info hidden", text)
+            self.assertNotIn("sample warning hidden", text)
+            self.assertIn("sample error visible", text)
+
+    def test_sample_terminal_check_threshold_includes_debug(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            terminal = io.StringIO()
+            with redirect_stderr(terminal):
+                setup_jarvis_logging(
+                    log_dir=tmpdir,
+                    role="worker",
+                    console=True,
+                    console_level="DEBUG",
+                    use_queue=False,
+                )
+                sample_logger = SampleLogger.open(
+                    os.path.join(tmpdir, "sample.log"),
+                    module="Sample@check-123",
+                    extra={
+                        "to_console": True,
+                        "sample_console_level": "DEBUG",
+                    },
+                )
+                sample_logger.debug("sample debug visible")
+                sample_logger.close()
+                shutdown_jarvis_logging()
+
+            self.assertIn("sample debug visible", terminal.getvalue())
 
     def test_bind_returns_new_adapter_without_mutating_parent(self):
         shutdown_jarvis_logging()

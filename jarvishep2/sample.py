@@ -15,14 +15,30 @@ from jarvishep2.runtime_config import should_eager_materialize, should_materiali
 from jarvishep2.sample_logger import BufferedSampleLogger, SampleLogger
 
 
-def _make_lazy_sample_logger(*, module: str) -> BufferedSampleLogger:
+def _sample_logger_extra(info: Mapping[str, Any], *, module: str) -> dict[str, Any]:
+    """Build the shared sample-file/terminal logging options."""
+    worker_id = info.get("_sample_worker_id")
+    if worker_id is None:
+        worker_id = info.get("worker_id")
+    return {
+        "module": module,
+        "to_console": bool(info.get("sample_log_to_console", True)),
+        "sample_log_to_console": bool(info.get("sample_log_to_console", True)),
+        "sample_console_level": str(info.get("sample_console_level") or "ERROR"),
+        "sample_log_silence": bool(info.get("sample_log_silence", False)),
+        "_sample_worker_id": worker_id,
+        "Jarvis": True,
+        "_log_domain": "jarvis_hep",
+    }
+
+
+def _make_lazy_sample_logger(
+    *,
+    module: str,
+    info: Mapping[str, Any] | None = None,
+) -> BufferedSampleLogger:
     return BufferedSampleLogger(
-        extra={
-            "module": module,
-            "to_console": True,
-            "Jarvis": True,
-            "_log_domain": "jarvis_hep",
-        }
+        extra=_sample_logger_extra(info or {}, module=module)
     )
 
 
@@ -122,6 +138,11 @@ class Sample:
     # fields so positional ``Sample(uuid, u_coords, ...)`` callers retain their
     # established meaning.
     sample_index: int | None = None
+    # Optional control-plane routing for feedback-driven samplers (MCMC template).
+    # Task submit still uses the single hep:task_queue; workers publish feedback
+    # to ``feedback_queue`` when set (e.g. hep:feedback:chain:{id}).
+    chain_id: int | None = None
+    feedback_queue: str | None = None
     params: dict[str, Any] = field(default_factory=dict, repr=False)
     info: dict[str, Any] = field(default_factory=dict, repr=False)
     observables: dict[str, Any] = field(default_factory=dict, repr=False)
@@ -179,6 +200,10 @@ class Sample:
             "priority": int(self.priority),
             "created_at": self.created_at or _utc_now_iso(),
         }
+        if self.chain_id is not None:
+            payload["chain_id"] = int(self.chain_id)
+        if self.feedback_queue:
+            payload["feedback_queue"] = str(self.feedback_queue)
         for forbidden in ("logger", "handlers", "params", "info", "observables"):
             if forbidden in payload:
                 raise ValueError(f"forbidden key on wire: {forbidden}")
@@ -192,6 +217,8 @@ class Sample:
             step if isinstance(step, ExecutionStep) else ExecutionStep.from_dict(step)
             for step in plan_raw
         ]
+        chain_raw = data.get("chain_id")
+        feedback_queue = data.get("feedback_queue")
         return cls(
             uuid=str(data["uuid"]),
             sample_index=(
@@ -205,6 +232,8 @@ class Sample:
             sample_artifacts=str(data.get("sample_artifacts", "auto")),
             priority=int(data.get("priority", 0)),
             created_at=data.get("created_at"),
+            chain_id=int(chain_raw) if chain_raw is not None else None,
+            feedback_queue=str(feedback_queue) if feedback_queue else None,
             _materialized=False,
             _logger=None,
         )
@@ -282,7 +311,7 @@ class Sample:
         sample_root = self._resolve_sample_root(self.info)
         logger_name = f"Sample@{self.uuid}"
 
-        lazy_logger = _make_lazy_sample_logger(module=logger_name)
+        lazy_logger = _make_lazy_sample_logger(module=logger_name, info=self.info)
         self.status = "Init"
         self.info.update(
             {
@@ -403,11 +432,7 @@ class Sample:
         logger = SampleLogger.open(
             self.info["run_log"],
             module=logger_name,
-            extra={
-                "to_console": True,
-                "Jarvis": True,
-                "_log_domain": "jarvis_hep",
-            },
+            extra=_sample_logger_extra(self.info, module=logger_name),
         )
         if announce_creation:
             logger.info("Sample created into the Disk")

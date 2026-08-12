@@ -11,6 +11,7 @@ import unittest
 from unittest import mock
 
 from jarvishep2.client import (
+    _log_outcome,
     build_parser,
     build_project_help_parser,
     dispatch,
@@ -84,6 +85,10 @@ class CliParseTests(unittest.TestCase):
     def test_run_console_level_defaults_to_warning(self) -> None:
         args = build_parser().parse_args(["run", "task.yaml"])
         self.assertEqual(args.console_level, "WARNING")
+
+    def test_check_console_level_defaults_to_debug(self) -> None:
+        args = build_parser().parse_args(["check", "task.yaml"])
+        self.assertEqual(args.console_level, "DEBUG")
 
     def test_run_and_check_accept_skip_library_installation(self) -> None:
         for command in ("run", "check"):
@@ -239,6 +244,24 @@ class CliReferencesTests(unittest.TestCase):
 
 
 class CliDispatchTests(unittest.TestCase):
+    def test_run_outcome_is_written_to_process_logger(self) -> None:
+        outcome = RunOutcome(
+            submitted=10,
+            completed=10,
+            failed=0,
+            archived=10,
+            extras={"ncall": 42},
+        )
+        logger = mock.Mock()
+        with mock.patch("jarvishep2.client.get_jarvis_logger", return_value=logger):
+            _log_outcome(outcome)
+
+        logger.warning.assert_called_once_with(
+            "RunOutcome status=success submitted=10 completed=10 "
+            "failed=0 archived=10 ncall=42 exit=0"
+        )
+        logger.error.assert_not_called()
+
     def test_dispatch_routes_gen_plot_yaml(self) -> None:
         args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])
         with mock.patch("jarvishep2.client.dispatch_gen_plot_yaml", return_value=0) as scene:
@@ -261,6 +284,9 @@ class CliDispatchTests(unittest.TestCase):
             validate=True,
             strict=False,
             check_modules=True,
+        )
+        core.set_logging_options.assert_called_once_with(
+            console_level="DEBUG", silence=False
         )
         core.check_modules.assert_called_once_with(timeout=None)
         core.run.assert_not_called()

@@ -26,6 +26,7 @@ _METHODS_NEED_VARIABLES: frozenset[str] = frozenset(
         "Grid",
         "AdaptiveBridson",
         "MCMC",
+        "ToyMCMC",
         "AMMCMC",
         "AM",
         "DRAM",
@@ -45,6 +46,7 @@ _NESTED_METHODS: frozenset[str] = frozenset({"Dynesty", "MultiNest"})
 _MCMC_METHODS: frozenset[str] = frozenset(
     {
         "MCMC",
+        "ToyMCMC",
         "AMMCMC",
         "AM",
         "DRAM",
@@ -289,6 +291,107 @@ def validate_method_sampling(
     if method in _MCMC_METHODS and bounds is not None and not isinstance(bounds, Mapping):
         # Already reported above.
         pass
+
+    if method == "ToyMCMC":
+        if bounds is None:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-050",
+                    "Sampling.Bounds",
+                    "ToyMCMC requires Sampling.Bounds with num_chains, num_iters, and proposal_scale",
+                )
+            )
+        else:
+            assert bounds_map is not None
+            for key, code, description in (
+                ("num_chains", "JV2-MTH-051", "a positive integer"),
+                ("num_iters", "JV2-MTH-052", "a positive integer"),
+                ("proposal_scale", "JV2-MTH-053", "a positive number or list"),
+            ):
+                if key not in bounds_map:
+                    issues.append(
+                        issue(
+                            "error",
+                            code,
+                            f"Sampling.Bounds.{key}",
+                            f"ToyMCMC requires Sampling.Bounds.{key} ({description})",
+                        )
+                    )
+
+            nchains = try_int(bounds_map.get("num_chains"))
+            if nchains is not None and nchains < 1:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-051",
+                        "Sampling.Bounds.num_chains",
+                        f"expected a positive integer, got {bounds_map.get('num_chains')!r}",
+                    )
+                )
+
+            niters = try_int(bounds_map.get("num_iters"))
+            if niters is not None and niters < 1:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-052",
+                        "Sampling.Bounds.num_iters",
+                        f"expected a positive integer, got {bounds_map.get('num_iters')!r}",
+                    )
+                )
+
+            raw_scale = bounds_map.get("proposal_scale")
+            scales = raw_scale if isinstance(raw_scale, (list, tuple)) else [raw_scale]
+            parsed_scales = [try_float(value) for value in scales]
+            if raw_scale is not None and (
+                not parsed_scales
+                or any(value is None or value <= 0 for value in parsed_scales)
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-053",
+                        "Sampling.Bounds.proposal_scale",
+                        "ToyMCMC proposal_scale values must all be positive numbers",
+                    )
+                )
+            elif len({float(value) for value in parsed_scales if value is not None}) > 1:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-054",
+                        "Sampling.Bounds.proposal_scale",
+                        "ToyMCMC uses one identical proposal_scale for every chain",
+                    )
+                )
+            elif (
+                nchains is not None
+                and isinstance(raw_scale, (list, tuple))
+                and len(raw_scale) not in {1, nchains}
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-055",
+                        "Sampling.Bounds.proposal_scale",
+                        f"ToyMCMC proposal_scale must have length 1 or num_chains ({nchains}), "
+                        f"got {len(raw_scale)}",
+                    )
+                )
+
+            raw_seed = bounds_map.get("seed")
+            if raw_seed is not None:
+                seed = try_int(raw_seed)
+                if seed is None or seed < 0:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-MTH-056",
+                            "Sampling.Bounds.seed",
+                            f"ToyMCMC seed must be a non-negative integer, got {raw_seed!r}",
+                        )
+                    )
 
     return issues
 

@@ -43,6 +43,32 @@
       ],
       "x-jarvis-numeric": true
     },
+    "positiveIntegerish": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "string",
+          "pattern": "^\\+?(?:0*[1-9]\\d*)$"
+        }
+      ],
+      "x-jarvis-numeric": true
+    },
+    "nonNegativeIntegerish": {
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^\\+?\\d+$"
+        }
+      ],
+      "x-jarvis-numeric": true
+    },
     "osRequirement": {
       "type": "object",
       "x-jarvis-zone": "closed",

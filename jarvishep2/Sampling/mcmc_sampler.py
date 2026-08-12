@@ -2,52 +2,96 @@
 """Feedback-driven MCMC family samplers (D13.2 + D13.3).
 
 Ports V1 chain science (``Sampling/Source/MCMC/*`` engines) onto
-:class:`FeedbackSampler`: one generation = one Metropolis step across all
-chains (DRAM delayed-rejection stages are intra-generation mini-batches;
-ensemble methods use half-ensemble barriers; PT swaps at barriers).
-Never imports ``jarvishep``.
+:class:`FeedbackSampler`.
+
+**Base runtime design (independent chains)** — ToyMCMC / MCMC / AM / DRAM and
+any method that leaves ``_uses_half_ensemble`` / ``_uses_pt`` false:
+
+* single shared Redis **task** queue (workers steal freely);
+* per-chain **feedback** shards (``hep:feedback:chain:{id}``);
+* **async event loop**: at most one in-flight evaluation per chain; as soon as
+  any chain returns, absorb it and immediately re-submit that chain;
+* no generation barrier across chains (Markov order stays *inside* each chain).
+
+Coupled methods keep the classical barrier path:
+
+* ensemble / DE → half-ensemble generation barriers;
+* PT → full barriers at temperature-exchange points.
+
+Concrete methods only override thin hooks (``_make_engine``,
+``_configure_method``, progress observers). Never imports ``jarvishep``.
 """
 
 from __future__ import annotations
 
 import hashlib
+import pickle
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 
-from jarvishep2.Sampling.Source.MCMC.ammcmc_chain import AMMCMCChain
 from jarvishep2.Sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
+from jarvishep2.Sampling.Source.MCMC.chain_history import ChainHistory
 from jarvishep2.Sampling.Source.MCMC.config_contract import (
-    bounds_get,
-    bounds_get_bool,
-    bounds_get_float,
-    bounds_get_int,
-    bounds_get_list,
     normalize_proposal_scales,
     parse_common_chain_counts,
     parse_proposal_scale_value,
 )
-from jarvishep2.Sampling.Source.MCMC.dram_chain import DRAMChain
-from jarvishep2.Sampling.Source.MCMC.engine_demcmc import DEMCMCChain
-from jarvishep2.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.logging import get_jarvis_logger
+from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 _FAILED_LOGL = -1.0e300
+_MCMC_NATIVE_STATE_FORMAT = "jarvis-hep.mcmc-native"
+_MCMC_NATIVE_STATE_VERSION = 1
 
-# Methods that use complementary-half ensemble proposals (emcee-style).
-_ENSEMBLE_METHODS = frozenset(
-    {"EnsembleMCMC", "Ensemble", "DEMCMC", "PTEnsemble"}
-)
-# Methods that run temperature-exchange after a full step.
-_PT_METHODS = frozenset({"PTMCMC", "PT", "PTEnsemble"})
 
+def _pickle_mcmc_engine(engine: Any) -> tuple[bytes, bool]:
+    """Pickle one engine after detaching callbacks into the live sampler.
+
+    Ensemble/DE engines hold a bound ``population_getter``. Pickling that
+    callback would recursively capture the sampler, Redis, and logger. The
+    callback is restored immediately after serialization and rebound to the
+    new sampler after deserialization.
+    """
+    attrs = getattr(engine, "__dict__", None)
+    missing = object()
+    getter = missing
+    had_population_getter = False
+    if isinstance(attrs, dict) and "_population_getter" in attrs:
+        getter = attrs.pop("_population_getter")
+        had_population_getter = True
+    try:
+        return (
+            pickle.dumps(engine, protocol=pickle.HIGHEST_PROTOCOL),
+            had_population_getter,
+        )
+    finally:
+        if isinstance(attrs, dict) and getter is not missing:
+            attrs["_population_getter"] = getter
+
+
+def _unpickle_mcmc_engine(
+    blob: bytes,
+    sampler: "MCMCBaseSampler",
+    *,
+    requires_population_getter: bool = False,
+) -> Any:
+    """Restore one engine and reconnect any sampler-owned population callback."""
+    engine = pickle.loads(blob)
+    if requires_population_getter or type(engine).__name__ in {
+        "EnsembleChain",
+        "DEMCMCChain",
+    }:
+        engine._population_getter = sampler._population_for
+    return engine
 
 def mcmc_sample_uuid(
     *,
@@ -66,19 +110,62 @@ def mcmc_sample_uuid(
     )
 
 
-class MCMCSampler(FeedbackSampler):
-    """Metropolis / ensemble / PT family on the V2 redis/feedback runtime.
+class MCMCBaseSampler(FeedbackSampler):
+    """Common feedback/checkpoint runtime for one concrete MCMC sampler.
 
-    YAML ``Sampling.Method``: ``MCMC`` | ``AMMCMC`` | ``AM`` | ``DRAM`` |
-    ``EnsembleMCMC`` | ``Ensemble`` | ``DEMCMC`` | ``PTMCMC`` | ``PT`` |
-    ``PTEnsemble``.
+    Concrete methods live in separate modules and override the small method
+    hooks below (configuration, engine construction, ensemble/temperature
+    capabilities). The base class owns transport, the independent-chain async
+    pipeline (base design), barrier mode for coupled methods, checkpointing,
+    diagnostics, and shared MH bookkeeping.
+
+    **Contract for new independent MCMC methods**
+
+    1. Subclass ``MCMCBaseSampler`` (or a thin science base like AM).
+    2. Set ``method`` and implement ``_make_engine`` (+ optional Bounds hooks).
+    3. Leave ``_uses_half_ensemble`` / ``_uses_pt`` False — the async per-chain
+       pipeline is the default (and only) independent-chain design.
+    4. Optional observers: ``_on_run_started``, ``_on_generation_completed``
+       (fires after each absorbed transition in async mode).
     """
 
     method = "MCMC"
+    _checkpoint_saved_attributes = frozenset(
+        {
+            "method",
+            "_pending_uuids",
+            "_seed",
+            "_generation",
+            "_on_failure",
+            "_uuid_to_meta",
+            "_finished",
+            "_total_accepted",
+            "_total_proposed",
+            "_failed_uuids",
+            "_summary",
+        }
+    )
+    _checkpoint_excluded_attributes = frozenset(
+        {
+            "_logger",
+            "vars",
+            "_dim",
+            "_nchains",
+            "_niters",
+            "_proposal_scales",
+            "_selectionexp",
+            "_registry",
+            "_seed_seq",
+            "_batch_size",
+            "_sampling_checkpoint_interval_sec",
+            "_last_sampling_checkpoint_at",
+            "_last_sampling_checkpoint_generation",
+        }
+    )
 
-    def __init__(self, method_name: str = "MCMC") -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self.method = str(method_name)
+        self.method = str(type(self).method)
         self._logger = get_jarvis_logger(f"sampler.{self.method.lower()}")
         self.vars: list = []
         self._mapper_pipeline = None
@@ -93,27 +180,12 @@ class MCMCSampler(FeedbackSampler):
         self._total_accepted = 0
         self._total_proposed = 0
         self._failed_uuids: list[str] = []
-        # AM / DRAM extras
-        self._adapt_enabled = True
-        self._adapt_start_iter = 100
-        self._adapt_window = 25
-        self._adapt_eps = 1e-6
-        self._adapt_scale = 2.38
-        self._dr_steps = 2
-        self._dr_scale_factors = [1.0, 0.5]
-        # Ensemble / DE (D13.3)
-        self._stretch_a = 2.0
-        self._de_gamma = 0.0
-        self._de_noise = 1.0e-3
-        self._de_crossover = 1.0
-        # PT (D13.3)
-        self._temperature_ladder: list[float] = [1.0]
-        self._exchange_interval = 1
-        self._exchange_offset = 0
-        self._swap_attempts = 0
-        self._swap_accepts = 0
-        self._exchange_rng: np.random.Generator | None = None
         self._summary: dict[str, Any] | None = None
+        # MCMC checkpointing is time-cadenced at a feedback barrier. The
+        # durable archive barrier is reserved for explicit/final checkpoints.
+        self._sampling_checkpoint_interval_sec = 30.0
+        self._last_sampling_checkpoint_at = 0.0
+        self._last_sampling_checkpoint_generation = -1
 
     # ------------------------------------------------------------------ config
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -137,123 +209,25 @@ class MCMCSampler(FeedbackSampler):
         seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
+        self._sampling_checkpoint_interval_sec = max(
+            1.0,
+            float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0),
+        )
+        self._last_sampling_checkpoint_at = 0.0
+        self._last_sampling_checkpoint_generation = -1
         self._init_seed_sequence(seed)
         on_fail = bounds.get("on_failure", sampling.get("on_failure", "reject"))
         self._on_failure = str(on_fail or "reject").lower()
-
-        if self.method in ("AMMCMC", "AM", "DRAM"):
-            self._adapt_enabled = bounds_get_bool(
-                bounds, "adapt_enabled", aliases=("adapt.enabled",), default=True
-            )
-            self._adapt_start_iter = bounds_get_int(
-                bounds,
-                "adapt_start_iter",
-                aliases=("adapt.start_iter",),
-                default=100,
-                minimum=1,
-            )
-            self._adapt_window = bounds_get_int(
-                bounds,
-                "adapt_window",
-                aliases=("adapt.window",),
-                default=25,
-                minimum=1,
-            )
-            self._adapt_eps = bounds_get_float(
-                bounds,
-                "adapt_eps",
-                aliases=("adapt.eps",),
-                default=1e-6,
-                minimum=0.0,
-            )
-            self._adapt_scale = bounds_get_float(
-                bounds,
-                "adapt_scale",
-                aliases=("adapt.scale",),
-                default=2.38,
-                minimum=1e-9,
-            )
-        if self.method == "DRAM":
-            self._dr_steps = bounds_get_int(
-                bounds,
-                "dr_steps",
-                aliases=("dr.steps",),
-                default=2,
-                minimum=1,
-            )
-            factors = bounds_get_list(
-                bounds,
-                "dr_scale_factors",
-                aliases=("dr.scale_factors",),
-                default=[1.0, 0.5],
-            )
-            if isinstance(factors, (int, float)):
-                factors = [1.0, float(factors)]
-            self._dr_scale_factors = [max(1e-6, float(x)) for x in factors]
-
-        if self.method in ("EnsembleMCMC", "Ensemble", "PTEnsemble"):
-            self._stretch_a = bounds_get_float(
-                bounds,
-                "stretch_a",
-                aliases=("ensemble.stretch_a",),
-                default=2.0,
-                minimum=1.01,
-            )
-        if self.method == "DEMCMC":
-            self._de_gamma = bounds_get_float(
-                bounds,
-                "de_gamma",
-                aliases=("de.gamma",),
-                default=0.0,
-                minimum=0.0,
-            )
-            self._de_noise = bounds_get_float(
-                bounds,
-                "de_noise",
-                aliases=("de.noise",),
-                default=1.0e-3,
-                minimum=0.0,
-            )
-            self._de_crossover = bounds_get_float(
-                bounds,
-                "de_crossover",
-                aliases=("de.crossover",),
-                default=1.0,
-                minimum=0.0,
-            )
-        if self.method in _PT_METHODS:
-            self._exchange_interval = bounds_get_int(
-                bounds,
-                "exchange_interval",
-                aliases=("exchange.interval",),
-                default=1,
-                minimum=1,
-            )
-            ladder = bounds_get(
-                bounds,
-                "temperature_ladder",
-                aliases=("temperature.ladder",),
-                default=None,
-            )
-            if ladder is None:
-                ladder = [1.0 + float(ii) for ii in range(self._nchains)]
-            self._temperature_ladder = [float(x) for x in ladder]
-            if len(self._temperature_ladder) != self._nchains:
-                raise ValueError(
-                    f"temperature_ladder size mismatch for {self.method}: "
-                    f"expect {self._nchains}, got {len(self._temperature_ladder)}"
-                )
-        if self.method in _ENSEMBLE_METHODS and self._nchains < 2:
-            raise ValueError(f"{self.method} requires num_chains >= 2")
-
         if self._nchains < workers:
             self._logger.warning(
-                "%s: chains (%d) < workers (%d) — workers may idle at barriers; "
-                "prefer chains >= workers",
+                "%s: chains (%d) < workers (%d) — workers may idle; "
+                "prefer chains >= workers for the async pipeline",
                 self.method,
                 self._nchains,
                 workers,
             )
+
+        self._configure_method(bounds)
 
     def _normalize_scales(self) -> list[float]:
         return normalize_proposal_scales(
@@ -262,11 +236,244 @@ class MCMCSampler(FeedbackSampler):
             sampler_method=self.method,
         )
 
+    def _configure_method(self, bounds: Mapping[str, Any]) -> None:
+        """Apply method-specific Bounds configuration in a concrete subclass."""
+        return None
+
+    def _on_run_started(self) -> None:
+        """Hook for method-specific runtime observers such as progress logs."""
+        return None
+
+    def _on_generation_completed(self) -> None:
+        """Hook called after feedback is absorbed at a generation barrier."""
+        return None
+
+    def _on_runtime_state_imported(self) -> None:
+        """Reset process-local observers after checkpoint state is restored."""
+        return None
+
+    def _export_method_state(self) -> dict[str, Any]:
+        """Return checkpoint fields owned by the concrete sampler."""
+        return {}
+
+    def _import_method_state(self, state: Mapping[str, Any]) -> None:
+        """Restore checkpoint fields owned by the concrete sampler."""
+        return None
+
+    def checkpoint_runtime_state(self, *, safe: bool) -> dict[str, Any]:
+        """Export current MCMC state at a feedback barrier.
+
+        ``safe=False`` means the Archiver has not acknowledged every submitted
+        UUID yet. Independent-chain async mode may checkpoint with in-flight
+        samples: ``pending_uuids`` + ``uuid_to_meta`` + engine state are all in
+        the snapshot and resume re-drains outstanding feedback. Coupled barrier
+        methods still require an empty pending set for a fresh export.
+        """
+        if safe:
+            return super().checkpoint_runtime_state(safe=True)
+        if self.at_safe_barrier() or self._uses_async_chain_pipeline():
+            return self.export_runtime_state()
+        return super().checkpoint_runtime_state(safe=False)
+
+    def _export_native_mcmc_state(self) -> bytes | None:
+        """Serialize chain engines/history without Redis or sampler callbacks."""
+        registry = self._ensure_registry()
+        chains: list[dict[str, Any]] = []
+        try:
+            for chain in registry.all():
+                engine = chain.engine
+                engine_blob, requires_population_getter = _pickle_mcmc_engine(engine)
+                chains.append(
+                    {
+                        "chain_id": int(chain.chain_id),
+                        "temperature": float(chain.temperature),
+                        "is_cold": bool(chain.is_cold),
+                        "iter": int(chain.iter),
+                        "accepted": int(chain.accepted),
+                        "rejected": int(chain.rejected),
+                        "window_iter": int(chain.window_iter),
+                        "last_logl": chain.last_logl,
+                        "open_stage": chain.open_stage,
+                        "meta": dict(chain.meta),
+                        "history": chain.history,
+                        "engine_type": (
+                            f"{type(engine).__module__}.{type(engine).__qualname__}"
+                        ),
+                        "engine_blob": engine_blob,
+                        "requires_population_getter": requires_population_getter,
+                    }
+                )
+            exchange_rng = getattr(self, "_exchange_rng", None)
+            payload = {
+                "format": _MCMC_NATIVE_STATE_FORMAT,
+                "version": _MCMC_NATIVE_STATE_VERSION,
+                "method": self.method,
+                "generation": int(self._generation),
+                "chains": chains,
+                "method_state": self._export_method_state(),
+                "exchange_rng_state": (
+                    None
+                    if exchange_rng is None
+                    else exchange_rng.bit_generator.state
+                ),
+            }
+            return pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception as exc:
+            self._logger.warning(
+                "%s: native MCMC checkpoint pickle failed; using explicit state: %s",
+                self.method,
+                exc,
+            )
+            return None
+
+    def _import_native_mcmc_state(self, blob: bytes) -> bool:
+        """Restore native chain state and rebind sampler-owned callbacks."""
+        try:
+            payload = pickle.loads(blob)
+            if not isinstance(payload, Mapping):
+                raise ValueError("native MCMC checkpoint is not a mapping")
+            if payload.get("format") != _MCMC_NATIVE_STATE_FORMAT:
+                raise ValueError("unknown native MCMC checkpoint format")
+            if int(payload.get("version", -1)) != _MCMC_NATIVE_STATE_VERSION:
+                raise ValueError("unsupported native MCMC checkpoint version")
+            if str(payload.get("method", self.method)) != self.method:
+                raise ValueError("native MCMC checkpoint method mismatch")
+
+            raw_chains = list(payload.get("chains") or [])
+            chains: list[ChainRuntime] = []
+            for item in raw_chains:
+                if not isinstance(item, Mapping):
+                    raise ValueError("native MCMC chain entry is not a mapping")
+                engine_blob = item.get("engine_blob")
+                if not isinstance(engine_blob, (bytes, bytearray)):
+                    raise ValueError("native MCMC chain is missing engine blob")
+                engine = _unpickle_mcmc_engine(
+                    bytes(engine_blob),
+                    self,
+                    requires_population_getter=bool(
+                        item.get("requires_population_getter", False)
+                    ),
+                )
+                engine_type = (
+                    f"{type(engine).__module__}.{type(engine).__qualname__}"
+                )
+                if str(item.get("engine_type", engine_type)) != engine_type:
+                    raise ValueError("native MCMC engine type mismatch")
+                history = item.get("history")
+                if not isinstance(history, ChainHistory):
+                    raise ValueError("native MCMC chain history is invalid")
+                chains.append(
+                    ChainRuntime(
+                        chain_id=int(item.get("chain_id", 0)),
+                        engine=engine,
+                        temperature=float(item.get("temperature", 1.0)),
+                        is_cold=bool(item.get("is_cold", False)),
+                        iter=int(item.get("iter", 0) or 0),
+                        accepted=int(item.get("accepted", 0) or 0),
+                        rejected=int(item.get("rejected", 0) or 0),
+                        window_iter=int(item.get("window_iter", 0) or 0),
+                        last_logl=item.get("last_logl"),
+                        history=history,
+                        meta=dict(item.get("meta") or {}),
+                        open_stage=item.get("open_stage"),
+                    )
+                )
+            if not chains:
+                raise ValueError("native MCMC checkpoint has no chains")
+            self._registry = ChainRegistry(chains)
+
+            method_state = payload.get("method_state")
+            if isinstance(method_state, Mapping):
+                self._import_method_state(method_state)
+            exchange_rng_state = payload.get("exchange_rng_state")
+            if self._uses_pt() and exchange_rng_state is not None:
+                self._exchange_rng = np.random.default_rng()
+                self._exchange_rng.bit_generator.state = exchange_rng_state
+            return True
+        except Exception as exc:
+            self._logger.warning(
+                "%s: native MCMC checkpoint restore failed; using explicit state: %s",
+                self.method,
+                exc,
+            )
+            return False
+
+    def _checkpoint_at_sampling_barrier(self, *, reason: str) -> bool:
+        """Save MCMC state without waiting for Archiver acknowledgements."""
+        # Async independent chains almost always have in-flight work; still
+        # allow time-cadenced snapshots (pending uuids are part of the state).
+        if not self.at_safe_barrier() and not self._uses_async_chain_pipeline():
+            return False
+        now = time.monotonic()
+        if (
+            self._last_sampling_checkpoint_generation >= 0
+            and now - self._last_sampling_checkpoint_at
+            < self._sampling_checkpoint_interval_sec
+        ):
+            return False
+        written = self.persist_runtime_checkpoint(force=True, reason=reason)
+        if written:
+            self._last_sampling_checkpoint_at = now
+            self._last_sampling_checkpoint_generation = int(self._generation)
+        return bool(written)
+
     def _uses_half_ensemble(self) -> bool:
-        return self.method in _ENSEMBLE_METHODS
+        return False
 
     def _uses_pt(self) -> bool:
-        return self.method in _PT_METHODS
+        return False
+
+    def _chains_are_independent(self) -> bool:
+        """True when chains share no cross-chain science barrier."""
+        return not self._uses_half_ensemble() and not self._uses_pt()
+
+    def _uses_async_chain_pipeline(self) -> bool:
+        """Per-chain 1-inflight event loop — base design for independent chains."""
+        return self._chains_are_independent()
+
+    def _uses_sharded_feedback(self) -> bool:
+        """Per-chain feedback shards — base design with the async pipeline."""
+        return self._chains_are_independent()
+
+    def _feedback_queue_for_chain(self, chain_id: int) -> str:
+        return chain_feedback_queue(int(chain_id))
+
+    def _pending_feedback_queues(self) -> list[str]:
+        """Feedback lists that may currently hold a pending result."""
+        if not self._uses_sharded_feedback():
+            return [FEEDBACK_QUEUE]
+        queues: list[str] = []
+        seen: set[str] = set()
+        for uuid in self._pending_uuids:
+            meta = self._uuid_to_meta.get(str(uuid))
+            if meta is None:
+                continue
+            key = self._feedback_queue_for_chain(int(meta["chain_id"]))
+            if key not in seen:
+                seen.add(key)
+                queues.append(key)
+        return queues or [FEEDBACK_QUEUE]
+
+    def _inflight_chain_ids(self) -> set[int]:
+        out: set[int] = set()
+        for uuid in self._pending_uuids:
+            meta = self._uuid_to_meta.get(str(uuid))
+            if meta is not None:
+                out.add(int(meta["chain_id"]))
+        return out
+
+    def _ready_chain_ids(self) -> list[int]:
+        """Chains that can accept a new proposal (no in-flight evaluation)."""
+        inflight = self._inflight_chain_ids()
+        ready: list[int] = []
+        for chain in self._ensure_registry().all():
+            cid = int(chain.chain_id)
+            if cid in inflight:
+                continue
+            if int(chain.engine.iterations) >= int(chain.engine.n_iterations):
+                continue
+            ready.append(cid)
+        return ready
 
     def _population_for(self, chain_id: int) -> list[np.ndarray]:
         """Complementary population for ensemble / DE moves.
@@ -290,54 +497,6 @@ class MCMCSampler(FeedbackSampler):
 
     def _make_engine(self, chain_id: int, scale: float, rng: np.random.Generator):
         initial = rng.random(self._dim)
-        if self.method == "DRAM":
-            return DRAMChain(
-                initial,
-                scale,
-                self._niters,
-                adapt_enabled=self._adapt_enabled,
-                adapt_start_iter=self._adapt_start_iter,
-                adapt_window=self._adapt_window,
-                adapt_eps=self._adapt_eps,
-                adapt_scale=self._adapt_scale,
-                dr_steps=self._dr_steps,
-                dr_scale_factors=self._dr_scale_factors,
-                rng=rng,
-            )
-        if self.method in ("AMMCMC", "AM"):
-            return AMMCMCChain(
-                initial,
-                scale,
-                self._niters,
-                adapt_enabled=self._adapt_enabled,
-                adapt_start_iter=self._adapt_start_iter,
-                adapt_window=self._adapt_window,
-                adapt_eps=self._adapt_eps,
-                adapt_scale=self._adapt_scale,
-                rng=rng,
-            )
-        if self.method in ("EnsembleMCMC", "Ensemble", "PTEnsemble"):
-            return EnsembleChain(
-                initial,
-                scale,
-                self._niters,
-                chain_id=chain_id,
-                population_getter=self._population_for,
-                stretch_a=self._stretch_a,
-                rng=rng,
-            )
-        if self.method == "DEMCMC":
-            return DEMCMCChain(
-                initial,
-                scale,
-                self._niters,
-                chain_id=chain_id,
-                population_getter=self._population_for,
-                de_gamma=self._de_gamma,
-                de_noise=self._de_noise,
-                de_crossover=self._de_crossover,
-                rng=rng,
-            )
         return MCMCChain(initial, scale, self._niters, rng=rng)
 
     def _ensure_registry(self) -> ChainRegistry:
@@ -434,6 +593,11 @@ class MCMCSampler(FeedbackSampler):
         )
         sample = self._build_sample(u)
         sample.uuid = uuid
+        sample.chain_id = int(chain.chain_id)
+        if self._uses_sharded_feedback():
+            sample.feedback_queue = self._feedback_queue_for_chain(chain.chain_id)
+        else:
+            sample.feedback_queue = None
         # Additive diagnostic columns for DATABASE (design goal 6).
         sample.observables = dict(sample.observables or {})
         sample.observables.setdefault("chain_id", int(chain.chain_id))
@@ -709,7 +873,9 @@ class MCMCSampler(FeedbackSampler):
         if not batch:
             return 0
         submitted = self._submit_sample_batch(batch)
-        results = self.wait_for_generation(timeout=timeout)
+        results = self.wait_for_generation(
+            timeout=timeout, queues=self._pending_feedback_queues()
+        )
         self.absorb_generation(results)
         while self._needs_stage_followup(chain_ids):
             stage_batch = self._propose_for_stages(
@@ -718,32 +884,98 @@ class MCMCSampler(FeedbackSampler):
             if not stage_batch:
                 break
             submitted += self._submit_sample_batch(stage_batch)
-            results = self.wait_for_generation(timeout=timeout)
+            results = self.wait_for_generation(
+                timeout=timeout, queues=self._pending_feedback_queues()
+            )
             self.absorb_generation(results)
         return submitted
 
-    # ----------------------------------------------------------------- driver
-    def run_adaptive(
-        self,
-        *,
-        generation_timeout: float = 3600.0,
-        timeout: float | None = None,
-    ) -> int:
-        """Generation loop with a per-generation timeout."""
-        if timeout is not None:
-            generation_timeout = timeout
-        timeout = generation_timeout
-        self._require_redis(f"{self.method}.run_adaptive")
-        self._ensure_seed_sequence()
-        self._ensure_registry()
-        if self._finished and self._all_finished() and not self._pending_uuids:
-            return 0
+    def _top_up_ready_chains(self) -> int:
+        """Submit at most one evaluation for every chain without in-flight work.
 
+        Order: delayed-rejection follow-ups first, then new Metropolis steps.
+        Ready sets exclude chains that already have a pending Redis evaluation,
+        so each chain stays strictly sequential while chains run in parallel.
+        """
+        ready = self._ready_chain_ids()
+        if not ready:
+            return 0
+        submitted = 0
+        followup = self._propose_for_stages(stages="followup", chain_ids=ready)
+        if followup:
+            submitted += self._submit_sample_batch(followup)
+        # Recompute ready: follow-up submit marks those chains in-flight.
+        ready = self._ready_chain_ids()
+        if not ready:
+            return submitted
+        steps = self._propose_for_stages(stages="step", chain_ids=ready)
+        if steps:
+            submitted += self._submit_sample_batch(steps)
+        return submitted
+
+    def _sync_generation_from_chains(self) -> None:
+        self._generation = max(
+            (int(c.engine.iterations) for c in self._ensure_registry().all()),
+            default=0,
+        )
+
+    def _run_async_independent_chains(self, *, timeout: float) -> int:
+        """Base high-throughput driver for independent multi-chain MCMC.
+
+        Pipeline shape::
+
+            while work remains:
+                top-up every idle chain  →  shared hep:task_queue
+                wait for ANY feedback   →  per-chain shard
+                absorb that one chain
+                immediately allow that chain to re-enter top-up
+
+        In-flight depth ≈ number of unfinished chains (≤ num_chains). Workers
+        stay busy whenever evaluations dominate control-plane cost.
+        """
+        total_submitted = 0
+        self._logger.info(
+            "%s independent-chain pipeline: chains=%d iters=%d sharded_feedback=True",
+            self.method,
+            self._nchains,
+            self._niters,
+        )
+
+        while True:
+            total_submitted += self._top_up_ready_chains()
+
+            if not self._pending_uuids:
+                if self._all_finished():
+                    break
+                # No pending and not finished means every remaining chain is
+                # blocked without proposals — should not happen; fail soft.
+                if not self._ready_chain_ids():
+                    break
+                continue
+
+            record = self.wait_for_any_feedback(
+                timeout=timeout,
+                queues=self._pending_feedback_queues(),
+            )
+            self.absorb_generation([record])
+            self._sync_generation_from_chains()
+            self._on_generation_completed()
+            self._checkpoint_at_sampling_barrier(
+                reason=f"{self.method}_async_step_{self._generation}"
+            )
+
+        return total_submitted
+
+    def _run_barrier_generations(self, *, timeout: float) -> int:
+        """Classical generation barrier path (ensemble half-steps / PT)."""
         total_submitted = 0
         # Resume mid-barrier: drain pending first.
         if self._pending_uuids:
-            results = self.wait_for_generation(timeout=timeout)
+            results = self.wait_for_generation(
+                timeout=timeout, queues=self._pending_feedback_queues()
+            )
             self.absorb_generation(results)
+            self._on_generation_completed()
 
         while not self._all_finished():
             if self._uses_half_ensemble():
@@ -761,12 +993,14 @@ class MCMCSampler(FeedbackSampler):
             if self._should_exchange():
                 self._do_exchange()
 
-            self._generation = max(
-                (int(c.engine.iterations) for c in self._ensure_registry().all()),
-                default=0,
+            self._sync_generation_from_chains()
+            self._on_generation_completed()
+            self._checkpoint_at_sampling_barrier(
+                reason=f"{self.method}_sampling_step_{self._generation}"
             )
-            self.checkpoint_at_barrier(reason=f"{self.method}_step_{self._generation}")
+        return total_submitted
 
+    def _finalize_run(self) -> None:
         self._finished = True
         self._summary = self._build_summary()
         # D13.6: additive DATABASE diagnostics (summary JSON + chain_history.csv).
@@ -790,8 +1024,12 @@ class MCMCSampler(FeedbackSampler):
                     self._logger.info("%s diagnostics %s → %s", self.method, key, path)
         except Exception as exc:
             self._logger.warning("failed to export MCMC diagnostics: %s", exc)
+        # The normal loop uses a feedback-only checkpoint. The final snapshot
+        # is the one place where MCMC asks for the durable archive barrier.
+        if self._save_checkpoint_callback is not None:
+            self.checkpoint_at_barrier(reason=f"{self.method}_finished")
         self._logger.info(
-            "%s finished: proposed=%d accepted=%d accept_rate=%.4f",
+            "%s finished: proposed=%d accepted=%d accept_rate=%.4f async=%s",
             self.method,
             self._total_proposed,
             self._total_accepted,
@@ -800,7 +1038,33 @@ class MCMCSampler(FeedbackSampler):
                 if self._total_proposed
                 else 0.0
             ),
+            self._uses_async_chain_pipeline(),
         )
+
+    # ----------------------------------------------------------------- driver
+    def run_adaptive(
+        self,
+        *,
+        generation_timeout: float = 3600.0,
+        timeout: float | None = None,
+    ) -> int:
+        """Run the MCMC feedback loop (async template or generation barriers)."""
+        if timeout is not None:
+            generation_timeout = timeout
+        timeout = generation_timeout
+        self._require_redis(f"{self.method}.run_adaptive")
+        self._ensure_seed_sequence()
+        self._ensure_registry()
+        self._on_run_started()
+        if self._finished and self._all_finished() and not self._pending_uuids:
+            return 0
+
+        if self._uses_async_chain_pipeline():
+            total_submitted = self._run_async_independent_chains(timeout=timeout)
+        else:
+            total_submitted = self._run_barrier_generations(timeout=timeout)
+
+        self._finalize_run()
         return total_submitted
 
     def _build_summary(self) -> dict[str, Any]:
@@ -857,6 +1121,8 @@ class MCMCSampler(FeedbackSampler):
             payload["swap_attempts"] = int(self._swap_attempts)
             payload["swap_accepts"] = int(self._swap_accepts)
             payload["temperature_ladder"] = list(self._temperature_ladder)
+        payload["async_chains"] = bool(self._uses_async_chain_pipeline())
+        payload["sharded_feedback"] = bool(self._uses_sharded_feedback())
         return payload
 
     def summary(self) -> dict[str, Any]:
@@ -884,6 +1150,15 @@ class MCMCSampler(FeedbackSampler):
                 continue
             sample = self._build_sample(np.asarray(u, dtype=np.float64))
             sample.uuid = uuid
+            sample.chain_id = int(meta["chain_id"])
+            if self._uses_sharded_feedback():
+                sample.feedback_queue = self._feedback_queue_for_chain(
+                    int(meta["chain_id"])
+                )
+            sample.observables = dict(sample.observables or {})
+            sample.observables.setdefault("chain_id", int(meta["chain_id"]))
+            sample.observables.setdefault("step", int(meta.get("step", 0)))
+            sample.observables.setdefault("stage", int(stage))
             self._submit(sample)
             requeued.append(uuid)
         return requeued
@@ -902,10 +1177,6 @@ class MCMCSampler(FeedbackSampler):
                 "failed_uuids": list(self._failed_uuids),
                 "uuid_to_meta": dict(self._uuid_to_meta),
                 "summary": self._summary,
-                "swap_attempts": int(self._swap_attempts),
-                "swap_accepts": int(self._swap_accepts),
-                "exchange_offset": int(self._exchange_offset),
-                "temperature_ladder": list(self._temperature_ladder),
                 "chains": [
                     {
                         "chain_id": c.chain_id,
@@ -923,10 +1194,21 @@ class MCMCSampler(FeedbackSampler):
                 ],
             }
         )
+        state.update(self._export_method_state())
+        native_blob = self._export_native_mcmc_state()
+        if native_blob is not None:
+            state.update(
+                {
+                    "native_mcmc_state_blob": native_blob,
+                    "native_mcmc_state_format": _MCMC_NATIVE_STATE_FORMAT,
+                    "native_mcmc_state_version": _MCMC_NATIVE_STATE_VERSION,
+                }
+            )
         return state
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
         self._feedback_import_state(state)
+        self._on_runtime_state_imported()
         self._finished = bool(state.get("finished", False))
         self._total_accepted = int(state.get("total_accepted", 0) or 0)
         self._total_proposed = int(state.get("total_proposed", 0) or 0)
@@ -935,12 +1217,12 @@ class MCMCSampler(FeedbackSampler):
             str(k): dict(v) for k, v in dict(state.get("uuid_to_meta") or {}).items()
         }
         self._summary = state.get("summary")
-        self._swap_attempts = int(state.get("swap_attempts", 0) or 0)
-        self._swap_accepts = int(state.get("swap_accepts", 0) or 0)
-        self._exchange_offset = int(state.get("exchange_offset", 0) or 0)
-        ladder = state.get("temperature_ladder")
-        if ladder is not None:
-            self._temperature_ladder = [float(x) for x in ladder]
+        self._import_method_state(state)
+        native_blob = state.get("native_mcmc_state_blob")
+        if isinstance(native_blob, (bytes, bytearray)) and self._import_native_mcmc_state(
+            bytes(native_blob)
+        ):
+            return
         raw_chains = list(state.get("chains") or [])
         if not raw_chains:
             self._registry = None
@@ -1033,47 +1315,81 @@ def _effective_sample_size(series: Sequence[float] | list[float]) -> float | Non
     return float(n / tau)
 
 
-def create_mcmc() -> MCMCSampler:
-    return MCMCSampler("MCMC")
+# Compatibility name for callers that imported the old monolithic class.
+# New code should import ``MCMCBaseSampler`` or the concrete class from its
+# method module (for example ``Sampling.toymcmc.ToyMCMCSampler``).
+MCMCSampler = MCMCBaseSampler
 
 
-def create_ammcmc() -> MCMCSampler:
-    return MCMCSampler("AMMCMC")
+def create_mcmc() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.mcmc import create_mcmc as factory
+
+    return factory()
 
 
-def create_am() -> MCMCSampler:
-    return MCMCSampler("AM")
+def create_toymcmc() -> MCMCBaseSampler:
+    """Create the lightweight baseline MCMC profile used by toy/test cards."""
+    from jarvishep2.Sampling.toymcmc import create_toymcmc as factory
+
+    return factory()
 
 
-def create_dram() -> MCMCSampler:
-    return MCMCSampler("DRAM")
+def create_ammcmc() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ammcmc import create_ammcmc as factory
+
+    return factory()
 
 
-def create_ensemble() -> MCMCSampler:
-    return MCMCSampler("EnsembleMCMC")
+def create_am() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.am import create_am as factory
+
+    return factory()
 
 
-def create_ensemble_alias() -> MCMCSampler:
-    return MCMCSampler("Ensemble")
+def create_dram() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.dram import create_dram as factory
+
+    return factory()
 
 
-def create_demcmc() -> MCMCSampler:
-    return MCMCSampler("DEMCMC")
+def create_ensemble() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ensemble_mcmc import create_ensemble as factory
+
+    return factory()
 
 
-def create_ptmcmc() -> MCMCSampler:
-    return MCMCSampler("PTMCMC")
+def create_ensemble_alias() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ensemble_mcmc import create_ensemble_alias as factory
+
+    return factory()
 
 
-def create_pt() -> MCMCSampler:
-    return MCMCSampler("PT")
+def create_demcmc() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.demcmc import create_demcmc as factory
+
+    return factory()
 
 
-def create_pt_ensemble() -> MCMCSampler:
-    return MCMCSampler("PTEnsemble")
+def create_ptmcmc() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ptmcmc import create_ptmcmc as factory
+
+    return factory()
+
+
+def create_pt() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ptmcmc import create_pt as factory
+
+    return factory()
+
+
+def create_pt_ensemble() -> MCMCBaseSampler:
+    from jarvishep2.Sampling.ptensemble import create_pt_ensemble as factory
+
+    return factory()
 
 
 __all__ = [
+    "MCMCBaseSampler",
     "MCMCSampler",
     "create_am",
     "create_ammcmc",
@@ -1085,5 +1401,6 @@ __all__ = [
     "create_pt",
     "create_pt_ensemble",
     "create_ptmcmc",
+    "create_toymcmc",
     "mcmc_sample_uuid",
 ]

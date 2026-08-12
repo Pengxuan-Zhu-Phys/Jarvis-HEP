@@ -120,6 +120,8 @@ def parse_proposal_scale_value(bounds: Mapping[str, Any], *, default: float = 0.
     if scalar is _MISSING and scales is _MISSING:
         return float(default)
     if scales is _MISSING:
+        if isinstance(scalar, (list, tuple)):
+            return [float(value) for value in scalar]
         return float(scalar)
     if scalar is not _MISSING and not isinstance(scales, (list, tuple)):
         # Explicit scalar + non-list fallback keeps scalar behavior.

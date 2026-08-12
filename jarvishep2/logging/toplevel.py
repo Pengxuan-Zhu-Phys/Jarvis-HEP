@@ -58,6 +58,7 @@ _RECORD_SKIP_KEYS = frozenset(
 
 _state: dict[str, Any] = {
     "configured": False,
+    "console_enabled": False,
     "listener": None,
     "log_queue": None,
     "log_path": None,
@@ -489,6 +490,7 @@ def shutdown_jarvis_logging() -> None:
     _state["listener"] = None
     _state["log_queue"] = None
     _state["configured"] = False
+    _state["console_enabled"] = False
     _state["log_path"] = None
     _state["log_paths"] = None
     _state["scan_logs_dir"] = None
@@ -650,6 +652,7 @@ def setup_jarvis_logging(
             logger.addHandler(handler)
 
     _state["configured"] = True
+    _state["console_enabled"] = use_console
     _state["log_path"] = resolved_path
     _state["log_paths"] = dict(log_paths)
     _state["scan_logs_dir"] = (
@@ -660,6 +663,11 @@ def setup_jarvis_logging(
     _state["component"] = comp
     atexit.register(shutdown_jarvis_logging)
     return resolved_path
+
+
+def console_logging_enabled() -> bool:
+    """Return whether this process currently has an active terminal sink."""
+    return bool(_state.get("configured") and _state.get("console_enabled"))
 
 
 def get_jarvis_logger(
@@ -721,6 +729,7 @@ __all__ = [
     "JarvisLoggerAdapter",
     "component_log_path",
     "component_module_label",
+    "console_logging_enabled",
     "format_record_context",
     "get_jarvis_logger",
     "jarvis_module_label",

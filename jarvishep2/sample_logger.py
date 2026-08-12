@@ -6,12 +6,77 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
+import logging
 import os
 import threading
-from typing import Any, Deque, Iterable
+from typing import Any, Deque, Iterable, Mapping
 
 
 DEFAULT_BUFFER_MAX_EVENTS = 2048
+
+_LEVEL_NUMBERS = {
+    "CRITICAL": logging.CRITICAL,
+    "ERROR": logging.ERROR,
+    "WARNING": logging.WARNING,
+    "WARN": logging.WARNING,
+    "INFO": logging.INFO,
+    "DEBUG": logging.DEBUG,
+    "NOTSET": logging.NOTSET,
+}
+
+
+def _level_number(level: Any) -> int:
+    if isinstance(level, int):
+        return int(level)
+    return _LEVEL_NUMBERS.get(str(level).strip().upper(), logging.INFO)
+
+
+def _forward_sample_event(
+    *,
+    extra: Mapping[str, Any] | dict[str, Any],
+    module: str,
+    level: str,
+    message: str,
+) -> None:
+    """Forward an eligible sample event to the process terminal logger.
+
+    Sample files remain the source of complete per-sample detail.  The terminal
+    path is opt-in and independently thresholded so ordinary runs show only
+    sample errors while ``check`` can expose debug output.
+    """
+    to_console = extra.get("sample_log_to_console", extra.get("to_console", False))
+    if not bool(to_console) or bool(extra.get("sample_log_silence", extra.get("log_silence", False))):
+        return
+
+    try:
+        from jarvishep2.logging.toplevel import (
+            console_logging_enabled,
+            get_jarvis_logger,
+        )
+
+        if not console_logging_enabled():
+            return
+    except Exception:
+        return
+
+    threshold = _level_number(extra.get("sample_console_level", extra.get("console_level", "ERROR")))
+    level_no = _level_number(level)
+    if level_no < threshold:
+        return
+
+    worker_id = extra.get("_sample_worker_id", extra.get("worker_id"))
+    try:
+        worker_id = int(worker_id) if worker_id is not None else None
+    except (TypeError, ValueError):
+        worker_id = None
+    try:
+        logger = get_jarvis_logger("worker", worker_id=worker_id).bind(
+            jarvis_module=module
+        )
+        logger.log(level_no, message)
+    except Exception:
+        # Logging must never make a sample calculation fail.
+        return
 
 
 @dataclass(frozen=True)
@@ -135,7 +200,7 @@ def replay_sample_log_events(
 
 
 class SampleLogger:
-    """Custom sample-local logging adapter used only for per-sample file logging."""
+    """Sample-local file logger with optional thresholded terminal forwarding."""
 
     def __init__(self, backend: _SampleLogBackend, *, extra: dict[str, Any] | None = None) -> None:
         self._backend = backend
@@ -168,11 +233,18 @@ class SampleLogger:
         module = str(self._extra.get("module", "No module"))
         raw = "raw" in self._extra
         rendered = self._render_message(message, *args, **kwargs)
+        normalized_level = self._normalize_level(level)
         self._backend.write(
             module=module,
-            level=self._normalize_level(level),
+            level=normalized_level,
             message=rendered,
             raw=raw,
+        )
+        _forward_sample_event(
+            extra=self._extra,
+            module=module,
+            level=normalized_level,
+            message=rendered,
         )
 
     def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:
@@ -255,15 +327,22 @@ class BufferedSampleLogger:
         module = str(self._extra.get("module", "No module"))
         raw = "raw" in self._extra
         rendered = SampleLogger._render_message(message, *args, **kwargs)
+        normalized_level = SampleLogger._normalize_level(level)
         timestamp = self._time_provider().strftime("%m-%d %H:%M:%S.%f")[:-3]
         self._events.append(
             SampleLogEvent(
                 timestamp=timestamp,
                 module=module,
-                level=SampleLogger._normalize_level(level),
+                level=normalized_level,
                 message=rendered,
                 raw=raw,
             )
+        )
+        _forward_sample_event(
+            extra=self._extra,
+            module=module,
+            level=normalized_level,
+            message=rendered,
         )
 
     def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:

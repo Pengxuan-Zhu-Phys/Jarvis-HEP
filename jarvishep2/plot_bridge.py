@@ -23,8 +23,8 @@ def require_jarvisplot() -> Any:
         from jarvisplot.core import JarvisPLOT
     except ImportError as exc:
         raise ImportError(
-            "Plotting requires Jarvis-PLOT. "
-            "Install it with `pip install -U Jarvis-PLOT` "
+            "Plotting requires JarvisPLOT. "
+            "Install it with `pip install -U JarvisPLOT` "
             "(or `pip install -e ../Jarvis-PLOT` for local development)."
         ) from exc
     return JarvisPLOT
@@ -74,8 +74,8 @@ def render_flowchart_scene(scene: dict, output_path: str) -> str:
         from jarvisplot import render_flowchart
     except ImportError as exc:
         raise ImportError(
-            "Flowchart rendering requires Jarvis-PLOT. "
-            "Install with `pip install -U Jarvis-PLOT`."
+            "Flowchart rendering requires JarvisPLOT. "
+            "Install with `pip install -U JarvisPLOT`."
         ) from exc
     path = str(output_path or "").strip()
     if not path:

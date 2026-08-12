@@ -131,9 +131,16 @@ def build_worker_config(
             if sampling_method in (
                 "AdaptiveBridson",
                 "MCMC",
+                "ToyMCMC",
                 "AMMCMC",
                 "AM",
                 "DRAM",
+                "EnsembleMCMC",
+                "Ensemble",
+                "DEMCMC",
+                "PTMCMC",
+                "PT",
+                "PTEnsemble",
             ):
                 publish_feedback = True
 

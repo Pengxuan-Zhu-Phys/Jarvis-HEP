@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Per-Sample logging re-exports (V1 contract, Worker-local only)."""
+"""Per-Sample logging re-exports (V1 file contract plus terminal forwarding)."""
 
 from __future__ import annotations
 

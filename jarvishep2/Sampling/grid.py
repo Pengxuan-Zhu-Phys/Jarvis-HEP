@@ -11,6 +11,7 @@ import numpy as np
 
 from jarvishep2.Sampling.fixed_set_sampler import FixedSetSampler
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
+from jarvishep2.log_kv import PermilleProgress
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 
@@ -31,12 +32,13 @@ def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
 class Grid(FixedSetSampler):
     method = "Grid"
     uuid_prefix = "grid"
-    _checkpoint_excluded_attributes = frozenset({"_logger", "_P"})
+    _checkpoint_excluded_attributes = frozenset({"_logger", "_P", "_submit_progress"})
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.grid")
         self._P: np.ndarray | None = None
+        self._submit_progress: PermilleProgress | None = None
 
     def initialize(self, *, reset: bool = True) -> None:
         t0 = time.time()
@@ -54,6 +56,16 @@ class Grid(FixedSetSampler):
         if reset:
             self._index = 0
             self._accepted_index = 0
+        if reset or self._submit_progress is None:
+            self._submit_progress = PermilleProgress(
+                self._logger,
+                total=int(self.info["NSamples"]),
+                label="grid points sampled",
+            )
+            if self._index == 0 and not bool(
+                getattr(self, "_suppress_submit_progress", False)
+            ):
+                self._submit_progress.update(0, force=True)
         self._logger.info(
             "Grid generated %d points in %.2f s",
             self.info["NSamples"],
@@ -70,6 +82,7 @@ class Grid(FixedSetSampler):
         while self._index < len(self._P):
             row = self._P[self._index]
             self._index += 1
+            self._emit_progress()
             physical = physical_from_u(row, self.vars, self._mapper_pipeline)
             if self._selectionexp and not evaluate_selection(
                 self._selectionexp,
@@ -89,6 +102,23 @@ class Grid(FixedSetSampler):
     def _stream_exhausted(self) -> bool:
         return self._P is not None and self._index >= len(self._P)
 
+    def _emit_progress(self) -> None:
+        """Emit one progress heartbeat for each newly traversed grid permille."""
+        if bool(getattr(self, "_suppress_submit_progress", False)):
+            return
+        total = int(self.info.get("NSamples", 0) or 0)
+        if self._P is not None:
+            total = max(total, int(len(self._P)))
+        if total <= 0:
+            return
+        if self._submit_progress is None or self._submit_progress.total != total:
+            self._submit_progress = PermilleProgress(
+                self._logger,
+                total=total,
+                label="grid points sampled",
+            )
+        self._submit_progress.update(self._index)
+
     def export_runtime_state(self) -> dict[str, Any]:
         payload = self._common_export_fields()
         payload.update({"numpy_random_state": None})
@@ -96,6 +126,7 @@ class Grid(FixedSetSampler):
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
         self._import_common_fields(state)
+        self._submit_progress = None
 
 
 __all__ = ["Grid", "grid_sampling"]

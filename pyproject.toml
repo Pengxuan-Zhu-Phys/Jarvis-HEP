@@ -22,7 +22,7 @@ dependencies = [
     "setproctitle>=1.3.3",
     "Jarvis-HEP-Portal>=1.5.1",
     "Jarvis-Operas>=1.4.1",
-    "Jarvis-PLOT>=1.3.3",
+    "JarvisPLOT>=1.3.3",
     "typer>=0.25.0",
 ]
 
@@ -41,7 +41,7 @@ operas = [
     "Jarvis-Operas>=1.4.1",
 ]
 plot = [
-    "Jarvis-PLOT>=1.3.3",
+    "JarvisPLOT>=1.3.3",
 ]
 dev = [
     "pytest>=7.0",

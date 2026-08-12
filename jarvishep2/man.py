@@ -691,6 +691,16 @@ _METHOD_DIAGNOSTICS: dict[str, list[str]] = {
     "Grid": ["JV2-VAR-001", "JV2-SCH-001"],
     "CSV": ["JV2-MTH-030", "JV2-MTH-031", "JV2-SCH-001"],
     "AdaptiveBridson": ["JV2-MTH-041", "JV2-MTH-042", "JV2-SCH-001"],
+    "ToyMCMC": [
+        "JV2-MTH-050",
+        "JV2-MTH-051",
+        "JV2-MTH-052",
+        "JV2-MTH-053",
+        "JV2-MTH-054",
+        "JV2-MTH-055",
+        "JV2-MTH-056",
+        "JV2-SCH-001",
+    ],
     "Dynesty": ["JV2-BND-001", "JV2-BND-012", "JV2-BND-030", "JV2-SCH-001"],
     "MultiNest": ["JV2-BND-001", "JV2-BND-012", "JV2-BND-020", "JV2-SCH-001"],
 }
@@ -854,6 +864,10 @@ def _type_label(
     ref = str(schema.get("$ref") or "")
     if ref.endswith("positiveNumeric"):
         return "number >0"
+    if ref.endswith("positiveIntegerish"):
+        return "integer"
+    if ref.endswith("nonNegativeIntegerish"):
+        return "integer"
     if ref.endswith("integerish"):
         return "integer"
     if ref.endswith("numeric"):
@@ -898,6 +912,12 @@ def _key_entries(
         desc = _clean_man_prose(raw_map.get("description") or node.get("description") or "")
         if not desc.strip():
             desc = str(help_map.get(name) or "")
+        minimum = node.get("minimum")
+        ref = str(raw_map.get("$ref") or "")
+        if minimum is None and ref.endswith("positiveIntegerish"):
+            minimum = 1
+        elif minimum is None and ref.endswith("nonNegativeIntegerish"):
+            minimum = 0
         keys.append(
             {
                 "name": name,
@@ -906,7 +926,7 @@ def _key_entries(
                 "default": node.get("default"),
                 "aliases": [],
                 "description": desc,
-                "minimum": node.get("minimum"),
+                "minimum": minimum,
                 "exclusive": bool(node.get("exclusiveMinimum") is not None)
                 or "positiveNumeric" in str(raw_map.get("$ref") or ""),
                 "nav": False,
@@ -968,6 +988,7 @@ _NESTED_SAMPLER_METHODS = frozenset({"Dynesty", "MultiNest"})
 _MCMC_SAMPLER_METHODS = frozenset(
     {
         "MCMC",
+        "ToyMCMC",
         "AMMCMC",
         "AM",
         "DRAM",
@@ -977,6 +998,35 @@ _MCMC_SAMPLER_METHODS = frozenset(
         "PTMCMC",
         "PT",
         "PTEnsemble",
+    }
+)
+# Independent chains: async 1-inflight pipeline + per-chain feedback shards.
+_MCMC_INDEPENDENT_METHODS = frozenset(
+    {
+        "MCMC",
+        "ToyMCMC",
+        "AMMCMC",
+        "AM",
+        "DRAM",
+    }
+)
+# Cross-chain science barriers (half-ensemble and/or temperature exchange).
+_MCMC_COUPLED_METHODS = frozenset(
+    {
+        "EnsembleMCMC",
+        "Ensemble",
+        "DEMCMC",
+        "PTMCMC",
+        "PT",
+        "PTEnsemble",
+    }
+)
+_MCMC_RUNTIME_TOPICS = frozenset(
+    {
+        "mcmc-runtime",
+        "mcmc_runtime",
+        "mcmc-family",
+        "mcmc_family",
     }
 )
 
@@ -990,6 +1040,138 @@ def _sampler_type(method: str) -> str:
     if method in _MCMC_SAMPLER_METHODS:
         return "MCMC"
     return "simple"
+
+
+def _mcmc_pipeline_kind(method: str) -> str | None:
+    """Return ``async_independent`` / ``barrier_coupled`` for MCMC methods."""
+    if method in _MCMC_INDEPENDENT_METHODS:
+        return "async_independent"
+    if method in _MCMC_COUPLED_METHODS:
+        return "barrier_coupled"
+    if method in _MCMC_SAMPLER_METHODS:
+        # Unknown MCMC profile: keep the safer coupled barrier semantics.
+        return "barrier_coupled"
+    return None
+
+
+def _mcmc_capabilities(method: str, *, resume: str) -> dict[str, Any]:
+    """Capabilities block for MCMC method pages and the runtime design page."""
+    caps: dict[str, Any] = {
+        "type": "MCMC",
+        "resume": resume,
+        "task_queue": "hep:task_queue",
+    }
+    kind = _mcmc_pipeline_kind(method) if method else "async_independent"
+    if kind == "async_independent":
+        caps.update(
+            {
+                "pipeline": "async_independent",
+                "feedback_queue": "hep:feedback:chain:{chain_id}",
+                "inflight_per_chain": 1,
+                "note": (
+                    "Chains advance as soon as their own evaluation returns; "
+                    "no cross-chain generation barrier."
+                ),
+            }
+        )
+    elif kind == "barrier_coupled":
+        caps.update(
+            {
+                "pipeline": "barrier_coupled",
+                "feedback_queue": "hep:feedback",
+                "barrier": "generation or half-ensemble (and PT exchange when enabled)",
+                "note": (
+                    "Cross-chain moves require a synchronized barrier; "
+                    "independent-chain async does not apply."
+                ),
+            }
+        )
+    else:
+        caps["pipeline"] = "n/a"
+    return caps
+
+
+def _mcmc_runtime_page() -> dict[str, Any]:
+    """Design page: multi-chain MCMC Redis transport (base sampler design)."""
+    independent = sorted(_MCMC_INDEPENDENT_METHODS)
+    coupled = sorted(_MCMC_COUPLED_METHODS)
+    return {
+        "path": "$.Sampling.Method",
+        "context": {"domain": "sampler", "topic": "mcmc-runtime"},
+        "zone": "closed",
+        "status": "stable",
+        "summary": (
+            "• Purpose: multi-chain MCMC Redis transport used by all MCMC-family samplers.\n"
+            "• Task submit: one shared queue ``hep:task_queue`` (workers steal freely).\n"
+            "• Independent chains (ToyMCMC / MCMC / AM / DRAM / …): async pipeline — "
+            "at most one in-flight evaluation per chain; any chain may re-submit as soon "
+            "as its feedback returns.\n"
+            "• Feedback for independent chains: ``hep:feedback:chain:{chain_id}`` "
+            "(task field ``feedback_queue``; worker routes by that key).\n"
+            "• Coupled methods (Ensemble / DEMCMC / PT…): generation or half-ensemble "
+            "barriers remain required for science; feedback stays on ``hep:feedback``.\n"
+            "• Prefer ``num_chains >= workers`` so the async pipeline can keep workers busy.\n"
+            "• Reference Bounds profile: ``Jarvis man sampler.ToyMCMC``."
+        ),
+        "chain": [
+            "1. Control top-ups every idle chain → push Sample tasks to hep:task_queue",
+            "2. Worker evaluates physics LogL",
+            "3. Worker publishes flat {uuid, logL, …} to task.feedback_queue "
+            "(hep:feedback:chain:{id} for independent chains)",
+            "4. Control BLPOP any pending chain shard → absorb that chain → "
+            "immediately re-propose that chain only",
+            "5. Coupled methods instead wait for a full generation / half-ensemble barrier",
+        ],
+        "list_title": "MCMC pipeline classes",
+        "list_rows": _annotate_nav(
+            [
+                {
+                    "name": "async_independent",
+                    "type": "pipeline",
+                    "description": (
+                        "Methods: "
+                        + ", ".join(independent)
+                        + ". 1-inflight per chain; shared task queue; per-chain feedback."
+                    ),
+                },
+                {
+                    "name": "barrier_coupled",
+                    "type": "pipeline",
+                    "description": (
+                        "Methods: "
+                        + ", ".join(coupled)
+                        + ". Half-ensemble and/or PT exchange barriers."
+                    ),
+                },
+            ],
+            {
+                "async_independent": "Jarvis man sampler.ToyMCMC",
+                "barrier_coupled": "Jarvis man sampler --full",
+            },
+        ),
+        "keys": [],
+        "examples": [
+            "Method: ToyMCMC\n"
+            "Bounds:\n"
+            "  num_chains: 4   # prefer >= workers\n"
+            "  num_iters: 2000\n"
+            "  proposal_scale: 0.2\n"
+            "  seed: 0"
+        ],
+        "diagnostics": list(_METHOD_DIAGNOSTICS.get("ToyMCMC", [])),
+        "see_also": [
+            "Jarvis man sampler",
+            "Jarvis man sampler.ToyMCMC",
+            "Jarvis man sampler --full",
+            "Jarvis man yaml.Sampling.Variables",
+        ],
+        "further_reading": None,
+        "capabilities": _mcmc_capabilities("ToyMCMC", resume="implemented"),
+        "nav_legend": (
+            f"{_NAV_EXPAND} cyan rows open a related man page "
+            "(ToyMCMC reference or full method catalog)."
+        ),
+    }
 
 
 def _example_topics_for_method(method: str) -> tuple[str, ...]:
@@ -1056,7 +1238,16 @@ def _method_page(method: str) -> dict[str, Any]:
         "Jarvis man sampler",
         "Jarvis man yaml.Sampling.Variables",
     ]
+    if canonical in _MCMC_SAMPLER_METHODS:
+        see_also.insert(1, "Jarvis man sampler.mcmc-runtime")
     see_also.extend(f"Jarvis man example.{topic}" for topic in example_topics)
+    if canonical in _MCMC_SAMPLER_METHODS:
+        capabilities = _mcmc_capabilities(canonical, resume=str(resume))
+    else:
+        capabilities = {
+            "type": _sampler_type(canonical),
+            "resume": resume,
+        }
     page = {
         "path": "$.Sampling.Bounds",
         "context": {"method": canonical},
@@ -1067,11 +1258,15 @@ def _method_page(method: str) -> dict[str, Any]:
         "examples": [str(root.get("x-jarvis-example"))] if root.get("x-jarvis-example") else [],
         "diagnostics": list(_METHOD_DIAGNOSTICS.get(canonical, [])),
         "see_also": see_also,
-        "further_reading": None,
-        "capabilities": {
-            "type": _sampler_type(canonical),
-            "resume": resume,
-        },
+        "further_reading": (
+            {
+                "command": "Jarvis man sampler.mcmc-runtime",
+                "topic": "MCMC multi-chain Redis pipeline (async independent vs barrier coupled)",
+            }
+            if canonical in _MCMC_SAMPLER_METHODS
+            else None
+        ),
+        "capabilities": capabilities,
     }
     if example_topics:
         page["example_refs"] = [_example_descriptor(topic) for topic in example_topics]
@@ -1097,7 +1292,12 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         if full:
             row["status"] = status
         rows.append(row)
-    see_also = ["Jarvis man sampler.Bridson", "Jarvis man yaml.Sampling"]
+    see_also = [
+        "Jarvis man sampler.Bridson",
+        "Jarvis man sampler.ToyMCMC",
+        "Jarvis man sampler.mcmc-runtime",
+        "Jarvis man yaml.Sampling",
+    ]
     if not full:
         see_also.append("Jarvis man sampler --full")
     return {
@@ -1106,16 +1306,21 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         "zone": "closed",
         "status": "stable",
         "summary": (
-            "All sampling methods registered in the schema catalog."
+            "All sampling methods registered in the schema catalog. "
+            "MCMC-family transport: Jarvis man sampler.mcmc-runtime."
             if full
-            else "Stable sampling methods registered in the schema catalog."
+            else "Stable sampling methods registered in the schema catalog. "
+            "MCMC multi-chain design: Jarvis man sampler.mcmc-runtime."
         ),
         "keys": [],
         "methods": rows,
         "examples": [],
         "diagnostics": [],
         "see_also": see_also,
-        "further_reading": None,
+        "further_reading": {
+            "command": "Jarvis man sampler.mcmc-runtime",
+            "topic": "Independent-chain async pipeline and coupled MCMC barriers",
+        },
     }
 
 
@@ -2593,6 +2798,8 @@ def _center_page() -> dict[str, Any]:
         "see_also": [
             "Jarvis man yaml",
             "Jarvis man sampler.Bridson",
+            "Jarvis man sampler.ToyMCMC",
+            "Jarvis man sampler.mcmc-runtime",
             "Jarvis man calculator.execution.input --type JSON",
             "Jarvis man calculator.execution.output --type JSON",
             "Jarvis man operas",
@@ -2651,6 +2858,8 @@ def resolve_man_request(
         Jarvis man yaml.Calculators.Modules.execution
         Jarvis man sampler
         Jarvis man sampler.Bridson
+        Jarvis man sampler.ToyMCMC
+        Jarvis man sampler.mcmc-runtime
         Jarvis man calculator
         Jarvis man calculator.module
         Jarvis man calculator.execution
@@ -2734,7 +2943,10 @@ def resolve_man_request(
     if head == "sampler":
         if not rest:
             return _sampler_index(full=full)
-        return _method_page(rest[0])
+        topic_name = rest[0]
+        if topic_name.casefold() in _MCMC_RUNTIME_TOPICS:
+            return _mcmc_runtime_page()
+        return _method_page(topic_name)
     if head == "calculator":
         topic_name = rest[0] if rest else None
         if topic_name and topic_name.casefold() == "module" and len(rest) > 1:
@@ -2777,6 +2989,8 @@ def resolve_man_request(
                 "calculator.execution.input",
                 "calculator.execution.output",
                 "sampler.Bridson",
+                "sampler.ToyMCMC",
+                "sampler.mcmc-runtime",
             ]
         )
         suggestions = get_close_matches(topic, choices, n=5, cutoff=0.4)
@@ -2960,11 +3174,29 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
 
     if page.get("capabilities"):
         cap = page["capabilities"]
+        # Prefer a stable key order; include any extra MCMC pipeline fields.
+        preferred = (
+            "type",
+            "resume",
+            "pipeline",
+            "task_queue",
+            "feedback_queue",
+            "inflight_per_chain",
+            "barrier",
+            "note",
+        )
+        lines: list[str] = []
+        seen_cap: set[str] = set()
+        for key in preferred:
+            if key not in cap:
+                continue
+            lines.append(f"{key}: {cap[key]}")
+            seen_cap.add(key)
+        for key in sorted(str(k) for k in cap.keys() if str(k) not in seen_cap):
+            lines.append(f"{key}: {cap[key]}")
         console.print(
             Panel(
-                _bullet_panel_text(
-                    f"type: {cap.get('type')}\nresume: {cap.get('resume')}"
-                ),
+                _bullet_panel_text("\n".join(lines) if lines else "—"),
                 title="Capabilities",
                 box=box.ROUNDED,
             )
@@ -3134,6 +3366,8 @@ def _print_man_help() -> None:
         "Jarvis man calculator.execution.input --type JSON",
         "Jarvis man calculator.execution.input --type JSON --json  # coding agent",
         "Jarvis man sampler.Bridson",
+        "Jarvis man sampler.ToyMCMC",
+        "Jarvis man sampler.mcmc-runtime",
         "Jarvis man sampler --full",
         "Jarvis man yaml.Calculators.Modules.execution",
         "Jarvis man example.calculator",

@@ -6,6 +6,92 @@ EnvReqs:
   # Redis, Workers, or Archiver are started.
   Python:
     version: ">=3.10"
+    # Baseline carried over from Jarvis-HEP V1/Eggbox.  Keep this list in
+    # sync with the package metadata and update the floor when V2 requires a
+    # newer compatible release.
+    Dependencies:
+      - name: dill
+        required: true
+        version: ">=0.3.8"
+      - name: emoji
+        required: true
+        version: ">=2.10.1"
+      - name: h5py
+        required: true
+        version: ">=3.8"
+      - name: jsonschema
+        required: true
+        version: ">=4.18"
+      - name: loguru
+        required: true
+        version: ">=0.7.0"
+      - name: matplotlib
+        required: true
+        version: ">=3.3"
+      - name: mpmath
+        required: true
+        version: ">=1.3.0"
+      - name: networkx
+        required: true
+        version: ">=3.2.1"
+      - name: numpy
+        required: true
+        version: ">=1.24"
+      - name: pandas
+        required: true
+        version: ">=2.1.0"
+      - name: pillow
+        required: true
+        version: ">=10.0.0"
+      - name: prettytable
+        required: true
+        version: ">=3.10.0"
+      - name: psutil
+        required: true
+        version: ">=5.9.0"
+      - name: pyslha
+        required: true
+        version: ">=3.2.5"
+      - name: pyyaml
+        required: true
+        version: ">=6.0"
+      - name: scipy
+        required: true
+        version: ">=1.10"
+      - name: setproctitle
+        required: true
+        version: ">=1.3.3"
+      - name: shapely
+        required: true
+        version: ">=2.0.0"
+      - name: sympy
+        required: true
+        version: ">=1.12"
+      - name: torch
+        required: true
+        version: ">=2.0.0"
+      - name: tqdm
+        required: true
+        version: ">=4.0.0"
+      - name: xmltodict
+        required: true
+        version: ">=0.13.0"
+      - name: xslha
+        required: true
+        version: ">=1.0.0"
+      # V2 ecosystem packages promoted to core install dependencies.
+      - name: Jarvis-HEP-Portal
+        required: true
+        version: ">=1.5.1"
+      - name: Jarvis-Operas
+        required: true
+        version: ">=1.4.1"
+      - name: JarvisPLOT
+        required: true
+        version: ">=1.3.3"
+      - name: typer
+        required: true
+        version: ">=0.25.0"
   CERN_ROOT:
     required: false
     version: ">=6.20"

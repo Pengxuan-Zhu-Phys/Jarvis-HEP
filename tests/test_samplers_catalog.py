@@ -245,6 +245,65 @@ class GridSamplerUnitTests(unittest.TestCase):
         self.assertEqual(first.uuid, sampler._uuid_for_accepted_index(0))
         self.assertEqual(second.uuid, sampler._uuid_for_accepted_index(1))
 
+    def test_grid_submit_progress_logs_permille_heartbeats(self) -> None:
+        sampler = Grid()
+        config = _grid_test_config()
+        for variable in config["Sampling"]["Variables"]:
+            variable["distribution"]["parameters"]["num"] = 10
+        sampler.set_config(config)
+        info_messages: list[str] = []
+        warning_messages: list[str] = []
+
+        class _Capture:
+            def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                info_messages.append(str(msg) % args if args else str(msg))
+
+            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                warning_messages.append(str(msg) % args if args else str(msg))
+
+        sampler._logger = _Capture()  # type: ignore[assignment]
+        sampler.initialize()
+        total = int(sampler.info["NSamples"])
+        for _ in range(total // 2):
+            self.assertIsNotNone(sampler.propose_next())
+
+        progress_lines = [
+            line
+            for line in info_messages + warning_messages
+            if "‰ of" in line and "grid points sampled" in line
+        ]
+        self.assertTrue(progress_lines, "expected Grid submit progress heartbeats")
+        self.assertTrue(any(line.startswith("0‰ of 0/100") for line in progress_lines))
+        self.assertGreaterEqual(len(progress_lines), 2)
+        for line in warning_messages:
+            if "‰ of" not in line:
+                continue
+            permille = int(line.split("‰", 1)[0])
+            self.assertGreater(permille, 0)
+            self.assertEqual(permille % 10, 0)
+
+    def test_grid_prefix_replay_suppresses_submit_progress(self) -> None:
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        messages: list[str] = []
+
+        class _Capture:
+            def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                messages.append(str(msg) % args if args else str(msg))
+
+            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                messages.append(str(msg) % args if args else str(msg))
+
+        sampler._logger = _Capture()  # type: ignore[assignment]
+        sampler.initialize()
+        messages.clear()
+        self.assertEqual(sampler.advance_to_persisted_prefix(2), 2)
+        self.assertFalse(any("grid points sampled" in line for line in messages))
+
+        messages.clear()
+        self.assertIsNotNone(sampler.propose_next())
+        self.assertTrue(any("grid points sampled" in line for line in messages))
+
     def test_resume_fast_forwards_durable_prefix_without_submitting_physics_work(self) -> None:
         sampler = Grid()
         sampler.set_config(_grid_test_config())

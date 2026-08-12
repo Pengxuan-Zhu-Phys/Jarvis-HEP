@@ -164,25 +164,31 @@ def _factory_adaptive_bridson() -> SamplingVirtial:
 
 
 def _factory_mcmc() -> SamplingVirtial:
-    from jarvishep2.Sampling.mcmc_sampler import create_mcmc
+    from jarvishep2.Sampling.mcmc import create_mcmc
 
     return create_mcmc()
 
 
+def _factory_toymcmc() -> SamplingVirtial:
+    from jarvishep2.Sampling.toymcmc import create_toymcmc
+
+    return create_toymcmc()
+
+
 def _factory_ammcmc() -> SamplingVirtial:
-    from jarvishep2.Sampling.mcmc_sampler import create_ammcmc
+    from jarvishep2.Sampling.ammcmc import create_ammcmc
 
     return create_ammcmc()
 
 
 def _factory_am() -> SamplingVirtial:
-    from jarvishep2.Sampling.mcmc_sampler import create_am
+    from jarvishep2.Sampling.am import create_am
 
     return create_am()
 
 
 def _factory_dram() -> SamplingVirtial:
-    from jarvishep2.Sampling.mcmc_sampler import create_dram
+    from jarvishep2.Sampling.dram import create_dram
 
     return create_dram()
 
@@ -211,6 +217,7 @@ def register_builtin_samplers(*, override: bool = True) -> None:
     # D13.2 — Metropolis family (feedback-driven).
     for name, factory in (
         ("MCMC", _factory_mcmc),
+        ("ToyMCMC", _factory_toymcmc),
         ("AMMCMC", _factory_ammcmc),
         ("AM", _factory_am),
         ("DRAM", _factory_dram),
@@ -223,12 +230,14 @@ def register_builtin_samplers(*, override: bool = True) -> None:
             override=override,
         )
     # D13.3 — Ensemble / DE / PT family.
-    from jarvishep2.Sampling.mcmc_sampler import (
-        create_demcmc,
+    from jarvishep2.Sampling.demcmc import create_demcmc
+    from jarvishep2.Sampling.ensemble_mcmc import (
         create_ensemble,
         create_ensemble_alias,
+    )
+    from jarvishep2.Sampling.ptensemble import create_pt_ensemble
+    from jarvishep2.Sampling.ptmcmc import (
         create_pt,
-        create_pt_ensemble,
         create_ptmcmc,
     )
 

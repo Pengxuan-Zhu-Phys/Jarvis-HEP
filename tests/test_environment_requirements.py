@@ -135,7 +135,7 @@ class EnvironmentRequirementsTests(unittest.TestCase):
         core._logger.warning.assert_called_once()
         message = core._logger.warning.call_args.args[1]
         self.assertIn("Python                     | >=3.10", message)
-        self.assertIn("package example", message)
+        self.assertIn("PyPI·example", message)
         self.assertIn("Result                     | -", message)
         rows = [line for line in message.splitlines() if "|" in line and "---" not in line]
         self.assertEqual({row.index("|") for row in rows}, {29})

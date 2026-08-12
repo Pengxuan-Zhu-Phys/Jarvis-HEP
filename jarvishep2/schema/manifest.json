@@ -4,7 +4,7 @@
   "root": "https://jarvis-hep.org/schema/v2/task-card.json",
   "schema_files": [
     "task-card-v2.schema.json", "core/common.json", "core/scan.json", "core/sampling.json", "core/calculators.json", "core/operas.json", "core/libdeps.json",
-    "sampling/methods/bridson.json", "sampling/methods/random.json", "sampling/methods/csv.json", "sampling/methods/variables.json", "sampling/methods/grid.json", "sampling/methods/adaptive_bridson.json", "sampling/methods/mcmc.json", "sampling/methods/ammcmc.json", "sampling/methods/am.json", "sampling/methods/dram.json", "sampling/methods/ensemble_mcmc.json", "sampling/methods/ensemble_base.json", "sampling/methods/demcmc.json", "sampling/methods/ptmcmc.json", "sampling/methods/pt.json", "sampling/methods/ptensemble.json", "sampling/methods/dynesty.json", "sampling/methods/multinest.json",
+    "sampling/methods/bridson.json", "sampling/methods/random.json", "sampling/methods/csv.json", "sampling/methods/variables.json", "sampling/methods/grid.json", "sampling/methods/adaptive_bridson.json", "sampling/methods/mcmc.json", "sampling/methods/toymcmc.json", "sampling/methods/ammcmc.json", "sampling/methods/am.json", "sampling/methods/dram.json", "sampling/methods/ensemble_mcmc.json", "sampling/methods/ensemble_base.json", "sampling/methods/demcmc.json", "sampling/methods/ptmcmc.json", "sampling/methods/pt.json", "sampling/methods/ptensemble.json", "sampling/methods/dynesty.json", "sampling/methods/multinest.json",
     "io/input/csv.json", "io/input/dat.json", "io/input/json.json", "io/input/slha.json", "io/input/text.json", "io/input/tsv.json", "io/input/wolfram.json",
     "io/output/csv.json", "io/output/dat.json", "io/output/json.json", "io/output/slha.json", "io/output/tsv.json", "io/output/wolfram.json", "io/output/xslha.json"
   ],
@@ -15,6 +15,7 @@
     "Grid": "https://jarvis-hep.org/schema/v2/sampling/methods/grid.json",
     "AdaptiveBridson": "https://jarvis-hep.org/schema/v2/sampling/methods/adaptive_bridson.json",
     "MCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/mcmc.json",
+    "ToyMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/toymcmc.json",
     "AMMCMC": "https://jarvis-hep.org/schema/v2/sampling/methods/ammcmc.json",
     "AM": "https://jarvis-hep.org/schema/v2/sampling/methods/am.json",
     "DRAM": "https://jarvis-hep.org/schema/v2/sampling/methods/dram.json",

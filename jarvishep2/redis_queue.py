@@ -28,6 +28,10 @@ ARCHIVED_UUIDS = "hep:archived:{scan}"
 # ARCHIVED_UUIDS this is O(1) to read from the control heartbeat.
 ARCHIVED_INDEX_PREFIX = "hep:archived-prefix:{scan}"
 FEEDBACK_QUEUE = "hep:feedback"
+# Per-chain feedback shards for independent MCMC pipelines. Task submit stays
+# on the single ``hep:task_queue``; workers route by task.feedback_queue.
+CHAIN_FEEDBACK_QUEUE = "hep:feedback:chain:{chain_id}"
+CHAIN_FEEDBACK_QUEUE_PATTERN = "hep:feedback:chain:*"
 WORKER_STATUS = "hep:worker:status:{id}"
 CALC_STATUS = "hep:calculator:status"
 SAMPLE_STATS = "hep:sample:stats"
@@ -246,6 +250,16 @@ def _validate_execution_plan(plan: Any) -> None:
             raise TaskValidationError(f"execution_plan[{index}] requires 'layer'")
 
 
+def chain_feedback_queue(chain_id: int) -> str:
+    """Redis list key for one independent MCMC chain's feedback stream."""
+    return CHAIN_FEEDBACK_QUEUE.format(chain_id=int(chain_id))
+
+
+def _normalize_feedback_queue_name(queue: str | None) -> str:
+    text = str(queue or "").strip()
+    return text if text else FEEDBACK_QUEUE
+
+
 def _validate_task_payload(task: Mapping[str, Any]) -> None:
     """Validate a lightweight task dict before it enters hep:task_queue."""
     if not isinstance(task, Mapping):
@@ -267,6 +281,15 @@ def _validate_task_payload(task: Mapping[str, Any]) -> None:
             raise TaskValidationError(
                 f"sample_artifacts must be one of {sorted(_VALID_SAMPLE_ARTIFACTS)}"
             )
+    if "feedback_queue" in task and task.get("feedback_queue") is not None:
+        fbq = str(task.get("feedback_queue") or "").strip()
+        if not fbq:
+            raise TaskValidationError("task feedback_queue must be non-empty when set")
+    if "chain_id" in task and task.get("chain_id") is not None:
+        try:
+            int(task.get("chain_id"))
+        except (TypeError, ValueError) as exc:
+            raise TaskValidationError("task chain_id must be an integer") from exc
 
 
 def _validate_result_payload(info: Mapping[str, Any]) -> None:
@@ -965,6 +988,7 @@ class RedisQueue:
             BUCKET_READY_QUEUE,
             BUCKET_LOCK,
         ]
+        keys.extend(self.r.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
         for kind in sorted(_VALID_OP_KINDS):
             keys.append(OP_COUNT.format(kind=kind))
         for name in calculator_names or []:
@@ -1016,6 +1040,7 @@ class RedisQueue:
         """Discard crash-era transport state and seed counters from DATABASE."""
         self._require_client()
         keys: list[str] = [TASK_QUEUE, ARCHIVE_QUEUE, FEEDBACK_QUEUE]
+        keys.extend(self.r.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
         keys.extend(self.r.scan_iter(match="hep:worker:status:*"))
         deleted = int(self.r.delete(*keys) or 0) if keys else 0
         self.r.hset(
@@ -1319,7 +1344,12 @@ class RedisQueue:
         pipe.incr(OP_COUNT.format(kind="sample"))
         pipe.execute()
 
-    def publish_feedback(self, info: Mapping[str, Any]) -> None:
+    def publish_feedback(
+        self,
+        info: Mapping[str, Any],
+        *,
+        queue: str | None = None,
+    ) -> None:
         """Push a flat sampler barrier record (D13.8).
 
         Expected shape::
@@ -1328,6 +1358,10 @@ class RedisQueue:
 
         Nested ``observables`` / sample ``status`` are not part of the contract;
         if a legacy caller still passes them they are dropped (not re-nested).
+
+        ``queue`` selects the Redis list (default ``hep:feedback``). Independent
+        MCMC chains may use ``hep:feedback:chain:{id}`` while still sharing the
+        single task queue.
         """
         self._require_client()
         from jarvishep2.feedback_return import (
@@ -1373,12 +1407,38 @@ class RedisQueue:
                     decode_feedback_float(payload[WIRE_LOGL_KEY])
                 )
         encoded = encode_payload(payload, codec=self._codec)
-        self.r.rpush(FEEDBACK_QUEUE, encoded)
+        self.r.rpush(_normalize_feedback_queue_name(queue), encoded)
 
-    def pull_feedback(self, timeout: int = 1) -> dict[str, Any] | None:
-        """Blocking pop from hep:feedback; normalizes flat floats."""
+    def pull_feedback(
+        self,
+        timeout: int = 1,
+        *,
+        queues: Sequence[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Blocking pop from one or more feedback lists; normalizes flat floats.
+
+        When ``queues`` is omitted, pops from the default ``hep:feedback``.
+        When several keys are given, Redis returns the first non-empty list
+        (MCMC async control uses this to wait on any ready chain shard).
+        """
         self._require_client()
-        raw = self._blpop(FEEDBACK_QUEUE, timeout=timeout)
+        keys = [
+            _normalize_feedback_queue_name(key)
+            for key in (list(queues) if queues is not None else [FEEDBACK_QUEUE])
+        ]
+        # Preserve order, drop duplicates (BLPOP rejects empty key lists).
+        seen: set[str] = set()
+        unique_keys: list[str] = []
+        for key in keys:
+            if key not in seen:
+                seen.add(key)
+                unique_keys.append(key)
+        if not unique_keys:
+            unique_keys = [FEEDBACK_QUEUE]
+        if len(unique_keys) == 1:
+            raw = self._blpop(unique_keys[0], timeout=timeout)
+        else:
+            raw = self._blpop_many(unique_keys, timeout=float(timeout))
         if raw is None:
             return None
         _, payload = raw
@@ -1389,15 +1449,33 @@ class RedisQueue:
 
         return normalize_feedback_record(decoded)
 
+    def list_feedback_queue_keys(self) -> list[str]:
+        """Default feedback list plus any live per-chain shards."""
+        self._require_client()
+        keys: list[str] = [FEEDBACK_QUEUE]
+        try:
+            for key in self.r.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN):
+                text = key.decode() if isinstance(key, (bytes, bytearray)) else str(key)
+                if text and text not in keys:
+                    keys.append(text)
+        except Exception:
+            pass
+        return keys
+
     def drain_feedback_queue(self) -> int:
-        """Discard all queued feedback records (resume path)."""
+        """Discard all queued feedback records (resume path).
+
+        Drains the default list and any ``hep:feedback:chain:*`` shards so a
+        crash-era independent-chain run cannot leak stale feedback after resume.
+        """
         self._require_client()
         drained = 0
-        while int(self.r.llen(FEEDBACK_QUEUE)) > 0:
-            item = self.pull_feedback(timeout=1)
-            if item is None:
-                break
-            drained += 1
+        for key in self.list_feedback_queue_keys():
+            while int(self.r.llen(key) or 0) > 0:
+                item = self.pull_feedback(timeout=1, queues=[key])
+                if item is None:
+                    break
+                drained += 1
         return drained
 
     def pull_result(self, timeout: int = 1) -> dict[str, Any] | None:
@@ -1658,9 +1736,12 @@ __all__ = [
     "CALC_SHARED_PACK_MODE",
     "CALC_SHARED_UNASSIGNED",
     "CALC_STATUS",
+    "CHAIN_FEEDBACK_QUEUE",
+    "CHAIN_FEEDBACK_QUEUE_PATTERN",
     "CONTROL_LOCK",
     "CONTROL_LOCK_TTL_SEC",
     "CodecError",
+    "FEEDBACK_QUEUE",
     "OP_COUNT",
     "RESULTS",
     "RedisQueue",
@@ -1676,6 +1757,7 @@ __all__ = [
     "calc_shared_unassigned_list_key",
     "calc_status_busy_field",
     "calc_status_free_field",
+    "chain_feedback_queue",
     "decode_payload",
     "encode_payload",
     "format_calc_pack_id",

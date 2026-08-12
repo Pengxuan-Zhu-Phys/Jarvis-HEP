@@ -14,7 +14,9 @@ from fakeredis import TcpFakeServer
 from jarvishep2.Sampling.Source.MCMC.config_contract import parse_common_chain_counts
 from jarvishep2.Sampling.Source.MCMC.dram_chain import DRAMChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
+from jarvishep2.Sampling.mcmc_base import MCMCBaseSampler
 from jarvishep2.Sampling.mcmc_sampler import MCMCSampler, mcmc_sample_uuid
+from jarvishep2.Sampling.toymcmc import ToyMCMCSampler
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
@@ -141,12 +143,204 @@ class EngineUnitTests(unittest.TestCase):
 
 
 class DistributorMCMCTests(unittest.TestCase):
+    def test_methods_use_concrete_module_hierarchy(self) -> None:
+        expected_modules = {
+            "MCMC": "jarvishep2.Sampling.mcmc",
+            "ToyMCMC": "jarvishep2.Sampling.toymcmc",
+            "AMMCMC": "jarvishep2.Sampling.ammcmc",
+            "AM": "jarvishep2.Sampling.am",
+            "DRAM": "jarvishep2.Sampling.dram",
+            "EnsembleMCMC": "jarvishep2.Sampling.ensemble_mcmc",
+            "Ensemble": "jarvishep2.Sampling.ensemble_mcmc",
+            "DEMCMC": "jarvishep2.Sampling.demcmc",
+            "PTMCMC": "jarvishep2.Sampling.ptmcmc",
+            "PT": "jarvishep2.Sampling.ptmcmc",
+            "PTEnsemble": "jarvishep2.Sampling.ptensemble",
+        }
+        for method, module_name in expected_modules.items():
+            with self.subTest(method=method):
+                sampler = Distributor.set_method(method)
+                self.assertIsInstance(sampler, MCMCBaseSampler)
+                self.assertEqual(type(sampler).__module__, module_name)
+                self.assertIsNot(type(sampler), MCMCBaseSampler)
+                sampler.assert_checkpoint_attribute_contract()
+
     def test_methods_registered_stateful(self) -> None:
-        for name in ("MCMC", "AMMCMC", "AM", "DRAM"):
+        for name in ("ToyMCMC", "MCMC", "AMMCMC", "AM", "DRAM"):
             self.assertNotIn(name, STATELESS_METHODS)
             sampler = Distributor.set_method(name)
             self.assertIsInstance(sampler, MCMCSampler)
             self.assertEqual(Distributor.get_resume_status(name), "implemented")
+
+    def test_toymcmc_native_pickle_checkpoint_roundtrip(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, MCMCBaseSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="ToyMCMC",
+                tmpdir=tmp,
+                nchains=3,
+                niters=4,
+                workers=1,
+            )
+            sampler.set_config(cfg)
+            sampler._ensure_registry()
+            proposals = list(sampler.propose_generation() or [])
+            sampler.absorb_generation(
+                [
+                    {
+                        "uuid": sample.uuid,
+                        "observables": {"LogL": -0.1},
+                    }
+                    for sample in proposals
+                ]
+            )
+            expected_next = [
+                np.asarray(chain.engine.param, dtype=float).copy()
+                for chain in sampler._ensure_registry().all()
+            ]
+            state = sampler.export_runtime_state()
+            self.assertEqual(state["native_mcmc_state_format"], "jarvis-hep.mcmc-native")
+            self.assertIsInstance(state["native_mcmc_state_blob"], bytes)
+            # Prove restore does not depend on rebuilding engines from the
+            # explicit compatibility state.
+            state.pop("chains")
+
+            restored = Distributor.set_method("ToyMCMC")
+            restored.set_config(cfg)
+            restored.import_runtime_state(state)
+            restored_chains = restored._ensure_registry().all()
+            self.assertEqual(len(restored_chains), 3)
+            for chain, expected in zip(restored_chains, expected_next):
+                np.testing.assert_allclose(chain.engine.param, expected)
+            self.assertEqual(len(restored_chains[0].history.all()), 1)
+
+    def test_toymcmc_native_pickle_corruption_falls_back_to_explicit_state(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=3)
+            sampler.set_config(cfg)
+            sampler._ensure_registry()
+            state = sampler.export_runtime_state()
+            state["native_mcmc_state_blob"] = b"not-a-pickle"
+            restored = Distributor.set_method("ToyMCMC")
+            restored.set_config(cfg)
+            restored.import_runtime_state(state)
+            self.assertEqual(len(restored._ensure_registry().all()), 2)
+
+    def test_toymcmc_sampling_checkpoint_does_not_require_archive_ack(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=3)
+            sampler.set_config(cfg)
+            sampler._ensure_registry()
+            sampler._register_pending("unrelated-archive-uuid")
+            sampler._pending_uuids.clear()
+            sampler._submitted_uuids.append("unrelated-archive-uuid")
+            calls: list[str] = []
+            sampler._save_checkpoint_callback = lambda **kwargs: calls.append(
+                str(kwargs.get("reason"))
+            ) or True
+            self.assertTrue(
+                sampler._checkpoint_at_sampling_barrier(
+                    reason="ToyMCMC_sampling_step_1"
+                )
+            )
+            self.assertEqual(calls, ["ToyMCMC_sampling_step_1"])
+
+    def test_toymcmc_uses_one_configuration_for_all_chains(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, MCMCSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="ToyMCMC",
+                tmpdir=tmp,
+                nchains=4,
+                niters=5,
+                proposal_scale=0.17,
+            )
+            sampler.set_config(cfg)
+            registry = sampler._ensure_registry()
+            chains = registry.all()
+            self.assertEqual(len(chains), 4)
+            self.assertEqual(
+                {float(chain.engine.proposal_scale) for chain in chains},
+                {0.17},
+            )
+            self.assertEqual(
+                {int(chain.engine.n_iterations) for chain in chains},
+                {5},
+            )
+            self.assertEqual(len({id(chain.engine) for chain in chains}), 4)
+
+    def test_toymcmc_rejects_per_chain_scale_overrides(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, MCMCSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="ToyMCMC",
+                tmpdir=tmp,
+                nchains=2,
+                niters=5,
+                proposal_scale=0.17,
+            )
+            cfg["Sampling"]["Bounds"]["proposal_scale"] = [0.17, 0.2]
+            with self.assertRaisesRegex(ValueError, "same proposal_scale"):
+                sampler.set_config(cfg)
+
+    def test_toymcmc_progress_logs_permille_and_percent(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, ToyMCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler.set_config(
+                _mcmc_config(
+                    method="ToyMCMC",
+                    tmpdir=tmp,
+                    nchains=1,
+                    niters=1000,
+                    workers=1,
+                )
+            )
+            info_messages: list[str] = []
+            warning_messages: list[str] = []
+
+            class _Capture:
+                def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                    info_messages.append(str(msg) % args if args else str(msg))
+
+                def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                    warning_messages.append(str(msg) % args if args else str(msg))
+
+            sampler._logger = _Capture()  # type: ignore[assignment]
+            registry = sampler._ensure_registry()
+            sampler._emit_progress()
+            for iteration in range(1, 11):
+                registry.get(0).engine.iterations = iteration
+                sampler._emit_progress()
+
+            self.assertTrue(
+                any("Initializing the ToyMCMC Sampling" in line for line in warning_messages)
+            )
+            self.assertTrue(
+                any("ToyMCMC Sampler configured" in line for line in info_messages)
+            )
+            self.assertTrue(
+                any(
+                    line.startswith("0‰ of 0/1000 ToyMCMC transitions completed")
+                    for line in info_messages
+                )
+            )
+            for permille in range(1, 10):
+                self.assertTrue(
+                    any(line.startswith(f"{permille}‰ of {permille}/1000") for line in info_messages),
+                    f"missing ToyMCMC info heartbeat for {permille}‰",
+                )
+            self.assertTrue(any(line.startswith("10‰ of 10/1000") for line in warning_messages))
+            self.assertFalse(any(line.startswith("10‰") for line in info_messages))
+            registry.get(0).engine.iterations = 1000
+            sampler._emit_progress()
+            self.assertTrue(any(line.startswith("1000‰ of 1000/1000") for line in warning_messages))
 
     def test_uuid_deterministic(self) -> None:
         a = mcmc_sample_uuid(method="DRAM", seed=1, chain_id=2, step=3, stage=0)
@@ -198,7 +392,8 @@ class FeedbackLoopTests(unittest.TestCase):
                             "uuid": task["uuid"],
                             "status": "Completed",
                             "observables": {"z": z, "LogL": logl, "LogL_Z": logl},
-                        }
+                        },
+                        queue=task.get("feedback_queue"),
                     )
 
             thread = threading.Thread(target=worker, daemon=True)
@@ -220,9 +415,69 @@ class FeedbackLoopTests(unittest.TestCase):
         s = self._run_with_mock_worker("MCMC", nchains=3, niters=6)
         self.assertGreaterEqual(s.summary()["accept_rate"], 0.0)
 
+    def test_toymcmc_feedback_loop(self) -> None:
+        s = self._run_with_mock_worker("ToyMCMC", nchains=3, niters=6)
+        self.assertEqual(s.method, "ToyMCMC")
+        self.assertEqual(s.summary()["n_chains"], 3)
+        self.assertTrue(s.summary().get("async_chains"))
+        self.assertTrue(s.summary().get("sharded_feedback"))
+
+    def test_toymcmc_independent_chain_pipeline(self) -> None:
+        """ToyMCMC uses the base independent-chain async design."""
+        s = self._run_with_mock_worker("ToyMCMC", nchains=4, niters=5)
+        self.assertTrue(s._uses_async_chain_pipeline())
+        self.assertTrue(s._uses_sharded_feedback())
+        self.assertTrue(s._chains_are_independent())
+        # Every chain completed its own length (not a forced global barrier).
+        for chain in s._ensure_registry().all():
+            self.assertEqual(int(chain.engine.iterations), 5)
+
+    def test_toymcmc_task_carries_chain_feedback_route(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, ToyMCMCSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=2)
+            sampler.set_config(cfg)
+            sampler.set_redis(queue)
+            sampler._ensure_registry()
+            props = list(sampler.propose_generation() or [])
+            self.assertEqual(len(props), 2)
+            for sample in props:
+                task = sample.to_task_dict()
+                self.assertIn("chain_id", task)
+                self.assertEqual(
+                    task["feedback_queue"],
+                    f"hep:feedback:chain:{task['chain_id']}",
+                )
+            # Submit and complete via sharded feedback only.
+            sampler._submit_sample_batch(props)
+
+            def worker_once() -> None:
+                for _ in range(2):
+                    task = queue.pull_task(timeout=2)
+                    self.assertIsNotNone(task)
+                    assert task is not None
+                    self.assertTrue(str(task["feedback_queue"]).startswith("hep:feedback:chain:"))
+                    queue.publish_feedback(
+                        {"uuid": task["uuid"], "logL": -1.0},
+                        queue=task.get("feedback_queue"),
+                    )
+
+            thr = threading.Thread(target=worker_once, daemon=True)
+            thr.start()
+            try:
+                results = sampler.wait_for_generation(
+                    timeout=30.0, queues=sampler._pending_feedback_queues()
+                )
+                self.assertEqual(len(results), 2)
+            finally:
+                thr.join(timeout=2.0)
+
     def test_dram_feedback_loop(self) -> None:
         s = self._run_with_mock_worker("DRAM", nchains=3, niters=6)
         self.assertEqual(s.method, "DRAM")
+        self.assertTrue(s.summary().get("async_chains"))
 
     def test_worker_count_independent_trajectory(self) -> None:
         """Same seed → same chain final params for 1 vs 3 workers (mock LogL)."""
@@ -258,7 +513,8 @@ class FeedbackLoopTests(unittest.TestCase):
                                 "uuid": task["uuid"],
                                 "status": "Completed",
                                 "observables": {"LogL": logl},
-                            }
+                            },
+                            queue=task.get("feedback_queue"),
                         )
 
                 thread = threading.Thread(target=worker, daemon=True)
@@ -310,7 +566,8 @@ class FeedbackLoopTests(unittest.TestCase):
                             "uuid": task["uuid"],
                             "status": "Completed",
                             "observables": {"LogL": -float(np.sum(u**2))},
-                        }
+                        },
+                        queue=task.get("feedback_queue"),
                     )
 
             thread = threading.Thread(target=worker, daemon=True)
@@ -321,7 +578,9 @@ class FeedbackLoopTests(unittest.TestCase):
                 props = sampler.propose_generation()
                 assert props is not None
                 sampler._submit_sample_batch(list(props))
-                results = sampler.wait_for_generation(timeout=30.0)
+                results = sampler.wait_for_generation(
+                    timeout=30.0, queues=sampler._pending_feedback_queues()
+                )
                 sampler.absorb_generation(results)
                 blob = sampler.export_runtime_state()
                 restored = Distributor.set_method("AMMCMC")
