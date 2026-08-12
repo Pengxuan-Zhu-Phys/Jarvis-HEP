@@ -22,9 +22,10 @@ from jarvishep2.log_kv import PermilleProgress
 
 
 class ToyMCMCSampler(MCMCBaseSampler):
-    """Baseline random-walk MCMC with identical settings for every chain.
+    """Baseline random-walk MCMC with scalar or per-chain settings.
 
-    Science: one shared ``proposal_scale``, independent chains, plain MH.
+    Science: independent chains with plain MH and either a shared or
+    per-chain ``proposal_scale``.
     Runtime: inherits the independent-chain async multi-chain design from
     ``MCMCBaseSampler`` (shared task queue + per-chain feedback shards).
     """
@@ -37,11 +38,9 @@ class ToyMCMCSampler(MCMCBaseSampler):
         self._submit_progress: PermilleProgress | None = None
 
     def _configure_method(self, bounds: Mapping[str, Any]) -> None:
-        scales = self._normalize_scales()
-        if len({float(scale) for scale in scales}) != 1:
-            raise ValueError(
-                "ToyMCMC requires the same proposal_scale for every chain"
-            )
+        # Validate scalar/list cardinality here; scalar values and one-item
+        # lists broadcast, while a full list maps one scale to each chain.
+        self._normalize_scales()
         self._submit_progress = None
 
     def _progress_done(self) -> int:

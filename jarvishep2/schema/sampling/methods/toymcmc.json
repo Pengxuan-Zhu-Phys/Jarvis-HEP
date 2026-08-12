@@ -4,7 +4,7 @@
   "type": "object",
   "x-jarvis-zone": "closed",
   "x-jarvis-status": "stable",
-  "description": "Lightweight random-walk MCMC with identical settings for every chain. Independent chains use the async multi-chain pipeline: shared hep:task_queue, per-chain hep:feedback:chain:{id}, one in-flight evaluation per chain (see Jarvis man sampler.mcmc-runtime).",
+  "description": "Lightweight random-walk MCMC with independent chains and scalar or per-chain proposal scales. Independent chains use the async multi-chain pipeline: shared hep:task_queue, per-chain hep:feedback:chain:{id}, one in-flight evaluation per chain (see Jarvis man sampler.mcmc-runtime).",
   "x-jarvis-example": "Method: ToyMCMC\nBounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
   "allOf": [
     {
@@ -18,7 +18,7 @@
         "Bounds": {
           "type": "object",
           "x-jarvis-zone": "closed",
-          "description": "ToyMCMC settings shared by all chains. Prefer num_chains >= Runtime workers so the async pipeline can fill the worker pool.",
+          "description": "ToyMCMC settings shared by all chains except proposal_scale, which may be per-chain. Prefer num_chains >= Runtime workers so the async pipeline can fill the worker pool.",
           "properties": {
             "num_chains": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
@@ -41,7 +41,7 @@
                   }
                 }
               ],
-              "description": "One positive proposal scale, shared by every chain; scalar, one-element list, or one-element-per-chain list."
+              "description": "One positive proposal scale for every chain; a scalar or one-element list broadcasts, while a list with one value per chain supplies per-chain scales."
             },
             "seed": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonNegativeIntegerish",

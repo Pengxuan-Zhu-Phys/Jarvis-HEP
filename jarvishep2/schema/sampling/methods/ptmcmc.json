@@ -42,7 +42,7 @@
                   }
                 }
               ],
-              "description": "One positive proposal scale shared by every replica (scalar or homogeneous list)."
+              "description": "One positive proposal scale for every replica (scalar broadcasts to all replicas; list gives one scale per replica, or one shared value)."
             },
             "temperature_ladder": {
               "type": "array",

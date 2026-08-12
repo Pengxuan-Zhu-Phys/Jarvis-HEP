@@ -72,15 +72,16 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         return "Set target_expression and target_value under Sampling.Bounds for AdaptiveBridson.", "Bounds:\n  target_expression: f\n  target_value: 0.12"
     if code == "JV2-MTH-050":
         return (
-            "Add num_chains, num_iters, and one shared proposal_scale under Sampling.Bounds for ToyMCMC.",
+            "Add num_chains, num_iters, and a scalar or per-chain proposal_scale under Sampling.Bounds for ToyMCMC.",
             "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2",
         )
     if code in {"JV2-MTH-051", "JV2-MTH-052"}:
         return "Set the ToyMCMC chain count and iteration count to positive integers.", "Bounds:\n  num_chains: 4\n  num_iters: 2000"
     if code == "JV2-MTH-053":
-        return "Set proposal_scale to one positive number, or a list containing that same value for every chain.", "Bounds:\n  proposal_scale: 0.2"
-    if code == "JV2-MTH-054":
-        return "Use the same proposal_scale value for every ToyMCMC chain.", "Bounds:\n  proposal_scale: 0.2"
+        return (
+            "Set proposal_scale to a positive scalar, a one-item list, or one value per ToyMCMC chain.",
+            "Bounds:\n  num_chains: 4\n  proposal_scale: [0.10, 0.15, 0.25, 0.40]",
+        )
     if code == "JV2-MTH-055":
         return (
             "Use one broadcast proposal_scale value or exactly one value per ToyMCMC chain.",
@@ -100,10 +101,10 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
             "Set PTMCMC num_chains (>= 2) and num_iters to positive integers.",
             "Bounds:\n  num_chains: 4\n  num_iters: 2000",
         )
-    if code in {"JV2-MTH-063", "JV2-MTH-065", "JV2-MTH-066"}:
+    if code in {"JV2-MTH-063", "JV2-MTH-066"}:
         return (
-            "Use one shared positive proposal_scale for every PTMCMC replica.",
-            "Bounds:\n  proposal_scale: 0.2",
+            "Use a positive proposal_scale scalar, or a list with one value or one value per PTMCMC replica.",
+            "Bounds:\n  proposal_scale: [0.10, 0.15, 0.25, 0.40]",
         )
     if code in {"JV2-MTH-064", "JV2-MTH-067", "JV2-MTH-068", "JV2-MTH-069"}:
         return (

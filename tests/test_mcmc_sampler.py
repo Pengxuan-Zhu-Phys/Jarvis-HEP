@@ -222,23 +222,55 @@ class DistributorMCMCTests(unittest.TestCase):
             self.assertEqual(sampler._pair_chain_ids(), [(0, 1), (2, 3)])
             self.assertEqual(sampler._pair_chain_ids(), [(1, 2)])
 
-    def test_ptmcmc_rejects_heterogeneous_scales_and_single_chain(self) -> None:
+    def test_ptmcmc_accepts_per_replica_scales_and_rejects_single_chain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sampler = Distributor.set_method("PTMCMC")
-            bad_scale = _mcmc_config(
+            per_replica = _mcmc_config(
+                method="PTMCMC",
+                tmpdir=tmp,
+                nchains=4,
+                niters=5,
+                extra_bounds={
+                    "proposal_scale": [0.1, 0.2, 0.3, 0.4],
+                    "temperature_ladder": [1.0, 2.0, 4.0, 8.0],
+                },
+            )
+            sampler.set_config(per_replica)
+            self.assertEqual(
+                [chain.engine.proposal_scale for chain in sampler._ensure_registry().all()],
+                [0.1, 0.2, 0.3, 0.4],
+            )
+
+            broadcast = Distributor.set_method("PTMCMC")
+            scalar = _mcmc_config(
+                method="PTMCMC",
+                tmpdir=tmp,
+                nchains=2,
+                niters=5,
+                proposal_scale=0.2,
+                extra_bounds={"temperature_ladder": [1.0, 2.0]},
+            )
+            broadcast.set_config(scalar)
+            self.assertEqual(
+                [chain.engine.proposal_scale for chain in broadcast._ensure_registry().all()],
+                [0.2, 0.2],
+            )
+
+            bad_length = _mcmc_config(
                 method="PTMCMC",
                 tmpdir=tmp,
                 nchains=2,
                 niters=5,
                 extra_bounds={
-                    "proposal_scale": [0.1, 0.2],
+                    "proposal_scale": [0.1, 0.2, 0.3],
                     "temperature_ladder": [1.0, 2.0],
                 },
             )
-            with self.assertRaisesRegex(ValueError, "same proposal_scale"):
-                sampler.set_config(bad_scale)
-
             sampler2 = Distributor.set_method("PTMCMC")
+            with self.assertRaisesRegex(ValueError, "size mismatch"):
+                sampler2.set_config(bad_length)
+
+            sampler3 = Distributor.set_method("PTMCMC")
             bad_n = _mcmc_config(
                 method="PTMCMC",
                 tmpdir=tmp,
@@ -247,7 +279,7 @@ class DistributorMCMCTests(unittest.TestCase):
                 extra_bounds={"temperature_ladder": [1.0]},
             )
             with self.assertRaisesRegex(ValueError, "num_chains >= 2"):
-                sampler2.set_config(bad_n)
+                sampler3.set_config(bad_n)
 
     def test_toymcmc_native_pickle_checkpoint_roundtrip(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
@@ -396,7 +428,7 @@ class DistributorMCMCTests(unittest.TestCase):
             )
             self.assertEqual(calls, ["ToyMCMC_sampling_step_1"])
 
-    def test_toymcmc_uses_one_configuration_for_all_chains(self) -> None:
+    def test_toymcmc_broadcasts_scalar_scale_to_all_chains(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
         assert isinstance(sampler, MCMCSampler)
         with tempfile.TemporaryDirectory() as tmp:
@@ -421,7 +453,7 @@ class DistributorMCMCTests(unittest.TestCase):
             )
             self.assertEqual(len({id(chain.engine) for chain in chains}), 4)
 
-    def test_toymcmc_rejects_per_chain_scale_overrides(self) -> None:
+    def test_toymcmc_accepts_per_chain_scales_and_rejects_bad_length(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
         assert isinstance(sampler, MCMCSampler)
         with tempfile.TemporaryDirectory() as tmp:
@@ -433,7 +465,24 @@ class DistributorMCMCTests(unittest.TestCase):
                 proposal_scale=0.17,
             )
             cfg["Sampling"]["Bounds"]["proposal_scale"] = [0.17, 0.2]
-            with self.assertRaisesRegex(ValueError, "same proposal_scale"):
+            sampler.set_config(cfg)
+            scales = [
+                float(chain.engine.proposal_scale)
+                for chain in sampler._ensure_registry().all()
+            ]
+            self.assertEqual(scales, [0.17, 0.2])
+
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="ToyMCMC",
+                tmpdir=tmp,
+                nchains=2,
+                niters=5,
+                proposal_scale=0.17,
+            )
+            cfg["Sampling"]["Bounds"]["proposal_scale"] = [0.17, 0.2, 0.3]
+            with self.assertRaisesRegex(ValueError, "size mismatch"):
                 sampler.set_config(cfg)
 
     def test_toymcmc_progress_logs_permille_and_percent(self) -> None:

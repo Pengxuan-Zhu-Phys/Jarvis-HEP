@@ -324,7 +324,7 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
         self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
 
-    def test_toymcmc_schema_and_same_scale_contract(self) -> None:
+    def test_toymcmc_schema_and_per_chain_scale_contract(self) -> None:
         card = _card()
         card["Sampling"] = {
             "Method": "ToyMCMC",
@@ -339,11 +339,19 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(card)
         self.assertTrue(report.ok, report.issues)
 
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.2]
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.errors())
+
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.2, 0.3, 0.4, 0.5]
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.errors())
+
         card["Sampling"]["Bounds"]["proposal_scale"] = [0.2, 0.3]
         report = validate_task_config(card)
         self.assertTrue(
             any(
-                item.code == "JV2-MTH-054"
+                item.code == "JV2-MTH-055"
                 and item.path == "Sampling.Bounds.proposal_scale"
                 for item in report.errors()
             )
@@ -388,9 +396,13 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertTrue(any(item.code == "JV2-MTH-069" for item in report.errors()))
 
         card["Sampling"]["Bounds"]["temperature_ladder"] = [1.0, 2.0, 4.0, 8.0]
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.1, 0.2, 0.3, 0.4]
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+
         card["Sampling"]["Bounds"]["proposal_scale"] = [0.1, 0.2]
         report = validate_task_config(card)
-        self.assertTrue(any(item.code == "JV2-MTH-065" for item in report.errors()))
+        self.assertTrue(any(item.code == "JV2-MTH-066" for item in report.errors()))
 
     def test_manifest_matches_builtin_portal_formats(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:

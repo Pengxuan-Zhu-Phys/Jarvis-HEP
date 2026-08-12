@@ -354,15 +354,6 @@ def validate_method_sampling(
                         "ToyMCMC proposal_scale values must all be positive numbers",
                     )
                 )
-            elif len({float(value) for value in parsed_scales if value is not None}) > 1:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-054",
-                        "Sampling.Bounds.proposal_scale",
-                        "ToyMCMC uses one identical proposal_scale for every chain",
-                    )
-                )
             elif (
                 nchains is not None
                 and isinstance(raw_scale, (list, tuple))
@@ -456,15 +447,6 @@ def validate_method_sampling(
                         "JV2-MTH-063",
                         "Sampling.Bounds.proposal_scale",
                         f"{label} proposal_scale values must all be positive numbers",
-                    )
-                )
-            elif len({float(value) for value in parsed_scales if value is not None}) > 1:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-065",
-                        "Sampling.Bounds.proposal_scale",
-                        f"{label} uses one identical proposal_scale for every replica",
                     )
                 )
             elif (

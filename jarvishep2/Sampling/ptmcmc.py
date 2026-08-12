@@ -170,7 +170,7 @@ class PTMCMCBase(MCMCBaseSampler):
 
 
 class PTMCMCSampler(PTMCMCBase):
-    """Parallel-tempering random-walk MH with one shared proposal_scale.
+    """Parallel-tempering random-walk MH with scalar or per-replica scales.
 
     Science: Metropolis on each temperature replica (β = 1/T), adjacent
     temperature swaps at generation barriers every ``exchange_interval`` draws.
@@ -187,11 +187,9 @@ class PTMCMCSampler(PTMCMCBase):
         self._submit_progress: PermilleProgress | None = None
 
     def _configure_method(self, bounds: Mapping[str, Any]) -> None:
-        scales = self._normalize_scales()
-        if len({float(scale) for scale in scales}) != 1:
-            raise ValueError(
-                "PTMCMC requires the same proposal_scale for every temperature replica"
-            )
+        # Validate scalar/list scale cardinality here; scalar values and one-item
+        # lists broadcast, while a full list maps one scale to each replica.
+        self._normalize_scales()
         self._configure_pt(bounds)
         self._submit_progress = None
 
