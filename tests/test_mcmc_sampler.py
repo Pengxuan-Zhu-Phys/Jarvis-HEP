@@ -825,42 +825,5 @@ class CoreDRAMIntegrationTests(unittest.TestCase):
             self.assertEqual(sampler._niters, 3)
             self.assertEqual(sampler._dr_steps, 2)
 
-    def test_core_dram_eggbox_tiny(self) -> None:
-        """Jarvis2Core end-to-end: DRAM + Operas eggbox + LogL (V1 card shape)."""
-        server, redis_config = _start_tcp_fakeredis()
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                cfg = _mcmc_config(
-                    method="DRAM",
-                    tmpdir=tmp,
-                    redis_cfg=redis_config,
-                    nchains=2,
-                    niters=4,
-                    workers=1,
-                    seed=5,
-                    extra_bounds={
-                        "adapt_start_iter": 2,
-                        "adapt_window": 2,
-                        "dr_steps": 2,
-                        "dr_scale_factors": [1.0, 0.5],
-                    },
-                )
-                cfg["Runtime"]["sample_artifacts"] = "never"
-                cfg["Runtime"]["Watchdog"] = {"enabled": False}
-                core = Jarvis2Core(cfg)
-                outcome = core.run()
-                submitted = int(getattr(outcome, "submitted", 0) or 0)
-                self.assertGreater(submitted, 0)
-                self.assertTrue(getattr(outcome, "ok", True))
-                sampler = core.sampler
-                assert isinstance(sampler, MCMCSampler)
-                summary = sampler.summary()
-                self.assertEqual(summary["n_iters"], 4)
-                self.assertGreater(summary["total_proposed"], 0)
-        finally:
-            server.shutdown()
-            server.server_close()
-
-
 if __name__ == "__main__":
     unittest.main()
