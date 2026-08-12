@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.2`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.3`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
