@@ -593,16 +593,17 @@ class MCMCBaseSampler(FeedbackSampler):
         )
         sample = self._build_sample(u)
         sample.uuid = uuid
+        # MCMC wire contract (control → Redis task → Worker):
+        #   uuid + u_coords + chain_id [+ step/stage] (+ optional feedback_queue)
+        # Observables do *not* cross Redis; the Worker stamps identity into
+        # sample info / DATABASE after bind_params (Sample.apply_mcmc_identity).
         sample.chain_id = int(chain.chain_id)
+        sample.step = int(step)
+        sample.stage = int(stage)
         if self._uses_sharded_feedback():
             sample.feedback_queue = self._feedback_queue_for_chain(chain.chain_id)
         else:
             sample.feedback_queue = None
-        # Additive diagnostic columns for DATABASE (design goal 6).
-        sample.observables = dict(sample.observables or {})
-        sample.observables.setdefault("chain_id", int(chain.chain_id))
-        sample.observables.setdefault("step", int(step))
-        sample.observables.setdefault("stage", int(stage))
         self._uuid_to_meta[uuid] = {
             "chain_id": int(chain.chain_id),
             "step": int(step),
@@ -947,10 +948,23 @@ class MCMCBaseSampler(FeedbackSampler):
             if not self._pending_uuids:
                 if self._all_finished():
                     break
-                # No pending and not finished means every remaining chain is
-                # blocked without proposals — should not happen; fail soft.
+                # No pending and not finished: invariant broken (no proposals
+                # can be made). Never mark the run successful.
                 if not self._ready_chain_ids():
-                    break
+                    iters = [
+                        (
+                            int(c.chain_id),
+                            int(c.engine.iterations),
+                            int(c.engine.n_iterations),
+                            c.open_stage,
+                        )
+                        for c in self._ensure_registry().all()
+                    ]
+                    raise RuntimeError(
+                        f"{self.method}: async pipeline stalled with no pending "
+                        f"feedback and no ready chains while work remains "
+                        f"(chain_id, iterations, n_iterations, open_stage)={iters}"
+                    )
                 continue
 
             record = self.wait_for_any_feedback(
@@ -1151,14 +1165,12 @@ class MCMCBaseSampler(FeedbackSampler):
             sample = self._build_sample(np.asarray(u, dtype=np.float64))
             sample.uuid = uuid
             sample.chain_id = int(meta["chain_id"])
+            sample.step = int(meta.get("step", 0))
+            sample.stage = int(stage)
             if self._uses_sharded_feedback():
                 sample.feedback_queue = self._feedback_queue_for_chain(
                     int(meta["chain_id"])
                 )
-            sample.observables = dict(sample.observables or {})
-            sample.observables.setdefault("chain_id", int(meta["chain_id"]))
-            sample.observables.setdefault("step", int(meta.get("step", 0)))
-            sample.observables.setdefault("stage", int(stage))
             self._submit(sample)
             requeued.append(uuid)
         return requeued
@@ -1171,6 +1183,7 @@ class MCMCBaseSampler(FeedbackSampler):
                 "method": self.method,
                 "nchains": self._nchains,
                 "niters": self._niters,
+                "proposal_scales": self._normalize_scales(),
                 "finished": self._finished,
                 "total_accepted": self._total_accepted,
                 "total_proposed": self._total_proposed,
@@ -1206,58 +1219,150 @@ class MCMCBaseSampler(FeedbackSampler):
             )
         return state
 
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        self._feedback_import_state(state)
-        self._on_runtime_state_imported()
-        self._finished = bool(state.get("finished", False))
-        self._total_accepted = int(state.get("total_accepted", 0) or 0)
-        self._total_proposed = int(state.get("total_proposed", 0) or 0)
-        self._failed_uuids = list(state.get("failed_uuids") or [])
-        self._uuid_to_meta = {
-            str(k): dict(v) for k, v in dict(state.get("uuid_to_meta") or {}).items()
-        }
-        self._summary = state.get("summary")
-        self._import_method_state(state)
-        native_blob = state.get("native_mcmc_state_blob")
-        if isinstance(native_blob, (bytes, bytearray)) and self._import_native_mcmc_state(
-            bytes(native_blob)
-        ):
-            return
-        raw_chains = list(state.get("chains") or [])
-        if not raw_chains:
-            self._registry = None
-            return
-        scales = self._normalize_scales() if self._nchains else []
-        n_spawn = max(1, len(raw_chains) + (1 if self._uses_pt() else 0))
-        children = self._ensure_seed_sequence().spawn(n_spawn)
-        chains: list[ChainRuntime] = []
-        for item in raw_chains:
-            if not isinstance(item, Mapping):
-                continue
-            cid = int(item.get("chain_id", 0))
-            rng = np.random.default_rng(children[min(cid, len(children) - 1)])
-            scale = scales[cid] if cid < len(scales) else 0.1
-            engine = self._make_engine(cid, scale, rng)
-            eng_state = dict(item.get("engine") or {})
-            if eng_state:
-                engine.import_state(eng_state)
-            chains.append(
-                ChainRuntime(
-                    chain_id=cid,
-                    engine=engine,
-                    temperature=float(item.get("temperature", 1.0)),
-                    is_cold=bool(item.get("is_cold", cid == 0)),
-                    iter=int(item.get("iter", 0) or 0),
-                    accepted=int(item.get("accepted", 0) or 0),
-                    rejected=int(item.get("rejected", 0) or 0),
-                    window_iter=int(item.get("window_iter", 0) or 0),
-                    last_logl=item.get("last_logl"),
-                    open_stage=item.get("open_stage"),
-                )
+    def _validate_checkpoint_against_config(self, state: Mapping[str, Any]) -> None:
+        """Refuse resume when current Bounds no longer match the checkpoint.
+
+        Prevents YAML edits (num_chains / num_iters / proposal_scale / seed)
+        from silently continuing under an old runtime shape while summary still
+        reports the new card.
+        """
+        method = str(state.get("method") or "").strip()
+        if method and method != str(self.method):
+            raise ValueError(
+                f"{self.method}: checkpoint method {method!r} does not match "
+                f"current Method {self.method!r}"
             )
-        self._registry = ChainRegistry(chains)
-        if self._uses_pt() and len(children) > len(raw_chains):
-            self._exchange_rng = np.random.default_rng(children[len(raw_chains)])
+
+        ck_nchains = state.get("nchains")
+        if ck_nchains is not None and int(ck_nchains) != int(self._nchains):
+            raise ValueError(
+                f"{self.method}: checkpoint num_chains={int(ck_nchains)} does not "
+                f"match current Bounds.num_chains={int(self._nchains)}"
+            )
+
+        ck_niters = state.get("niters")
+        if ck_niters is not None and int(ck_niters) != int(self._niters):
+            raise ValueError(
+                f"{self.method}: checkpoint num_iters={int(ck_niters)} does not "
+                f"match current Bounds.num_iters={int(self._niters)}"
+            )
+
+        ck_seed = state.get("seed")
+        if ck_seed is not None and int(ck_seed) != int(self._seed):
+            raise ValueError(
+                f"{self.method}: checkpoint seed={int(ck_seed)} does not match "
+                f"current Bounds.seed={int(self._seed)}"
+            )
+
+        raw_chains = list(state.get("chains") or [])
+        if raw_chains and len(raw_chains) != int(self._nchains):
+            raise ValueError(
+                f"{self.method}: checkpoint has {len(raw_chains)} chain(s) but "
+                f"current Bounds.num_chains={int(self._nchains)}"
+            )
+
+        ck_scales = state.get("proposal_scales")
+        if ck_scales is not None:
+            current = [float(x) for x in self._normalize_scales()]
+            try:
+                saved = [float(x) for x in list(ck_scales)]
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{self.method}: checkpoint proposal_scales is not numeric"
+                ) from exc
+            if len(saved) != len(current) or any(
+                abs(a - b) > 1e-12 for a, b in zip(saved, current)
+            ):
+                raise ValueError(
+                    f"{self.method}: checkpoint proposal_scale {saved!r} does not "
+                    f"match current Bounds.proposal_scale {current!r}"
+                )
+
+    def _assert_registry_matches_config(self) -> None:
+        """Validate restored engines against the live Bounds shape."""
+        if self._registry is None:
+            return
+        chains = self._registry.all()
+        if len(chains) != int(self._nchains):
+            raise ValueError(
+                f"{self.method}: restored {len(chains)} chain(s) but "
+                f"Bounds.num_chains={int(self._nchains)}"
+            )
+        for chain in chains:
+            eng_niters = getattr(chain.engine, "n_iterations", None)
+            if eng_niters is not None and int(eng_niters) != int(self._niters):
+                raise ValueError(
+                    f"{self.method}: restored chain {chain.chain_id} has "
+                    f"n_iterations={int(eng_niters)} but "
+                    f"Bounds.num_iters={int(self._niters)}"
+                )
+
+    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
+        self._validate_checkpoint_against_config(state)
+        try:
+            self._feedback_import_state(state)
+            self._on_runtime_state_imported()
+            self._finished = bool(state.get("finished", False))
+            self._total_accepted = int(state.get("total_accepted", 0) or 0)
+            self._total_proposed = int(state.get("total_proposed", 0) or 0)
+            self._failed_uuids = list(state.get("failed_uuids") or [])
+            self._uuid_to_meta = {
+                str(k): dict(v)
+                for k, v in dict(state.get("uuid_to_meta") or {}).items()
+            }
+            self._summary = state.get("summary")
+            self._import_method_state(state)
+            native_blob = state.get("native_mcmc_state_blob")
+            if isinstance(native_blob, (bytes, bytearray)) and self._import_native_mcmc_state(
+                bytes(native_blob)
+            ):
+                self._assert_registry_matches_config()
+                return
+            raw_chains = list(state.get("chains") or [])
+            if not raw_chains:
+                self._registry = None
+                return
+            scales = self._normalize_scales() if self._nchains else []
+            n_spawn = max(1, len(raw_chains) + (1 if self._uses_pt() else 0))
+            children = self._ensure_seed_sequence().spawn(n_spawn)
+            chains: list[ChainRuntime] = []
+            for item in raw_chains:
+                if not isinstance(item, Mapping):
+                    continue
+                cid = int(item.get("chain_id", 0))
+                rng = np.random.default_rng(children[min(cid, len(children) - 1)])
+                scale = scales[cid] if cid < len(scales) else 0.1
+                engine = self._make_engine(cid, scale, rng)
+                eng_state = dict(item.get("engine") or {})
+                if eng_state:
+                    engine.import_state(eng_state)
+                chains.append(
+                    ChainRuntime(
+                        chain_id=cid,
+                        engine=engine,
+                        temperature=float(item.get("temperature", 1.0)),
+                        is_cold=bool(item.get("is_cold", cid == 0)),
+                        iter=int(item.get("iter", 0) or 0),
+                        accepted=int(item.get("accepted", 0) or 0),
+                        rejected=int(item.get("rejected", 0) or 0),
+                        window_iter=int(item.get("window_iter", 0) or 0),
+                        last_logl=item.get("last_logl"),
+                        open_stage=item.get("open_stage"),
+                    )
+                )
+            self._registry = ChainRegistry(chains)
+            if self._uses_pt() and len(children) > len(raw_chains):
+                self._exchange_rng = np.random.default_rng(children[len(raw_chains)])
+            self._assert_registry_matches_config()
+        except Exception:
+            # Leave a clean sampler rather than a half-restored registry that
+            # still reports the new YAML Bounds in summary().
+            self._registry = None
+            self._finished = False
+            self._pending_uuids = set()
+            self._uuid_to_meta = {}
+            self._summary = None
+            raise
 
 
 def _gelman_rubin_rhat(series: list[list[float]]) -> float | None:

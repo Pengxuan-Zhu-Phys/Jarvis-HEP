@@ -228,6 +228,77 @@ class DistributorMCMCTests(unittest.TestCase):
             restored.import_runtime_state(state)
             self.assertEqual(len(restored._ensure_registry().all()), 2)
 
+    def test_checkpoint_rejects_num_chains_drift(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=4, niters=10, seed=1)
+            sampler.set_config(cfg)
+            sampler._ensure_registry()
+            state = sampler.export_runtime_state()
+
+            restored = Distributor.set_method("ToyMCMC")
+            restored.set_config(
+                _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=10, seed=1)
+            )
+            with self.assertRaisesRegex(ValueError, "num_chains"):
+                restored.import_runtime_state(state)
+            self.assertIsNone(restored._registry)
+            self.assertFalse(restored._finished)
+
+    def test_checkpoint_rejects_num_iters_and_seed_drift(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=20, seed=7)
+            sampler.set_config(cfg)
+            sampler._ensure_registry()
+            state = sampler.export_runtime_state()
+
+            restored_iters = Distributor.set_method("ToyMCMC")
+            restored_iters.set_config(
+                _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=5, seed=7)
+            )
+            with self.assertRaisesRegex(ValueError, "num_iters"):
+                restored_iters.import_runtime_state(state)
+
+            restored_seed = Distributor.set_method("ToyMCMC")
+            restored_seed.set_config(
+                _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=20, seed=99)
+            )
+            with self.assertRaisesRegex(ValueError, "seed"):
+                restored_seed.import_runtime_state(state)
+
+    def test_async_pipeline_stall_raises(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=1, niters=3)
+            sampler.set_config(cfg)
+            sampler.set_redis(make_fakeredis_queue())
+            registry = sampler._ensure_registry()
+            # Force an impossible state: unfinished engine but no ready proposals.
+            chain = registry.all()[0]
+            chain.engine.iterations = 0
+            chain.engine.n_iterations = 3
+            chain.open_stage = None
+            sampler._pending_uuids.clear()
+            # Monkey-patch ready set empty while _all_finished is false.
+            sampler._ready_chain_ids = lambda: []  # type: ignore[method-assign]
+            with self.assertRaisesRegex(RuntimeError, "async pipeline stalled"):
+                sampler._run_async_independent_chains(timeout=1.0)
+            self.assertFalse(sampler._finished)
+
+    def test_mcmc_sample_carries_step_stage_on_wire(self) -> None:
+        sampler = Distributor.set_method("ToyMCMC")
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=1, niters=2)
+            sampler.set_config(cfg)
+            samples = list(sampler.propose_generation() or [])
+            self.assertEqual(len(samples), 1)
+            task = samples[0].to_task_dict()
+            self.assertEqual(task["chain_id"], 0)
+            self.assertEqual(task["step"], 0)
+            self.assertEqual(task["stage"], 0)
+            self.assertNotIn("observables", task)
+
     def test_toymcmc_sampling_checkpoint_does_not_require_archive_ack(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
         with tempfile.TemporaryDirectory() as tmp:

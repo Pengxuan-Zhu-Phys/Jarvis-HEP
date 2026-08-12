@@ -290,6 +290,12 @@ def _validate_task_payload(task: Mapping[str, Any]) -> None:
             int(task.get("chain_id"))
         except (TypeError, ValueError) as exc:
             raise TaskValidationError("task chain_id must be an integer") from exc
+    for key in ("step", "stage"):
+        if key in task and task.get(key) is not None:
+            try:
+                int(task.get(key))
+            except (TypeError, ValueError) as exc:
+                raise TaskValidationError(f"task {key} must be an integer") from exc
 
 
 def _validate_result_payload(info: Mapping[str, Any]) -> None:

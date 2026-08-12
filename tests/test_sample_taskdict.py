@@ -56,6 +56,66 @@ class SampleTaskDictTests(unittest.TestCase):
         self.assertFalse(rebuilt._materialized)
         self.assertIsNone(rebuilt._logger)
 
+    def test_mcmc_chain_id_is_first_class_wire_field(self):
+        """MCMC: uuid + u_coords + chain_id/step/stage on task; no observables bag."""
+        original = Sample(
+            uuid=str(uuid4()),
+            u_coords=np.array([0.25, 0.75], dtype=np.float64),
+            chain_id=3,
+            step=12,
+            stage=0,
+            feedback_queue="hep:feedback:chain:3",
+            observables={"chain_id": 3, "LogL": -1.0},
+        )
+        wire = original.to_task_dict()
+        self.assertEqual(wire["uuid"], original.uuid)
+        self.assertEqual(wire["chain_id"], 3)
+        self.assertEqual(wire["step"], 12)
+        self.assertEqual(wire["stage"], 0)
+        self.assertEqual(wire["feedback_queue"], "hep:feedback:chain:3")
+        self.assertNotIn("observables", wire)
+        self.assertNotIn("params", wire)
+
+        rebuilt = Sample.from_task_dict(wire)
+        self.assertEqual(rebuilt.chain_id, 3)
+        self.assertEqual(rebuilt.step, 12)
+        self.assertEqual(rebuilt.stage, 0)
+        self.assertEqual(rebuilt.feedback_queue, "hep:feedback:chain:3")
+        # Observables empty until bind_params / apply_mcmc_identity.
+        self.assertEqual(rebuilt.observables, {})
+
+        # Simulate Worker: mapper overwrites observables, then MCMC stamp.
+        rebuilt.observables = {"x": 0.25, "y": 0.75, "uuid": rebuilt.uuid}
+        rebuilt.apply_mcmc_identity()
+        self.assertEqual(rebuilt.observables["chain_id"], 3)
+        self.assertEqual(rebuilt.observables["step"], 12)
+        self.assertEqual(rebuilt.observables["stage"], 0)
+        self.assertEqual(rebuilt.observables["x"], 0.25)
+
+        info = rebuilt.to_info_dict()
+        self.assertEqual(info["chain_id"], 3)
+        self.assertEqual(info["step"], 12)
+        self.assertEqual(info["stage"], 0)
+        self.assertEqual(info["observables"]["chain_id"], 3)
+        self.assertEqual(info["observables"]["step"], 12)
+
+    def test_chain_id_after_legacy_fields_keeps_positional_params(self):
+        """chain_id must not steal positional params after sample_index."""
+        sample = Sample(
+            "u-pos",
+            np.array([0.1]),
+            [],
+            {},
+            "auto",
+            0,
+            None,
+            5,  # sample_index
+            {"x": 1.0},  # params (legacy 9th public slot after sample_index)
+        )
+        self.assertEqual(sample.sample_index, 5)
+        self.assertEqual(sample.params, {"x": 1.0})
+        self.assertIsNone(sample.chain_id)
+
     def test_to_task_dict_is_json_serializable_without_logger(self):
         sample = Sample.from_params({"x": 1.0, "y": 2.0})
         with tempfile.TemporaryDirectory() as tmpdir:

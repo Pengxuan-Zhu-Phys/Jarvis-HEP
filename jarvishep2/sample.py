@@ -138,15 +138,20 @@ class Sample:
     # fields so positional ``Sample(uuid, u_coords, ...)`` callers retain their
     # established meaning.
     sample_index: int | None = None
-    # Optional control-plane routing for feedback-driven samplers (MCMC template).
-    # Task submit still uses the single hep:task_queue; workers publish feedback
-    # to ``feedback_queue`` when set (e.g. hep:feedback:chain:{id}).
-    chain_id: int | None = None
-    feedback_queue: str | None = None
     params: dict[str, Any] = field(default_factory=dict, repr=False)
     info: dict[str, Any] = field(default_factory=dict, repr=False)
     observables: dict[str, Any] = field(default_factory=dict, repr=False)
     status: str = "Created"
+    # MCMC-only optional wire identity / routing. Placed *after* all legacy
+    # public fields so positional Sample(...) callers that stop at status keep
+    # working. Other samplers leave these None.
+    #
+    # Task wire (with uuid + u_coords): chain_id [/ step / stage] are first-class
+    # MCMC metadata. feedback_queue selects hep:feedback:chain:{id}.
+    chain_id: int | None = None
+    step: int | None = None
+    stage: int | None = None
+    feedback_queue: str | None = None
     _materialized: bool = field(default=False, repr=False)
     _logger: SampleLogger | BufferedSampleLogger | None = field(default=None, repr=False)
     _with_nuisance: bool = field(default=False, repr=False)
@@ -188,8 +193,38 @@ class Sample:
         self.observables["uuid"] = self.uuid
         self._mirror_fields_to_info()
 
+    def apply_mcmc_identity(self) -> None:
+        """Project MCMC wire identity into observables / info for DATABASE.
+
+        MCMC tasks carry ``chain_id`` (and optional ``step`` / ``stage``) as
+        first-class Redis fields with ``uuid`` and ``u_coords``. Physics
+        binding rebuilds ``observables`` from the mapper, so this must run
+        *after* ``bind_params`` / ``adopt_params`` and again just before
+        archive projection. Non-MCMC samples leave these fields None.
+        """
+        has_identity = (
+            self.chain_id is not None
+            or self.step is not None
+            or self.stage is not None
+        )
+        if not has_identity:
+            return
+        if not isinstance(self.observables, dict):
+            self.observables = {}
+        if self.chain_id is not None:
+            self.observables["chain_id"] = int(self.chain_id)
+        if self.step is not None:
+            self.observables["step"] = int(self.step)
+        if self.stage is not None:
+            self.observables["stage"] = int(self.stage)
+        self._mirror_fields_to_info()
+
     def to_task_dict(self) -> dict[str, Any]:
-        """Light dict for Redis transport (invariant #7, #8)."""
+        """Light dict for Redis transport (invariant #7, #8).
+
+        MCMC may add first-class ``chain_id`` / ``step`` / ``stage`` (and
+        optional ``feedback_queue``). Observables still never cross the wire.
+        """
         payload = {
             "uuid": self.uuid,
             "sample_index": self.sample_index,
@@ -202,6 +237,10 @@ class Sample:
         }
         if self.chain_id is not None:
             payload["chain_id"] = int(self.chain_id)
+        if self.step is not None:
+            payload["step"] = int(self.step)
+        if self.stage is not None:
+            payload["stage"] = int(self.stage)
         if self.feedback_queue:
             payload["feedback_queue"] = str(self.feedback_queue)
         for forbidden in ("logger", "handlers", "params", "info", "observables"):
@@ -218,6 +257,8 @@ class Sample:
             for step in plan_raw
         ]
         chain_raw = data.get("chain_id")
+        step_raw = data.get("step")
+        stage_raw = data.get("stage")
         feedback_queue = data.get("feedback_queue")
         return cls(
             uuid=str(data["uuid"]),
@@ -233,13 +274,20 @@ class Sample:
             priority=int(data.get("priority", 0)),
             created_at=data.get("created_at"),
             chain_id=int(chain_raw) if chain_raw is not None else None,
+            step=int(step_raw) if step_raw is not None else None,
+            stage=int(stage_raw) if stage_raw is not None else None,
             feedback_queue=str(feedback_queue) if feedback_queue else None,
             _materialized=False,
             _logger=None,
         )
 
     def to_info_dict(self) -> dict[str, Any]:
-        """Result/monitor projection without live handles (invariant #8)."""
+        """Result/monitor projection without live handles (invariant #8).
+
+        MCMC: ensure chain identity columns are present in the archived
+        observables bag even when the physics mapper overwrote diagnostics.
+        """
+        self.apply_mcmc_identity()
         projection: dict[str, Any] = {
             "uuid": self.uuid,
             "sample_index": self.sample_index,
@@ -253,6 +301,12 @@ class Sample:
             "priority": self.priority,
             "created_at": self.created_at,
         }
+        if self.chain_id is not None:
+            projection["chain_id"] = int(self.chain_id)
+        if self.step is not None:
+            projection["step"] = int(self.step)
+        if self.stage is not None:
+            projection["stage"] = int(self.stage)
         if isinstance(self.info, dict):
             timings = {
                 key: self.info[key] for key in _TIMING_KEYS if key in self.info

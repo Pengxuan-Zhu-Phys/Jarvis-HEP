@@ -836,6 +836,10 @@ class Worker(Process):
                 sample.bind_params(self._mapper)
             elif sample.opera_params:
                 sample.adopt_params(sample.opera_params, as_observables=True)
+            # MCMC tasks carry chain_id on the wire (uuid + u_coords + chain_id).
+            # bind_params rebuilds observables from the mapper; re-stamp chain
+            # identity so Archiver / DATABASE see it in sample info.
+            sample.apply_mcmc_identity()
             sample.materialize(worker_id=str(self.worker_id))
             delay_sec = float(self.worker_config.get("test_process_delay_sec", 0) or 0)
             if delay_sec > 0:

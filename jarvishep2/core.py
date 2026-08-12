@@ -477,15 +477,20 @@ class Jarvis2Core:
             if os.path.isfile(path):
                 try:
                     self._resume_checkpoint_payload = load_checkpoint(path)
-                    if hasattr(sampler, "import_runtime_state"):
-                        sampler.import_runtime_state(
-                            self._resume_checkpoint_payload.get("sampler_state") or {}
-                        )
-                    self._logger.info(
-                        "Loaded resume checkpoint after sampler init → %s", path
-                    )
                 except ValueError as exc:
-                    self._logger.warning("Late checkpoint load rejected → %s", exc)
+                    self._logger.warning(
+                        "Late checkpoint load rejected (starting fresh) → %s",
+                        exc,
+                    )
+                    self._discard_resume_checkpoint(
+                        reason=f"late checkpoint load rejected: {exc}",
+                        level="warning",
+                    )
+                else:
+                    if self._import_sampler_checkpoint_state(sampler):
+                        self._logger.info(
+                            "Loaded resume checkpoint after sampler init → %s", path
+                        )
         return sampler
 
     def bootstrap_distributed_runtime(self) -> None:
@@ -591,14 +596,7 @@ class Jarvis2Core:
             )
             # Nested / feedback engines: ensure runtime state was applied once Redis
             # and DATABASE facts exist (idempotent if set_sampler already imported).
-            if (
-                self._resume_checkpoint_payload is not None
-                and self.sampler is not None
-                and hasattr(self.sampler, "import_runtime_state")
-            ):
-                self.sampler.import_runtime_state(
-                    self._resume_checkpoint_payload.get("sampler_state") or {}
-                )
+            self._import_sampler_checkpoint_state(self.sampler)
             # Always arm nested engine resume under --resume, even if state.pkl
             # is missing: nested_engine.pkl alone is enough to continue.
             if self.sampler is not None and hasattr(self.sampler, "arm_engine_resume"):
@@ -1499,11 +1497,7 @@ class Jarvis2Core:
             persisted_count=self._persisted_records_count,
             persisted_failed=self._persisted_failed_count,
         )
-        sampler_state = dict(
-            (self._resume_checkpoint_payload or {}).get("sampler_state") or {}
-        )
-        if sampler_state and self.sampler is not None and hasattr(self.sampler, "import_runtime_state"):
-            self.sampler.import_runtime_state(sampler_state)
+        imported = self._import_sampler_checkpoint_state(self.sampler)
         if self.sampler is not None and hasattr(self.sampler, "set_persisted_uuids"):
             self.sampler.set_persisted_uuids(self._persisted_uuids)
         if self.sampler is not None and hasattr(self.sampler, "set_persisted_prefix"):
@@ -1514,7 +1508,8 @@ class Jarvis2Core:
         ):
             self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
         if (
-            self.sampler is not None
+            imported
+            and self.sampler is not None
             and not bool(getattr(self.sampler, "uses_indexed_resume", False))
             and hasattr(self.sampler, "set_resume_repropose_hint")
         ):
@@ -2208,6 +2203,58 @@ class Jarvis2Core:
             return int(counter.value)
         return int(counter)
 
+    def _discard_resume_checkpoint(
+        self,
+        *,
+        reason: str,
+        level: str = "error",
+    ) -> None:
+        """Drop a rejected resume snapshot and force a fresh sampling start."""
+        log = self._logger.error if level == "error" else self._logger.warning
+        log("Checkpoint sampler state rejected (starting fresh) -> %s", reason)
+        self._resume_policy = "fresh"
+        self._resume_checkpoint_payload = None
+        path = self.checkpoint_file()
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    def _import_sampler_checkpoint_state(self, sampler: Any | None = None) -> bool:
+        """Import sampler_state from the preloaded checkpoint, or start fresh.
+
+        Shared by ``set_sampler``, late Method resolution, bootstrap, and
+        ``apply_resume_checkpoint``. On Bounds/shape mismatch (``ValueError``)
+        the stale checkpoint is discarded so a finished or drifted snapshot
+        cannot silently yield ``submitted=0`` under a new card.
+
+        Returns True when import succeeded.
+        """
+        target = sampler if sampler is not None else self.sampler
+        if self._resume_policy != "resume":
+            return False
+        if self._resume_checkpoint_payload is None or target is None:
+            return False
+        if not hasattr(target, "import_runtime_state"):
+            return False
+        sampler_state = self._resume_checkpoint_payload.get("sampler_state") or {}
+        if not isinstance(sampler_state, Mapping):
+            sampler_state = {}
+        try:
+            target.import_runtime_state(sampler_state)
+        except ValueError as exc:
+            # MCMC Bounds drift (num_chains / num_iters / scale / seed) and
+            # similar sampler-shape mismatches: refuse the stale snapshot.
+            self._discard_resume_checkpoint(reason=str(exc), level="error")
+            return False
+        if (
+            not bool(getattr(target, "uses_indexed_resume", False))
+            and hasattr(target, "set_resume_repropose_hint")
+        ):
+            target.set_resume_repropose_hint(True)
+        return True
+
     def set_sampler(self, sampler: Any) -> None:
         self.sampler = sampler
         if self._resume_policy == "auto" and not getattr(self, "_resume_checkpoint_preloaded", False):
@@ -2215,19 +2262,7 @@ class Jarvis2Core:
             self._resume_checkpoint_preloaded = True
         if self.redis is not None and hasattr(sampler, "set_redis"):
             sampler.set_redis(self.redis)
-        if (
-            self._resume_policy == "resume"
-            and self._resume_checkpoint_payload is not None
-            and hasattr(sampler, "import_runtime_state")
-        ):
-            sampler.import_runtime_state(
-                self._resume_checkpoint_payload.get("sampler_state") or {}
-            )
-            if (
-                not bool(getattr(sampler, "uses_indexed_resume", False))
-                and hasattr(sampler, "set_resume_repropose_hint")
-            ):
-                sampler.set_resume_repropose_hint(True)
+        self._import_sampler_checkpoint_state(sampler)
 
     def start_runtime_checkpoint(self) -> None:
         """Enable the configured checkpoint heartbeat once sampler and archiver exist."""
