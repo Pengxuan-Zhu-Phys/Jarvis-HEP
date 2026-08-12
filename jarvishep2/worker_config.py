@@ -139,7 +139,6 @@ def build_worker_config(
                 "Ensemble",
                 "DEMCMC",
                 "PTMCMC",
-                "PT",
                 "PTEnsemble",
             ):
                 publish_feedback = True

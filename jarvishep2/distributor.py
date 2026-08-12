@@ -236,17 +236,13 @@ def register_builtin_samplers(*, override: bool = True) -> None:
         create_ensemble_alias,
     )
     from jarvishep2.Sampling.ptensemble import create_pt_ensemble
-    from jarvishep2.Sampling.ptmcmc import (
-        create_pt,
-        create_ptmcmc,
-    )
+    from jarvishep2.Sampling.ptmcmc import create_ptmcmc
 
     for name, factory in (
         ("EnsembleMCMC", create_ensemble),
         ("Ensemble", create_ensemble_alias),
         ("DEMCMC", create_demcmc),
         ("PTMCMC", create_ptmcmc),
-        ("PT", create_pt),
         ("PTEnsemble", create_pt_ensemble),
     ):
         Distributor.register(

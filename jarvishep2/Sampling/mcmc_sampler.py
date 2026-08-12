@@ -1481,12 +1481,6 @@ def create_ptmcmc() -> MCMCBaseSampler:
     return factory()
 
 
-def create_pt() -> MCMCBaseSampler:
-    from jarvishep2.Sampling.ptmcmc import create_pt as factory
-
-    return factory()
-
-
 def create_pt_ensemble() -> MCMCBaseSampler:
     from jarvishep2.Sampling.ptensemble import create_pt_ensemble as factory
 
@@ -1503,7 +1497,6 @@ __all__ = [
     "create_ensemble",
     "create_ensemble_alias",
     "create_mcmc",
-    "create_pt",
     "create_pt_ensemble",
     "create_ptmcmc",
     "create_toymcmc",

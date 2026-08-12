@@ -34,7 +34,6 @@ _METHODS_NEED_VARIABLES: frozenset[str] = frozenset(
         "Ensemble",
         "DEMCMC",
         "PTMCMC",
-        "PT",
         "PTEnsemble",
         "Dynesty",
         "MultiNest",
@@ -54,7 +53,6 @@ _MCMC_METHODS: frozenset[str] = frozenset(
         "Ensemble",
         "DEMCMC",
         "PTMCMC",
-        "PT",
         "PTEnsemble",
     }
 )
@@ -390,6 +388,184 @@ def validate_method_sampling(
                             "JV2-MTH-056",
                             "Sampling.Bounds.seed",
                             f"ToyMCMC seed must be a non-negative integer, got {raw_seed!r}",
+                        )
+                    )
+
+    if method == "PTMCMC":
+        label = method
+        if bounds is None:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-060",
+                    "Sampling.Bounds",
+                    f"{label} requires Sampling.Bounds with num_chains, num_iters, "
+                    "proposal_scale, and temperature_ladder",
+                )
+            )
+        else:
+            assert bounds_map is not None
+            for key, code, description in (
+                ("num_chains", "JV2-MTH-061", "an integer >= 2"),
+                ("num_iters", "JV2-MTH-062", "a positive integer"),
+                ("proposal_scale", "JV2-MTH-063", "a positive number or list"),
+                ("temperature_ladder", "JV2-MTH-064", "a strictly increasing list starting at 1.0"),
+            ):
+                if key not in bounds_map:
+                    issues.append(
+                        issue(
+                            "error",
+                            code,
+                            f"Sampling.Bounds.{key}",
+                            f"{label} requires Sampling.Bounds.{key} ({description})",
+                        )
+                    )
+
+            nchains = try_int(bounds_map.get("num_chains"))
+            if nchains is not None and nchains < 2:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-061",
+                        "Sampling.Bounds.num_chains",
+                        f"{label} requires num_chains >= 2, got {bounds_map.get('num_chains')!r}",
+                    )
+                )
+
+            niters = try_int(bounds_map.get("num_iters"))
+            if niters is not None and niters < 1:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-062",
+                        "Sampling.Bounds.num_iters",
+                        f"expected a positive integer, got {bounds_map.get('num_iters')!r}",
+                    )
+                )
+
+            raw_scale = bounds_map.get("proposal_scale")
+            scales = raw_scale if isinstance(raw_scale, (list, tuple)) else [raw_scale]
+            parsed_scales = [try_float(value) for value in scales]
+            if raw_scale is not None and (
+                not parsed_scales
+                or any(value is None or value <= 0 for value in parsed_scales)
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-063",
+                        "Sampling.Bounds.proposal_scale",
+                        f"{label} proposal_scale values must all be positive numbers",
+                    )
+                )
+            elif len({float(value) for value in parsed_scales if value is not None}) > 1:
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-065",
+                        "Sampling.Bounds.proposal_scale",
+                        f"{label} uses one identical proposal_scale for every replica",
+                    )
+                )
+            elif (
+                nchains is not None
+                and isinstance(raw_scale, (list, tuple))
+                and len(raw_scale) not in {1, nchains}
+            ):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-066",
+                        "Sampling.Bounds.proposal_scale",
+                        f"{label} proposal_scale must have length 1 or num_chains ({nchains}), "
+                        f"got {len(raw_scale)}",
+                    )
+                )
+
+            raw_ladder = bounds_map.get("temperature_ladder")
+            if raw_ladder is not None:
+                if not isinstance(raw_ladder, (list, tuple)):
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-MTH-064",
+                            "Sampling.Bounds.temperature_ladder",
+                            f"{label} temperature_ladder must be a list of positive numbers",
+                        )
+                    )
+                else:
+                    temps = [try_float(value) for value in raw_ladder]
+                    if (
+                        not temps
+                        or any(value is None or value <= 0 for value in temps)
+                    ):
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-MTH-064",
+                                "Sampling.Bounds.temperature_ladder",
+                                f"{label} temperature_ladder values must all be positive",
+                            )
+                        )
+                    else:
+                        assert all(value is not None for value in temps)
+                        if nchains is not None and len(temps) != nchains:
+                            issues.append(
+                                issue(
+                                    "error",
+                                    "JV2-MTH-067",
+                                    "Sampling.Bounds.temperature_ladder",
+                                    f"{label} temperature_ladder length must equal "
+                                    f"num_chains ({nchains}), got {len(temps)}",
+                                )
+                            )
+                        if abs(float(temps[0]) - 1.0) > 1e-12:
+                            issues.append(
+                                issue(
+                                    "error",
+                                    "JV2-MTH-068",
+                                    "Sampling.Bounds.temperature_ladder",
+                                    f"{label} temperature_ladder[0] must be 1.0 (cold), "
+                                    f"got {temps[0]!r}",
+                                )
+                            )
+                        if any(
+                            not (float(hi) > float(lo))
+                            for lo, hi in zip(temps, temps[1:])
+                        ):
+                            issues.append(
+                                issue(
+                                    "error",
+                                    "JV2-MTH-069",
+                                    "Sampling.Bounds.temperature_ladder",
+                                    f"{label} temperature_ladder must be strictly increasing",
+                                )
+                            )
+
+            raw_exchange = bounds_map.get("exchange_interval")
+            if raw_exchange is not None:
+                exchange = try_int(raw_exchange)
+                if exchange is None or exchange < 1:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-MTH-070",
+                            "Sampling.Bounds.exchange_interval",
+                            f"{label} exchange_interval must be an integer >= 1, "
+                            f"got {raw_exchange!r}",
+                        )
+                    )
+
+            raw_seed = bounds_map.get("seed")
+            if raw_seed is not None:
+                seed = try_int(raw_seed)
+                if seed is None or seed < 0:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-MTH-071",
+                            "Sampling.Bounds.seed",
+                            f"{label} seed must be a non-negative integer, got {raw_seed!r}",
                         )
                     )
 

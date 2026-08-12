@@ -358,6 +358,40 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(card)
         self.assertTrue(any(item.code == "JV2-MTH-056" for item in report.errors()))
 
+    def test_ptmcmc_schema_and_ladder_contract(self) -> None:
+        card = _card()
+        card["Sampling"] = {
+            "Method": "PTMCMC",
+            "Bounds": {
+                "num_chains": 4,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "temperature_ladder": [1.0, 2.0, 4.0, 8.0],
+                "exchange_interval": 2,
+                "seed": 7,
+            },
+            "Variables": card["Sampling"]["Variables"],
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+
+        card["Sampling"]["Bounds"]["temperature_ladder"] = [1.0, 2.0]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-067" for item in report.errors()))
+
+        card["Sampling"]["Bounds"]["temperature_ladder"] = [1.5, 2.0, 3.0, 4.0]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-068" for item in report.errors()))
+
+        card["Sampling"]["Bounds"]["temperature_ladder"] = [1.0, 2.0, 2.0, 4.0]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-069" for item in report.errors()))
+
+        card["Sampling"]["Bounds"]["temperature_ladder"] = [1.0, 2.0, 4.0, 8.0]
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.1, 0.2]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-065" for item in report.errors()))
+
     def test_manifest_matches_builtin_portal_formats(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
             manifest = json.load(handle)

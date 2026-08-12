@@ -1,8 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/ptmcmc.json",
-  "x-jarvis-status": "unstable",
-  "description": "PTMCMC Bounds knobs are not finalised. Jarvis man marks this method STATUS: not finalised; validate does not yet reject unknown Bounds keys.",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "x-jarvis-status": "stable",
+  "description": "Parallel-tempering random-walk MCMC. Each replica uses Metropolis at temperature T with beta=1/T; adjacent temperatures swap at generation barriers. Coupled barrier schedule (not independent-chain async); see Jarvis man sampler.mcmc-runtime.",
+  "x-jarvis-example": "Method: PTMCMC\nBounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  temperature_ladder: [1.0, 2.0, 4.0, 8.0]\n  exchange_interval: 1\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
   "allOf": [
     {
       "$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"
@@ -11,8 +14,64 @@
       "properties": {
         "Method": {
           "const": "PTMCMC"
+        },
+        "Bounds": {
+          "type": "object",
+          "x-jarvis-zone": "closed",
+          "description": "PTMCMC settings. num_chains is the number of temperature replicas (must be >= 2). Prefer num_chains >= Runtime workers.",
+          "properties": {
+            "num_chains": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
+              "description": "Number of temperature replicas (>= 2).",
+              "minimum": 2
+            },
+            "num_iters": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
+              "description": "Number of Metropolis transitions per replica."
+            },
+            "proposal_scale": {
+              "oneOf": [
+                {
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+                  }
+                }
+              ],
+              "description": "One positive proposal scale shared by every replica (scalar or homogeneous list)."
+            },
+            "temperature_ladder": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+              },
+              "description": "Strictly increasing temperatures; length equals num_chains; first entry must be 1.0 (cold)."
+            },
+            "exchange_interval": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
+              "description": "Attempt adjacent temperature swaps after this many full draws (default 1).",
+              "default": 1
+            },
+            "seed": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonNegativeIntegerish",
+              "description": "Master RNG seed (chain streams + exchange RNG)."
+            }
+          },
+          "required": [
+            "num_chains",
+            "num_iters",
+            "proposal_scale",
+            "temperature_ladder"
+          ],
+          "additionalProperties": false
         }
-      }
+      },
+      "required": ["Bounds"]
     }
   ]
 }

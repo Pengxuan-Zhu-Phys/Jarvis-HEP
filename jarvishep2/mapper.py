@@ -44,7 +44,6 @@ STATISTICAL_METHODS: frozenset[str] = frozenset(
         "Ensemble",
         "DEMCMC",
         "PTMCMC",
-        "PT",
         "PTEnsemble",
     }
 )

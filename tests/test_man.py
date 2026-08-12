@@ -338,12 +338,15 @@ class ManCliTests(unittest.TestCase):
         self.assertIn("Bridson", stable_names)
         self.assertNotIn("AM", stable_names)
         self.assertTrue(all("status" not in row for row in stable["methods"]))
+        self.assertTrue(all("resume" not in row for row in stable["methods"]))
         stable_types = {row["method"]: row["type"] for row in stable["methods"]}
         self.assertEqual(stable_types["CSV"], "simple")
         self.assertEqual(stable_types["Grid"], "simple")
         self.assertEqual(stable_types["AdaptiveBridson"], "adaptive")
         self.assertEqual(stable_types["Dynesty"], "nested")
         self.assertEqual(stable_types["MultiNest"], "nested")
+        stable_order = [(row["type"], row["method"]) for row in stable["methods"]]
+        self.assertEqual(stable_order, sorted(stable_order, key=lambda item: (item[0].casefold(), item[1].casefold())))
         self.assertIn("Jarvis man sampler --full", stable["see_also"])
 
         full = resolve_man_request(["sampler"], full=True)
@@ -351,9 +354,12 @@ class ManCliTests(unittest.TestCase):
         self.assertIn("AM", full_names)
         self.assertGreater(len(full_names), len(stable_names))
         self.assertTrue(all("status" in row for row in full["methods"]))
+        self.assertTrue(all("resume" not in row for row in full["methods"]))
         full_types = {row["method"]: row["type"] for row in full["methods"]}
         self.assertEqual(full_types["AM"], "MCMC")
-        self.assertEqual(full_types["PT"], "MCMC")
+        self.assertEqual(full_types["PTMCMC"], "MCMC")
+        full_order = [(row["type"], row["method"]) for row in full["methods"]]
+        self.assertEqual(full_order, sorted(full_order, key=lambda item: (item[0].casefold(), item[1].casefold())))
         self.assertNotIn("Jarvis man sampler --full", full["see_also"])
 
         mcmc_page = resolve_man_request(["sampler.MCMC"])
@@ -388,6 +394,7 @@ class ManCliTests(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler"]), 0)
         self.assertNotIn("Status", out.getvalue())
+        self.assertNotIn("Resume", out.getvalue())
 
         out = io.StringIO()
         with redirect_stdout(out):
@@ -403,6 +410,7 @@ class ManCliTests(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler", "--full"]), 0)
         self.assertIn("Status", out.getvalue())
+        self.assertNotIn("Resume", out.getvalue())
 
     def test_mcmc_family_marked_unstable(self) -> None:
         page = resolve_man_request(["sampler.AMMCMC"])
@@ -411,6 +419,31 @@ class ManCliTests(unittest.TestCase):
         self.assertEqual(page["keys"], [])
         self.assertEqual(page["capabilities"]["pipeline"], "async_independent")
         self.assertIn("Jarvis man sampler.mcmc-runtime", page["see_also"])
+
+    def test_ptmcmc_man_page_is_stable_barrier_coupled(self) -> None:
+        page = resolve_man_request(["sampler.PTMCMC"])
+        self.assertEqual(page["status"], "stable")
+        self.assertEqual(page["capabilities"]["pipeline"], "barrier_coupled")
+        self.assertEqual(page["capabilities"]["feedback_queue"], "hep:feedback")
+        keys = {key["name"] for key in page["keys"]}
+        self.assertTrue(
+            {
+                "num_chains",
+                "num_iters",
+                "proposal_scale",
+                "temperature_ladder",
+                "exchange_interval",
+                "seed",
+            }
+            <= keys
+        )
+        self.assertIn("JV2-MTH-060", page["diagnostics"])
+        self.assertIn("Jarvis man sampler.mcmc-runtime", page["see_also"])
+
+        stable = resolve_man_request(["sampler"])
+        stable_names = {row["method"] for row in stable["methods"]}
+        self.assertIn("PTMCMC", stable_names)
+        self.assertNotIn("PT", stable_names)
 
     def test_mcmc_runtime_design_page(self) -> None:
         for topic in ("sampler.mcmc-runtime", "sampler.mcmc_family"):

@@ -42,7 +42,6 @@ D13_METHODS = (
     "Ensemble",
     "DEMCMC",
     "PTMCMC",
-    "PT",
     "PTEnsemble",
     "Dynesty",
     "MultiNest",

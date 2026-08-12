@@ -701,6 +701,21 @@ _METHOD_DIAGNOSTICS: dict[str, list[str]] = {
         "JV2-MTH-056",
         "JV2-SCH-001",
     ],
+    "PTMCMC": [
+        "JV2-MTH-060",
+        "JV2-MTH-061",
+        "JV2-MTH-062",
+        "JV2-MTH-063",
+        "JV2-MTH-064",
+        "JV2-MTH-065",
+        "JV2-MTH-066",
+        "JV2-MTH-067",
+        "JV2-MTH-068",
+        "JV2-MTH-069",
+        "JV2-MTH-070",
+        "JV2-MTH-071",
+        "JV2-SCH-001",
+    ],
     "Dynesty": ["JV2-BND-001", "JV2-BND-012", "JV2-BND-030", "JV2-SCH-001"],
     "MultiNest": ["JV2-BND-001", "JV2-BND-012", "JV2-BND-020", "JV2-SCH-001"],
 }
@@ -996,7 +1011,6 @@ _MCMC_SAMPLER_METHODS = frozenset(
         "Ensemble",
         "DEMCMC",
         "PTMCMC",
-        "PT",
         "PTEnsemble",
     }
 )
@@ -1017,7 +1031,6 @@ _MCMC_COUPLED_METHODS = frozenset(
         "Ensemble",
         "DEMCMC",
         "PTMCMC",
-        "PT",
         "PTEnsemble",
     }
 )
@@ -1146,7 +1159,7 @@ def _mcmc_runtime_page() -> dict[str, Any]:
             ],
             {
                 "async_independent": "Jarvis man sampler.ToyMCMC",
-                "barrier_coupled": "Jarvis man sampler --full",
+                "barrier_coupled": "Jarvis man sampler.PTMCMC",
             },
         ),
         "keys": [],
@@ -1162,6 +1175,7 @@ def _mcmc_runtime_page() -> dict[str, Any]:
         "see_also": [
             "Jarvis man sampler",
             "Jarvis man sampler.ToyMCMC",
+            "Jarvis man sampler.PTMCMC",
             "Jarvis man sampler --full",
             "Jarvis man yaml.Sampling.Variables",
         ],
@@ -1169,7 +1183,7 @@ def _mcmc_runtime_page() -> dict[str, Any]:
         "capabilities": _mcmc_capabilities("ToyMCMC", resume="implemented"),
         "nav_legend": (
             f"{_NAV_EXPAND} cyan rows open a related man page "
-            "(ToyMCMC reference or full method catalog)."
+            "(ToyMCMC / PTMCMC reference or full method catalog)."
         ),
     }
 
@@ -1274,11 +1288,12 @@ def _method_page(method: str) -> dict[str, Any]:
 
 
 def _sampler_index(*, full: bool = False) -> dict[str, Any]:
-    from jarvishep2.distributor import Distributor
-
     manifest = schema_manifest()
     rows = []
-    for name in sorted(manifest.get("sampling_methods") or {}):
+    for name in sorted(
+        manifest.get("sampling_methods") or {},
+        key=lambda method: (_sampler_type(str(method)).casefold(), str(method).casefold()),
+    ):
         root = schema_by_id(str(manifest["sampling_methods"][name]))
         status = _schema_status(root)
         if not full and status != "stable":
@@ -1286,7 +1301,6 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         row = {
             "method": name,
             "type": _sampler_type(name),
-            "resume": Distributor.get_resume_status(name),
             "summary": str(root.get("description") or ""),
         }
         if full:
@@ -3137,7 +3151,6 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         if show_method_status:
             table.add_column("Status")
         table.add_column("Type")
-        table.add_column("Resume")
         table.add_column("Summary", overflow="fold")
         for row in page["methods"]:
             method_name = str(row.get("method") or "")
@@ -3150,7 +3163,6 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             cells.extend(
                 [
                     str(row.get("type") or "—"),
-                    str(row.get("resume")),
                     str(row.get("summary") or ""),
                 ]
             )

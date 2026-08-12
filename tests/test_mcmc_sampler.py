@@ -16,6 +16,10 @@ from jarvishep2.Sampling.Source.MCMC.dram_chain import DRAMChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.Sampling.mcmc_base import MCMCBaseSampler
 from jarvishep2.Sampling.mcmc_sampler import MCMCSampler, mcmc_sample_uuid
+from jarvishep2.Sampling.ptmcmc import (
+    PTMCMCSampler,
+    normalize_temperature_ladder,
+)
 from jarvishep2.Sampling.toymcmc import ToyMCMCSampler
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
@@ -154,7 +158,6 @@ class DistributorMCMCTests(unittest.TestCase):
             "Ensemble": "jarvishep2.Sampling.ensemble_mcmc",
             "DEMCMC": "jarvishep2.Sampling.demcmc",
             "PTMCMC": "jarvishep2.Sampling.ptmcmc",
-            "PT": "jarvishep2.Sampling.ptmcmc",
             "PTEnsemble": "jarvishep2.Sampling.ptensemble",
         }
         for method, module_name in expected_modules.items():
@@ -166,11 +169,85 @@ class DistributorMCMCTests(unittest.TestCase):
                 sampler.assert_checkpoint_attribute_contract()
 
     def test_methods_registered_stateful(self) -> None:
-        for name in ("ToyMCMC", "MCMC", "AMMCMC", "AM", "DRAM"):
+        for name in ("ToyMCMC", "MCMC", "AMMCMC", "AM", "DRAM", "PTMCMC"):
             self.assertNotIn(name, STATELESS_METHODS)
             sampler = Distributor.set_method(name)
             self.assertIsInstance(sampler, MCMCSampler)
             self.assertEqual(Distributor.get_resume_status(name), "implemented")
+
+    def test_ptmcmc_temperature_ladder_contract(self) -> None:
+        ladder = normalize_temperature_ladder(
+            [1.0, 1.5, 3.0, 6.0], nchains=4, sampler_method="PTMCMC"
+        )
+        self.assertEqual(ladder, [1.0, 1.5, 3.0, 6.0])
+        with self.assertRaisesRegex(ValueError, "strictly increasing"):
+            normalize_temperature_ladder(
+                [1.0, 2.0, 2.0, 4.0], nchains=4, sampler_method="PTMCMC"
+            )
+        with self.assertRaisesRegex(ValueError, "cold temperature 1.0"):
+            normalize_temperature_ladder(
+                [1.1, 2.0, 3.0, 4.0], nchains=4, sampler_method="PTMCMC"
+            )
+        with self.assertRaisesRegex(ValueError, "num_chains"):
+            normalize_temperature_ladder([1.0, 2.0], nchains=4, sampler_method="PTMCMC")
+
+    def test_ptmcmc_config_and_adjacent_pairs(self) -> None:
+        sampler = Distributor.set_method("PTMCMC")
+        assert isinstance(sampler, PTMCMCSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="PTMCMC",
+                tmpdir=tmp,
+                nchains=4,
+                niters=10,
+                seed=3,
+                extra_bounds={
+                    "temperature_ladder": [1.0, 2.0, 4.0, 8.0],
+                    "exchange_interval": 2,
+                },
+            )
+            sampler.set_config(cfg)
+            self.assertTrue(sampler._uses_pt())
+            self.assertFalse(sampler._uses_async_chain_pipeline())
+            self.assertEqual(sampler._exchange_interval, 2)
+            self.assertEqual(sampler._temperature_ladder, [1.0, 2.0, 4.0, 8.0])
+            registry = sampler._ensure_registry()
+            self.assertEqual(
+                [c.temperature for c in registry.all()],
+                [1.0, 2.0, 4.0, 8.0],
+            )
+            self.assertTrue(registry.get(0).is_cold)
+            # Even round: (0,1), (2,3); odd round: (1,2)
+            sampler._exchange_offset = 0
+            self.assertEqual(sampler._pair_chain_ids(), [(0, 1), (2, 3)])
+            self.assertEqual(sampler._pair_chain_ids(), [(1, 2)])
+
+    def test_ptmcmc_rejects_heterogeneous_scales_and_single_chain(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = Distributor.set_method("PTMCMC")
+            bad_scale = _mcmc_config(
+                method="PTMCMC",
+                tmpdir=tmp,
+                nchains=2,
+                niters=5,
+                extra_bounds={
+                    "proposal_scale": [0.1, 0.2],
+                    "temperature_ladder": [1.0, 2.0],
+                },
+            )
+            with self.assertRaisesRegex(ValueError, "same proposal_scale"):
+                sampler.set_config(bad_scale)
+
+            sampler2 = Distributor.set_method("PTMCMC")
+            bad_n = _mcmc_config(
+                method="PTMCMC",
+                tmpdir=tmp,
+                nchains=1,
+                niters=5,
+                extra_bounds={"temperature_ladder": [1.0]},
+            )
+            with self.assertRaisesRegex(ValueError, "num_chains >= 2"):
+                sampler2.set_config(bad_n)
 
     def test_toymcmc_native_pickle_checkpoint_roundtrip(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")

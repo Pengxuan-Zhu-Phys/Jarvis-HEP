@@ -88,6 +88,36 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         )
     if code == "JV2-MTH-056":
         return "Use a non-negative integer seed for ToyMCMC.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-060":
+        return (
+            "Add num_chains (>=2), num_iters, proposal_scale, and temperature_ladder "
+            "under Sampling.Bounds for PTMCMC.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n"
+            "  temperature_ladder: [1.0, 2.0, 4.0, 8.0]\n  exchange_interval: 1",
+        )
+    if code in {"JV2-MTH-061", "JV2-MTH-062"}:
+        return (
+            "Set PTMCMC num_chains (>= 2) and num_iters to positive integers.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000",
+        )
+    if code in {"JV2-MTH-063", "JV2-MTH-065", "JV2-MTH-066"}:
+        return (
+            "Use one shared positive proposal_scale for every PTMCMC replica.",
+            "Bounds:\n  proposal_scale: 0.2",
+        )
+    if code in {"JV2-MTH-064", "JV2-MTH-067", "JV2-MTH-068", "JV2-MTH-069"}:
+        return (
+            "Set temperature_ladder to a strictly increasing list of length num_chains "
+            "starting at 1.0.",
+            "Bounds:\n  num_chains: 4\n  temperature_ladder: [1.0, 2.0, 4.0, 8.0]",
+        )
+    if code == "JV2-MTH-070":
+        return (
+            "Set exchange_interval to an integer >= 1.",
+            "Bounds:\n  exchange_interval: 1",
+        )
+    if code == "JV2-MTH-071":
+        return "Use a non-negative integer seed for PTMCMC.", "Bounds:\n  seed: 0"
     if code.startswith("JV2-MAP-"):
         return (
             "Fix Sampling.Mapper: list of {name, expression} over Variables "

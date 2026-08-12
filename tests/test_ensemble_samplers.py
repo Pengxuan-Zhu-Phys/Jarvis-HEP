@@ -146,7 +146,6 @@ class DistributorEnsembleTests(unittest.TestCase):
             "Ensemble",
             "DEMCMC",
             "PTMCMC",
-            "PT",
             "PTEnsemble",
         ):
             self.assertNotIn(name, STATELESS_METHODS)
@@ -233,9 +232,12 @@ class FeedbackLoopTests(unittest.TestCase):
         summary = s.summary()
         self.assertIn("swap_attempts", summary)
         self.assertGreaterEqual(summary["swap_attempts"], 1)
+        self.assertEqual(summary.get("async_chains"), False)
         # Temperatures stay on ladder slots (params may have swapped).
         temps = [c.temperature for c in s._ensure_registry().all()]
-        self.assertEqual(sorted(temps), [1.0, 2.0, 4.0, 8.0])
+        self.assertEqual(temps, [1.0, 2.0, 4.0, 8.0])
+        self.assertFalse(s._uses_async_chain_pipeline())
+        self.assertTrue(s._uses_pt())
 
     def test_pt_ensemble_loop(self) -> None:
         s = self._run_mock(
