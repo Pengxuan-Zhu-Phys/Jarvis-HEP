@@ -35,9 +35,12 @@ the first release is published.
 
 ## Release procedure
 
-1. Update the version in both `pyproject.toml` and
-   `jarvishep2/__init__.py`. PyPI versions are immutable, so choose a version
-   that does not already exist under `Jarvis-HEP`.
+1. Run `./jhrel <version> --dry` to bump the version in both
+   `pyproject.toml` and `jarvishep2/__init__.py`, then build and check the
+   wheel (upload is skipped). Those two fields are the source of truth for the
+   PyPI version and for `Jarvis -v`. Choose a version that does not already
+   exist under `Jarvis-HEP`. Optionally pass `--install` to reinstall the
+   editable package and verify the CLI banner reports the new version.
 2. Run the local release checks:
 
    ```bash

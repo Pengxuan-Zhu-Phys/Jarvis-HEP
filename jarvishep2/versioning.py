@@ -82,8 +82,32 @@ def _render_logo_template_lines(lines: list[str]) -> list[str]:
     return rendered
 
 
+def _read_package_version_constant() -> str | None:
+    """Read ``jarvishep2.__version__`` from the on-disk package source.
+
+    This is the value bumped by the release helper together with
+    ``pyproject.toml`` and shipped inside the PyPI wheel. Preferring it keeps
+    ``Jarvis -v`` aligned with the published release even when an editable
+    install still has stale ``.dist-info`` metadata.
+    """
+    init_path = os.path.join(os.path.dirname(__file__), "__init__.py")
+    try:
+        with open(init_path, "r", encoding="utf-8") as handle:
+            text = handle.read()
+        matched = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$', text)
+        if matched:
+            return matched.group(1)
+    except Exception:
+        return None
+    return None
+
+
 def get_runtime_version() -> str:
     """Best-effort runtime package version for banner display."""
+    package_version = _read_package_version_constant()
+    if package_version:
+        return package_version
+
     try:
         from importlib.metadata import PackageNotFoundError, version
 

@@ -10,7 +10,6 @@ import platform
 import sys
 import tarfile
 import tempfile
-from importlib import metadata as importlib_metadata
 
 import yaml
 
@@ -83,17 +82,10 @@ class ProjectPackManifestReport:
 
 
 def _jarvis_version() -> str:
-    for candidate in ("Jarvis-HEP", "jarvishep2"):
-        try:
-            release = str(importlib_metadata.version(candidate))
-            if candidate == "Jarvis-HEP" and int(release.split(".", 1)[0]) < 2:
-                continue
-            return release
-        except importlib_metadata.PackageNotFoundError:
-            continue
-        except Exception:
-            continue
-    return "unknown"
+    # Keep package archives in lockstep with ``Jarvis -v`` / the PyPI release.
+    from jarvishep2.versioning import get_runtime_version
+
+    return get_runtime_version()
 
 
 def _is_project_root(path: str) -> bool:

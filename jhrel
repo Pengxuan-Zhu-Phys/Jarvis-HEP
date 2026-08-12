@@ -1,0 +1,381 @@
+#!/usr/bin/env bash
+# Jarvis-HEP V2 PyPI release helper.
+# Usage:
+#   ./jhrel 2.0.2          # bump → build → upload PyPI
+#   ./jhrel 2.0.2 --dry    # bump → build → check (skip upload)
+#   ./jhrel 2.0.2 --install # also reinstall locally and verify Jarvis -v
+set -euo pipefail
+
+_jhrel_SRC="$0"
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  _jhrel_SRC="${BASH_SOURCE[0]}"
+fi
+_jhrel_DIR="$(cd "$(dirname "$_jhrel_SRC")" && pwd)"
+
+_jhrel_usage() {
+  cat <<'EOF'
+Usage:
+  jhrel <version> [--dry] [--install]
+
+Release Jarvis-HEP V2 (PyPI distribution: Jarvis-HEP; import package: jarvishep2):
+  1. bump version in pyproject.toml and jarvishep2/__init__.py
+  2. clean dist/build/*.egg-info
+  3. build + twine check + wheel identity check
+  4. twine upload to PyPI  (skipped with --dry)
+  5. optionally reinstall and verify Jarvis -v (with --install)
+
+Version sources of truth (must stay identical):
+  - pyproject.toml [project].version   → wheel / PyPI version
+  - jarvishep2.__version__             → Jarvis -v / --version banner
+
+Examples:
+  ./jhrel 2.0.2 --dry
+  ./jhrel 2.0.2 --dry --install
+  ./jhrel 2.0.2 --install
+EOF
+}
+
+_jhrel_read_package_name() {
+  python3 - <<'PY'
+from pathlib import Path
+import re
+import sys
+
+text = Path("pyproject.toml").read_text(encoding="utf-8")
+match = re.search(r'(?m)^name\s*=\s*"([^"]+)"\s*$', text)
+if not match:
+    raise SystemExit("[jhrel] Failed to locate name field in pyproject.toml")
+print(match.group(1))
+PY
+}
+
+_jhrel_clean_artifacts() {
+  python3 - <<'PY'
+from __future__ import annotations
+import glob
+import os
+import shutil
+
+for path in ("dist", "build"):
+    if os.path.isdir(path):
+        shutil.rmtree(path, ignore_errors=True)
+for matched in glob.glob("*.egg-info"):
+    if os.path.isdir(matched):
+        shutil.rmtree(matched, ignore_errors=True)
+PY
+}
+
+_jhrel_verify_distribution() {
+  local package_name="$1"
+  local version="$2"
+
+  python3 - "$package_name" "$version" <<'PY'
+import email
+import sys
+import zipfile
+from pathlib import Path
+
+expected_name, expected_version = sys.argv[1:]
+wheels = list(Path("dist").glob("*.whl"))
+sdists = list(Path("dist").glob("*.tar.gz"))
+if len(wheels) != 1 or len(sdists) != 1:
+    raise SystemExit(
+        f"[jhrel] Expected one wheel and one sdist, found {wheels!r} and {sdists!r}"
+    )
+
+with zipfile.ZipFile(wheels[0]) as archive:
+    members = archive.namelist()
+    metadata_path = next(
+        name for name in members if name.endswith(".dist-info/METADATA")
+    )
+    metadata = email.message_from_bytes(archive.read(metadata_path))
+    init_path = next(
+        (name for name in members if name == "jarvishep2/__init__.py"),
+        None,
+    )
+    if init_path is None:
+        raise SystemExit("[jhrel] Refusing upload: wheel missing jarvishep2/__init__.py")
+    init_text = archive.read(init_path).decode("utf-8")
+
+if metadata["Name"] != expected_name:
+    raise SystemExit(
+        f"[jhrel] Refusing upload: wheel name is {metadata['Name']!r}, "
+        f"expected {expected_name!r}"
+    )
+if metadata["Version"] != expected_version:
+    raise SystemExit(
+        f"[jhrel] Refusing upload: wheel version is {metadata['Version']!r}, "
+        f"expected {expected_version!r}"
+    )
+if f'__version__ = "{expected_version}"' not in init_text:
+    raise SystemExit(
+        "[jhrel] Refusing upload: wheel jarvishep2.__version__ does not match "
+        f"expected {expected_version!r}"
+    )
+if not any(name.startswith("jarvishep2/") for name in members):
+    raise SystemExit("[jhrel] Refusing upload: wheel has no jarvishep2 package")
+if any(name.startswith("jarvishep/") for name in members):
+    raise SystemExit("[jhrel] Refusing upload: wheel contains retired jarvishep V1")
+
+print(f"[jhrel] Distribution verified: {metadata['Name']}=={metadata['Version']}")
+print(f"[jhrel] Wheel __version__ matches: {expected_version}")
+PY
+}
+
+_jhrel_bump_version() {
+  local version="$1"
+  python3 - <<'PY' "$version"
+from pathlib import Path
+import re
+import sys
+
+version = sys.argv[1]
+updates = (
+    (
+        Path("pyproject.toml"),
+        r'(?m)^version\s*=\s*"[^"]+"$',
+        f'version = "{version}"',
+        "pyproject.toml",
+    ),
+    (
+        Path("jarvishep2/__init__.py"),
+        r'(?m)^__version__\s*=\s*"[^"]+"$',
+        f'__version__ = "{version}"',
+        "jarvishep2/__init__.py",
+    ),
+)
+
+rewritten = []
+for path, pattern, replacement, label in updates:
+    text = path.read_text(encoding="utf-8")
+    updated, n = re.subn(pattern, replacement, text, count=1)
+    if n != 1:
+        raise SystemExit(f"[jhrel] Failed to locate version field in {label}")
+    rewritten.append((path, updated, label))
+
+for path, updated, label in rewritten:
+    path.write_text(updated, encoding="utf-8")
+    print(f"[jhrel] {label} version → {version}")
+
+# Keep the README "current version" blurb aligned when present.
+readme = Path("README.md")
+if readme.is_file():
+    text = readme.read_text(encoding="utf-8")
+    updated, n = re.subn(
+        r"(The PyPI distribution is named `Jarvis-HEP` \(current version `)[^`]+(`\))",
+        rf"\g<1>{version}\2",
+        text,
+        count=1,
+    )
+    if n == 1 and updated != text:
+        readme.write_text(updated, encoding="utf-8")
+        print(f"[jhrel] README.md current version → {version}")
+PY
+}
+
+_jhrel_verify_source_versions() {
+  local version="$1"
+  python3 - <<'PY' "$version"
+from pathlib import Path
+import re
+import sys
+
+expected = sys.argv[1]
+pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
+init_text = Path("jarvishep2/__init__.py").read_text(encoding="utf-8")
+
+proj = re.search(r'(?m)^version\s*=\s*"([^"]+)"\s*$', pyproject)
+pkg = re.search(r'(?m)^__version__\s*=\s*"([^"]+)"\s*$', init_text)
+if not proj:
+    raise SystemExit("[jhrel] pyproject.toml version missing after bump")
+if not pkg:
+    raise SystemExit("[jhrel] jarvishep2.__version__ missing after bump")
+if proj.group(1) != expected or pkg.group(1) != expected:
+    raise SystemExit(
+        f"[jhrel] version mismatch after bump: pyproject={proj.group(1)!r} "
+        f"__version__={pkg.group(1)!r} expected={expected!r}"
+    )
+print(f"[jhrel] Source versions agree: {expected}")
+PY
+}
+
+_jhrel_verify_install() {
+  local package_name="$1"
+  local version="$2"
+
+  python3 - <<'PY' "$package_name" "$version"
+import importlib
+import importlib.metadata as m
+import re
+import sys
+from shutil import which
+
+package_name, expected = sys.argv[1], sys.argv[2]
+
+# Prefer the published distribution name; fall back to the temporary V2 name.
+installed = None
+for candidate in (package_name, "jarvishep2"):
+    try:
+        installed = m.version(candidate)
+        print(f"[jhrel] installed package: {candidate}=={installed}")
+        break
+    except m.PackageNotFoundError:
+        continue
+if installed is None:
+    raise SystemExit(f"[jhrel] neither {package_name!r} nor jarvishep2 is installed")
+if installed != expected:
+    raise SystemExit(
+        f"[jhrel] installed metadata mismatch: expected {expected}, got {installed}"
+    )
+
+# Force a clean import so editable metadata cannot shadow the bumped source.
+for name in list(sys.modules):
+    if name == "jarvishep2" or name.startswith("jarvishep2."):
+        del sys.modules[name]
+
+import jarvishep2
+from jarvishep2.versioning import get_runtime_version, render_logo_with_version
+
+if jarvishep2.__version__ != expected:
+    raise SystemExit(
+        f"[jhrel] jarvishep2.__version__ mismatch: expected {expected}, "
+        f"got {jarvishep2.__version__}"
+    )
+runtime = get_runtime_version()
+if runtime != expected:
+    raise SystemExit(
+        f"[jhrel] get_runtime_version() mismatch: expected {expected}, got {runtime}"
+    )
+
+banner = render_logo_with_version()
+if not re.search(rf"Version:\s+{re.escape(expected)}\b", banner):
+    raise SystemExit(
+        f"[jhrel] banner version mismatch: expected {expected} in:\n{banner}"
+    )
+print(f"[jhrel] Jarvis -v source agrees: {expected}")
+print("[jhrel] Jarvis command:", which("Jarvis") or "(not on PATH yet)")
+PY
+
+  hash -r 2>/dev/null || true
+  rehash 2>/dev/null || true
+
+  local cli_cmd
+  cli_cmd="$(command -v Jarvis 2>/dev/null || true)"
+  if [[ -z "$cli_cmd" ]]; then
+    cli_cmd="$(
+      python3 - <<'PY'
+from shutil import which
+print(which("Jarvis") or "")
+PY
+    )"
+  fi
+
+  if [[ -z "$cli_cmd" ]]; then
+    echo "[jhrel] WARNING: Jarvis CLI not found in PATH after install." >&2
+    return 0
+  fi
+
+  "$cli_cmd" --help >/dev/null
+
+  local banner
+  banner="$("$cli_cmd" -v 2>/dev/null || true)"
+  if [[ "$banner" != *"Version:"*"$version"* ]]; then
+    echo "[jhrel] CLI -v output:" >&2
+    echo "$banner" >&2
+    echo "[jhrel] Refusing: Jarvis -v does not report version $version" >&2
+    return 1
+  fi
+  echo "[jhrel] CLI -v check passed: $cli_cmd → $version"
+}
+
+main() {
+  if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then
+    _jhrel_usage
+    exit 0
+  fi
+
+  if [[ $# -lt 1 ]]; then
+    _jhrel_usage
+    exit 2
+  fi
+
+  local version="$1"
+  shift || true
+  if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "[jhrel] Invalid version: $version (expected X.Y.Z)" >&2
+    exit 2
+  fi
+
+  local dry=0
+  local install=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry) dry=1 ;;
+      --install) install=1 ;;
+      -h|--help)
+        _jhrel_usage
+        exit 0
+        ;;
+      *)
+        echo "[jhrel] Unknown option: $1" >&2
+        _jhrel_usage
+        exit 2
+        ;;
+    esac
+    shift
+  done
+
+  cd "$_jhrel_DIR"
+  if [[ ! -f "pyproject.toml" ]]; then
+    echo "[jhrel] pyproject.toml not found in $_jhrel_DIR" >&2
+    exit 2
+  fi
+
+  local package_name
+  package_name="$(_jhrel_read_package_name)"
+  if [[ "$package_name" != "Jarvis-HEP" ]]; then
+    echo "[jhrel] Refusing release: pyproject.toml package name is '$package_name'; expected 'Jarvis-HEP'." >&2
+    exit 2
+  fi
+
+  echo "[jhrel] Package:  $package_name"
+  echo "[jhrel] Version:  $version"
+  echo "[jhrel] Mode:     $([[ "$dry" -eq 1 ]] && echo DRY-RUN || echo RELEASE)"
+  echo "[jhrel] Directory: $(pwd)"
+  echo "[jhrel] Python:   $(python3 -V 2>/dev/null || true)"
+
+  echo "[jhrel] Step 1/5: bump version"
+  _jhrel_bump_version "$version"
+  _jhrel_verify_source_versions "$version"
+
+  echo "[jhrel] Step 2/5: clean build artifacts"
+  _jhrel_clean_artifacts
+
+  echo "[jhrel] Step 3/5: build package"
+  python3 -m pip install --disable-pip-version-check -q -U build twine
+  python3 -m build
+  python3 -m twine check dist/*
+  _jhrel_verify_distribution "$package_name" "$version"
+
+  echo "[jhrel] Step 4/5: upload to PyPI"
+  if [[ "$dry" -eq 1 ]]; then
+    echo "[jhrel] DRY RUN: skip twine upload."
+  else
+    python3 -m twine upload -r pypi dist/*
+  fi
+
+  echo "[jhrel] Step 5/5: post-release local install"
+  if [[ "$install" -eq 1 ]]; then
+    # Drop both the published name and the temporary V2 distribution name so
+    # stale editable metadata cannot keep Jarvis -v stuck on an old version.
+    python3 -m pip uninstall -y "$package_name" jarvishep2 >/dev/null 2>&1 || true
+    python3 -m pip install --no-deps -e .
+    _jhrel_verify_install "$package_name" "$version"
+  else
+    echo "[jhrel] Skipping local install (pass --install to enable)."
+  fi
+
+  echo "[jhrel] Done."
+}
+
+main "$@"
