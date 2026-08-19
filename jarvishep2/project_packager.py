@@ -60,6 +60,12 @@ class ProjectProfileError(ProjectPackError):
     pass
 
 
+@dataclass(frozen=True)
+class ProjectPackRules:
+    excludes: tuple[str, ...] = ()
+    includes: tuple[str, ...] = ()
+
+
 @dataclass
 class ProjectPackReport:
     project_root: str
@@ -118,6 +124,78 @@ def _normalize_profile(profile: str) -> str:
     return p
 
 
+def _normalize_pack_rule(value: object, key: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ProjectPackError(f"Project pack '{key}' must be a list.")
+
+    rules: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ProjectPackError(f"Project pack '{key}' contains an invalid path.")
+        raw = item.strip().replace("\\", "/")
+        if raw.startswith("/"):
+            raise ProjectPackError(f"Project pack '{key}' path must be relative: {item}")
+        is_dir = raw.endswith("/")
+        parts = [part for part in raw.split("/") if part not in ("", ".")]
+        if not parts or any(part == ".." for part in parts):
+            raise ProjectPackError(f"Project pack '{key}' contains an invalid path: {item}")
+        if len(parts[0]) == 2 and parts[0][1] == ":":
+            raise ProjectPackError(f"Project pack '{key}' path must be relative: {item}")
+        rule = "/".join(parts)
+        rules.append(rule + "/" if is_dir else rule)
+    return tuple(rules)
+
+
+def _load_project_pack_rules(project_root: str, profile: str) -> ProjectPackRules:
+    """Load optional, project-local pack rules from ``jarvis.project.yaml``."""
+    config_path = os.path.join(project_root, "jarvis.project.yaml")
+    if not os.path.isfile(config_path):
+        return ProjectPackRules()
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+    except OSError as exc:
+        raise ProjectPackError(f"Failed to read project descriptor: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ProjectPackError(f"Invalid project descriptor YAML: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ProjectPackError("Project descriptor must contain a YAML mapping.")
+    pack = payload.get("pack") or {}
+    if not isinstance(pack, dict):
+        raise ProjectPackError("Project descriptor 'pack' must be a mapping.")
+
+    profile_pack = pack.get(profile) or {}
+    if not isinstance(profile_pack, dict):
+        raise ProjectPackError(f"Project descriptor 'pack.{profile}' must be a mapping.")
+
+    excludes = list(_normalize_pack_rule(pack.get("exclude"), "exclude"))
+    excludes.extend(_normalize_pack_rule(profile_pack.get("exclude"), f"{profile}.exclude"))
+    includes = _normalize_pack_rule(profile_pack.get("include"), f"{profile}.include")
+    return ProjectPackRules(excludes=tuple(excludes), includes=includes)
+
+
+def _pack_rule_matches(relpath: str, rule: str) -> bool:
+    rel = relpath.rstrip("/")
+    target = rule.rstrip("/")
+    return rel == target or (rule.endswith("/") and rel.startswith(target + "/"))
+
+
+def _pack_directory_exclusion(relpath: str, rules: ProjectPackRules) -> str | None:
+    directory = relpath.rstrip("/")
+    for include in rules.includes:
+        included = include.rstrip("/")
+        if included == directory or included.startswith(directory + "/"):
+            return None
+    for exclude in rules.excludes:
+        if _pack_rule_matches(directory + "/", exclude):
+            return exclude
+    return None
+
+
 def _common_exclude(parts: list[str], basename: str) -> str | None:
     for part in parts[:-1]:
         if part in ALWAYS_EXCLUDE_DIRS:
@@ -130,44 +208,63 @@ def _common_exclude(parts: list[str], basename: str) -> str | None:
     return None
 
 
-def _select_profile(profile: str, relpath: str) -> tuple[bool, str]:
+def _select_profile(
+    profile: str,
+    relpath: str,
+    rules: ProjectPackRules | None = None,
+) -> tuple[bool, str]:
     parts = relpath.split("/")
     top = parts[0]
     basename = parts[-1]
+    rules = rules or ProjectPackRules()
 
     common = _common_exclude(parts, basename)
     if common is not None:
         return False, common
 
     if profile == "full":
-        return True, "include:full"
-
-    if profile == "share":
+        keep, reason = True, "include:full"
+    elif profile == "share":
         if len(parts) == 1:
             if top in SHARE_TOPLEVEL_FILES:
-                return True, "include:share-root"
-            return False, "share-root-filter"
-        if top in SHARE_TOPLEVEL_DIRS:
-            return True, "include:share-dir"
-        return False, "share-dir-filter"
+                keep, reason = True, "include:share-root"
+            else:
+                keep, reason = False, "share-root-filter"
+        elif top in SHARE_TOPLEVEL_DIRS:
+            keep, reason = True, "include:share-dir"
+        else:
+            keep, reason = False, "share-dir-filter"
+    else:
+        # repro (default): keep all non-hidden top-level entries and explicit markers.
+        if len(parts) == 1:
+            if top in PROJECT_MARKERS:
+                keep, reason = True, "include:repro-marker"
+            elif top.startswith("."):
+                keep, reason = False, "repro-hidden-root-file"
+            else:
+                keep, reason = True, "include:repro-root"
+        elif top.startswith("."):
+            keep, reason = False, "repro-hidden-root-dir"
+        else:
+            keep, reason = True, "include:repro"
 
-    # repro (default): keep all non-hidden top-level entries and explicit markers.
-    if len(parts) == 1:
-        if top in PROJECT_MARKERS:
-            return True, "include:repro-marker"
-        if top.startswith("."):
-            return False, "repro-hidden-root-file"
-        return True, "include:repro-root"
-
-    if top.startswith("."):
-        return False, "repro-hidden-root-dir"
-    return True, "include:repro"
+    # A project-local include may reopen a path excluded by the same project
+    # config (for example, share excludes all of bin/ and includes two cards).
+    if not keep:
+        return False, reason
+    if any(_pack_rule_matches(relpath, include) for include in rules.includes):
+        return True, "include:project-pack"
+    for exclude in rules.excludes:
+        if _pack_rule_matches(relpath, exclude):
+            return False, f"pack-exclude:{exclude}"
+    return keep, reason
 
 
 def _collect_project_files(project_root: str, profile: str) -> tuple[list[str], list[tuple[str, str]], int]:
     included: list[str] = []
     excluded: list[tuple[str, str]] = []
     total_bytes = 0
+    rules = _load_project_pack_rules(project_root, profile)
 
     for root, dirs, files in os.walk(project_root):
         dirs.sort()
@@ -182,16 +279,20 @@ def _collect_project_files(project_root: str, profile: str) -> tuple[list[str], 
         # Prune always-excluded directories early.
         kept_dirs = []
         for dname in dirs:
+            drel = "/".join(prefix_parts + [dname])
             if dname in ALWAYS_EXCLUDE_DIRS:
-                rel = "/".join(prefix_parts + [dname])
-                excluded.append((rel, f"exclude-dir:{dname}"))
+                excluded.append((drel, f"exclude-dir:{dname}"))
+                continue
+            pack_exclude = _pack_directory_exclusion(drel, rules)
+            if pack_exclude is not None:
+                excluded.append((drel + "/", f"pack-exclude:{pack_exclude}"))
                 continue
             kept_dirs.append(dname)
         dirs[:] = kept_dirs
 
         for fname in files:
             rel = "/".join(prefix_parts + [fname]) if prefix_parts else fname
-            keep, reason = _select_profile(profile, rel)
+            keep, reason = _select_profile(profile, rel, rules)
             if not keep:
                 excluded.append((rel, reason))
                 continue
@@ -222,7 +323,7 @@ def _manifest_exclude_entries(excluded: list[tuple[str, str]]) -> list[str]:
     entries: list[str] = []
     seen: set[str] = set()
     for rel, reason in excluded:
-        if reason.startswith("exclude-dir:"):
+        if reason.startswith(("exclude-dir:", "pack-exclude:")):
             entry = rel.rstrip("/") + "/"
         else:
             entry = rel

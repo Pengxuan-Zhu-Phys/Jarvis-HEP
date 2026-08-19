@@ -105,6 +105,72 @@ class ProjectPackTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(man.manifest_path))
             self.assertEqual(man.profile, "repro")
 
+    def test_project_pack_excludes_are_local_and_apply_to_all_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("ExcludePrivate", cwd=tmp)
+            private_dir = os.path.join(root, "deps", "private")
+            os.makedirs(private_dir, exist_ok=True)
+            with open(os.path.join(private_dir, "weights.bin"), "wb") as handle:
+                handle.write(b"private weights")
+            with open(os.path.join(root, "jarvis.project.yaml"), "a", encoding="utf-8") as handle:
+                handle.write("\npack:\n  exclude:\n    - deps/private/\n")
+
+            for profile in ("share", "repro", "full"):
+                report = create_project_package(root, profile=profile)
+                with tarfile.open(report.archive_path, "r:gz") as tar:
+                    names = tar.getnames()
+                self.assertFalse(
+                    any("deps/private/" in name for name in names),
+                    f"deps/private was included in {profile} package",
+                )
+
+            other_root = create_project_scaffold("KeepPrivate", cwd=tmp)
+            other_private = os.path.join(other_root, "deps", "private", "weights.bin")
+            os.makedirs(os.path.dirname(other_private), exist_ok=True)
+            with open(other_private, "wb") as handle:
+                handle.write(b"keep this in an unrelated project")
+            report = create_project_package(other_root, profile="full")
+            with tarfile.open(report.archive_path, "r:gz") as tar:
+                self.assertIn("KeepPrivate/deps/private/weights.bin", tar.getnames())
+
+    def test_share_pack_can_allowlist_files_under_an_excluded_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("BinFilter", cwd=tmp)
+            for name in (
+                "adaptive_alpha.yaml",
+                "adaptive_beta.yaml",
+                "other.yaml",
+            ):
+                with open(os.path.join(root, "bin", name), "w", encoding="utf-8") as handle:
+                    handle.write("Scan: {}\n")
+            with open(os.path.join(root, "jarvis.project.yaml"), "a", encoding="utf-8") as handle:
+                handle.write(
+                    "\npack:\n"
+                    "  share:\n"
+                    "    exclude:\n"
+                    "      - bin/\n"
+                    "    include:\n"
+                    "      - bin/adaptive_alpha.yaml\n"
+                    "      - bin/adaptive_beta.yaml\n"
+                )
+
+            report = create_project_package(root, profile="share")
+            with tarfile.open(report.archive_path, "r:gz") as tar:
+                names = tar.getnames()
+
+            bin_names = {
+                name.split("/", 1)[1]
+                for name in names
+                if "/bin/" in name
+            }
+            self.assertEqual(
+                bin_names,
+                {
+                    "bin/adaptive_alpha.yaml",
+                    "bin/adaptive_beta.yaml",
+                },
+            )
+
 
 class OfficialLibraryTests(unittest.TestCase):
     def test_default_index_points_at_examples_github(self) -> None:
