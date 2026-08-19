@@ -310,7 +310,7 @@ def get_official_project(project_name: str, index_url: str | None = None) -> dic
 
 
 def format_project_list_table(projects: list[dict]) -> str:
-    """Human table for ``Jarvis project list|browse`` (shows key requirements)."""
+    """Plain-text project table for non-Rich consumers (shows key requirements)."""
     headers = ("Name", "Access", "Key", "Category", "Summary")
     rows: list[tuple[str, str, str, str, str]] = []
     for project in projects:

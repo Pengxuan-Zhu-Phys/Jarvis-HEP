@@ -310,8 +310,8 @@ https://raw.githubusercontent.com/Pengxuan-Zhu-Phys/Jarvis-Examples/main/catalog
 ```
 
 ```bash
-# List projects; columns include Access (public|restricted) and Key (no|required)
-Jarvis project list
+# Browse projects; columns include Access (public|restricted) and Key (no|required)
+Jarvis project browse
 
 Jarvis project info Eggbox
 Jarvis project fetch Eggbox            # public — no key
@@ -320,8 +320,8 @@ Jarvis project fetch Eggbox            # public — no key
 ### Restricted (encrypted) projects — fetch
 
 ```bash
-# See Key: required in the list
-Jarvis project list
+# See Key: required in the browse output
+Jarvis project browse
 
 # Decrypt + unpack (preferred)
 Jarvis project fetch SecretName --key 'YOUR_KEY'

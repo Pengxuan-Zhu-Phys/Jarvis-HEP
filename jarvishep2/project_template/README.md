@@ -118,7 +118,7 @@ Jarvis project encrypt path/to/archive.tar.gz --key 'YOUR_KEY'
 Collaborators fetch with:
 
 ```bash
-Jarvis project list
+Jarvis project browse
 Jarvis project fetch YourProjectName --key 'YOUR_KEY'
 # or: export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
 ```

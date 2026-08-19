@@ -16,6 +16,7 @@ from typing import Any
 import click
 import typer.rich_utils
 from rich import box
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -53,7 +54,7 @@ _SUBCOMMANDS = frozenset(
     }
 )
 _PROJECT_COMMANDS = frozenset(
-    {"create", "pack", "browse", "list", "fetch", "info", "encrypt"}
+    {"create", "pack", "browse", "fetch", "info", "encrypt"}
 )
 _PACK_MODE_FLAGS = {
     "--share": "share",
@@ -111,8 +112,7 @@ _COMMAND_HELP_ORDER = {
     "create": 130,
     "pack": 140,
     "encrypt": 150,
-    "list": 160,
-    "browse": 170,
+    "browse": 160,
     "fetch": 180,
     "info": 190,
 }
@@ -430,7 +430,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis plot …              # same CLI as jplot\n"
             "  Jarvis portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis operas …            # same CLI as jopera\n"
-            "  Jarvis project create|pack|list|browse|fetch|info …\n"
+            "  Jarvis project create|pack|browse|fetch|info …\n"
             "  Jarvis ps                  # list running Jarvis* processes\n"
             "  Jarvis kill [--yes]        # kill them (asks for confirmation)\n"
             "  Jarvis -v / --version      # logo + authors + package version\n"
@@ -697,11 +697,7 @@ def build_project_help_parser() -> JarvisArgumentParser:
     pack.add_argument("--encrypt", action="store_true", help="Encrypt the finished package")
     pack.add_argument("--key", help="Encryption key")
 
-    for command, help_text in (
-        ("list", "List projects in the official library"),
-        ("browse", "Alias for list"),
-    ):
-        sub.add_parser(command, help=help_text)
+    sub.add_parser("browse", help="Browse projects in the official library")
 
     fetch = sub.add_parser("fetch", help="Download an official project")
     fetch.add_argument("name", help="Official project name")
@@ -1149,8 +1145,8 @@ def _run_project_pack_from_manifest(manifest_path: str) -> int:
 
 def _run_project_browse() -> int:
     from jarvishep2.official_project_library import (
+        PROJECT_FETCH_KEY_ENV,
         OfficialLibraryError,
-        format_project_list_table,
         list_official_projects,
     )
 
@@ -1161,11 +1157,75 @@ def _run_project_browse() -> int:
         return EXIT_RUN_FAILED
 
     if not projects:
-        print("[Jarvis] No verified projects are listed in the official library.")
+        Console().print("[dim]No verified projects are listed in the official library.[/]")
         return EXIT_OK
 
-    print("[Jarvis] Official library (catalog: Jarvis-Examples GitHub JSON)")
-    print(format_project_list_table(projects))
+    table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold dim")
+    table.add_column("NAME", style="bold #c8c8ff", no_wrap=True)
+    table.add_column("ACCESS", no_wrap=True)
+    table.add_column("KEY", no_wrap=True)
+    table.add_column("CATEGORY", no_wrap=True)
+    table.add_column("SUMMARY", ratio=1, overflow="fold")
+
+    for project in projects:
+        access = str(project.get("access") or "public")
+        needs_key = bool(project.get("requires_key"))
+        access_style = "bold yellow" if access == "restricted" else "bold green"
+        key_style = "bold yellow" if needs_key else "bold green"
+        table.add_row(
+            Text(str(project.get("name") or ""), style="bold #c8c8ff"),
+            Text(access, style=access_style),
+            Text("required" if needs_key else "no", style=key_style),
+            Text(str(project.get("category") or "-")),
+            Text(str(project.get("summary") or "-"), style="dim"),
+        )
+
+    key_note = Text()
+    key_note.append("Key: ", style="bold")
+    key_note.append("required", style="bold yellow")
+    key_note.append(" → fetch needs --key or ", style="dim")
+    key_note.append(PROJECT_FETCH_KEY_ENV, style="bold cyan")
+    key_note.append("; ", style="dim")
+    key_note.append("no", style="bold green")
+    key_note.append(" → open download.", style="dim")
+
+    public_example = next(
+        (project for project in projects if not bool(project.get("requires_key"))),
+        None,
+    )
+    encrypted_example = next(
+        (project for project in projects if bool(project.get("requires_key"))),
+        None,
+    )
+    fetch_examples = Text()
+    fetch_examples.append("Fetch examples:\n", style="bold")
+    if public_example is not None:
+        fetch_examples.append("  public:     ", style="dim")
+        fetch_examples.append(
+            f"Jarvis project fetch {public_example.get('name')}",
+            style="bold cyan",
+        )
+    if encrypted_example is not None:
+        if public_example is not None:
+            fetch_examples.append("\n")
+        fetch_examples.append("  encrypted:  ", style="dim")
+        fetch_examples.append(
+            f"Jarvis project fetch {encrypted_example.get('name')} --key 'YOUR_KEY'",
+            style="bold cyan",
+        )
+
+    Console().print(
+        Panel(
+            Group(table, Text(""), key_note, Text(""), fetch_examples),
+            title=(
+                "[bold]Official library[/] [dim]·[/] "
+                "[bold green]Jarvis-Examples GitHub JSON[/]"
+            ),
+            box=box.ROUNDED,
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
     return EXIT_OK
 
 
@@ -1186,17 +1246,51 @@ def _run_project_info(project_name: str) -> int:
         return EXIT_RUN_FAILED
 
     needs_key = bool(project.get("requires_key"))
-    print(f"[Jarvis] Official project: {project['name']}")
-    print(f"[Jarvis] Summary: {project.get('summary') or 'N/A'}")
-    print(f"[Jarvis] Category: {project.get('category') or 'N/A'}")
-    print(f"[Jarvis] Access: {project.get('access') or 'public'}")
-    print(f"[Jarvis] Key required: {'yes' if needs_key else 'no'}")
+    access = str(project.get("access") or "public")
+    access_style = "bold yellow" if access == "restricted" else "bold green"
+    key_style = "bold yellow" if needs_key else "bold green"
+
+    details = Table.grid(padding=(0, 1))
+    details.add_column(style="bold dim", no_wrap=True)
+    details.add_column(ratio=1, overflow="fold")
+    details.add_row("SUMMARY", Text(str(project.get("summary") or "N/A"), style="dim"))
+    details.add_row("CATEGORY", Text(str(project.get("category") or "N/A")))
+    details.add_row("ACCESS", Text(access, style=access_style))
+    details.add_row(
+        "KEY REQUIRED",
+        Text("yes" if needs_key else "no", style=key_style),
+    )
     if needs_key and project.get("encryption_hint"):
-        print(f"[Jarvis] Key hint: {project.get('encryption_hint')}")
+        details.add_row(
+            "KEY HINT",
+            Text(str(project.get("encryption_hint")), style="dim"),
+        )
     if needs_key:
-        print(f"[Jarvis] Encryption: {project.get('encryption_scheme') or 'openssl-aes-256-cbc'}")
-    print(f"[Jarvis] Entrypoint: {project.get('entrypoint') or 'N/A'}")
-    print(f"[Jarvis] Compatibility notes: {project.get('compatibility_notes') or 'None'}")
+        details.add_row(
+            "ENCRYPTION",
+            Text(
+                str(project.get("encryption_scheme") or "openssl-aes-256-cbc"),
+                style="dim",
+            ),
+        )
+    details.add_row("ENTRYPOINT", Text(str(project.get("entrypoint") or "N/A")))
+    details.add_row(
+        "COMPATIBILITY",
+        Text(str(project.get("compatibility_notes") or "None"), style="dim"),
+    )
+
+    title = Text("Official project", style="bold")
+    title.append(" · ", style="dim")
+    title.append(str(project["name"]), style="bold #c8c8ff")
+    Console().print(
+        Panel(
+            details,
+            title=title,
+            box=box.ROUNDED,
+            border_style="dim",
+            padding=(0, 1),
+        )
+    )
     return EXIT_OK
 
 
@@ -1440,12 +1534,12 @@ def dispatch_project(project_argv: list[str] | None = None) -> int:
         archive, key = parsed
         return _run_project_encrypt(archive, key=key)
 
-    if command in {"browse", "list"}:
+    if command == "browse":
         if rest:
             if len(rest) == 1 and rest[0] in _HELP_FLAGS:
-                print("usage: Jarvis project list|browse\n")
+                print("usage: Jarvis project browse\n")
                 return EXIT_OK
-            print("[Jarvis] Usage: Jarvis project list|browse", file=sys.stderr)
+            print("[Jarvis] Usage: Jarvis project browse", file=sys.stderr)
             return EXIT_USAGE
         return _run_project_browse()
 

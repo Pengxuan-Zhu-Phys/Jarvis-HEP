@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import tarfile
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -304,13 +306,45 @@ class OfficialLibraryTests(unittest.TestCase):
             with self.assertRaises(OfficialCatalogError):
                 load_official_project_catalog()
 
-    def test_cli_list_and_browse(self) -> None:
+    def test_cli_browse_and_removed_list_command(self) -> None:
         with mock.patch(
             "jarvishep2.official_project_library._read_catalog_from_url",
             side_effect=OfficialCatalogError("offline"),
         ):
-            self.assertEqual(dispatch_project(["list"]), 0)
             self.assertEqual(dispatch_project(["browse"]), 0)
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                self.assertNotEqual(dispatch_project(["list"]), 0)
+
+    def test_cli_browse_uses_rich_project_panel(self) -> None:
+        output = io.StringIO()
+        with mock.patch(
+            "jarvishep2.official_project_library._read_catalog_from_url",
+            side_effect=OfficialCatalogError("offline"),
+        ), redirect_stdout(output):
+            self.assertEqual(dispatch_project(["browse"]), 0)
+
+        rendered = output.getvalue()
+        self.assertIn("Official library", rendered)
+        self.assertIn("NAME", rendered)
+        self.assertIn("CATEGORY", rendered)
+        self.assertIn("Key: required", rendered)
+        self.assertIn("Jarvis project fetch Eggbox", rendered)
+        self.assertIn("Jarvis project fetch iDM --key 'YOUR_KEY'", rendered)
+
+    def test_cli_info_uses_rich_project_card(self) -> None:
+        output = io.StringIO()
+        with mock.patch(
+            "jarvishep2.official_project_library._read_catalog_from_url",
+            side_effect=OfficialCatalogError("offline"),
+        ), redirect_stdout(output):
+            self.assertEqual(dispatch_project(["info", "Eggbox"]), 0)
+
+        rendered = output.getvalue()
+        self.assertIn("Official project", rendered)
+        self.assertIn("Eggbox", rendered)
+        self.assertIn("KEY REQUIRED", rendered)
+        self.assertIn("COMPATIBILITY", rendered)
+        self.assertIn("bin/Example_Bridson_Operas.yaml", rendered)
 
     def test_main_project_passthrough(self) -> None:
         code = main(["project", "-h"])
