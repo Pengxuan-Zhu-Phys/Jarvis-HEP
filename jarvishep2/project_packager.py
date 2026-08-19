@@ -38,6 +38,9 @@ ALWAYS_EXCLUDE_SUFFIXES = (
 SHARE_TOPLEVEL_DIRS = {
     "bin",
     "data",
+    # Dependency sources are required to make a shared project runnable. A
+    # project may opt out of individual dependency paths via ``pack.exclude``.
+    "deps",
     "outputs",
     "images",
 }

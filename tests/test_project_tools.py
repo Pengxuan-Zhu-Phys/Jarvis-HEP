@@ -123,6 +123,34 @@ class ProjectPackTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(man.manifest_path))
             self.assertEqual(man.profile, "repro")
 
+    def test_share_pack_includes_deps_unless_project_excludes_them(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("DependencyPack", cwd=tmp)
+            included = os.path.join(root, "deps", "runtime", "source.txt")
+            excluded = os.path.join(root, "deps", "private", "weights.bin")
+            calculator = os.path.join(root, "calculators", "cached", "main")
+            log = os.path.join(root, "logs", "run.log")
+            for path, content in (
+                (included, "required dependency"),
+                (excluded, "private dependency"),
+                (calculator, "local build"),
+                (log, "local log"),
+            ):
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(content)
+            with open(os.path.join(root, "jarvis.project.yaml"), "a", encoding="utf-8") as handle:
+                handle.write("\npack:\n  exclude:\n    - deps/private/\n")
+
+            report = create_project_package(root, profile="share")
+            with tarfile.open(report.archive_path, "r:gz") as tar:
+                names = tar.getnames()
+
+            self.assertIn("DependencyPack/deps/runtime/source.txt", names)
+            self.assertNotIn("DependencyPack/deps/private/weights.bin", names)
+            self.assertNotIn("DependencyPack/calculators/cached/main", names)
+            self.assertNotIn("DependencyPack/logs/run.log", names)
+
     def test_project_pack_excludes_are_local_and_apply_to_all_profiles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = create_project_scaffold("ExcludePrivate", cwd=tmp)

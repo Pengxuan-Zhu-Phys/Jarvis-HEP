@@ -92,6 +92,17 @@ Jarvis project pack . --full
 Jarvis project pack . --man    # write a pack manifest only
 ```
 
+`--share` includes the project markers, README, `bin/`, `data/`, `deps/`,
+`outputs/`, and `images/`. It deliberately excludes runtime `calculators/`,
+`logs/`, and `checkpoints/`. To omit a project-specific dependency subtree,
+declare it explicitly in `jarvis.project.yaml`:
+
+```yaml
+pack:
+  exclude:
+    - deps/private-models/
+```
+
 ### Restricted (encrypted) release — CLI only
 
 Do **not** run `openssl` by hand. Use:
