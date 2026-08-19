@@ -130,6 +130,9 @@ class Jarvis2Core:
         self._persisted_failed_count = 0
         self._managed_redis: ManagedRedisServer | None = None
         self._shutdown_done = False
+        # Captured after Archiver.stop() so the final CLI RunOutcome can use
+        # the post-flush count rather than the pre-shutdown snapshot.
+        self._final_archived_records: int | None = None
         self._interrupt_requested = False
         self._signal_handlers_installed = False
         self._previous_signal_handlers: dict[int, Any] = {}
@@ -873,8 +876,18 @@ class Jarvis2Core:
         samples = self._build_check_module_samples()
         if not samples:
             raise RuntimeError("Jarvis check produced an empty sample list")
+        # ``records_written`` is cumulative for an existing DATABASE.  A
+        # check may reuse the same output directory, so wait for the new
+        # archive delta instead of treating old rows as this run's results.
+        start_records = self._archiver_records_written()
         self.submit_samples(samples)
-        self.wait_for_results(len(samples), timeout=wait_timeout)
+        self.wait_for_results(
+            start_records + len(samples),
+            timeout=wait_timeout,
+            progress_total=len(samples),
+            progress_base=start_records,
+            require_worker_completion=True,
+        )
         self._finalize_sample_buckets()
         if verify_golden is not None:
             task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
@@ -1300,6 +1313,11 @@ class Jarvis2Core:
                     write_run_summary=write_run_summary and not self._interrupt_requested,
                 )
             finally:
+                if outcome is not None and self._final_archived_records is not None:
+                    outcome.archived = max(
+                        int(outcome.archived),
+                        int(self._final_archived_records),
+                    )
                 self._restore_control_signal_handlers()
 
     def check_modules(
@@ -2312,8 +2330,9 @@ class Jarvis2Core:
         poll_interval: float = 0.1,
         progress_total: int | None = None,
         progress_base: int | None = None,
+        require_worker_completion: bool = False,
     ) -> None:
-        """Block until Archiver has written ``expected`` records.
+        """Block until this batch is complete and Archiver has written its rows.
 
         When ``progress_total`` is set, emit V1-style ‰ completion heartbeats
         using archived count relative to ``progress_base`` (default 0).
@@ -2354,7 +2373,17 @@ class Jarvis2Core:
                     f"archived={written}/{expected}"
                 )
                 progress.update(done, extra=extra)
-            if written >= expected:
+            # DATABASE rows are cumulative.  Check-mode additionally asks for
+            # a terminal Worker count so an old row count cannot produce a
+            # false outcome with completed=0.  Keep the legacy archive-only
+            # barrier for normal scans, whose callers already establish their
+            # own worker/feedback barrier.
+            batch_workers_done = (
+                not require_worker_completion
+                or self.redis is None
+                or counters["ok"] + counters["failed"] >= total
+            )
+            if written >= expected and batch_workers_done:
                 if progress is not None:
                     progress.update(
                         total,
@@ -2374,9 +2403,12 @@ class Jarvis2Core:
                 return
             # Detect permanent stall: workers done, archive queue empty, count frozen.
             workers_done = (
-                counters["running"] == 0
-                and counters["queued"] == 0
-                and (counters["ok"] + counters["failed"]) >= total
+                self.redis is None
+                or (
+                    counters["running"] == 0
+                    and counters["queued"] == 0
+                    and counters["ok"] + counters["failed"] >= total
+                )
             )
             if workers_done and counters["archive_q"] == 0 and written == last_written:
                 if stall_since is None:
@@ -2631,6 +2663,10 @@ class Jarvis2Core:
                         )
                 except Exception as exc:
                     self._logger.warning("archiver stop failed -> %s", exc)
+                try:
+                    self._final_archived_records = self._archiver_records_written()
+                except Exception:
+                    self._final_archived_records = None
                 self.archiver = None
             if write_run_summary and self.factory is not None:
                 try:

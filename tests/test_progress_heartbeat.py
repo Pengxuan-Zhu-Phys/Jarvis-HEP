@@ -80,6 +80,55 @@ class WaitForResultsProgressTests(unittest.TestCase):
         # Final drain line remains INFO on Jarvis-HEP.
         self.assertTrue(any("sample drain complete" in line for line in info_messages))
 
+    def test_wait_for_results_uses_archive_baseline_and_worker_completion(self) -> None:
+        core = Jarvis2Core()
+        messages: list[str] = []
+
+        class _Log:
+            def debug(self, msg, *a, **k):  # noqa: ANN001
+                messages.append(str(msg) % a if a else str(msg))
+
+            def info(self, msg, *a, **k):  # noqa: ANN001
+                messages.append(str(msg) % a if a else str(msg))
+
+            def warning(self, msg, *a, **k):  # noqa: ANN001
+                messages.append(str(msg) % a if a else str(msg))
+
+        core._logger = _Log()  # type: ignore[assignment]
+        state = {"polls": 0}
+
+        class _Archiver:
+            @property
+            def records_written(self):
+                state["polls"] += 1
+                # Twenty rows already existed before this ten-sample batch.
+                return 20 if state["polls"] < 4 else 30
+
+        class _Redis:
+            def fetch_sample_stats(self):
+                if state["polls"] < 4:
+                    return {"completed": 0, "failed": 0, "running": 1}
+                return {"completed": 10, "failed": 0, "running": 0}
+
+            def get_queue_lengths(self):
+                if state["polls"] < 4:
+                    return {"task_queue_length": 9, "archive_queue_length": 0}
+                return {"task_queue_length": 0, "archive_queue_length": 0}
+
+        core.archiver = _Archiver()  # type: ignore[assignment]
+        core.redis = _Redis()  # type: ignore[assignment]
+        core.wait_for_results(
+            30,
+            timeout=2.0,
+            poll_interval=0.01,
+            progress_total=10,
+            progress_base=20,
+            require_worker_completion=True,
+        )
+
+        self.assertGreaterEqual(state["polls"], 4)
+        self.assertTrue(any("sample drain complete" in line for line in messages))
+
 
 if __name__ == "__main__":
     unittest.main()

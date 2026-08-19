@@ -353,6 +353,39 @@ class TopLevelLoggingTests(unittest.TestCase):
 
             self.assertIn("sample debug visible", terminal.getvalue())
 
+    def test_sample_terminal_raw_event_does_not_repeat_header(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            terminal = io.StringIO()
+            with redirect_stderr(terminal):
+                setup_jarvis_logging(
+                    log_dir=tmpdir,
+                    role="worker",
+                    console=True,
+                    console_level="DEBUG",
+                    use_queue=False,
+                )
+                sample_logger = SampleLogger.open(
+                    os.path.join(tmpdir, "sample.log"),
+                    module="Sample@raw-123",
+                    extra={
+                        "to_console": True,
+                        "sample_console_level": "DEBUG",
+                    },
+                )
+                sample_logger.info("structured sample line")
+                sample_logger.bind(raw=True).info("stdout line")
+                sample_logger.close()
+                shutdown_jarvis_logging()
+
+            text = terminal.getvalue()
+            self.assertIn("structured sample line", text)
+            self.assertIn("stdout line", text)
+            self.assertIn("·•· Sample@raw-123", text)
+            raw_tail = text.split("structured sample line", 1)[1]
+            self.assertIn("stdout line", raw_tail)
+            self.assertNotIn("·•· Sample@raw-123", raw_tail)
+            self.assertNotIn("stdout line\n\n", text)
+
     def test_bind_returns_new_adapter_without_mutating_parent(self):
         shutdown_jarvis_logging()
         parent = get_jarvis_logger("factory")  # default ·•· label "Jarvis-HEP.Factory"

@@ -338,7 +338,10 @@ class JarvisContextFormatter(logging.Formatter):
                     record.exc_text = self.formatException(record.exc_info)
                 if record.exc_text:
                     message = f"{message}\n{record.exc_text}" if message else record.exc_text
-            return message if message.endswith("\n") else f"{message}\n"
+            # StreamHandler appends its terminator after formatting.  Do not
+            # add another newline here, otherwise every raw subprocess line
+            # is rendered with a blank line between it and the next line.
+            return message
 
         module = self._module_label(record)
         timestamp = self.formatTime(record)

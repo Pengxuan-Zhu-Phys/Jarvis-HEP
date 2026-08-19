@@ -37,6 +37,7 @@ def _forward_sample_event(
     module: str,
     level: str,
     message: str,
+    raw: bool = False,
 ) -> None:
     """Forward an eligible sample event to the process terminal logger.
 
@@ -73,6 +74,11 @@ def _forward_sample_event(
         logger = get_jarvis_logger("worker", worker_id=worker_id).bind(
             jarvis_module=module
         )
+        # Preserve subprocess stdout/stderr passthrough semantics.  The
+        # SampleLogger backend already uses ``raw`` to omit the sample header;
+        # the terminal forwarding path must carry it through as well.
+        if raw:
+            logger = logger.bind(raw=True)
         logger.log(level_no, message)
     except Exception:
         # Logging must never make a sample calculation fail.
@@ -245,6 +251,7 @@ class SampleLogger:
             module=module,
             level=normalized_level,
             message=rendered,
+            raw=raw,
         )
 
     def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:
@@ -343,6 +350,7 @@ class BufferedSampleLogger:
             module=module,
             level=normalized_level,
             message=rendered,
+            raw=raw,
         )
 
     def debug(self, message: Any, *args: Any, **kwargs: Any) -> None:

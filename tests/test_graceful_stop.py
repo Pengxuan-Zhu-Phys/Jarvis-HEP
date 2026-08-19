@@ -173,19 +173,26 @@ class FinalArchiveVerificationTests(unittest.TestCase):
         core._finalize_nested_result_csv.assert_called_once_with()
         core._emit_plot_scenes.assert_called_once_with()
 
-    def test_check_run_skips_normal_exit_archive_verification(self) -> None:
+    def test_check_run_uses_final_archiver_snapshot_after_shutdown(self) -> None:
         core = self._make_core()
         core._apply_check_modules_runtime_policy = mock.Mock()  # type: ignore[method-assign]
         core.run_check_modules = mock.Mock(return_value=1)  # type: ignore[method-assign]
         core._wait_for_archive_caught_up = mock.Mock()  # type: ignore[method-assign]
         core._capture_run_outcome = mock.Mock(  # type: ignore[method-assign]
-            return_value=RunOutcome(submitted=1, completed=1, archived=1)
+            return_value=RunOutcome(submitted=1, completed=1, archived=57)
         )
+
+        def _shutdown(**_kwargs):
+            # Archiver flushes three remaining rows during shutdown.
+            core._final_archived_records = 60
+
+        core.shutdown = _shutdown  # type: ignore[method-assign]
 
         outcome = core.run(check_modules=True)
 
         self.assertTrue(outcome.ok)
         core._wait_for_archive_caught_up.assert_not_called()
+        self.assertEqual(outcome.archived, 60)
 
 
 if __name__ == "__main__":
