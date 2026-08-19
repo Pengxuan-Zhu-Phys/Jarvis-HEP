@@ -319,6 +319,19 @@ def _next_pack_id(output_dir: str) -> tuple[str, str]:
     raise ProjectPackError(f"No available pack manifest name in: {output_dir}")
 
 
+def _next_archive_name(output_dir: str, project_name: str, profile: str) -> str:
+    """Return a compact, collision-safe archive name for the current UTC hour."""
+    stamp = datetime.now(timezone.utc).strftime("%m%d%H")
+    prefix = f"{project_name}_{profile}_{stamp}"
+    for idx in range(1, 1000):
+        archive_name = f"{prefix}_{idx:02d}.tar.gz"
+        archive_path = os.path.join(output_dir, archive_name)
+        encrypted_path = archive_path + ".jenc"
+        if not os.path.exists(archive_path) and not os.path.exists(encrypted_path):
+            return archive_name
+    raise ProjectPackError(f"No available archive name in: {output_dir}")
+
+
 def _manifest_exclude_entries(excluded: list[tuple[str, str]]) -> list[str]:
     entries: list[str] = []
     seen: set[str] = set()
@@ -357,7 +370,7 @@ def create_project_pack_manifest(
     pack_id, manifest_path = _next_pack_id(output_dir)
 
     project_name = os.path.basename(os.path.normpath(target))
-    output_name = f"{project_name}_{profile}_{pack_id}.tar.gz"
+    output_name = _next_archive_name(output_dir, project_name, profile)
     exclude_entries = _manifest_exclude_entries(excluded)
     payload = {
         "pack_id": pack_id,
@@ -674,8 +687,7 @@ def create_project_package(project_root: str | None, profile: str = "repro") -> 
 
     project_name = os.path.basename(os.path.normpath(target))
     output_root = os.path.dirname(target)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    archive_name = f"{project_name}_{profile}_{timestamp}.tar.gz"
+    archive_name = _next_archive_name(output_root, project_name, profile)
     archive_path = os.path.join(output_root, archive_name)
 
     checksums: list[str] = []

@@ -8,6 +8,7 @@ import os
 import tarfile
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
 
 from jarvishep2.client import dispatch_project, main
@@ -90,6 +91,23 @@ class ProjectScaffoldTests(unittest.TestCase):
 
 
 class ProjectPackTests(unittest.TestCase):
+    def test_archive_names_use_hour_stamp_and_sequence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("NamedProject", cwd=tmp)
+            stamp = datetime.now(timezone.utc).strftime("%m%d%H")
+
+            first = create_project_package(root, profile="share")
+            second = create_project_package(root, profile="share")
+
+            self.assertEqual(
+                os.path.basename(first.archive_path),
+                f"NamedProject_share_{stamp}_01.tar.gz",
+            )
+            self.assertEqual(
+                os.path.basename(second.archive_path),
+                f"NamedProject_share_{stamp}_02.tar.gz",
+            )
+
     def test_pack_share_and_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = create_project_scaffold("PackMe", cwd=tmp)
