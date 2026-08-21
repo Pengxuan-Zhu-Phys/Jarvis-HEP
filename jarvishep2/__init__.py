@@ -26,7 +26,7 @@ from jarvishep2.sample import (
     materialize_failure_artifacts,
 )
 
-__version__ = "2.0.4"
+__version__ = "2.0.5"
 
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
     "Jarvis2Core": ("jarvishep2.core", "Jarvis2Core"),
