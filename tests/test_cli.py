@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -253,7 +254,7 @@ class CliDispatchTests(unittest.TestCase):
             extras={"ncall": 42},
         )
         logger = mock.Mock()
-        with mock.patch("jarvishep2.client.get_jarvis_logger", return_value=logger):
+        with mock.patch("jarvishep2.cli.run.get_jarvis_logger", return_value=logger):
             _log_outcome(outcome)
 
         logger.warning.assert_called_once_with(
@@ -374,6 +375,48 @@ class CliDispatchTests(unittest.TestCase):
         with mock.patch("jarvis_operas.cli.main", return_value=7) as operas_main:
             self.assertEqual(main(["operas", "list", "--namespace", "math"]), 7)
         operas_main.assert_called_once_with(["list", "--namespace", "math"])
+
+
+class CliImportIsolationTests(unittest.TestCase):
+    """D25.9: help/project chrome must not pull the runtime graph."""
+
+    _BANNED = (
+        "jarvishep2.worker",
+        "jarvishep2.core",
+        "jarvishep2.factory",
+        "jarvishep2.redis_queue",
+    )
+
+    def _assert_argv_stays_light(self, argv: list[str]) -> None:
+        banned = ", ".join(repr(name) for name in self._BANNED)
+        argv_literal = repr(list(argv))
+        script = f"""
+import sys
+from jarvishep2.client import main
+try:
+    code = main({argv_literal})
+except SystemExit as exc:
+    code = 0 if exc.code is None else int(exc.code)
+if code != 0:
+    raise SystemExit("unexpected exit " + str(code))
+loaded = [name for name in ({banned},) if name in sys.modules]
+if loaded:
+    raise SystemExit("unexpected modules: " + ",".join(loaded))
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=os.path.dirname(TESTS_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
+
+    def test_project_help_does_not_import_worker(self) -> None:
+        self._assert_argv_stays_light(["project", "--help"])
+
+    def test_top_level_help_does_not_import_worker(self) -> None:
+        self._assert_argv_stays_light(["-h"])
 
 
 if __name__ == "__main__":
