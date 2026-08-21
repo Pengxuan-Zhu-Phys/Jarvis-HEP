@@ -56,10 +56,14 @@ class SamplerCatalogConsistencyTests(unittest.TestCase):
 class SamplerCatalogImportIsolationTests(unittest.TestCase):
     _BANNED = (
         "jarvishep2.worker",
+        "jarvishep2.runtime.worker",
         "jarvishep2.Sampling.mcmc_sampler",
+        "jarvishep2.sampling.mcmc_sampler",
         "jarvishep2.Sampling.adaptive_bridson",
+        "jarvishep2.sampling.adaptive_bridson",
         "jarvishep2.distributor",
         "jarvishep2.core",
+        "jarvishep2.runtime.core",
     )
 
     def _assert_clean_import(self, module: str) -> None:
@@ -100,8 +104,11 @@ import jarvishep2.distributor
 loaded = [
     name for name in (
         'jarvishep2.Sampling.mcmc_sampler',
+        'jarvishep2.sampling.mcmc_sampler',
         'jarvishep2.Sampling.adaptive_bridson',
+        'jarvishep2.sampling.adaptive_bridson',
         'jarvishep2.Sampling.dynesty_sampler',
+        'jarvishep2.sampling.dynesty_sampler',
     )
     if name in sys.modules
 ]

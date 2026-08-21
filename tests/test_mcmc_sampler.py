@@ -153,16 +153,16 @@ class EngineUnitTests(unittest.TestCase):
 class DistributorMCMCTests(unittest.TestCase):
     def test_methods_use_concrete_module_hierarchy(self) -> None:
         expected_modules = {
-            "MCMC": "jarvishep2.Sampling.mcmc",
-            "ToyMCMC": "jarvishep2.Sampling.toymcmc",
-            "AMMCMC": "jarvishep2.Sampling.ammcmc",
-            "AM": "jarvishep2.Sampling.am",
-            "DRAM": "jarvishep2.Sampling.dram",
-            "EnsembleMCMC": "jarvishep2.Sampling.ensemble_mcmc",
-            "Ensemble": "jarvishep2.Sampling.ensemble_mcmc",
-            "DEMCMC": "jarvishep2.Sampling.demcmc",
-            "PTMCMC": "jarvishep2.Sampling.ptmcmc",
-            "PTEnsemble": "jarvishep2.Sampling.ptensemble",
+            "MCMC": "jarvishep2.sampling.mcmc",
+            "ToyMCMC": "jarvishep2.sampling.toymcmc",
+            "AMMCMC": "jarvishep2.sampling.ammcmc",
+            "AM": "jarvishep2.sampling.am",
+            "DRAM": "jarvishep2.sampling.dram",
+            "EnsembleMCMC": "jarvishep2.sampling.ensemble_mcmc",
+            "Ensemble": "jarvishep2.sampling.ensemble_mcmc",
+            "DEMCMC": "jarvishep2.sampling.demcmc",
+            "PTMCMC": "jarvishep2.sampling.ptmcmc",
+            "PTEnsemble": "jarvishep2.sampling.ptensemble",
         }
         for method, module_name in expected_modules.items():
             with self.subTest(method=method):

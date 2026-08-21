@@ -5,6 +5,10 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
+from jarvishep2._legacy_paths import install_legacy_paths
+
+install_legacy_paths()
+
 from jarvishep2.expression import (
     CompiledExpression,
     ExpressionContext,
@@ -29,12 +33,12 @@ from jarvishep2.sample import (
 __version__ = "2.0.5"
 
 _LAZY_ATTRS: dict[str, tuple[str, str]] = {
-    "Jarvis2Core": ("jarvishep2.core", "Jarvis2Core"),
-    "RedisQueue": ("jarvishep2.redis_queue", "RedisQueue"),
-    "TaskFactory": ("jarvishep2.factory", "TaskFactory"),
-    "TaskValidationError": ("jarvishep2.redis_queue", "TaskValidationError"),
-    "Worker": ("jarvishep2.worker", "Worker"),
-    "make_fakeredis_queue": ("jarvishep2.redis_queue", "make_fakeredis_queue"),
+    "Jarvis2Core": ("jarvishep2.runtime.core", "Jarvis2Core"),
+    "RedisQueue": ("jarvishep2.queue.redis_queue", "RedisQueue"),
+    "TaskFactory": ("jarvishep2.runtime.factory", "TaskFactory"),
+    "TaskValidationError": ("jarvishep2.queue.redis_queue", "TaskValidationError"),
+    "Worker": ("jarvishep2.runtime.worker", "Worker"),
+    "make_fakeredis_queue": ("jarvishep2.queue.redis_queue", "make_fakeredis_queue"),
 }
 
 __all__ = [

@@ -13,7 +13,7 @@ from jarvishep2.Sampling.mcmc_sampler import MCMCBaseSampler
 from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
 from jarvishep2.distributor import Distributor
 from jarvishep2.sampler_catalog import names
-from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2.Sampling.sampler import SamplingVirtual, SamplingVirtial
 
 
 class SamplingPublicSurfaceTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class SamplingPublicSurfaceTests(unittest.TestCase):
         self.assertIsInstance(sampler, MCMCSampler)
         self.assertIsInstance(sampler, MCMCBaseSampler)
         self.assertIs(type(sampler), MCMCSampler)
-        self.assertEqual(type(sampler).__module__, "jarvishep2.Sampling.mcmc")
+        self.assertEqual(type(sampler).__module__, "jarvishep2.sampling.mcmc")
 
     def test_mcmc_sampler_module_has_no_alias_or_factory_barrel(self) -> None:
         import jarvishep2.Sampling.mcmc_sampler as module
@@ -36,6 +36,8 @@ class SamplingPublicSurfaceTests(unittest.TestCase):
         import jarvishep2.Sampling as sampling
 
         self.assertIs(sampling.SamplingVirtial, SamplingVirtial)
+        self.assertIs(sampling.SamplingVirtual, SamplingVirtual)
+        self.assertIs(SamplingVirtial, SamplingVirtual)
         self.assertIs(sampling.CheckpointedSampler, CheckpointedSampler)
         self.assertIs(sampling.FeedbackSampler, FeedbackSampler)
         self.assertIn("MCMC", names())

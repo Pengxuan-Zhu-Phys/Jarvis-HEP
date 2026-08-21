@@ -316,10 +316,32 @@ class OfficialLibraryTests(unittest.TestCase):
                 self.assertNotEqual(dispatch_project(["list"]), 0)
 
     def test_cli_browse_uses_rich_project_panel(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "library_name": "official Jarvis library",
+            "projects": [
+                {
+                    "name": "Eggbox",
+                    "category": "sampling",
+                    "summary": "public share package",
+                    "access": "public",
+                    "requires_key": False,
+                    "entrypoint": "bin/Example_Bridson_Operas.yaml",
+                },
+                {
+                    "name": "iDM",
+                    "category": "dark-matter",
+                    "summary": "restricted share package",
+                    "access": "restricted",
+                    "requires_key": True,
+                    "entrypoint": "bin/task.yaml",
+                },
+            ],
+        }
         output = io.StringIO()
         with mock.patch(
-            "jarvishep2.official_project_library._read_catalog_from_url",
-            side_effect=OfficialCatalogError("offline"),
+            "jarvishep2.official_project_library._load_catalog_payload",
+            return_value=payload,
         ), redirect_stdout(output):
             self.assertEqual(dispatch_project(["browse"]), 0)
 

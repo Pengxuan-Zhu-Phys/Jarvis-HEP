@@ -382,9 +382,13 @@ class CliImportIsolationTests(unittest.TestCase):
 
     _BANNED = (
         "jarvishep2.worker",
+        "jarvishep2.runtime.worker",
         "jarvishep2.core",
+        "jarvishep2.runtime.core",
         "jarvishep2.factory",
+        "jarvishep2.runtime.factory",
         "jarvishep2.redis_queue",
+        "jarvishep2.queue.redis_queue",
     )
 
     def _assert_argv_stays_light(self, argv: list[str]) -> None:

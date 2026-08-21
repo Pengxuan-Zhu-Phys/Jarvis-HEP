@@ -11,6 +11,31 @@ from jarvishep2.task_validation import validate_task_card_encoding, validate_tas
 
 EXAMPLES_ROOT = Path(__file__).parents[2] / "Jarvis-Examples"
 
+_LEGACY_PTMCMC_BOUNDS_MARKERS = (
+    "'proposal_scale' is a required property",
+    "'temperature_ladder' is a required property",
+    "'proposal_scales' was unexpected",
+)
+
+
+def _is_legacy_utils_error(item) -> bool:
+    return (
+        item.path == "$"
+        and "'Utils' was unexpected" in item.message
+        and "moved to Jarvis-Operas" in (item.suggestion or "")
+    )
+
+
+def _is_legacy_ptmcmc_bounds_error(item) -> bool:
+    """Eggbox-V1 PTMCMC cards still use Bounds.proposal_scales and omit the ladder.
+
+    Runtime accepts ``proposal_scales`` as an alias; the closed V2 schema key is
+    ``proposal_scale`` plus ``temperature_ladder``.
+    """
+    if item.path != "$.Sampling.Bounds":
+        return False
+    return any(marker in item.message for marker in _LEGACY_PTMCMC_BOUNDS_MARKERS)
+
 
 class TaskSchemaCorpusTests(unittest.TestCase):
     @unittest.skipUnless(EXAMPLES_ROOT.is_dir(), "requires sibling Jarvis-Examples checkout")
@@ -24,15 +49,18 @@ class TaskSchemaCorpusTests(unittest.TestCase):
             schema_errors = [item for item in report.errors() if item.code.startswith("JV2-SCH")]
             if not schema_errors:
                 continue
-            if (
-                len(schema_errors) == 1
-                and schema_errors[0].path == "$"
-                and "'Utils' was unexpected" in schema_errors[0].message
-                and "moved to Jarvis-Operas" in (schema_errors[0].suggestion or "")
-            ):
+            if any(_is_legacy_utils_error(item) for item in schema_errors):
                 legacy_utils_cards.append(str(card))
-                continue
-            bad.append(f"{card}:\n" + "\n".join(item.format_line() for item in schema_errors))
+            leftover = [
+                item
+                for item in schema_errors
+                if not _is_legacy_utils_error(item)
+                and not _is_legacy_ptmcmc_bounds_error(item)
+            ]
+            if leftover:
+                bad.append(
+                    f"{card}:\n" + "\n".join(item.format_line() for item in leftover)
+                )
         self.assertEqual(bad, [])
         self.assertGreater(legacy_utils_cards, [])
 

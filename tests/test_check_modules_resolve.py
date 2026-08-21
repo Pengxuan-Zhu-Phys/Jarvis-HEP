@@ -90,7 +90,13 @@ class CheckModulesResolveTests(unittest.TestCase):
         core._finalize_sample_buckets = mock.Mock()  # type: ignore[method-assign]
         count = core.run_check_modules()
         self.assertEqual(count, 1)
-        core.wait_for_results.assert_called_once_with(1, timeout=12.5)
+        core.wait_for_results.assert_called_once_with(
+            1,
+            timeout=12.5,
+            progress_total=1,
+            progress_base=0,
+            require_worker_completion=True,
+        )
 
     def test_run_check_modules_cli_timeout_overrides_config(self) -> None:
         core = Jarvis2Core(
@@ -102,7 +108,13 @@ class CheckModulesResolveTests(unittest.TestCase):
         core.wait_for_results = mock.Mock()  # type: ignore[method-assign]
         core._finalize_sample_buckets = mock.Mock()  # type: ignore[method-assign]
         core.run_check_modules(timeout=3.0)
-        core.wait_for_results.assert_called_once_with(1, timeout=3.0)
+        core.wait_for_results.assert_called_once_with(
+            1,
+            timeout=3.0,
+            progress_total=1,
+            progress_base=0,
+            require_worker_completion=True,
+        )
 
 
 class CheckModulesBuildSamplesTests(unittest.TestCase):
