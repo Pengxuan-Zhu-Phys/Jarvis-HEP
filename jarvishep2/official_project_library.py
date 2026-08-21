@@ -16,9 +16,11 @@ from importlib import resources as importlib_resources
 import json
 import os
 import shutil
+import sys
 import tarfile
 import tempfile
-from urllib.parse import urlparse
+from typing import Any, Callable
+from urllib.parse import unquote, urlparse
 from urllib.request import urlopen
 import zipfile
 
@@ -45,6 +47,8 @@ USER_CATALOG_CACHE_PATH = os.path.join(
     os.path.expanduser("~"), ".jarvis", "cache", "official_catalog.json"
 )
 SUPPORTED_SCHEMA_MAJOR = 1
+_DOWNLOAD_CHUNK_SIZE = 64 * 1024
+_FETCH_ACCENT = "#c8c8ff"
 
 
 class OfficialLibraryError(RuntimeError):
@@ -352,22 +356,217 @@ def format_project_list_table(projects: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _download_archive(archive_url: str, target_path: str, timeout_sec: float) -> None:
+def _progress_wanted(progress: bool | None) -> bool:
+    if progress is not None:
+        return bool(progress)
+    try:
+        if not sys.stderr.isatty():
+            return False
+    except Exception:
+        return False
+    term = str(os.environ.get("TERM") or "").strip().lower()
+    return term not in {"", "dumb", "unknown"}
+
+
+def _archive_filename(archive_url: str) -> str:
+    name = os.path.basename(unquote(urlparse(archive_url).path or ""))
+    return name or "archive"
+
+
+def _file_url_path(archive_url: str) -> str | None:
+    parsed = urlparse(archive_url)
+    if parsed.scheme != "file":
+        return None
+    path = unquote(parsed.path or "")
+    if os.path.isfile(path):
+        return path
+    return None
+
+
+def _response_content_length(response: Any, archive_url: str) -> int | None:
+    headers = getattr(response, "headers", None)
+    raw = None
+    if headers is not None:
+        try:
+            raw = headers.get("Content-Length")
+        except Exception:
+            raw = None
+    if raw is not None:
+        try:
+            size = int(raw)
+            if size > 0:
+                return size
+        except (TypeError, ValueError):
+            pass
+    path = _file_url_path(archive_url)
+    if path is not None:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return None
+        if size > 0:
+            return size
+    return None
+
+
+class _FetchDownloadUI:
+    """Transient Rich panel + byte bar for ``Jarvis project fetch``."""
+
+    def __init__(
+        self,
+        project_name: str,
+        archive_url: str,
+        *,
+        enabled: bool,
+        console: Any | None = None,
+    ) -> None:
+        self.project_name = project_name
+        self.archive_name = _archive_filename(archive_url)
+        self.enabled = enabled
+        self._console = console
+        self._live: Any = None
+        self._progress: Any = None
+        self._task_id: Any = None
+        self.last_done = 0
+        self.last_total: int | None = None
+
+    def __enter__(self) -> "_FetchDownloadUI":
+        if not self.enabled:
+            return self
+        from rich import box
+        from rich.console import Console
+        from rich.live import Live
+        from rich.panel import Panel
+        from rich.progress import (
+            BarColumn,
+            DownloadColumn,
+            Progress,
+            SpinnerColumn,
+            TaskProgressColumn,
+            TextColumn,
+            TimeRemainingColumn,
+            TransferSpeedColumn,
+        )
+
+        console = self._console or Console(stderr=True, highlight=False)
+        accent = _FETCH_ACCENT
+        self._progress = Progress(
+            SpinnerColumn(style=f"bold {accent}"),
+            TextColumn(f"[bold {accent}]{{task.description}}"),
+            BarColumn(
+                bar_width=None,
+                style="grey37",
+                complete_style=f"bold {accent}",
+                finished_style="bold green",
+                pulse_style=accent,
+            ),
+            TaskProgressColumn(),
+            DownloadColumn(binary_units=True),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(compact=True),
+            auto_refresh=False,
+            expand=True,
+            console=console,
+        )
+        self._task_id = self._progress.add_task(
+            f"Connecting  {self.archive_name}",
+            total=None,
+        )
+        panel = Panel(
+            self._progress,
+            title=(
+                f"[bold]Jarvis project fetch[/] [dim]·[/] "
+                f"[bold {accent}]{self.project_name}[/]"
+            ),
+            subtitle="[dim]official library[/]",
+            box=box.ROUNDED,
+            border_style=accent,
+            padding=(0, 1),
+        )
+        self._live = Live(
+            panel,
+            console=console,
+            refresh_per_second=16,
+            transient=True,
+        )
+        self._live.start(refresh=True)
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if self._live is None:
+            return False
+        try:
+            if (
+                exc is None
+                and self._progress is not None
+                and self._task_id is not None
+            ):
+                total = self.last_total or self.last_done or 1
+                self._progress.update(
+                    self._task_id,
+                    description=f"Downloaded  {self.archive_name}",
+                    completed=total,
+                    total=total,
+                )
+                self._live.refresh()
+        finally:
+            self._live.stop()
+        return False
+
+    def on_bytes(self, done: int, total: int | None) -> None:
+        self.last_done = done
+        if total and total > 0:
+            self.last_total = total
+        if self._progress is None or self._task_id is None:
+            return
+        description = (
+            f"Download  {self.archive_name}"
+            if done
+            else f"Connecting  {self.archive_name}"
+        )
+        kwargs: dict[str, Any] = {"completed": done, "description": description}
+        if self.last_total:
+            kwargs["total"] = self.last_total
+        self._progress.update(self._task_id, **kwargs)
+        self._live.refresh()
+
+
+def _download_archive(
+    archive_url: str,
+    target_path: str,
+    timeout_sec: float,
+    *,
+    on_bytes: Callable[[int, int | None], None] | None = None,
+) -> int:
     parsed = urlparse(archive_url)
     if parsed.scheme not in {"https", "http", "file"}:
         raise OfficialProjectFetchError(
             f"Unsupported archive URL scheme: {parsed.scheme or '<none>'}"
         )
 
+    downloaded = 0
     try:
         with urlopen(archive_url, timeout=timeout_sec) as response, open(
             target_path, "wb"
-        ) as f1:
-            shutil.copyfileobj(response, f1)
+        ) as handle:
+            total = _response_content_length(response, archive_url)
+            if on_bytes is not None:
+                on_bytes(0, total)
+            while True:
+                chunk = response.read(_DOWNLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                downloaded += len(chunk)
+                if on_bytes is not None:
+                    on_bytes(downloaded, total)
+    except OfficialProjectFetchError:
+        raise
     except Exception as exc:
         raise OfficialProjectFetchError(
             f"Cannot download project archive: {archive_url} ({exc})"
         ) from exc
+    return downloaded
 
 
 def _is_within_directory(base: str, target: str) -> bool:
@@ -461,6 +660,8 @@ def fetch_official_project(
     index_url: str | None = None,
     timeout_sec: float | None = None,
     key: str | None = None,
+    progress: bool | None = None,
+    progress_console: Any | None = None,
 ) -> OfficialProjectFetchReport:
     project = get_official_project(project_name, index_url=index_url)
     archive_url = str(project.get("archive_url") or "").strip()
@@ -508,7 +709,18 @@ def fetch_official_project(
             staging_root = os.path.join(tmpdir, "staged")
             os.makedirs(extract_root, exist_ok=True)
 
-            _download_archive(archive_url, archive_path, timeout_sec=timeout)
+            with _FetchDownloadUI(
+                project["name"],
+                archive_url,
+                enabled=_progress_wanted(progress),
+                console=progress_console,
+            ) as download_ui:
+                _download_archive(
+                    archive_url,
+                    archive_path,
+                    timeout_sec=timeout,
+                    on_bytes=download_ui.on_bytes if download_ui.enabled else None,
+                )
             try:
                 plain_path = maybe_decrypt_archive(
                     archive_path,

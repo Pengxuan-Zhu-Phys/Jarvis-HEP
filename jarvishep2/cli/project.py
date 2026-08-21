@@ -385,11 +385,32 @@ def _run_project_fetch(project_name: str, *, key: str | None = None) -> int:
         print(f"[Jarvis] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
-    print(
-        f"[Jarvis] Official project '{report.project_name}' fetched to: {report.target_dir}"
+    access = str(report.access or "public")
+    access_style = "bold yellow" if access == "restricted" else "bold green"
+    details = Table.grid(padding=(0, 1))
+    details.add_column(style="bold dim", no_wrap=True)
+    details.add_column(ratio=1, overflow="fold")
+    details.add_row("SAVED TO", Text(report.target_dir, style="bold cyan"))
+    details.add_row("ACCESS", Text(access, style=access_style))
+    details.add_row(
+        "ENTRYPOINT",
+        Text(report.entrypoint or "N/A"),
     )
-    print(f"[Jarvis] Access: {report.access}")
-    print(f"[Jarvis] Entrypoint: {report.entrypoint or 'N/A'}")
+    if report.required_key:
+        details.add_row("KEY", Text("used", style="bold yellow"))
+
+    title = Text("Fetched", style="bold")
+    title.append(" · ", style="dim")
+    title.append(str(report.project_name), style="bold #c8c8ff")
+    Console().print(
+        Panel(
+            details,
+            title=title,
+            box=box.ROUNDED,
+            border_style="green",
+            padding=(0, 1),
+        )
+    )
     return EXIT_OK
 
 

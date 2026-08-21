@@ -18,7 +18,9 @@ from jarvishep2.official_project_library import (
     DEFAULT_OFFICIAL_LIBRARY_INDEX_URL,
     OfficialCatalogError,
     OfficialProjectFetchError,
+    OfficialProjectFetchReport,
     OfficialProjectNotFoundError,
+    _download_archive,
     fetch_official_project,
     format_project_list_table,
     get_official_project,
@@ -486,6 +488,110 @@ class ProjectCryptoTests(unittest.TestCase):
             self.assertEqual(report.project_name, "Mini")
             self.assertTrue(os.path.isfile(os.path.join(dest, "bin", "run.yaml")))
             self.assertTrue(report.required_key)
+
+    def test_download_archive_reports_byte_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "payload.bin")
+            payload = b"x" * ((64 * 1024) + 17)
+            with open(src, "wb") as handle:
+                handle.write(payload)
+            dest = os.path.join(tmp, "out.bin")
+            seen: list[tuple[int, int | None]] = []
+            size = _download_archive(
+                f"file://{src}",
+                dest,
+                timeout_sec=5.0,
+                on_bytes=lambda done, total: seen.append((done, total)),
+            )
+            self.assertEqual(size, len(payload))
+            self.assertGreaterEqual(len(seen), 2)
+            self.assertEqual(seen[0][0], 0)
+            self.assertEqual(seen[-1][0], len(payload))
+            self.assertEqual(seen[-1][1], len(payload))
+            with open(dest, "rb") as handle:
+                self.assertEqual(handle.read(), payload)
+
+    def test_fetch_renders_download_progress_bar(self) -> None:
+        from rich.console import Console
+
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = os.path.join(tmp, "Mini")
+            os.makedirs(os.path.join(proj, "bin"))
+            with open(
+                os.path.join(proj, ".jarvis-project.json"), "w", encoding="utf-8"
+            ) as handle:
+                json.dump(
+                    {"format": "jarvis-hep-standalone-project", "version": 1}, handle
+                )
+            with open(os.path.join(proj, "bin", "run.yaml"), "w", encoding="utf-8") as handle:
+                handle.write("Scan:\n  name: mini\n")
+            tar_path = os.path.join(tmp, "mini.tar.gz")
+            with tarfile.open(tar_path, "w:gz") as tar:
+                tar.add(proj, arcname="Mini")
+
+            payload = {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "Mini",
+                        "access": "public",
+                        "archive_url": f"file://{tar_path}",
+                        "archive_root": ".",
+                        "entrypoint": "bin/run.yaml",
+                    }
+                ],
+            }
+            dest = os.path.join(tmp, "out", "Mini")
+            buf = io.StringIO()
+            with mock.patch.dict(os.environ, {"TERM": "xterm-256color"}):
+                console = Console(
+                    file=buf,
+                    force_terminal=True,
+                    width=100,
+                    color_system="standard",
+                    highlight=False,
+                    legacy_windows=False,
+                )
+                with mock.patch(
+                    "jarvishep2.official_project_library._load_catalog_payload",
+                    return_value=payload,
+                ):
+                    report = fetch_official_project(
+                        "Mini",
+                        target_dir=dest,
+                        progress=True,
+                        progress_console=console,
+                    )
+            rendered = buf.getvalue()
+            self.assertEqual(report.project_name, "Mini")
+            self.assertTrue(os.path.isfile(os.path.join(dest, "bin", "run.yaml")))
+            self.assertIn("Jarvis project fetch", rendered)
+            self.assertIn("Mini", rendered)
+            self.assertIn("Download", rendered)
+            self.assertIn("mini.tar.gz", rendered)
+
+    def test_cli_fetch_uses_rich_success_panel(self) -> None:
+        report = OfficialProjectFetchReport(
+            project_name="Eggbox",
+            target_dir="/tmp/Eggbox",
+            entrypoint="bin/Example_Bridson_Operas.yaml",
+            access="public",
+            required_key=False,
+        )
+        output = io.StringIO()
+        with mock.patch(
+            "jarvishep2.official_project_library.fetch_official_project",
+            return_value=report,
+        ), redirect_stdout(output):
+            self.assertEqual(dispatch_project(["fetch", "Eggbox"]), 0)
+
+        rendered = output.getvalue()
+        self.assertIn("Fetched", rendered)
+        self.assertIn("Eggbox", rendered)
+        self.assertIn("SAVED TO", rendered)
+        self.assertIn("/tmp/Eggbox", rendered)
+        self.assertIn("ENTRYPOINT", rendered)
+        self.assertIn("bin/Example_Bridson_Operas.yaml", rendered)
 
 
 if __name__ == "__main__":
