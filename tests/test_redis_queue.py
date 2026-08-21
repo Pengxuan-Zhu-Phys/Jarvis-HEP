@@ -39,6 +39,24 @@ def _minimal_task(**overrides) -> dict:
     return payload
 
 
+class RedisQueueKeyspaceSplitTests(unittest.TestCase):
+    def test_public_type_composes_keyspace_mixins(self) -> None:
+        from jarvishep2._redis_calc_pool import _CalcPool
+        from jarvishep2._redis_control import _ControlAndHeartbeat
+        from jarvishep2._redis_sample_buckets import _SampleBuckets
+        from jarvishep2._redis_task_broker import _TaskBroker
+
+        names = {cls.__name__ for cls in RedisQueue.__mro__}
+        self.assertIn(_TaskBroker.__name__, names)
+        self.assertIn(_CalcPool.__name__, names)
+        self.assertIn(_SampleBuckets.__name__, names)
+        self.assertIn(_ControlAndHeartbeat.__name__, names)
+        self.assertTrue(callable(RedisQueue.push_task))
+        self.assertTrue(callable(RedisQueue.acquire_calc))
+        self.assertTrue(callable(RedisQueue.init_sample_buckets))
+        self.assertTrue(callable(RedisQueue.claim_control_lock))
+
+
 class RedisQueueKeyNamespaceTests(unittest.TestCase):
     def test_exact_key_strings_match_design(self):
         self.assertEqual(TASK_QUEUE, "hep:task_queue")
