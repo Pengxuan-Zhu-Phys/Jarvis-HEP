@@ -19,7 +19,7 @@ from jarvishep2.Sampling.Source.MCMC.config_contract import parse_common_chain_c
 from jarvishep2.Sampling.Source.MCMC.dram_chain import DRAMChain
 from jarvishep2.Sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.Sampling.mcmc_base import MCMCBaseSampler
-from jarvishep2.Sampling.mcmc_sampler import MCMCSampler, mcmc_sample_uuid
+from jarvishep2.Sampling.mcmc_sampler import mcmc_sample_uuid
 from jarvishep2.Sampling.ptmcmc import (
     PTMCMCSampler,
     normalize_temperature_ladder,
@@ -176,7 +176,7 @@ class DistributorMCMCTests(unittest.TestCase):
         for name in ("ToyMCMC", "MCMC", "AMMCMC", "AM", "DRAM", "PTMCMC"):
             self.assertNotIn(name, STATELESS_METHODS)
             sampler = Distributor.set_method(name)
-            self.assertIsInstance(sampler, MCMCSampler)
+            self.assertIsInstance(sampler, MCMCBaseSampler)
             self.assertEqual(Distributor.get_resume_status(name), "implemented")
 
     def test_ptmcmc_temperature_ladder_contract(self) -> None:
@@ -434,7 +434,7 @@ class DistributorMCMCTests(unittest.TestCase):
 
     def test_toymcmc_broadcasts_scalar_scale_to_all_chains(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
-        assert isinstance(sampler, MCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _mcmc_config(
                 method="ToyMCMC",
@@ -459,7 +459,7 @@ class DistributorMCMCTests(unittest.TestCase):
 
     def test_toymcmc_accepts_per_chain_scales_and_rejects_bad_length(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")
-        assert isinstance(sampler, MCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _mcmc_config(
                 method="ToyMCMC",
@@ -560,10 +560,10 @@ class FeedbackLoopTests(unittest.TestCase):
         niters: int = 8,
         workers: int = 2,
         seed: int = 11,
-    ) -> MCMCSampler:
+    ) -> MCMCBaseSampler:
         queue = make_fakeredis_queue()
         sampler = Distributor.set_method(method)
-        assert isinstance(sampler, MCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _mcmc_config(
                 method=method,
@@ -686,7 +686,7 @@ class FeedbackLoopTests(unittest.TestCase):
         def finals(workers: int) -> list[list[float]]:
             queue = make_fakeredis_queue()
             sampler = Distributor.set_method("MCMC")
-            assert isinstance(sampler, MCMCSampler)
+            assert isinstance(sampler, MCMCBaseSampler)
             with tempfile.TemporaryDirectory() as tmp:
                 cfg = _mcmc_config(
                     method="MCMC",
@@ -738,7 +738,7 @@ class FeedbackLoopTests(unittest.TestCase):
     def test_checkpoint_roundtrip(self) -> None:
         queue = make_fakeredis_queue()
         sampler = Distributor.set_method("AMMCMC")
-        assert isinstance(sampler, MCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _mcmc_config(
                 method="AMMCMC",
@@ -785,7 +785,7 @@ class FeedbackLoopTests(unittest.TestCase):
                 sampler.absorb_generation(results)
                 blob = sampler.export_runtime_state()
                 restored = Distributor.set_method("AMMCMC")
-                assert isinstance(restored, MCMCSampler)
+                assert isinstance(restored, MCMCBaseSampler)
                 restored.set_config(cfg)
                 restored.set_redis(queue)
                 restored.import_runtime_state(blob)
@@ -822,7 +822,7 @@ class CoreDRAMIntegrationTests(unittest.TestCase):
                 },
             )
             sampler = Distributor.set_method("DRAM")
-            assert isinstance(sampler, MCMCSampler)
+            assert isinstance(sampler, MCMCBaseSampler)
             sampler.set_config(cfg)
             self.assertEqual(sampler.method, "DRAM")
             self.assertEqual(sampler._nchains, 2)

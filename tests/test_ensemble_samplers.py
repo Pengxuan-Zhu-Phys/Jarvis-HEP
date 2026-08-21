@@ -17,7 +17,7 @@ from fakeredis import TcpFakeServer
 
 from jarvishep2.Sampling.Source.MCMC.engine_demcmc import DEMCMCChain
 from jarvishep2.Sampling.Source.MCMC.engine_ensemble import EnsembleChain
-from jarvishep2.Sampling.mcmc_sampler import MCMCSampler
+from jarvishep2.Sampling.mcmc_base import MCMCBaseSampler
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.factory import TaskFactory
@@ -154,7 +154,7 @@ class DistributorEnsembleTests(unittest.TestCase):
         ):
             self.assertNotIn(name, STATELESS_METHODS)
             sampler = Distributor.set_method(name)
-            self.assertIsInstance(sampler, MCMCSampler)
+            self.assertIsInstance(sampler, MCMCBaseSampler)
             self.assertEqual(Distributor.get_resume_status(name), "implemented")
 
 
@@ -168,10 +168,10 @@ class FeedbackLoopTests(unittest.TestCase):
         workers: int = 2,
         seed: int = 11,
         extra_bounds: dict[str, Any] | None = None,
-    ) -> MCMCSampler:
+    ) -> MCMCBaseSampler:
         queue = make_fakeredis_queue()
         sampler = Distributor.set_method(method)
-        assert isinstance(sampler, MCMCSampler)
+        assert isinstance(sampler, MCMCBaseSampler)
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _cfg(
                 method=method,
@@ -261,7 +261,7 @@ class FeedbackLoopTests(unittest.TestCase):
         def finals(workers: int) -> list[list[float]]:
             queue = make_fakeredis_queue()
             sampler = Distributor.set_method("EnsembleMCMC")
-            assert isinstance(sampler, MCMCSampler)
+            assert isinstance(sampler, MCMCBaseSampler)
             with tempfile.TemporaryDirectory() as tmp:
                 cfg = _cfg(
                     method="EnsembleMCMC",
@@ -334,7 +334,7 @@ class CoreEnsembleIntegrationTests(unittest.TestCase):
                 submitted = int(getattr(outcome, "submitted", 0) or 0)
                 self.assertGreater(submitted, 0)
                 sampler = core.sampler
-                assert isinstance(sampler, MCMCSampler)
+                assert isinstance(sampler, MCMCBaseSampler)
                 self.assertTrue(sampler.summary().get("half_ensemble"))
         finally:
             server.shutdown()

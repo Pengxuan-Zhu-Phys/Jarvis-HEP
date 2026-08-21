@@ -25,14 +25,16 @@ import inspect
 import os
 import pickle
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
 
 import numpy as np
 
-from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
+from jarvishep2.Sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
+from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
 from jarvishep2.contracts.nested import NESTED_CONSTRUCTOR_USER_KEYS
@@ -535,7 +537,7 @@ def export_dynesty_results_csv(
     return output
 
 
-class DynestySampler(FeedbackSampler):
+class DynestySampler(CheckpointedSampler):
     """YAML ``Sampling.Method: Dynesty``.
 
     Always uses **DynamicNestedSampler**. Static nested sampling is
@@ -549,6 +551,12 @@ class DynestySampler(FeedbackSampler):
 
     def __init__(self) -> None:
         super().__init__()
+        self._seed = 0
+        self._seed_seq: np.random.SeedSequence | None = None
+        self._batch_size = 16
+        self._pending_uuids: set[str] = set()
+        self._generation = 0
+        self._on_failure = "reject"
         self._logger = get_jarvis_logger("sampler.dynesty")
         self.vars: list = []
         self._mapper_pipeline = None
@@ -609,7 +617,7 @@ class DynestySampler(FeedbackSampler):
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         # Single source of truth: EnvReqs.V2.checkpoint_heartbeat_sec (via runtime).
-        # Used for dynesty nested_engine.pkl cadence and FeedbackSampler heartbeat.
+        # Used for dynesty nested_engine.pkl cadence.
         heartbeat = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
         self._checkpoint_every_sec = max(1.0, heartbeat)
         self._checkpoint_heartbeat_sec = self._checkpoint_every_sec
@@ -642,12 +650,60 @@ class DynestySampler(FeedbackSampler):
             self._run_nested_kwargs.pop(banned, None)
         self._engine_checkpoint_path = self._default_engine_checkpoint_path()
 
-    def propose_generation(self) -> Sequence[Sample] | None:
-        # Dynesty drives proposals via its own state machine + pool.map.
-        return None
+    def _init_seed_sequence(self, seed: int) -> None:
+        self._seed = int(seed)
+        self._seed_seq = np.random.SeedSequence(self._seed)
 
-    def absorb_generation(self, results: Sequence[Mapping[str, Any]]) -> None:
-        return None
+    def _ensure_seed_sequence(self) -> np.random.SeedSequence:
+        if self._seed_seq is None:
+            self._seed_seq = np.random.SeedSequence(self._seed)
+        return self._seed_seq
+
+    def _require_redis(self, what: str) -> RedisQueue:
+        if self.redis is None:
+            raise RuntimeError(f"{what} requires redis")
+        return self.redis
+
+    def at_safe_barrier(self) -> bool:
+        """Nested sampling checkpoints via dynesty save, not generation barriers."""
+        return True
+
+    def checkpoint_at_barrier(self, *, reason: str = "dynesty_finished") -> bool:
+        """Persist nested engine + state.pkl after a completed (or interrupted) run."""
+        redis = self.redis
+        scan_block = self.config.get("Scan")
+        scan_mapping = scan_block if isinstance(scan_block, Mapping) else {}
+        scan_name = str(
+            self.config.get("scan_name") or scan_mapping.get("name") or "scan"
+        )
+        if redis is not None and self._submitted_uuids:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                persisted = redis.get_archived_uuids(scan_name)
+                self.set_persisted_uuids(persisted)
+                if set(self._submitted_uuids) <= persisted:
+                    break
+                time.sleep(0.05)
+        return self.persist_runtime_checkpoint(force=True, reason=reason)
+
+    def _feedback_export_state(self) -> dict[str, Any]:
+        """Keep historical checkpoint keys so --resume payloads stay compatible."""
+        return {
+            "generation": int(self._generation or 0),
+            "pending_uuids": sorted(self._pending_uuids),
+            "seed": self._seed,
+            "submitted_uuids": list(self._submitted_uuids),
+            "control_state": self._checkpoint_control_state(),
+            "on_failure": self._on_failure,
+        }
+
+    def _feedback_import_state(self, state: Mapping[str, Any]) -> None:
+        self._generation = int(state.get("generation", 0) or 0)
+        self._pending_uuids = {str(item) for item in (state.get("pending_uuids") or [])}
+        self._seed = int(state.get("seed", self._seed) or self._seed)
+        self._seed_seq = np.random.SeedSequence(self._seed)
+        self._on_failure = str(state.get("on_failure") or self._on_failure or "reject")
+        self._import_checkpoint_control_state(state)
 
     def _build_sample_for_pool(self, payload: np.ndarray, uuid: str) -> Sample:
         """Build a Sample from unit-cube coords (uuid already assigned)."""
@@ -936,7 +992,7 @@ class DynestySampler(FeedbackSampler):
         except Exception:
             self._last_safe_state = {"method": self.method, "finished": self._finished}
         # Heartbeat only requests a flag for enum samplers.  Dynesty never polls
-        # it; keep a long interval no-op so FeedbackSampler machinery stays happy.
+        # it; keep a long interval no-op so CheckpointedSampler wiring stays happy.
         if self._checkpoint_heartbeat is not None:
             self._checkpoint_heartbeat.stop()
         interval = float(
