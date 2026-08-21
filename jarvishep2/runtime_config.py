@@ -15,7 +15,7 @@ from jarvishep2.yaml_types import require_bool
 
 
 RUNTIME_DEFAULTS: dict[str, Any] = {
-    "mode": "auto",
+    "mode": "redis",
     "workers": 0,
     "batch_size": 256,
     "sample_artifacts": "auto",
@@ -23,7 +23,10 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
 }
 
 VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
-VALID_RUNTIME_MODES = frozenset({"auto", "redis"})
+VALID_RUNTIME_MODES = frozenset({"redis"})
+# Historic Python configs used mode=auto to mean "not thread". V2 has no
+# thread path; treat leftover auto as redis so Factory is not skipped.
+_LEGACY_RUNTIME_MODE_ALIASES = {"auto": "redis"}
 VALID_ARCHIVER_MODES = frozenset({"thread", "process"})
 # Backward-compatible private aliases (tests / older imports).
 _VALID_SAMPLE_ARTIFACTS = VALID_SAMPLE_ARTIFACTS
@@ -158,6 +161,7 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         return runtime
 
     mode = str(raw.get("mode", runtime["mode"])).strip().lower()
+    mode = _LEGACY_RUNTIME_MODE_ALIASES.get(mode, mode)
     runtime["mode"] = mode if mode in _VALID_RUNTIME_MODES else RUNTIME_DEFAULTS["mode"]
 
     runtime["workers"] = _coerce_positive_int(raw.get("workers", runtime["workers"]), default=0)
@@ -345,33 +349,56 @@ def get_redis_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     return normalize_redis_config(None)
 
 
-def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Return normalized runtime knobs for samplers and Core.
+def _envreqs_v2(config: Mapping[str, Any]) -> dict[str, Any]:
+    envreqs = config.get("EnvReqs")
+    if not isinstance(envreqs, Mapping):
+        return {}
+    v2 = envreqs.get("V2")
+    return dict(v2) if isinstance(v2, Mapping) else {}
 
-    User-facing YAML lives under ``EnvReqs.V2`` (workers, batch_size,
-    ``checkpoint_heartbeat_sec``, …).  ``load_task_yaml`` projects those into
-    an internal ``Runtime`` adapter; this helper also reads ``EnvReqs.V2``
-    directly so ``set_config`` paths and unit tests that skip the loader still
-    see the same values.  ``EnvReqs.V2`` wins over a bare ``Runtime`` for the
-    supported scheduling scalars.
+
+def _runtime_payload_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Fold ``Runtime`` + ``EnvReqs.V2`` into one payload for normalization.
+
+    User YAML is ``EnvReqs.V2``. An internal ``Runtime`` adapter is the
+    normalized copy the rest of the process reads. Tests that skip the loader
+    and pass a raw dict still go through this collector.
     """
-    if not isinstance(config, Mapping):
-        return dict(RUNTIME_DEFAULTS)
     payload: dict[str, Any] = {}
     raw_runtime = config.get("Runtime")
     if isinstance(raw_runtime, Mapping):
         payload.update(dict(raw_runtime))
-    envreqs = config.get("EnvReqs")
-    if isinstance(envreqs, Mapping):
-        v2 = envreqs.get("V2")
-        if isinstance(v2, Mapping):
-            for key in ("workers", "batch_size", "checkpoint_heartbeat_sec"):
-                if key in v2:
-                    payload[key] = v2[key]
-            for key in ("redis", "factory", "worker"):
-                if key in v2 and key not in payload:
-                    payload[key] = v2[key]
-    return normalize_runtime_block(payload)
+    v2 = _envreqs_v2(config)
+    for key in ("workers", "batch_size", "checkpoint_heartbeat_sec"):
+        if key in v2:
+            payload[key] = v2[key]
+    if isinstance(v2.get("redis"), Mapping) and "redis" not in payload:
+        payload["redis"] = v2["redis"]
+    factory_settings = v2.get("factory")
+    if isinstance(factory_settings, Mapping) and "Factory" not in payload and "factory" not in payload:
+        factory_norm = normalize_factory_block(factory_settings)
+        payload["Factory"] = factory_norm
+        watchdog = factory_norm.get("watchdog")
+        if isinstance(watchdog, Mapping):
+            payload["Watchdog"] = dict(watchdog)
+    worker_settings = v2.get("worker")
+    if isinstance(worker_settings, Mapping):
+        worker_norm = normalize_worker_block(worker_settings)
+        payload["sample_artifacts"] = worker_norm["sample_artifacts"]
+        payload["force_serial_layers"] = worker_norm["force_serial_layers"]
+    return payload
+
+
+def get_runtime_block(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return the single normalized runtime mapping (D25.8).
+
+    Callers must not re-merge ``EnvReqs.V2`` themselves. The loader writes
+    ``config["Runtime"]`` from this function; skip-loader tests still work
+    because ``EnvReqs.V2`` is folded here before ``normalize_runtime_block``.
+    """
+    if not isinstance(config, Mapping):
+        return normalize_runtime_block(None)
+    return normalize_runtime_block(_runtime_payload_from_config(config))
 
 
 def workflow_has_calculator(config: Mapping[str, Any] | None) -> bool:

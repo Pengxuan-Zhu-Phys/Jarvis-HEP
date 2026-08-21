@@ -274,10 +274,10 @@ class WorkerMVPTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-    def test_core_skips_factory_when_mode_not_redis(self) -> None:
+    def test_legacy_mode_auto_is_redis(self) -> None:
         core = Jarvis2Core({"Runtime": {"mode": "auto"}})
-        self.assertFalse(core.is_redis_runtime())
-        self.assertIsNone(core.init_factory())
+        self.assertTrue(core.is_redis_runtime())
+        self.assertEqual(core.runtime["mode"], "redis")
 
     def test_worker_config_pickles_under_spawn_context(self) -> None:
         config = _worker_config(tempfile.mkdtemp())

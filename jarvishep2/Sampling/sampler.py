@@ -26,7 +26,7 @@ class SamplingVirtial:
         self.config: dict[str, Any] = {}
         self.info: dict[str, Any] = {}
         self.redis: RedisQueue | None = None
-        self.runtime_mode = "auto"
+        self.runtime_mode = "redis"
         self._execution_plan_template: list[dict[str, Any]] = []
         self._opera_modules: list[dict[str, Any]] = []
         self._calculator_modules: list[dict[str, Any]] = []
@@ -36,7 +36,7 @@ class SamplingVirtial:
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         self.config = dict(config_info)
         runtime = get_runtime_block(self.config)
-        self.runtime_mode = str(runtime.get("mode", "auto"))
+        self.runtime_mode = str(runtime.get("mode", "redis"))
         self._sample_artifacts = str(runtime.get("sample_artifacts", "auto"))
         if operas_expression_functions_required(self.config):
             self._expression_context = build_operas_expression_context(required=True)

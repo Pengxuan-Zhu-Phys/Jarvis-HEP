@@ -16,10 +16,7 @@ from jarvishep2.base import decode_path, infer_project_root, scan_output_root
 from jarvishep2.runtime_config import (
     CHECK_MODULES_DEFAULTS,
     SUPPORTED_ENVREQS_V2_KEYS,
-    normalize_factory_block,
-    normalize_redis_config,
-    normalize_runtime_block,
-    normalize_worker_block,
+    get_runtime_block,
 )
 
 
@@ -364,34 +361,9 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         config.get("task_result_dir")
         or scan_output_root(project_root=project_root, scan_name=scan_name)
     )
-    # Runtime adapter: scheduling scalars + optional redis/factory/worker groups.
-    runtime_payload: dict[str, Any] = {
-        "mode": "redis",
-        **{
-            key: value
-            for key, value in v2_settings.items()
-            if key in {"workers", "batch_size", "checkpoint_heartbeat_sec"}
-        },
-    }
-    if isinstance(v2_settings.get("redis"), Mapping):
-        runtime_payload["redis"] = normalize_redis_config(v2_settings["redis"])
-
-    factory_settings = v2_settings.get("factory")
-    if isinstance(factory_settings, Mapping):
-        factory_norm = normalize_factory_block(factory_settings)
-        runtime_payload["Factory"] = factory_norm
-        watchdog = factory_norm.get("watchdog")
-        if isinstance(watchdog, Mapping):
-            runtime_payload["Watchdog"] = deepcopy(watchdog)
-
-    worker_settings = v2_settings.get("worker")
-    if isinstance(worker_settings, Mapping):
-        worker_norm = normalize_worker_block(worker_settings)
-        runtime_payload["sample_artifacts"] = worker_norm["sample_artifacts"]
-        runtime_payload["force_serial_layers"] = worker_norm["force_serial_layers"]
-
-    runtime = normalize_runtime_block(runtime_payload)
-    config["Runtime"] = runtime
+    # Single runtime adapter: EnvReqs.V2 is the user surface; Runtime is the
+    # normalized read model. Readers must use get_runtime_block().
+    config["Runtime"] = get_runtime_block(config)
     config["task_yaml"] = task_path
     if defaults_path is not None:
         config["environment_defaults_path"] = os.path.abspath(defaults_path)

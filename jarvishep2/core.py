@@ -943,7 +943,7 @@ class Jarvis2Core:
 
     def is_redis_runtime(self) -> bool:
         """Return True when the distributed Redis path should be used."""
-        return str(self.runtime.get("mode", "auto")).strip().lower() == "redis"
+        return str(self.runtime.get("mode", "redis")).strip().lower() == "redis"
 
     def _resolve_checkpoint_sampler_name(self) -> str:
         """Directory name under ``checkpoints/<scan>/``.

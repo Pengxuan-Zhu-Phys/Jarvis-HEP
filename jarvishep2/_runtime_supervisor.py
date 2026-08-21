@@ -21,6 +21,7 @@ from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
     get_redis_config,
+    get_runtime_block,
     get_sample_directory_config,
     get_watchdog_config,
     pack_buckets_enabled,
@@ -287,9 +288,10 @@ class _RuntimeSupervisor:
         envreqs["V2"] = v2
         core.config["EnvReqs"] = envreqs
         runtime = dict(core.config.get("Runtime") or {})
-        runtime["redis"] = normalized
+        runtime.pop("redis", None)
         core.config["Runtime"] = runtime
-        core.runtime = runtime
+        core.config["Runtime"] = get_runtime_block(core.config)
+        core.runtime = core.config["Runtime"]
 
     def _control_lock_owner_id(self) -> str:
         core = self._core

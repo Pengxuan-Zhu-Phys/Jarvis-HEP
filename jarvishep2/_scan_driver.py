@@ -339,12 +339,6 @@ class _ScanDriver:
         """
         core = self._core
 
-        # --- single worker ---
-        runtime = dict(get_runtime_block(core.config))
-        runtime["workers"] = 1
-        core.config["Runtime"] = runtime
-        core.runtime = runtime
-
         envreqs = core.config.get("EnvReqs")
         envreqs = dict(envreqs) if isinstance(envreqs, Mapping) else {}
         v2 = envreqs.get("V2")
@@ -368,6 +362,8 @@ class _ScanDriver:
         v2["archiver"] = archiver
         envreqs["V2"] = v2
         core.config["EnvReqs"] = envreqs
+        core.config["Runtime"] = get_runtime_block(core.config)
+        core.runtime = core.config["Runtime"]
 
         # --- One calculator PackID only ---
         calculators = core.config.get("Calculators")
