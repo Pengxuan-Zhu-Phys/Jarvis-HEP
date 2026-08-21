@@ -110,7 +110,7 @@ class CoreRunDistributedTests(unittest.TestCase):
     def test_check_modules_via_cli_dispatch_mocked_runtime(self) -> None:
         from jarvishep2.client import main
 
-        with mock.patch("jarvishep2.client.Jarvis2Core") as core_cls:
+        with mock.patch("jarvishep2.core.Jarvis2Core") as core_cls:
             core = core_cls.return_value
             core.check_modules.return_value = 10
             code = main(["check", CHECK_MODULES_YAML])

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2.sampler_catalog import builtin_specs
 
 SamplerFactory = Callable[[], SamplingVirtial]
 
@@ -193,85 +194,89 @@ def _factory_dram() -> SamplingVirtial:
     return create_dram()
 
 
-def register_builtin_samplers(*, override: bool = True) -> None:
-    """Install the built-in V2 sampler set."""
-    Distributor.register(
-        "Bridson", _factory_bridson, stateless=True, resume="implemented", override=override
-    )
-    Distributor.register(
-        "Random", _factory_random, stateless=True, resume="implemented", override=override
-    )
-    Distributor.register(
-        "Grid", _factory_grid, stateless=True, resume="implemented", override=override
-    )
-    Distributor.register(
-        "CSV", _factory_csv, stateless=True, resume="implemented", override=override
-    )
-    Distributor.register(
-        "AdaptiveBridson",
-        _factory_adaptive_bridson,
-        stateless=False,
-        resume="implemented",
-        override=override,
-    )
-    # D13.2 — Metropolis family (feedback-driven).
-    for name, factory in (
-        ("MCMC", _factory_mcmc),
-        ("ToyMCMC", _factory_toymcmc),
-        ("AMMCMC", _factory_ammcmc),
-        ("AM", _factory_am),
-        ("DRAM", _factory_dram),
-    ):
-        Distributor.register(
-            name,
-            factory,
-            stateless=False,
-            resume="implemented",
-            override=override,
-        )
-    # D13.3 — Ensemble / DE / PT family.
+def _factory_ensemble_mcmc() -> SamplingVirtial:
+    from jarvishep2.Sampling.ensemble_mcmc import create_ensemble
+
+    return create_ensemble()
+
+
+def _factory_ensemble() -> SamplingVirtial:
+    from jarvishep2.Sampling.ensemble_mcmc import create_ensemble_alias
+
+    return create_ensemble_alias()
+
+
+def _factory_demcmc() -> SamplingVirtial:
     from jarvishep2.Sampling.demcmc import create_demcmc
-    from jarvishep2.Sampling.ensemble_mcmc import (
-        create_ensemble,
-        create_ensemble_alias,
-    )
-    from jarvishep2.Sampling.ptensemble import create_pt_ensemble
+
+    return create_demcmc()
+
+
+def _factory_ptmcmc() -> SamplingVirtial:
     from jarvishep2.Sampling.ptmcmc import create_ptmcmc
 
-    for name, factory in (
-        ("EnsembleMCMC", create_ensemble),
-        ("Ensemble", create_ensemble_alias),
-        ("DEMCMC", create_demcmc),
-        ("PTMCMC", create_ptmcmc),
-        ("PTEnsemble", create_pt_ensemble),
-    ):
-        Distributor.register(
-            name,
-            factory,
-            stateless=False,
-            resume="implemented",
-            override=override,
-        )
-    # D13.5 — Dynesty nested sampling (vendored + RedisEvaluationPool).
+    return create_ptmcmc()
+
+
+def _factory_ptensemble() -> SamplingVirtial:
+    from jarvishep2.Sampling.ptensemble import create_pt_ensemble
+
+    return create_pt_ensemble()
+
+
+def _factory_dynesty() -> SamplingVirtial:
     from jarvishep2.Sampling.dynesty_sampler import create_dynesty
 
-    Distributor.register(
-        "Dynesty",
-        create_dynesty,
-        stateless=False,
-        resume="implemented",  # dynesty native pickle engine + run_nested(resume=True)
-        override=override,
-    )
-    # MultiNest — V1 name for static NestedSampler (same stack as Dynesty).
+    return create_dynesty()
+
+
+def _factory_multinest() -> SamplingVirtial:
     from jarvishep2.Sampling.multinest_sampler import create_multinest
 
-    Distributor.register(
-        "MultiNest",
-        create_multinest,
-        stateless=False,
-        resume="implemented",
-        override=override,
-    )
+    return create_multinest()
+
+
+def _builtin_factories() -> dict[str, SamplerFactory]:
+    """YAML-name → lazy factory. Keys must match ``sampler_catalog``."""
+    return {
+        "Bridson": _factory_bridson,
+        "Random": _factory_random,
+        "CSV": _factory_csv,
+        "Grid": _factory_grid,
+        "AdaptiveBridson": _factory_adaptive_bridson,
+        "MCMC": _factory_mcmc,
+        "ToyMCMC": _factory_toymcmc,
+        "AMMCMC": _factory_ammcmc,
+        "AM": _factory_am,
+        "DRAM": _factory_dram,
+        "EnsembleMCMC": _factory_ensemble_mcmc,
+        "Ensemble": _factory_ensemble,
+        "DEMCMC": _factory_demcmc,
+        "PTMCMC": _factory_ptmcmc,
+        "PTEnsemble": _factory_ptensemble,
+        "Dynesty": _factory_dynesty,
+        "MultiNest": _factory_multinest,
+    }
+
+
+def register_builtin_samplers(*, override: bool = True) -> None:
+    """Install the built-in V2 sampler set from ``sampler_catalog``."""
+    factories = _builtin_factories()
+    missing = [spec.name for spec in builtin_specs() if spec.name not in factories]
+    extra = sorted(set(factories) - {spec.name for spec in builtin_specs()})
+    if missing or extra:
+        raise RuntimeError(
+            "sampler factory map drifted from sampler_catalog: "
+            f"missing={missing or 'none'} extra={extra or 'none'}"
+        )
+    for spec in builtin_specs():
+        Distributor.register(
+            spec.name,
+            factories[spec.name],
+            stateless=spec.stateless,
+            resume=spec.resume,
+            override=override,
+        )
 
 
 register_builtin_samplers()

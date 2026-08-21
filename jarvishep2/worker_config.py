@@ -120,28 +120,12 @@ def build_worker_config(
     )
     sampling_method = str((cfg.get("Sampling") or {}).get("Method", "")).strip()
     publish_feedback = bool(extra_payload.pop("publish_feedback", False))
-    # Feedback channel for stateful / feedback-driven samplers (ALS, MCMC family).
+    # Feedback channel for stateful / feedback-driven samplers.
     if not publish_feedback and sampling_method:
-        try:
-            from jarvishep2.distributor import STATELESS_METHODS
+        from jarvishep2.sampler_catalog import is_stateless
 
-            if sampling_method not in STATELESS_METHODS:
-                publish_feedback = True
-        except Exception:
-            if sampling_method in (
-                "AdaptiveBridson",
-                "MCMC",
-                "ToyMCMC",
-                "AMMCMC",
-                "AM",
-                "DRAM",
-                "EnsembleMCMC",
-                "Ensemble",
-                "DEMCMC",
-                "PTMCMC",
-                "PTEnsemble",
-            ):
-                publish_feedback = True
+        if not is_stateless(sampling_method):
+            publish_feedback = True
 
     from jarvishep2.Module.nuisance import extract_nuisance_config
     from jarvishep2.feedback_return import resolve_feedback_return

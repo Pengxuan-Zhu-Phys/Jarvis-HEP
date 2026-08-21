@@ -103,7 +103,7 @@ class ClientMonitorTests(unittest.TestCase):
 
         queue = make_fakeredis_queue()
         queue.connect()
-        with mock.patch("jarvishep2.client.RedisQueue", return_value=queue):
+        with mock.patch("jarvishep2.redis_queue.RedisQueue", return_value=queue):
             with mock.patch.object(queue, "connect", return_value=None):
                 with mock.patch.object(queue, "close", return_value=None):
                     # Documented legacy form is top-level --monitor, not bare YAML.

@@ -18,7 +18,7 @@ from jarvishep2.contracts.operational import validate_operational_blocks
 from jarvishep2.contracts.variables import validate_variables
 from jarvishep2.calculator_modes import validate_calculator_modes
 from jarvishep2.diagnostic_guidance import guidance_for
-from jarvishep2.distributor import Distributor
+from jarvishep2.sampler_catalog import available_methods
 from jarvishep2.task_schema import validate_task_card_schema
 from jarvishep2.task_config import get_check_modules_settings
 
@@ -463,7 +463,7 @@ def validate_task_config(
         default_data = str(settings.get("data") or "").strip()
 
         if method:
-            available_list = Distributor.available_methods()
+            available_list = available_methods()
             if method not in available_list:
                 # Invalid Method is only fatal if there is also no CSV path configured;
                 # a dedicated check card may leave a leftover Method and still use CSV.
@@ -506,7 +506,7 @@ def validate_task_config(
             )
     else:
         if not method:
-            available = ", ".join(Distributor.available_methods()) or "none"
+            available = ", ".join(available_methods()) or "none"
             report.add(
                 issue(
                     "error",
@@ -517,7 +517,7 @@ def validate_task_config(
                 )
             )
         else:
-            available_list = Distributor.available_methods()
+            available_list = available_methods()
             if method not in available_list:
                 report.add(
                     issue(

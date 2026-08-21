@@ -35,6 +35,7 @@ from jarvishep2.Sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
 from jarvishep2.Sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.Sampling.variables import load_variables
+from jarvishep2.contracts.nested import NESTED_CONSTRUCTOR_USER_KEYS
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
@@ -42,37 +43,6 @@ from jarvishep2.sample import Sample
 # Side-file basename next to Jarvis ``state.pkl`` for dynesty's native engine
 # pickle (live points, saved_run, rstate, bounds, internal_state, …).
 NESTED_ENGINE_FILENAME = "nested_engine.pkl"
-
-
-# Official NestedSampler / DynamicNestedSampler user-facing constructor keys
-# (excluding HEP-injected: loglikelihood, prior_transform, ndim, pool, rstate).
-NESTED_CONSTRUCTOR_USER_KEYS: frozenset[str] = frozenset(
-    {
-        "nlive",
-        "bound",
-        "sample",
-        "periodic",
-        "reflective",
-        "update_interval",
-        "first_update",
-        "queue_size",
-        "use_pool",
-        "live_points",
-        "logl_args",
-        "logl_kwargs",
-        "ptform_args",
-        "ptform_kwargs",
-        "enlarge",
-        "bootstrap",
-        "walks",
-        "facc",
-        "slices",
-        "ncdim",
-        "blob",
-        "save_evaluation_history",
-        "history_filename",
-    }
-)
 
 # NestedSampler.run_nested (static) — user-facing only.
 # Checkpoint cadence/path/resume are HEP-owned (EnvReqs.V2 + runtime).

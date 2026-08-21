@@ -14,48 +14,19 @@ from jarvishep2.contracts.common import (
 )
 from jarvishep2.contracts.nested import validate_nested_bounds
 from jarvishep2.contracts.variables import validate_variables
+from jarvishep2.sampler_catalog import (
+    mcmc_names,
+    methods_need_variables,
+    nested_names,
+)
 
 if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
-# Methods that need Sampling.Variables (CSV is fixed-set from file).
-_METHODS_NEED_VARIABLES: frozenset[str] = frozenset(
-    {
-        "Bridson",
-        "Random",
-        "Grid",
-        "AdaptiveBridson",
-        "MCMC",
-        "ToyMCMC",
-        "AMMCMC",
-        "AM",
-        "DRAM",
-        "EnsembleMCMC",
-        "Ensemble",
-        "DEMCMC",
-        "PTMCMC",
-        "PTEnsemble",
-        "Dynesty",
-        "MultiNest",
-    }
-)
-
-_NESTED_METHODS: frozenset[str] = frozenset({"Dynesty", "MultiNest"})
-
-_MCMC_METHODS: frozenset[str] = frozenset(
-    {
-        "MCMC",
-        "ToyMCMC",
-        "AMMCMC",
-        "AM",
-        "DRAM",
-        "EnsembleMCMC",
-        "Ensemble",
-        "DEMCMC",
-        "PTMCMC",
-        "PTEnsemble",
-    }
-)
+# Views of ``sampler_catalog`` (D25.1). CSV is the only method without Variables.
+_METHODS_NEED_VARIABLES: frozenset[str] = methods_need_variables()
+_NESTED_METHODS: frozenset[str] = nested_names()
+_MCMC_METHODS: frozenset[str] = mcmc_names()
 
 
 def method_needs_variables(method: str) -> bool:

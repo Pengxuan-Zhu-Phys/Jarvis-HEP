@@ -21,12 +21,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from jarvishep2.core import Jarvis2Core
-from jarvishep2.dashboard import attach_reader, format_monitor_view
-from jarvishep2.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.references import render_references
-from jarvishep2.redis_queue import INTERNAL_REDIS_CONFIG, RedisQueue
 from jarvishep2.run_outcome import (
     EXIT_INTERRUPTED,
     EXIT_OK,
@@ -773,9 +769,11 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
 
 def run_monitor(
     *,
-    factory: TaskFactory | None = None,
-    redis: RedisQueue | None = None,
+    factory: Any | None = None,
+    redis: Any | None = None,
 ) -> int:
+    from jarvishep2.dashboard import attach_reader, format_monitor_view
+
     reader = attach_reader(factory=factory, redis=redis)
     view = reader.read()
     if not view.has_active_scan():
@@ -830,6 +828,9 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         print("Redis runtime metadata does not match the selected control process.", file=sys.stderr)
         return EXIT_RUN_FAILED
     redis_config = dict(metadata["redis"])
+    from jarvishep2.factory import TaskFactory
+    from jarvishep2.redis_queue import RedisQueue
+
     factory = TaskFactory(redis_config)
     try:
         factory.init_redis()
@@ -874,6 +875,7 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     if not task_yaml:
         print("Task YAML is required (usage: Jarvis gen-plot-yaml TASK.yaml).", file=sys.stderr)
         return EXIT_USAGE
+    from jarvishep2.core import Jarvis2Core
     from jarvishep2.task_config import TaskCardLoadError
 
     try:
@@ -1655,9 +1657,9 @@ def dispatch_validate(
         return EXIT_USAGE
 
     try:
-        core = Jarvis2Core()
-        # Load without gate, then validate once with full control over output.
-        core.load_task_yaml(task_yaml, validate=False)
+        from jarvishep2.task_config import load_task_yaml
+
+        config = load_task_yaml(task_yaml)
     except FileNotFoundError as exc:
         _emit_load_diagnostic(
             task_yaml=task_yaml, code="JV2-LOAD-001", message=str(exc),
@@ -1677,13 +1679,13 @@ def dispatch_validate(
         return EXIT_USAGE
 
     report = validate_task_config(
-        core.config, strict=strict, check_modules=check_modules
+        config, strict=strict, check_modules=check_modules
     )
     if as_json:
         payload = {
             "ok": report.ok,
-            "task_yaml": str(core.config.get("task_yaml") or task_yaml),
-            "scan_name": str(core.config.get("scan_name") or ""),
+            "task_yaml": str(config.get("task_yaml") or task_yaml),
+            "scan_name": str(config.get("scan_name") or ""),
             "issues": [
                 {
                     "level": i.level,
@@ -1723,6 +1725,7 @@ def dispatch_convert(task_yaml: str) -> int:
         print("Task YAML is required for convert.", file=sys.stderr)
         return EXIT_USAGE
 
+    from jarvishep2.core import Jarvis2Core
     from jarvishep2.task_config import TaskCardLoadError
 
     try:
@@ -1768,6 +1771,7 @@ def dispatch_run(
         print("Task YAML is required.", file=sys.stderr)
         return EXIT_USAGE
 
+    from jarvishep2.core import Jarvis2Core
     from jarvishep2.task_config import TaskCardLoadError
 
     try:

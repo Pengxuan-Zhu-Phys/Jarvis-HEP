@@ -15,6 +15,7 @@ from jarvishep2.task_schema import (
 from jarvishep2.task_validation import validate_task_config
 from jarvishep2.io_portal import available_io_formats
 from jarvishep2.distributor import Distributor
+from jarvishep2.sampler_catalog import names as catalog_names, schema_ids
 
 
 def _card() -> dict:
@@ -323,6 +324,8 @@ class TaskCardSchemaTests(unittest.TestCase):
         method_schemas = manifest["sampling_methods"]
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
         self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
+        self.assertEqual(set(method_schemas), set(catalog_names()))
+        self.assertEqual(dict(method_schemas), schema_ids())
 
     def test_toymcmc_schema_and_per_chain_scale_contract(self) -> None:
         card = _card()

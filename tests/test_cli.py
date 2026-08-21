@@ -63,7 +63,7 @@ class CliParseTests(unittest.TestCase):
 
         core = mock.Mock()
         core.run.return_value = RunOutcome(submitted=1, completed=1)
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             self.assertEqual(dispatch(args), EXIT_OK)
         core.set_logging_options.assert_called_once_with(
             console_level="DEBUG", silence=False
@@ -276,7 +276,7 @@ class CliDispatchTests(unittest.TestCase):
         core.check_modules.return_value = RunOutcome(
             submitted=10, completed=10, failed=0, archived=10
         )
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_OK)
         core.load_task_yaml.assert_called_once_with(
@@ -299,7 +299,7 @@ class CliDispatchTests(unittest.TestCase):
         core.run.return_value = RunOutcome(
             submitted=10, completed=10, failed=0, archived=10
         )
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_OK)
         core.run.assert_called_once_with(resume=True)
@@ -311,7 +311,7 @@ class CliDispatchTests(unittest.TestCase):
         core.run.return_value = RunOutcome(
             submitted=5, completed=0, failed=5, archived=5
         )
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_RUN_FAILED)
 
@@ -321,7 +321,7 @@ class CliDispatchTests(unittest.TestCase):
         core.run.return_value = RunOutcome(
             submitted=5, completed=3, failed=2, archived=5
         )
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_RUN_FAILED)
 
@@ -340,7 +340,7 @@ class CliDispatchTests(unittest.TestCase):
         args = build_parser().parse_args(["run", CHECK_MODULES_YAML])
         core = mock.Mock()
         core.run.side_effect = NotImplementedError("unsupported sampler")
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_USAGE)
 

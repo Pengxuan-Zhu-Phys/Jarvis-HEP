@@ -128,7 +128,7 @@ class ConvertCliTests(unittest.TestCase):
                 "rows": 3,
             }
         ]
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch(args)
         self.assertEqual(code, EXIT_OK)
         core.load_task_yaml.assert_called_once_with("/tmp/task.yaml", validate=False)
@@ -137,7 +137,7 @@ class ConvertCliTests(unittest.TestCase):
     def test_dispatch_convert_missing_db_fails(self) -> None:
         core = mock.Mock()
         core.convert.return_value = []
-        with mock.patch("jarvishep2.client.Jarvis2Core", return_value=core):
+        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
             code = dispatch_convert("task.yaml")
         self.assertEqual(code, EXIT_RUN_FAILED)
 

@@ -24,6 +24,14 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from jarvishep2.sampler_catalog import (
+    family_of,
+    mcmc_coupled_names,
+    mcmc_independent_names,
+    mcmc_names,
+    nested_names,
+    spec_for,
+)
 from jarvishep2.task_schema import (
     resolve_schema_ref,
     schema_by_id,
@@ -997,41 +1005,12 @@ def _bounds_schema_for_method(method: str) -> tuple[dict[str, Any], str]:
     return {}, method
 
 
-_NESTED_SAMPLER_METHODS = frozenset({"Dynesty", "MultiNest"})
-_MCMC_SAMPLER_METHODS = frozenset(
-    {
-        "MCMC",
-        "ToyMCMC",
-        "AMMCMC",
-        "AM",
-        "DRAM",
-        "EnsembleMCMC",
-        "Ensemble",
-        "DEMCMC",
-        "PTMCMC",
-        "PTEnsemble",
-    }
-)
+_NESTED_SAMPLER_METHODS = nested_names()
+_MCMC_SAMPLER_METHODS = mcmc_names()
 # Independent chains: async 1-inflight pipeline + per-chain feedback shards.
-_MCMC_INDEPENDENT_METHODS = frozenset(
-    {
-        "MCMC",
-        "ToyMCMC",
-        "AMMCMC",
-        "AM",
-        "DRAM",
-    }
-)
+_MCMC_INDEPENDENT_METHODS = mcmc_independent_names()
 # Cross-chain science barriers (half-ensemble and/or temperature exchange).
-_MCMC_COUPLED_METHODS = frozenset(
-    {
-        "EnsembleMCMC",
-        "Ensemble",
-        "DEMCMC",
-        "PTMCMC",
-        "PTEnsemble",
-    }
-)
+_MCMC_COUPLED_METHODS = mcmc_coupled_names()
 _MCMC_RUNTIME_TOPICS = frozenset(
     {
         "mcmc-runtime",
@@ -1044,13 +1023,7 @@ _MCMC_RUNTIME_TOPICS = frozenset(
 
 def _sampler_type(method: str) -> str:
     """Return the public sampler family shown by ``Jarvis man sampler``."""
-    if method == "AdaptiveBridson":
-        return "adaptive"
-    if method in _NESTED_SAMPLER_METHODS:
-        return "nested"
-    if method in _MCMC_SAMPLER_METHODS:
-        return "MCMC"
-    return "simple"
+    return family_of(method)
 
 
 def _mcmc_pipeline_kind(method: str) -> str | None:
@@ -1232,12 +1205,8 @@ def _method_page(method: str) -> dict[str, Any]:
     status = _schema_status(root)
     bounds_schema, _ = _bounds_schema_for_method(canonical)
     keys = _key_entries(bounds_schema) if status == "stable" else []
-    try:
-        from jarvishep2.distributor import Distributor as Dist
-
-        resume = Dist.get_resume_status(canonical)
-    except Exception:
-        resume = "unknown"
+    spec = spec_for(canonical)
+    resume = spec.resume if spec is not None else "unknown"
 
     summary = _clean_man_prose(root.get("description") or f"Sampling.Method = {canonical}")
     if status == "unstable":

@@ -22,6 +22,7 @@ from jarvishep2.Sampling.variables import Variable
 from jarvishep2.expression import ExpressionContext
 from jarvishep2.inner_func import EXPRESSION_CONSTANTS
 from jarvishep2.sample import UMapperProtocol
+from jarvishep2.sampler_catalog import statistical_names
 
 # DATABASE / Sample reserved column names (must not appear as derive targets).
 _DATABASE_RESERVED: frozenset[str] = frozenset(
@@ -31,22 +32,7 @@ _CONSTANT_RESERVED: frozenset[str] = frozenset(EXPRESSION_CONSTANTS)
 
 # Statistical samplers: dimension expansion / nonlinear reparameterization
 # warnings (JV2-MAP-050 / 051). Coverage-style methods stay silent.
-STATISTICAL_METHODS: frozenset[str] = frozenset(
-    {
-        "Dynesty",
-        "MultiNest",
-        "MCMC",
-        "ToyMCMC",
-        "AMMCMC",
-        "AM",
-        "DRAM",
-        "EnsembleMCMC",
-        "Ensemble",
-        "DEMCMC",
-        "PTMCMC",
-        "PTEnsemble",
-    }
-)
+STATISTICAL_METHODS: frozenset[str] = statistical_names()
 
 
 @dataclass(frozen=True)

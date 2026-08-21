@@ -71,13 +71,11 @@ jarvishep2 = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: long-running or Redis-backed runtime tests (run with: pytest -m slow)",
+]
 addopts = [
-    "--ignore=tests/test_adaptive_bridson.py",
-    "--ignore=tests/test_ensemble_samplers.py",
-    "--ignore=tests/test_distributed_acceptance.py",
-    "--ignore=tests/test_distributed_resume.py",
-    "--ignore=tests/test_mcmc_sampler.py",
-    "--ignore=tests/test_worker_pool.py",
-    "--ignore=tests/test_variable_distributions.py",
-    "--ignore=tests/test_worker_failure.py",
+    # Fast gate. tests/conftest.py drops this when a .py file is named on the CLI
+    # so `pytest tests/test_mcmc_sampler.py` still runs that module.
+    "-m not slow",
 ]

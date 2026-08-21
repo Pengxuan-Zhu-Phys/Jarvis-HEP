@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Jarvis control-process orchestrator for the distributed runtime."""
+"""Jarvis control-process orchestrator for the distributed runtime.
+
+D25.3: ``Jarvis2Core`` is the public façade. Redis/Factory/Archiver bring-up
+lives on ``_RuntimeSupervisor``, scan loops on ``_ScanDriver``, and checkpoint
+resume on ``_ResumeService``. Public ``run()`` / ``shutdown()`` signatures are
+unchanged; tests and ``client.dispatch_run`` still construct this class.
+"""
 
 from __future__ import annotations
 
@@ -78,7 +84,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     save_checkpoint,
 )
 from jarvishep2.Sampling.sampler import SamplingVirtial
-from jarvishep2.testing.check_modules import (
+from jarvishep2.check_modules import (
     build_check_module_samples,
     verify_check_modules_golden,
 )
@@ -102,8 +108,13 @@ from jarvishep2.task_validation import (
 )
 
 
+from jarvishep2._resume_service import _ResumeService
+from jarvishep2._runtime_supervisor import _RuntimeSupervisor
+from jarvishep2._scan_driver import _ScanDriver
+
+
 class Jarvis2Core:
-    """Minimal distributed run orchestrator for the D1.1 opera-only MVP."""
+    """Distributed run façade: load/validate/run, holding private collaborators."""
 
     def __init__(self, config: Mapping[str, Any] | None = None) -> None:
         self.config = dict(config or {})
@@ -143,8 +154,31 @@ class Jarvis2Core:
         self._console_level: str = "WARNING"
         # D13.9: last gate report (re-logged after init_logger so console/file see it).
         self._validation_report: ValidationReport | None = None
+        self._runtime = _RuntimeSupervisor(self)
+        self._scan = _ScanDriver(self)
+        self._resume = _ResumeService(self)
         # Last-resort cleanup if the process exits without an orderly finally.
         atexit.register(self._atexit_cleanup)
+
+    def _ensure_collaborators(self) -> None:
+        if getattr(self, "_runtime", None) is None:
+            self._runtime = _RuntimeSupervisor(self)
+        if getattr(self, "_scan", None) is None:
+            self._scan = _ScanDriver(self)
+        if getattr(self, "_resume", None) is None:
+            self._resume = _ResumeService(self)
+
+    def _get_runtime(self) -> _RuntimeSupervisor:
+        self._ensure_collaborators()
+        return self._runtime
+
+    def _get_scan(self) -> _ScanDriver:
+        self._ensure_collaborators()
+        return self._scan
+
+    def _get_resume(self) -> _ResumeService:
+        self._ensure_collaborators()
+        return self._resume
 
     def set_logging_options(
         self,
@@ -442,8 +476,7 @@ class Jarvis2Core:
 
     def prepare_resume(self, *, resume: bool = False, fresh: bool = False) -> None:
         """Preload checkpoint state before sampler bring-up (CLI ``--resume``)."""
-        self._preload_resume_checkpoint(resume=resume, fresh=fresh)
-        self._resume_checkpoint_preloaded = True
+        return self._get_resume().prepare_resume(resume=resume, fresh=fresh)
 
     def init_sampler_from_config(self) -> SamplingVirtial:
         method = sampling_method(self.config)
@@ -498,127 +531,11 @@ class Jarvis2Core:
 
     def bootstrap_distributed_runtime(self) -> None:
         """Bring up Redis, Workers, and Archiver for a distributed run."""
-        if not self.is_redis_runtime():
-            raise RuntimeError("distributed runtime requires the internal Redis runtime")
-        from jarvishep2.process_cleanup import ensure_scan_name_available
-
-        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
-        ensure_scan_name_available(scan_name, cleanup_stale=self._resume_policy == "resume")
-        db_path = os.path.join(
-            str(self.info.get("task_result_dir") or os.getcwd()),
-            "DATABASE",
-            "samples.hdf5",
-        )
-        if self._resume_policy == "resume":
-            try:
-                # Control must not open samples.hdf5 for append (write lock would
-                # block Archiver). Only clear SWMR flags / reclaim stale Archivers.
-                # Logs a single summary line internally when recovery runs.
-                prepare_hdf5_database_for_writer(
-                    db_path,
-                    logger=self._logger,
-                    scan_name=scan_name,
-                    probe_append=False,
-                )
-            except Exception as exc:
-                # Non-fatal at this early stage — Archiver will retry recover on open.
-                self._logger.warning(
-                    "Early HDF5 prepare failed (will retry at Archiver start): %s",
-                    exc,
-                )
-        if self._resume_policy == "resume":
-            self._load_persisted_database_state(os.path.dirname(db_path))
-        self.init_logger()
-        # Preflight remains before command setup, Redis, Workers, and Archiver,
-        # while init_logger above ensures all outcomes reach core.log.
-        self.check_environment_requirements()
-        # LibDeps is globally shared.  Resolve its V1 tokens with no registered
-        # executable side effects, install/reuse it once, then register tools.
-        root_path = self._environment_summary.get("ROOT path")
-        library_parser = build_command_parser(
-            self.config,
-            root_path=str(root_path) if root_path else None,
-            register_executables=False,
-        )
-        self.prepare_libraries(parser=library_parser)
-        self.init_command_parser()
-        self.init_redis()
-        self._claim_redis_control_lock()
-        self._publish_runtime_metadata()
-        if self._resume_policy != "resume":
-            self._reset_redis_for_fresh_run()
-        self.init_sampler_from_config()
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_uuids"):
-            self.sampler.set_persisted_uuids(self._persisted_uuids)
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_prefix"):
-            self.sampler.set_persisted_prefix(self._persisted_index_prefix)
-        if (
-            self._resume_policy == "resume"
-            and self.sampler is not None
-            and hasattr(self.sampler, "advance_to_persisted_prefix")
-        ):
-            self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
-        self._init_sample_buckets()
-        self.init_factory()
-        # Immediately before Archiver spawn: reclaim orphan Archivers only —
-        # still no append-open in Control (probe_append=False).
-        if self._resume_policy == "resume" and os.path.isfile(db_path):
-            try:
-                # Only re-runs work if the file is still dirty; one summary log max.
-                prepare_hdf5_database_for_writer(
-                    db_path,
-                    logger=self._logger,
-                    scan_name=scan_name,
-                    probe_append=False,
-                )
-            except Exception as exc:
-                self._logger.warning(
-                    "Pre-Archiver HDF5 prepare failed (Archiver will retry): %s",
-                    exc,
-                )
-        self.init_archiver(db_path)
-        self._load_persisted_database_state(os.path.dirname(db_path))
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_uuids"):
-            self.sampler.set_persisted_uuids(self._persisted_uuids)
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_prefix"):
-            self.sampler.set_persisted_prefix(self._persisted_index_prefix)
-        if (
-            self._resume_policy == "resume"
-            and self.sampler is not None
-            and hasattr(self.sampler, "advance_to_persisted_prefix")
-        ):
-            self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
-        if self._resume_policy == "resume":
-            self._logger.warning(
-                "Resume DATABASE reconciliation found prefix=%d, "
-                "completed=%d failed=%d, %d legacy UUID(s)",
-                self._persisted_index_prefix,
-                max(0, self._persisted_records_count - self._persisted_failed_count),
-                self._persisted_failed_count,
-                len(self._persisted_uuids),
-            )
-            # Nested / feedback engines: ensure runtime state was applied once Redis
-            # and DATABASE facts exist (idempotent if set_sampler already imported).
-            self._import_sampler_checkpoint_state(self.sampler)
-            # Always arm nested engine resume under --resume, even if state.pkl
-            # is missing: nested_engine.pkl alone is enough to continue.
-            if self.sampler is not None and hasattr(self.sampler, "arm_engine_resume"):
-                self.sampler.arm_engine_resume()
-            ckpt = self.checkpoint_file()
-            self._logger.warning(
-                "Resume checkpoint path → %s (payload=%s)",
-                ckpt,
-                "yes" if self._resume_checkpoint_payload is not None else "MISSING",
-            )
-        self.start_runtime_checkpoint()
-        self._export_workflow_flowchart()
+        return self._get_runtime().bootstrap_distributed_runtime()
 
     @staticmethod
     def _load_check_module_rows(csv_path: str) -> tuple[list[dict[str, str]], list[str]]:
-        with open(csv_path, "r", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            fieldnames = list(reader.fieldnames or [])
-            return list(reader), fieldnames
+        return _ScanDriver._load_check_module_rows(csv_path)
 
     def _build_check_module_samples(self) -> list[Sample]:
         """Build smoke samples: prefer fixed CSV, else draw from the sampler.
@@ -632,129 +549,15 @@ class Jarvis2Core:
         ``EnvReqs.V2.check_modules.n_samples`` (default 10) points drawn from
         ``Sampling.Method`` (V1-like assembly-line smoke).
         """
-        if self.sampler is None:
-            raise RuntimeError("sampler is not configured")
-        csv_path, raw_spec = resolve_check_modules_csv(self.config)
-        if csv_path is not None:
-            self._logger.warning(
-                "Jarvis check: using fixed points from CSV -> %s (configured as %r)",
-                csv_path,
-                raw_spec,
-            )
-            rows, fieldnames = self._load_check_module_rows(csv_path)
-            samples = build_check_module_samples(
-                sampler=self.sampler,
-                config=self.config,
-                rows=rows,
-                csv_fieldnames=fieldnames,
-            )
-            self._logger.warning(
-                "Jarvis check: loaded %d fixed point(s) from CSV", len(samples)
-            )
-            return samples
-
-        n_samples = check_modules_n_samples(self.config)
-        method = sampling_method(self.config) or type(self.sampler).__name__
-        self._logger.warning(
-            "Jarvis check: CSV not found (configured as %r); "
-            "drawing %d smoke point(s) from Sampling.Method=%r",
-            raw_spec or "(none)",
-            n_samples,
-            method,
-        )
-        samples = self._sample_check_module_points_from_sampler(n_samples)
-        self._logger.warning(
-            "Jarvis check: prepared %d sampler-drawn smoke point(s)", len(samples)
-        )
-        return samples
+        return self._get_scan()._build_check_module_samples()
 
     def _sample_check_module_points_from_sampler(self, n_samples: int) -> list[Sample]:
         """Draw up to *n_samples* smoke points from the active sampler (V1-like)."""
-        n_samples = max(1, int(n_samples))
-        samples: list[Sample] = []
-
-        # Prefer propose_next for Bridson/Random/Grid/CSV when available.
-        propose = getattr(self.sampler, "propose_next", None)
-        if callable(propose):
-            for _ in range(n_samples):
-                try:
-                    sample = propose()
-                except Exception as exc:
-                    self._logger.warning(
-                        "Jarvis check: propose_next failed after %d sample(s) -> %s; "
-                        "falling back to unit-cube draws",
-                        len(samples),
-                        exc,
-                    )
-                    break
-                if sample is None:
-                    break
-                samples.append(sample)
-
-        if len(samples) >= n_samples:
-            return samples[:n_samples]
-
-        # Nested / feedback methods (Dynesty, MultiNest, MCMC, …) have no
-        # propose_next: draw unit-cube u and let the Worker mapper + plan run.
-        try:
-            from jarvishep2.Sampling.variables import load_variables
-
-            variables = load_variables(self.config)
-            ndim = max(1, len(variables))
-        except Exception:
-            ndim = 2
-        remaining = n_samples - len(samples)
-        seed = 0
-        try:
-            sampling = dict(self.config.get("Sampling") or {})
-            bounds = (
-                sampling.get("Bounds")
-                if isinstance(sampling.get("Bounds"), dict)
-                else {}
-            )
-            # seed lives under Sampling.Bounds only (V2).
-            seed = int(bounds.get("seed", 0) or 0)
-        except (TypeError, ValueError):
-            seed = 0
-        rng = np.random.default_rng(seed if seed else None)
-        for _ in range(remaining):
-            u_coords = rng.random(ndim).astype(np.float64)
-            samples.append(self.sampler._build_sample(u_coords))
-
-        if not samples:
-            raise RuntimeError(
-                "Jarvis check could not build any smoke samples: "
-                "CSV missing and sampler produced no points"
-            )
-        return samples
+        return self._get_scan()._sample_check_module_points_from_sampler(n_samples)
 
     def run_distributed_scan(self, *, timeout: float = 3600.0) -> int:
         """Drive a stateless sampler through propose → Redis → Archiver."""
-        if self.sampler is None:
-            raise RuntimeError("sampler is not configured")
-        start_records = self._archiver_records_written()
-        requeued = 0
-        if self._resume_policy == "resume" and hasattr(self.sampler, "repropose_unfinished"):
-            requeued = len(self.sampler.repropose_unfinished())
-        if hasattr(self.sampler, "run_distributed"):
-            pushed = int(self.sampler.run_distributed())
-        elif hasattr(self.sampler, "submit_all_remaining"):
-            pushed = len(self.sampler.submit_all_remaining())
-        else:
-            raise RuntimeError(
-                f"Sampler {type(self.sampler).__name__} does not implement a distributed run API"
-            )
-        expected_records = start_records + requeued + pushed
-        total_work = requeued + pushed
-        if expected_records > start_records:
-            self.wait_for_results(
-                expected_records,
-                timeout=timeout,
-                progress_total=total_work,
-                progress_base=start_records,
-            )
-        self._finalize_sample_buckets()
-        return requeued + pushed
+        return self._get_scan().run_distributed_scan(timeout=timeout)
 
     def run_adaptive_scan(
         self,
@@ -763,37 +566,7 @@ class Jarvis2Core:
         timeout: float | None = None,
     ) -> int:
         """Drive feedback samplers; timeout is a per-generation wait, not a run budget."""
-        if timeout is not None:
-            generation_timeout = timeout
-        if self.sampler is None:
-            raise RuntimeError("sampler is not configured")
-        if self.redis is None:
-            raise RuntimeError("adaptive scan requires redis")
-        if hasattr(self.sampler, "set_redis"):
-            self.sampler.set_redis(self.redis)
-        # Stale feedback from a prior run must not poison barriers.
-        drained_fb = int(self.redis.drain_feedback_queue())
-        if drained_fb:
-            self._logger.info("drained %d stale feedback record(s)", drained_fb)
-        requeued = 0
-        if self._resume_policy == "resume" and hasattr(self.sampler, "repropose_unfinished"):
-            requeued = len(self.sampler.repropose_unfinished())
-        if hasattr(self.sampler, "run_adaptive"):
-            pushed = int(
-                self.sampler.run_adaptive(generation_timeout=generation_timeout)
-            )
-        elif hasattr(self.sampler, "run_distributed"):
-            pushed = int(self.sampler.run_distributed())
-        else:
-            raise RuntimeError(
-                f"Sampler {type(self.sampler).__name__} does not implement run_adaptive"
-            )
-        # Nested/adaptive samplers barrier on *feedback* first; Archiver lags
-        # behind on the archive queue. Wait until DATABASE rows catch Redis
-        # completed counts so samples.csv export is not a partial HDF5 snapshot.
-        self._wait_for_archive_caught_up(timeout=generation_timeout)
-        self._finalize_sample_buckets()
-        return requeued + pushed
+        return self._get_scan().run_adaptive_scan(generation_timeout=generation_timeout, timeout=timeout)
 
     def _wait_for_archive_caught_up(self, *, timeout: float = 3600.0) -> None:
         """Block until Archiver has persisted every Redis-completed sample.
@@ -803,49 +576,7 @@ class Jarvis2Core:
         ``records_written >= ok + failed`` (and workers are idle), otherwise
         ``DATABASE/samples.csv`` misses the last archive batches.
         """
-        if self.archiver is None:
-            return
-        deadline = time.monotonic() + max(1.0, float(timeout))
-        # Stabilize Redis counters once workers finish the feedback barrier.
-        # Resume may deliberately replay a partially persisted adaptive
-        # generation to reconstruct its feedback.  Those Worker completions
-        # are not new DATABASE rows because the Archiver deduplicates UUIDs.
-        # Prefer the sampler's identity set; counters remain the fallback for
-        # nested/external samplers that do not expose submitted UUIDs.
-        expected = 0
-        while time.monotonic() < deadline:
-            counters = self._live_sample_counters()
-            expected = int(counters["ok"]) + int(counters["failed"])
-            inflight = int(counters["running"]) + int(counters["queued"])
-            if inflight == 0:
-                break
-            time.sleep(0.05)
-        submitted_uuids = {
-            str(item)
-            for item in getattr(self.sampler, "submitted_uuids", frozenset())
-            if str(item)
-        }
-        if bool(getattr(self.sampler, "uses_indexed_resume", False)):
-            # Redis sample counters are run-local and can include work from a
-            # killed control process.  Indexed samplers instead have one
-            # durable logical target: the highest proposed sample index.
-            expected = max(0, int(getattr(self.sampler, "_accepted_index", expected) or expected))
-        elif submitted_uuids or self._persisted_uuids:
-            expected = len(submitted_uuids | self._persisted_uuids)
-        # Parent drain is meaningful only for in-process SimpleArchiver.
-        try:
-            self.archiver.drain(idle_timeout=2.0)
-        except Exception:
-            pass
-        if expected <= 0:
-            return
-        remaining = max(1.0, deadline - time.monotonic())
-        self.wait_for_results(
-            expected,
-            timeout=remaining,
-            progress_total=expected,
-            progress_base=0,
-        )
+        return self._get_scan()._wait_for_archive_caught_up(timeout=timeout)
 
     def run_check_modules(
         self,
@@ -859,141 +590,18 @@ class Jarvis2Core:
         fixed sleep. Default comes from ``EnvReqs.V2.check_modules.timeout_sec``
         (120s); CLI ``Jarvis check --timeout SEC`` can override.
         """
-        wait_timeout = (
-            float(timeout)
-            if timeout is not None
-            else check_modules_timeout_sec(self.config)
-        )
-        if wait_timeout <= 0:
-            wait_timeout = check_modules_timeout_sec(self.config)
-        sample_root = self._resolve_sample_root()
-        self._logger.warning(
-            "Start Jarvis check smoke (assembly-line test) "
-            "workers=1 sample_root=%s layout=flat-uuid pack=off timeout_sec=%.1f",
-            sample_root,
-            wait_timeout,
-        )
-        samples = self._build_check_module_samples()
-        if not samples:
-            raise RuntimeError("Jarvis check produced an empty sample list")
-        # ``records_written`` is cumulative for an existing DATABASE.  A
-        # check may reuse the same output directory, so wait for the new
-        # archive delta instead of treating old rows as this run's results.
-        start_records = self._archiver_records_written()
-        self.submit_samples(samples)
-        self.wait_for_results(
-            start_records + len(samples),
-            timeout=wait_timeout,
-            progress_total=len(samples),
-            progress_base=start_records,
-            require_worker_completion=True,
-        )
-        self._finalize_sample_buckets()
-        if verify_golden is not None:
-            task_result_dir = str(self.info.get("task_result_dir") or os.getcwd())
-            verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
-        self._logger.warning(
-            "Jarvis check finished: submitted %d sample(s) "
-            "(pipeline smoke only — not a full MultiNest/Dynesty evidence run; "
-            "inspect artifacts under %s)",
-            len(samples),
-            self._resolve_sample_root(),
-        )
-        return len(samples)
+        return self._get_scan().run_check_modules(timeout=timeout, verify_golden=verify_golden)
 
     def _apply_check_modules_runtime_policy(self) -> None:
         """Force smoke-friendly layout: 1 worker, SAMPLE/test, no tar pack.
 
         Applied before bootstrap so Factory/Archiver/Workers all see the policy.
         """
-        # --- single worker ---
-        runtime = dict(get_runtime_block(self.config))
-        runtime["workers"] = 1
-        self.config["Runtime"] = runtime
-        self.runtime = runtime
-
-        envreqs = self.config.get("EnvReqs")
-        envreqs = dict(envreqs) if isinstance(envreqs, Mapping) else {}
-        v2 = envreqs.get("V2")
-        v2 = dict(v2) if isinstance(v2, Mapping) else {}
-        v2["workers"] = 1
-        # SAMPLE/test layout: no numbered buckets (flat uuid dirs), no tar pack.
-        sample_dir = dict(get_sample_directory_config(self.config))
-        sample_dir["pack"] = False
-        sample_dir["enabled"] = False  # Worker skips Redis 00000N allocator
-        v2_sd = v2.get("sample_directory")
-        if isinstance(v2_sd, Mapping):
-            merged_sd = dict(v2_sd)
-            merged_sd["pack"] = False
-            merged_sd["enabled"] = False
-            v2["sample_directory"] = merged_sd
-        else:
-            v2["sample_directory"] = {"pack": False, "enabled": False}
-        archiver = v2.get("archiver")
-        archiver = dict(archiver) if isinstance(archiver, Mapping) else {}
-        archiver["pack_buckets"] = False
-        v2["archiver"] = archiver
-        envreqs["V2"] = v2
-        self.config["EnvReqs"] = envreqs
-
-        # --- One calculator PackID only ---
-        calculators = self.config.get("Calculators")
-        calculators = dict(calculators) if isinstance(calculators, Mapping) else {}
-        # Workers=1 alone is not enough: Redis still registers N slots from
-        # ``make_parallel`` / Pools. Free-list rotation then hands sample 1 → 001,
-        # sample 2 → 002, … and each new PackID runs a full clone_shadow install
-        # (e.g. full micrOMEGAs copy+make). Check is a smoke: pin pool size to 1
-        # so every point reuses ``001`` after the first install.
-        calculators["make_parallel"] = 1
-        if "Pools" in calculators:
-            pools = calculators.get("Pools")
-            if isinstance(pools, Mapping):
-                calculators["Pools"] = {str(k): 1 for k in pools}
-            else:
-                calculators.pop("Pools", None)
-        if "pools" in calculators:
-            pools_l = calculators.get("pools")
-            if isinstance(pools_l, Mapping):
-                calculators["pools"] = {str(k): 1 for k in pools_l}
-            else:
-                calculators.pop("pools", None)
-        modules = calculators.get("Modules")
-        if isinstance(modules, list):
-            pinned_modules: list[Any] = []
-            for item in modules:
-                if isinstance(item, Mapping):
-                    mod = dict(item)
-                    mod["make_parallel"] = 1
-                    pinned_modules.append(mod)
-                else:
-                    pinned_modules.append(item)
-            calculators["Modules"] = pinned_modules
-        self.config["Calculators"] = calculators
-
-        # Layout flag: SAMPLE/test instead of SAMPLE/
-        self.config["_check_modules_sample_layout"] = True
-        # Eager path so logging / helpers work even before _init_sample_buckets.
-        root = self._resolve_sample_root()
-        os.makedirs(root, exist_ok=True)
-        self.info["sample_root"] = root
-        self.info["check_modules"] = True
+        return self._get_scan()._apply_check_modules_runtime_policy()
 
     def _resolve_sample_root(self) -> str:
         """Return SAMPLE root; ``Jarvis check`` uses ``SAMPLE/test`` (no tar pack)."""
-        task_result_dir = str(
-            self.info.get("task_result_dir")
-            or self.config.get("task_result_dir")
-            or os.getcwd()
-        )
-        base = os.path.join(task_result_dir, "SAMPLE")
-        if bool(self.config.get("_check_modules_sample_layout")) or bool(
-            self.info.get("check_modules")
-        ):
-            return os.path.join(base, "test")
-        cached = self.info.get("sample_root")
-        if isinstance(cached, str) and cached.strip():
-            return os.path.abspath(cached)
-        return base
+        return self._get_scan()._resolve_sample_root()
 
     def _export_workflow_flowchart(self) -> None:
         """Write flowchart.json (+ optional PNG) under images/ (D12.3 / V1 paths).
@@ -1347,41 +955,10 @@ class Jarvis2Core:
         non-existent ``…/SamplingVirtial/state.pkl`` (which silently skipped
         nested engine restore and made Dynesty restart from scratch).
         """
-        placeholders = {"", "sampler", "samplingvirtial", "samplingvirtual"}
-        candidates: list[str] = []
-        if self.sampler is not None:
-            method = getattr(self.sampler, "method", None)
-            if method:
-                candidates.append(str(method))
-            candidates.append(type(self.sampler).__name__)
-        info_name = str(self.info.get("sampler_name") or "")
-        if info_name:
-            candidates.append(info_name)
-        try:
-            method_from_yaml = sampling_method(self.config)
-        except Exception:
-            method_from_yaml = ""
-        if method_from_yaml:
-            candidates.append(str(method_from_yaml))
-        for name in candidates:
-            text = str(name or "").strip()
-            if text and text.lower() not in placeholders:
-                return text
-        return "sampler"
+        return self._get_resume()._resolve_checkpoint_sampler_name()
 
     def checkpoint_file(self) -> str:
-        task_root = str(
-            self.info.get("task_root")
-            or self.config.get("task_root")
-            or os.getcwd()
-        )
-        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
-        sampler_name = self._resolve_checkpoint_sampler_name()
-        return checkpoint_path(
-            task_root=task_root,
-            scan_name=scan_name,
-            sampler_name=sampler_name,
-        )
+        return self._get_resume().checkpoint_file()
 
     @staticmethod
     def prompt_resume_from_checkpoint(
@@ -1389,24 +966,7 @@ class Jarvis2Core:
         *,
         timeout_seconds: float = 30.0,
     ) -> bool:
-        if not getattr(sys.stdin, "isatty", lambda: False)():
-            return True
-        response: dict[str, str | None] = {"text": None}
-
-        def _read() -> None:
-            try:
-                response["text"] = sys.stdin.readline()
-            except Exception:
-                response["text"] = ""
-
-        print(RESUME_PROMPT, end="", flush=True)
-        reader = threading.Thread(target=_read, daemon=True)
-        reader.start()
-        reader.join(timeout_seconds)
-        if reader.is_alive():
-            return True
-        answer = str(response["text"] or "").strip().lower()
-        return answer not in {"y", "yes"}
+        return _ResumeService.prompt_resume_from_checkpoint(checkpoint_file, timeout_seconds=timeout_seconds)
 
     def _preload_resume_checkpoint(
         self,
@@ -1414,68 +974,7 @@ class Jarvis2Core:
         resume: bool = False,
         fresh: bool = False,
     ) -> None:
-        if fresh:
-            self._resume_policy = "fresh"
-            self._resume_checkpoint_payload = None
-            return
-
-        path = self.checkpoint_file()
-        if not os.path.exists(path):
-            # Explicit --resume also supports DATABASE-only recovery when the
-            # checkpoint is missing or deliberately removed.
-            self._resume_policy = "resume" if resume else "fresh"
-            self._resume_checkpoint_payload = None
-            return
-
-        if not resume:
-            if not self.prompt_resume_from_checkpoint(path):
-                self._resume_policy = "fresh"
-                self._resume_checkpoint_payload = None
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-                self._logger.warning(
-                    "Starting a fresh run from user confirmation; existing checkpoint was discarded."
-                )
-                return
-        self._resume_policy = "resume"
-        try:
-            payload = load_checkpoint(path)
-        except ValueError as exc:
-            self._logger.warning("Checkpoint rejected -> %s", exc)
-            self._resume_checkpoint_payload = None
-            self._resume_policy = "fresh"
-            return
-        # D22.5: refuse resume when Sampling.Mapper / Variables fingerprint drifts.
-        ok_mapper, mapper_reason = check_mapper_fingerprint(payload, self.config)
-        if not ok_mapper:
-            self._logger.error("Checkpoint rejected (starting fresh) -> %s", mapper_reason)
-            self._resume_checkpoint_payload = None
-            self._resume_policy = "fresh"
-            # Drop the stale checkpoint so a subsequent auto-resume cannot
-            # silently rebind uuid → coordinates under a changed Mapper.
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            return
-        # D23.8: refuse when Operas constant values drifted (outside the card).
-        # D23.13: if Operas is merely unavailable, skip with WARNING — never treat
-        # that as drift (would delete a good checkpoint and re-run from index 0).
-        ok_consts, consts_reason = check_operas_constants_fingerprint(payload)
-        if not ok_consts:
-            self._logger.error("Checkpoint rejected (starting fresh) -> %s", consts_reason)
-            self._resume_checkpoint_payload = None
-            self._resume_policy = "fresh"
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            return
-        if str(consts_reason).startswith("skip:"):
-            self._logger.warning("%s", consts_reason)
-        self._resume_checkpoint_payload = payload
+        return self._get_resume()._preload_resume_checkpoint(resume=resume, fresh=fresh)
 
     def _load_persisted_database_state(self, database_dir: str) -> None:
         """Refresh index prefix, UUID set, and completed/failed counts from DATABASE.
@@ -1484,133 +983,13 @@ class Jarvis2Core:
         SAMPLE_STATS so a resume does not re-label durable Failed rows as
         successful (D21.13).
         """
-        (
-            self._persisted_index_prefix,
-            pending_indices,
-            self._persisted_uuids,
-        ) = read_persisted_sample_index_state(database_dir)
-        completed, failed = read_persisted_outcome_counts(database_dir)
-        total_from_status = completed + failed
-        # Prefer status counts when any durable row exists; fall back to the
-        # index/legacy UUID reconstruction for pre-status shards.
-        if total_from_status > 0:
-            self._persisted_records_count = total_from_status
-            self._persisted_failed_count = failed
-        else:
-            self._persisted_records_count = (
-                self._persisted_index_prefix
-                + len(pending_indices)
-                + len(self._persisted_uuids)
-            )
-            self._persisted_failed_count = 0
+        return self._get_resume()._load_persisted_database_state(database_dir)
 
     def apply_resume_checkpoint(self, worker_config: Mapping[str, Any] | None = None) -> int:
-        if self._resume_policy != "resume":
-            return 0
-        if self.redis is None:
-            raise RuntimeError("init_redis() must run before apply_resume_checkpoint()")
-        drained = prepare_resume(
-            self.redis,
-            worker_config=worker_config,
-            persisted_count=self._persisted_records_count,
-            persisted_failed=self._persisted_failed_count,
-        )
-        imported = self._import_sampler_checkpoint_state(self.sampler)
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_uuids"):
-            self.sampler.set_persisted_uuids(self._persisted_uuids)
-        if self.sampler is not None and hasattr(self.sampler, "set_persisted_prefix"):
-            self.sampler.set_persisted_prefix(self._persisted_index_prefix)
-        if (
-            bool(getattr(self.sampler, "uses_indexed_resume", False))
-            and hasattr(self.sampler, "advance_to_persisted_prefix")
-        ):
-            self.sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
-        if (
-            imported
-            and self.sampler is not None
-            and not bool(getattr(self.sampler, "uses_indexed_resume", False))
-            and hasattr(self.sampler, "set_resume_repropose_hint")
-        ):
-            self.sampler.set_resume_repropose_hint(True)
-        self._logger.info(
-            "Resumed from checkpoint; drained %d stale task(s) from hep:task_queue",
-            drained,
-        )
-        return drained
+        return self._get_resume().apply_resume_checkpoint(worker_config)
 
     def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
-        if self.sampler is None or not hasattr(self.sampler, "export_runtime_state"):
-            return None
-        persistence: dict[str, Any] = {}
-        if self.archiver is not None and hasattr(self.archiver, "persistence_state"):
-            persistence = dict(self.archiver.persistence_state())
-        prefix = max(
-            self._persisted_index_prefix,
-            int(persistence.get("persisted_prefix", 0) or 0),
-        )
-        self._persisted_index_prefix = prefix
-        if hasattr(self.sampler, "set_persisted_prefix"):
-            self.sampler.set_persisted_prefix(prefix)
-        task_root = str(self.info.get("task_root") or self.config.get("task_root") or os.getcwd())
-        task_result_dir = str(
-            self.info.get("task_result_dir")
-            or self.config.get("task_result_dir")
-            or task_root
-        )
-        scan_name = str(self.info.get("scan_name") or self.config.get("scan_name") or "scan")
-        sampler_name = str(self.info.get("sampler_name") or type(self.sampler).__name__)
-        run_spec = build_run_spec(
-            config=self.config,
-            scan_name=scan_name,
-            task_root=task_root,
-            task_result_dir=task_result_dir,
-            sampler_name=sampler_name,
-            worker_parallel=int(self.runtime.get("workers", 0) or 0),
-        )
-        indexed = bool(getattr(self.sampler, "uses_indexed_resume", False))
-        if indexed:
-            # ``prefix`` is the sole hot-path completion fact.  It arrives
-            # from the Archiver after fsync and is independent of scan size.
-            # Do not let ``checkpoint_runtime_state`` capture the current
-            # generator state here: only a batch-boundary snapshot may become
-            # a resume point.
-            safe = False
-        else:
-            submitted = frozenset(getattr(self.sampler, "submitted_uuids", frozenset()))
-            at_barrier = bool(getattr(self.sampler, "at_safe_barrier", lambda: False)())
-            safe = at_barrier and submitted <= frozenset(
-                getattr(self.sampler, "_persisted_uuids", set())
-            )
-        # Nested samplers override checkpoint_runtime_state to always re-export
-        # the live dynesty engine (ignore stale FeedbackSampler barrier copies).
-        if hasattr(self.sampler, "checkpoint_runtime_state"):
-            # Interrupt / dynesty_engine_checkpoint: always force a live export
-            # for methods that do not use generation barriers.
-            force_live = str(reason or "") in {
-                "interrupt",
-                "dynesty_engine_checkpoint",
-                "dynesty_finished",
-            } or bool(getattr(self.sampler, "method", "") in {"Dynesty", "MultiNest"})
-            sampler_state = self.sampler.checkpoint_runtime_state(
-                safe=True if force_live else safe
-            )
-        else:
-            sampler_state = self.sampler.export_runtime_state()
-        if indexed:
-            checkpoint_index = int(
-                sampler_state.get("checkpoint_index", sampler_state.get("accepted_index", 0)) or 0
-            )
-            safe = checkpoint_index <= prefix
-        payload = build_payload(
-            run_spec=run_spec,
-            sampler_state=sampler_state,
-            persistence=persistence,
-            reason=reason,
-            safe_barrier_confirmed=safe,
-        )
-        path = self.checkpoint_file()
-        save_checkpoint(path, payload)
-        return path
+        return self._get_resume().save_runtime_checkpoint(reason=reason)
 
     def _save_interrupt_checkpoint(self) -> str | None:
         """Force a resume checkpoint on SIGINT/SIGTERM (D8.3 human remainder).
@@ -1618,429 +997,66 @@ class Jarvis2Core:
         Agent-facing pieces (run_state interrupted, stop-ack) stay parked with D8.
         Failures are logged and never re-raised — teardown must still run.
         """
-        try:
-            path = self.save_runtime_checkpoint(reason="interrupt")
-            if path:
-                try:
-                    self._logger.warning(
-                        "interrupt checkpoint written → %s "
-                        "(resume: Jarvis run <task.yaml> --resume)",
-                        path,
-                    )
-                except Exception:
-                    pass
-            return path
-        except Exception as exc:
-            try:
-                self._logger.warning("interrupt checkpoint failed → %s", exc)
-            except Exception:
-                pass
-            return None
+        return self._get_resume()._save_interrupt_checkpoint()
 
     def init_redis(self, *, client: Any = None) -> RedisQueue:
         # EnvReqs.V2.redis (optional) overlays INTERNAL_REDIS_CONFIG defaults.
-        redis_config = get_redis_config(self.config)
-        raw_runtime = self.config.get("Runtime")
-        raw_redis = raw_runtime.get("redis") if isinstance(raw_runtime, Mapping) else None
-        # Task cards always use a Jarvis-managed local broker.  Programmatic
-        # callers (including the multiprocessing fakeredis integration suite)
-        # may deliberately attach to an already-running broker instead.  This
-        # internal Runtime marker is not a task-card YAML setting.
-        use_managed_redis = not (
-            isinstance(raw_redis, Mapping) and raw_redis.get("managed") is False
-        )
-        # Prefer a Jarvis-managed redis-server so `ps` shows Jarvis-Redis:<scan>.
-        # A port collision is reassigned into the project's default YAML first.
-        if client is None and use_managed_redis:
-            self._ensure_managed_redis(redis_config)
-            redis_config = get_redis_config(self.config)
-        if client is not None:
-            self.redis = RedisQueue(redis_config, client=client)
-        else:
-            self.redis = RedisQueue(redis_config)
-        self.redis.connect()
-        try:
-            self.redis.ping()
-        except Exception as exc:
-            host = redis_config.get("host", "127.0.0.1")
-            port = redis_config.get("port", 6379)
-            raise RuntimeError(
-                f"internal Redis is unavailable at {host}:{port}; "
-                "install redis-server or start a local Redis service"
-            ) from exc
-        return self.redis
+        return self._get_runtime().init_redis(client=client)
 
     def _ensure_managed_redis(self, redis_config: Mapping[str, Any]) -> None:
         """Start redis-server as Jarvis-Redis:<scan> when the port is free."""
-        if self._managed_redis is not None and self._managed_redis.started_by_us:
-            return
-        redis_config = dict(redis_config)
-        reassigned = False
-        host = str(redis_config.get("host") or "127.0.0.1")
-        requested_port = int(redis_config.get("port") or 6379)
-        if redis_port_open(host, requested_port):
-            defaults_path = self.config.get("environment_defaults_path")
-            if not defaults_path or self.config.get("redis_port_task_override"):
-                raise RuntimeError(
-                    f"Redis port {host}:{requested_port} is already in use. "
-                    "Set EnvReqs.V2.redis.port in the project default environment YAML "
-                    "(not in the task YAML) to enable automatic port reassignment."
-                )
-            selected_port = find_available_redis_port(host, requested_port + 1)
-            update_default_redis_port(str(defaults_path), selected_port)
-            redis_config["port"] = selected_port
-            self._set_runtime_redis_config(redis_config)
-            reassigned = True
-            self._logger.warning(
-                "Redis port %s:%s is occupied; reassigned this project to %s and updated %s",
-                host,
-                requested_port,
-                selected_port,
-                defaults_path,
-            )
-        scan_name = str(
-            self.info.get("scan_name") or self.config.get("scan_name") or "scan"
-        ).strip()
-        task_result_dir = str(
-            self.info.get("task_result_dir")
-            or self.config.get("task_result_dir")
-            or os.getcwd()
-        )
-        work_dir = os.path.join(task_result_dir, ".redis")
-        managed = ManagedRedisServer.from_redis_config(
-            redis_config,
-            scan_name=scan_name,
-            work_dir=work_dir,
-        )
-        try:
-            started = managed.ensure(
-                scan_name=scan_name,
-                work_dir=work_dir,
-                force_start=reassigned,
-            )
-        except Exception as exc:
-            if reassigned:
-                raise RuntimeError(
-                    "the replacement Redis port became occupied before Jarvis could start it; "
-                    "run again to select another port"
-                ) from exc
-            # Fall through to connect attempt; init_redis will raise a clear error.
-            self._logger.warning("managed redis-server ensure failed -> %s", exc)
-            return
-        self._managed_redis = managed
-        if started:
-            self._logger.info(
-                "started managed redis-server as %s on %s:%s",
-                managed.title,
-                managed.host,
-                managed.port,
-            )
-        else:
-            self._logger.info(
-                "using existing Redis at %s:%s "
-                "(process title is only set when Jarvis starts redis-server)",
-                managed.host,
-                managed.port,
-            )
+        return self._get_runtime()._ensure_managed_redis(redis_config)
 
     def _set_runtime_redis_config(self, redis_config: Mapping[str, Any]) -> None:
         """Keep the loaded task in sync with an automatically reassigned port."""
-        normalized = dict(redis_config)
-        envreqs = dict(self.config.get("EnvReqs") or {})
-        v2 = dict(envreqs.get("V2") or {})
-        v2["redis"] = normalized
-        envreqs["V2"] = v2
-        self.config["EnvReqs"] = envreqs
-        runtime = dict(self.config.get("Runtime") or {})
-        runtime["redis"] = normalized
-        self.config["Runtime"] = runtime
-        self.runtime = runtime
+        return self._get_runtime()._set_runtime_redis_config(redis_config)
 
     def _control_lock_owner_id(self) -> str:
-        run_id = str(self.info.get("run_id") or "jarvis2-run")
-        return f"{os.uname().nodename}:{os.getpid()}:{run_id}"
+        return self._get_runtime()._control_lock_owner_id()
 
     def _calculator_module_names(self) -> list[str]:
-        modules = (self.config.get("Calculators") or {}).get("Modules") or []
-        names: list[str] = []
-        if isinstance(modules, list):
-            for item in expand_calculator_modes(modules):
-                if isinstance(item, Mapping):
-                    info = mode_info(item)
-                    name = info[0] if info is not None else str(item.get("name") or "").strip()
-                    if name:
-                        names.append(name)
-        return list(dict.fromkeys(names))
+        return self._get_runtime()._calculator_module_names()
 
     def _claim_redis_control_lock(self) -> None:
         """Refuse to start if another Jarvis still holds the Redis control lease."""
-        if self.redis is None:
-            raise RuntimeError("init_redis() must run before claiming the control lock")
-        owner = self._control_lock_owner_id()
-        if self.redis.claim_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
-            self._control_lock_owner = owner
-            self._start_control_lease_refresh()
-            self._logger.info("claimed Redis control lock (%s)", owner)
-            return
-        current = self.redis.get_control_lock_owner()
-        if self._resume_policy == "resume" and current:
-            parts = str(current).split(":", 2)
-            same_host = bool(parts and parts[0] == os.uname().nodename)
-            stale_pid = False
-            if same_host and len(parts) >= 2:
-                try:
-                    os.kill(int(parts[1]), 0)
-                except ProcessLookupError:
-                    stale_pid = True
-                except (OSError, ValueError):
-                    stale_pid = False
-            if stale_pid:
-                self.redis.release_control_lock(str(current))
-                if self.redis.claim_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
-                    self._control_lock_owner = owner
-                    self._start_control_lease_refresh()
-                    self._logger.warning(
-                        "took over stale Redis control lease from dead pid %s", parts[1]
-                    )
-                    return
-        raise RuntimeError(
-            "another Jarvis instance already holds the Redis control lock "
-            f"({current!r}). Stop residual Jarvis/HEP2-Worker processes "
-            "(do not leave runs suspended with ^Z), then retry. "
-            "Emergency: redis-cli DEL hep:control:lock"
-        )
+        return self._get_runtime()._claim_redis_control_lock()
 
     def _control_lease_loop(self, stop: threading.Event, owner: str) -> None:
-        interval = max(1.0, CONTROL_LOCK_TTL_SEC / 3.0)
-        while not stop.wait(interval):
-            redis = self.redis
-            if redis is None:
-                return
-            try:
-                if not redis.refresh_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
-                    self._logger.error("lost Redis control lease; requesting shutdown")
-                    self._interrupt_requested = True
-                    return
-            except Exception as exc:
-                self._logger.warning("control lease refresh failed -> %s", exc)
+        return self._get_runtime()._control_lease_loop(stop, owner)
 
     def _start_control_lease_refresh(self) -> None:
-        owner = str(self._control_lock_owner or "")
-        if not owner:
-            return
-        self._stop_control_lease_refresh()
-        stop = threading.Event()
-        thread = threading.Thread(
-            target=self._control_lease_loop,
-            args=(stop, owner),
-            name="Jarvis-ControlLease",
-            daemon=True,
-        )
-        self._control_lease_stop = stop
-        self._control_lease_thread = thread
-        thread.start()
+        return self._get_runtime()._start_control_lease_refresh()
 
     def _stop_control_lease_refresh(self) -> None:
-        if self._control_lease_stop is not None:
-            self._control_lease_stop.set()
-        if self._control_lease_thread is not None:
-            self._control_lease_thread.join(timeout=2.0)
-        self._control_lease_stop = None
-        self._control_lease_thread = None
+        return self._get_runtime()._stop_control_lease_refresh()
 
     def _reset_redis_for_fresh_run(self) -> None:
         """Drop ephemeral queues/stats/calc pools before Workers are spawned."""
-        if self.redis is None:
-            return
-        workers = int(self.runtime.get("workers", 0) or 0)
-        result = self.redis.reset_run_ephemeral_keys(
-            calculator_names=self._calculator_module_names(),
-            worker_ids=max(workers, 32),
-        )
-        self.redis.clear_archived_uuids(str(self.info.get("scan_name") or "scan"))
-        self.redis.clear_archived_index_prefix(str(self.info.get("scan_name") or "scan"))
-        self._logger.info(
-            "reset Redis run keys (deleted=%s sample_stats_reset=%s)",
-            result.get("deleted_keys"),
-            result.get("sample_stats_reset"),
-        )
+        return self._get_runtime()._reset_redis_for_fresh_run()
 
     def _release_redis_control_lock(self) -> None:
-        self._stop_control_lease_refresh()
-        owner = getattr(self, "_control_lock_owner", None)
-        if not owner or self.redis is None:
-            return
-        try:
-            self.redis.release_control_lock(str(owner))
-            self._logger.info("released Redis control lock (%s)", owner)
-        except Exception as exc:
-            self._logger.warning("failed to release Redis control lock -> %s", exc)
-        self._control_lock_owner = None
+        return self._get_runtime()._release_redis_control_lock()
 
     def _publish_runtime_metadata(self) -> None:
-        if self.redis is None:
-            return
-        redis_config = self.redis.connection_config()
-        path = write_scan_metadata(config=self.config, info=self.info, redis=redis_config)
-        self.redis.set_runtime_metadata_path(path)
-        self.info["runtime_metadata_path"] = path
+        return self._get_runtime()._publish_runtime_metadata()
 
     def init_command_parser(self) -> CommandParser:
         """Run Phase-1 static command resolution for the loaded task config."""
-        root_path = self._environment_summary.get("ROOT path")
-        self.command_parser = build_command_parser(
-            self.config,
-            root_path=str(root_path) if root_path else None,
-        )
-        return self.command_parser
+        return self._get_runtime().init_command_parser()
 
     def prepare_libraries(self, *, parser: CommandParser | None = None) -> dict[str, dict[str, Any]]:
         """Install or reuse LibDeps before Redis, Workers, or an Archiver start."""
-        root_path = self._environment_summary.get("ROOT path")
-        library_parser = parser or build_command_parser(
-            self.config,
-            root_path=str(root_path) if root_path else None,
-            register_executables=False,
-        )
-        logs_dir = str(
-            self.info.get("logs_dir")
-            or os.path.join(
-                str(self.info.get("task_root") or os.getcwd()),
-                "logs",
-                str(self.info.get("scan_name") or "scan"),
-            )
-        )
-        result = LibraryInstaller(
-            self.config,
-            parser=library_parser,
-            logs_dir=logs_dir,
-            logger=self._logger,
-            skip_installation=self._skip_library_installation,
-        ).prepare()
-        if result:
-            self.info["library_installations"] = result
-        return result
+        return self._get_runtime().prepare_libraries(parser=parser)
 
     def _apply_command_parser_to_worker_config(self, worker_config: dict[str, Any]) -> dict[str, Any]:
-        if self.command_parser is None:
-            self.init_command_parser()
-        assert self.command_parser is not None
-        merged = dict(worker_config)
-        calculator_modules = merged.get("calculator_modules")
-        if calculator_modules:
-            merged["calculator_modules"] = prepare_calculator_modules(
-                calculator_modules,
-                self.command_parser,
-            )
-        merged["command_parser"] = self.command_parser.to_picklable()
-        return merged
+        return self._get_runtime()._apply_command_parser_to_worker_config(worker_config)
 
     def build_worker_config(self, **overrides: Any) -> dict[str, Any]:
         """Build a picklable Worker blueprint with Phase-1 command resolution applied."""
-        task_result_dir = str(
-            overrides.pop("task_result_dir", None)
-            or self.info.get("task_result_dir")
-            or self.config.get("task_result_dir")
-            or os.getcwd()
-        )
-        # Propagate CLI console policy to every Worker process.
-        overrides.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
-        console_level = str(getattr(self, "_console_level", "WARNING")).strip().upper()
-        overrides.setdefault("console_level", console_level)
-        sample_config = dict(overrides.get("sample_config") or {})
-        sample_config.setdefault(
-            "sample_console_level",
-            "DEBUG" if console_level == "DEBUG" else "ERROR",
-        )
-        sample_config.setdefault(
-            "sample_log_silence",
-            bool(getattr(self, "_log_silence", False)),
-        )
-        overrides["sample_config"] = sample_config
-        # Prefer control-resolved scan logs dir so Workers never land in cwd/logs/jarvis_worker_*.
-        if self.info.get("logs_dir"):
-            overrides.setdefault("logs_dir", str(self.info["logs_dir"]))
-        if self.info.get("scan_name"):
-            overrides.setdefault("scan_name", str(self.info["scan_name"]))
-        if self.info.get("task_root"):
-            overrides.setdefault("task_root", str(self.info["task_root"]))
-        if self._control_lock_owner:
-            overrides.setdefault("control_lock_owner", str(self._control_lock_owner))
-        extra = dict(overrides or {})
-        # Stamp active sampler into feedback_return resolution (D13.8).
-        if "sampler" not in extra and self.sampler is not None:
-            extra["sampler"] = self.sampler
-        # Prefer Jarvis check SAMPLE/test (or any resolved sample_root) over SAMPLE/.
-        sample_dirs = extra.pop("sample_dirs", None)
-        if sample_dirs is None:
-            sample_dirs = self._resolve_sample_root()
-        return build_worker_config(
-            self.config,
-            task_result_dir=task_result_dir,
-            parser=self.command_parser,
-            calculator_modules=extra.pop("calculator_modules", None),
-            likelihood_expressions=extra.pop("likelihood_expressions", None),
-            opera_modules=extra.pop("opera_modules", None),
-            sample_dirs=sample_dirs,
-            extra=extra or None,
-        )
+        return self._get_runtime().build_worker_config(**overrides)
 
     def init_factory(self, worker_config: Mapping[str, Any] | None = None) -> TaskFactory | None:
-        if not self.is_redis_runtime():
-            self._logger.info("Runtime.mode != redis; skipping TaskFactory bring-up")
-            return None
-
-        redis_config = get_redis_config(self.config)
-        # Explicit instance ownership (D9.4) — not the deprecated singleton shell.
-        if self.factory is None:
-            self.factory = TaskFactory(redis_config)
-        elif redis_config and not self.factory.redis_config:
-            self.factory.redis_config.update(redis_config)
-        if self.redis is not None:
-            self.factory.redis = self.redis
-        else:
-            self.factory.init_redis()
-
-        workers = int(self.runtime.get("workers", 1) or 1)
-        if workers <= 0:
-            workers = 1
-
-        if worker_config is None:
-            if self.command_parser is None:
-                self.init_command_parser()
-            merged_config = self.build_worker_config()
-        else:
-            merged_config = dict(worker_config)
-            if "command_parser" not in merged_config:
-                merged_config = self._apply_command_parser_to_worker_config(merged_config)
-        if self._control_lock_owner:
-            merged_config.setdefault("control_lock_owner", str(self._control_lock_owner))
-        # Direct Python callers may supply the public parent/mode shape as a
-        # prebuilt worker config.  Normalize here as well as in the standard
-        # config builder so Redis and the Worker always agree on dotted names.
-        merged_config["calculator_modules"] = expand_calculator_modes(
-            merged_config.get("calculator_modules") or []
-        )
-        # Calculator install control is single-writer: bump epochs and write
-        # jarvis_install.json in this control process before Workers spawn.
-        merged_config["calculator_modules"] = prepare_install_controls(
-            merged_config.get("calculator_modules") or [],
-            logger=self._logger,
-        )
-        self._install_control_modules = merged_config.get("calculator_modules") or []
-        if self._resume_policy == "resume":
-            prepare_resume(
-                self.redis,
-                worker_config=merged_config,
-                persisted_count=self._persisted_records_count,
-                persisted_failed=self._persisted_failed_count,
-            )
-        self.factory.start_workers(workers, **merged_config)
-        self.factory.start_monitor()
-        watchdog = get_watchdog_config(self.config)
-        self.factory.start_watchdog(**watchdog)
-        self._logger.info("TaskFactory started with %d worker(s)", workers)
-        return self.factory
+        return self._get_runtime().init_factory(worker_config)
 
     @staticmethod
     def _format_convert_report(
@@ -2137,72 +1153,7 @@ class Jarvis2Core:
         return results
 
     def init_archiver(self, db_path: str | None = None) -> SimpleArchiver | ArchiverProcess:
-        if self.redis is None:
-            raise RuntimeError("init_redis() must run before init_archiver()")
-        task_result_dir = str(
-            self.info.get("task_result_dir")
-            or self.config.get("task_result_dir")
-            or os.getcwd()
-        )
-        database_dir = os.path.join(task_result_dir, "DATABASE")
-        sample_root = self._resolve_sample_root()
-        os.makedirs(database_dir, exist_ok=True)
-        os.makedirs(sample_root, exist_ok=True)
-        resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
-        archiver_config = dict(get_archiver_config(self.config))
-        if bool(self.config.get("_check_modules_sample_layout")):
-            # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
-            archiver_config["pack_buckets"] = False
-        # Same CLI console policy as Workers.
-        archiver_config.setdefault("log_silence", bool(getattr(self, "_log_silence", False)))
-        archiver_config.setdefault("console_level", str(getattr(self, "_console_level", "WARNING")))
-        if self._control_lock_owner:
-            archiver_config["control_lock_owner"] = str(self._control_lock_owner)
-        delete_method = get_delete_method(self.config)
-        redis_config = get_redis_config(self.config)
-        if self.redis is not None:
-            # Prefer the live connection if init_redis already bound a client.
-            try:
-                redis_config = dict(self.redis.connection_config())
-            except Exception:
-                pass
-
-        from jarvishep2.logging import component_log_path
-
-        scan_name = str(self.info.get("scan_name") or "").strip() or None
-        logs_dir = str(self.info.get("logs_dir") or "").strip() or None
-        if str(archiver_config.get("mode", "process")).strip().lower() == "process":
-            archiver_log = component_log_path(logs_dir, "archiver") if logs_dir else None
-            self.archiver = ArchiverProcess(
-                redis_config,
-                db_path=resolved_db_path,
-                sample_root=sample_root,
-                delete_method=delete_method,
-                archiver_config=archiver_config,
-                scan_name=scan_name,
-                log_dir=logs_dir,
-                log_path=archiver_log,
-            )
-            self.archiver.start()
-            self._logger.info(
-                "Archiver process started (own logger → %s)",
-                archiver_log or "logs/<scan>/archiver.log",
-            )
-        else:
-            # Thread mode: same process as control; Archiver logger → archiver.log.
-            self.archiver = SimpleArchiver(
-                self.redis,
-                resolved_db_path,
-                sample_root=sample_root,
-                delete_method=delete_method,
-                archiver_config=archiver_config,
-                scan_name=scan_name,
-                logger=get_jarvis_logger("archiver"),
-            )
-            self.archiver.start()
-            self._logger.info("Archiver thread started (Jarvis-HEP.Archiver)")
-        self._restore_archiver_persistence()
-        return self.archiver
+        return self._get_runtime().init_archiver(db_path)
 
     def _restore_archiver_persistence(self) -> None:
         """Compatibility hook; DATABASE seeding now happens in SimpleArchiver.
@@ -2210,16 +1161,10 @@ class Jarvis2Core:
         Never promote checkpoint/Redis acknowledgements into completion truth:
         only UUIDs actually read from HDF5 may seed the deduplication set.
         """
-        return
+        return self._get_runtime()._restore_archiver_persistence()
 
     def _archiver_records_written(self) -> int:
-        archiver = self.archiver
-        if archiver is None:
-            return 0
-        counter = getattr(archiver, "records_written", 0)
-        if hasattr(counter, "value"):
-            return int(counter.value)
-        return int(counter)
+        return self._get_runtime()._archiver_records_written()
 
     def _discard_resume_checkpoint(
         self,
@@ -2228,16 +1173,7 @@ class Jarvis2Core:
         level: str = "error",
     ) -> None:
         """Drop a rejected resume snapshot and force a fresh sampling start."""
-        log = self._logger.error if level == "error" else self._logger.warning
-        log("Checkpoint sampler state rejected (starting fresh) -> %s", reason)
-        self._resume_policy = "fresh"
-        self._resume_checkpoint_payload = None
-        path = self.checkpoint_file()
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
+        return self._get_resume()._discard_resume_checkpoint(reason=reason, level=level)
 
     def _import_sampler_checkpoint_state(self, sampler: Any | None = None) -> bool:
         """Import sampler_state from the preloaded checkpoint, or start fresh.
@@ -2249,29 +1185,7 @@ class Jarvis2Core:
 
         Returns True when import succeeded.
         """
-        target = sampler if sampler is not None else self.sampler
-        if self._resume_policy != "resume":
-            return False
-        if self._resume_checkpoint_payload is None or target is None:
-            return False
-        if not hasattr(target, "import_runtime_state"):
-            return False
-        sampler_state = self._resume_checkpoint_payload.get("sampler_state") or {}
-        if not isinstance(sampler_state, Mapping):
-            sampler_state = {}
-        try:
-            target.import_runtime_state(sampler_state)
-        except ValueError as exc:
-            # MCMC Bounds drift (num_chains / num_iters / scale / seed) and
-            # similar sampler-shape mismatches: refuse the stale snapshot.
-            self._discard_resume_checkpoint(reason=str(exc), level="error")
-            return False
-        if (
-            not bool(getattr(target, "uses_indexed_resume", False))
-            and hasattr(target, "set_resume_repropose_hint")
-        ):
-            target.set_resume_repropose_hint(True)
-        return True
+        return self._get_resume()._import_sampler_checkpoint_state(sampler)
 
     def set_sampler(self, sampler: Any) -> None:
         self.sampler = sampler
@@ -2284,43 +1198,14 @@ class Jarvis2Core:
 
     def start_runtime_checkpoint(self) -> None:
         """Enable the configured checkpoint heartbeat once sampler and archiver exist."""
-        if self.sampler is None or not hasattr(self.sampler, "configure_checkpoint"):
-            return
-        self.sampler.configure_checkpoint(
-            checkpoint_file=self.checkpoint_file(),
-            save_callback=lambda reason="": self.save_runtime_checkpoint(reason=reason),
-        )
+        return self._get_resume().start_runtime_checkpoint()
 
     def submit_samples(self, samples: Sequence[Sample]) -> None:
-        if self.sampler is None:
-            raise RuntimeError("sampler is not configured")
-        if hasattr(self.sampler, "_submit_group"):
-            self.sampler._submit_group(list(samples))
-        else:
-            for sample in samples:
-                self.sampler._submit(sample)
+        return self._get_scan().submit_samples(samples)
 
     def _live_sample_counters(self) -> dict[str, int]:
         """Snapshot Redis sample/queue counters for completion progress lines."""
-        ok = failed = running = queued = archive_q = 0
-        if self.redis is not None:
-            try:
-                stats = self.redis.fetch_sample_stats()
-                lengths = self.redis.get_queue_lengths()
-                ok = int(stats.get("completed", 0) or 0)
-                failed = int(stats.get("failed", 0) or 0)
-                running = max(0, int(stats.get("running", 0) or 0))
-                queued = int(lengths.get("task_queue_length", 0) or 0)
-                archive_q = int(lengths.get("archive_queue_length", 0) or 0)
-            except Exception:
-                pass
-        return {
-            "ok": ok,
-            "failed": failed,
-            "running": running,
-            "queued": queued,
-            "archive_q": archive_q,
-        }
+        return self._get_scan()._live_sample_counters()
 
     def wait_for_results(
         self,
@@ -2337,98 +1222,7 @@ class Jarvis2Core:
         When ``progress_total`` is set, emit V1-style ‰ completion heartbeats
         using archived count relative to ``progress_base`` (default 0).
         """
-        if self.archiver is None:
-            raise RuntimeError("archiver is not configured")
-        deadline = time.monotonic() + max(0.1, float(timeout))
-        base = int(progress_base or 0)
-        total = int(progress_total) if progress_total is not None else max(0, int(expected) - base)
-        progress: PermilleProgress | None = None
-        if total > 0:
-            # Control-plane archive ‰ heartbeats are noisy vs DataRecorder/Archiver;
-            # keep them at DEBUG. Final "sample drain complete" stays INFO below.
-            progress = PermilleProgress(
-                self._logger,
-                total=total,
-                label="samples archived",
-                level="debug",
-                milestone_level="debug",
-            )
-            progress.update(
-                0,
-                extra="ok=? failed=? queued=? running=? archive_q=? archived=0/?",
-                force=True,
-            )
-
-        last_written = -1
-        stall_since: float | None = None
-        while time.monotonic() < deadline:
-            written = self._archiver_records_written()
-            counters = self._live_sample_counters()
-            if progress is not None:
-                done = max(0, written - base)
-                extra = (
-                    f"ok={counters['ok']} failed={counters['failed']} "
-                    f"queued={counters['queued']} running={counters['running']} "
-                    f"archive_q={counters['archive_q']} "
-                    f"archived={written}/{expected}"
-                )
-                progress.update(done, extra=extra)
-            # DATABASE rows are cumulative.  Check-mode additionally asks for
-            # a terminal Worker count so an old row count cannot produce a
-            # false outcome with completed=0.  Keep the legacy archive-only
-            # barrier for normal scans, whose callers already establish their
-            # own worker/feedback barrier.
-            batch_workers_done = (
-                not require_worker_completion
-                or self.redis is None
-                or counters["ok"] + counters["failed"] >= total
-            )
-            if written >= expected and batch_workers_done:
-                if progress is not None:
-                    progress.update(
-                        total,
-                        extra=(
-                            f"ok={counters['ok']} failed={counters['failed']} "
-                            f"queued={counters['queued']} running={counters['running']} "
-                            f"archive_q={counters['archive_q']}"
-                        ),
-                        force=True,
-                    )
-                    self._logger.info(
-                        "sample drain complete: %d/%d archived in %s",
-                        total,
-                        total,
-                        format_duration(time.time() - progress.t0),
-                    )
-                return
-            # Detect permanent stall: workers done, archive queue empty, count frozen.
-            workers_done = (
-                self.redis is None
-                or (
-                    counters["running"] == 0
-                    and counters["queued"] == 0
-                    and counters["ok"] + counters["failed"] >= total
-                )
-            )
-            if workers_done and counters["archive_q"] == 0 and written == last_written:
-                if stall_since is None:
-                    stall_since = time.monotonic()
-                elif time.monotonic() - stall_since >= 5.0:
-                    raise TimeoutError(
-                        f"archive drain stalled: workers finished "
-                        f"(ok={counters['ok']} failed={counters['failed']}) but only "
-                        f"{written}/{expected} DATABASE rows written and archive_q=0. "
-                        f"Archiver made no progress; inspect the Archiver log and "
-                        f"DATABASE persistence configuration."
-                    )
-            else:
-                stall_since = None
-            last_written = written
-            time.sleep(poll_interval)
-        raise TimeoutError(
-            f"timed out waiting for {expected} archived results; "
-            f"got {self._archiver_records_written()}"
-        )
+        return self._get_scan().wait_for_results(expected, timeout=timeout, poll_interval=poll_interval, progress_total=progress_total, progress_base=progress_base, require_worker_completion=require_worker_completion)
 
     def get_monitor_snapshot(self) -> dict[str, Any]:
         if self.factory is None:
@@ -2499,133 +1293,25 @@ class Jarvis2Core:
 
     def _init_sample_buckets(self) -> None:
         """Register Redis SAMPLE bucket meta (numbering + active/completed state)."""
-        if self.redis is None:
-            return
-        sample_dir = get_sample_directory_config(self.config)
-        sample_root = self._resolve_sample_root()
-        os.makedirs(sample_root, exist_ok=True)
-        meta = self.redis.init_sample_buckets(
-            sample_root=sample_root,
-            limit=int(sample_dir.get("limit", 200)),
-            width=int(sample_dir.get("width", 6)),
-            start_bucket=int(sample_dir.get("start_bucket", 1)),
-            pack=pack_buckets_enabled(self.config),
-            enabled=bool(sample_dir.get("enabled", True)),
-        )
-        self.info["sample_root"] = sample_root
-        self.info["sample_directory"] = dict(sample_dir)
-        enabled = bool(sample_dir.get("enabled", True))
-        self._logger.info(
-            "SAMPLE ready -> root=%s enabled=%s limit=%s width=%s pack=%s",
-            sample_root,
-            enabled,
-            meta.get("limit"),
-            meta.get("width"),
-            bool(int(meta.get("pack", 0))),
-        )
+        return self._get_runtime()._init_sample_buckets()
 
     def _finalize_sample_buckets(self) -> None:
         """Seal the open bucket after all samples finish; Archiver packs when idle."""
-        if self.redis is None:
-            return
-        try:
-            self.redis.seal_current_sample_bucket()
-        except Exception as exc:
-            self._logger.warning("seal current SAMPLE bucket failed -> %s", exc)
-        if self.archiver is not None:
-            try:
-                self.archiver.drain(idle_timeout=2.0)
-            except Exception as exc:
-                self._logger.warning("archiver bucket drain failed -> %s", exc)
+        return self._get_scan()._finalize_sample_buckets()
 
     def _install_control_signal_handlers(self) -> None:
         """SIGINT/SIGTERM → clean shutdown; refuse Ctrl+Z suspend."""
-        if self._signal_handlers_installed:
-            return
-
-        def _stop_handler(signum: int, _frame: Any) -> None:
-            try:
-                sig_name = signal.Signals(signum).name
-            except Exception:
-                sig_name = str(signum)
-            self._interrupt_requested = True
-            try:
-                self._logger.warning(
-                    "received %s — initiating clean shutdown "
-                    "(Workers / Archiver / managed Redis)",
-                    sig_name,
-                )
-            except Exception:
-                pass
-            # Unwind the main thread so run()'s finally → shutdown() always runs.
-            raise KeyboardInterrupt(f"interrupted by {sig_name}")
-
-        def _refuse_suspend(signum: int, _frame: Any) -> None:
-            try:
-                self._logger.warning(
-                    "Ctrl+Z / SIGTSTP ignored — process suspend leaves Workers and "
-                    "Redis half-alive. Use Ctrl+C to stop the scan cleanly."
-                )
-            except Exception:
-                pass
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            try:
-                self._previous_signal_handlers[sig] = signal.getsignal(sig)
-                signal.signal(sig, _stop_handler)
-            except (ValueError, OSError):
-                # Not in main thread or signal unsupported.
-                pass
-        if hasattr(signal, "SIGTSTP"):
-            try:
-                self._previous_signal_handlers[signal.SIGTSTP] = signal.getsignal(
-                    signal.SIGTSTP
-                )
-                signal.signal(signal.SIGTSTP, _refuse_suspend)
-            except (ValueError, OSError):
-                pass
-        self._signal_handlers_installed = True
+        return self._get_runtime()._install_control_signal_handlers()
 
     def _restore_control_signal_handlers(self) -> None:
-        if not self._signal_handlers_installed:
-            return
-        for sig, previous in list(self._previous_signal_handlers.items()):
-            try:
-                signal.signal(sig, previous)
-            except (ValueError, OSError):
-                pass
-        self._previous_signal_handlers.clear()
-        self._signal_handlers_installed = False
+        return self._get_runtime()._restore_control_signal_handlers()
 
     def _stop_managed_redis(self) -> None:
-        managed = self._managed_redis
-        if managed is None:
-            return
-        self._managed_redis = None
-        try:
-            if managed.started_by_us:
-                try:
-                    self._logger.info(
-                        "stopping managed redis-server (%s)",
-                        managed.title or "Jarvis-Redis",
-                    )
-                except Exception:
-                    pass
-            managed.stop()
-        except Exception as exc:
-            try:
-                self._logger.warning("managed redis stop failed -> %s", exc)
-            except Exception:
-                pass
+        return self._get_runtime()._stop_managed_redis()
 
     def _atexit_cleanup(self) -> None:
         """Best-effort stop of managed Redis if the process dies unexpectedly."""
-        if self._shutdown_done:
-            return
-        try:
-            self._stop_managed_redis()
-        except Exception:
-            pass
+        return self._get_runtime()._atexit_cleanup()
 
     def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
         """Stop Archiver, Workers, release the control lock, and managed Redis.
@@ -2634,69 +1320,7 @@ class Jarvis2Core:
         Managed Redis is always stopped last in an inner ``finally`` so a failure
         earlier in the chain cannot leave ``Jarvis-Redis:*`` orphaned.
         """
-        if self._shutdown_done:
-            # Still try Redis in case a previous partial shutdown left it.
-            self._stop_managed_redis()
-            return
-        self._shutdown_done = True
-        try:
-            if self.sampler is not None and hasattr(self.sampler, "shutdown_checkpointing"):
-                try:
-                    self.sampler.shutdown_checkpointing()
-                except Exception as exc:
-                    self._logger.warning("sampler checkpoint shutdown failed -> %s", exc)
-            if not self._interrupt_requested:
-                try:
-                    self._finalize_sample_buckets()
-                except Exception:
-                    pass
-            if self.archiver is not None:
-                try:
-                    if isinstance(self.archiver, ArchiverProcess):
-                        # Interrupt path: don't hang forever on tar packing.
-                        timeout = 5.0 if self._interrupt_requested else 30.0
-                        self.archiver.stop(wait=wait, timeout=timeout)
-                    else:
-                        self.archiver.stop(
-                            wait=wait,
-                            drain=not self._interrupt_requested,
-                        )
-                except Exception as exc:
-                    self._logger.warning("archiver stop failed -> %s", exc)
-                try:
-                    self._final_archived_records = self._archiver_records_written()
-                except Exception:
-                    self._final_archived_records = None
-                self.archiver = None
-            if write_run_summary and self.factory is not None:
-                try:
-                    self.write_run_summary()
-                except Exception as exc:
-                    self._logger.warning("run_summary write failed -> %s", exc)
-            try:
-                if self.redis is not None:
-                    self.redis.clear_runtime_metadata_path()
-                self._release_redis_control_lock()
-            except Exception:
-                pass
-            if self.factory is not None:
-                try:
-                    self.factory.shutdown(wait=wait)
-                except Exception as exc:
-                    self._logger.warning("factory shutdown failed -> %s", exc)
-                self.factory = None
-            elif self.redis is not None:
-                try:
-                    self.redis.close()
-                except Exception:
-                    pass
-            self.redis = None
-            try:
-                refresh_install_control_summaries(getattr(self, "_install_control_modules", []))
-            except Exception as exc:
-                self._logger.debug("install-control summary refresh skipped -> %s", exc)
-        finally:
-            self._stop_managed_redis()
+        return self._get_runtime().shutdown(wait=wait, write_run_summary=write_run_summary)
 
 
 __all__ = ["Jarvis2Core"]

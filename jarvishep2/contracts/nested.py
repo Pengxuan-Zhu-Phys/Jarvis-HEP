@@ -11,8 +11,36 @@ from jarvishep2.contracts.common import try_float, try_int, unknown_keys
 if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
-# Import Nested allow-lists from the sampler module (single source of truth).
-from jarvishep2.Sampling.dynesty_sampler import NESTED_CONSTRUCTOR_USER_KEYS
+# Official NestedSampler / DynamicNestedSampler user-facing constructor keys
+# (excluding HEP-injected: loglikelihood, prior_transform, ndim, pool, rstate).
+# Owned here so validation does not import the Dynesty sampler implementation.
+NESTED_CONSTRUCTOR_USER_KEYS: frozenset[str] = frozenset(
+    {
+        "nlive",
+        "bound",
+        "sample",
+        "periodic",
+        "reflective",
+        "update_interval",
+        "first_update",
+        "queue_size",
+        "use_pool",
+        "live_points",
+        "logl_args",
+        "logl_kwargs",
+        "ptform_args",
+        "ptform_kwargs",
+        "enlarge",
+        "bootstrap",
+        "walks",
+        "facc",
+        "slices",
+        "ncdim",
+        "blob",
+        "save_evaluation_history",
+        "history_filename",
+    }
+)
 
 # Canonical + documented aliases for top-level Bounds keys.
 _BOUNDS_META_ALLOWED: frozenset[str] = frozenset(
@@ -198,4 +226,4 @@ def validate_nested_bounds(
     return issues
 
 
-__all__ = ["validate_nested_bounds"]
+__all__ = ["NESTED_CONSTRUCTOR_USER_KEYS", "validate_nested_bounds"]
