@@ -63,6 +63,46 @@ class CheckModulesPoolPolicyTests(unittest.TestCase):
                     os.path.join("SAMPLE", "test")
                 )
             )
+            self.assertTrue(os.path.isdir(os.path.join(tmpdir, "DATABASE", "test")))
+            self.assertEqual(
+                core.info.get("database_dir"),
+                os.path.join(tmpdir, "DATABASE", "test"),
+            )
+
+    def test_check_policy_keeps_smoke_workspace_and_full_scan_database(self) -> None:
+        core = Jarvis2Core.__new__(Jarvis2Core)
+        core.config = {"Runtime": {}, "EnvReqs": {"V2": {}}, "Scan": {"name": "smoke"}}
+        core.runtime = {}
+        core.info = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            core.info["task_result_dir"] = tmpdir
+            core.config["task_result_dir"] = tmpdir
+            full_db = os.path.join(tmpdir, "DATABASE")
+            os.makedirs(full_db)
+            full_hdf5 = os.path.join(full_db, "samples.hdf5")
+            with open(full_hdf5, "w", encoding="utf-8") as handle:
+                handle.write("full-scan")
+            smoke_hdf5 = os.path.join(full_db, "test", "samples.hdf5")
+            os.makedirs(os.path.dirname(smoke_hdf5))
+            with open(smoke_hdf5, "w", encoding="utf-8") as handle:
+                handle.write("previous-check")
+            leftover_sample = os.path.join(tmpdir, "SAMPLE", "test", "old-uuid")
+            os.makedirs(leftover_sample)
+            with open(os.path.join(leftover_sample, "output.json"), "w", encoding="utf-8") as handle:
+                handle.write("{}")
+
+            core._apply_check_modules_runtime_policy()
+
+            self.assertTrue(os.path.isfile(full_hdf5))
+            with open(full_hdf5, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "full-scan")
+            with open(smoke_hdf5, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "previous-check")
+            self.assertTrue(os.path.isfile(os.path.join(leftover_sample, "output.json")))
+            self.assertEqual(
+                core.info.get("database_dir"),
+                os.path.join(tmpdir, "DATABASE", "test"),
+            )
 
 
 if __name__ == "__main__":

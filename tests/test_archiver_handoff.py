@@ -251,6 +251,49 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             self.assertEqual(writer.records_persisted, 3)
             writer.close()
 
+    def test_drop_matching_records_removes_uuid_and_index_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = SimpleHDF5Writer(db_path)
+            writer.add_record({"uuid": "keep", "sample_index": 0, "x": 0})
+            writer.add_record({"uuid": "drop-uuid", "sample_index": 1, "x": 1})
+            writer.add_record({"uuid": "other", "sample_index": 2, "x": 2})
+            dropped = writer.drop_matching_records(
+                uuids={"drop-uuid"}, sample_indices={2}
+            )
+            self.assertEqual(dropped, 2)
+            rows = writer.read_records()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["uuid"], "keep")
+
+    def test_replace_duplicates_rewrites_existing_identity_instead_of_skipping(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            writer = StreamingHDF5Writer(db_path)
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=1,
+                replace_duplicates=True,
+            )
+            self.assertEqual(
+                processor.ingest(
+                    {"uuid": "u1", "sample_index": 0, "observables": {"x": 1.0}}
+                ),
+                1,
+            )
+            self.assertEqual(
+                processor.ingest(
+                    {"uuid": "u1", "sample_index": 0, "observables": {"x": 99.0}}
+                ),
+                1,
+            )
+            rows = SimpleHDF5Writer(db_path).read_records()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["x"], 99.0)
+            self.assertEqual(processor.records_written, 2)
+            writer.close()
+
     def test_index_prefix_waits_for_delayed_record_and_deduplicates_replay(self) -> None:
         """D21.12 A8: a durable hole may not advance the resume watermark."""
         with tempfile.TemporaryDirectory() as tmpdir:

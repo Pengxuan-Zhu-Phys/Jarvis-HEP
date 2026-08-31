@@ -51,11 +51,7 @@ class _RuntimeSupervisor:
 
         scan_name = str(core.info.get("scan_name") or core.config.get("scan_name") or "scan")
         ensure_scan_name_available(scan_name, cleanup_stale=core._resume_policy == "resume")
-        db_path = os.path.join(
-            str(core.info.get("task_result_dir") or os.getcwd()),
-            "DATABASE",
-            "samples.hdf5",
-        )
+        db_path = os.path.join(core._resolve_database_dir(), "samples.hdf5")
         if core._resume_policy == "resume":
             try:
                 # Control must not open samples.hdf5 for append (write lock would
@@ -612,12 +608,7 @@ class _RuntimeSupervisor:
 
         if core.redis is None:
             raise RuntimeError("init_redis() must run before init_archiver()")
-        task_result_dir = str(
-            core.info.get("task_result_dir")
-            or core.config.get("task_result_dir")
-            or os.getcwd()
-        )
-        database_dir = os.path.join(task_result_dir, "DATABASE")
+        database_dir = core._resolve_database_dir()
         sample_root = core._resolve_sample_root()
         os.makedirs(database_dir, exist_ok=True)
         os.makedirs(sample_root, exist_ok=True)
@@ -626,6 +617,12 @@ class _RuntimeSupervisor:
         if bool(core.config.get("_check_modules_sample_layout")):
             # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
             archiver_config["pack_buckets"] = False
+        # Fresh full scans rewrite colliding identities. Check continues from
+        # the existing DATABASE prefix and appends a new batch instead.
+        if str(getattr(core, "_resume_policy", "") or "") == "fresh" and not bool(
+            core.config.get("_check_modules_sample_layout")
+        ):
+            archiver_config["replace_duplicates"] = True
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(core, "_log_silence", False)))
         archiver_config.setdefault("console_level", str(getattr(core, "_console_level", "WARNING")))

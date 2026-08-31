@@ -78,7 +78,7 @@ class CoreRunDistributedTests(unittest.TestCase):
                 count = core.run(check_modules=True, verify_golden=golden, write_run_summary=False)
                 self.assertEqual(count, 10)
 
-                db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+                db_path = os.path.join(tmpdir, "DATABASE", "test", "samples.hdf5")
                 records = _normalize_database_records(SimpleHDF5Writer(db_path).read_records())
                 self.assertEqual(records, _normalize_database_records(expected_records))
 

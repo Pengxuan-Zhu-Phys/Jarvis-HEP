@@ -8,6 +8,7 @@ import os
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 
@@ -298,18 +299,21 @@ class _ScanDriver:
         if wait_timeout <= 0:
             wait_timeout = check_modules_timeout_sec(core.config)
         sample_root = core._resolve_sample_root()
+        database_dir = core._resolve_database_dir()
         core._logger.warning(
             "Start Jarvis check smoke (assembly-line test) "
-            "workers=1 sample_root=%s layout=flat-uuid pack=off timeout_sec=%.1f",
+            "workers=1 sample_root=%s database=%s layout=flat-uuid pack=off "
+            "timeout_sec=%.1f",
             sample_root,
+            os.path.join(database_dir, "samples.hdf5"),
             wait_timeout,
         )
+        start_from = self._continue_check_sampler_from_database()
         samples = core._build_check_module_samples()
         if not samples:
             raise RuntimeError("Jarvis check produced an empty sample list")
-        # ``records_written`` is cumulative for an existing DATABASE.  A
-        # check may reuse the same output directory, so wait for the new
-        # archive delta instead of treating old rows as this run's results.
+        samples = self._ensure_unique_check_identities(samples, start_from)
+        # DATABASE/test is kept across checks. Wait for this run's new rows.
         start_records = core._archiver_records_written()
         core.submit_samples(samples)
         core.wait_for_results(
@@ -332,8 +336,82 @@ class _ScanDriver:
         )
         return len(samples)
 
+    def _continue_check_sampler_from_database(self) -> int:
+        """Fast-forward the sampler past rows already in DATABASE/test."""
+        core = self._core
+
+        prefix = max(0, int(getattr(core, "_persisted_index_prefix", 0) or 0))
+        count = max(0, int(getattr(core, "_persisted_records_count", 0) or 0))
+        written = 0
+        try:
+            written = int(core._archiver_records_written() or 0)
+        except Exception:
+            written = 0
+        start_from = max(prefix, count, written)
+        sampler = core.sampler
+        if (
+            start_from > 0
+            and sampler is not None
+            and hasattr(sampler, "advance_to_persisted_prefix")
+        ):
+            try:
+                advanced = int(sampler.advance_to_persisted_prefix(start_from) or 0)
+                start_from = max(start_from, advanced)
+            except Exception as exc:
+                core._logger.warning(
+                    "Jarvis check: could not continue sampler from DATABASE prefix %d -> %s",
+                    start_from,
+                    exc,
+                )
+        if start_from > 0:
+            core._logger.warning(
+                "Jarvis check: DATABASE already has %d row(s); drawing the next batch",
+                start_from,
+            )
+        return start_from
+
+    def _ensure_unique_check_identities(
+        self, samples: Sequence[Sample], start_from: int
+    ) -> list[Sample]:
+        """Give this check batch identities that will append, not replace."""
+        core = self._core
+
+        occupied = {
+            str(item).strip()
+            for item in getattr(core, "_persisted_uuids", set()) or set()
+            if str(item).strip()
+        }
+        next_index = max(0, int(start_from or 0))
+        mint = getattr(core.sampler, "_uuid_for_accepted_index", None)
+        out: list[Sample] = []
+        for sample in samples:
+            uuid = str(getattr(sample, "uuid", "") or "").strip()
+            raw_index = getattr(sample, "sample_index", None)
+            try:
+                index = int(raw_index) if raw_index is not None else None
+            except (TypeError, ValueError):
+                index = None
+            collide = (
+                (uuid and uuid in occupied)
+                or index is None
+                or index < next_index
+            )
+            if collide:
+                sample.sample_index = next_index
+                if callable(mint):
+                    sample.uuid = str(mint(next_index))
+                else:
+                    sample.uuid = str(uuid4())
+                next_index += 1
+            else:
+                sample.sample_index = index
+                next_index = max(next_index, index + 1)
+            occupied.add(str(sample.uuid))
+            out.append(sample)
+        return out
+
     def _apply_check_modules_runtime_policy(self) -> None:
-        """Force smoke-friendly layout: 1 worker, SAMPLE/test, no tar pack.
+        """Force smoke-friendly layout: 1 worker, SAMPLE/test, DATABASE/test.
 
         Applied before bootstrap so Factory/Archiver/Workers all see the policy.
         """
@@ -399,13 +477,16 @@ class _ScanDriver:
             calculators["Modules"] = pinned_modules
         core.config["Calculators"] = calculators
 
-        # Layout flag: SAMPLE/test instead of SAMPLE/
+        # Layout flag: SAMPLE/test + DATABASE/test instead of the full-scan trees.
+        # Previous smoke rows stay; colliding identities are rewritten in HDF5.
         core.config["_check_modules_sample_layout"] = True
-        # Eager path so logging / helpers work even before _init_sample_buckets.
-        root = core._resolve_sample_root()
-        os.makedirs(root, exist_ok=True)
-        core.info["sample_root"] = root
         core.info["check_modules"] = True
+        sample_root = core._resolve_sample_root()
+        database_dir = core._resolve_database_dir()
+        os.makedirs(sample_root, exist_ok=True)
+        os.makedirs(database_dir, exist_ok=True)
+        core.info["sample_root"] = sample_root
+        core.info["database_dir"] = database_dir
 
     def _resolve_sample_root(self) -> str:
         """Return SAMPLE root; ``Jarvis check`` uses ``SAMPLE/test`` (no tar pack)."""
@@ -422,6 +503,25 @@ class _ScanDriver:
         ):
             return os.path.join(base, "test")
         cached = core.info.get("sample_root")
+        if isinstance(cached, str) and cached.strip():
+            return os.path.abspath(cached)
+        return base
+
+    def _resolve_database_dir(self) -> str:
+        """Return DATABASE dir; ``Jarvis check`` uses ``DATABASE/test``."""
+        core = self._core
+
+        task_result_dir = str(
+            core.info.get("task_result_dir")
+            or core.config.get("task_result_dir")
+            or os.getcwd()
+        )
+        base = os.path.join(task_result_dir, "DATABASE")
+        if bool(core.config.get("_check_modules_sample_layout")) or bool(
+            core.info.get("check_modules")
+        ):
+            return os.path.join(base, "test")
+        cached = core.info.get("database_dir")
         if isinstance(cached, str) and cached.strip():
             return os.path.abspath(cached)
         return base

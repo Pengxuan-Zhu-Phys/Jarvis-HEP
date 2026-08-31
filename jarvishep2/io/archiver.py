@@ -117,6 +117,7 @@ class ArchiveProcessor:
         persisted_uuids: set[str] | None = None,
         persisted_index_prefix: int = 0,
         persisted_indices: set[int] | None = None,
+        replace_duplicates: bool = False,
     ) -> None:
         self.writer = writer
         self.sample_root = os.path.abspath(str(sample_root))
@@ -125,6 +126,7 @@ class ArchiveProcessor:
         self.delete_after_archive = bool(delete_after_archive)
         self.batch_size = max(1, int(batch_size))
         self.flush_interval_sec = max(0.05, float(flush_interval_sec))
+        self.replace_duplicates = bool(replace_duplicates)
         # Indexed records use the contiguous prefix plus only the bounded set
         # of out-of-order durable indices. UUID retention is legacy fallback
         # for old DATABASE files that predate sample_index.
@@ -169,6 +171,7 @@ class ArchiveProcessor:
             persisted_uuids=persisted_uuids,
             persisted_index_prefix=persisted_index_prefix,
             persisted_indices=persisted_indices,
+            replace_duplicates=bool(cfg.get("replace_duplicates", False)),
         )
 
     def has_pending(self) -> bool:
@@ -216,6 +219,8 @@ class ArchiveProcessor:
         previous_prefix = self.persisted_index_prefix
         previous_indices = set(self._persisted_indices)
         newly_acked: list[str] = []
+        if self.replace_duplicates:
+            self._drop_batch_identities_locked()
         if batched_writer:
             self.writer.begin_batch()
         written = 0
@@ -244,12 +249,30 @@ class ArchiveProcessor:
         self._last_flush = time.monotonic()
         return written
 
+    def _drop_batch_identities_locked(self) -> None:
+        """Remove live DATABASE rows that this batch is about to rewrite."""
+        drop = getattr(self.writer, "drop_matching_records", None)
+        if not callable(drop):
+            return
+        uuids: set[str] = set()
+        indices: set[int] = set()
+        for result in self._batch:
+            uuid = str(result.get("uuid", "")).strip()
+            if uuid:
+                uuids.add(uuid)
+            sample_index = self._sample_index(result)
+            if sample_index is not None:
+                indices.add(sample_index)
+        if not uuids and not indices:
+            return
+        drop(uuids=uuids, sample_indices=indices)
+
     def _archive_one(self, result: Mapping[str, Any]) -> bool:
         uuid = str(result.get("uuid", "")).strip()
         if not uuid:
             return False
         sample_index = self._sample_index(result)
-        if self._is_persisted(uuid, sample_index):
+        if self._is_persisted(uuid, sample_index) and not self.replace_duplicates:
             return False
 
         staging_path = str(result.get("staging_path") or "").strip()

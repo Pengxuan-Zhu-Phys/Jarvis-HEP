@@ -593,7 +593,7 @@ class Jarvis2Core:
         return self._get_scan().run_check_modules(timeout=timeout, verify_golden=verify_golden)
 
     def _apply_check_modules_runtime_policy(self) -> None:
-        """Force smoke-friendly layout: 1 worker, SAMPLE/test, no tar pack.
+        """Force smoke-friendly layout: 1 worker, SAMPLE/test, DATABASE/test.
 
         Applied before bootstrap so Factory/Archiver/Workers all see the policy.
         """
@@ -602,6 +602,10 @@ class Jarvis2Core:
     def _resolve_sample_root(self) -> str:
         """Return SAMPLE root; ``Jarvis check`` uses ``SAMPLE/test`` (no tar pack)."""
         return self._get_scan()._resolve_sample_root()
+
+    def _resolve_database_dir(self) -> str:
+        """Return DATABASE dir; ``Jarvis check`` uses ``DATABASE/test``."""
+        return self._get_scan()._resolve_database_dir()
 
     def _export_workflow_flowchart(self) -> None:
         """Write flowchart.json (+ optional PNG) under images/ (D12.3 / V1 paths).
@@ -826,11 +830,16 @@ class Jarvis2Core:
         check_timeout: float | None = None,
     ) -> RunOutcome:
         """Execute a distributed scan; return a truthful :class:`RunOutcome` (D11.1)."""
-        self.prepare_resume(resume=resume, fresh=False)
+        is_check = bool(check_modules)
+        # Smoke is never a resume: leftover checkpoints must not fast-forward
+        # Bridson/CSV indices into an existing DATABASE.
+        self.prepare_resume(
+            resume=False if is_check else resume,
+            fresh=is_check,
+        )
         self._install_control_signal_handlers()
         submitted = 0
         outcome: RunOutcome | None = None
-        is_check = bool(check_modules)
         if is_check:
             self._apply_check_modules_runtime_policy()
         try:

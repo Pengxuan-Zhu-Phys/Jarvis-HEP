@@ -257,5 +257,48 @@ class CheckModulesBuildSamplesTests(unittest.TestCase):
                 self.assertEqual(len(np.asarray(sample.u_coords)), 2)
 
 
+class CheckModulesIdentityContinuationTests(unittest.TestCase):
+    def test_colliding_indices_are_shifted_to_append(self) -> None:
+        core = Jarvis2Core()
+        core._persisted_uuids = set()
+        samples = [
+            Sample(uuid="bridson-0", sample_index=0, u_coords=np.array([0.1, 0.2])),
+            Sample(uuid="bridson-1", sample_index=1, u_coords=np.array([0.3, 0.4])),
+        ]
+        out = core._get_scan()._ensure_unique_check_identities(samples, 10)
+        self.assertEqual([item.sample_index for item in out], [10, 11])
+        self.assertNotEqual(out[0].uuid, "bridson-0")
+        self.assertNotEqual(out[1].uuid, "bridson-1")
+
+    def test_already_continued_indices_are_kept(self) -> None:
+        core = Jarvis2Core()
+        core._persisted_uuids = set()
+        samples = [
+            Sample(uuid="bridson-10", sample_index=10, u_coords=np.array([0.1, 0.2])),
+            Sample(uuid="bridson-11", sample_index=11, u_coords=np.array([0.3, 0.4])),
+        ]
+        out = core._get_scan()._ensure_unique_check_identities(samples, 10)
+        self.assertEqual([item.sample_index for item in out], [10, 11])
+        self.assertEqual(out[0].uuid, "bridson-10")
+        self.assertEqual(out[1].uuid, "bridson-11")
+
+    def test_continue_fast_forwards_sampler_from_database_prefix(self) -> None:
+        core = Jarvis2Core()
+        core._persisted_index_prefix = 10
+        core._persisted_records_count = 10
+        core._logger = mock.Mock()
+        advanced: list[int] = []
+
+        class _Sampler:
+            def advance_to_persisted_prefix(self, prefix: int) -> int:
+                advanced.append(int(prefix))
+                return int(prefix)
+
+        core.sampler = _Sampler()  # type: ignore[assignment]
+        start = core._get_scan()._continue_check_sampler_from_database()
+        self.assertEqual(start, 10)
+        self.assertEqual(advanced, [10])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -458,6 +458,84 @@ class SimpleHDF5Writer:
         dataset[start:end] = payloads
         return len(payloads)
 
+    @staticmethod
+    def _record_sample_index(record: Mapping[str, Any]) -> int | None:
+        raw = record.get("sample_index")
+        try:
+            value = int(raw) if raw is not None else -1
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 0 else None
+
+    @classmethod
+    def _record_matches_identity(
+        cls,
+        record: Mapping[str, Any],
+        *,
+        uuids: set[str],
+        sample_indices: set[int],
+    ) -> bool:
+        uuid = str(record.get("uuid") or "").strip()
+        if uuid and uuid in uuids:
+            return True
+        index = cls._record_sample_index(record)
+        return index is not None and index in sample_indices
+
+    def _rewrite_records(self, records: Sequence[Mapping[str, Any]]) -> None:
+        """Replace the HDF5 file contents atomically (SWMR cannot shrink in place)."""
+        parent = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        os.makedirs(parent, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="samples.", suffix=".hdf5.tmp", dir=parent)
+        os.close(fd)
+        try:
+            with h5py.File(tmp_path, "w", libver="latest") as handle:
+                handle.attrs["schema_version"] = 1
+                self._ensure_records_dataset(handle)
+                if records:
+                    self._append_records(handle, records)
+                handle.flush()
+            os.replace(tmp_path, self.db_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+    def drop_matching_records(
+        self,
+        *,
+        uuids: Sequence[str] | set[str] | None = None,
+        sample_indices: Sequence[int] | set[int] | None = None,
+    ) -> int:
+        """Delete rows whose uuid or sample_index matches. Returns the dropped count."""
+        uuid_set = {str(item).strip() for item in (uuids or set()) if str(item).strip()}
+        index_set: set[int] = set()
+        for raw in sample_indices or set():
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value >= 0:
+                index_set.add(value)
+        if not uuid_set and not index_set:
+            return 0
+        with self._lock:
+            if not os.path.isfile(self.db_path):
+                return 0
+            rows = self.read_records()
+            kept = [
+                row
+                for row in rows
+                if not self._record_matches_identity(
+                    row, uuids=uuid_set, sample_indices=index_set
+                )
+            ]
+            dropped = len(rows) - len(kept)
+            if dropped:
+                self._rewrite_records(kept)
+            return dropped
+
     def add_records(self, records: Sequence[Mapping[str, Any]]) -> int:
         """Append one complete batch while opening the HDF5 file only once."""
         if not records:
@@ -472,22 +550,28 @@ class SimpleHDF5Writer:
     def close(self) -> None:
         """Compatibility no-op: one-shot writes close their own HDF5 handle."""
 
+    @staticmethod
+    def _load_records_from_handle(
+        handle: h5py.File, *, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        if "records" not in handle:
+            return []
+        dataset = handle["records"]
+        size = int(dataset.shape[0])
+        if limit is not None:
+            size = min(size, max(0, int(limit)))
+        rows: list[dict[str, Any]] = []
+        for item in dataset[:size]:
+            if isinstance(item, bytes):
+                item = item.decode("utf-8")
+            rows.append(json.loads(item))
+        return rows
+
     def read_records(self, *, limit: int | None = None) -> list[dict[str, Any]]:
         if not os.path.exists(self.db_path):
             return []
-        rows: list[dict[str, Any]] = []
         with _open_hdf5_readonly(self.db_path) as handle:
-            if "records" not in handle:
-                return []
-            dataset = handle["records"]
-            size = int(dataset.shape[0])
-            if limit is not None:
-                size = min(size, max(0, int(limit)))
-            for item in dataset[:size]:
-                if isinstance(item, bytes):
-                    item = item.decode("utf-8")
-                rows.append(json.loads(item))
-        return rows
+            return self._load_records_from_handle(handle, limit=limit)
 
 
 def _is_stale_swmr_write_flag(error: BaseException) -> bool:
@@ -1125,6 +1209,63 @@ class StreamingHDF5Writer:
             self._pending = []
             self._batch_open = False
 
+    def drop_matching_records(
+        self,
+        *,
+        uuids: Sequence[str] | set[str] | None = None,
+        sample_indices: Sequence[int] | set[int] | None = None,
+    ) -> int:
+        """Delete live-file rows whose uuid or sample_index matches."""
+        uuid_set = {str(item).strip() for item in (uuids or set()) if str(item).strip()}
+        index_set: set[int] = set()
+        for raw in sample_indices or set():
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                continue
+            if value >= 0:
+                index_set.add(value)
+        if not uuid_set and not index_set:
+            return 0
+        with self._lock:
+            self._pending = [
+                row
+                for row in self._pending
+                if not SimpleHDF5Writer._record_matches_identity(
+                    row, uuids=uuid_set, sample_indices=index_set
+                )
+            ]
+            if self._handle is not None:
+                rows = SimpleHDF5Writer._load_records_from_handle(self._handle)
+            elif os.path.isfile(self.db_path):
+                rows = SimpleHDF5Writer(self.db_path).read_records()
+            else:
+                return 0
+            kept = [
+                row
+                for row in rows
+                if not SimpleHDF5Writer._record_matches_identity(
+                    row, uuids=uuid_set, sample_indices=index_set
+                )
+            ]
+            dropped = len(rows) - len(kept)
+            if dropped == 0:
+                return 0
+            if self._handle is not None:
+                try:
+                    self._handle.close()
+                except Exception:
+                    pass
+                self._handle = None
+            self._fallback = None
+            SimpleHDF5Writer(self.db_path)._rewrite_records(kept)
+            self._open_streaming_handle(recover_stale=True)
+            if self._handle is not None and "records" in self._handle:
+                self.records_persisted = int(self._handle["records"].shape[0])
+            else:
+                self.records_persisted = len(kept)
+            return dropped
+
     def close(self) -> None:
         with self._lock:
             if self._handle is not None:
@@ -1218,6 +1359,18 @@ class RollingHDF5Writer:
 
     def abort_batch(self) -> None:
         self._writer.abort_batch()
+
+    def drop_matching_records(
+        self,
+        *,
+        uuids: Sequence[str] | set[str] | None = None,
+        sample_indices: Sequence[int] | set[int] | None = None,
+    ) -> int:
+        """Delete matching rows from the live shard only (sealed shards stay immutable)."""
+        with self._lock:
+            return self._writer.drop_matching_records(
+                uuids=uuids, sample_indices=sample_indices
+            )
 
     def close(self) -> None:
         with self._lock:

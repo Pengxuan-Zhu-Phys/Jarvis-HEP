@@ -1557,7 +1557,7 @@ def _envreqs_v2_page() -> dict[str, Any]:
             "• Role: V2 runtime settings are an overlay, not normally a hand-written full block.\n"
             "• Defaults: Jarvis project create writes deps/environment_default.yaml.\n"
             "• Merge: the loader deep-merges that EnvReqs.V2 section, then applies task values.\n"
-            "• Check mode: Jarvis check temporarily forces one worker and an unpacked smoke layout."
+            "• Check mode: Jarvis check temporarily forces one worker and an unpacked SAMPLE/test + DATABASE/test smoke layout."
         ),
         "keys": keys,
         "examples": examples,

@@ -103,7 +103,12 @@ def verify_check_modules_golden(
     golden: Mapping[str, Any],
     record_keys: Sequence[str] | None = None,
 ) -> None:
-    db_path = os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
+    test_db = os.path.join(task_result_dir, "DATABASE", "test", "samples.hdf5")
+    db_path = (
+        test_db
+        if os.path.isfile(test_db)
+        else os.path.join(task_result_dir, "DATABASE", "samples.hdf5")
+    )
     records = SimpleHDF5Writer(db_path).read_records()
     expected_records = list(golden.get("records") or [])
     expected_files = golden.get("sample_files")
