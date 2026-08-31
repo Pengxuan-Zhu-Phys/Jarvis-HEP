@@ -281,6 +281,7 @@ Useful repository documentation:
 - [INSTALL.md](INSTALL.md) — installation, CLI details, Redis, projects, and packaging
 - [Task-card schema](docs/task-card-schema.md) — validation layers and V2 configuration rules
 - [Validation diagnostics](docs/validation-diagnostics.md) — actionable `JV2-*` error codes
+- [RLTPMCMC extension guide](docs/sampler-extension-guide.md) — how collaborators add `RLTPMCMCSampler`
 - [Project template](jarvishep2/project_template/README.md) — standalone project layout
 
 V1 (`jarvishep`) is frozen and CLI-retired. V2 uses `jarvishep2` and the
