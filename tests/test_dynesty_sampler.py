@@ -7,7 +7,9 @@ import csv
 import os
 import tempfile
 import threading
+import time
 import unittest
+from collections import namedtuple
 from typing import Any
 
 import numpy as np
@@ -369,6 +371,120 @@ class RedisPoolUnitTests(unittest.TestCase):
         finally:
             stop.set()
             thread.join(timeout=2.0)
+            pool.close()
+
+    def test_concurrent_evaluate_logl_does_not_steal_feedback(self) -> None:
+        """Several evaluate_logl waiters must not BLPOP each other's uuid."""
+        queue = make_fakeredis_queue()
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=lambda payload, uuid: Sample(
+                uuid=uuid, u_coords=np.asarray(payload, dtype=float)
+            ),
+            batch_size=8,
+            seed=11,
+            timeout=10.0,
+        )
+        stop = threading.Event()
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                time.sleep(0.05)
+                queue.publish_feedback(
+                    {"uuid": task["uuid"], "logL": float(-np.sum(u))}
+                )
+
+        workers = [
+            threading.Thread(target=worker, daemon=True) for _ in range(4)
+        ]
+        for thread in workers:
+            thread.start()
+        items = [_jarvis_prior_transform(np.array([0.1 * i, 0.2])) for i in range(8)]
+        results: list[float | None] = [None] * len(items)
+        errors: list[BaseException] = []
+
+        def call(idx: int, item: Any) -> None:
+            try:
+                results[idx] = pool.evaluate_logl(item)
+            except BaseException as exc:  # noqa: BLE001 — collect for assert
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=call, args=(i, item), daemon=True)
+            for i, item in enumerate(items)
+        ]
+        try:
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=8.0)
+            self.assertEqual(errors, [])
+            for item, val in zip(items, results):
+                self.assertIsNotNone(val)
+                u = np.asarray(item[:-1], dtype=float)
+                self.assertAlmostEqual(float(val), float(-np.sum(u)), places=5)
+        finally:
+            stop.set()
+            for thread in workers:
+                thread.join(timeout=2.0)
+            pool.close()
+
+    def test_sampler_argument_map_runs_in_parallel(self) -> None:
+        """queue_size>1 SamplerArgument walks must overlap Redis logL waits."""
+        queue = make_fakeredis_queue()
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=lambda payload, uuid: Sample(
+                uuid=uuid, u_coords=np.asarray(payload, dtype=float)
+            ),
+            batch_size=4,
+            seed=13,
+            timeout=15.0,
+        )
+        stop = threading.Event()
+        delay = 0.35
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                time.sleep(delay)
+                queue.publish_feedback({"uuid": task["uuid"], "logL": -1.0})
+
+        workers = [
+            threading.Thread(target=worker, daemon=True) for _ in range(4)
+        ]
+        for thread in workers:
+            thread.start()
+
+        SamplerArgument = namedtuple("SamplerArgument", ["payload"])
+
+        def evolve(arg: Any) -> float:
+            return pool.evaluate_logl(arg.payload)
+
+        items = [
+            SamplerArgument(_jarvis_prior_transform(np.array([0.1 * i, 0.3])))
+            for i in range(4)
+        ]
+        try:
+            t0 = time.monotonic()
+            out = pool.map(evolve, items)
+            elapsed = time.monotonic() - t0
+            self.assertEqual(len(out), 4)
+            self.assertTrue(all(float(v) == -1.0 for v in out))
+            # Serial would be ~1.4s; four overlapping 0.35s waits should land
+            # well under one second plus Redis overhead.
+            self.assertLess(elapsed, 1.0, msg=f"evolve map looked serial: {elapsed:.3f}s")
+        finally:
+            stop.set()
+            for thread in workers:
+                thread.join(timeout=2.0)
+            pool.close()
 
 
 class DistributorDynestyTests(unittest.TestCase):

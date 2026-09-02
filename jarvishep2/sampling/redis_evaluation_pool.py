@@ -7,8 +7,10 @@ but transports work over Redis tasks + ``hep:feedback`` barriers.
 
 from __future__ import annotations
 
+import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -17,6 +19,16 @@ from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.sample import Sample
+
+
+class _LoglVal:
+    """Minimal LoglOutput stand-in (``.val``) for live-point init."""
+
+    __slots__ = ("val", "blob")
+
+    def __init__(self, v: float) -> None:
+        self.val = float(v)
+        self.blob = None
 
 
 class RedisEvaluationPool:
@@ -31,7 +43,8 @@ class RedisEvaluationPool:
     extract_logl :
         ``extract_logl(feedback_record) -> float``.
     batch_size :
-        Max tasks pushed before waiting (pipeline size).
+        Max tasks pushed before waiting (pipeline size). Also the default
+        dynesty ``queue_size`` / evolve-thread count.
     timeout :
         Seconds to wait for a full generation barrier.
     seed :
@@ -59,6 +72,11 @@ class RedisEvaluationPool:
         self.method = str(method)
         self.njobs = self.batch_size
         self._call_index = 0
+        self._index_lock = threading.Lock()
+        self._waiters_lock = threading.Lock()
+        self._waiters: dict[str, Future] = {}
+        self._pump_lock = threading.Lock()
+        self._logged_evolve_parallel = False
         if logger is not None:
             self._logger = logger
         else:
@@ -86,6 +104,12 @@ class RedisEvaluationPool:
         **loglikelihood**. Prior transforms must run locally (they mint uuids);
         loglikelihoods go through Redis Workers + ``hep:feedback``.
 
+        ``SamplerArgument`` (internal ``sample()``) stays on the control
+        process — each walk calls ``loglikelihood(v)`` sequentially — but the
+        *queue* of walks is threaded so ``queue_size`` workers stay busy.
+        Concurrent ``evaluate_logl`` calls share one BLPOP pump so one
+        walk cannot steal another walk's ``hep:feedback`` record.
+
         D13.7: unknown call shapes raise instead of silently evaluating a
         candidate physics logL in the control process.
         """
@@ -103,7 +127,7 @@ class RedisEvaluationPool:
 
         first = items[0]
         if type(first).__name__ in {"SamplerArgument"}:
-            return [func(x) for x in items]
+            return self._map_sampler_arguments(func, items)
 
         is_logl = self._is_loglikelihood_callable(func)
         is_ptform = self._is_prior_transform_callable(func)
@@ -138,6 +162,32 @@ class RedisEvaluationPool:
             "LogLikelihood, uuid-augmented logL vectors, SamplerArgument, "
             "or dynesty bound-bootstrap helpers."
         )
+
+    def _map_sampler_arguments(self, func: Callable, items: list[Any]) -> list[Any]:
+        """Run dynesty ``internal_sampler.sample`` walks concurrently.
+
+        Stock dynesty fills ``queue_size`` replacement walks via ``pool.map``.
+        A serial list-comprehension leaves Workers idle: each walk's inner
+        ``loglikelihood(v)`` is a blocking Redis round-trip. Threads let
+        those waits overlap so ``EnvReqs.V2.workers`` stay busy.
+        """
+        n = len(items)
+        workers = min(n, max(1, int(self.njobs)))
+        if n <= 1 or workers <= 1:
+            return [func(x) for x in items]
+        if not self._logged_evolve_parallel:
+            self._logger.info(
+                "%s evolve: mapping %d SamplerArgument jobs on %d threads "
+                "(batch_size/queue_size=%d); inner logL via Redis Workers",
+                self.method,
+                n,
+                workers,
+                self.njobs,
+            )
+            self._logged_evolve_parallel = True
+        prefix = f"{str(self.method or 'nested').lower()}-evolve"
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=prefix) as pool:
+            return list(pool.map(func, items))
 
     @staticmethod
     def _is_loglikelihood_callable(func: Callable) -> bool:
@@ -190,11 +240,129 @@ class RedisEvaluationPool:
                 return True
         return False
 
+    def _alloc_index(self) -> int:
+        with self._index_lock:
+            idx = self._call_index
+            self._call_index += 1
+            return idx
+
+    def _register_waiters(self, uuids: Sequence[str]) -> list[Future]:
+        futs: list[Future] = []
+        with self._waiters_lock:
+            for uuid in uuids:
+                if uuid in self._waiters:
+                    raise ValueError(
+                        "RedisEvaluationPool received duplicate sample UUID "
+                        f"{uuid!r} while another logL call is still waiting"
+                    )
+                fut: Future = Future()
+                self._waiters[uuid] = fut
+                futs.append(fut)
+        return futs
+
+    def _forget_waiters(self, uuids: Sequence[str]) -> None:
+        with self._waiters_lock:
+            for uuid in uuids:
+                self._waiters.pop(uuid, None)
+
+    def _dispatch_feedback(self, record: Mapping[str, Any]) -> None:
+        uuid = str(record.get("uuid", ""))
+        with self._waiters_lock:
+            fut = self._waiters.get(uuid)
+            pending = len(self._waiters)
+        if fut is None:
+            self._logger.warning(
+                "dropping unmatched hep:feedback uuid=%s "
+                "(pending_waiters=%d logL=%s)",
+                uuid or "<empty>",
+                pending,
+                record.get("logL", ""),
+            )
+            return
+        if not fut.done():
+            fut.set_result(record)
+
+    def _pump_one_feedback(self, *, timeout: int) -> None:
+        try:
+            record = self.redis.pull_feedback(timeout=max(1, int(timeout)))
+        except Exception:
+            return
+        if record is None:
+            return
+        self._dispatch_feedback(record)
+
+    def _wait_feedback(self, uuids: Sequence[str], futs: Sequence[Future]) -> list[Any]:
+        """Wait for *uuids* without a background BLPOP thread.
+
+        One waiting caller holds ``_pump_lock`` and drains ``hep:feedback``,
+        dispatching records to any registered waiter. Other evolve threads
+        block on their Future. Pumping only while waiters exist avoids an
+        idle consumer stealing another pool's feedback on a shared Redis
+        (tests / sequential samplers on one queue).
+        """
+        deadline = time.monotonic() + max(1.0, self.timeout)
+        pending = set(uuids)
+        try:
+            while pending:
+                pending.difference_update(
+                    uuid for uuid in list(pending) if self._waiter_done(uuid)
+                )
+                if not pending:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"RedisEvaluationPool timed out with {len(pending)} pending"
+                    )
+                if self._pump_lock.acquire(blocking=False):
+                    try:
+                        while pending:
+                            pending.difference_update(
+                                uuid
+                                for uuid in list(pending)
+                                if self._waiter_done(uuid)
+                            )
+                            if not pending:
+                                break
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                raise TimeoutError(
+                                    f"RedisEvaluationPool timed out with "
+                                    f"{len(pending)} pending"
+                                )
+                            self._pump_one_feedback(
+                                timeout=max(1, min(5, int(remaining)))
+                            )
+                    finally:
+                        self._pump_lock.release()
+                else:
+                    uuid = next(iter(pending))
+                    fut = self._waiter_future(uuid)
+                    if fut is None or fut.done():
+                        continue
+                    try:
+                        fut.result(timeout=min(0.1, remaining))
+                    except TimeoutError:
+                        pass
+            return [self.extract_logl(fut.result(timeout=0)) for fut in futs]
+        finally:
+            self._forget_waiters(uuids)
+
+    def _waiter_future(self, uuid: str) -> Future | None:
+        with self._waiters_lock:
+            return self._waiters.get(uuid)
+
+    def _waiter_done(self, uuid: str) -> bool:
+        fut = self._waiter_future(uuid)
+        return fut is None or fut.done()
+
     def _redis_batch_logl(self, items: list[Any]) -> list[Any]:
         pending: dict[str, int] = {}
         samples: list[Sample] = []
         for item in items:
-            uuid, payload = _uuid_and_payload(item, seed=self.seed, index=self._call_index)
+            uuid, payload = _uuid_and_payload(
+                item, seed=self.seed, index=self._alloc_index()
+            )
             if uuid in pending:
                 previous_index = pending[uuid]
                 raise ValueError(
@@ -203,60 +371,30 @@ class RedisEvaluationPool:
                     f"(indices {previous_index} and {len(samples)}); "
                     "UUIDs must be unique per batch"
                 )
-            self._call_index += 1
             sample = self.build_sample(payload, uuid)
             sample.uuid = uuid
             pending[uuid] = len(samples)
             samples.append(sample)
 
-        for i in range(0, len(samples), self.batch_size):
-            chunk = samples[i : i + self.batch_size]
-            self.redis.push_many_tasks([s.to_task_dict() for s in chunk])
+        ordered = [s.uuid for s in samples]
+        futs = self._register_waiters(ordered)
+        try:
+            for i in range(0, len(samples), self.batch_size):
+                chunk = samples[i : i + self.batch_size]
+                self.redis.push_many_tasks([s.to_task_dict() for s in chunk])
+            values = self._wait_feedback(ordered, futs)
+        except Exception:
+            self._forget_waiters(ordered)
+            raise
 
         results: list[Any | None] = [None] * len(samples)
-        deadline = time.monotonic() + max(1.0, self.timeout)
-        remaining = set(pending.keys())
-        while remaining:
-            if time.monotonic() > deadline:
-                raise TimeoutError(
-                    f"RedisEvaluationPool timed out with {len(remaining)} pending"
-                )
-            wait = max(1, min(5, int(deadline - time.monotonic())))
-            record = self.redis.pull_feedback(timeout=wait)
-            if record is None:
-                continue
-            uuid = str(record.get("uuid", ""))
-            if uuid not in remaining:
-                # Destructive BLPOP: log before discard so resume/uuid bugs
-                # leave a greppable trail (D13.7b).
-                self._logger.warning(
-                    "dropping unmatched hep:feedback uuid=%s "
-                    "(pending_batch=%d expected=%d logL=%s)",
-                    uuid or "<empty>",
-                    len(remaining),
-                    len(pending),
-                    record.get("logL", ""),
-                )
-                continue
-            remaining.discard(uuid)
-            idx = pending[uuid]
-            results[idx] = self.extract_logl(record)
-
-        # Dynesty's live-point init does ``[_.val for _ in mapper(logl_wrap, …)]``
-        # so return objects with a ``.val`` attribute (same as LoglOutput).
-        class _LoglVal:
-            __slots__ = ("val", "blob")
-
-            def __init__(self, v: float) -> None:
-                self.val = float(v)
-                self.blob = None
+        for uuid, val in zip(ordered, values):
+            results[pending[uuid]] = val
 
         out: list[Any] = []
         for i, val in enumerate(results):
             if val is None:
                 raise RuntimeError(f"missing feedback for sample index {i}")
-            # If *func* is a LogLikelihood wrapper, prefer its blob handling later;
-            # live-init only needs .val.
             out.append(_LoglVal(float(val)))
         return out
 
@@ -266,6 +404,9 @@ class RedisEvaluationPool:
         Dynesty's internal samplers often call ``loglikelihood(v)`` *inside*
         ``pool.map(sampler.sample, …)`` which runs on the control process. That
         path must still hit Workers — never a control-side toy logL.
+
+        Safe to call from several evolve threads at once: waiters are keyed by
+        uuid and a single pump thread owns ``hep:feedback`` BLPOP.
         """
         if self.redis is None:
             raise RuntimeError(
@@ -330,8 +471,5 @@ def _callable_label(func: Callable) -> str:
         return str(name)
     return type(func).__name__
 
-
-# typing re-export for annotations above
-from collections.abc import Mapping  # noqa: E402
 
 __all__ = ["RedisEvaluationPool"]

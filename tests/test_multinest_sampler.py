@@ -6,13 +6,23 @@ from __future__ import annotations
 import csv
 import os
 import tempfile
+import threading
+import time
 import unittest
+from typing import Any
 
 import numpy as np
 
-from jarvishep2.Sampling.dynesty_sampler import export_dynesty_results_csv
+from jarvishep2.Sampling.dynesty_sampler import (
+    NestedRedisLogL,
+    _jarvis_prior_transform,
+    export_dynesty_results_csv,
+)
 from jarvishep2.Sampling.multinest_sampler import MultiNestSampler, create_multinest
+from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
 from jarvishep2.distributor import STATELESS_METHODS, Distributor
+from jarvishep2.redis_queue import make_fakeredis_queue
+from jarvishep2.sample import Sample
 
 
 class MultiNestRegistrationTests(unittest.TestCase):
@@ -156,6 +166,137 @@ class MultiNestCsvExportTests(unittest.TestCase):
             "samples_nlive",
         ):
             self.assertIn(col, fieldnames)
+
+
+class MultiNestParallelEvolveTests(unittest.TestCase):
+    """Static NestedSampler uses the same Redis evolve path as Dynesty."""
+
+    def test_constructor_sets_queue_size_from_batch_size(self) -> None:
+        sampler = MultiNestSampler()
+        sampler.set_config(
+            {
+                "Sampling": {
+                    "Method": "MultiNest",
+                    "Variables": [
+                        {
+                            "name": "x",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1},
+                            },
+                        },
+                        {
+                            "name": "y",
+                            "distribution": {
+                                "type": "Flat",
+                                "parameters": {"min": 0, "max": 1},
+                            },
+                        },
+                    ],
+                    "Bounds": {"nlive": 16, "dlogz": 1.0, "seed": 3},
+                },
+                "EnvReqs": {"V2": {"workers": 4, "batch_size": 4}},
+            }
+        )
+        self.assertFalse(sampler._use_dynamic)
+        self.assertEqual(sampler._batch_size, 4)
+        queue = make_fakeredis_queue()
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=lambda payload, uuid: Sample(
+                uuid=uuid, u_coords=np.asarray(payload, dtype=float)
+            ),
+            batch_size=sampler._batch_size,
+            method="MultiNest",
+        )
+        kwargs = sampler._build_constructor_kwargs(
+            pool=pool, rstate=np.random.default_rng(0)
+        )
+        self.assertEqual(kwargs["queue_size"], 4)
+        self.assertIs(kwargs["pool"], pool)
+        self.assertIsInstance(kwargs["loglikelihood"], NestedRedisLogL)
+
+    def test_static_nested_sampler_evolve_runs_in_parallel(self) -> None:
+        """NestedSampler._fill_queue must overlap Redis logL across queue_size."""
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+
+        queue = make_fakeredis_queue()
+        logs: list[str] = []
+
+        class _CapturingLogger:
+            def info(self, msg: str, *args: Any, **kwargs: Any) -> None:
+                logs.append(msg % args if args else str(msg))
+
+            def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:
+                logs.append(msg % args if args else str(msg))
+
+        pool = RedisEvaluationPool(
+            queue,
+            build_sample=lambda payload, uuid: Sample(
+                uuid=uuid, u_coords=np.asarray(payload, dtype=float)
+            ),
+            batch_size=4,
+            seed=5,
+            timeout=30.0,
+            method="MultiNest",
+            logger=_CapturingLogger(),
+        )
+        stop = threading.Event()
+        delay = 0.2
+
+        def worker() -> None:
+            while not stop.is_set():
+                task = queue.pull_task(timeout=1)
+                if task is None:
+                    continue
+                time.sleep(delay)
+                u = np.asarray(task.get("u_coords") or [], dtype=float)
+                queue.publish_feedback(
+                    {"uuid": task["uuid"], "logL": float(-np.sum((u - 0.5) ** 2))}
+                )
+
+        workers = [threading.Thread(target=worker, daemon=True) for _ in range(4)]
+        for thread in workers:
+            thread.start()
+        evolve_sizes: list[int] = []
+        orig = pool._map_sampler_arguments
+
+        def _spy(func, items):
+            evolve_sizes.append(len(items))
+            return orig(func, items)
+
+        pool._map_sampler_arguments = _spy  # type: ignore[method-assign]
+        try:
+            t0 = time.monotonic()
+            sampler = NestedSampler(
+                loglikelihood=NestedRedisLogL(pool),
+                prior_transform=_jarvis_prior_transform,
+                ndim=2,
+                nlive=8,
+                pool=pool,
+                queue_size=4,
+                rstate=np.random.default_rng(0),
+            )
+            sampler.run_nested(
+                maxiter=4, dlogz=1e9, print_progress=False, add_live=False
+            )
+            elapsed = time.monotonic() - t0
+            self.assertGreaterEqual(int(getattr(sampler, "ncall", 0) or 0), 8)
+            self.assertTrue(evolve_sizes, msg="NestedSampler never mapped SamplerArgument")
+            self.assertGreaterEqual(max(evolve_sizes), 2)
+            self.assertTrue(
+                any("MultiNest evolve" in line for line in logs),
+                msg=f"expected MultiNest evolve log, got {logs!r}",
+            )
+            # Serial live-init + 4 queue fills ≈ 8*0.2 + 4*4*0.2 = 4.8s.
+            self.assertLess(
+                elapsed, 2.5, msg=f"MultiNest NestedSampler looked serial: {elapsed:.3f}s"
+            )
+        finally:
+            stop.set()
+            for thread in workers:
+                thread.join(timeout=2.0)
+            pool.close()
 
 
 if __name__ == "__main__":
