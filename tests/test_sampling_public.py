@@ -24,6 +24,13 @@ class SamplingPublicSurfaceTests(unittest.TestCase):
         self.assertIs(type(sampler), MCMCSampler)
         self.assertEqual(type(sampler).__module__, "jarvishep2.sampling.mcmc")
 
+    def test_removed_method_aliases_are_not_registered(self) -> None:
+        for alias in ("AM", "Ensemble"):
+            with self.subTest(method=alias):
+                self.assertNotIn(alias, names())
+                with self.assertRaises(NotImplementedError):
+                    Distributor.set_method(alias)
+
     def test_mcmc_sampler_module_has_no_alias_or_factory_barrel(self) -> None:
         import jarvishep2.Sampling.mcmc_sampler as module
 

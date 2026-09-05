@@ -407,6 +407,122 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(card)
         self.assertTrue(any(item.code == "JV2-MTH-066" for item in report.errors()))
 
+    def test_mcmc_family_schema_and_contracts(self) -> None:
+        card = _card()
+        variables = card["Sampling"]["Variables"]
+
+        card["Sampling"] = {
+            "Method": "MCMC",
+            "Bounds": {
+                "num_chains": 4,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "seed": 7,
+            },
+            "Variables": variables,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+        card["Sampling"]["Bounds"]["proposal_scale"] = [0.2, 0.3]
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-085" for item in report.errors()))
+
+        card["Sampling"] = {
+            "Method": "EnsembleMCMC",
+            "Bounds": {
+                "num_chains": 8,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "stretch_a": 2.0,
+                "seed": 7,
+            },
+            "Variables": variables,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+        card["Sampling"]["Bounds"]["num_chains"] = 1
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-111" for item in report.errors()))
+        card["Sampling"]["Bounds"]["num_chains"] = 8
+        card["Sampling"]["Bounds"]["stretch_a"] = 1.0
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-116" for item in report.errors()))
+
+        card["Sampling"] = {
+            "Method": "DRAM",
+            "Bounds": {
+                "num_chains": 4,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "dr_steps": 2,
+                "dr_scale_factors": [1.0, 0.5],
+                "seed": 7,
+            },
+            "Variables": variables,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+        card["Sampling"]["Bounds"]["dr_steps"] = 0
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-107" for item in report.errors()))
+
+        card["Sampling"] = {
+            "Method": "DEMCMC",
+            "Bounds": {
+                "num_chains": 8,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "de_gamma": 0.0,
+                "de_crossover": 1.0,
+                "seed": 7,
+            },
+            "Variables": variables,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+        card["Sampling"]["Bounds"]["de_crossover"] = 1.5
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-126" for item in report.errors()))
+
+        card["Sampling"] = {
+            "Method": "PTEnsemble",
+            "Bounds": {
+                "num_chains": 4,
+                "num_iters": 20,
+                "proposal_scale": 0.2,
+                "temperature_ladder": [1.0, 2.0, 4.0, 8.0],
+                "stretch_a": 2.0,
+                "seed": 7,
+            },
+            "Variables": variables,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+        card["Sampling"]["Bounds"]["stretch_a"] = 0.5
+        report = validate_task_config(card)
+        self.assertTrue(any(item.code == "JV2-MTH-072" for item in report.errors()))
+
+        card["Sampling"]["Bounds"]["stretch_a"] = 2.0
+        card["Sampling"]["Method"] = "AMMCMC"
+        card["Sampling"]["Bounds"] = {
+            "num_chains": 4,
+            "num_iters": 20,
+            "proposal_scale": 0.2,
+            "adapt_enabled": True,
+            "adapt_start_iter": 100,
+            "seed": 7,
+        }
+        report = validate_task_config(card)
+        self.assertTrue(report.ok, report.issues)
+
+        for alias in ("AM", "Ensemble"):
+            card["Sampling"]["Method"] = alias
+            report = validate_task_config(card)
+            self.assertTrue(
+                any(item.code == "JV2-MTH-003" for item in report.errors()),
+                msg=f"alias Method {alias!r} must be rejected",
+            )
+
     def test_manifest_matches_builtin_portal_formats(self) -> None:
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
             manifest = json.load(handle)

@@ -1,8 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://jarvis-hep.org/schema/v2/sampling/methods/mcmc.json",
-  "x-jarvis-status": "unstable",
-  "description": "MCMC Bounds knobs are not finalised. Jarvis man marks this method STATUS: not finalised; validate does not yet reject unknown Bounds keys.",
+  "type": "object",
+  "x-jarvis-zone": "closed",
+  "x-jarvis-status": "stable",
+  "description": "Random-walk Metropolis MCMC.",
+  "x-jarvis-example": "Method: MCMC\nBounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
   "allOf": [
     {
       "$ref": "https://jarvis-hep.org/schema/v2/sampling/methods/variables.json"
@@ -11,8 +14,50 @@
       "properties": {
         "Method": {
           "const": "MCMC"
+        },
+        "Bounds": {
+          "type": "object",
+          "x-jarvis-zone": "closed",
+          "description": "MCMC settings shared by all chains except proposal_scale, which may be per-chain. Prefer num_chains >= Runtime workers so the async pipeline can fill the worker pool.",
+          "properties": {
+            "num_chains": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
+              "description": "Number of independent chains (async 1-inflight each; prefer >= workers)."
+            },
+            "num_iters": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
+              "description": "Number of transitions per chain."
+            },
+            "proposal_scale": {
+              "oneOf": [
+                {
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"
+                  }
+                }
+              ],
+              "description": "One positive proposal scale for every chain; a scalar or one-element list broadcasts, while a list with one value per chain supplies per-chain scales."
+            },
+            "seed": {
+              "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonNegativeIntegerish",
+              "description": "Master RNG seed."
+            },
+            "on_failure": {
+              "type": "string",
+              "enum": ["reject", "halt"],
+              "description": "Failed-sample policy: reject the Metropolis proposal or halt the scan (default reject)."
+            }
+          },
+          "required": ["num_chains", "num_iters", "proposal_scale"],
+          "additionalProperties": false
         }
-      }
+      },
+      "required": ["Bounds"]
     }
   ]
 }

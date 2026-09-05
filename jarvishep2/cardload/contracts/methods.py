@@ -257,271 +257,455 @@ def validate_method_sampling(
                 )
             )
 
-    if method in _MCMC_METHODS and bounds is not None and not isinstance(bounds, Mapping):
-        # Already reported above.
-        pass
+    if method in _MCMC_METHODS:
+        issues.extend(_validate_mcmc_bounds(method, bounds, bounds_map))
 
-    if method == "ToyMCMC":
-        if bounds is None:
+    return issues
+
+
+_ENSEMBLE_MCMC = frozenset({"EnsembleMCMC"})
+_DE_MCMC = frozenset({"DEMCMC"})
+_PT_MCMC = frozenset({"PTMCMC", "PTEnsemble"})
+_ADAPTIVE_MCMC = frozenset({"AMMCMC", "DRAM"})
+
+# Per-method Bounds codes. Each YAML Method name has exactly one engine.
+_MCMC_CORE = {
+    "ToyMCMC": {
+        "missing": "JV2-MTH-050",
+        "num_chains": "JV2-MTH-051",
+        "num_iters": "JV2-MTH-052",
+        "proposal_scale": "JV2-MTH-053",
+        "proposal_scale_len": "JV2-MTH-055",
+        "seed": "JV2-MTH-056",
+        "min_chains": 1,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "MCMC": {
+        "missing": "JV2-MTH-080",
+        "num_chains": "JV2-MTH-081",
+        "num_iters": "JV2-MTH-082",
+        "proposal_scale": "JV2-MTH-083",
+        "proposal_scale_len": "JV2-MTH-085",
+        "seed": "JV2-MTH-086",
+        "min_chains": 1,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "AMMCMC": {
+        "missing": "JV2-MTH-090",
+        "num_chains": "JV2-MTH-091",
+        "num_iters": "JV2-MTH-092",
+        "proposal_scale": "JV2-MTH-093",
+        "proposal_scale_len": "JV2-MTH-094",
+        "seed": "JV2-MTH-095",
+        "min_chains": 1,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "DRAM": {
+        "missing": "JV2-MTH-100",
+        "num_chains": "JV2-MTH-101",
+        "num_iters": "JV2-MTH-102",
+        "proposal_scale": "JV2-MTH-103",
+        "proposal_scale_len": "JV2-MTH-104",
+        "seed": "JV2-MTH-105",
+        "min_chains": 1,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "EnsembleMCMC": {
+        "missing": "JV2-MTH-110",
+        "num_chains": "JV2-MTH-111",
+        "num_iters": "JV2-MTH-112",
+        "proposal_scale": "JV2-MTH-113",
+        "proposal_scale_len": "JV2-MTH-114",
+        "seed": "JV2-MTH-115",
+        "min_chains": 2,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "DEMCMC": {
+        "missing": "JV2-MTH-120",
+        "num_chains": "JV2-MTH-121",
+        "num_iters": "JV2-MTH-122",
+        "proposal_scale": "JV2-MTH-123",
+        "proposal_scale_len": "JV2-MTH-124",
+        "seed": "JV2-MTH-125",
+        "min_chains": 2,
+        "required": ("num_chains", "num_iters", "proposal_scale"),
+    },
+    "PTMCMC": {
+        "missing": "JV2-MTH-060",
+        "num_chains": "JV2-MTH-061",
+        "num_iters": "JV2-MTH-062",
+        "proposal_scale": "JV2-MTH-063",
+        "proposal_scale_len": "JV2-MTH-066",
+        "seed": "JV2-MTH-071",
+        "min_chains": 2,
+        "required": (
+            "num_chains",
+            "num_iters",
+            "proposal_scale",
+            "temperature_ladder",
+        ),
+    },
+}
+_MCMC_CORE["PTEnsemble"] = _MCMC_CORE["PTMCMC"]
+
+_REQUIRED_KEY_HELP = {
+    "num_chains": "a positive integer",
+    "num_iters": "a positive integer",
+    "proposal_scale": "a positive number or list",
+    "temperature_ladder": "a strictly increasing list starting at 1.0",
+}
+
+
+def _validate_mcmc_bounds(
+    method: str,
+    bounds: Any,
+    bounds_map: Mapping[str, Any] | None,
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    spec = _MCMC_CORE.get(method)
+    if spec is None:
+        return []
+    label = method
+    issues: list[ValidationIssue] = []
+    if bounds is None:
+        required = ", ".join(spec["required"])
+        issues.append(
+            issue(
+                "error",
+                spec["missing"],
+                "Sampling.Bounds",
+                f"{label} requires Sampling.Bounds with {required}",
+            )
+        )
+        return issues
+    if bounds_map is None:
+        return issues
+
+    min_chains = int(spec["min_chains"])
+    help_text = dict(_REQUIRED_KEY_HELP)
+    if min_chains > 1:
+        help_text["num_chains"] = f"an integer >= {min_chains}"
+    code_for = {
+        "num_chains": spec["num_chains"],
+        "num_iters": spec["num_iters"],
+        "proposal_scale": spec["proposal_scale"],
+        "temperature_ladder": "JV2-MTH-064",
+    }
+    for key in spec["required"]:
+        if key not in bounds_map:
             issues.append(
                 issue(
                     "error",
-                    "JV2-MTH-050",
-                    "Sampling.Bounds",
-                    "ToyMCMC requires Sampling.Bounds with num_chains, num_iters, and proposal_scale",
+                    code_for[key],
+                    f"Sampling.Bounds.{key}",
+                    f"{label} requires Sampling.Bounds.{key} ({help_text[key]})",
                 )
             )
-        else:
-            assert bounds_map is not None
-            for key, code, description in (
-                ("num_chains", "JV2-MTH-051", "a positive integer"),
-                ("num_iters", "JV2-MTH-052", "a positive integer"),
-                ("proposal_scale", "JV2-MTH-053", "a positive number or list"),
-            ):
-                if key not in bounds_map:
-                    issues.append(
-                        issue(
-                            "error",
-                            code,
-                            f"Sampling.Bounds.{key}",
-                            f"ToyMCMC requires Sampling.Bounds.{key} ({description})",
-                        )
-                    )
 
-            nchains = try_int(bounds_map.get("num_chains"))
-            if nchains is not None and nchains < 1:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-051",
-                        "Sampling.Bounds.num_chains",
-                        f"expected a positive integer, got {bounds_map.get('num_chains')!r}",
-                    )
-                )
+    nchains = try_int(bounds_map.get("num_chains"))
+    if nchains is not None and nchains < min_chains:
+        issues.append(
+            issue(
+                "error",
+                spec["num_chains"],
+                "Sampling.Bounds.num_chains",
+                f"{label} requires num_chains >= {min_chains}, "
+                f"got {bounds_map.get('num_chains')!r}",
+            )
+        )
 
-            niters = try_int(bounds_map.get("num_iters"))
-            if niters is not None and niters < 1:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-052",
-                        "Sampling.Bounds.num_iters",
-                        f"expected a positive integer, got {bounds_map.get('num_iters')!r}",
-                    )
-                )
+    niters = try_int(bounds_map.get("num_iters"))
+    if niters is not None and niters < 1:
+        issues.append(
+            issue(
+                "error",
+                spec["num_iters"],
+                "Sampling.Bounds.num_iters",
+                f"expected a positive integer, got {bounds_map.get('num_iters')!r}",
+            )
+        )
 
-            raw_scale = bounds_map.get("proposal_scale")
-            scales = raw_scale if isinstance(raw_scale, (list, tuple)) else [raw_scale]
-            parsed_scales = [try_float(value) for value in scales]
-            if raw_scale is not None and (
-                not parsed_scales
-                or any(value is None or value <= 0 for value in parsed_scales)
-            ):
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-053",
-                        "Sampling.Bounds.proposal_scale",
-                        "ToyMCMC proposal_scale values must all be positive numbers",
-                    )
-                )
-            elif (
-                nchains is not None
-                and isinstance(raw_scale, (list, tuple))
-                and len(raw_scale) not in {1, nchains}
-            ):
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-055",
-                        "Sampling.Bounds.proposal_scale",
-                        f"ToyMCMC proposal_scale must have length 1 or num_chains ({nchains}), "
-                        f"got {len(raw_scale)}",
-                    )
-                )
+    raw_scale = bounds_map.get("proposal_scale")
+    scales = raw_scale if isinstance(raw_scale, (list, tuple)) else [raw_scale]
+    parsed_scales = [try_float(value) for value in scales]
+    if raw_scale is not None and (
+        not parsed_scales or any(value is None or value <= 0 for value in parsed_scales)
+    ):
+        issues.append(
+            issue(
+                "error",
+                spec["proposal_scale"],
+                "Sampling.Bounds.proposal_scale",
+                f"{label} proposal_scale values must all be positive numbers",
+            )
+        )
+    elif (
+        nchains is not None
+        and isinstance(raw_scale, (list, tuple))
+        and len(raw_scale) not in {1, nchains}
+    ):
+        issues.append(
+            issue(
+                "error",
+                spec["proposal_scale_len"],
+                "Sampling.Bounds.proposal_scale",
+                f"{label} proposal_scale must have length 1 or num_chains ({nchains}), "
+                f"got {len(raw_scale)}",
+            )
+        )
 
-            raw_seed = bounds_map.get("seed")
-            if raw_seed is not None:
-                seed = try_int(raw_seed)
-                if seed is None or seed < 0:
-                    issues.append(
-                        issue(
-                            "error",
-                            "JV2-MTH-056",
-                            "Sampling.Bounds.seed",
-                            f"ToyMCMC seed must be a non-negative integer, got {raw_seed!r}",
-                        )
-                    )
-
-    if method == "PTMCMC":
-        label = method
-        if bounds is None:
+    raw_seed = bounds_map.get("seed")
+    if raw_seed is not None:
+        seed = try_int(raw_seed)
+        if seed is None or seed < 0:
             issues.append(
                 issue(
                     "error",
-                    "JV2-MTH-060",
-                    "Sampling.Bounds",
-                    f"{label} requires Sampling.Bounds with num_chains, num_iters, "
-                    "proposal_scale, and temperature_ladder",
+                    spec["seed"],
+                    "Sampling.Bounds.seed",
+                    f"{label} seed must be a non-negative integer, got {raw_seed!r}",
+                )
+            )
+
+    if method in _PT_MCMC:
+        issues.extend(_validate_pt_ladder(label, bounds_map, nchains))
+    if method in _ADAPTIVE_MCMC:
+        issues.extend(_validate_adapt_knobs(label, bounds_map, method))
+    if method == "DRAM":
+        issues.extend(_validate_dram_knobs(label, bounds_map))
+    if method in _ENSEMBLE_MCMC or method == "PTEnsemble":
+        issues.extend(_validate_stretch_a(label, bounds_map, method))
+    if method in _DE_MCMC:
+        issues.extend(_validate_de_knobs(label, bounds_map))
+    return issues
+
+
+def _validate_pt_ladder(
+    label: str,
+    bounds_map: Mapping[str, Any],
+    nchains: int | None,
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    issues: list[ValidationIssue] = []
+    raw_ladder = bounds_map.get("temperature_ladder")
+    if raw_ladder is not None:
+        if not isinstance(raw_ladder, (list, tuple)):
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-064",
+                    "Sampling.Bounds.temperature_ladder",
+                    f"{label} temperature_ladder must be a list of positive numbers",
                 )
             )
         else:
-            assert bounds_map is not None
-            for key, code, description in (
-                ("num_chains", "JV2-MTH-061", "an integer >= 2"),
-                ("num_iters", "JV2-MTH-062", "a positive integer"),
-                ("proposal_scale", "JV2-MTH-063", "a positive number or list"),
-                ("temperature_ladder", "JV2-MTH-064", "a strictly increasing list starting at 1.0"),
-            ):
-                if key not in bounds_map:
+            temps = [try_float(value) for value in raw_ladder]
+            if not temps or any(value is None or value <= 0 for value in temps):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-MTH-064",
+                        "Sampling.Bounds.temperature_ladder",
+                        f"{label} temperature_ladder values must all be positive",
+                    )
+                )
+            else:
+                assert all(value is not None for value in temps)
+                if nchains is not None and len(temps) != nchains:
                     issues.append(
                         issue(
                             "error",
-                            code,
-                            f"Sampling.Bounds.{key}",
-                            f"{label} requires Sampling.Bounds.{key} ({description})",
-                        )
-                    )
-
-            nchains = try_int(bounds_map.get("num_chains"))
-            if nchains is not None and nchains < 2:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-061",
-                        "Sampling.Bounds.num_chains",
-                        f"{label} requires num_chains >= 2, got {bounds_map.get('num_chains')!r}",
-                    )
-                )
-
-            niters = try_int(bounds_map.get("num_iters"))
-            if niters is not None and niters < 1:
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-062",
-                        "Sampling.Bounds.num_iters",
-                        f"expected a positive integer, got {bounds_map.get('num_iters')!r}",
-                    )
-                )
-
-            raw_scale = bounds_map.get("proposal_scale")
-            scales = raw_scale if isinstance(raw_scale, (list, tuple)) else [raw_scale]
-            parsed_scales = [try_float(value) for value in scales]
-            if raw_scale is not None and (
-                not parsed_scales
-                or any(value is None or value <= 0 for value in parsed_scales)
-            ):
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-063",
-                        "Sampling.Bounds.proposal_scale",
-                        f"{label} proposal_scale values must all be positive numbers",
-                    )
-                )
-            elif (
-                nchains is not None
-                and isinstance(raw_scale, (list, tuple))
-                and len(raw_scale) not in {1, nchains}
-            ):
-                issues.append(
-                    issue(
-                        "error",
-                        "JV2-MTH-066",
-                        "Sampling.Bounds.proposal_scale",
-                        f"{label} proposal_scale must have length 1 or num_chains ({nchains}), "
-                        f"got {len(raw_scale)}",
-                    )
-                )
-
-            raw_ladder = bounds_map.get("temperature_ladder")
-            if raw_ladder is not None:
-                if not isinstance(raw_ladder, (list, tuple)):
-                    issues.append(
-                        issue(
-                            "error",
-                            "JV2-MTH-064",
+                            "JV2-MTH-067",
                             "Sampling.Bounds.temperature_ladder",
-                            f"{label} temperature_ladder must be a list of positive numbers",
+                            f"{label} temperature_ladder length must equal "
+                            f"num_chains ({nchains}), got {len(temps)}",
                         )
                     )
-                else:
-                    temps = [try_float(value) for value in raw_ladder]
-                    if (
-                        not temps
-                        or any(value is None or value <= 0 for value in temps)
-                    ):
-                        issues.append(
-                            issue(
-                                "error",
-                                "JV2-MTH-064",
-                                "Sampling.Bounds.temperature_ladder",
-                                f"{label} temperature_ladder values must all be positive",
-                            )
-                        )
-                    else:
-                        assert all(value is not None for value in temps)
-                        if nchains is not None and len(temps) != nchains:
-                            issues.append(
-                                issue(
-                                    "error",
-                                    "JV2-MTH-067",
-                                    "Sampling.Bounds.temperature_ladder",
-                                    f"{label} temperature_ladder length must equal "
-                                    f"num_chains ({nchains}), got {len(temps)}",
-                                )
-                            )
-                        if abs(float(temps[0]) - 1.0) > 1e-12:
-                            issues.append(
-                                issue(
-                                    "error",
-                                    "JV2-MTH-068",
-                                    "Sampling.Bounds.temperature_ladder",
-                                    f"{label} temperature_ladder[0] must be 1.0 (cold), "
-                                    f"got {temps[0]!r}",
-                                )
-                            )
-                        if any(
-                            not (float(hi) > float(lo))
-                            for lo, hi in zip(temps, temps[1:])
-                        ):
-                            issues.append(
-                                issue(
-                                    "error",
-                                    "JV2-MTH-069",
-                                    "Sampling.Bounds.temperature_ladder",
-                                    f"{label} temperature_ladder must be strictly increasing",
-                                )
-                            )
-
-            raw_exchange = bounds_map.get("exchange_interval")
-            if raw_exchange is not None:
-                exchange = try_int(raw_exchange)
-                if exchange is None or exchange < 1:
+                if abs(float(temps[0]) - 1.0) > 1e-12:
                     issues.append(
                         issue(
                             "error",
-                            "JV2-MTH-070",
-                            "Sampling.Bounds.exchange_interval",
-                            f"{label} exchange_interval must be an integer >= 1, "
-                            f"got {raw_exchange!r}",
+                            "JV2-MTH-068",
+                            "Sampling.Bounds.temperature_ladder",
+                            f"{label} temperature_ladder[0] must be 1.0 (cold), "
+                            f"got {temps[0]!r}",
                         )
                     )
-
-            raw_seed = bounds_map.get("seed")
-            if raw_seed is not None:
-                seed = try_int(raw_seed)
-                if seed is None or seed < 0:
+                if any(not (float(hi) > float(lo)) for lo, hi in zip(temps, temps[1:])):
                     issues.append(
                         issue(
                             "error",
-                            "JV2-MTH-071",
-                            "Sampling.Bounds.seed",
-                            f"{label} seed must be a non-negative integer, got {raw_seed!r}",
+                            "JV2-MTH-069",
+                            "Sampling.Bounds.temperature_ladder",
+                            f"{label} temperature_ladder must be strictly increasing",
                         )
                     )
 
+    raw_exchange = bounds_map.get("exchange_interval")
+    if raw_exchange is not None:
+        exchange = try_int(raw_exchange)
+        if exchange is None or exchange < 1:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-070",
+                    "Sampling.Bounds.exchange_interval",
+                    f"{label} exchange_interval must be an integer >= 1, "
+                    f"got {raw_exchange!r}",
+                )
+            )
+    return issues
+
+
+def _validate_adapt_knobs(
+    label: str,
+    bounds_map: Mapping[str, Any],
+    method: str,
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    start_code = "JV2-MTH-106" if method == "DRAM" else "JV2-MTH-096"
+    eps_code = "JV2-MTH-106" if method == "DRAM" else "JV2-MTH-097"
+    scale_code = "JV2-MTH-106" if method == "DRAM" else "JV2-MTH-098"
+    issues: list[ValidationIssue] = []
+    for key, code in (
+        ("adapt_start_iter", start_code),
+        ("adapt_window", start_code),
+    ):
+        raw = bounds_map.get(key)
+        if raw is None:
+            continue
+        value = try_int(raw)
+        if value is None or value < 1:
+            issues.append(
+                issue(
+                    "error",
+                    code,
+                    f"Sampling.Bounds.{key}",
+                    f"{label} {key} must be an integer >= 1, got {raw!r}",
+                )
+            )
+    raw_eps = bounds_map.get("adapt_eps")
+    if raw_eps is not None:
+        eps = try_float(raw_eps)
+        if eps is None or eps < 0:
+            issues.append(
+                issue(
+                    "error",
+                    eps_code,
+                    "Sampling.Bounds.adapt_eps",
+                    f"{label} adapt_eps must be >= 0, got {raw_eps!r}",
+                )
+            )
+    raw_scale = bounds_map.get("adapt_scale")
+    if raw_scale is not None:
+        scale = try_float(raw_scale)
+        if scale is None or scale <= 0:
+            issues.append(
+                issue(
+                    "error",
+                    scale_code,
+                    "Sampling.Bounds.adapt_scale",
+                    f"{label} adapt_scale must be a positive number, got {raw_scale!r}",
+                )
+            )
+    return issues
+
+
+def _validate_dram_knobs(
+    label: str, bounds_map: Mapping[str, Any]
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    issues: list[ValidationIssue] = []
+    raw_steps = bounds_map.get("dr_steps")
+    if raw_steps is not None:
+        steps = try_int(raw_steps)
+        if steps is None or steps < 1:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-107",
+                    "Sampling.Bounds.dr_steps",
+                    f"{label} dr_steps must be an integer >= 1, got {raw_steps!r}",
+                )
+            )
+    raw_factors = bounds_map.get("dr_scale_factors")
+    if raw_factors is not None:
+        values = (
+            list(raw_factors)
+            if isinstance(raw_factors, (list, tuple))
+            else [raw_factors]
+        )
+        parsed = [try_float(item) for item in values]
+        if not parsed or any(item is None or item <= 0 for item in parsed):
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-108",
+                    "Sampling.Bounds.dr_scale_factors",
+                    f"{label} dr_scale_factors must be positive numbers, got {raw_factors!r}",
+                )
+            )
+    return issues
+
+
+def _validate_stretch_a(
+    label: str, bounds_map: Mapping[str, Any], method: str
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    code = "JV2-MTH-072" if method == "PTEnsemble" else "JV2-MTH-116"
+    raw = bounds_map.get("stretch_a")
+    if raw is None:
+        return []
+    value = try_float(raw)
+    if value is None or value <= 1.0:
+        return [
+            issue(
+                "error",
+                code,
+                "Sampling.Bounds.stretch_a",
+                f"{label} stretch_a must be > 1, got {raw!r}",
+            )
+        ]
+    return []
+
+
+def _validate_de_knobs(
+    label: str, bounds_map: Mapping[str, Any]
+) -> list[ValidationIssue]:
+    from jarvishep2.task_validation import issue
+
+    issues: list[ValidationIssue] = []
+    for key in ("de_gamma", "de_noise"):
+        raw = bounds_map.get(key)
+        if raw is None:
+            continue
+        value = try_float(raw)
+        if value is None or value < 0:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-126",
+                    f"Sampling.Bounds.{key}",
+                    f"{label} {key} must be >= 0, got {raw!r}",
+                )
+            )
+    raw_cr = bounds_map.get("de_crossover")
+    if raw_cr is not None:
+        value = try_float(raw_cr)
+        if value is None or value < 0 or value > 1:
+            issues.append(
+                issue(
+                    "error",
+                    "JV2-MTH-126",
+                    "Sampling.Bounds.de_crossover",
+                    f"{label} de_crossover must be in [0, 1], got {raw_cr!r}",
+                )
+            )
     return issues
 
 

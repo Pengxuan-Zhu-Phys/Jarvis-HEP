@@ -4,7 +4,7 @@
 Ports V1 chain science (``Sampling/Source/MCMC/*`` engines) onto
 :class:`FeedbackSampler`.
 
-**Base runtime design (independent chains)** — ToyMCMC / MCMC / AM / DRAM and
+**Base runtime design (independent chains)** — ToyMCMC / MCMC / AMMCMC / DRAM and
 any method that leaves ``_uses_half_ensemble`` / ``_uses_pt`` false:
 
 * single shared Redis **task** queue (workers steal freely);

@@ -171,7 +171,7 @@ python3 -m pytest -q tests/test_adaptive_bridson.py
 `tests/test_ensemble_samplers.py` is also excluded from the default suite. Its
 feedback-loop tests wait for durable Archiver acknowledgements; the mock-only
 fixture has no Archiver and therefore pays a five-second barrier timeout per
-generation. Run it explicitly when working on Ensemble/DEMCMC/PT:
+generation. Run it explicitly when working on EnsembleMCMC/DEMCMC/PT:
 
 ```bash
 python3 -m pytest -q tests/test_ensemble_samplers.py

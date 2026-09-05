@@ -31,15 +31,13 @@ from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
 from jarvishep2.distributor import STATELESS_METHODS, Distributor
 
 
-# Full D13 method surface (aliases included).
+# Full D13 method surface. Each name is a distinct engine; no alias Methods.
 D13_METHODS = (
     "MCMC",
     "ToyMCMC",
     "AMMCMC",
-    "AM",
     "DRAM",
     "EnsembleMCMC",
-    "Ensemble",
     "DEMCMC",
     "PTMCMC",
     "PTEnsemble",

@@ -240,7 +240,7 @@ run them explicitly with `python3 -m pytest -q tests/test_adaptive_bridson.py`
 when changing that sampler.
 
 The long-running feedback-loop coverage in `tests/test_ensemble_samplers.py`
-is also skipped by default; run it explicitly for Ensemble/DEMCMC/PT changes:
+is also skipped by default; run it explicitly for EnsembleMCMC/DEMCMC/PT changes:
 
 ```bash
 python3 -m pytest -q tests/test_ensemble_samplers.py

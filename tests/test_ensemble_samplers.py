@@ -147,7 +147,6 @@ class DistributorEnsembleTests(unittest.TestCase):
     def test_methods_registered(self) -> None:
         for name in (
             "EnsembleMCMC",
-            "Ensemble",
             "DEMCMC",
             "PTMCMC",
             "PTEnsemble",

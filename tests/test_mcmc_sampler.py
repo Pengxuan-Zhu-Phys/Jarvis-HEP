@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D13.2 MCMC / AM / DRAM FeedbackSampler tests."""
+"""D13.2 MCMC / AMMCMC / DRAM FeedbackSampler tests."""
 
 from __future__ import annotations
 
@@ -156,10 +156,8 @@ class DistributorMCMCTests(unittest.TestCase):
             "MCMC": "jarvishep2.sampling.mcmc",
             "ToyMCMC": "jarvishep2.sampling.toymcmc",
             "AMMCMC": "jarvishep2.sampling.ammcmc",
-            "AM": "jarvishep2.sampling.am",
             "DRAM": "jarvishep2.sampling.dram",
             "EnsembleMCMC": "jarvishep2.sampling.ensemble_mcmc",
-            "Ensemble": "jarvishep2.sampling.ensemble_mcmc",
             "DEMCMC": "jarvishep2.sampling.demcmc",
             "PTMCMC": "jarvishep2.sampling.ptmcmc",
             "PTEnsemble": "jarvishep2.sampling.ptensemble",
@@ -173,7 +171,7 @@ class DistributorMCMCTests(unittest.TestCase):
                 sampler.assert_checkpoint_attribute_contract()
 
     def test_methods_registered_stateful(self) -> None:
-        for name in ("ToyMCMC", "MCMC", "AMMCMC", "AM", "DRAM", "PTMCMC"):
+        for name in ("ToyMCMC", "MCMC", "AMMCMC", "DRAM", "PTMCMC"):
             self.assertNotIn(name, STATELESS_METHODS)
             sampler = Distributor.set_method(name)
             self.assertIsInstance(sampler, MCMCBaseSampler)
@@ -548,10 +546,8 @@ class DistributorMCMCTests(unittest.TestCase):
             "MCMC",
             "ToyMCMC",
             "AMMCMC",
-            "AM",
             "DRAM",
             "EnsembleMCMC",
-            "Ensemble",
             "DEMCMC",
             "PTMCMC",
             "PTEnsemble",

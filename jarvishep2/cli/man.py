@@ -708,6 +708,59 @@ _METHOD_DIAGNOSTICS: dict[str, list[str]] = {
         "JV2-MTH-056",
         "JV2-SCH-001",
     ],
+    "MCMC": [
+        "JV2-MTH-080",
+        "JV2-MTH-081",
+        "JV2-MTH-082",
+        "JV2-MTH-083",
+        "JV2-MTH-085",
+        "JV2-MTH-086",
+        "JV2-SCH-001",
+    ],
+    "AMMCMC": [
+        "JV2-MTH-090",
+        "JV2-MTH-091",
+        "JV2-MTH-092",
+        "JV2-MTH-093",
+        "JV2-MTH-094",
+        "JV2-MTH-095",
+        "JV2-MTH-096",
+        "JV2-MTH-097",
+        "JV2-MTH-098",
+        "JV2-SCH-001",
+    ],
+    "DRAM": [
+        "JV2-MTH-100",
+        "JV2-MTH-101",
+        "JV2-MTH-102",
+        "JV2-MTH-103",
+        "JV2-MTH-104",
+        "JV2-MTH-105",
+        "JV2-MTH-106",
+        "JV2-MTH-107",
+        "JV2-MTH-108",
+        "JV2-SCH-001",
+    ],
+    "EnsembleMCMC": [
+        "JV2-MTH-110",
+        "JV2-MTH-111",
+        "JV2-MTH-112",
+        "JV2-MTH-113",
+        "JV2-MTH-114",
+        "JV2-MTH-115",
+        "JV2-MTH-116",
+        "JV2-SCH-001",
+    ],
+    "DEMCMC": [
+        "JV2-MTH-120",
+        "JV2-MTH-121",
+        "JV2-MTH-122",
+        "JV2-MTH-123",
+        "JV2-MTH-124",
+        "JV2-MTH-125",
+        "JV2-MTH-126",
+        "JV2-SCH-001",
+    ],
     "PTMCMC": [
         "JV2-MTH-060",
         "JV2-MTH-061",
@@ -720,6 +773,21 @@ _METHOD_DIAGNOSTICS: dict[str, list[str]] = {
         "JV2-MTH-069",
         "JV2-MTH-070",
         "JV2-MTH-071",
+        "JV2-SCH-001",
+    ],
+    "PTEnsemble": [
+        "JV2-MTH-060",
+        "JV2-MTH-061",
+        "JV2-MTH-062",
+        "JV2-MTH-063",
+        "JV2-MTH-064",
+        "JV2-MTH-066",
+        "JV2-MTH-067",
+        "JV2-MTH-068",
+        "JV2-MTH-069",
+        "JV2-MTH-070",
+        "JV2-MTH-071",
+        "JV2-MTH-072",
         "JV2-SCH-001",
     ],
     "Dynesty": ["JV2-BND-001", "JV2-BND-012", "JV2-BND-030", "JV2-SCH-001"],
@@ -1026,6 +1094,21 @@ def _sampler_type(method: str) -> str:
     return family_of(method)
 
 
+def _sampler_index_summary(description: str) -> str:
+    """One-line catalog blurb for ``Jarvis man sampler``.
+
+    Pipeline, Redis, and Bounds details live on ``sampler.<Method>`` and
+    ``sampler.mcmc-runtime``. The index table must stay one row tall.
+    """
+    text = _clean_man_prose(description).strip()
+    if not text:
+        return ""
+    cut = text.find(". ")
+    if cut >= 0:
+        text = text[: cut + 1]
+    return text
+
+
 def _mcmc_pipeline_kind(method: str) -> str | None:
     """Return ``async_independent`` / ``barrier_coupled`` for MCMC methods."""
     if method in _MCMC_INDEPENDENT_METHODS:
@@ -1087,12 +1170,12 @@ def _mcmc_runtime_page() -> dict[str, Any]:
         "summary": (
             "• Purpose: multi-chain MCMC Redis transport used by all MCMC-family samplers.\n"
             "• Task submit: one shared queue ``hep:task_queue`` (workers steal freely).\n"
-            "• Independent chains (ToyMCMC / MCMC / AM / DRAM / …): async pipeline — "
+            "• Independent chains (ToyMCMC / MCMC / AMMCMC / DRAM / …): async pipeline — "
             "at most one in-flight evaluation per chain; any chain may re-submit as soon "
             "as its feedback returns.\n"
             "• Feedback for independent chains: ``hep:feedback:chain:{chain_id}`` "
             "(task field ``feedback_queue``; worker routes by that key).\n"
-            "• Coupled methods (Ensemble / DEMCMC / PT…): generation or half-ensemble "
+            "• Coupled methods (EnsembleMCMC / DEMCMC / PT…): generation or half-ensemble "
             "barriers remain required for science; feedback stays on ``hep:feedback``.\n"
             "• Prefer ``num_chains >= workers`` so the async pipeline can keep workers busy.\n"
             "• Reference Bounds profile: ``Jarvis man sampler.ToyMCMC``."
@@ -1268,7 +1351,7 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         row = {
             "method": name,
             "type": _sampler_type(name),
-            "summary": str(root.get("description") or ""),
+            "summary": _sampler_index_summary(str(root.get("description") or "")),
         }
         if full:
             row["status"] = status
@@ -1287,11 +1370,11 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         "zone": "closed",
         "status": "stable",
         "summary": (
-            "All sampling methods registered in the schema catalog. "
-            "MCMC-family transport: Jarvis man sampler.mcmc-runtime."
+            "Sampling methods in the schema catalog. "
+            "Open a method with Jarvis man sampler.<Method>."
             if full
-            else "Stable sampling methods registered in the schema catalog. "
-            "MCMC multi-chain design: Jarvis man sampler.mcmc-runtime."
+            else "Stable sampling methods. "
+            "Open a method with Jarvis man sampler.<Method>."
         ),
         "keys": [],
         "methods": rows,

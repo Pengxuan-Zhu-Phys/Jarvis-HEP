@@ -119,6 +119,114 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
         )
     if code == "JV2-MTH-071":
         return "Use a non-negative integer seed for PTMCMC.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-072":
+        return (
+            "Set stretch_a to a number greater than 1 for PTEnsemble.",
+            "Bounds:\n  stretch_a: 2.0",
+        )
+    if code == "JV2-MTH-080":
+        return (
+            "Add num_chains, num_iters, and a scalar or per-chain proposal_scale under Sampling.Bounds for MCMC.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2",
+        )
+    if code in {"JV2-MTH-081", "JV2-MTH-082"}:
+        return "Set the MCMC chain count and iteration count to positive integers.", "Bounds:\n  num_chains: 4\n  num_iters: 2000"
+    if code in {"JV2-MTH-083", "JV2-MTH-085"}:
+        return (
+            "Set proposal_scale to a positive scalar, a one-item list, or one value per MCMC chain.",
+            "Bounds:\n  num_chains: 4\n  proposal_scale: 0.2",
+        )
+    if code == "JV2-MTH-086":
+        return "Use a non-negative integer seed for MCMC.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-090":
+        return (
+            "Add num_chains, num_iters, and proposal_scale under Sampling.Bounds for AMMCMC.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  adapt_enabled: true",
+        )
+    if code in {"JV2-MTH-091", "JV2-MTH-092"}:
+        return "Set AMMCMC num_chains and num_iters to positive integers.", "Bounds:\n  num_chains: 4\n  num_iters: 2000"
+    if code in {"JV2-MTH-093", "JV2-MTH-094"}:
+        return (
+            "Use a positive proposal_scale scalar or one value per AMMCMC chain.",
+            "Bounds:\n  proposal_scale: 0.2",
+        )
+    if code == "JV2-MTH-095":
+        return "Use a non-negative integer seed for AMMCMC.", "Bounds:\n  seed: 0"
+    if code in {"JV2-MTH-096", "JV2-MTH-097", "JV2-MTH-098"}:
+        return (
+            "Set adapt_start_iter and adapt_window to integers >= 1, adapt_eps >= 0, and adapt_scale > 0.",
+            "Bounds:\n  adapt_enabled: true\n  adapt_start_iter: 100\n  adapt_window: 25\n  adapt_eps: 1.0e-6\n  adapt_scale: 2.38",
+        )
+    if code == "JV2-MTH-100":
+        return (
+            "Add num_chains, num_iters, and proposal_scale under Sampling.Bounds for DRAM.",
+            "Bounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  dr_steps: 2",
+        )
+    if code in {"JV2-MTH-101", "JV2-MTH-102"}:
+        return "Set DRAM num_chains and num_iters to positive integers.", "Bounds:\n  num_chains: 4\n  num_iters: 2000"
+    if code in {"JV2-MTH-103", "JV2-MTH-104"}:
+        return (
+            "Use a positive proposal_scale scalar or one value per DRAM chain.",
+            "Bounds:\n  proposal_scale: 0.2",
+        )
+    if code == "JV2-MTH-105":
+        return "Use a non-negative integer seed for DRAM.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-106":
+        return (
+            "Set DRAM adapt_start_iter and adapt_window to integers >= 1, adapt_eps >= 0, and adapt_scale > 0.",
+            "Bounds:\n  adapt_start_iter: 100\n  adapt_window: 25\n  adapt_scale: 2.38",
+        )
+    if code == "JV2-MTH-107":
+        return "Set dr_steps to an integer >= 1.", "Bounds:\n  dr_steps: 2"
+    if code == "JV2-MTH-108":
+        return (
+            "Set dr_scale_factors to a list of positive numbers, one per delayed-rejection stage.",
+            "Bounds:\n  dr_scale_factors: [1.0, 0.5]",
+        )
+    if code == "JV2-MTH-110":
+        return (
+            "Add num_chains (>=2), num_iters, and proposal_scale under Sampling.Bounds for EnsembleMCMC.",
+            "Bounds:\n  num_chains: 8\n  num_iters: 2000\n  proposal_scale: 0.2\n  stretch_a: 2.0",
+        )
+    if code in {"JV2-MTH-111", "JV2-MTH-112"}:
+        return (
+            "Set EnsembleMCMC num_chains (>= 2) and num_iters to positive integers.",
+            "Bounds:\n  num_chains: 8\n  num_iters: 2000",
+        )
+    if code in {"JV2-MTH-113", "JV2-MTH-114"}:
+        return (
+            "Use a positive proposal_scale scalar or one value per EnsembleMCMC walker.",
+            "Bounds:\n  proposal_scale: 0.2",
+        )
+    if code == "JV2-MTH-115":
+        return "Use a non-negative integer seed for EnsembleMCMC.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-116":
+        return (
+            "Set stretch_a to a number greater than 1 (emcee convention, default 2.0).",
+            "Bounds:\n  stretch_a: 2.0",
+        )
+    if code == "JV2-MTH-120":
+        return (
+            "Add num_chains (>=2), num_iters, and proposal_scale under Sampling.Bounds for DEMCMC.",
+            "Bounds:\n  num_chains: 8\n  num_iters: 2000\n  proposal_scale: 0.2\n  de_gamma: 0.0",
+        )
+    if code in {"JV2-MTH-121", "JV2-MTH-122"}:
+        return (
+            "Set DEMCMC num_chains (>= 2) and num_iters to positive integers.",
+            "Bounds:\n  num_chains: 8\n  num_iters: 2000",
+        )
+    if code in {"JV2-MTH-123", "JV2-MTH-124"}:
+        return (
+            "Use a positive proposal_scale scalar or one value per DEMCMC walker.",
+            "Bounds:\n  proposal_scale: 0.2",
+        )
+    if code == "JV2-MTH-125":
+        return "Use a non-negative integer seed for DEMCMC.", "Bounds:\n  seed: 0"
+    if code == "JV2-MTH-126":
+        return (
+            "Set de_gamma and de_noise to >= 0, and de_crossover to a value in [0, 1].",
+            "Bounds:\n  de_gamma: 0.0\n  de_noise: 1.0e-3\n  de_crossover: 1.0",
+        )
     if code.startswith("JV2-MAP-"):
         return (
             "Fix Sampling.Mapper: list of {name, expression} over Variables "

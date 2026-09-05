@@ -100,15 +100,6 @@ _SPECS: tuple[SamplerSpec, ...] = (
         family="MCMC",
     ),
     _method(
-        "AM",
-        schema="am.json",
-        stateless=False,
-        statistical=True,
-        mcmc=True,
-        mcmc_pipeline="async_independent",
-        family="MCMC",
-    ),
-    _method(
         "DRAM",
         schema="dram.json",
         stateless=False,
@@ -120,15 +111,6 @@ _SPECS: tuple[SamplerSpec, ...] = (
     _method(
         "EnsembleMCMC",
         schema="ensemble_mcmc.json",
-        stateless=False,
-        statistical=True,
-        mcmc=True,
-        mcmc_pipeline="barrier_coupled",
-        family="MCMC",
-    ),
-    _method(
-        "Ensemble",
-        schema="ensemble_base.json",
         stateless=False,
         statistical=True,
         mcmc=True,

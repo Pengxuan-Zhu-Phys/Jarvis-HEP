@@ -336,7 +336,11 @@ class ManCliTests(unittest.TestCase):
         stable = resolve_man_request(["sampler"])
         stable_names = {row["method"] for row in stable["methods"]}
         self.assertIn("Bridson", stable_names)
+        self.assertIn("AMMCMC", stable_names)
+        self.assertIn("EnsembleMCMC", stable_names)
         self.assertNotIn("AM", stable_names)
+        self.assertNotIn("Ensemble", stable_names)
+        self.assertIn("DRAM", stable_names)
         self.assertTrue(all("status" not in row for row in stable["methods"]))
         self.assertTrue(all("resume" not in row for row in stable["methods"]))
         stable_types = {row["method"]: row["type"] for row in stable["methods"]}
@@ -348,15 +352,31 @@ class ManCliTests(unittest.TestCase):
         stable_order = [(row["type"], row["method"]) for row in stable["methods"]]
         self.assertEqual(stable_order, sorted(stable_order, key=lambda item: (item[0].casefold(), item[1].casefold())))
         self.assertIn("Jarvis man sampler --full", stable["see_also"])
+        for row in stable["methods"]:
+            summary = str(row.get("summary") or "")
+            self.assertTrue(summary, msg=row["method"])
+            self.assertNotIn("\n", summary, msg=row["method"])
+            self.assertLessEqual(len(summary), 50, msg=row["method"])
+            self.assertNotIn("hep:", summary, msg=row["method"])
+            self.assertNotIn("mcmc-runtime", summary, msg=row["method"])
+        self.assertEqual(
+            next(row for row in stable["methods"] if row["method"] == "EnsembleMCMC")[
+                "summary"
+            ],
+            "Stretch-move ensemble MCMC.",
+        )
+        self.assertIn("Open a method with Jarvis man sampler.<Method>.", stable["summary"])
 
         full = resolve_man_request(["sampler"], full=True)
         full_names = {row["method"] for row in full["methods"]}
-        self.assertIn("AM", full_names)
-        self.assertGreater(len(full_names), len(stable_names))
+        self.assertIn("AMMCMC", full_names)
+        self.assertNotIn("AM", full_names)
+        self.assertNotIn("Ensemble", full_names)
+        self.assertGreaterEqual(len(full_names), len(stable_names))
         self.assertTrue(all("status" in row for row in full["methods"]))
         self.assertTrue(all("resume" not in row for row in full["methods"]))
         full_types = {row["method"]: row["type"] for row in full["methods"]}
-        self.assertEqual(full_types["AM"], "MCMC")
+        self.assertEqual(full_types["AMMCMC"], "MCMC")
         self.assertEqual(full_types["PTMCMC"], "MCMC")
         full_order = [(row["type"], row["method"]) for row in full["methods"]]
         self.assertEqual(full_order, sorted(full_order, key=lambda item: (item[0].casefold(), item[1].casefold())))
@@ -385,10 +405,10 @@ class ManCliTests(unittest.TestCase):
         out = io.StringIO()
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler", "--json"]), 0)
-        self.assertNotIn(
-            "AM",
-            {row["method"] for row in json.loads(out.getvalue())["methods"]},
-        )
+        listed = {row["method"] for row in json.loads(out.getvalue())["methods"]}
+        self.assertIn("AMMCMC", listed)
+        self.assertNotIn("AM", listed)
+        self.assertNotIn("Ensemble", listed)
 
         out = io.StringIO()
         with redirect_stdout(out):
@@ -400,10 +420,12 @@ class ManCliTests(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(main(["man", "sampler", "--full", "--json"]), 0)
         full_json_methods = json.loads(out.getvalue())["methods"]
-        self.assertIn("AM", {row["method"] for row in full_json_methods})
+        self.assertIn("AMMCMC", {row["method"] for row in full_json_methods})
+        self.assertNotIn("AM", {row["method"] for row in full_json_methods})
+        self.assertNotIn("Ensemble", {row["method"] for row in full_json_methods})
         self.assertEqual(
             next(row for row in full_json_methods if row["method"] == "MCMC")["status"],
-            "unstable",
+            "stable",
         )
 
         out = io.StringIO()
@@ -412,13 +434,45 @@ class ManCliTests(unittest.TestCase):
         self.assertIn("Status", out.getvalue())
         self.assertNotIn("Resume", out.getvalue())
 
-    def test_mcmc_family_marked_unstable(self) -> None:
+    def test_mcmc_family_stable_pages_list_bounds_keys(self) -> None:
         page = resolve_man_request(["sampler.AMMCMC"])
-        self.assertEqual(page["status"], "unstable")
-        self.assertIn("not finalised", page["summary"].lower().replace("finalized", "finalised"))
-        self.assertEqual(page["keys"], [])
+        self.assertEqual(page["status"], "stable")
+        keys = {key["name"] for key in page["keys"]}
+        self.assertTrue(
+            {"num_chains", "num_iters", "proposal_scale", "adapt_enabled", "seed"}
+            <= keys
+        )
         self.assertEqual(page["capabilities"]["pipeline"], "async_independent")
         self.assertIn("Jarvis man sampler.mcmc-runtime", page["see_also"])
+        self.assertIn("JV2-MTH-090", page["diagnostics"])
+
+        ensemble = resolve_man_request(["sampler.EnsembleMCMC"])
+        self.assertEqual(ensemble["status"], "stable")
+        ensemble_keys = {key["name"] for key in ensemble["keys"]}
+        self.assertTrue(
+            {"num_chains", "num_iters", "proposal_scale", "stretch_a", "seed"}
+            <= ensemble_keys
+        )
+        self.assertEqual(ensemble["capabilities"]["pipeline"], "barrier_coupled")
+        self.assertIn("JV2-MTH-110", ensemble["diagnostics"])
+
+        dram = resolve_man_request(["sampler.DRAM"])
+        self.assertIn("dr_steps", {key["name"] for key in dram["keys"]})
+        self.assertIn("JV2-MTH-100", dram["diagnostics"])
+
+        demcmc = resolve_man_request(["sampler.DEMCMC"])
+        self.assertTrue(
+            {"de_gamma", "de_noise", "de_crossover"}
+            <= {key["name"] for key in demcmc["keys"]}
+        )
+
+        ptensemble = resolve_man_request(["sampler.PTEnsemble"])
+        self.assertEqual(ptensemble["status"], "stable")
+        pt_keys = {key["name"] for key in ptensemble["keys"]}
+        self.assertTrue(
+            {"temperature_ladder", "exchange_interval", "stretch_a"} <= pt_keys
+        )
+        self.assertIn("JV2-MTH-072", ptensemble["diagnostics"])
 
     def test_ptmcmc_man_page_is_stable_barrier_coupled(self) -> None:
         page = resolve_man_request(["sampler.PTMCMC"])

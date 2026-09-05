@@ -4,7 +4,7 @@
   "type": "object",
   "x-jarvis-zone": "closed",
   "x-jarvis-status": "stable",
-  "description": "Lightweight random-walk MCMC with independent chains and scalar or per-chain proposal scales. Independent chains use the async multi-chain pipeline: shared hep:task_queue, per-chain hep:feedback:chain:{id}, one in-flight evaluation per chain (see Jarvis man sampler.mcmc-runtime).",
+  "description": "Lightweight random-walk MCMC.",
   "x-jarvis-example": "Method: ToyMCMC\nBounds:\n  num_chains: 4\n  num_iters: 2000\n  proposal_scale: 0.2\n  seed: 0\nVariables:\n  - name: x\n    distribution:\n      type: Flat\n      parameters: {min: 0.0, max: 1.0}",
   "allOf": [
     {
@@ -46,6 +46,11 @@
             "seed": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonNegativeIntegerish",
               "description": "Master RNG seed."
+            },
+            "on_failure": {
+              "type": "string",
+              "enum": ["reject", "halt"],
+              "description": "Failed-sample policy: reject the Metropolis proposal or halt the scan (default reject)."
             }
           },
           "required": ["num_chains", "num_iters", "proposal_scale"],

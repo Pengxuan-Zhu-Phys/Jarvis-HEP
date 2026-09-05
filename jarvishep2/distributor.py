@@ -182,12 +182,6 @@ def _factory_ammcmc() -> SamplingVirtial:
     return create_ammcmc()
 
 
-def _factory_am() -> SamplingVirtial:
-    from jarvishep2.Sampling.am import create_am
-
-    return create_am()
-
-
 def _factory_dram() -> SamplingVirtial:
     from jarvishep2.Sampling.dram import create_dram
 
@@ -198,12 +192,6 @@ def _factory_ensemble_mcmc() -> SamplingVirtial:
     from jarvishep2.Sampling.ensemble_mcmc import create_ensemble
 
     return create_ensemble()
-
-
-def _factory_ensemble() -> SamplingVirtial:
-    from jarvishep2.Sampling.ensemble_mcmc import create_ensemble_alias
-
-    return create_ensemble_alias()
 
 
 def _factory_demcmc() -> SamplingVirtial:
@@ -247,10 +235,8 @@ def _builtin_factories() -> dict[str, SamplerFactory]:
         "MCMC": _factory_mcmc,
         "ToyMCMC": _factory_toymcmc,
         "AMMCMC": _factory_ammcmc,
-        "AM": _factory_am,
         "DRAM": _factory_dram,
         "EnsembleMCMC": _factory_ensemble_mcmc,
-        "Ensemble": _factory_ensemble,
         "DEMCMC": _factory_demcmc,
         "PTMCMC": _factory_ptmcmc,
         "PTEnsemble": _factory_ptensemble,

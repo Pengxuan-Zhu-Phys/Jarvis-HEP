@@ -53,22 +53,12 @@ class EnsembleMCMCSampler(EnsembleMCMCBase):
     method = "EnsembleMCMC"
 
 
-class EnsembleSampler(EnsembleMCMCSampler):
-    method = "Ensemble"
-
-
 def create_ensemble() -> EnsembleMCMCSampler:
     return EnsembleMCMCSampler()
-
-
-def create_ensemble_alias() -> EnsembleSampler:
-    return EnsembleSampler()
 
 
 __all__ = [
     "EnsembleMCMCBase",
     "EnsembleMCMCSampler",
-    "EnsembleSampler",
     "create_ensemble",
-    "create_ensemble_alias",
 ]
