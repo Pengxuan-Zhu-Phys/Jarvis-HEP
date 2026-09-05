@@ -43,6 +43,7 @@ from jarvishep2.sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.sampling.variables import load_variables
+from jarvishep2.log_kv import PermilleProgress
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
 from jarvishep2.runtime_config import get_runtime_block
@@ -126,7 +127,9 @@ class MCMCBaseSampler(FeedbackSampler):
     3. Leave ``_uses_half_ensemble`` / ``_uses_pt`` False — the async per-chain
        pipeline is the default (and only) independent-chain design.
     4. Optional observers: ``_on_run_started``, ``_on_generation_completed``
-       (fires after each absorbed transition in async mode).
+       (fires after each absorbed transition in async mode). The base class
+       already emits Jarvis ``PermilleProgress`` from these hooks; overrides
+       must call ``super()`` so scan progress stays in ``sampler.log``.
     """
 
     method = "MCMC"
@@ -160,6 +163,7 @@ class MCMCBaseSampler(FeedbackSampler):
             "_sampling_checkpoint_interval_sec",
             "_last_sampling_checkpoint_at",
             "_last_sampling_checkpoint_generation",
+            "_submit_progress",
         }
     )
 
@@ -186,6 +190,7 @@ class MCMCBaseSampler(FeedbackSampler):
         self._sampling_checkpoint_interval_sec = 30.0
         self._last_sampling_checkpoint_at = 0.0
         self._last_sampling_checkpoint_generation = -1
+        self._submit_progress: PermilleProgress | None = None
 
     # ------------------------------------------------------------------ config
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -228,6 +233,7 @@ class MCMCBaseSampler(FeedbackSampler):
             )
 
         self._configure_method(bounds)
+        self._submit_progress = None
 
     def _normalize_scales(self) -> list[float]:
         return normalize_proposal_scales(
@@ -240,17 +246,103 @@ class MCMCBaseSampler(FeedbackSampler):
         """Apply method-specific Bounds configuration in a concrete subclass."""
         return None
 
+    def _progress_total(self) -> int:
+        return max(1, int(self._nchains) * int(self._niters))
+
+    def _progress_done(self) -> int:
+        registry = self._ensure_registry()
+        return sum(max(0, int(chain.engine.iterations)) for chain in registry.all())
+
+    def _progress_extra(self) -> str:
+        registry = self._ensure_registry()
+        max_iteration = max(
+            (int(chain.engine.iterations) for chain in registry.all()),
+            default=0,
+        )
+        role = "replicas" if self._uses_pt() else "chains"
+        extra = f"{role}={self._nchains} iterations={max_iteration}/{self._niters}"
+        if self._uses_pt():
+            extra += (
+                f" swaps={int(getattr(self, '_swap_accepts', 0))}/"
+                f"{int(getattr(self, '_swap_attempts', 0))}"
+            )
+        proposed = int(self._total_proposed)
+        if proposed:
+            extra += f" accept_rate={self._total_accepted / proposed:.4f}"
+        return extra
+
+    def _progress_config_extra(self) -> str:
+        """Method-specific knobs appended to the configured INFO line."""
+        bits: list[str] = []
+        if self._uses_pt():
+            bits.append(f"ladder={list(getattr(self, '_temperature_ladder', []))}")
+            bits.append(
+                f"exchange_interval={int(getattr(self, '_exchange_interval', 1))}"
+            )
+        stretch_a = getattr(self, "_stretch_a", None)
+        if stretch_a is not None:
+            bits.append(f"stretch_a={stretch_a}")
+        if hasattr(self, "_de_gamma"):
+            bits.append(f"de_gamma={self._de_gamma}")
+            bits.append(f"de_noise={self._de_noise}")
+            bits.append(f"de_crossover={self._de_crossover}")
+        if hasattr(self, "_adapt_enabled"):
+            bits.append(f"adapt_enabled={self._adapt_enabled}")
+            bits.append(f"adapt_start_iter={self._adapt_start_iter}")
+            bits.append(f"adapt_window={self._adapt_window}")
+        if hasattr(self, "_dr_steps"):
+            bits.append(f"dr_steps={self._dr_steps}")
+        if not bits:
+            return ""
+        return " " + " ".join(bits)
+
+    def _ensure_progress(self) -> None:
+        total = self._progress_total()
+        if self._submit_progress is not None and self._submit_progress.total == total:
+            return
+        self._submit_progress = PermilleProgress(
+            self._logger,
+            total=total,
+            label=f"{self.method} transitions completed",
+        )
+        self._logger.warning("Initializing the %s Sampling", self.method)
+        self._logger.info(
+            "%s Sampler configured: %s=%d iterations=%d "
+            "total_transitions=%d proposal_scale=%s%s",
+            self.method,
+            "replicas" if self._uses_pt() else "chains",
+            self._nchains,
+            self._niters,
+            total,
+            self._proposal_scales,
+            self._progress_config_extra(),
+        )
+        self._submit_progress.update(
+            self._progress_done(),
+            extra=self._progress_extra(),
+            force=True,
+        )
+
+    def _emit_progress(self) -> None:
+        """Emit one INFO line per ‰ and WARNING at every whole percent."""
+        self._ensure_progress()
+        assert self._submit_progress is not None
+        self._submit_progress.update(
+            self._progress_done(),
+            extra=self._progress_extra(),
+        )
+
     def _on_run_started(self) -> None:
-        """Hook for method-specific runtime observers such as progress logs."""
-        return None
+        """Hook for runtime observers. Base emits scan progress; call super()."""
+        self._ensure_progress()
 
     def _on_generation_completed(self) -> None:
-        """Hook called after feedback is absorbed at a generation barrier."""
-        return None
+        """Hook after a generation is absorbed. Base emits scan progress."""
+        self._emit_progress()
 
     def _on_runtime_state_imported(self) -> None:
         """Reset process-local observers after checkpoint state is restored."""
-        return None
+        self._submit_progress = None
 
     def _export_method_state(self) -> dict[str, Any]:
         """Return checkpoint fields owned by the concrete sampler."""

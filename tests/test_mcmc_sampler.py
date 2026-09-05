@@ -543,6 +543,125 @@ class DistributorMCMCTests(unittest.TestCase):
             sampler._emit_progress()
             self.assertTrue(any(line.startswith("1000‰ of 1000/1000") for line in warning_messages))
 
+    def test_mcmc_family_progress_logs_initialization(self) -> None:
+        methods = (
+            "MCMC",
+            "ToyMCMC",
+            "AMMCMC",
+            "AM",
+            "DRAM",
+            "EnsembleMCMC",
+            "Ensemble",
+            "DEMCMC",
+            "PTMCMC",
+            "PTEnsemble",
+        )
+        for method in methods:
+            with self.subTest(method=method):
+                sampler = Distributor.set_method(method)
+                self.assertIsInstance(sampler, MCMCBaseSampler)
+                with tempfile.TemporaryDirectory() as tmp:
+                    sampler.set_config(
+                        _mcmc_config(
+                            method=method,
+                            tmpdir=tmp,
+                            nchains=2,
+                            niters=10,
+                            workers=1,
+                        )
+                    )
+                    info_messages: list[str] = []
+                    warning_messages: list[str] = []
+
+                    class _Capture:
+                        def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                            info_messages.append(str(msg) % args if args else str(msg))
+
+                        def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                            warning_messages.append(
+                                str(msg) % args if args else str(msg)
+                            )
+
+                    sampler._logger = _Capture()  # type: ignore[assignment]
+                    sampler._ensure_registry()
+                    sampler._emit_progress()
+                    self.assertTrue(
+                        any(
+                            f"Initializing the {method} Sampling" in line
+                            for line in warning_messages
+                        ),
+                        warning_messages,
+                    )
+                    self.assertTrue(
+                        any(
+                            f"{method} Sampler configured" in line
+                            for line in info_messages
+                        ),
+                        info_messages,
+                    )
+                    self.assertTrue(
+                        any(
+                            "‰ of" in line
+                            and f"{method} transitions completed" in line
+                            for line in info_messages + warning_messages
+                        ),
+                        info_messages + warning_messages,
+                    )
+                    sampler.assert_checkpoint_attribute_contract()
+
+    def test_ensemble_mcmc_progress_logs_permille(self) -> None:
+        sampler = Distributor.set_method("EnsembleMCMC")
+        self.assertIsInstance(sampler, MCMCBaseSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler.set_config(
+                _mcmc_config(
+                    method="EnsembleMCMC",
+                    tmpdir=tmp,
+                    nchains=2,
+                    niters=500,
+                    workers=1,
+                )
+            )
+            info_messages: list[str] = []
+            warning_messages: list[str] = []
+
+            class _Capture:
+                def info(self, msg, *args, **kwargs):  # noqa: ANN001
+                    info_messages.append(str(msg) % args if args else str(msg))
+
+                def warning(self, msg, *args, **kwargs):  # noqa: ANN001
+                    warning_messages.append(str(msg) % args if args else str(msg))
+
+            sampler._logger = _Capture()  # type: ignore[assignment]
+            registry = sampler._ensure_registry()
+            sampler._emit_progress()
+            self.assertTrue(
+                any(
+                    "Initializing the EnsembleMCMC Sampling" in line
+                    for line in warning_messages
+                )
+            )
+            self.assertTrue(
+                any(
+                    "EnsembleMCMC Sampler configured" in line and "stretch_a=" in line
+                    for line in info_messages
+                ),
+                info_messages,
+            )
+            self.assertTrue(
+                any(
+                    line.startswith("0‰ of 0/1000 EnsembleMCMC transitions completed")
+                    for line in info_messages
+                )
+            )
+            for chain in registry.all():
+                chain.engine.iterations = 5
+            sampler._emit_progress()
+            self.assertTrue(
+                any(line.startswith("10‰ of 10/1000") for line in warning_messages)
+            )
+            self.assertFalse(any(line.startswith("10‰") for line in info_messages))
+
     def test_uuid_deterministic(self) -> None:
         a = mcmc_sample_uuid(method="DRAM", seed=1, chain_id=2, step=3, stage=0)
         b = mcmc_sample_uuid(method="DRAM", seed=1, chain_id=2, step=3, stage=0)

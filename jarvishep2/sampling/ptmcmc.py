@@ -19,7 +19,6 @@ from typing import Any
 
 from jarvishep2.sampling.Source.MCMC.config_contract import bounds_get, bounds_get_int
 from jarvishep2.sampling.mcmc_sampler import MCMCBaseSampler
-from jarvishep2.log_kv import PermilleProgress
 
 
 def normalize_temperature_ladder(
@@ -175,83 +174,16 @@ class PTMCMCSampler(PTMCMCBase):
     Science: Metropolis on each temperature replica (β = 1/T), adjacent
     temperature swaps at generation barriers every ``exchange_interval`` draws.
     Runtime: inherits barrier-coupled MCMC transport (not async independent).
+    Progress: Jarvis ``PermilleProgress`` from the MCMC base logger.
     """
 
     method = "PTMCMC"
-    _checkpoint_excluded_attributes = frozenset(
-        set(PTMCMCBase._checkpoint_excluded_attributes) | {"_submit_progress"}
-    )
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._submit_progress: PermilleProgress | None = None
 
     def _configure_method(self, bounds: Mapping[str, Any]) -> None:
         # Validate scalar/list scale cardinality here; scalar values and one-item
         # lists broadcast, while a full list maps one scale to each replica.
         self._normalize_scales()
         self._configure_pt(bounds)
-        self._submit_progress = None
-
-    def _progress_done(self) -> int:
-        registry = self._ensure_registry()
-        return sum(max(0, int(chain.engine.iterations)) for chain in registry.all())
-
-    def _progress_extra(self) -> str:
-        registry = self._ensure_registry()
-        max_iteration = max(
-            (int(chain.engine.iterations) for chain in registry.all()),
-            default=0,
-        )
-        swaps = int(self._swap_accepts)
-        attempts = int(self._swap_attempts)
-        return (
-            f"replicas={self._nchains} iterations={max_iteration}/{self._niters} "
-            f"swaps={swaps}/{attempts}"
-        )
-
-    def _ensure_progress(self) -> None:
-        total = max(1, int(self._nchains) * int(self._niters))
-        if self._submit_progress is not None and self._submit_progress.total == total:
-            return
-        self._submit_progress = PermilleProgress(
-            self._logger,
-            total=total,
-            label="PTMCMC transitions completed",
-        )
-        self._logger.warning("Initializing the PTMCMC Sampling")
-        self._logger.info(
-            "PTMCMC Sampler configured: replicas=%d iterations=%d "
-            "total_transitions=%d proposal_scale=%s ladder=%s exchange_interval=%d",
-            self._nchains,
-            self._niters,
-            total,
-            self._proposal_scales,
-            self._temperature_ladder,
-            self._exchange_interval,
-        )
-        self._submit_progress.update(
-            self._progress_done(),
-            extra=self._progress_extra(),
-            force=True,
-        )
-
-    def _emit_progress(self) -> None:
-        self._ensure_progress()
-        assert self._submit_progress is not None
-        self._submit_progress.update(
-            self._progress_done(),
-            extra=self._progress_extra(),
-        )
-
-    def _on_run_started(self) -> None:
-        self._ensure_progress()
-
-    def _on_generation_completed(self) -> None:
-        self._emit_progress()
-
-    def _on_runtime_state_imported(self) -> None:
-        self._submit_progress = None
 
 
 def create_ptmcmc() -> PTMCMCSampler:
