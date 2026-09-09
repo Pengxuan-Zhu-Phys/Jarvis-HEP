@@ -6,6 +6,7 @@ from __future__ import annotations
 import threading
 import time
 import unittest
+from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -15,6 +16,7 @@ from jarvishep2.redis_queue import (
     CALC_BUSY_PACKS,
     CALC_FREE,
     CALC_STATUS,
+    CONTROL_LOCK,
     CONTROL_LOCK_TTL_SEC,
     CONTROL_SOCKET_TIMEOUT_SEC,
     INFLIGHT,
@@ -101,6 +103,180 @@ class RedisQueueConnectTests(unittest.TestCase):
         kwargs = queue._client_kwargs()
         self.assertIsNone(kwargs["socket_timeout"])
         self.assertGreater(float(kwargs["socket_connect_timeout"]), 0.0)
+
+    def test_control_client_kwargs_default_socket_timeout(self):
+        queue = RedisQueue({"host": "127.0.0.1", "port": 6379, "db": 0})
+        kwargs = queue._control_client_kwargs()
+        self.assertEqual(kwargs["socket_timeout"], 2.0)
+        self.assertEqual(kwargs["socket_timeout"], CONTROL_SOCKET_TIMEOUT_SEC)
+        self.assertIsNone(queue._client_kwargs()["socket_timeout"])
+
+    def test_connect_uses_two_connection_pools(self):
+        clients: list[MagicMock] = []
+
+        def _factory(*_a, **_k):
+            client = MagicMock()
+            client.connection_pool = object()
+            clients.append(client)
+            return client
+
+        with patch("redis.Redis", side_effect=_factory) as redis_cls:
+            queue = RedisQueue({"host": "127.0.0.1", "port": 6379, "db": 0})
+            queue.connect()
+        self.assertEqual(len(clients), 2)
+        self.assertIs(queue.r, clients[0])
+        self.assertIs(queue.r_ctrl, clients[1])
+        self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
+        self.assertIsNone(redis_cls.call_args_list[0].kwargs["socket_timeout"])
+        self.assertEqual(redis_cls.call_args_list[1].kwargs["socket_timeout"], 2.0)
+        self.assertNotIn("connection_pool", redis_cls.call_args_list[0].kwargs)
+        self.assertNotIn("connection_pool", redis_cls.call_args_list[1].kwargs)
+
+    def test_connect_from_url_uses_two_clients(self):
+        clients: list[MagicMock] = []
+
+        def _factory(*_a, **_k):
+            client = MagicMock()
+            client.connection_pool = object()
+            clients.append(client)
+            return client
+
+        with patch("redis.Redis") as redis_cls:
+            redis_cls.from_url.side_effect = _factory
+            queue = RedisQueue({"url": "redis://127.0.0.1:6379/0"})
+            queue.connect()
+        self.assertEqual(len(clients), 2)
+        self.assertIs(queue.r, clients[0])
+        self.assertIs(queue.r_ctrl, clients[1])
+        self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
+        self.assertEqual(redis_cls.from_url.call_count, 2)
+        self.assertIsNone(redis_cls.from_url.call_args_list[0].kwargs["socket_timeout"])
+        self.assertEqual(redis_cls.from_url.call_args_list[1].kwargs["socket_timeout"], 2.0)
+        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[0].kwargs)
+        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[1].kwargs)
+
+    def test_injected_client_shares_r_and_r_ctrl(self):
+        client = object()
+        queue = RedisQueue(client=client)
+        self.assertIs(queue.r, client)
+        self.assertIs(queue.r_ctrl, client)
+        queue.connect()
+        self.assertIs(queue.r, client)
+        self.assertIs(queue.r_ctrl, client)
+        fakeredis_queue = make_fakeredis_queue()
+        self.assertIs(fakeredis_queue.r_ctrl, fakeredis_queue.r)
+
+    def test_connect_aliases_r_ctrl_when_only_r_is_set(self):
+        client = object()
+        queue = RedisQueue({"host": "127.0.0.1", "port": 6379, "db": 0})
+        queue.r = client
+        self.assertIsNone(queue.r_ctrl)
+        queue.connect()
+        self.assertIs(queue.r_ctrl, client)
+
+    def test_require_client_heals_r_only_injection(self):
+        import fakeredis
+
+        queue = RedisQueue({"host": "x", "port": 1, "db": 0})
+        queue.r = fakeredis.FakeRedis(decode_responses=True)
+        self.assertIsNone(queue.r_ctrl)
+        queue._require_client()
+        self.assertIs(queue.r_ctrl, queue.r)
+        self.assertTrue(queue.claim_control_lock("owner-a"))
+
+    def test_close_closes_distinct_clients(self):
+        order: list[str] = []
+        blocking = MagicMock()
+        control = MagicMock()
+        blocking.close.side_effect = lambda: order.append("r")
+        control.close.side_effect = lambda: order.append("r_ctrl")
+        queue = RedisQueue(client=blocking)
+        queue.r_ctrl = control
+        queue.close()
+        self.assertEqual(order, ["r_ctrl", "r"])
+        self.assertIsNone(queue.r)
+        self.assertIsNone(queue.r_ctrl)
+
+    def test_close_does_not_double_close_shared_client(self):
+        client = MagicMock()
+        queue = RedisQueue(client=client)
+        queue.close()
+        client.close.assert_called_once()
+        self.assertIsNone(queue.r)
+        self.assertIsNone(queue.r_ctrl)
+
+    def test_blpop_uses_blocking_client_not_ctrl(self):
+        queue = make_fakeredis_queue(codec="json")
+
+        class _CtrlBoom:
+            def blpop(self, *_a, **_k):
+                raise AssertionError("control client must not BLPOP")
+
+        queue.r_ctrl = _CtrlBoom()
+        self.assertIsNone(queue._blpop(TASK_QUEUE, timeout=1))
+        self.assertIsNone(queue.pull_task(timeout=1))
+        self.assertIsNone(queue.pull_feedback(timeout=1))
+        self.assertIsNone(
+            queue.pull_feedback(
+                timeout=1, queues=["hep:feedback", "hep:feedback:chain:0"]
+            )
+        )
+        self.assertIsNone(queue.pull_result(timeout=1))
+
+    def test_lock_heartbeat_and_board_use_ctrl(self):
+        import fakeredis
+
+        queue = make_fakeredis_queue(codec="json")
+        control = fakeredis.FakeStrictRedis(decode_responses=True)
+        queue.r_ctrl = control
+        self.assertIsNot(queue.r, queue.r_ctrl)
+
+        self.assertTrue(queue.claim_control_lock("owner-a"))
+        self.assertEqual(control.get(CONTROL_LOCK), "owner-a")
+        self.assertIsNone(queue.r.get(CONTROL_LOCK))
+
+        queue.publish_proc_board("core", role="core", pid=7)
+        self.assertEqual(int(control.hget(PROC_CORE, "pid")), 7)
+        self.assertEqual(queue.r.hgetall(PROC_CORE), {})
+        self.assertEqual(int(queue.read_proc_board("core")["pid"]), 7)
+
+        queue.heartbeat("0", status="idle", pid=11)
+        self.assertEqual(control.hget(WORKER_STATUS.format(id="0"), "status"), "idle")
+        self.assertEqual(queue.r.hgetall(WORKER_STATUS.format(id="0")), {})
+        self.assertEqual(queue.read_proc_board("worker", owner_id="0")["status"], "idle")
+
+    def test_control_timeout_skips_writes_and_empty_reads(self):
+        queue = make_fakeredis_queue(codec="json")
+
+        class _TimeoutCtrl:
+            def pipeline(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def hgetall(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def expire(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def delete(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def get(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def set(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+        queue.r_ctrl = _TimeoutCtrl()
+        queue.publish_proc_board("core", role="core", pid=1)
+        self.assertEqual(queue.read_proc_board("core"), {})
+        self.assertEqual(queue.read_proc_boards("worker", owner_ids=["0", "1"]), {"0": {}, "1": {}})
+        self.assertFalse(queue.touch_proc_board("core"))
+        queue.drop_proc_board("core")
+        queue.heartbeat("0", status="idle")
+        self.assertIsNone(queue.get_control_lock_owner())
+        with self.assertRaises(TimeoutError):
+            queue.claim_control_lock("owner-a")
 
     def test_blpop_treats_socket_timeout_as_empty(self):
         queue = make_fakeredis_queue(codec="json")

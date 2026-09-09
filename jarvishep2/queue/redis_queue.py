@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 import json
+import logging
 from typing import Any, Mapping, Sequence
 from uuid import UUID
 
@@ -144,6 +145,15 @@ def calc_status_busy_field(name: str) -> str:
 def _redis_text(value: Any) -> str:
     """Normalize redis-py decode-responses and byte-client return values."""
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+def _is_redis_timeout(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    return name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower()
+
+
+def _warn_control_timeout(op: str, exc: BaseException) -> None:
+    logging.getLogger(__name__).warning("redis control %s timed out -> %s", op, exc)
 
 
 def _json_default(obj: Any) -> Any:
@@ -321,40 +331,57 @@ class RedisQueue(
     def __init__(self, config: Mapping[str, Any] | None = None, *, client: Any = None) -> None:
         self.config = dict(config or {})
         self._codec = str(self.config.get("codec", "json")).strip().lower()
-        self.r = client
+        if client is not None:
+            self.r_ctrl = self.r = client
+        else:
+            self.r = None
+            self.r_ctrl = None
 
     def _client_kwargs(self) -> dict[str, Any]:
-        """Shared redis-py kwargs for long-lived blocking BLPOP clients."""
+        """Kwargs for the blocking BLPOP/BLMOVE client.
+
+        socket_timeout=None must exceed any BLPOP wait; redis-py 8 defaults to 5s.
+        """
         return {
             "decode_responses": self._codec == "json",
-            # Override redis-py 8 default (5s) — must exceed any BLPOP wait.
             "socket_timeout": None,
             "socket_connect_timeout": float(
-                self.config.get(
-                    "socket_connect_timeout", self._SOCKET_CONNECT_TIMEOUT_SEC
-                )
+                self.config.get("socket_connect_timeout", self._SOCKET_CONNECT_TIMEOUT_SEC)
             ),
         }
 
+    def _control_client_kwargs(self) -> dict[str, Any]:
+        kwargs = self._client_kwargs()
+        kwargs["socket_timeout"] = float(
+            self.config.get("control_socket_timeout", CONTROL_SOCKET_TIMEOUT_SEC)
+        )
+        return kwargs
+
+    def _ctrl(self) -> Any:
+        return self.r_ctrl if self.r_ctrl is not None else self.r
+
     def connect(self) -> None:
-        """Build a redis client from config when one was not injected."""
+        """Build redis clients from config when one was not injected."""
         if self.r is not None:
+            if self.r_ctrl is None:
+                self.r_ctrl = self.r
             return
 
         import redis
 
-        kwargs = self._client_kwargs()
+        blocking = self._client_kwargs()
+        control = self._control_client_kwargs()
         url = self.config.get("url")
         if url:
-            self.r = redis.Redis.from_url(str(url), **kwargs)
+            self.r = redis.Redis.from_url(str(url), **blocking)
+            self.r_ctrl = redis.Redis.from_url(str(url), **control)
             return
 
-        self.r = redis.Redis(
-            host=str(self.config.get("host", "localhost")),
-            port=int(self.config.get("port", 6379)),
-            db=int(self.config.get("db", 0)),
-            **kwargs,
-        )
+        host = str(self.config.get("host", "localhost"))
+        port = int(self.config.get("port", 6379))
+        db = int(self.config.get("db", 0))
+        self.r = redis.Redis(host=host, port=port, db=db, **blocking)
+        self.r_ctrl = redis.Redis(host=host, port=port, db=db, **control)
 
     def _blpop(self, key: str, *, timeout: int = 1) -> Any | None:
         """BLPOP wrapper that treats client socket timeouts as empty pops.
@@ -367,9 +394,7 @@ class RedisQueue(
         try:
             return self.r.blpop(key, timeout=max(0, int(timeout)))
         except Exception as exc:
-            # redis.exceptions.TimeoutError (and socket.timeout wrappers).
-            name = type(exc).__name__
-            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+            if _is_redis_timeout(exc):
                 return None
             raise
 
@@ -380,8 +405,7 @@ class RedisQueue(
         try:
             return self.r.blpop(keys, timeout=max(0.0, float(timeout)))
         except Exception as exc:
-            name = type(exc).__name__
-            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+            if _is_redis_timeout(exc):
                 return None
             raise
 
@@ -397,6 +421,7 @@ class RedisQueue(
         ``register_calc_pool`` again before Workers start.
         """
         self._require_client()
+        ctrl = self._ctrl()
         keys: list[str] = [
             TASK_QUEUE,
             ARCHIVE_QUEUE,
@@ -407,7 +432,7 @@ class RedisQueue(
             BUCKET_READY_QUEUE,
             BUCKET_LOCK,
         ]
-        keys.extend(self.r.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
+        keys.extend(ctrl.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
         for kind in sorted(_VALID_OP_KINDS):
             keys.append(OP_COUNT.format(kind=kind))
         for name in calculator_names or []:
@@ -417,7 +442,7 @@ class RedisQueue(
             keys.append(calc_free_list_key(text))
             keys.append(calc_busy_packs_key(text))
             keys.append(calc_shared_pack_mode_key(text))
-            keys.extend(self.r.scan_iter(match=f"calc:free:{text}:*"))
+            keys.extend(ctrl.scan_iter(match=f"calc:free:{text}:*"))
         if worker_ids is None:
             # Best-effort: clear a reasonable worker status range.
             worker_ids = list(range(0, 64))
@@ -432,7 +457,7 @@ class RedisQueue(
             keys.append(INFLIGHT.format(worker=wid))
         # Drop known SAMPLE bucket state hashes (current + a generous lookback window).
         try:
-            meta = self.r.hgetall(BUCKET_META) or {}
+            meta = ctrl.hgetall(BUCKET_META) or {}
             current = int(meta.get("current") or 0)
         except (TypeError, ValueError):
             current = 0
@@ -447,9 +472,9 @@ class RedisQueue(
                 unique_keys.append(key)
         deleted = 0
         if unique_keys:
-            deleted = int(self.r.delete(*unique_keys) or 0)
+            deleted = int(ctrl.delete(*unique_keys) or 0)
         # Explicit zeroed sample stats so readers never see missing keys as stale.
-        self.r.hset(
+        ctrl.hset(
             SAMPLE_STATS,
             mapping={"completed": 0, "failed": 0, "running": 0},
         )
@@ -485,14 +510,14 @@ class RedisQueue(
         self._require_client()
         if kind not in _VALID_OP_KINDS:
             raise ValueError(f"invalid op_count kind: {kind}")
-        value = self.r.get(OP_COUNT.format(kind=kind))
+        value = self._ctrl().get(OP_COUNT.format(kind=kind))
         return int(value or 0)
 
     def get_all_op_counts(self) -> dict[str, int]:
         """Return all subsystem op_count values in one pipeline round-trip."""
         self._require_client()
         kinds = sorted(_VALID_OP_KINDS)
-        pipe = self.r.pipeline(transaction=False)
+        pipe = self._ctrl().pipeline(transaction=False)
         for kind in kinds:
             pipe.get(OP_COUNT.format(kind=kind))
         values = pipe.execute()
@@ -501,7 +526,7 @@ class RedisQueue(
     def get_queue_lengths(self) -> dict[str, int]:
         """Return task, archive, and feedback queue lengths in one pipeline."""
         self._require_client()
-        pipe = self.r.pipeline(transaction=False)
+        pipe = self._ctrl().pipeline(transaction=False)
         pipe.llen(TASK_QUEUE)
         pipe.llen(ARCHIVE_QUEUE)
         pipe.llen(FEEDBACK_QUEUE)
@@ -528,13 +553,13 @@ class RedisQueue(
     def fetch_calculator_status(self) -> dict[str, int | float | str]:
         """Read the calculator status hash (monitor subsystem fetch)."""
         self._require_client()
-        calc_status = self.r.hgetall(CALC_STATUS) or {}
+        calc_status = self._ctrl().hgetall(CALC_STATUS) or {}
         return {key: _coerce_numeric(value) for key, value in calc_status.items()}
 
     def fetch_sample_stats(self) -> dict[str, int | float | str]:
         """Read the sample stats hash (monitor subsystem fetch)."""
         self._require_client()
-        sample_stats = self.r.hgetall(SAMPLE_STATS) or {}
+        sample_stats = self._ctrl().hgetall(SAMPLE_STATS) or {}
         result = {key: _coerce_numeric(value) for key, value in sample_stats.items()}
         # Clamp: submit_result may outpace pull_task in unit tests / crash paths.
         if "running" in result:
@@ -549,7 +574,7 @@ class RedisQueue(
         self._require_client()
         if not worker_ids:
             return {}
-        pipe = self.r.pipeline(transaction=False)
+        pipe = self._ctrl().pipeline(transaction=False)
         for worker_id in worker_ids:
             pipe.hgetall(WORKER_STATUS.format(id=worker_id))
         rows = pipe.execute()
@@ -566,11 +591,12 @@ class RedisQueue(
 
     def snapshot_raw(self) -> dict[str, Any]:
         self._require_client()
-        calc_status = self.r.hgetall(CALC_STATUS) or {}
-        sample_stats = self.r.hgetall(SAMPLE_STATS) or {}
+        ctrl = self._ctrl()
+        calc_status = ctrl.hgetall(CALC_STATUS) or {}
+        sample_stats = ctrl.hgetall(SAMPLE_STATS) or {}
         return {
-            "task_queue_length": int(self.r.llen(TASK_QUEUE)),
-            "archive_queue_length": int(self.r.llen(ARCHIVE_QUEUE)),
+            "task_queue_length": int(ctrl.llen(TASK_QUEUE)),
+            "archive_queue_length": int(ctrl.llen(ARCHIVE_QUEUE)),
             "calculator_status": {k: _coerce_numeric(v) for k, v in calc_status.items()},
             "sample_stats": {k: _coerce_numeric(v) for k, v in sample_stats.items()},
             "op_counts": {kind: self.get_op_count(kind) for kind in sorted(_VALID_OP_KINDS)},
@@ -583,7 +609,7 @@ class RedisQueue(
     def ping(self) -> bool:
         """Verify that the configured Redis server is reachable."""
         self._require_client()
-        return bool(self.r.ping())
+        return bool(self._ctrl().ping())
 
     @staticmethod
     def extract_connection_config(
@@ -595,21 +621,30 @@ class RedisQueue(
         return dict(source)
 
     def close(self) -> None:
-        """Close the underlying Redis client and release the handle."""
+        """Close both Redis clients and release the handles."""
+        ctrl = self.r_ctrl
         client = self.r
+        self.r_ctrl = None
         self.r = None
-        if client is None:
-            return
-        closer = getattr(client, "close", None)
-        if callable(closer):
-            try:
-                closer()
-            except Exception:
-                pass
+
+        def _close(handle: Any) -> None:
+            closer = getattr(handle, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception:
+                    pass
+
+        if ctrl is not None and ctrl is not client:
+            _close(ctrl)
+        if client is not None:
+            _close(client)
 
     def _require_client(self) -> None:
         if self.r is None:
             raise RuntimeError("Redis client is not connected; call connect() or inject client")
+        if self.r_ctrl is None:
+            self.r_ctrl = self.r
 
 
 def _coerce_numeric(value: Any) -> int | float | str:
