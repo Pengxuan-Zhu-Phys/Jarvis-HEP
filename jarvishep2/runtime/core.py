@@ -157,6 +157,7 @@ class Jarvis2Core:
         self._runtime = _RuntimeSupervisor(self)
         self._scan = _ScanDriver(self)
         self._resume = _ResumeService(self)
+        self._proc_board_lock = threading.Lock()
         # Last-resort cleanup if the process exits without an orderly finally.
         atexit.register(self._atexit_cleanup)
 
@@ -167,6 +168,8 @@ class Jarvis2Core:
             self._scan = _ScanDriver(self)
         if getattr(self, "_resume", None) is None:
             self._resume = _ResumeService(self)
+        if getattr(self, "_proc_board_lock", None) is None:
+            self._proc_board_lock = threading.Lock()
 
     def _get_runtime(self) -> _RuntimeSupervisor:
         self._ensure_collaborators()

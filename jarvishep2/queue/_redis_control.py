@@ -11,6 +11,9 @@ from jarvishep2.queue.redis_queue import (
     CONTROL_LOCK,
     CONTROL_LOCK_TTL_SEC,
     OP_COUNT,
+    PROC_BOARD_TTL_SEC,
+    PROC_CHILDREN,
+    PROC_WORKER,
     WORKER_STATUS,
     _encode_heartbeat_value,
     _redis_text,
@@ -86,6 +89,51 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then
 end
 return redis.call('DEL', KEYS[1])
 """
+
+
+def _worker_board_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
+    """Display overlay for hep:proc:worker:{id}; never copies ownership blobs."""
+    board: dict[str, Any] = {"role": "worker"}
+    status = fields.get("status")
+    if status is not None:
+        board["status"] = status
+    pid = fields.get("pid")
+    if pid is not None:
+        board["pid"] = pid
+    ts = fields.get("ts", fields.get("last_heartbeat"))
+    if ts is not None:
+        board["ts"] = ts
+    current = fields.get("current_sample")
+    if current is None or current == "":
+        current = fields.get("uuid")
+    board["current_uuid"] = "" if current is None or current == "" else str(current)
+    fo_pid = fields.get("file_operation_pid")
+    if fo_pid is not None and fo_pid != "":
+        board["file_operation_pid"] = fo_pid
+    if "held_calc_n" in fields and fields.get("held_calc_n") is not None:
+        try:
+            board["held_calc_n"] = int(fields["held_calc_n"])
+        except (TypeError, ValueError):
+            pass
+    else:
+        raw = fields.get("held_calc_packs")
+        if raw is None or raw == "":
+            board["held_calc_n"] = 0
+        elif isinstance(raw, Mapping):
+            board["held_calc_n"] = len([value for value in raw.values() if value])
+        else:
+            try:
+                decoded = json.loads(str(raw))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                decoded = None
+            if isinstance(decoded, dict):
+                board["held_calc_n"] = len(
+                    [value for value in decoded.values() if value]
+                )
+    interval = fields.get("heartbeat_interval_sec")
+    if interval is not None:
+        board["heartbeat_interval_sec"] = interval
+    return board
 
 
 class _ControlAndHeartbeat:
@@ -168,15 +216,38 @@ class _ControlAndHeartbeat:
         text = _redis_text(value).strip()
         return text or None
 
-    def heartbeat(self, worker_id: str, **fields: Any) -> None:
+    def heartbeat(
+        self,
+        worker_id: str,
+        *,
+        board_ttl_sec: int | None = None,
+        **fields: Any,
+    ) -> None:
         self._require_client()
         if "last_heartbeat" not in fields and "ts" in fields:
             fields["last_heartbeat"] = fields["ts"]
-        key = WORKER_STATUS.format(id=worker_id)
+        wid = str(worker_id)
+        status_key = WORKER_STATUS.format(id=wid)
+        board_key = PROC_WORKER.format(id=wid)
+        children_key = PROC_CHILDREN.format(id=wid)
         mapping = {k: _encode_heartbeat_value(v) for k, v in fields.items()}
+        board_mapping = {
+            k: _encode_heartbeat_value(v)
+            for k, v in _worker_board_fields(fields).items()
+        }
+        ttl = (
+            max(1, int(board_ttl_sec))
+            if board_ttl_sec is not None
+            else PROC_BOARD_TTL_SEC
+        )
         pipe = self.r.pipeline(transaction=True)
         if mapping:
-            pipe.hset(key, mapping=mapping)
+            pipe.hset(status_key, mapping=mapping)
+        if board_mapping:
+            pipe.hset(board_key, mapping=board_mapping)
+        pipe.expire(board_key, ttl)
+        # Same TTL as the worker board so children cannot evaporate first.
+        pipe.expire(children_key, ttl)
         pipe.incr(OP_COUNT.format(kind="worker"))
         pipe.execute()
 

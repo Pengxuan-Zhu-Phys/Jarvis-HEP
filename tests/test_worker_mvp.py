@@ -628,6 +628,8 @@ class WorkerMVPTests(unittest.TestCase):
 
         scheduler.shutdown.assert_called_once_with(wait=True)
         file_ops.shutdown.assert_called_once_with()
+        redis.drop_proc_board.assert_any_call("worker", owner_id="0")
+        redis.drop_proc_board.assert_any_call("children", owner_id="0")
         redis.close.assert_called_once_with()
         self.assertIsNone(worker._scheduler)
         self.assertIsNone(worker._file_ops)

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Thin Redis access layer for Jarvis-HEP V2 distributed runtime.
 
-D25.4: ``RedisQueue`` is the public connection façade. Keyspaces live on
+D25.4/D26.1: ``RedisQueue`` is the public connection façade. Keyspaces live on
 private mixins (``_TaskBroker``, ``_CalcPool``, ``_SampleBuckets``,
-``_ControlAndHeartbeat``). Callers keep importing ``RedisQueue``.
+``_ControlAndHeartbeat``, ``_ProcBoard``). Callers keep importing ``RedisQueue``.
 """
 
 from __future__ import annotations
@@ -50,6 +50,19 @@ CONTROL_LOCK = "hep:control:lock"
 # the key, Archiver/Workers treated GET None as "stolen", and Core's refresh
 # silently reclaimed. 120s still fences stacked runs; refresh is TTL/3.
 CONTROL_LOCK_TTL_SEC = 120
+# Broadcast boards (D26.1). Single-writer HASH + EXPIRE; others read-only
+# by convention. TTL 60 is a lower bound: publish uses max(this, 2*stale_sec)
+# when stale_sec is known so the board outlives the watchdog window.
+PROC_CORE = "hep:proc:core"
+PROC_ARCHIVER = "hep:proc:archiver"
+PROC_REDIS = "hep:proc:redis"
+PROC_WORKER = "hep:proc:worker:{id}"
+PROC_CHILDREN = "hep:proc:children:{id}"
+INFLIGHT = "hep:inflight:{worker}"
+PROC_BOARD_TTL_SEC = 60
+ARCHIVER_BOARD_TTL_SEC = 120
+CONTROL_SOCKET_TIMEOUT_SEC = 2.0
+PROC_ROLES = frozenset({"core", "archiver", "redis", "worker", "children"})
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
@@ -283,16 +296,20 @@ from jarvishep2.queue._redis_control import (
     control_lock_missing_grace_sec,
     next_control_lock_watch,
 )
+from jarvishep2.queue._redis_proc_board import _ProcBoard
 from jarvishep2.queue._redis_sample_buckets import _SampleBuckets
 from jarvishep2.queue._redis_task_broker import _TaskBroker
 
 
-class RedisQueue(_TaskBroker, _CalcPool, _SampleBuckets, _ControlAndHeartbeat):
+class RedisQueue(
+    _TaskBroker, _CalcPool, _SampleBuckets, _ControlAndHeartbeat, _ProcBoard
+):
     """Redis broker for tasks, calculator pools, results, and monitor counters.
 
-    Internals (D25.4): task/archive/feedback, calculator pools, SAMPLE buckets,
-    and the control lock + worker heartbeats are mixin keyspaces. This class
-    owns the connection, codec, and cross-keyspace reset/monitor helpers.
+    Internals (D25.4/D26.1): task/archive/feedback, calculator pools, SAMPLE
+    buckets, control lock + worker heartbeats, and proc boards are mixin
+    keyspaces. This class owns the connection, codec, and cross-keyspace
+    reset/monitor helpers.
     """
 
     # redis-py 5+/8 default socket_timeout=5 races with BLPOP(timeout<=5) used
@@ -406,8 +423,13 @@ class RedisQueue(_TaskBroker, _CalcPool, _SampleBuckets, _ControlAndHeartbeat):
             worker_ids = list(range(0, 64))
         elif isinstance(worker_ids, int):
             worker_ids = list(range(0, max(0, int(worker_ids))))
+        keys.extend((PROC_CORE, PROC_ARCHIVER, PROC_REDIS))
         for worker_id in worker_ids:
-            keys.append(WORKER_STATUS.format(id=str(worker_id)))
+            wid = str(worker_id)
+            keys.append(WORKER_STATUS.format(id=wid))
+            keys.append(PROC_WORKER.format(id=wid))
+            keys.append(PROC_CHILDREN.format(id=wid))
+            keys.append(INFLIGHT.format(worker=wid))
         # Drop known SAMPLE bucket state hashes (current + a generous lookback window).
         try:
             meta = self.r.hgetall(BUCKET_META) or {}
@@ -605,6 +627,7 @@ def _coerce_numeric(value: Any) -> int | float | str:
 __all__ = [
     "ARCHIVE_QUEUE",
     "ARCHIVED_UUIDS",
+    "ARCHIVER_BOARD_TTL_SEC",
     "BUCKET_META",
     "BUCKET_READY_QUEUE",
     "BUCKET_STATE",
@@ -618,12 +641,21 @@ __all__ = [
     "CHAIN_FEEDBACK_QUEUE_PATTERN",
     "CONTROL_LOCK",
     "CONTROL_LOCK_TTL_SEC",
+    "CONTROL_SOCKET_TIMEOUT_SEC",
     "classify_control_lock",
     "control_lock_missing_grace_sec",
     "next_control_lock_watch",
     "CodecError",
     "FEEDBACK_QUEUE",
+    "INFLIGHT",
     "OP_COUNT",
+    "PROC_ARCHIVER",
+    "PROC_BOARD_TTL_SEC",
+    "PROC_CHILDREN",
+    "PROC_CORE",
+    "PROC_REDIS",
+    "PROC_ROLES",
+    "PROC_WORKER",
     "RESULTS",
     "RedisQueue",
     "SAMPLE_STATS",
