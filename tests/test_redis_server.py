@@ -101,6 +101,7 @@ class ManagedRedisLaunchFlagsTests(unittest.TestCase):
                     "jarvishep2.queue.redis_server.subprocess.Popen",
                     return_value=proc,
                 ) as popen,
+                mock.patch.object(managed, "_ping_and_require_blmove"),
             ):
                 started = managed.ensure(ready_timeout=1.0)
             self.assertTrue(started)

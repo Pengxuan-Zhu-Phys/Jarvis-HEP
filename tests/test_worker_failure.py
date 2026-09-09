@@ -721,7 +721,7 @@ class ChildrenBoardOrphanTests(unittest.TestCase):
             )[1],
             _kill_orphan_process_groups=lambda pids: (order.append("killpg-hb"), 0)[1],
             _worker_heartbeat=lambda worker_id: {},
-            _requeue_in_flight_task=lambda heartbeat: False,
+            _requeue_in_flight_task=lambda heartbeat, **_: False,
             workers=[dead_worker],
             _redis_connection_config={},
             _worker_spawn_template={},
