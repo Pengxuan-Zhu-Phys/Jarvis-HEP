@@ -375,13 +375,13 @@ class RedisQueue(
         if url:
             self.r = redis.Redis.from_url(str(url), **blocking)
             self.r_ctrl = redis.Redis.from_url(str(url), **control)
-            return
-
-        host = str(self.config.get("host", "localhost"))
-        port = int(self.config.get("port", 6379))
-        db = int(self.config.get("db", 0))
-        self.r = redis.Redis(host=host, port=port, db=db, **blocking)
-        self.r_ctrl = redis.Redis(host=host, port=port, db=db, **control)
+        else:
+            host = str(self.config.get("host", "localhost"))
+            port = int(self.config.get("port", 6379))
+            db = int(self.config.get("db", 0))
+            self.r = redis.Redis(host=host, port=port, db=db, **blocking)
+            self.r_ctrl = redis.Redis(host=host, port=port, db=db, **control)
+        self.require_blmove()
 
     def _blpop(self, key: str, *, timeout: int = 1) -> Any | None:
         """BLPOP wrapper that treats client socket timeouts as empty pops.

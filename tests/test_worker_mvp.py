@@ -234,7 +234,8 @@ class WorkerMVPTests(unittest.TestCase):
         )
         task = {"uuid": "in-flight-1", "u_coords": [0.1]}
         redis = mock.Mock()
-        redis.pull_task.side_effect = [task, None]
+        redis.pull_task_to_inflight.side_effect = [task, None]
+        redis.get_inflight_task.return_value = None
         worker._redis = redis
         order: list[Any] = []
 
@@ -245,12 +246,12 @@ class WorkerMVPTests(unittest.TestCase):
                     dict(worker._current_task) if worker._current_task else None,
                 )
             )
-            if status == "idle" and redis.pull_task.call_count >= 2:
+            if status == "idle" and redis.pull_task_to_inflight.call_count >= 2:
                 worker._is_running = False
 
         def process_task(payload: dict[str, Any]) -> None:
             order.append(("process", payload.get("uuid")))
-            worker._is_running = False
+            worker._inflight_submitted = True
 
         worker._heartbeat = heartbeat  # type: ignore[method-assign]
         worker.process_task = process_task  # type: ignore[method-assign]
@@ -260,6 +261,93 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertEqual(order[0][0], "busy")
         self.assertEqual(order[0][1]["uuid"], "in-flight-1")
         self.assertEqual(order[1], ("process", "in-flight-1"))
+        redis.ack_inflight_task.assert_called_once_with("0", "in-flight-1")
+
+    def test_none_with_inflight_leftover_does_not_busy_loop(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 1},
+        )
+        leftover = {"uuid": "left-1", "u_coords": [0.2]}
+        redis = mock.Mock()
+        redis.pull_task_to_inflight.return_value = None
+        redis.get_inflight_task.side_effect = [leftover, None]
+        worker._redis = redis
+        processed: list[str] = []
+
+        def process_task(payload: dict[str, Any]) -> None:
+            processed.append(str(payload.get("uuid")))
+            worker._inflight_submitted = True
+
+        def heartbeat(_status: str) -> None:
+            if processed and redis.pull_task_to_inflight.call_count >= 2:
+                worker._is_running = False
+
+        worker.process_task = process_task  # type: ignore[method-assign]
+        worker._heartbeat = heartbeat  # type: ignore[method-assign]
+        worker._main_loop()
+
+        self.assertEqual(processed, ["left-1"])
+        self.assertLessEqual(redis.pull_task_to_inflight.call_count, 4)
+        redis.ack_inflight_task.assert_called_once_with("0", "left-1")
+
+    def test_submit_failure_leaves_inflight_unacked(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        task = {"uuid": "fail-1", "u_coords": [0.1]}
+        queue.push_task(task)
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 0},
+        )
+        worker._redis = queue
+
+        def boom(_sample: Any) -> None:
+            raise RuntimeError("submit failed")
+
+        def process_task(_payload: dict[str, Any]) -> None:
+            try:
+                worker._stage_and_submit(_payload)  # type: ignore[arg-type]
+            except Exception:
+                worker._inflight_submitted = False
+
+        worker._stage_and_submit = boom  # type: ignore[method-assign]
+        worker.process_task = process_task  # type: ignore[method-assign]
+        worker._heartbeat = lambda *_a, **_k: None  # type: ignore[method-assign]
+        worker._main_loop()
+
+        leftover = queue.get_inflight_task("0")
+        self.assertIsNotNone(leftover)
+        assert leftover is not None
+        self.assertEqual(leftover["uuid"], "fail-1")
+        self.assertFalse(worker._is_running)
+        self.assertFalse(worker._inflight_submitted)
+
+    def test_occupied_none_with_llen_exits_instead_of_busy_loop(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 1},
+        )
+        leftover = {"uuid": "occ-1", "u_coords": [0.3]}
+        redis = mock.Mock()
+        redis.pull_task_to_inflight.return_value = None
+        redis.get_inflight_task.return_value = leftover
+        worker._redis = redis
+        processed: list[str] = []
+
+        def process_task(payload: dict[str, Any]) -> None:
+            processed.append(str(payload.get("uuid")))
+
+        worker.process_task = process_task  # type: ignore[method-assign]
+        worker._heartbeat = lambda *_a, **_k: None  # type: ignore[method-assign]
+        worker._main_loop()
+
+        self.assertEqual(processed, ["occ-1"])
+        self.assertEqual(redis.pull_task_to_inflight.call_count, 1)
+        self.assertFalse(worker._is_running)
+        redis.ack_inflight_task.assert_not_called()
 
     def test_core_can_attach_to_explicit_external_redis(self) -> None:
         config = {

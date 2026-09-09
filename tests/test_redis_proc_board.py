@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest import mock
 
 from jarvishep2.redis_queue import (
     ARCHIVER_BOARD_TTL_SEC,
@@ -14,7 +15,11 @@ from jarvishep2.redis_queue import (
     PROC_CHILDREN,
     PROC_CORE,
     PROC_WORKER,
+    SAMPLE_STATS,
+    TASK_QUEUE,
     WORKER_STATUS,
+    RedisQueue,
+    encode_payload,
     make_fakeredis_queue,
 )
 
@@ -164,6 +169,176 @@ class ProcBoardMixinTests(unittest.TestCase):
         self.assertFalse(self.queue.touch_proc_board("core"))
         self.queue.publish_proc_board("core", role="core")
         self.assertTrue(self.queue.touch_proc_board("core"))
+
+
+def _task(uuid: str, **extra: object) -> dict:
+    payload = {"uuid": uuid, "u_coords": [0.1]}
+    payload.update(extra)
+    return payload
+
+
+class InflightOwnershipTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.queue = make_fakeredis_queue(codec="json")
+        self.inflight = INFLIGHT.format(worker="0")
+
+    def _plant_inflight(self, *tasks: dict) -> None:
+        # LPUSH so the first argument is the remaining occupancy head.
+        for task in tasks:
+            self.queue.r.lpush(self.inflight, encode_payload(task, codec="json"))
+
+    def test_occupancy_llen_3_bounces_to_original_head(self) -> None:
+        t1 = _task("t1")
+        t2 = _task("t2")
+        t3 = _task("t3")
+        self._plant_inflight(t1, t2, t3)
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 3)
+        self.queue.r.hset(SAMPLE_STATS, mapping={"running": 0})
+
+        got = self.queue._run_occupancy(self.inflight)
+        self.assertEqual(got["uuid"], "t1")
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 1)
+        remaining = self.queue.get_inflight_task("0")
+        self.assertEqual(remaining["uuid"], "t1")
+        bounced = [
+            self.queue._decode_task_payload(raw)["uuid"]
+            for raw in self.queue.r.lrange(TASK_QUEUE, 0, -1)
+        ]
+        self.assertEqual(bounced, ["t2", "t3"])
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 0)
+
+    def test_occupancy_n_start_1_increments_running_once(self) -> None:
+        self.queue.push_task(_task("only"))
+        got = self.queue.pull_task_to_inflight("0", timeout=0)
+        self.assertEqual(got["uuid"], "only")
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 1)
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 1)
+
+    def test_ack_mismatch_leaves_list_and_never_deletes(self) -> None:
+        self._plant_inflight(_task("keep-me"), _task("extra"))
+        delete = mock.Mock(side_effect=AssertionError("ACK must not DEL"))
+        self.queue.r.delete = delete  # type: ignore[method-assign]
+        self.assertFalse(self.queue.ack_inflight_task("0", "wrong-uuid"))
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 2)
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "extra")
+        delete.assert_not_called()
+        self.assertTrue(self.queue.ack_inflight_task("0", "extra"))
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 1)
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "keep-me")
+        delete.assert_not_called()
+
+    def test_factory_reclaim_two_inflight_retries_each(self) -> None:
+        from types import SimpleNamespace
+
+        from jarvishep2.runtime.factory import _Watchdog
+
+        t1 = _task("r1", _retry_count=0)
+        t2 = _task("r2", _retry_count=1)
+        self._plant_inflight(t1, t2)
+        watchdog = _Watchdog(SimpleNamespace(redis=self.queue))
+        watchdog.max_sample_retries = 3
+        self.assertTrue(watchdog.requeue_in_flight_task({}, worker_id="0"))
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 0)
+        queued = [
+            self.queue._decode_task_payload(raw)
+            for raw in self.queue.r.lrange(TASK_QUEUE, 0, -1)
+        ]
+        by_uuid = {item["uuid"]: int(item["_retry_count"]) for item in queued}
+        self.assertEqual(by_uuid, {"r1": 1, "r2": 2})
+
+    def test_reclaim_drains_all_inflight_items(self) -> None:
+        self._plant_inflight(_task("a"), _task("b"))
+        payloads = self.queue.reclaim_inflight_task("0")
+        uuids = {item["uuid"] for item in payloads}
+        self.assertEqual(uuids, {"a", "b"})
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 0)
+        self.assertEqual(self.queue.reclaim_inflight_task("0"), [])
+
+    def test_get_inflight_task_does_not_consume(self) -> None:
+        self._plant_inflight(_task("head"))
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "head")
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "head")
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 1)
+
+    def test_list_inflight_worker_ids_scans_keys(self) -> None:
+        self.queue.r.lpush(INFLIGHT.format(worker="3"), encode_payload(_task("x"), codec="json"))
+        self.queue.r.lpush(INFLIGHT.format(worker="9"), encode_payload(_task("y"), codec="json"))
+        self.assertEqual(sorted(self.queue.list_inflight_worker_ids()), ["3", "9"])
+
+    def test_fakeredis_without_blmove_uses_steal_lua(self) -> None:
+        self.queue.push_task(_task("stolen"))
+        self.queue.r.blmove = mock.Mock(  # type: ignore[method-assign]
+            side_effect=Exception("unknown command 'BLMOVE'")
+        )
+        eval_scripts: list[str] = []
+        real_eval = self.queue.r.eval
+
+        def spy_eval(script, nkeys, *args):
+            eval_scripts.append(str(script))
+            return real_eval(script, nkeys, *args)
+
+        self.queue.r.eval = spy_eval  # type: ignore[method-assign]
+        got = self.queue.pull_task_to_inflight("0", timeout=1)
+        self.assertEqual(got["uuid"], "stolen")
+        self.assertTrue(any("occupied" in script for script in eval_scripts))
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "stolen")
+        occupied = self.queue.pull_task_to_inflight("0", timeout=1)
+        self.assertIsNone(occupied)
+
+    def test_require_blmove_raises_on_missing_command(self) -> None:
+        client = mock.MagicMock()
+        client.execute_command.return_value = []
+        client.info.return_value = {"redis_version": "6.0.16"}
+        queue = RedisQueue(client=client)
+        with self.assertRaises(RuntimeError) as ctx:
+            queue.require_blmove()
+        message = str(ctx.exception)
+        self.assertIn("BLMOVE", message)
+        self.assertIn("6.2", message)
+        self.assertIn("Ubuntu 22.04", message)
+
+    def test_connect_skips_require_blmove_for_injected_client(self) -> None:
+        queue = make_fakeredis_queue()
+        with mock.patch.object(RedisQueue, "require_blmove") as require:
+            queue.connect()
+            require.assert_not_called()
+
+    def test_blmove_uses_blocking_client_occupancy_uses_ctrl(self) -> None:
+        import fakeredis
+
+        server = fakeredis.FakeServer()
+        blocking = fakeredis.FakeStrictRedis(server=server, decode_responses=True)
+        control = fakeredis.FakeStrictRedis(server=server, decode_responses=True)
+        queue = RedisQueue({"codec": "json"}, client=blocking)
+        queue.r_ctrl = control
+
+        class _CtrlBoom:
+            def blmove(self, *_a, **_k):
+                raise AssertionError("control client must not BLMOVE")
+
+            def eval(self, *args, **kwargs):
+                return control.eval(*args, **kwargs)
+
+            def llen(self, *args, **kwargs):
+                return control.llen(*args, **kwargs)
+
+            def lpop(self, *args, **kwargs):
+                return control.lpop(*args, **kwargs)
+
+            def lpush(self, *args, **kwargs):
+                return control.lpush(*args, **kwargs)
+
+            def lindex(self, *args, **kwargs):
+                return control.lindex(*args, **kwargs)
+
+            def hincrby(self, *args, **kwargs):
+                return control.hincrby(*args, **kwargs)
+
+        queue.r_ctrl = _CtrlBoom()  # type: ignore[assignment]
+        queue.push_task(_task("via-blmove"))
+        got = queue.pull_task_to_inflight("0", timeout=0)
+        self.assertEqual(got["uuid"], "via-blmove")
+        self.assertEqual(queue.get_inflight_task("0")["uuid"], "via-blmove")
 
 
 if __name__ == "__main__":
