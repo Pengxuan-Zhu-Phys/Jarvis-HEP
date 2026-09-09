@@ -6,13 +6,19 @@ from __future__ import annotations
 import inspect
 import logging
 import threading
+import time
 import unittest
 from unittest import mock
 
 from jarvishep2._resume_service import _ResumeService
-from jarvishep2._runtime_supervisor import _RuntimeSupervisor
+from jarvishep2._runtime_supervisor import (
+    REDIS_UNREACH_GRACE_SEC,
+    _ARCHIVER_STALE_WARN_INTERVAL_SEC,
+    _RuntimeSupervisor,
+)
 from jarvishep2._scan_driver import _ScanDriver
 from jarvishep2.core import Jarvis2Core
+from jarvishep2.redis_queue import make_fakeredis_queue
 
 
 class CoreCollaboratorTests(unittest.TestCase):
@@ -112,6 +118,287 @@ class CoreCollaboratorTests(unittest.TestCase):
             core.archiver = _LiveArchiver()
             core._runtime._ensure_archiver_alive()
         core.init_archiver.assert_not_called()
+
+    def test_live_archiver_board_stays_non_empty(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 99
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        queue.publish_proc_board(
+            "archiver",
+            role="archiver",
+            status="running",
+            pid=99,
+            records_written=3,
+            ts=time.time(),
+        )
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = logging.getLogger("test.archiver_board")
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+        board = queue.read_proc_board("archiver")
+        self.assertTrue(board)
+        self.assertEqual(int(board["pid"]), 99)
+        self.assertEqual(board["status"], "running")
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+
+    def test_stale_archiver_board_warns_but_does_not_kill(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 77
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        queue.publish_proc_board(
+            "archiver",
+            role="archiver",
+            status="running",
+            pid=77,
+            ts=time.time() - 120.0,
+        )
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+        self.assertTrue(core.archiver.is_alive())
+        core._logger.warning.assert_called()
+        board = queue.read_proc_board("archiver")
+        self.assertTrue(board)
+
+    def test_missing_archiver_board_on_young_process_is_quiet(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 55
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+        core._logger.warning.assert_not_called()
+
+    def test_missing_archiver_board_on_live_process_warns_without_kill(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 56
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            limit = core._runtime._archiver_board_stale_limit_sec()
+            core._archiver_observed = (56, time.monotonic() - limit - 1.0)
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+        self.assertTrue(core.archiver.is_alive())
+        core._logger.warning.assert_called()
+
+    def test_stale_archiver_warning_is_rate_limited(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 77
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        queue.publish_proc_board(
+            "archiver",
+            role="archiver",
+            status="running",
+            pid=77,
+            ts=time.time() - 120.0,
+        )
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+            core._runtime._ensure_archiver_alive()
+            self.assertEqual(core._logger.warning.call_count, 1)
+            core._archiver_stale_warned_at = (
+                time.monotonic() - _ARCHIVER_STALE_WARN_INTERVAL_SEC
+            )
+            core._runtime._ensure_archiver_alive()
+        self.assertEqual(core._logger.warning.call_count, 2)
+        core.init_archiver.assert_not_called()
+
+    def test_managed_redis_process_death_interrupts_without_empty_restart(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.close = mock.Mock()
+        process = mock.Mock()
+        process.poll.return_value = 0
+        process.pid = 4242
+        managed = mock.Mock()
+        managed.started_by_us = True
+        managed.process = process
+        managed.ensure = mock.Mock()
+        managed.port = 6379
+        managed.title = "Jarvis-Redis:scan"
+        core = Jarvis2Core()
+        core.redis = queue
+        core._managed_redis = managed
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.factory = mock.Mock()
+        core._runtime._ensure_managed_redis_alive(now=0.0)
+        self.assertTrue(core._interrupt_requested)
+        managed.ensure.assert_not_called()
+        queue.close.assert_called()
+        core.factory.request_worker_shutdown.assert_called()
+        core._logger.error.assert_called()
+        logged = " ".join(str(call.args[0]) for call in core._logger.error.call_args_list)
+        self.assertIn("managed redis-server died; refusing empty restart; use --resume", logged)
+
+    def test_redis_ping_timeout_within_grace_warns_without_interrupt(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.ping = mock.Mock(side_effect=TimeoutError("Timeout reading from socket"))
+        queue.close = mock.Mock()
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.pid = 9
+        managed = mock.Mock()
+        managed.started_by_us = True
+        managed.process = process
+        managed.ensure = mock.Mock()
+        managed.port = 6379
+        managed.title = "Jarvis-Redis:scan"
+        core = Jarvis2Core()
+        core.redis = queue
+        core._managed_redis = managed
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core._runtime._ensure_managed_redis_alive(now=0.0)
+        core._runtime._ensure_managed_redis_alive(now=REDIS_UNREACH_GRACE_SEC - 0.1)
+        self.assertFalse(core._interrupt_requested)
+        queue.close.assert_not_called()
+        managed.ensure.assert_not_called()
+        self.assertTrue(core._logger.warning.called)
+        board = queue.read_proc_board("core")
+        self.assertNotEqual(board.get("scan_mode"), "stopping")
+
+    def test_redis_ping_timeout_after_grace_interrupts_and_closes(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.ping = mock.Mock(side_effect=TimeoutError("Timeout reading from socket"))
+        queue.close = mock.Mock()
+        process = mock.Mock()
+        process.poll.return_value = None
+        process.pid = 9
+        managed = mock.Mock()
+        managed.started_by_us = True
+        managed.process = process
+        managed.ensure = mock.Mock()
+        managed.port = 6379
+        managed.title = "Jarvis-Redis:scan"
+        core = Jarvis2Core()
+        core.redis = queue
+        core._managed_redis = managed
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core._runtime._ensure_managed_redis_alive(now=0.0)
+        self.assertFalse(core._interrupt_requested)
+        core._runtime._ensure_managed_redis_alive(now=REDIS_UNREACH_GRACE_SEC)
+        self.assertTrue(core._interrupt_requested)
+        queue.close.assert_called()
+        managed.ensure.assert_not_called()
+
+    def test_lease_tick_does_not_overwrite_scan_mode_paused(self) -> None:
+        queue = make_fakeredis_queue()
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._control_lock_owner = "owner-1"
+        core._logger = logging.getLogger("test.lease_tick")
+        queue.publish_proc_board("core", role="core", scan_mode="paused")
+        with mock.patch.object(
+            queue, "publish_proc_board", wraps=queue.publish_proc_board
+        ) as published:
+            core._runtime._publish_lease_proc_boards(redis_alive=1)
+        for call in published.call_args_list:
+            self.assertNotIn("scan_mode", call.kwargs)
+        board = queue.read_proc_board("core")
+        self.assertEqual(board.get("scan_mode"), "paused")
+        self.assertEqual(int(board.get("redis_alive")), 1)
+
+    def test_external_redis_board_has_empty_pid(self) -> None:
+        queue = make_fakeredis_queue()
+        managed = mock.Mock()
+        managed.started_by_us = False
+        managed.process = mock.Mock()
+        managed.process.poll.return_value = 0
+        managed.process.pid = 1
+        managed.ensure = mock.Mock()
+        managed.port = 6379
+        managed.title = ""
+        core = Jarvis2Core()
+        core.redis = queue
+        core._managed_redis = managed
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = logging.getLogger("test.external_redis")
+        core._runtime._ensure_managed_redis_alive(now=0.0)
+        self.assertFalse(core._interrupt_requested)
+        managed.ensure.assert_not_called()
+        board = queue.read_proc_board("redis")
+        self.assertEqual(board.get("pid"), "")
+        self.assertEqual(int(board.get("started_by_us")), 0)
+        managed.process.poll.assert_not_called()
 
 
 if __name__ == "__main__":
