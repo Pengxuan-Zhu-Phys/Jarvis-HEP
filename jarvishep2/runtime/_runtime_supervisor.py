@@ -39,6 +39,7 @@ from jarvishep2.Sampling.runtime_checkpoint import prepare_resume
 # before interrupt; a dead managed redis-server interrupts immediately.
 REDIS_UNREACH_GRACE_SEC = 15.0
 _SUPERVISE_TICK_SEC = 1.0
+_ARCHIVER_STALE_WARN_INTERVAL_SEC = 30.0
 
 
 class _RuntimeSupervisor:
@@ -464,25 +465,54 @@ class _RuntimeSupervisor:
             poll = _SUPERVISE_TICK_SEC
         return max(float(PROC_BOARD_TTL_SEC), 2.0 * max(0.1, poll))
 
+    def _archiver_observed_age_sec(self) -> float:
+        """Seconds since this Archiver pid was first seen by the supervise tick."""
+        core = self._core
+        pid = getattr(core.archiver, "pid", None)
+        now = time.monotonic()
+        state = getattr(core, "_archiver_observed", None)
+        if not isinstance(state, tuple) or len(state) != 2 or state[0] != pid:
+            core._archiver_observed = (pid, now)
+            core._archiver_stale_warned_at = None
+            return 0.0
+        return max(0.0, now - float(state[1]))
+
     def _warn_if_archiver_board_stale(self) -> None:
         core = self._core
         redis = core.redis
         if redis is None:
             return
+        process_age = self._archiver_observed_age_sec()
         try:
             board = redis.read_proc_board("archiver")
         except Exception:
             return
+        limit = self._archiver_board_stale_limit_sec()
         raw_ts = board.get("ts") if board else None
         if raw_ts in (None, ""):
+            # Expired or never published (HDF5 prepare runs before first publish).
+            # Quiet only for the post-spawn race: process younger than the limit.
+            if process_age <= limit:
+                core._archiver_stale_warned_at = None
+                return
+            age = process_age
+        else:
+            try:
+                age = time.time() - float(raw_ts)
+            except (TypeError, ValueError):
+                if process_age <= limit:
+                    core._archiver_stale_warned_at = None
+                    return
+                age = process_age
+            else:
+                if age <= limit:
+                    core._archiver_stale_warned_at = None
+                    return
+        now = time.monotonic()
+        last = getattr(core, "_archiver_stale_warned_at", None)
+        if last is not None and (now - float(last)) < _ARCHIVER_STALE_WARN_INTERVAL_SEC:
             return
-        try:
-            age = time.time() - float(raw_ts)
-        except (TypeError, ValueError):
-            return
-        limit = self._archiver_board_stale_limit_sec()
-        if age <= limit:
-            return
+        core._archiver_stale_warned_at = now
         core._logger.warning(
             "Archiver process is alive but board ts is stale "
             "(age=%.1fs, limit=%.1fs); not killing (packing may exceed 30s)",
@@ -549,8 +579,9 @@ class _RuntimeSupervisor:
         core._logger.error(
             "managed redis-server died; refusing empty restart; use --resume"
         )
-        # Queues/inflight live in this process; do not ManagedRedisServer.ensure()
-        # an empty instance. Resume with --resume.
+        # Queues/inflight/stats live in redis-server; do not
+        # ManagedRedisServer.ensure() an empty instance (that drops them).
+        # Resume with --resume.
         self._interrupt_for_redis_loss(status="stopped")
 
     def _note_redis_unreachable(self, now: float, exc: BaseException | None) -> None:

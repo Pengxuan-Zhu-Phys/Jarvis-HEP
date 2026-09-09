@@ -11,7 +11,11 @@ import unittest
 from unittest import mock
 
 from jarvishep2._resume_service import _ResumeService
-from jarvishep2._runtime_supervisor import REDIS_UNREACH_GRACE_SEC, _RuntimeSupervisor
+from jarvishep2._runtime_supervisor import (
+    REDIS_UNREACH_GRACE_SEC,
+    _ARCHIVER_STALE_WARN_INTERVAL_SEC,
+    _RuntimeSupervisor,
+)
 from jarvishep2._scan_driver import _ScanDriver
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.redis_queue import make_fakeredis_queue
@@ -183,6 +187,93 @@ class CoreCollaboratorTests(unittest.TestCase):
         core._logger.warning.assert_called()
         board = queue.read_proc_board("archiver")
         self.assertTrue(board)
+
+    def test_missing_archiver_board_on_young_process_is_quiet(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 55
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+        core._logger.warning.assert_not_called()
+
+    def test_missing_archiver_board_on_live_process_warns_without_kill(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 56
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            limit = core._runtime._archiver_board_stale_limit_sec()
+            core._archiver_observed = (56, time.monotonic() - limit - 1.0)
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
+        self.assertFalse(core._interrupt_requested)
+        self.assertTrue(core.archiver.is_alive())
+        core._logger.warning.assert_called()
+
+    def test_stale_archiver_warning_is_rate_limited(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 77
+
+            def is_alive(self) -> bool:
+                return True
+
+        queue = make_fakeredis_queue()
+        queue.publish_proc_board(
+            "archiver",
+            role="archiver",
+            status="running",
+            pid=77,
+            ts=time.time() - 120.0,
+        )
+        core = Jarvis2Core()
+        core.redis = queue
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = mock.Mock()
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+            core._runtime._ensure_archiver_alive()
+            self.assertEqual(core._logger.warning.call_count, 1)
+            core._archiver_stale_warned_at = (
+                time.monotonic() - _ARCHIVER_STALE_WARN_INTERVAL_SEC
+            )
+            core._runtime._ensure_archiver_alive()
+        self.assertEqual(core._logger.warning.call_count, 2)
+        core.init_archiver.assert_not_called()
 
     def test_managed_redis_process_death_interrupts_without_empty_restart(self) -> None:
         queue = make_fakeredis_queue()
