@@ -15,6 +15,7 @@ from jarvishep2.redis_queue import (
     CALC_BUSY_PACKS,
     CALC_FREE,
     CALC_STATUS,
+    CONTROL_LOCK_TTL_SEC,
     OP_COUNT,
     RESULTS,
     SAMPLE_STATS,
@@ -26,10 +27,13 @@ from jarvishep2.redis_queue import (
     calc_free_list_key,
     calc_status_busy_field,
     calc_status_free_field,
+    classify_control_lock,
+    control_lock_missing_grace_sec,
     decode_payload,
     encode_payload,
     format_calc_pack_id,
     make_fakeredis_queue,
+    next_control_lock_watch,
 )
 
 
@@ -255,6 +259,44 @@ class RedisQueueTests(unittest.TestCase):
     def test_control_lock_refresh_can_reclaim_an_expired_own_lease(self):
         self.assertTrue(self.queue.refresh_control_lock("owner-a", ttl_sec=30))
         self.assertEqual(self.queue.get_control_lock_owner(), "owner-a")
+
+    def test_classify_control_lock_distinguishes_missing_from_stolen(self):
+        self.assertEqual(classify_control_lock("owner-a", "owner-a"), "ok")
+        self.assertEqual(classify_control_lock(None, "owner-a"), "missing")
+        self.assertEqual(classify_control_lock("", "owner-a"), "missing")
+        self.assertEqual(classify_control_lock("owner-b", "owner-a"), "stolen")
+        self.assertEqual(classify_control_lock(b"owner-a", "owner-a"), "ok")
+        self.assertEqual(classify_control_lock(None, ""), "ok")
+
+    def test_missing_control_lock_has_grace_before_shutdown(self):
+        grace = control_lock_missing_grace_sec(ttl_sec=CONTROL_LOCK_TTL_SEC)
+        self.assertGreaterEqual(grace, 60.0)
+        decision, since = next_control_lock_watch(
+            "missing", missing_since=None, now=10.0, grace_sec=grace
+        )
+        self.assertEqual(decision, "continue_missing")
+        self.assertEqual(since, 10.0)
+        decision, since = next_control_lock_watch(
+            "missing", missing_since=10.0, now=10.0 + grace - 1.0, grace_sec=grace
+        )
+        self.assertEqual(decision, "continue_missing")
+        decision, _ = next_control_lock_watch(
+            "missing", missing_since=10.0, now=10.0 + grace, grace_sec=grace
+        )
+        self.assertEqual(decision, "shutdown_missing")
+        decision, since = next_control_lock_watch(
+            "ok", missing_since=10.0, now=11.0, grace_sec=grace
+        )
+        self.assertEqual(decision, "ok")
+        self.assertIsNone(since)
+        decision, _ = next_control_lock_watch(
+            "stolen", missing_since=None, now=11.0, grace_sec=grace
+        )
+        self.assertEqual(decision, "shutdown_stolen")
+
+    def test_get_control_lock_owner_normalizes_bytes(self):
+        self.queue.r.get = lambda *_a, **_k: b"owner-bytes"
+        self.assertEqual(self.queue.get_control_lock_owner(), "owner-bytes")
 
     def test_reset_run_ephemeral_keys_clears_queues_and_stats(self):
         self.queue.push_task(_minimal_task(uuid="t1"))

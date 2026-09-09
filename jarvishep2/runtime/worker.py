@@ -33,7 +33,12 @@ from jarvishep2.operas_functions import (
     build_operas_expression_context,
     operas_expression_functions_required,
 )
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import (
+    RedisQueue,
+    classify_control_lock,
+    control_lock_missing_grace_sec,
+    next_control_lock_watch,
+)
 from jarvishep2.sample import Sample, materialize_failure_artifacts
 from jarvishep2.sample import ExecutionStep
 from jarvishep2.workflow import max_layer_width, resolve_module_layers
@@ -88,6 +93,7 @@ class Worker(Process):
         self._last_status = "starting"
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
+        self._lease_missing_since: float | None = None
 
     def _get_executor(self) -> SampleExecutor:
         executor = getattr(self, "_executor", None)
@@ -280,13 +286,33 @@ class Worker(Process):
                 expected_owner = str(
                     self.worker_config.get("control_lock_owner") or ""
                 ).strip()
-                if (
-                    expected_owner
-                    and self._redis is not None
-                    and self._redis.get_control_lock_owner() != expected_owner
-                ):
-                    self._is_running = False
-                    return
+                if expected_owner and self._redis is not None:
+                    status = classify_control_lock(
+                        self._redis.get_control_lock_owner(), expected_owner
+                    )
+                    decision, self._lease_missing_since = next_control_lock_watch(
+                        status,
+                        missing_since=self._lease_missing_since,
+                        now=time.monotonic(),
+                        grace_sec=control_lock_missing_grace_sec(),
+                    )
+                    if decision in {"shutdown_stolen", "shutdown_missing"}:
+                        try:
+                            get_jarvis_logger(
+                                "worker", worker_id=self.worker_id
+                            ).warning(
+                                "control lock %s; Worker %s shutting down",
+                                (
+                                    "stolen"
+                                    if decision == "shutdown_stolen"
+                                    else "missing past grace"
+                                ),
+                                self.worker_id,
+                            )
+                        except Exception:
+                            pass
+                        self._is_running = False
+                        return
             except Exception:  # pragma: no cover - heartbeat must never kill the Worker
                 continue
 
@@ -566,6 +592,13 @@ class Worker(Process):
             if task is None:
                 self._heartbeat("idle")
                 continue
+            # BLPOP already removed the task from Redis. Stamp heartbeat
+            # *before* bucket allocation / calculator work so a crash in
+            # process_task can still be requeued from current_task.
+            with self._hb_lock():
+                self._current_task = dict(task)
+                uuid = str(task.get("uuid") or "").strip()
+                self._current_sample_uuid = uuid or None
             self._heartbeat("busy")
             self.process_task(task)
             self._heartbeat("idle")
@@ -634,15 +667,22 @@ class Worker(Process):
             pass
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
-        self._init_redis()
         try:
             # Keep initialization inside the cleanup boundary: FileOperation
             # starts early in _init_runtime, and any later setup exception must
-            # still shut it down.
+            # still shut it down. Redis connect used to sit *outside* this try
+            # so connect failures left only "Worker process started" in the log.
+            self._init_redis()
             self._init_runtime()
             self._heartbeat("starting")
             self._start_heartbeat_thread()
             self._main_loop()
+        except Exception as exc:
+            try:
+                worker_log.exception("Worker crashed -> %s", exc)
+            except Exception:
+                pass
+            raise
         finally:
             self._shutdown_runtime(worker_log)
 

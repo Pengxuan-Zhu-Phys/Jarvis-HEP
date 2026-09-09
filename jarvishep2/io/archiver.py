@@ -23,7 +23,12 @@ from jarvishep2.io.database import (
 from jarvishep2.io.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normalize_delete_method
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import (
+    RedisQueue,
+    classify_control_lock,
+    control_lock_missing_grace_sec,
+    next_control_lock_watch,
+)
 from jarvishep2.runtime_config import ARCHIVER_DEFAULTS
 from jarvishep2.io.sample_bucket import pack_bucket_dir
 
@@ -780,19 +785,44 @@ class ArchiverProcess(Process):
         archiver.start()
         expected_owner = str(self.archiver_config.get("control_lock_owner") or "").strip()
         next_lease_check = 0.0
+        missing_since: float | None = None
+        grace_sec = control_lock_missing_grace_sec()
         while not self._stop_event.is_set():
             time.sleep(0.1)
             with self.records_written.get_lock():
                 self.records_written.value = int(archiver.records_written)
             now = time.monotonic()
-            if (
-                expected_owner
-                and now >= next_lease_check
-                and redis.get_control_lock_owner() != expected_owner
-            ):
-                logger.warning("control lease expired; Archiver is shutting down")
-                break
-            if now >= next_lease_check:
+            if expected_owner and now >= next_lease_check:
+                status = classify_control_lock(
+                    redis.get_control_lock_owner(), expected_owner
+                )
+                decision, missing_since = next_control_lock_watch(
+                    status,
+                    missing_since=missing_since,
+                    now=now,
+                    grace_sec=grace_sec,
+                )
+                if decision == "shutdown_stolen":
+                    logger.warning(
+                        "control lock stolen by %r (expected %r); "
+                        "Archiver is shutting down",
+                        redis.get_control_lock_owner(),
+                        expected_owner,
+                    )
+                    break
+                if decision == "shutdown_missing":
+                    elapsed = (
+                        now - missing_since if missing_since is not None else grace_sec
+                    )
+                    logger.warning(
+                        "control lock missing for %.0fs (grace=%.0fs); "
+                        "Archiver is shutting down",
+                        elapsed,
+                        grace_sec,
+                    )
+                    break
+                next_lease_check = now + 1.0
+            elif now >= next_lease_check:
                 next_lease_check = now + 1.0
         archiver.stop(wait=True, drain=True)
         with self.records_written.get_lock():

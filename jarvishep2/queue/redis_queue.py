@@ -46,7 +46,10 @@ BUCKET_READY_QUEUE = "hep:sample:bucket:ready"
 BUCKET_LOCK = "hep:sample:bucket:lock"
 # Single control-process lease for one Redis DB (hard guard against stacked Jarvis runs).
 CONTROL_LOCK = "hep:control:lock"
-CONTROL_LOCK_TTL_SEC = 30
+# 30s was too tight for a loaded Archiver/Worker scan: one IO stall expired
+# the key, Archiver/Workers treated GET None as "stolen", and Core's refresh
+# silently reclaimed. 120s still fences stacked runs; refresh is TTL/3.
+CONTROL_LOCK_TTL_SEC = 120
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
@@ -274,7 +277,12 @@ def _validate_result_payload(info: Mapping[str, Any]) -> None:
 
 
 from jarvishep2.queue._redis_calc_pool import _CalcPool
-from jarvishep2.queue._redis_control import _ControlAndHeartbeat
+from jarvishep2.queue._redis_control import (
+    _ControlAndHeartbeat,
+    classify_control_lock,
+    control_lock_missing_grace_sec,
+    next_control_lock_watch,
+)
 from jarvishep2.queue._redis_sample_buckets import _SampleBuckets
 from jarvishep2.queue._redis_task_broker import _TaskBroker
 
@@ -610,6 +618,9 @@ __all__ = [
     "CHAIN_FEEDBACK_QUEUE_PATTERN",
     "CONTROL_LOCK",
     "CONTROL_LOCK_TTL_SEC",
+    "classify_control_lock",
+    "control_lock_missing_grace_sec",
+    "next_control_lock_watch",
     "CodecError",
     "FEEDBACK_QUEUE",
     "OP_COUNT",

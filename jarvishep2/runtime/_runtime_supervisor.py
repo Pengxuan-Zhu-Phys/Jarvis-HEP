@@ -364,6 +364,10 @@ class _RuntimeSupervisor:
                     return
             except Exception as exc:
                 core._logger.warning("control lease refresh failed -> %s", exc)
+            try:
+                self._ensure_archiver_alive()
+            except Exception as exc:
+                core._logger.warning("archiver liveness check failed -> %s", exc)
 
     def _start_control_lease_refresh(self) -> None:
         core = self._core
@@ -392,6 +396,45 @@ class _RuntimeSupervisor:
             core._control_lease_thread.join(timeout=2.0)
         core._control_lease_stop = None
         core._control_lease_thread = None
+
+    def _ensure_archiver_alive(self) -> None:
+        """Restart a dead process-mode Archiver so HDF5/SAMPLE packing resume.
+
+        A TTL blip used to kill Archiver while Core silently reclaimed the
+        lock and kept sampling. Without this check the scan ran for hours
+        with no DATABASE writes and no bucket packing.
+        """
+        core = self._core
+        if core._shutdown_done or core._interrupt_requested:
+            return
+        archiver = core.archiver
+        if not isinstance(archiver, ArchiverProcess):
+            return
+        if archiver.is_alive():
+            return
+        db_path = str(getattr(archiver, "db_path", "") or "")
+        core._logger.error(
+            "Archiver process died (pid=%s); restarting persistence",
+            getattr(archiver, "pid", None),
+        )
+        try:
+            archiver.join(timeout=2.0)
+        except Exception:
+            pass
+        core.archiver = None
+        if not db_path:
+            core._logger.error(
+                "Archiver restart skipped (no db_path); requesting shutdown"
+            )
+            core._interrupt_requested = True
+            return
+        try:
+            core.init_archiver(db_path)
+        except Exception as exc:
+            core._logger.error(
+                "Archiver restart failed -> %s; requesting shutdown", exc
+            )
+            core._interrupt_requested = True
 
     def _reset_redis_for_fresh_run(self) -> None:
         """Drop ephemeral queues/stats/calc pools before Workers are spawned."""
