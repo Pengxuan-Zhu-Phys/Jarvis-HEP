@@ -49,6 +49,26 @@ _SPAWN_CTX = get_spawn_context()
 Process = _SPAWN_CTX.Process
 
 
+def _session_leader_pids(pids: list[int]) -> list[int]:
+    """Return PIDs that are currently session leaders (``getpgid(pid) == pid``)."""
+    if not hasattr(os, "getpgid"):
+        return []
+    leaders: list[int] = []
+    for raw in pids:
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if pid <= 0:
+            continue
+        try:
+            if os.getpgid(pid) == pid:
+                leaders.append(pid)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+    return leaders
+
+
 class Worker(Process):
     """Long-lived process that pulls one Sample at a time from Redis.
 
@@ -146,6 +166,8 @@ class Worker(Process):
             delete_method=self._delete_method,
             scan_name=scan_name or None,
         )
+        # Spawn-time children board (not the next 5s heartbeat).
+        self._publish_children_board(reason="spawn")
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
         else:
@@ -203,6 +225,7 @@ class Worker(Process):
                 "worker",
                 worker_id=self.worker_id,
             ),
+            on_active_pids_changed=self._on_active_calc_pids_changed,
         )
         self._scheduler.start()
         self._command_parser = CommandParser.from_picklable(self.worker_config.get("command_parser"))
@@ -234,6 +257,55 @@ class Worker(Process):
             )
         else:
             self._nuisance_profiler = None
+
+    def _board_ttl_sec(self) -> int | None:
+        raw = self.worker_config.get("board_ttl_sec")
+        if raw is None or raw == "":
+            return None
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return None
+
+    def _file_operation_pgid(self) -> int | None:
+        file_ops = self._file_ops
+        if file_ops is None:
+            return None
+        raw = getattr(file_ops, "pgid", None)
+        if raw is None or raw == "":
+            return None
+        try:
+            pid = int(raw)
+        except (TypeError, ValueError):
+            return None
+        return pid if pid > 0 else None
+
+    def _calc_session_leader_pgids(self) -> list[int]:
+        scheduler = self._scheduler
+        if scheduler is None:
+            return []
+        return _session_leader_pids(scheduler.active_subprocess_pids())
+
+    def _publish_children_board(self, *, reason: str = "heartbeat") -> None:
+        redis = self._redis
+        if redis is None:
+            return
+        file_ops = self._file_ops
+        fo_pid = file_ops.pid if file_ops is not None else None
+        redis.publish_children_board(
+            str(self.worker_id),
+            file_operation_pid=fo_pid,
+            file_operation_pgid=self._file_operation_pgid(),
+            calc_pgids=self._calc_session_leader_pgids(),
+            reason=reason,
+            ttl_sec=self._board_ttl_sec(),
+        )
+
+    def _on_active_calc_pids_changed(self, _pids: list[int]) -> None:
+        try:
+            self._publish_children_board(reason="spawn" if _pids else "reap")
+        except Exception:
+            return
 
     def _heartbeat(self, status: str | None = None) -> None:
         if self._redis is None:
@@ -269,6 +341,7 @@ class Worker(Process):
             active_subprocess_pids=json.dumps(active_pids),
             file_operation_pid=file_operation_pid,
             current_task=current_task,
+            board_ttl_sec=self._board_ttl_sec(),
         )
 
     def _heartbeat_loop(self, stop: threading.Event, interval_sec: float) -> None:

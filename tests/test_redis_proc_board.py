@@ -107,6 +107,21 @@ class ProcBoardMixinTests(unittest.TestCase):
         self.assertEqual(status["current_task"], "blob")
         self.assertTrue(status.get("held_calc_packs"))
 
+    def test_heartbeat_renews_children_board_ttl(self) -> None:
+        self.queue.publish_children_board(
+            "0",
+            file_operation_pid=1,
+            file_operation_pgid=1,
+            calc_pgids=[],
+            ttl_sec=10,
+        )
+        key = PROC_CHILDREN.format(id="0")
+        self.assertLessEqual(int(self.queue.r.ttl(key)), 10)
+        self.queue.heartbeat("0", status="idle", pid=1, ts=1.0, board_ttl_sec=25)
+        ttl = int(self.queue.r.ttl(key))
+        self.assertGreater(ttl, 10)
+        self.assertLessEqual(ttl, 25)
+
     def test_two_heartbeats_incr_op_count_once_each(self) -> None:
         self.queue.heartbeat("0", status="idle", pid=1, ts=1.0)
         self.queue.heartbeat("0", status="busy", pid=1, ts=2.0)

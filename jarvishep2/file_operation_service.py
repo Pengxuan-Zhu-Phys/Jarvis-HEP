@@ -15,6 +15,7 @@ import os
 import queue
 import signal
 import threading
+import time
 import traceback
 import uuid
 from collections.abc import Mapping
@@ -29,6 +30,47 @@ from jarvishep2.file_ops import (
 )
 from jarvishep2.mp_context import get_spawn_context
 
+SESSION_LEADER_WAIT_SEC = 5.0
+SESSION_LEADER_POLL_SEC = 0.05
+
+
+def wait_for_session_leader(
+    pid: int,
+    *,
+    timeout_sec: float = SESSION_LEADER_WAIT_SEC,
+    interval_sec: float = SESSION_LEADER_POLL_SEC,
+) -> int | None:
+    """Return ``pid`` once ``getpgid(pid) == pid``, else None after timeout.
+
+    The child calls ``os.setsid()`` after spawn; the parent must wait before
+    publishing a killable pgid. Empty/None means the watchdog must not
+    ``os.kill`` this pid.
+    """
+    if not hasattr(os, "getpgid"):
+        return None
+    try:
+        target = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if target <= 0:
+        return None
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    interval = max(0.01, float(interval_sec))
+    while True:
+        try:
+            if os.getpgid(target) == target:
+                return target
+        except ProcessLookupError:
+            return None
+        except (PermissionError, OSError):
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(interval, remaining))
+
 
 @dataclass
 class FileOperationService:
@@ -41,12 +83,19 @@ class FileOperationService:
     _response: Any = None
     _process: Any = None
     _started: bool = False
+    _pgid: int | None = None
 
     @property
     def pid(self) -> int | None:
         """PID of the dedicated child, if process mode has started it."""
         process = self._process
         raw = getattr(process, "pid", None) if process is not None else None
+        return int(raw) if raw is not None else None
+
+    @property
+    def pgid(self) -> int | None:
+        """Session-leader pgid, or None if the spawn poll timed out empty."""
+        raw = self._pgid
         return int(raw) if raw is not None else None
 
     @classmethod
@@ -99,8 +148,11 @@ class FileOperationService:
                     pass
             self._close_queues()
             self._process = None
+            self._pgid = None
             raise
         self._started = True
+        pid = self.pid
+        self._pgid = wait_for_session_leader(pid) if pid is not None else None
 
     def shutdown(self, *, timeout: float = 5.0) -> None:
         if not self._started:
@@ -135,6 +187,7 @@ class FileOperationService:
                 except (AttributeError, ValueError):
                     pass
             self._process = None
+            self._pgid = None
             self._started = False
 
     def _close_queues(self) -> None:
@@ -242,7 +295,10 @@ def _execute_job(payload: Mapping[str, Any], *, delete_method: str) -> Any:
 
 
 def _signal_process_tree(process: Any, sig: int) -> None:
-    """Signal the FileOperation session, falling back to its direct PID."""
+    """Signal the FileOperation session, falling back to its direct PID.
+
+    Parent ``shutdown()`` only. Watchdog must not ``os.kill`` non-leaders.
+    """
     raw_pid = getattr(process, "pid", None)
     if raw_pid is None:
         return
@@ -356,4 +412,4 @@ def _watch_owner_process(
             os._exit(0)
 
 
-__all__ = ["FileOperationService"]
+__all__ = ["FileOperationService", "wait_for_session_leader"]

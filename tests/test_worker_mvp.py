@@ -20,7 +20,12 @@ from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context
-from jarvishep2.redis_queue import RedisQueue, make_fakeredis_queue
+from jarvishep2.file_operation_service import FileOperationService
+from jarvishep2.redis_queue import (
+    PROC_CHILDREN,
+    RedisQueue,
+    make_fakeredis_queue,
+)
 from jarvishep2.sample import ExecutionStep, Sample
 from jarvishep2.worker import Worker
 
@@ -696,6 +701,105 @@ class WorkerMVPTests(unittest.TestCase):
         fields = worker._redis.heartbeat.call_args.kwargs
         self.assertEqual(fields["file_operation_pid"], 777)
         self.assertEqual(json.loads(fields["active_subprocess_pids"]), [888, 777])
+
+    @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
+    def test_file_operation_session_leader_is_published_to_children_board(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        service = FileOperationService.start(
+            mode="process", scan_name="children-board"
+        )
+        try:
+            worker._file_ops = service
+            self.assertIsNotNone(service.pid)
+            self.assertEqual(service.pgid, service.pid)
+            worker._publish_children_board(reason="spawn")
+            board = queue.read_children_board("0")
+            self.assertEqual(int(board["file_operation_pid"]), service.pid)
+            self.assertEqual(int(board["file_operation_pgid"]), service.pid)
+            assert service.pid is not None
+            self.assertEqual(os.getpgid(service.pid), service.pid)
+        finally:
+            service.shutdown()
+
+    def test_children_board_empty_pgid_when_not_session_leader(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        worker._file_ops = mock.Mock(pid=4242, pgid=None)
+        worker._publish_children_board(reason="spawn")
+        board = queue.read_children_board("0")
+        self.assertEqual(int(board["file_operation_pid"]), 4242)
+        self.assertEqual(str(board.get("file_operation_pgid")), "")
+
+    def test_heartbeat_renews_children_board_ttl(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 6379, "db": 0},
+            {"board_ttl_sec": 30},
+        )
+        worker._redis = queue
+        queue.publish_children_board(
+            "0",
+            file_operation_pid=1,
+            file_operation_pgid=1,
+            calc_pgids=[],
+            ttl_sec=8,
+        )
+        key = PROC_CHILDREN.format(id="0")
+        self.assertLessEqual(int(queue.r.ttl(key)), 8)
+        worker._heartbeat("idle")
+        ttl = int(queue.r.ttl(key))
+        self.assertGreater(ttl, 8)
+        self.assertLessEqual(ttl, 30)
+
+    def test_heartbeat_does_not_double_incr_when_children_board_exists(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        queue.publish_children_board(
+            "0",
+            file_operation_pid=1,
+            file_operation_pgid=1,
+            calc_pgids=[],
+        )
+        before = queue.get_op_count("worker")
+        worker._heartbeat("idle")
+        self.assertEqual(queue.get_op_count("worker"), before + 1)
+
+    @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
+    def test_calc_pgids_only_include_session_leaders(self) -> None:
+        import subprocess
+        import sys
+
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        leader = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        follower = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+        )
+        try:
+            scheduler = mock.Mock()
+            scheduler.active_subprocess_pids.return_value = [
+                leader.pid,
+                follower.pid,
+            ]
+            worker._scheduler = scheduler
+            worker._publish_children_board(reason="spawn")
+            board = queue.read_children_board("0")
+            pgids = json.loads(board["calc_pgids"])
+            self.assertEqual(pgids, [leader.pid])
+        finally:
+            for child in (leader, follower):
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=5.0)
 
     def test_scheduler_shutdown_failure_does_not_skip_file_operation_cleanup(self) -> None:
         worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})

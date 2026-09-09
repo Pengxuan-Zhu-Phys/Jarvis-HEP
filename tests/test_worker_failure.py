@@ -7,6 +7,7 @@ import pytest
 
 pytestmark = pytest.mark.slow
 
+import inspect
 import logging
 import os
 import signal
@@ -465,6 +466,225 @@ class WorkerFailureOrderingTests(unittest.TestCase):
             child.wait(timeout=5.0)
         self.assertEqual(TaskFactory._kill_orphan_process_groups([999999999]), 0)
         self.assertEqual(TaskFactory._kill_orphan_process_groups([]), 0)
+
+
+def _wait_ps_command_prefix(pid: int, prefix: str, *, timeout: float = 5.0) -> str:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        completed = subprocess.run(
+            ["ps", "-ax", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        for line in (completed.stdout or "").splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) != 2:
+                continue
+            try:
+                found = int(parts[0])
+            except ValueError:
+                continue
+            if found == int(pid) and parts[1].startswith(prefix):
+                return parts[1]
+        time.sleep(0.05)
+    raise TimeoutError(f"ps command= for pid {pid} never started with {prefix!r}")
+
+
+class ChildrenBoardOrphanTests(unittest.TestCase):
+    def test_kill_orphan_comments_forbid_proc_comm(self) -> None:
+        from jarvishep2.runtime.factory import _Watchdog
+
+        source = inspect.getsource(_Watchdog.kill_orphan_from_children_board)
+        source += inspect.getsource(_Watchdog.kill_orphan_process_groups)
+        self.assertIn("/proc", source)
+        self.assertIn("comm", source)
+        self.assertIn("16", source)
+        self.assertIn("ps", source)
+        self.assertIn("command=", source)
+        self.assertNotIn('"/proc/', source)
+        self.assertNotIn("'/proc/", source)
+        self.assertNotIn("os.kill(", source)
+        self.assertIn("os.killpg(", source)
+        self.assertNotIn("_signal_process_tree", source)
+
+    def test_empty_pgid_is_killpg_noop(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            with (
+                mock.patch.object(factory_module.os, "kill") as kill_one,
+                mock.patch.object(factory_module.os, "killpg") as killpg,
+            ):
+                killed = TaskFactory._kill_orphan_from_children_board(
+                    {
+                        "file_operation_pid": child.pid,
+                        "file_operation_pgid": "",
+                        "calc_pgids": [],
+                    }
+                )
+            self.assertEqual(killed, 0)
+            kill_one.assert_not_called()
+            killpg.assert_not_called()
+            self.assertIsNone(child.poll())
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_empty_pgid_without_live_child_returns_zero(self) -> None:
+        self.assertEqual(
+            TaskFactory._kill_orphan_from_children_board(
+                {
+                    "file_operation_pid": 123,
+                    "file_operation_pgid": "",
+                    "calc_pgids": [],
+                }
+            ),
+            0,
+        )
+
+    def test_file_operation_without_title_is_not_killed(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            killed = TaskFactory._kill_orphan_from_children_board(
+                {
+                    "file_operation_pid": child.pid,
+                    "file_operation_pgid": child.pid,
+                    "calc_pgids": [],
+                }
+            )
+            self.assertEqual(killed, 0)
+            self.assertIsNone(child.poll())
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_setproctitle_file_operation_session_leader_is_killed(self) -> None:
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import time, setproctitle; "
+                "setproctitle.setproctitle('Jarvis-FileOperation:scan'); "
+                "time.sleep(60)",
+            ],
+            start_new_session=True,
+        )
+        try:
+            _wait_ps_command_prefix(child.pid, "Jarvis-FileOperation")
+            killed = TaskFactory._kill_orphan_from_children_board(
+                {
+                    "file_operation_pid": child.pid,
+                    "file_operation_pgid": child.pid,
+                    "calc_pgids": [],
+                }
+            )
+            self.assertEqual(killed, 1)
+            self.assertIsNotNone(child.wait(timeout=5.0))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_calculator_session_leader_killed_without_title_check(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            killed = TaskFactory._kill_orphan_from_children_board(
+                {
+                    "file_operation_pgid": "",
+                    "calc_pgids": [child.pid],
+                }
+            )
+            self.assertEqual(killed, 1)
+            self.assertIsNotNone(child.wait(timeout=5.0))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_calculator_non_leader_is_not_killed(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"]
+        )
+        try:
+            with mock.patch.object(factory_module.os, "kill") as kill_one:
+                killed = TaskFactory._kill_orphan_from_children_board(
+                    {
+                        "file_operation_pgid": "",
+                        "calc_pgids": [child.pid],
+                    }
+                )
+            self.assertEqual(killed, 0)
+            kill_one.assert_not_called()
+            self.assertIsNone(child.poll())
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_handle_worker_failure_prefers_children_board_pgids(self) -> None:
+        order: list[str] = []
+
+        class _StubWorker:
+            def __init__(self, worker_id: int, *_args: Any, **_kwargs: Any) -> None:
+                self.worker_id = worker_id
+                self.pid = 4242
+
+            def start(self) -> None:
+                order.append("respawn")
+
+            def is_alive(self) -> bool:
+                return False
+
+        dead_worker = SimpleNamespace(worker_id=3, pid=2222)
+        redis_stub = SimpleNamespace(
+            read_children_board=lambda worker_id: {
+                "file_operation_pgid": "",
+                "calc_pgids": [111],
+            },
+            decode_heartbeat_subprocess_pids=lambda heartbeat: (order.append("hb-pids"), [999])[1],
+            decode_heartbeat_held_packs=lambda heartbeat: {},
+            sweep_held_calc_slots=lambda held: (order.append("sweep"), 0)[1],
+        )
+        fake_factory = SimpleNamespace(
+            _recovery_lock=threading.Lock(),
+            _last_recovered_pid={},
+            redis=redis_stub,
+            _force_stop_worker=lambda worker: order.append("stop"),
+            _kill_orphan_from_children_board=lambda board: (
+                order.append("killpg-board"),
+                0,
+            )[1],
+            _kill_orphan_process_groups=lambda pids: (order.append("killpg-hb"), 0)[1],
+            _worker_heartbeat=lambda worker_id: {},
+            _requeue_in_flight_task=lambda heartbeat: False,
+            workers=[dead_worker],
+            _redis_connection_config={},
+            _worker_spawn_template={},
+            _respawn_count=0,
+            _peak_workers_alive=0,
+            _alive_workers=lambda: [],
+            _logger=logging.getLogger("test.worker_failure"),
+        )
+
+        with mock.patch.object(factory_module, "Worker", _StubWorker):
+            TaskFactory._handle_worker_failure(
+                fake_factory, dead_worker, reason="process_exit"
+            )
+
+        self.assertEqual(order, ["stop", "killpg-board", "sweep", "respawn"])
+        self.assertNotIn("killpg-hb", order)
+        self.assertNotIn("hb-pids", order)
 
 
 if __name__ == "__main__":
