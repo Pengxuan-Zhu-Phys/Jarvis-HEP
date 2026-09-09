@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from jarvishep2.proc_title import redis_title
 from jarvishep2.redis_server import ManagedRedisServer, find_redis_server_binary, redis_port_open
@@ -72,6 +73,39 @@ class ManagedRedisServerTests(unittest.TestCase):
             self.assertFalse(second.ensure())
             self.assertFalse(second.started_by_us)
             first.stop()
+
+
+class ManagedRedisLaunchFlagsTests(unittest.TestCase):
+    def test_ensure_popen_uses_start_new_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            managed = ManagedRedisServer(
+                host="127.0.0.1",
+                port=63991,
+                scan_name="flags",
+                work_dir=tmp,
+            )
+            proc = mock.Mock()
+            proc.poll.return_value = None
+            proc.pid = 4242
+            with (
+                mock.patch.object(
+                    managed,
+                    "is_reachable",
+                    side_effect=lambda: managed.process is not None,
+                ),
+                mock.patch(
+                    "jarvishep2.queue.redis_server.find_redis_server_binary",
+                    return_value="/usr/bin/redis-server",
+                ),
+                mock.patch(
+                    "jarvishep2.queue.redis_server.subprocess.Popen",
+                    return_value=proc,
+                ) as popen,
+            ):
+                started = managed.ensure(ready_timeout=1.0)
+            self.assertTrue(started)
+            self.assertTrue(managed.started_by_us)
+            self.assertTrue(popen.call_args.kwargs.get("start_new_session"))
 
 
 if __name__ == "__main__":

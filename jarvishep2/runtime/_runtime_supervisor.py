@@ -16,7 +16,7 @@ from jarvishep2.calculator_modes import expand_calculator_modes, mode_info
 from jarvishep2.library import LibraryInstaller
 from jarvishep2.runtime.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.redis_queue import CONTROL_LOCK_TTL_SEC, RedisQueue
+from jarvishep2.redis_queue import CONTROL_LOCK_TTL_SEC, PROC_BOARD_TTL_SEC, RedisQueue
 from jarvishep2.runtime_metadata import write_scan_metadata
 from jarvishep2.runtime_config import (
     get_archiver_config,
@@ -34,6 +34,11 @@ from jarvishep2.Module.runtime_preparer import (
 )
 from jarvishep2.database import prepare_hdf5_database_for_writer
 from jarvishep2.Sampling.runtime_checkpoint import prepare_resume
+
+# 1s supervise tick; lock refresh stays TTL/3. Ping failures get this grace
+# before interrupt; a dead managed redis-server interrupts immediately.
+REDIS_UNREACH_GRACE_SEC = 15.0
+_SUPERVISE_TICK_SEC = 1.0
 
 
 class _RuntimeSupervisor:
@@ -354,22 +359,32 @@ class _RuntimeSupervisor:
     def _control_lease_loop(self, stop: threading.Event, owner: str) -> None:
         core = self._core
 
-        interval = max(1.0, CONTROL_LOCK_TTL_SEC / 3.0)
-        while not stop.wait(interval):
+        refresh_interval = max(1.0, CONTROL_LOCK_TTL_SEC / 3.0)
+        next_refresh = time.monotonic() + refresh_interval
+        while not stop.wait(_SUPERVISE_TICK_SEC):
+            now = time.monotonic()
             redis = core.redis
-            if redis is None:
+            if redis is None or core._shutdown_done or core._interrupt_requested:
                 return
-            try:
-                if not redis.refresh_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
-                    core._logger.error("lost Redis control lease; requesting shutdown")
-                    core._interrupt_requested = True
-                    return
-            except Exception as exc:
-                core._logger.warning("control lease refresh failed -> %s", exc)
+            if now >= next_refresh:
+                try:
+                    if not redis.refresh_control_lock(owner, ttl_sec=CONTROL_LOCK_TTL_SEC):
+                        core._logger.error("lost Redis control lease; requesting shutdown")
+                        core._interrupt_requested = True
+                        return
+                except Exception as exc:
+                    core._logger.warning("control lease refresh failed -> %s", exc)
+                next_refresh = now + refresh_interval
             try:
                 self._ensure_archiver_alive()
             except Exception as exc:
                 core._logger.warning("archiver liveness check failed -> %s", exc)
+            try:
+                self._ensure_managed_redis_alive(now=now)
+            except Exception as exc:
+                core._logger.warning("managed redis liveness check failed -> %s", exc)
+            if core._interrupt_requested:
+                return
 
     def _start_control_lease_refresh(self) -> None:
         core = self._core
@@ -413,6 +428,8 @@ class _RuntimeSupervisor:
         if not isinstance(archiver, ArchiverProcess):
             return
         if archiver.is_alive():
+            # Packing tar can exceed 30s; a stale board is a warning only.
+            self._warn_if_archiver_board_stale()
             return
         db_path = str(getattr(archiver, "db_path", "") or "")
         core._logger.error(
@@ -437,6 +454,219 @@ class _RuntimeSupervisor:
                 "Archiver restart failed -> %s; requesting shutdown", exc
             )
             core._interrupt_requested = True
+
+    def _archiver_board_stale_limit_sec(self) -> float:
+        poll = _SUPERVISE_TICK_SEC
+        try:
+            watchdog = get_watchdog_config(self._core.config)
+            poll = float(watchdog.get("poll_interval_sec") or _SUPERVISE_TICK_SEC)
+        except Exception:
+            poll = _SUPERVISE_TICK_SEC
+        return max(float(PROC_BOARD_TTL_SEC), 2.0 * max(0.1, poll))
+
+    def _warn_if_archiver_board_stale(self) -> None:
+        core = self._core
+        redis = core.redis
+        if redis is None:
+            return
+        try:
+            board = redis.read_proc_board("archiver")
+        except Exception:
+            return
+        raw_ts = board.get("ts") if board else None
+        if raw_ts in (None, ""):
+            return
+        try:
+            age = time.time() - float(raw_ts)
+        except (TypeError, ValueError):
+            return
+        limit = self._archiver_board_stale_limit_sec()
+        if age <= limit:
+            return
+        core._logger.warning(
+            "Archiver process is alive but board ts is stale "
+            "(age=%.1fs, limit=%.1fs); not killing (packing may exceed 30s)",
+            age,
+            limit,
+        )
+
+    def _ensure_managed_redis_alive(self, *, now: float | None = None) -> None:
+        """Detect a dead/unreachable broker. Never empty-restart redis-server."""
+        core = self._core
+        if core._shutdown_done or core._interrupt_requested:
+            return
+        redis = core.redis
+        if redis is None:
+            return
+        now_mono = time.monotonic() if now is None else float(now)
+        managed = getattr(core, "_managed_redis", None)
+        started_by_us = bool(
+            managed is not None and getattr(managed, "started_by_us", False)
+        )
+        process = getattr(managed, "process", None) if managed is not None else None
+        redis_pid: Any = ""
+        if started_by_us:
+            if process is None:
+                self._handle_managed_redis_death()
+                return
+            redis_pid = getattr(process, "pid", "") or ""
+            try:
+                poll = process.poll()
+            except Exception:
+                poll = 0
+            if poll is not None:
+                self._handle_managed_redis_death()
+                return
+
+        ping_ok = False
+        try:
+            ping_ok = bool(redis.ping())
+        except Exception as exc:
+            self._note_redis_unreachable(now_mono, exc)
+            if core._interrupt_requested:
+                return
+        else:
+            if ping_ok:
+                core._redis_unreach_since = None
+            else:
+                self._note_redis_unreachable(now_mono, None)
+                if core._interrupt_requested:
+                    return
+
+        try:
+            self._publish_lease_proc_boards(
+                redis_alive=1 if ping_ok else 0,
+                redis_status="running" if ping_ok else "unreachable",
+                redis_pid=redis_pid if started_by_us else "",
+                started_by_us=started_by_us,
+                last_pong_ts=time.time() if ping_ok else None,
+            )
+        except Exception as exc:
+            core._logger.warning("proc board lease publish failed -> %s", exc)
+
+    def _handle_managed_redis_death(self) -> None:
+        core = self._core
+        core._logger.error(
+            "managed redis-server died; refusing empty restart; use --resume"
+        )
+        # Queues/inflight live in this process; do not ManagedRedisServer.ensure()
+        # an empty instance. Resume with --resume.
+        self._interrupt_for_redis_loss(status="stopped")
+
+    def _note_redis_unreachable(self, now: float, exc: BaseException | None) -> None:
+        core = self._core
+        since = getattr(core, "_redis_unreach_since", None)
+        if since is None:
+            core._redis_unreach_since = now
+            since = now
+        elapsed = max(0.0, float(now) - float(since))
+        if elapsed < REDIS_UNREACH_GRACE_SEC:
+            core._logger.warning(
+                "redis control ping failed (unreachable for %.1fs, grace=%.1fs) -> %s",
+                elapsed,
+                REDIS_UNREACH_GRACE_SEC,
+                exc,
+            )
+            return
+        core._logger.error(
+            "redis control unreachable for %.0fs; requesting shutdown",
+            elapsed,
+        )
+        self._interrupt_for_redis_loss(status="unreachable")
+
+    def _interrupt_for_redis_loss(self, *, status: str) -> None:
+        core = self._core
+        core._interrupt_requested = True
+        redis = core.redis
+        if redis is not None:
+            try:
+                lock = getattr(core, "_proc_board_lock", None)
+                if lock is None:
+                    redis.publish_proc_board("core", scan_mode="stopping")
+                    redis.publish_proc_board("redis", role="redis", status=status)
+                else:
+                    with lock:
+                        redis.publish_proc_board("core", scan_mode="stopping")
+                        redis.publish_proc_board("redis", role="redis", status=status)
+            except Exception:
+                pass
+            try:
+                redis.close()
+            except Exception:
+                pass
+        factory = getattr(core, "factory", None)
+        request = getattr(factory, "request_worker_shutdown", None) if factory is not None else None
+        if callable(request):
+            try:
+                request()
+            except Exception:
+                pass
+
+    def _publish_lease_proc_boards(
+        self,
+        *,
+        redis_alive: int,
+        redis_status: str | None = None,
+        redis_pid: Any = "",
+        started_by_us: bool = False,
+        last_pong_ts: float | None = None,
+    ) -> None:
+        """LEASE overlay on hep:proc:core plus hep:proc:redis. Never scan_mode=."""
+        core = self._core
+        redis = core.redis
+        if redis is None:
+            return
+        now = time.time()
+        archiver = core.archiver
+        archiver_alive = 0
+        archiver_pid: Any = ""
+        if isinstance(archiver, ArchiverProcess):
+            if archiver.is_alive():
+                archiver_alive = 1
+                archiver_pid = getattr(archiver, "pid", "") or ""
+        elif archiver is not None:
+            archiver_alive = 1
+            archiver_pid = os.getpid()
+        managed = getattr(core, "_managed_redis", None)
+        port: Any = ""
+        title = ""
+        if managed is not None:
+            port = getattr(managed, "port", "") or ""
+            title = str(getattr(managed, "title", "") or "")
+        if port in (None, ""):
+            port = (getattr(redis, "config", None) or {}).get("port", "")
+        if not redis_status:
+            redis_status = "running" if int(redis_alive) else "unreachable"
+        pid_field: Any = redis_pid if started_by_us and redis_pid not in (None, "") else ""
+        lease_fields: dict[str, Any] = {
+            "lease_owner": str(getattr(core, "_control_lock_owner", None) or ""),
+            "lease_ts": now,
+            "archiver_pid": archiver_pid if archiver_pid not in (None, "") else "",
+            "archiver_alive": int(archiver_alive),
+            "redis_pid": pid_field if pid_field not in (None, "") else "",
+            "redis_alive": int(redis_alive),
+            "pid": os.getpid(),
+            "ts": now,
+        }
+        redis_fields: dict[str, Any] = {
+            "role": "redis",
+            "status": str(redis_status),
+            "pid": pid_field if pid_field not in (None, "") else "",
+            "port": port if port not in (None, "") else "",
+            "title": title,
+            "started_by_us": 1 if started_by_us else 0,
+            "host": os.uname().nodename,
+            "ts": now,
+        }
+        if last_pong_ts is not None:
+            redis_fields["last_pong_ts"] = last_pong_ts
+        lock = getattr(core, "_proc_board_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            core._proc_board_lock = lock
+        with lock:
+            redis.publish_proc_board("core", **lease_fields)
+            redis.publish_proc_board("redis", **redis_fields)
 
     def _reset_redis_for_fresh_run(self) -> None:
         """Drop ephemeral queues/stats/calc pools before Workers are spawned."""

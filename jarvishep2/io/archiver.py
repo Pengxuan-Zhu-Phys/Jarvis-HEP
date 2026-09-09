@@ -790,12 +790,19 @@ class ArchiverProcess(Process):
         grace_sec = control_lock_missing_grace_sec()
 
         def _publish_archiver_board() -> None:
+            try:
+                pgid = os.getpgid(os.getpid())
+            except OSError:
+                pgid = ""
             redis.publish_proc_board(
                 "archiver",
                 ttl_sec=ARCHIVER_BOARD_TTL_SEC,
                 role="archiver",
                 status="running",
                 pid=os.getpid(),
+                pgid=pgid,
+                host=os.uname().nodename,
+                owner=expected_owner,
                 records_written=int(archiver.records_written),
                 last_bucket_packed=int(getattr(archiver, "buckets_packed", 0) or 0),
                 db_path=os.path.basename(self.db_path),
