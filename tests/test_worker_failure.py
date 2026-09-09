@@ -434,6 +434,9 @@ class WorkerFailureOrderingTests(unittest.TestCase):
             )
 
         self.assertEqual(order, ["stop", "killpg", "sweep", "respawn"])
+        replacement = fake_factory.workers[0]
+        self.assertTrue(hasattr(replacement, "_spawned_at"))
+        self.assertGreater(replacement._spawned_at, 0)
 
     def test_kill_orphan_process_groups_reaps_setsid_child(self) -> None:
         """A child in its own session survives its parent's SIGKILL; the

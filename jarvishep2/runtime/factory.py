@@ -259,9 +259,9 @@ class _Watchdog:
             )
             inflight_n = 0
             if redis is not None:
-                from jarvishep2.queue.redis_queue import INFLIGHT
-                ctrl = redis._ctrl() if hasattr(redis, "_ctrl") else redis.r
                 try:
+                    from jarvishep2.queue.redis_queue import INFLIGHT
+                    ctrl = redis._ctrl() if hasattr(redis, "_ctrl") else redis.r
                     inflight_n = int(ctrl.llen(INFLIGHT.format(worker=wid)) or 0)
                 except Exception:
                     inflight_n = 0

@@ -154,6 +154,19 @@ class WorkerMVPTests(unittest.TestCase):
 
         self.assertFalse(worker._is_running)
 
+    def test_heartbeat_loop_refreshes_locked_last_status(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 1, "db": 0}, {})
+        redis = mock.Mock()
+        worker._redis = redis
+        worker._last_status = "idle"
+        stop = mock.Mock()
+        stop.wait.side_effect = [False, True]
+
+        worker._heartbeat_loop(stop, 0.1)
+
+        self.assertEqual(worker._last_status, "idle")
+        self.assertEqual(redis.heartbeat.call_args.kwargs["status"], "idle")
+
     def test_init_redis_does_not_publish_idle_heartbeat(self) -> None:
         worker = Worker(0, {"host": "127.0.0.1", "port": 1, "db": 0}, {})
         redis = mock.Mock()

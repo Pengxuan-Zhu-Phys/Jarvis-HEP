@@ -235,15 +235,18 @@ class Worker(Process):
         else:
             self._nuisance_profiler = None
 
-    def _heartbeat(self, status: str) -> None:
+    def _heartbeat(self, status: str | None = None) -> None:
         if self._redis is None:
             return
         now = time.time()
         # Snapshot mutable fields under a lock: layer threads mutate
         # _held_calc_packs concurrently and the periodic heartbeat thread
-        # reads them.
+        # reads them. Omit status to refresh the locked _last_status without
+        # a TOCTOU overlay of starting/idle/busy.
         with self._hb_lock():
-            self._last_status = status
+            if status is not None:
+                self._last_status = status
+            publish_status = self._last_status
             held_packs = dict(self._held_calc_packs)
             current_task_ref = self._current_task
         current_task = ""
@@ -257,7 +260,7 @@ class Worker(Process):
             active_pids.append(file_operation_pid)
         self._redis.heartbeat(
             str(self.worker_id),
-            status=status,
+            status=publish_status,
             pid=self.pid,
             current_sample=self._current_sample_uuid,
             last_heartbeat=now,
@@ -277,7 +280,7 @@ class Worker(Process):
         """
         while not stop.wait(interval_sec):
             try:
-                self._heartbeat(self._last_status)
+                self._heartbeat()
                 expected_owner = str(
                     self.worker_config.get("control_lock_owner") or ""
                 ).strip()
