@@ -159,6 +159,9 @@ class _MonitorLoop:
             board = dict(boards.get(worker_id) or {})
             if board:
                 row.update(board)
+            row.pop("current_task", None)
+            row.pop("u_coords", None)
+            row.pop("execution_plan", None)
             merged[worker_id] = row
         return merged
 

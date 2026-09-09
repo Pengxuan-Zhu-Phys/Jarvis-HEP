@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -43,6 +44,8 @@ class MonitorView:
     def from_snapshot(cls, snapshot: dict[str, Any]) -> MonitorView:
         sample_stats = dict(snapshot.get("sample_stats") or {})
         observed_at = _coerce_float(snapshot.get("timestamp"))
+        # Redis attach leaves timestamp None; still need a clock for heartbeat age.
+        age_now = observed_at if observed_at is not None else time.time()
         return cls(
             sampler={
                 "task_queue_length": int(snapshot.get("task_queue_length", 0) or 0),
@@ -51,7 +54,7 @@ class MonitorView:
                 "workers_alive": int(snapshot.get("workers_alive", 0) or 0),
                 "workers_total": int(snapshot.get("workers_total", 0) or 0),
             },
-            workers=_project_workers(snapshot, now=observed_at),
+            workers=_project_workers(snapshot, now=age_now),
             calculators=dict(snapshot.get("calculator_status") or {}),
             samples=sample_stats,
             resources={},

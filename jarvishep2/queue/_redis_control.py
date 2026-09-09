@@ -267,7 +267,7 @@ class _ControlAndHeartbeat:
             pipe = self._ctrl().pipeline(transaction=True)
             if mapping:
                 pipe.hset(status_key, mapping=mapping)
-            pipe.hdel(status_key, "current_task")
+            pipe.hdel(status_key, *_HEARTBEAT_STATUS_OMIT)
             if board_mapping:
                 pipe.hset(board_key, mapping=board_mapping)
             pipe.expire(board_key, ttl)

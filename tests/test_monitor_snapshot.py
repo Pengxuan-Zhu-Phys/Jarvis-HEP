@@ -229,9 +229,12 @@ class MonitorSnapshotTests(unittest.TestCase):
 
         view = attach_reader(redis=queue, owner_ids=["0"]).read()
         self.assertEqual(writes["count"], 0)
+        self.assertIsNone(view.timestamp)
         self.assertEqual(view.proc_core.get("scan_mode"), "running")
         self.assertEqual(len(view.workers), 1)
         self.assertEqual(view.workers[0]["status"], "idle")
+        self.assertIsNotNone(view.workers[0]["heartbeat_age_s"])
+        self.assertGreaterEqual(float(view.workers[0]["heartbeat_age_s"]), 0.0)
         self.assertNotIn("current_task", view.workers[0])
         self.assertNotIn("u_coords", view.workers[0])
         self.assertNotIn("execution_plan", view.workers[0])
@@ -240,7 +243,11 @@ class MonitorSnapshotTests(unittest.TestCase):
         queue = make_fakeredis_queue()
         queue.r.hset(
             WORKER_STATUS.format(id="0"),
-            mapping={"current_task": "stale-blob"},
+            mapping={
+                "current_task": "stale-blob",
+                "u_coords": "[0.1]",
+                "execution_plan": "[]",
+            },
         )
         queue.heartbeat(
             "0",
@@ -303,12 +310,21 @@ class MonitorSnapshotTests(unittest.TestCase):
         factory.workers = [worker]  # type: ignore[assignment]
         queue.heartbeat("0", status="idle", pid=9, ts=1.0, current_task="blob")
         queue.publish_proc_board(
-            "worker", owner_id="0", status="busy", pid=9, current_uuid="u1"
+            "worker",
+            owner_id="0",
+            status="busy",
+            pid=9,
+            current_uuid="u1",
+            current_task="from-board",
+            u_coords="[0.1]",
+            execution_plan="[]",
         )
         rows = factory._fetch_workers_redis()
         self.assertEqual(rows["0"]["status"], "busy")
         self.assertEqual(rows["0"]["current_uuid"], "u1")
         self.assertNotIn("current_task", rows["0"])
+        self.assertNotIn("u_coords", rows["0"])
+        self.assertNotIn("execution_plan", rows["0"])
 
 
 if __name__ == "__main__":
