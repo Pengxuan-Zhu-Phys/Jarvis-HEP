@@ -370,6 +370,8 @@ class _RuntimeSupervisor:
         )
 
     def _control_lease_loop(self, stop: threading.Event, owner: str) -> None:
+        # PR-7 lease ticks may overlay LEASE fields on hep:proc:core but must
+        # omit scan_mode and must not call _publish_core_proc_board.
         core = self._core
 
         refresh_interval = max(1.0, CONTROL_LOCK_TTL_SEC / 3.0)
@@ -745,7 +747,13 @@ class _RuntimeSupervisor:
         core._control_lock_owner = None
 
     def _publish_core_proc_board(self) -> None:
-        """Bootstrap MAIN partition of hep:proc:core. Overlay only these fields."""
+        """One-shot MAIN partition of hep:proc:core. Do not reuse from lease ticks.
+
+        MAIN owns run_id / started_at / workers_total and shutdown
+        draining|stopping. ``scan_mode=running|degraded|paused`` is WATCHDOG-only
+        via ``_set_scan_mode``. PR-7 lease publishes must omit ``scan_mode`` and
+        must not call this method.
+        """
         core = self._core
         if core.redis is None:
             return
@@ -756,7 +764,6 @@ class _RuntimeSupervisor:
         now = time.time()
         fields: dict[str, Any] = {
             "role": "core",
-            "scan_mode": "running",
             "pid": os.getpid(),
             "host": os.uname().nodename,
             "scan_name": str(

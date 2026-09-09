@@ -407,6 +407,7 @@ class CoreCollaboratorTests(unittest.TestCase):
         core._runtime._publish_core_proc_board()
         before = queue.read_proc_board("core")
         self.assertEqual(int(before.get("workers_total") or 0), 190)
+        self.assertNotIn("scan_mode", before)
         pid = before.get("pid")
         core._set_scan_mode(
             "paused",

@@ -249,6 +249,23 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
         self.assertIn("paused", str(ctx.exception).lower())
         self.assertIn("death_rate", str(ctx.exception))
 
+    def test_paused_scan_mode_ends_wait_for_any_feedback_within_one_second(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config({"Runtime": {"mode": "redis"}})
+        sampler.set_redis(queue)
+        sampler._register_pending("stuck")
+        queue.publish_proc_board(
+            "core", scan_mode="paused", pause_reason="death_rate"
+        )
+        started = time.monotonic()
+        with self.assertRaises(RuntimeError) as ctx:
+            sampler.wait_for_any_feedback(timeout=30.0)
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 1.5)
+        self.assertIn("paused", str(ctx.exception).lower())
+        self.assertIn("death_rate", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

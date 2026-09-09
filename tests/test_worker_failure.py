@@ -869,6 +869,26 @@ class CircuitBreakerTests(unittest.TestCase):
             present = sorted(int(worker.worker_id) for worker in factory.workers)
             self.assertEqual(present, [0, 1, 2, 3, 4])
 
+    def test_stored_zero_fuse_values_are_not_replaced_by_defaults(self) -> None:
+        factory = TaskFactory({})
+        factory._respawn_cooldown_sec_base = 0.0
+        factory._respawn_cooldown_sec_cap = 0.0
+        factory._consecutive_failures = {0: 3}
+        factory._scan_mode = "running"
+        self.assertEqual(factory._respawn_delay(0), 0.0)
+        factory._workers_total = 190
+        factory._degraded_frac = 0.0
+        factory._death_rate_frac = 0.0
+        factory._death_rate_abs_min = 0
+        factory._pause_grace_sec = 0.0
+        factory._death_window_sec = 0.0
+        total, degraded, pause = factory._fuse_thresholds()
+        self.assertEqual(total, 190)
+        self.assertEqual(degraded, 0.0)
+        self.assertEqual(pause, 0.0)
+        self.assertEqual(factory._float_attr("_pause_grace_sec", 60.0), 0.0)
+        self.assertEqual(factory._float_attr("_death_window_sec", 60.0), 0.0)
+
 
 
 

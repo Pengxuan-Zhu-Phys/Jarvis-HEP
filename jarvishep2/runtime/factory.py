@@ -962,29 +962,45 @@ class TaskFactory:
                     replacement.pid,
                 )
 
+    def _float_attr(self, name: str, default: float) -> float:
+        if not hasattr(self, name):
+            return float(default)
+        raw = getattr(self, name)
+        if raw is None:
+            return float(default)
+        return float(raw)
+
+    def _int_attr(self, name: str, default: int) -> int:
+        if not hasattr(self, name):
+            return int(default)
+        raw = getattr(self, name)
+        if raw is None:
+            return int(default)
+        return int(raw)
+
     def _respawn_delay(self, worker_id: int) -> float:
-        base = float(getattr(self, "_respawn_cooldown_sec_base", 5.0) or 5.0)
-        cap = float(getattr(self, "_respawn_cooldown_sec_cap", 60.0) or 60.0)
+        base = self._float_attr("_respawn_cooldown_sec_base", 5.0)
+        cap = self._float_attr("_respawn_cooldown_sec_cap", 60.0)
         consec = getattr(self, "_consecutive_failures", None)
         n = 1
         if isinstance(consec, dict):
-            n = max(1, int(consec.get(int(worker_id), 1) or 1))
+            n = max(1, int(consec.get(int(worker_id), 1)))
         delay = min(cap, base * (2 ** max(0, n - 1)))
         if str(getattr(self, "_scan_mode", "running") or "running") == "degraded":
             delay = max(delay, 20.0)
         return float(delay)
 
     def _fuse_thresholds(self) -> tuple[int, float, float]:
-        total = int(getattr(self, "_workers_total", 0) or 0)
+        total = self._int_attr("_workers_total", 0)
         if total <= 0:
             total = max(1, len(getattr(self, "workers", []) or []))
-        degraded_frac = float(getattr(self, "_degraded_frac", 0.10) or 0.10)
-        death_rate_frac = float(getattr(self, "_death_rate_frac", 0.20) or 0.20)
-        abs_min = int(getattr(self, "_death_rate_abs_min", 10) or 10)
+        degraded_frac = self._float_attr("_degraded_frac", 0.10)
+        death_rate_frac = self._float_attr("_death_rate_frac", 0.20)
+        abs_min = self._int_attr("_death_rate_abs_min", 10)
         return total, degraded_frac * total, max(float(abs_min), death_rate_frac * total)
 
     def _death_count_in_window(self, now: float) -> int:
-        window = float(getattr(self, "_death_window_sec", 60.0) or 60.0)
+        window = self._float_attr("_death_window_sec", 60.0)
         deaths = getattr(self, "_death_times", None)
         if deaths is None:
             return 0
@@ -1004,7 +1020,7 @@ class TaskFactory:
         if mode in {"draining", "stopping"}:
             self._publish_fuse(mode, death_count=death_count, alive=alive)
             return
-        pause_grace = float(getattr(self, "_pause_grace_sec", 60.0) or 0.0)
+        pause_grace = self._float_attr("_pause_grace_sec", 60.0)
         below = death_count < degraded_threshold
         if below:
             low_since = getattr(self, "_fuse_low_since", None)

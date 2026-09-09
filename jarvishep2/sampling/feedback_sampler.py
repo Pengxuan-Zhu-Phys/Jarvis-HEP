@@ -139,7 +139,8 @@ class FeedbackSampler(CheckpointedSampler, ABC):
 
         ``queues`` selects one or more Redis feedback lists (default
         ``hep:feedback``). Per-chain shards use multi-key BLPOP so the control
-        process wakes on whichever chain finishes first.
+        process wakes on whichever chain finishes first. Same 1s BLPOP cap and
+        ``scan_mode`` checks as ``wait_for_generation``.
         """
         if not self._pending_uuids:
             raise RuntimeError(
@@ -147,6 +148,10 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             )
         redis = self._require_redis(f"{type(self).__name__}.wait_for_any_feedback")
         deadline = time.monotonic() + max(1.0, float(timeout))
+        last_scan_mode: str | None = None
+        missing_since: float | None = None
+        board_ttl = self._core_board_ttl_sec()
+        what = f"feedback wait (generation={self._generation})"
         while self._pending_uuids:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -155,8 +160,14 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                     f"with {len(self._pending_uuids)} pending sample(s) "
                     f"(generation={self._generation})"
                 )
-            wait = max(1, min(5, int(remaining)))
-            record = redis.pull_feedback(timeout=wait, queues=queues)
+            record, last_scan_mode, missing_since = self._await_feedback_round(
+                redis,
+                queues=queues,
+                last_scan_mode=last_scan_mode,
+                missing_since=missing_since,
+                board_ttl=board_ttl,
+                what=what,
+            )
             if record is None:
                 continue
             uuid = str(record.get("uuid", ""))
@@ -201,6 +212,7 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         last_scan_mode: str | None = None
         missing_since: float | None = None
         board_ttl = self._core_board_ttl_sec()
+        what = f"generation {self._generation}"
         while self._pending_uuids:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -208,36 +220,14 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                     f"{type(self).__name__} generation {self._generation} timed out "
                     f"with {len(self._pending_uuids)} pending sample(s)"
                 )
-            self._fail_if_generation_blocked()
-            mode, pause_reason, seen = self._read_core_scan_mode(redis)
-            if seen:
-                last_scan_mode = mode
-                missing_since = None
-                if mode in _BLOCKING_SCAN_MODES:
-                    raise RuntimeError(
-                        f"{type(self).__name__} generation {self._generation} aborted: "
-                        f"scan_mode={mode} pause_reason={pause_reason or mode}"
-                    )
-            elif last_scan_mode is None:
-                pass
-            else:
-                if missing_since is None:
-                    missing_since = time.monotonic()
-                if (time.monotonic() - missing_since) >= board_ttl:
-                    raise RuntimeError(
-                        f"{type(self).__name__} generation {self._generation} aborted: "
-                        "core proc board missing (scan_mode unknown)"
-                    )
-            wait = _FEEDBACK_BLPOP_CAP_SEC
-            try:
-                record = redis.pull_feedback(timeout=wait, queues=queues)
-            except Exception as exc:
-                if self._generation_interrupt_requested() or _redis_closed(exc):
-                    raise RuntimeError(
-                        f"{type(self).__name__} generation {self._generation} aborted: "
-                        "scan_mode=stopping pause_reason=interrupt"
-                    ) from exc
-                raise
+            record, last_scan_mode, missing_since = self._await_feedback_round(
+                redis,
+                queues=queues,
+                last_scan_mode=last_scan_mode,
+                missing_since=missing_since,
+                board_ttl=board_ttl,
+                what=what,
+            )
             if record is None:
                 continue
             uuid = str(record.get("uuid", ""))
@@ -277,13 +267,55 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         core = getattr(self, "_core", None)
         return bool(core is not None and getattr(core, "_interrupt_requested", False))
 
-    def _fail_if_generation_blocked(self) -> None:
+    def _fail_if_generation_blocked(self, *, what: str) -> None:
         if not self._generation_interrupt_requested():
             return
         raise RuntimeError(
-            f"{type(self).__name__} generation {self._generation} aborted: "
+            f"{type(self).__name__} {what} aborted: "
             "scan_mode=stopping pause_reason=interrupt"
         )
+
+    def _await_feedback_round(
+        self,
+        redis: RedisQueue,
+        *,
+        queues: Sequence[str] | None,
+        last_scan_mode: str | None,
+        missing_since: float | None,
+        board_ttl: float,
+        what: str,
+    ) -> tuple[dict[str, Any] | None, str | None, float | None]:
+        """One 1s BLPOP plus scan_mode / interrupt checks (KD-15)."""
+        self._fail_if_generation_blocked(what=what)
+        mode, pause_reason, seen = self._read_core_scan_mode(redis)
+        if seen:
+            last_scan_mode = mode
+            missing_since = None
+            if mode in _BLOCKING_SCAN_MODES:
+                raise RuntimeError(
+                    f"{type(self).__name__} {what} aborted: "
+                    f"scan_mode={mode} pause_reason={pause_reason or mode}"
+                )
+        elif last_scan_mode is not None:
+            if missing_since is None:
+                missing_since = time.monotonic()
+            if (time.monotonic() - missing_since) >= board_ttl:
+                raise RuntimeError(
+                    f"{type(self).__name__} {what} aborted: "
+                    "core proc board missing (scan_mode unknown)"
+                )
+        try:
+            record = redis.pull_feedback(
+                timeout=_FEEDBACK_BLPOP_CAP_SEC, queues=queues
+            )
+        except Exception as exc:
+            if self._generation_interrupt_requested() or _redis_closed(exc):
+                raise RuntimeError(
+                    f"{type(self).__name__} {what} aborted: "
+                    "scan_mode=stopping pause_reason=interrupt"
+                ) from exc
+            raise
+        return record, last_scan_mode, missing_since
 
     def _read_core_scan_mode(self, redis: RedisQueue) -> tuple[str, str, bool]:
         reader = getattr(redis, "read_proc_board", None)
