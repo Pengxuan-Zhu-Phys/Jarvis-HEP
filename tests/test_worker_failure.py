@@ -25,9 +25,11 @@ from fakeredis import TcpFakeServer
 import jarvishep2.factory as factory_module
 from jarvishep2.factory import TaskFactory
 from jarvishep2.redis_queue import (
+    INFLIGHT,
     RedisQueue,
     calc_status_busy_field,
     calc_status_free_field,
+    make_fakeredis_queue,
 )
 
 from test_layer_concurrency import _slow_calc_module, SLOW_A_SCRIPT
@@ -228,6 +230,101 @@ class WorkerFailureTests(unittest.TestCase):
             server.server_close()
 
 
+class IdleWatchdogTests(unittest.TestCase):
+    def setUp(self) -> None:
+        TaskFactory.reset_instance()
+
+    def tearDown(self) -> None:
+        TaskFactory.reset_instance()
+
+    def _alive_stub(self, worker_id: int = 0, *, spawned_at: float | None = None):
+        return SimpleNamespace(
+            worker_id=worker_id,
+            pid=4242,
+            is_alive=lambda: True,
+            _spawned_at=time.time() if spawned_at is None else spawned_at,
+        )
+
+    def _inspect(self, factory: TaskFactory) -> list[str]:
+        reasons: list[str] = []
+
+        def _record(worker, *, reason: str) -> None:
+            reasons.append(reason)
+
+        factory._watchdog.handle_worker_failure = _record  # type: ignore[method-assign]
+        factory._watchdog.inspect_workers()
+        return reasons
+
+    def test_idle_stale_heartbeat_is_recovered(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 1.0
+        old = time.time() - 10.0
+        queue.heartbeat("0", status="idle", last_heartbeat=old, ts=old)
+        self.assertEqual(self._inspect(factory), ["stale_heartbeat"])
+
+    def test_idle_fresh_empty_inflight_is_not_killed(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 1.0
+        now = time.time()
+        queue.heartbeat("0", status="idle", last_heartbeat=now, ts=now)
+        self.assertEqual(self._inspect(factory), [])
+
+    def test_idle_fresh_with_inflight_is_inflight_without_busy(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 30.0
+        now = time.time()
+        queue.heartbeat("0", status="idle", last_heartbeat=now, ts=now)
+        assert queue.r is not None
+        queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"orphan-1"}')
+        self.assertEqual(self._inspect(factory), ["inflight_without_busy"])
+
+    def test_starting_fresh_with_inflight_is_inflight_without_busy(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        now = time.time()
+        queue.heartbeat("0", status="starting", last_heartbeat=now, ts=now)
+        assert queue.r is not None
+        queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"orphan-2"}')
+        self.assertEqual(self._inspect(factory), ["inflight_without_busy"])
+
+    def test_missing_heartbeat_past_spawned_at_is_stale(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub(spawned_at=time.time() - 10.0)]
+        factory._watchdog.stale_sec = 1.0
+        self.assertEqual(self._inspect(factory), ["stale_heartbeat"])
+
+    def test_missing_heartbeat_within_spawn_grace_is_not_killed(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub(spawned_at=time.time())]
+        factory._watchdog.stale_sec = 30.0
+        self.assertEqual(self._inspect(factory), [])
+
+    def test_busy_fresh_heartbeat_is_not_killed(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 1.0
+        now = time.time()
+        queue.heartbeat("0", status="busy", last_heartbeat=now, ts=now)
+        self.assertEqual(self._inspect(factory), [])
+
+
 class LongCalculatorHeartbeatTests(unittest.TestCase):
     def setUp(self) -> None:
         TaskFactory.reset_instance()
@@ -337,6 +434,9 @@ class WorkerFailureOrderingTests(unittest.TestCase):
             )
 
         self.assertEqual(order, ["stop", "killpg", "sweep", "respawn"])
+        replacement = fake_factory.workers[0]
+        self.assertTrue(hasattr(replacement, "_spawned_at"))
+        self.assertGreater(replacement._spawned_at, 0)
 
     def test_kill_orphan_process_groups_reaps_setsid_child(self) -> None:
         """A child in its own session survives its parent's SIGKILL; the
