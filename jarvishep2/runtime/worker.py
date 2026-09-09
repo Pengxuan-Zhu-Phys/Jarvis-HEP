@@ -115,6 +115,7 @@ class Worker(Process):
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
         self._lease_missing_since: float | None = None
+        self._inflight_submitted = False
 
     def _get_executor(self) -> SampleExecutor:
         executor = getattr(self, "_executor", None)
@@ -430,6 +431,19 @@ class Worker(Process):
         except Exception as exc:
             worker_log.warning("final heartbeat failed -> %s", exc)
         self._children_board_open = False
+        if self._redis is not None:
+            try:
+                if self._inflight_submitted:
+                    uuid = ""
+                    with self._hb_lock():
+                        if self._current_sample_uuid:
+                            uuid = str(self._current_sample_uuid)
+                        elif isinstance(self._current_task, Mapping):
+                            uuid = str(self._current_task.get("uuid") or "")
+                    if uuid:
+                        self._redis.ack_inflight_task(str(self.worker_id), uuid)
+            except Exception as exc:
+                worker_log.warning("inflight ack on shutdown failed -> %s", exc)
         if self._scheduler is not None:
             try:
                 disable = getattr(self._scheduler, "disable_active_pids_callback", None)
@@ -577,6 +591,7 @@ class Worker(Process):
             return
         info = sample.to_info_dict()
         self._redis.submit_result(info)
+        self._inflight_submitted = True
         if bool(self.worker_config.get("publish_feedback", False)):
             from jarvishep2.feedback_return import build_feedback_record
 
@@ -683,20 +698,37 @@ class Worker(Process):
     def _main_loop(self) -> None:
         assert self._redis is not None
         pull_timeout = int(self.worker_config.get("pull_timeout", 5))
+        wid = str(self.worker_id)
         while self._is_running:
-            task = self._redis.pull_task(timeout=pull_timeout)
+            task = self._redis.pull_task_to_inflight(wid, timeout=pull_timeout)
             if task is None:
-                self._heartbeat("idle")
-                continue
-            # BLPOP already removed the task from Redis. Stamp heartbeat
-            # *before* bucket allocation / calculator work so a crash in
-            # process_task can still be requeued from current_task.
+                leftover = None
+                occupy = getattr(self._redis, "occupy_inflight_task", None)
+                if callable(occupy):
+                    leftover = occupy(wid)
+                if leftover is None:
+                    leftover = self._redis.get_inflight_task(wid)
+                if leftover is None:
+                    self._heartbeat("idle")
+                    continue
+                task = leftover
+            uuid = str(task.get("uuid") or "")
+            self._inflight_submitted = False
             with self._hb_lock():
                 self._current_task = dict(task)
-                uuid = str(task.get("uuid") or "").strip()
                 self._current_sample_uuid = uuid or None
             self._heartbeat("busy")
             self.process_task(task)
+            if uuid and self._inflight_submitted:
+                acked = self._redis.ack_inflight_task(wid, uuid)
+                if not acked:
+                    self._is_running = False
+                    self._heartbeat("idle")
+                    break
+            else:
+                self._is_running = False
+                self._heartbeat("idle")
+                break
             self._heartbeat("idle")
 
     def run(self) -> None:

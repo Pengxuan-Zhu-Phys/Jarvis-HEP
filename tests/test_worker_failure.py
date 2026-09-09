@@ -419,7 +419,10 @@ class WorkerFailureOrderingTests(unittest.TestCase):
             _force_stop_worker=lambda worker: order.append("stop"),
             _kill_orphan_process_groups=lambda pids: (order.append("killpg"), 0)[1],
             _worker_heartbeat=lambda worker_id: {},
-            _requeue_in_flight_task=lambda heartbeat: False,
+            _requeue_in_flight_task=lambda heartbeat, **_: (
+                order.append("requeue"),
+                False,
+            )[1],
             workers=[dead_worker],
             _redis_connection_config={},
             _worker_spawn_template={},
@@ -434,7 +437,7 @@ class WorkerFailureOrderingTests(unittest.TestCase):
                 fake_factory, dead_worker, reason="stale_heartbeat"
             )
 
-        self.assertEqual(order, ["stop", "killpg", "sweep", "respawn"])
+        self.assertEqual(order, ["stop", "killpg", "sweep", "requeue", "respawn"])
         replacement = fake_factory.workers[0]
         self.assertTrue(hasattr(replacement, "_spawned_at"))
         self.assertGreater(replacement._spawned_at, 0)

@@ -376,28 +376,51 @@ class _Watchdog:
             worker.terminate()
             worker.join(timeout=2.0)
 
-    def requeue_in_flight_task(self, heartbeat: dict[str, Any]) -> bool:
+    def requeue_in_flight_task(
+        self,
+        heartbeat: dict[str, Any],
+        *,
+        worker_id: str,
+    ) -> bool:
         redis = self._factory.redis
         if redis is None:
             return False
-        task = redis.decode_heartbeat_task(heartbeat)
-        if task is None:
+        reclaim = getattr(redis, "reclaim_inflight_task", None)
+        if callable(reclaim):
+            payloads = list(reclaim(worker_id) or [])
+        else:
+            task = redis.decode_heartbeat_task(heartbeat)
+            payloads = [task] if task else []
+        to_requeue: list[dict[str, Any]] = []
+        for task in payloads:
+            retry_count = int(task.get("_retry_count", 0) or 0)
+            if retry_count >= self.max_sample_retries:
+                sample_uuid = str(task.get("uuid") or heartbeat.get("current_sample") or "")
+                if sample_uuid:
+                    redis.submit_result(
+                        {
+                            "uuid": sample_uuid,
+                            "status": "Failed",
+                            "observables": {},
+                            "error": "worker_failure_retries_exhausted",
+                        }
+                    )
+                continue
+            task["_retry_count"] = retry_count + 1
+            to_requeue.append(task)
+        if not to_requeue:
             return False
-        retry_count = int(task.get("_retry_count", 0) or 0)
-        if retry_count >= self.max_sample_retries:
-            sample_uuid = str(task.get("uuid") or heartbeat.get("current_sample") or "")
-            if sample_uuid:
-                redis.submit_result(
-                    {
-                        "uuid": sample_uuid,
-                        "status": "Failed",
-                        "observables": {},
-                        "error": "worker_failure_retries_exhausted",
-                    }
-                )
-            return False
-        task["_retry_count"] = retry_count + 1
-        redis.push_task(task)
+        # One MULTI for the whole newest-to-oldest LPUSH batch.
+        lpush_tasks = getattr(redis, "lpush_tasks", None)
+        if callable(lpush_tasks):
+            lpush_tasks(to_requeue)
+        else:
+            lpush_task = getattr(redis, "lpush_task", None)
+            for task in to_requeue:
+                if callable(lpush_task):
+                    lpush_task(task)
+                else:
+                    redis.push_task(task)
         return True
 
     @staticmethod
@@ -750,11 +773,16 @@ class TaskFactory:
     def _force_stop_worker(self, worker: Worker) -> None:
         _Watchdog.force_stop_worker(worker)
 
-    def _requeue_in_flight_task(self, heartbeat: dict[str, Any]) -> bool:
+    def _requeue_in_flight_task(
+        self,
+        heartbeat: dict[str, Any],
+        *,
+        worker_id: str,
+    ) -> bool:
         # Prefer composed watchdog when present; duck-typed stubs may override.
         watchdog = getattr(self, "_watchdog", None)
         if watchdog is not None:
-            return watchdog.requeue_in_flight_task(heartbeat)
+            return watchdog.requeue_in_flight_task(heartbeat, worker_id=str(worker_id))
         return False
 
     @staticmethod
@@ -807,7 +835,9 @@ class TaskFactory:
                 orphans_killed = self._kill_orphan_process_groups(orphan_pids)
             held_packs = self.redis.decode_heartbeat_held_packs(heartbeat)
             released = self.redis.sweep_held_calc_slots(held_packs)
-            requeued = self._requeue_in_flight_task(heartbeat)
+            requeued = self._requeue_in_flight_task(
+                heartbeat, worker_id=str(worker_id)
+            )
             self.workers = [
                 item for item in self.workers if item.worker_id != worker_id
             ]

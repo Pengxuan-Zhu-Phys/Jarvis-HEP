@@ -39,6 +39,30 @@ class _TaskBroker:
         pipe.incr(OP_COUNT.format(kind="task"))
         pipe.execute()
 
+    def lpush_task(self, task: Mapping[str, Any]) -> None:
+        """LPUSH onto hep:task_queue so the payload is the FIFO head."""
+        self.lpush_tasks([task])
+
+    def lpush_tasks(self, tasks: Sequence[Mapping[str, Any]]) -> int:
+        """LPUSH a reclaim batch in one MULTI so BLMOVE cannot interleave.
+
+        ``tasks`` must already be newest-to-oldest (LRANGE order). Each LPUSH
+        is queued then one INCRBY, then EXEC.
+        """
+        self._require_client()
+        encoded: list[str | bytes] = []
+        for task in tasks:
+            _validate_task_payload(task)
+            encoded.append(encode_payload(dict(task), codec=self._codec))
+        if not encoded:
+            return 0
+        pipe = self.r.pipeline(transaction=True)
+        for payload in encoded:
+            pipe.lpush(TASK_QUEUE, payload)
+        pipe.incrby(OP_COUNT.format(kind="task"), len(encoded))
+        pipe.execute()
+        return len(encoded)
+
     def pull_task(self, timeout: int = 5) -> dict[str, Any] | None:
         self._require_client()
         raw = self._blpop(TASK_QUEUE, timeout=timeout)

@@ -160,6 +160,7 @@ class ManagedRedisServer:
             # Pre-existing service (e.g. brew redis) — process title stays whatever
             # the OS already shows; we cannot rename another process.
             self.started_by_us = False
+            self._ping_and_require_blmove()
             return False
 
         if self.is_reachable() and force_start:
@@ -222,6 +223,7 @@ class ManagedRedisServer:
                     + (f":\n{detail}" if detail else "")
                 )
             if self.is_reachable():
+                self._ping_and_require_blmove()
                 return True
             time.sleep(0.05)
 
@@ -230,6 +232,20 @@ class ManagedRedisServer:
             f"managed redis-server did not become ready on {self.host}:{self.port} "
             f"within {ready_timeout:.1f}s"
         )
+
+    def _ping_and_require_blmove(self) -> None:
+        from jarvishep2.queue.redis_queue import RedisQueue
+
+        queue = RedisQueue({"host": self.host, "port": self.port, "db": self.db})
+        queue.connect()
+        try:
+            if not queue.ping():
+                raise RuntimeError(
+                    f"redis ping failed at {self.host}:{self.port}"
+                )
+            queue.require_blmove()
+        finally:
+            queue.close()
 
     def stop(self, *, timeout: float = 3.0) -> None:
         """Stop only a redis-server that this instance started."""
