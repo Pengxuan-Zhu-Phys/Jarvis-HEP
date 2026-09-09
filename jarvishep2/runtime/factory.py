@@ -391,8 +391,7 @@ class _Watchdog:
         else:
             task = redis.decode_heartbeat_task(heartbeat)
             payloads = [task] if task else []
-        any_requeued = False
-        lpush_task = getattr(redis, "lpush_task", None)
+        to_requeue: list[dict[str, Any]] = []
         for task in payloads:
             retry_count = int(task.get("_retry_count", 0) or 0)
             if retry_count >= self.max_sample_retries:
@@ -408,13 +407,21 @@ class _Watchdog:
                     )
                 continue
             task["_retry_count"] = retry_count + 1
-            # LPUSH newest-to-oldest (LRANGE order) so the original owner is FIFO head.
-            if callable(lpush_task):
-                lpush_task(task)
-            else:
-                redis.push_task(task)
-            any_requeued = True
-        return any_requeued
+            to_requeue.append(task)
+        if not to_requeue:
+            return False
+        # One MULTI for the whole newest-to-oldest LPUSH batch.
+        lpush_tasks = getattr(redis, "lpush_tasks", None)
+        if callable(lpush_tasks):
+            lpush_tasks(to_requeue)
+        else:
+            lpush_task = getattr(redis, "lpush_task", None)
+            for task in to_requeue:
+                if callable(lpush_task):
+                    lpush_task(task)
+                else:
+                    redis.push_task(task)
+        return True
 
     @staticmethod
     def kill_orphan_process_groups(pids: list[int]) -> int:

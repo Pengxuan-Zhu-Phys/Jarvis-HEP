@@ -251,6 +251,36 @@ class InflightOwnershipTests(unittest.TestCase):
         self.assertEqual(by_uuid["r1"], 1)
         self.assertEqual(by_uuid["r2"], 2)
 
+    def test_reclaim_lpush_batch_is_one_transaction(self) -> None:
+        from types import SimpleNamespace
+
+        from jarvishep2.runtime.factory import _Watchdog
+
+        self._plant_inflight(_task("r1"), _task("r2"))
+        executes = {"n": 0}
+        real_pipeline = self.queue.r.pipeline
+
+        def spy_pipeline(*args, **kwargs):
+            pipe = real_pipeline(*args, **kwargs)
+            real_execute = pipe.execute
+
+            def counting_execute(*a, **k):
+                executes["n"] += 1
+                return real_execute(*a, **k)
+
+            pipe.execute = counting_execute  # type: ignore[method-assign]
+            return pipe
+
+        self.queue.r.pipeline = spy_pipeline  # type: ignore[method-assign]
+        watchdog = _Watchdog(SimpleNamespace(redis=self.queue))
+        self.assertTrue(watchdog.requeue_in_flight_task({}, worker_id="0"))
+        self.assertEqual(executes["n"], 1)
+        queued = [
+            self.queue._decode_task_payload(raw)["uuid"]
+            for raw in self.queue.r.lrange(TASK_QUEUE, 0, -1)
+        ]
+        self.assertEqual(queued, ["r1", "r2"])
+
     def test_empty_reclaim_does_not_fallback_to_heartbeat(self) -> None:
         from types import SimpleNamespace
 
