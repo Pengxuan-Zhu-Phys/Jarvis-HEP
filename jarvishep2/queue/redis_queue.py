@@ -493,11 +493,16 @@ class RedisQueue(
     ) -> dict[str, int]:
         """Discard crash-era transport state and seed counters from DATABASE."""
         self._require_client()
+        ctrl = self._ctrl()
         keys: list[str] = [TASK_QUEUE, ARCHIVE_QUEUE, FEEDBACK_QUEUE]
-        keys.extend(self.r.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
-        keys.extend(self.r.scan_iter(match="hep:worker:status:*"))
-        deleted = int(self.r.delete(*keys) or 0) if keys else 0
-        self.r.hset(
+        keys.extend(ctrl.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
+        keys.extend(ctrl.scan_iter(match="hep:worker:status:*"))
+        # Fresh reset only deletes hep:proc:* / hep:inflight:{0..N}; SCAN
+        # here also drops leftover ids outside that range.
+        keys.extend(ctrl.scan_iter(match="hep:proc:*"))
+        keys.extend(ctrl.scan_iter(match="hep:inflight:*"))
+        deleted = int(ctrl.delete(*keys) or 0) if keys else 0
+        ctrl.hset(
             SAMPLE_STATS,
             mapping={
                 "completed": max(0, int(completed)),
@@ -594,18 +599,31 @@ class RedisQueue(
             raise ValueError(f"invalid op_count kind: {kind}")
         return int(self.r.incrby(OP_COUNT.format(kind=kind), amount))
 
-    def snapshot_raw(self) -> dict[str, Any]:
+    def snapshot_raw(self, *, owner_ids: list[str] | None = None) -> dict[str, Any]:
+        """Read-only monitor snapshot. Worker boards only when owner_ids is given.
+
+        owner_ids must come from OS inventory. This method never SCANs
+        hep:worker:* / hep:proc:*.
+        """
         self._require_client()
         ctrl = self._ctrl()
         calc_status = ctrl.hgetall(CALC_STATUS) or {}
         sample_stats = ctrl.hgetall(SAMPLE_STATS) or {}
-        return {
+        snapshot: dict[str, Any] = {
             "task_queue_length": int(ctrl.llen(TASK_QUEUE)),
             "archive_queue_length": int(ctrl.llen(ARCHIVE_QUEUE)),
             "calculator_status": {k: _coerce_numeric(v) for k, v in calc_status.items()},
             "sample_stats": {k: _coerce_numeric(v) for k, v in sample_stats.items()},
             "op_counts": {kind: self.get_op_count(kind) for kind in sorted(_VALID_OP_KINDS)},
+            "proc_core": dict(ctrl.hgetall(PROC_CORE) or {}),
+            "proc_archiver": dict(ctrl.hgetall(PROC_ARCHIVER) or {}),
+            "proc_redis": dict(ctrl.hgetall(PROC_REDIS) or {}),
         }
+        if owner_ids is not None:
+            snapshot["proc_workers"] = self.read_proc_boards(
+                "worker", owner_ids=[str(owner_id) for owner_id in owner_ids]
+            )
+        return snapshot
 
     def connection_config(self) -> dict[str, Any]:
         """Return picklable connection settings for spawn child processes."""

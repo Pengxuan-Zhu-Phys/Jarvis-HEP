@@ -328,10 +328,6 @@ class Worker(Process):
                 self._last_status = status
             publish_status = self._last_status
             held_packs = dict(self._held_calc_packs)
-            current_task_ref = self._current_task
-        current_task = ""
-        if current_task_ref is not None:
-            current_task = self._redis.encode_task_for_heartbeat(current_task_ref)
         active_pids: list[int] = []
         if self._scheduler is not None:
             active_pids = list(self._scheduler.active_subprocess_pids())
@@ -347,7 +343,6 @@ class Worker(Process):
             "held_calc_packs": json.dumps(held_packs),
             "active_subprocess_pids": json.dumps(active_pids),
             "file_operation_pid": file_operation_pid,
-            "current_task": current_task,
             "board_ttl_sec": self._board_ttl_sec(),
         }
         if self._children_board_open:

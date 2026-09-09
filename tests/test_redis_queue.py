@@ -622,6 +622,11 @@ class RedisQueueTests(unittest.TestCase):
         snapshot = self.queue.snapshot_raw()
         self.assertEqual(snapshot["task_queue_length"], 1)
         self.assertEqual(snapshot["op_counts"]["task"], 1)
+        self.assertIn("proc_core", snapshot)
+        self.assertEqual(snapshot["proc_core"], {})
+        self.assertEqual(snapshot["proc_archiver"], {})
+        self.assertEqual(snapshot["proc_redis"], {})
+        self.assertNotIn("proc_workers", snapshot)
 
     def test_codec_round_trip_json(self):
         payload = {"arr": np.array([1, 2, 3])}

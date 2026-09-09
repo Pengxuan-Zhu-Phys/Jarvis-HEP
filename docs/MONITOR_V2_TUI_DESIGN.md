@@ -27,7 +27,9 @@ Monitor V2 使用 Textual，实现一个进程内、两个互相隔离的能力�
   Redis 暂时不可用时，Chat 仍可围绕最后一份明确标为 stale 的 snapshot 工作。
 - Monitor V2 的 Chat **不是 Jarvis-Agent**。MVP 不提供工具调用，不提交任务、不停止扫描、
   不修改 YAML，只回答状态和诊断问题。完整的 agentic control 继续属于独立的 Jarvis-Agent。
-- live monitor 保持严格只读：不得向 scan Redis 写入任何 key。商业模型密钥只从环境变量
+- live monitor 保持严格只读：不得向 scan Redis 写入任何 key。只读是**客户端约定**
+  （`SnapshotReader` / Monitor 代码路径不调用 `SET`/`HSET`，由测试锁住），**不是 Redis ACL**；
+  不上 `user monitor` 或 `ACL FILE`。商业模型密钥只从环境变量
   或后续的系统 keychain 读取，不进入 task YAML、runtime metadata、Redis、日志或 transcript。
 - 现有 CLI 行为保持兼容；TUI 通过新增 `--tui` 显式启用，纯文本 one-shot 路径不改变。
 
@@ -42,7 +44,9 @@ Monitor V2 使用 Textual，实现一个进程内、两个互相隔离的能力�
   `RedisQueue.snapshot_raw()`；
 - `Jarvis monitor`：无参数列出 scan，有 `SCAN_REF` 时打印一次纯文本 snapshot；
 - `hep:{kind}:op_count`：用于判断 worker/calculator/sample/task 子系统是否变化；
-- `hep:worker:status:{id}`：Worker heartbeat 和运行中 sample 信息；
+- `hep:proc:core` / `hep:proc:archiver` / `hep:proc:redis` / `hep:proc:worker:{id}`：
+  进程广播板；Monitor 按 OS inventory 的 worker id `HGETALL`，禁止 `SCAN`；
+- `hep:worker:status:{id}`：过渡期 dual-write heartbeat；**不再含** `current_task` 整包；
 - `run_summary.{json,csv,txt}`：结束后的冻结摘要，不是 live TUI 的状态存储。
 
 现有路径有四个限制：
@@ -84,7 +88,7 @@ memory/flywheel、Jarvis-Agent session store，以及整个 `JarvisAgentApp`。
 - 模型回复真实流式显示，并可取消；
 - 每个 chat turn 固定引用一份 snapshot，回答可追溯到 `snapshot_id`；
 - Dashboard/Chat 各自可失败、恢复和测试；
-- 所有 monitor 读取保持只读；
+- 所有 monitor 读取保持只读（客户端约定，无 Redis ACL）；
 - 窄终端可用，SSH/tmux 下不依赖鼠标；
 - 没有 API 配置时仍是完整的 Dashboard 产品。
 
@@ -353,10 +357,12 @@ class MonitorSource(Protocol):
 4. 只在相应 `op_count` 变化时刷新 calculator/sample/worker heartbeat section；
 5. 把未变化 section 从上一份 snapshot 复制；
 6. 投影、派生 alerts，返回新 snapshot；
-7. 全程禁止 Redis write。
+7. 全程禁止 Redis write。只读是客户端约定（测试禁止 `r.set`/`r.hset`），**不是 Redis ACL**。
 
-Worker id 从已验证的 scan process title 中解析，再批量读取 heartbeat。不要用 Redis `SCAN`
-寻找任意 `hep:worker:*` key，也不要把 `current_task` 整包带入 view。
+Worker id 从已验证的 scan process title 中解析，再批量读取 `hep:proc:worker:{id}`
+（及过渡期 heartbeat）。不要用 Redis `SCAN` 寻找任意 `hep:worker:*` / `hep:proc:*` key，
+也不要把 `current_task` 整包带入 view。Chat/TUI 只展示 `current_uuid`、`status`、`pid`、
+heartbeat age。
 
 ### 6.3 更新频率与 stale 语义
 
