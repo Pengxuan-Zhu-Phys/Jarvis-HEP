@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -236,6 +237,10 @@ class _ControlAndHeartbeat:
         self._require_client()
         if "last_heartbeat" not in fields and "ts" in fields:
             fields["last_heartbeat"] = fields["ts"]
+        overlay_children = "file_operation_pgid" in fields or "calc_pgids" in fields
+        children_pgid = fields.pop("file_operation_pgid", None)
+        calc_pgids = fields.pop("calc_pgids", None)
+        children_reason = fields.pop("children_updated_reason", None)
         wid = str(worker_id)
         status_key = WORKER_STATUS.format(id=wid)
         board_key = PROC_WORKER.format(id=wid)
@@ -257,6 +262,32 @@ class _ControlAndHeartbeat:
             if board_mapping:
                 pipe.hset(board_key, mapping=board_mapping)
             pipe.expire(board_key, ttl)
+            if overlay_children:
+                fo_pid = fields.get("file_operation_pid")
+                try:
+                    fo_pgid_value: Any = (
+                        "" if children_pgid is None or children_pgid == "" else int(children_pgid)
+                    )
+                    if fo_pgid_value != "" and int(fo_pgid_value) <= 0:
+                        fo_pgid_value = ""
+                except (TypeError, ValueError):
+                    fo_pgid_value = ""
+                if isinstance(calc_pgids, (list, tuple)):
+                    calc_list = [int(pid) for pid in calc_pgids]
+                else:
+                    calc_list = []
+                children_mapping = {
+                    k: _encode_heartbeat_value(v)
+                    for k, v in {
+                        "role": "children",
+                        "file_operation_pid": "" if fo_pid is None else fo_pid,
+                        "file_operation_pgid": fo_pgid_value,
+                        "calc_pgids": calc_list,
+                        "updated_reason": str(children_reason or "heartbeat"),
+                        "ts": fields.get("ts") or fields.get("last_heartbeat") or time.time(),
+                    }.items()
+                }
+                pipe.hset(children_key, mapping=children_mapping)
             # Same TTL as the worker board so children cannot evaporate first.
             pipe.expire(children_key, ttl)
             pipe.incr(OP_COUNT.format(kind="worker"))

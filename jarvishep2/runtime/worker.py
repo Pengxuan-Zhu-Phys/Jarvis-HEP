@@ -100,6 +100,7 @@ class Worker(Process):
         self._command_parser: CommandParser | None = None
         self._delete_method = DEFAULT_DELETE_METHOD
         self._file_ops: FileOperationService | None = None
+        self._children_board_open = True
         self._staging_dir = ""
         self._handoff_to_staging = False
         self._sample_buckets_enabled = True
@@ -166,7 +167,6 @@ class Worker(Process):
             delete_method=self._delete_method,
             scan_name=scan_name or None,
         )
-        # Spawn-time children board (not the next 5s heartbeat).
         self._publish_children_board(reason="spawn")
         if "handoff_to_staging" in self.worker_config:
             self._handoff_to_staging = bool(self.worker_config.get("handoff_to_staging"))
@@ -287,6 +287,8 @@ class Worker(Process):
         return _session_leader_pids(scheduler.active_subprocess_pids())
 
     def _publish_children_board(self, *, reason: str = "heartbeat") -> None:
+        if not self._children_board_open:
+            return
         redis = self._redis
         if redis is None:
             return
@@ -304,8 +306,13 @@ class Worker(Process):
     def _on_active_calc_pids_changed(self, _pids: list[int]) -> None:
         try:
             self._publish_children_board(reason="spawn" if _pids else "reap")
-        except Exception:
-            return
+        except Exception as exc:
+            try:
+                get_jarvis_logger("worker", worker_id=self.worker_id).warning(
+                    "children board publish failed -> %s", exc
+                )
+            except Exception:
+                return
 
     def _heartbeat(self, status: str | None = None) -> None:
         if self._redis is None:
@@ -326,23 +333,27 @@ class Worker(Process):
             current_task = self._redis.encode_task_for_heartbeat(current_task_ref)
         active_pids: list[int] = []
         if self._scheduler is not None:
-            active_pids = self._scheduler.active_subprocess_pids()
+            active_pids = list(self._scheduler.active_subprocess_pids())
         file_operation_pid = self._file_ops.pid if self._file_ops is not None else None
         if file_operation_pid is not None:
             active_pids.append(file_operation_pid)
-        self._redis.heartbeat(
-            str(self.worker_id),
-            status=publish_status,
-            pid=self.pid,
-            current_sample=self._current_sample_uuid,
-            last_heartbeat=now,
-            ts=now,
-            held_calc_packs=json.dumps(held_packs),
-            active_subprocess_pids=json.dumps(active_pids),
-            file_operation_pid=file_operation_pid,
-            current_task=current_task,
-            board_ttl_sec=self._board_ttl_sec(),
-        )
+        hb_fields: dict[str, Any] = {
+            "status": publish_status,
+            "pid": self.pid,
+            "current_sample": self._current_sample_uuid,
+            "last_heartbeat": now,
+            "ts": now,
+            "held_calc_packs": json.dumps(held_packs),
+            "active_subprocess_pids": json.dumps(active_pids),
+            "file_operation_pid": file_operation_pid,
+            "current_task": current_task,
+            "board_ttl_sec": self._board_ttl_sec(),
+        }
+        if self._children_board_open:
+            hb_fields["file_operation_pgid"] = self._file_operation_pgid()
+            hb_fields["calc_pgids"] = self._calc_session_leader_pgids()
+            hb_fields["children_updated_reason"] = "heartbeat"
+        self._redis.heartbeat(str(self.worker_id), **hb_fields)
 
     def _heartbeat_loop(self, stop: threading.Event, interval_sec: float) -> None:
         """Refresh the heartbeat while long calculator commands run.
@@ -418,14 +429,14 @@ class Worker(Process):
             self._heartbeat("stopped")
         except Exception as exc:
             worker_log.warning("final heartbeat failed -> %s", exc)
-        if self._redis is not None:
-            try:
-                owner_id = str(self.worker_id)
-                self._redis.drop_proc_board("worker", owner_id=owner_id)
-                self._redis.drop_proc_board("children", owner_id=owner_id)
-            except Exception as exc:
-                worker_log.warning("proc board drop failed -> %s", exc)
+        self._children_board_open = False
         if self._scheduler is not None:
+            try:
+                disable = getattr(self._scheduler, "disable_active_pids_callback", None)
+                if callable(disable):
+                    disable()
+            except Exception:
+                pass
             try:
                 self._scheduler.shutdown(wait=True)
             except Exception as exc:
@@ -434,6 +445,13 @@ class Worker(Process):
                 worker_log.warning("scheduler shutdown failed -> %s", exc)
             finally:
                 self._scheduler = None
+        if self._redis is not None:
+            try:
+                owner_id = str(self.worker_id)
+                self._redis.drop_proc_board("worker", owner_id=owner_id)
+                self._redis.drop_proc_board("children", owner_id=owner_id)
+            except Exception as exc:
+                worker_log.warning("proc board drop failed -> %s", exc)
         if self._file_ops is not None:
             try:
                 self._file_ops.shutdown()

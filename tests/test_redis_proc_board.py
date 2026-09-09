@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 from jarvishep2.redis_queue import (
@@ -106,6 +107,26 @@ class ProcBoardMixinTests(unittest.TestCase):
         self.assertEqual(status["status"], "idle")
         self.assertEqual(status["current_task"], "blob")
         self.assertTrue(status.get("held_calc_packs"))
+
+    def test_heartbeat_overlays_children_pgids_without_extra_incr(self) -> None:
+        before = self.queue.get_op_count("worker")
+        self.queue.heartbeat(
+            "0",
+            status="busy",
+            pid=1,
+            ts=1.0,
+            file_operation_pid=10,
+            file_operation_pgid=10,
+            calc_pgids=[20, 21],
+            board_ttl_sec=25,
+        )
+        self.assertEqual(self.queue.get_op_count("worker"), before + 1)
+        board = self.queue.read_children_board("0")
+        self.assertEqual(int(board["file_operation_pid"]), 10)
+        self.assertEqual(int(board["file_operation_pgid"]), 10)
+        self.assertEqual(json.loads(board["calc_pgids"]), [20, 21])
+        self.assertEqual(board["updated_reason"], "heartbeat")
+        self.assertGreater(int(self.queue.r.ttl(PROC_CHILDREN.format(id="0"))), 10)
 
     def test_heartbeat_renews_children_board_ttl(self) -> None:
         self.queue.publish_children_board(

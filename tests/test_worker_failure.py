@@ -508,6 +508,57 @@ class ChildrenBoardOrphanTests(unittest.TestCase):
         self.assertIn("os.killpg(", source)
         self.assertNotIn("_signal_process_tree", source)
 
+    def test_ps_timeout_skips_file_operation_killpg(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            with (
+                mock.patch(
+                    "jarvishep2.runtime.factory.subprocess.run",
+                    side_effect=subprocess.TimeoutExpired("ps", 2),
+                ),
+                mock.patch.object(factory_module.os, "killpg") as killpg,
+            ):
+                killed = TaskFactory._kill_orphan_from_children_board(
+                    {
+                        "file_operation_pid": child.pid,
+                        "file_operation_pgid": child.pid,
+                        "calc_pgids": [],
+                    }
+                )
+            self.assertEqual(killed, 0)
+            killpg.assert_not_called()
+            self.assertIsNone(child.poll())
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_ps_timeout_still_kills_calculator_session_leader(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        try:
+            with mock.patch(
+                "jarvishep2.runtime.factory.subprocess.run",
+                side_effect=subprocess.TimeoutExpired("ps", 2),
+            ):
+                killed = TaskFactory._kill_orphan_from_children_board(
+                    {
+                        "file_operation_pgid": "",
+                        "calc_pgids": [child.pid],
+                    }
+                )
+            self.assertEqual(killed, 1)
+            self.assertIsNotNone(child.wait(timeout=5.0))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
     def test_empty_pgid_is_killpg_noop(self) -> None:
         child = subprocess.Popen(
             [sys.executable, "-c", "import time; time.sleep(30)"],

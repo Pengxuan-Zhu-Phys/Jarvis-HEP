@@ -68,8 +68,10 @@ def _ps_command_by_pid() -> dict[int, str]:
             capture_output=True,
             text=True,
             check=False,
+            timeout=2.0,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
+        # Fail closed: skip FileOperation killpg rather than freeze recovery.
         return {}
     if int(completed.returncode) != 0:
         return {}

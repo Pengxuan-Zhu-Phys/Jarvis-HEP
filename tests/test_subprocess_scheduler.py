@@ -39,6 +39,37 @@ class AsyncSubprocessSchedulerTests(unittest.TestCase):
         snap = self._scheduler.snapshot()
         self.assertGreaterEqual(int(snap["peak_running"]), 2)
 
+    def test_active_pid_callback_debounces_within_0_2s(self) -> None:
+        events: list[list[int]] = []
+        started = time.monotonic()
+        self._scheduler = AsyncSubprocessScheduler(
+            SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet"),
+            on_active_pids_changed=lambda pids: events.append(list(pids)),
+        )
+        self.assertLessEqual(self._scheduler._pid_notify_debounce_sec, 0.2)
+        self._scheduler._register_active_pid(111)
+        self._scheduler._register_active_pid(222)
+        self.assertEqual(events, [])
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline and not events:
+            time.sleep(0.01)
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], [111, 222])
+        self.assertLessEqual(time.monotonic() - started, 0.35)
+
+    def test_disable_active_pids_callback_blocks_unregister_republish(self) -> None:
+        events: list[list[int]] = []
+        self._scheduler = AsyncSubprocessScheduler(
+            SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet"),
+            on_active_pids_changed=lambda pids: events.append(list(pids)),
+        )
+        self._scheduler._register_active_pid(111)
+        self._scheduler.disable_active_pids_callback()
+        self._scheduler._unregister_active_pid(111)
+        time.sleep(0.3)
+        self.assertEqual(events, [])
+        self.assertIsNone(self._scheduler._on_active_pids_changed)
+
     def test_active_subprocess_pids_track_running_children(self) -> None:
         self._scheduler = AsyncSubprocessScheduler(
             SubprocessRuntimeConfig(max_concurrency=1, log_policy="quiet")

@@ -233,9 +233,9 @@ class AsyncSubprocessScheduler:
         self._schedule_active_pids_callback()
 
     def _schedule_active_pids_callback(self) -> None:
-        if self._on_active_pids_changed is None:
-            return
         with self._pid_notify_lock:
+            if self._on_active_pids_changed is None:
+                return
             if self._pid_notify_timer is not None:
                 return
             timer = threading.Timer(
@@ -249,7 +249,7 @@ class AsyncSubprocessScheduler:
     def _fire_active_pids_callback(self) -> None:
         with self._pid_notify_lock:
             self._pid_notify_timer = None
-        callback = self._on_active_pids_changed
+            callback = self._on_active_pids_changed
         if callback is None:
             return
         try:
@@ -257,10 +257,12 @@ class AsyncSubprocessScheduler:
         except Exception:
             return
 
-    def _cancel_active_pids_callback(self) -> None:
+    def disable_active_pids_callback(self) -> None:
+        """Cancel a pending timer and drop the callback so unregister cannot republish."""
         with self._pid_notify_lock:
             timer = self._pid_notify_timer
             self._pid_notify_timer = None
+            self._on_active_pids_changed = None
         if timer is not None:
             timer.cancel()
 
@@ -345,7 +347,7 @@ class AsyncSubprocessScheduler:
         return fut.result(timeout=timeout)
 
     def shutdown(self, wait: bool = True, timeout: float = 30.0) -> None:
-        self._cancel_active_pids_callback()
+        self.disable_active_pids_callback()
         with self._shutdown_lock:
             if self._shutdown_started:
                 if wait:

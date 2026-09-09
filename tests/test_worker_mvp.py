@@ -20,7 +20,6 @@ from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.factory import TaskFactory
 from jarvishep2.mp_context import get_spawn_context
-from jarvishep2.file_operation_service import FileOperationService
 from jarvishep2.redis_queue import (
     PROC_CHILDREN,
     RedisQueue,
@@ -694,34 +693,53 @@ class WorkerMVPTests(unittest.TestCase):
         worker._redis = mock.Mock()
         worker._scheduler = mock.Mock()
         worker._scheduler.active_subprocess_pids.return_value = [888]
-        worker._file_ops = mock.Mock(pid=777)
+        worker._file_ops = mock.Mock(pid=777, pgid=777)
 
-        worker._heartbeat("busy")
+        with mock.patch(
+            "jarvishep2.runtime.worker.os.getpgid", side_effect=lambda pid: pid
+        ):
+            worker._heartbeat("busy")
 
         fields = worker._redis.heartbeat.call_args.kwargs
         self.assertEqual(fields["file_operation_pid"], 777)
+        self.assertEqual(fields["file_operation_pgid"], 777)
+        self.assertEqual(fields["calc_pgids"], [888])
         self.assertEqual(json.loads(fields["active_subprocess_pids"]), [888, 777])
 
     @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
-    def test_file_operation_session_leader_is_published_to_children_board(self) -> None:
+    def test_init_runtime_publishes_file_operation_session_leader(self) -> None:
         queue = make_fakeredis_queue(codec="json")
-        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
-        worker._redis = queue
-        service = FileOperationService.start(
-            mode="process", scan_name="children-board"
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 6379, "db": 0},
+            {
+                "file_operation_mode": "process",
+                "mapper": {"type": "identity", "keys": []},
+                "opera_modules": {},
+                "calculator_modules": [],
+                "likelihood_expressions": [],
+                "scan_name": "init-runtime-board",
+            },
         )
+        worker._redis = queue
         try:
-            worker._file_ops = service
+            worker._init_runtime()
+            service = worker._file_ops
+            self.assertIsNotNone(service)
+            assert service is not None
             self.assertIsNotNone(service.pid)
-            self.assertEqual(service.pgid, service.pid)
-            worker._publish_children_board(reason="spawn")
             board = queue.read_children_board("0")
             self.assertEqual(int(board["file_operation_pid"]), service.pid)
             self.assertEqual(int(board["file_operation_pgid"]), service.pid)
             assert service.pid is not None
             self.assertEqual(os.getpgid(service.pid), service.pid)
         finally:
-            service.shutdown()
+            if worker._scheduler is not None:
+                worker._scheduler.shutdown(wait=True)
+                worker._scheduler = None
+            if worker._file_ops is not None:
+                worker._file_ops.shutdown()
+                worker._file_ops = None
 
     def test_children_board_empty_pgid_when_not_session_leader(self) -> None:
         queue = make_fakeredis_queue(codec="json")
@@ -769,6 +787,38 @@ class WorkerMVPTests(unittest.TestCase):
         worker._heartbeat("idle")
         self.assertEqual(queue.get_op_count("worker"), before + 1)
 
+    def test_heartbeat_refreshes_calc_pgids_on_children_board(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        queue.publish_children_board(
+            "0",
+            file_operation_pid=1,
+            file_operation_pgid=1,
+            calc_pgids=[],
+            reason="spawn",
+        )
+        worker._file_ops = mock.Mock(pid=1, pgid=1)
+        worker._scheduler = mock.Mock()
+        worker._scheduler.active_subprocess_pids.return_value = [42]
+        with mock.patch(
+            "jarvishep2.runtime.worker.os.getpgid", side_effect=lambda pid: pid
+        ):
+            worker._heartbeat("busy")
+        board = queue.read_children_board("0")
+        self.assertEqual(json.loads(board["calc_pgids"]), [42])
+        self.assertEqual(board["updated_reason"], "heartbeat")
+        self.assertEqual(queue.get_op_count("worker"), 1)
+
+    def test_publish_children_board_noops_after_shutdown_flag(self) -> None:
+        queue = make_fakeredis_queue(codec="json")
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = queue
+        worker._children_board_open = False
+        worker._file_ops = mock.Mock(pid=1, pgid=1)
+        worker._publish_children_board(reason="reap")
+        self.assertEqual(queue.read_children_board("0"), {})
+
     @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
     def test_calc_pgids_only_include_session_leaders(self) -> None:
         import subprocess
@@ -805,10 +855,18 @@ class WorkerMVPTests(unittest.TestCase):
         worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
         worker._stop_heartbeat_thread = mock.Mock()  # type: ignore[method-assign]
         worker._heartbeat = mock.Mock()  # type: ignore[method-assign]
+        order: list[str] = []
         scheduler = mock.Mock()
-        scheduler.shutdown.side_effect = TimeoutError("stuck scheduler")
+        scheduler.disable_active_pids_callback.side_effect = lambda: order.append("disable")
+
+        def _shutdown(**_kwargs: Any) -> None:
+            order.append("shutdown")
+            raise TimeoutError("stuck scheduler")
+
+        scheduler.shutdown.side_effect = _shutdown
         file_ops = mock.Mock()
         redis = mock.Mock()
+        redis.drop_proc_board.side_effect = lambda *_args, **_kwargs: order.append("drop")
         worker._scheduler = scheduler
         worker._file_ops = file_ops
         worker._redis = redis
@@ -816,10 +874,15 @@ class WorkerMVPTests(unittest.TestCase):
 
         worker._shutdown_runtime(logger)
 
+        scheduler.disable_active_pids_callback.assert_called()
         scheduler.shutdown.assert_called_once_with(wait=True)
         file_ops.shutdown.assert_called_once_with()
         redis.drop_proc_board.assert_any_call("worker", owner_id="0")
         redis.drop_proc_board.assert_any_call("children", owner_id="0")
+        self.assertEqual(order[0], "disable")
+        self.assertEqual(order[1], "shutdown")
+        self.assertIn("drop", order[2:])
+        self.assertFalse(worker._children_board_open)
         redis.close.assert_called_once_with()
         self.assertIsNone(worker._scheduler)
         self.assertIsNone(worker._file_ops)
