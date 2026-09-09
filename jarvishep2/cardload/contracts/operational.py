@@ -24,7 +24,19 @@ _MONITOR_KEYS = frozenset({"hz"})
 _REDIS_KEYS = frozenset({"host", "port", "db"})
 _CHECK_MODULES_KEYS = frozenset({"data", "n_samples", "timeout_sec"})
 _WATCHDOG_KEYS = frozenset(
-    {"enabled", "stale_sec", "poll_interval_sec", "max_sample_retries"}
+    {
+        "enabled",
+        "stale_sec",
+        "poll_interval_sec",
+        "max_sample_retries",
+        "respawn_cooldown_sec_base",
+        "respawn_cooldown_sec_cap",
+        "death_window_sec",
+        "death_rate_abs_min",
+        "death_rate_frac",
+        "degraded_frac",
+        "pause_grace_sec",
+    }
 )
 _ARCHIVER_KEYS = frozenset(ARCHIVER_DEFAULTS.keys())
 _SAMPLE_DIR_KEYS = frozenset(SAMPLE_DIRECTORY_DEFAULTS.keys())

@@ -400,6 +400,38 @@ class CoreCollaboratorTests(unittest.TestCase):
         self.assertEqual(int(board.get("started_by_us")), 0)
         managed.process.poll.assert_not_called()
 
+    def test_set_scan_mode_overlays_fuse_fields_without_rewriting_main(self) -> None:
+        core = Jarvis2Core({"EnvReqs": {"V2": {"workers": 190}}})
+        queue = make_fakeredis_queue()
+        core.redis = queue
+        core._runtime._publish_core_proc_board()
+        before = queue.read_proc_board("core")
+        self.assertEqual(int(before.get("workers_total") or 0), 190)
+        pid = before.get("pid")
+        core._set_scan_mode(
+            "paused",
+            pause_reason="death_rate",
+            workers_alive=150,
+            workers_respawned=40,
+            death_window_respawns=40,
+            death_rate_1m=40,
+            host="should-not-write",
+            workers_total=1,
+        )
+        after = queue.read_proc_board("core")
+        self.assertEqual(after["scan_mode"], "paused")
+        self.assertEqual(after["pause_reason"], "death_rate")
+        self.assertEqual(int(after.get("workers_alive") or 0), 150)
+        self.assertEqual(int(after.get("workers_total") or 0), 190)
+        self.assertEqual(after.get("pid"), pid)
+        self.assertNotEqual(after.get("host"), "should-not-write")
+        queue.publish_proc_board("core", redis_alive=1)
+        still = queue.read_proc_board("core")
+        self.assertEqual(still["scan_mode"], "paused")
+        self.assertEqual(str(still.get("redis_alive")), "1")
+
+
+
 
 if __name__ == "__main__":
     unittest.main()

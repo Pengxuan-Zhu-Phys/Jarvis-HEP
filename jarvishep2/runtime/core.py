@@ -1052,6 +1052,9 @@ class Jarvis2Core:
     def _publish_runtime_metadata(self) -> None:
         return self._get_runtime()._publish_runtime_metadata()
 
+    def _set_scan_mode(self, scan_mode: str, **fields: Any) -> None:
+        return self._get_runtime()._set_scan_mode(scan_mode, **fields)
+
     def init_command_parser(self) -> CommandParser:
         """Run Phase-1 static command resolution for the loaded task config."""
         return self._get_runtime().init_command_parser()

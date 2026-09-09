@@ -10,9 +10,11 @@ import unittest
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.runtime_config import (
     RUNTIME_DEFAULTS,
+    WATCHDOG_DEFAULTS,
     get_runtime_block,
     get_watchdog_config,
     normalize_runtime_block,
+    normalize_watchdog_block,
 )
 from jarvishep2.task_config import load_task_yaml
 
@@ -96,6 +98,32 @@ class RuntimeReadModelTests(unittest.TestCase):
         self.assertTrue(core.is_redis_runtime())
         self.assertEqual(core.runtime["workers"], 3)
         self.assertEqual(core.runtime["mode"], "redis")
+
+    def test_normalize_watchdog_block_reads_respawn_cooldown(self) -> None:
+        block = normalize_watchdog_block({"respawn_cooldown_sec_base": 7.5})
+        self.assertEqual(block["respawn_cooldown_sec_base"], 7.5)
+        self.assertEqual(block["stale_sec"], WATCHDOG_DEFAULTS["stale_sec"])
+        self.assertEqual(block["respawn_cooldown_sec_cap"], 60.0)
+        self.assertEqual(block["pause_grace_sec"], 60.0)
+        self.assertEqual(block["death_rate_frac"], 0.20)
+
+    def test_watchdog_yaml_cooldown_survives_runtime_block(self) -> None:
+        config = {
+            "EnvReqs": {
+                "V2": {
+                    "factory": {
+                        "watchdog": {
+                            "respawn_cooldown_sec_base": 8.0,
+                            "death_rate_frac": 0.25,
+                        }
+                    }
+                }
+            }
+        }
+        watchdog = get_watchdog_config(config)
+        self.assertEqual(watchdog["respawn_cooldown_sec_base"], 8.0)
+        self.assertEqual(watchdog["death_rate_frac"], 0.25)
+        self.assertEqual(watchdog["stale_sec"], WATCHDOG_DEFAULTS["stale_sec"])
 
 
 if __name__ == "__main__":

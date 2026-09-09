@@ -40,6 +40,18 @@ from jarvishep2.Sampling.runtime_checkpoint import prepare_resume
 REDIS_UNREACH_GRACE_SEC = 15.0
 _SUPERVISE_TICK_SEC = 1.0
 _ARCHIVER_STALE_WARN_INTERVAL_SEC = 30.0
+_FUSE_SCAN_MODES = frozenset({"running", "degraded", "paused", "stopping"})
+_FUSE_BOARD_FIELDS = frozenset(
+    {
+        "pause_reason",
+        "workers_alive",
+        "workers_respawned",
+        "death_window_respawns",
+        "death_rate_1m",
+        "last_respawn_ts",
+        "ts",
+    }
+)
 
 
 class _RuntimeSupervisor:
@@ -769,6 +781,32 @@ class _RuntimeSupervisor:
         with lock:
             core.redis.publish_proc_board("core", **fields)
 
+    def _set_scan_mode(self, scan_mode: str, **fields: Any) -> None:
+        """Overlay WATCHDOG fuse fields on hep:proc:core. Never rewrite MAIN."""
+        core = self._core
+        if core.redis is None:
+            return
+        mode = str(scan_mode or "").strip().lower()
+        if mode not in _FUSE_SCAN_MODES:
+            raise ValueError(f"invalid fuse scan_mode {scan_mode!r}")
+        lock = getattr(core, "_proc_board_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            core._proc_board_lock = lock
+        stale_sec = 30.0
+        try:
+            stale_sec = float(get_watchdog_config(core.config).get("stale_sec", 30.0))
+        except Exception:
+            stale_sec = 30.0
+        ttl = max(int(PROC_BOARD_TTL_SEC), int(2 * stale_sec))
+        payload: dict[str, Any] = {"scan_mode": mode, "ts": time.time()}
+        for key, value in fields.items():
+            if key not in _FUSE_BOARD_FIELDS or value is None:
+                continue
+            payload[key] = value
+        with lock:
+            core.redis.publish_proc_board("core", ttl_sec=ttl, **payload)
+
     def _publish_runtime_metadata(self) -> None:
         core = self._core
 
@@ -904,6 +942,8 @@ class _RuntimeSupervisor:
             core.factory.redis = core.redis
         else:
             core.factory.init_redis()
+        core.factory._core = core
+        core.factory._set_scan_mode = core._set_scan_mode
 
         workers = int(core.runtime.get("workers", 1) or 1)
         if workers <= 0:

@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 from collections.abc import Mapping, Sequence
 from typing import Any
+from unittest import mock
 
 import numpy as np
 
@@ -163,6 +165,89 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
 
         self.assertTrue(sampler.checkpoint_at_barrier())
         self.assertEqual(sampler._persisted_uuids, {"u0"})
+
+    def test_never_published_scan_mode_does_not_abort_generation(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config({"Runtime": {"mode": "redis"}})
+        sampler.set_redis(queue)
+        sampler._register_pending("expected")
+        clock = {"t": 0.0}
+
+        def fake_mono() -> float:
+            return clock["t"]
+
+        def fake_pull(timeout=1, **_kwargs):
+            clock["t"] += float(timeout)
+            if clock["t"] >= 90.0:
+                return {"uuid": "expected", "logL": -1.0}
+            return None
+
+        with mock.patch(
+            "jarvishep2.sampling.feedback_sampler.time.monotonic", fake_mono
+        ):
+            sampler.redis.pull_feedback = fake_pull  # type: ignore[method-assign]
+            results = sampler.wait_for_generation(timeout=120.0)
+        self.assertEqual(results[0]["uuid"], "expected")
+
+    def test_stale_sec_120_unknown_fail_grace_is_240_not_60(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config(
+            {
+                "EnvReqs": {
+                    "V2": {"factory": {"watchdog": {"stale_sec": 120}}}
+                }
+            }
+        )
+        sampler.set_redis(queue)
+        sampler._register_pending("stuck")
+        queue.publish_proc_board("core", scan_mode="running")
+        clock = {"t": 0.0}
+        seen = {"n": 0}
+
+        def fake_mono() -> float:
+            return clock["t"]
+
+        def fake_pull(timeout=1, **_kwargs):
+            clock["t"] += float(timeout)
+            return None
+
+        real_read = queue.read_proc_board
+
+        def fake_read(role, **kwargs):
+            seen["n"] += 1
+            if seen["n"] == 1:
+                return real_read(role, **kwargs)
+            return {}
+
+        with mock.patch(
+            "jarvishep2.sampling.feedback_sampler.time.monotonic", fake_mono
+        ):
+            sampler.redis.pull_feedback = fake_pull  # type: ignore[method-assign]
+            sampler.redis.read_proc_board = fake_read  # type: ignore[method-assign]
+            with self.assertRaises(RuntimeError) as ctx:
+                sampler.wait_for_generation(timeout=1000.0)
+        self.assertIn("unknown", str(ctx.exception).lower())
+        self.assertGreaterEqual(clock["t"], 240.0)
+        self.assertLess(clock["t"], 300.0)
+
+    def test_paused_scan_mode_ends_wait_for_generation_within_one_second(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config({"Runtime": {"mode": "redis"}})
+        sampler.set_redis(queue)
+        sampler._register_pending("stuck")
+        queue.publish_proc_board(
+            "core", scan_mode="paused", pause_reason="death_rate"
+        )
+        started = time.monotonic()
+        with self.assertRaises(RuntimeError) as ctx:
+            sampler.wait_for_generation(timeout=30.0)
+        elapsed = time.monotonic() - started
+        self.assertLess(elapsed, 1.5)
+        self.assertIn("paused", str(ctx.exception).lower())
+        self.assertIn("death_rate", str(ctx.exception))
 
 
 if __name__ == "__main__":

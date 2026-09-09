@@ -21,8 +21,11 @@ import numpy as np
 
 from jarvishep2.sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.redis_queue import PROC_BOARD_TTL_SEC, RedisQueue
 from jarvishep2.sample import Sample
+
+_FEEDBACK_BLPOP_CAP_SEC = 1
+_BLOCKING_SCAN_MODES = frozenset({"paused", "stopping", "draining"})
 
 
 class FeedbackSampler(CheckpointedSampler, ABC):
@@ -188,10 +191,16 @@ class FeedbackSampler(CheckpointedSampler, ABC):
 
         ``queues`` may list per-chain feedback shards; when omitted the default
         ``hep:feedback`` list is used.
+
+        Feedback BLPOP is capped at 1s so ``scan_mode`` can be re-read each
+        round. A core board that was never published is treated as running.
         """
         redis = self._require_redis(f"{type(self).__name__}.wait_for_generation")
         deadline = time.monotonic() + max(1.0, float(timeout))
         matched: list[dict[str, Any]] = []
+        last_scan_mode: str | None = None
+        missing_since: float | None = None
+        board_ttl = self._core_board_ttl_sec()
         while self._pending_uuids:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -199,8 +208,36 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                     f"{type(self).__name__} generation {self._generation} timed out "
                     f"with {len(self._pending_uuids)} pending sample(s)"
                 )
-            wait = max(1, min(5, int(remaining)))
-            record = redis.pull_feedback(timeout=wait, queues=queues)
+            self._fail_if_generation_blocked()
+            mode, pause_reason, seen = self._read_core_scan_mode(redis)
+            if seen:
+                last_scan_mode = mode
+                missing_since = None
+                if mode in _BLOCKING_SCAN_MODES:
+                    raise RuntimeError(
+                        f"{type(self).__name__} generation {self._generation} aborted: "
+                        f"scan_mode={mode} pause_reason={pause_reason or mode}"
+                    )
+            elif last_scan_mode is None:
+                pass
+            else:
+                if missing_since is None:
+                    missing_since = time.monotonic()
+                if (time.monotonic() - missing_since) >= board_ttl:
+                    raise RuntimeError(
+                        f"{type(self).__name__} generation {self._generation} aborted: "
+                        "core proc board missing (scan_mode unknown)"
+                    )
+            wait = _FEEDBACK_BLPOP_CAP_SEC
+            try:
+                record = redis.pull_feedback(timeout=wait, queues=queues)
+            except Exception as exc:
+                if self._generation_interrupt_requested() or _redis_closed(exc):
+                    raise RuntimeError(
+                        f"{type(self).__name__} generation {self._generation} aborted: "
+                        "scan_mode=stopping pause_reason=interrupt"
+                    ) from exc
+                raise
             if record is None:
                 continue
             uuid = str(record.get("uuid", ""))
@@ -218,6 +255,53 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             matched.append(dict(record))
             self._on_feedback_record(record)
         return matched
+
+    def _core_board_ttl_sec(self) -> float:
+        override = getattr(self, "_board_ttl_sec", None)
+        if override is not None:
+            return float(override)
+        stale_sec = 30.0
+        try:
+            from jarvishep2.runtime_config import get_watchdog_config
+
+            stale_sec = float(
+                get_watchdog_config(getattr(self, "config", None)).get("stale_sec", 30.0)
+            )
+        except Exception:
+            stale_sec = 30.0
+        return max(float(PROC_BOARD_TTL_SEC), 2.0 * stale_sec)
+
+    def _generation_interrupt_requested(self) -> bool:
+        if bool(getattr(self, "_interrupt_requested", False)):
+            return True
+        core = getattr(self, "_core", None)
+        return bool(core is not None and getattr(core, "_interrupt_requested", False))
+
+    def _fail_if_generation_blocked(self) -> None:
+        if not self._generation_interrupt_requested():
+            return
+        raise RuntimeError(
+            f"{type(self).__name__} generation {self._generation} aborted: "
+            "scan_mode=stopping pause_reason=interrupt"
+        )
+
+    def _read_core_scan_mode(self, redis: RedisQueue) -> tuple[str, str, bool]:
+        reader = getattr(redis, "read_proc_board", None)
+        if not callable(reader):
+            return "", "", False
+        try:
+            board = reader("core") or {}
+        except Exception as exc:
+            if _redis_closed(exc):
+                return "stopping", "interrupt", True
+            return "", "", False
+        if not isinstance(board, dict) or not board:
+            return "", "", False
+        mode = str(board.get("scan_mode") or "").strip().lower()
+        if not mode:
+            return "", "", False
+        pause_reason = str(board.get("pause_reason") or "").strip()
+        return mode, pause_reason, True
 
     def _on_feedback_record(self, record: Mapping[str, Any]) -> None:
         """Optional streaming hook fired once per matched feedback record.
@@ -349,6 +433,11 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         self._seed_seq = np.random.SeedSequence(self._seed)
         self._on_failure = str(state.get("on_failure") or self._on_failure or "reject")
         self._import_checkpoint_control_state(state)
+
+
+def _redis_closed(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "not connected" in text or "connection closed" in text
 
 
 __all__ = ["FeedbackSampler"]

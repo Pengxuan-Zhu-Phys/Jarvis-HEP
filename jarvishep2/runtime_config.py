@@ -49,6 +49,13 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "stale_sec": 30.0,
     "poll_interval_sec": 1.0,
     "max_sample_retries": 3,
+    "respawn_cooldown_sec_base": 5.0,
+    "respawn_cooldown_sec_cap": 60.0,
+    "death_window_sec": 60.0,
+    "death_rate_abs_min": 10,
+    "death_rate_frac": 0.20,
+    "degraded_frac": 0.10,
+    "pause_grace_sec": 60.0,
 }
 FACTORY_DEFAULTS: dict[str, Any] = {}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
@@ -293,8 +300,24 @@ def get_delete_method(config: Mapping[str, Any] | None) -> str:
     return DEFAULT_DELETE_METHOD
 
 
+def _watchdog_float(raw: Any, *, default: float, min_value: float) -> float:
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        return float(default)
+    return max(float(min_value), parsed)
+
+
+def _watchdog_int(raw: Any, *, default: int, min_value: int) -> int:
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return int(default)
+    return max(int(min_value), parsed)
+
+
 def normalize_watchdog_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize ``Runtime.Watchdog`` settings (WP-D6.1)."""
+    """Normalize ``Runtime.Watchdog`` settings (WP-D6.1 / D26.1 PB-11)."""
     watchdog = dict(WATCHDOG_DEFAULTS)
     if not isinstance(raw, Mapping):
         return watchdog
@@ -302,21 +325,56 @@ def normalize_watchdog_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         watchdog["enabled"] = require_bool(
             raw.get("enabled"), field="EnvReqs.V2.factory.watchdog.enabled"
         )
-    stale_sec = raw.get("stale_sec", watchdog["stale_sec"])
-    try:
-        watchdog["stale_sec"] = max(1.0, float(stale_sec))
-    except (TypeError, ValueError):
-        watchdog["stale_sec"] = WATCHDOG_DEFAULTS["stale_sec"]
-    poll_interval = raw.get("poll_interval_sec", watchdog["poll_interval_sec"])
-    try:
-        watchdog["poll_interval_sec"] = max(0.1, float(poll_interval))
-    except (TypeError, ValueError):
-        watchdog["poll_interval_sec"] = WATCHDOG_DEFAULTS["poll_interval_sec"]
-    max_retries = raw.get("max_sample_retries", watchdog["max_sample_retries"])
-    try:
-        watchdog["max_sample_retries"] = max(0, int(max_retries))
-    except (TypeError, ValueError):
-        watchdog["max_sample_retries"] = WATCHDOG_DEFAULTS["max_sample_retries"]
+    watchdog["stale_sec"] = _watchdog_float(
+        raw.get("stale_sec", watchdog["stale_sec"]),
+        default=float(WATCHDOG_DEFAULTS["stale_sec"]),
+        min_value=1.0,
+    )
+    watchdog["poll_interval_sec"] = _watchdog_float(
+        raw.get("poll_interval_sec", watchdog["poll_interval_sec"]),
+        default=float(WATCHDOG_DEFAULTS["poll_interval_sec"]),
+        min_value=0.1,
+    )
+    watchdog["max_sample_retries"] = _watchdog_int(
+        raw.get("max_sample_retries", watchdog["max_sample_retries"]),
+        default=int(WATCHDOG_DEFAULTS["max_sample_retries"]),
+        min_value=0,
+    )
+    watchdog["respawn_cooldown_sec_base"] = _watchdog_float(
+        raw.get("respawn_cooldown_sec_base", watchdog["respawn_cooldown_sec_base"]),
+        default=float(WATCHDOG_DEFAULTS["respawn_cooldown_sec_base"]),
+        min_value=0.0,
+    )
+    watchdog["respawn_cooldown_sec_cap"] = _watchdog_float(
+        raw.get("respawn_cooldown_sec_cap", watchdog["respawn_cooldown_sec_cap"]),
+        default=float(WATCHDOG_DEFAULTS["respawn_cooldown_sec_cap"]),
+        min_value=0.0,
+    )
+    watchdog["death_window_sec"] = _watchdog_float(
+        raw.get("death_window_sec", watchdog["death_window_sec"]),
+        default=float(WATCHDOG_DEFAULTS["death_window_sec"]),
+        min_value=1.0,
+    )
+    watchdog["death_rate_abs_min"] = _watchdog_int(
+        raw.get("death_rate_abs_min", watchdog["death_rate_abs_min"]),
+        default=int(WATCHDOG_DEFAULTS["death_rate_abs_min"]),
+        min_value=0,
+    )
+    watchdog["death_rate_frac"] = _watchdog_float(
+        raw.get("death_rate_frac", watchdog["death_rate_frac"]),
+        default=float(WATCHDOG_DEFAULTS["death_rate_frac"]),
+        min_value=0.0,
+    )
+    watchdog["degraded_frac"] = _watchdog_float(
+        raw.get("degraded_frac", watchdog["degraded_frac"]),
+        default=float(WATCHDOG_DEFAULTS["degraded_frac"]),
+        min_value=0.0,
+    )
+    watchdog["pause_grace_sec"] = _watchdog_float(
+        raw.get("pause_grace_sec", watchdog["pause_grace_sec"]),
+        default=float(WATCHDOG_DEFAULTS["pause_grace_sec"]),
+        min_value=0.0,
+    )
     return watchdog
 
 

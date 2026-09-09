@@ -740,6 +740,137 @@ class ChildrenBoardOrphanTests(unittest.TestCase):
         self.assertNotIn("killpg-hb", order)
         self.assertNotIn("hb-pids", order)
 
+class CircuitBreakerTests(unittest.TestCase):
+    def setUp(self) -> None:
+        TaskFactory.reset_instance()
+
+    def tearDown(self) -> None:
+        TaskFactory.reset_instance()
+
+    def test_cooldown_skips_worker_start_during_window(self) -> None:
+        starts: list[int] = []
+
+        class _StubWorker:
+            _pid = 1000
+
+            def __init__(self, worker_id: int, *_args: Any, **_kwargs: Any) -> None:
+                self.worker_id = worker_id
+                self.pid: int | None = None
+                self._alive = False
+
+            def start(self) -> None:
+                type(self)._pid += 1
+                self.pid = type(self)._pid
+                self._alive = True
+                starts.append(int(self.worker_id))
+
+            def is_alive(self) -> bool:
+                return self._alive
+
+        factory = TaskFactory({})
+        factory.redis = make_fakeredis_queue()
+        factory._workers_total = 1
+        factory._redis_connection_config = {}
+        factory._worker_spawn_template = {}
+        dead = SimpleNamespace(worker_id=0, pid=11, is_alive=lambda: False)
+        factory.workers = [dead]
+        with mock.patch.object(factory_module, "Worker", _StubWorker):
+            TaskFactory._handle_worker_failure(factory, dead, reason="process_exit")
+            self.assertEqual(starts, [0])
+            replacement = factory.workers[0]
+            replacement._alive = False
+            TaskFactory._handle_worker_failure(
+                factory, replacement, reason="process_exit"
+            )
+            self.assertEqual(starts, [0])
+            factory._inspect_workers()
+            self.assertEqual(starts, [0])
+
+    def test_death_rate_pauses_without_killing_live_workers(self) -> None:
+        factory = TaskFactory({})
+        factory.redis = make_fakeredis_queue()
+        factory._workers_total = 190
+        now = time.time()
+        factory._death_times.extend([now] * 40)
+        factory.workers = [
+            SimpleNamespace(worker_id=index, pid=2000 + index, is_alive=lambda: True)
+            for index in range(150)
+        ]
+        stopped: list[int] = []
+        factory._force_stop_worker = lambda worker: stopped.append(int(worker.worker_id))
+        factory._evaluate_fuse()
+        self.assertEqual(factory._scan_mode, "paused")
+        self.assertEqual(len(factory.workers), 150)
+        self.assertEqual(stopped, [])
+        self.assertTrue(all(worker.is_alive() for worker in factory.workers))
+        starts: list[int] = []
+
+        class _StubWorker:
+            def __init__(self, worker_id: int, *_args: Any, **_kwargs: Any) -> None:
+                self.worker_id = worker_id
+                self.pid = 9
+                self._alive = True
+
+            def start(self) -> None:
+                starts.append(int(self.worker_id))
+
+            def is_alive(self) -> bool:
+                return self._alive
+
+        dead = SimpleNamespace(worker_id=0, pid=2000, is_alive=lambda: False)
+        factory.workers[0] = dead
+        with mock.patch.object(factory_module, "Worker", _StubWorker):
+            TaskFactory._handle_worker_failure(factory, dead, reason="process_exit")
+        self.assertEqual(starts, [])
+        self.assertEqual(len(factory.workers), 149)
+        self.assertTrue(all(worker.is_alive() for worker in factory.workers))
+
+    def test_death_rate_drop_returns_to_running_and_fills_slots(self) -> None:
+        starts: list[int] = []
+
+        class _StubWorker:
+            _pid = 3000
+
+            def __init__(self, worker_id: int, *_args: Any, **_kwargs: Any) -> None:
+                self.worker_id = worker_id
+                self.pid: int | None = None
+                self._alive = False
+
+            def start(self) -> None:
+                type(self)._pid += 1
+                self.pid = type(self)._pid
+                self._alive = True
+                starts.append(int(self.worker_id))
+
+            def is_alive(self) -> bool:
+                return self._alive
+
+        factory = TaskFactory({})
+        factory.redis = make_fakeredis_queue()
+        factory._workers_total = 5
+        factory._pause_grace_sec = 1.0
+        factory._scan_mode = "paused"
+        factory._fuse_low_since = time.time() - 2.0
+        factory._cooldown_until = {}
+        factory._redis_connection_config = {}
+        factory._worker_spawn_template = {}
+        factory.workers = [
+            SimpleNamespace(
+                worker_id=index,
+                pid=4000 + index,
+                is_alive=lambda: True,
+            )
+            for index in range(3)
+        ]
+        with mock.patch.object(factory_module, "Worker", _StubWorker):
+            factory._evaluate_fuse()
+            self.assertEqual(factory._scan_mode, "running")
+            self.assertEqual(sorted(starts), [3, 4])
+            present = sorted(int(worker.worker_id) for worker in factory.workers)
+            self.assertEqual(present, [0, 1, 2, 3, 4])
+
+
+
 
 if __name__ == "__main__":
     unittest.main()
