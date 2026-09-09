@@ -267,6 +267,13 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
             "stale_sec": "Seconds before a worker is considered stale.",
             "poll_interval_sec": "Watchdog polling interval in seconds.",
             "max_sample_retries": "Maximum retries for one sample.",
+            "respawn_cooldown_sec_base": "First per-worker respawn delay in seconds.",
+            "respawn_cooldown_sec_cap": "Maximum per-worker respawn delay in seconds.",
+            "death_window_sec": "Sliding window for the death-rate fuse.",
+            "death_rate_abs_min": "Absolute death count that can pause respawn.",
+            "death_rate_frac": "Fraction of workers whose deaths pause respawn.",
+            "degraded_frac": "Fraction of workers whose deaths enter degraded.",
+            "pause_grace_sec": "Seconds of low death-rate before leaving paused.",
         },
         "watchdog:\n  enabled: true\n  stale_sec: 30",
     ),
@@ -303,6 +310,13 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "stale_sec": "number",
     "poll_interval_sec": "number",
     "max_sample_retries": "integer",
+    "respawn_cooldown_sec_base": "number",
+    "respawn_cooldown_sec_cap": "number",
+    "death_window_sec": "number",
+    "death_rate_abs_min": "integer",
+    "death_rate_frac": "number",
+    "degraded_frac": "number",
+    "pause_grace_sec": "number",
 }
 
 # Keys-table navigation markers (human output). ▸ = deeper man page; · = leaf field.

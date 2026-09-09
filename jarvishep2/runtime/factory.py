@@ -14,6 +14,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -359,8 +360,25 @@ class _Watchdog:
                     self.handle_worker_failure(worker, reason="stale_heartbeat")
                 continue
             if (time.time() - last_seen) <= self.stale_sec:
+                self._reset_cooldown_if_healthy(worker)
                 continue
             self.handle_worker_failure(worker, reason="stale_heartbeat")
+        factory = self._factory
+        evaluate = getattr(factory, "_evaluate_fuse", None)
+        if callable(evaluate):
+            evaluate()
+        fill = getattr(factory, "_fill_empty_slots", None)
+        if callable(fill):
+            fill()
+
+    def _reset_cooldown_if_healthy(self, worker: Worker) -> None:
+        spawned = float(getattr(worker, "_spawned_at", 0.0) or 0.0)
+        if spawned <= 0.0 or (time.time() - spawned) < self.stale_sec:
+            return
+        factory = self._factory
+        consec = getattr(factory, "_consecutive_failures", None)
+        if isinstance(consec, dict):
+            consec[int(worker.worker_id)] = 0
 
     @staticmethod
     def force_stop_worker(worker: Worker) -> None:
@@ -529,6 +547,23 @@ class TaskFactory:
         self._recovery_lock = threading.Lock()
         self._last_recovered_pid: dict[int, int | None] = {}
         self._respawn_count = 0
+        self._workers_total = 0
+        self._cooldown_until: dict[int, float] = {}
+        self._consecutive_failures: dict[int, int] = {}
+        self._death_times: deque[float] = deque()
+        self._scan_mode = "running"
+        self._set_scan_mode: Callable[..., None] | None = None
+        self._core: Any = None
+        self._respawn_cooldown_sec_base = 5.0
+        self._respawn_cooldown_sec_cap = 60.0
+        self._death_window_sec = 60.0
+        self._death_rate_abs_min = 10
+        self._death_rate_frac = 0.20
+        self._degraded_frac = 0.10
+        self._pause_grace_sec = 60.0
+        self._fuse_low_since: float | None = None
+        self._fuse_zero_alive_since: float | None = None
+        self._last_respawn_ts: float | None = None
         self._logger = get_jarvis_logger("factory")
         self._monitor = _MonitorLoop(self)
         self._watchdog = _Watchdog(self)
@@ -599,6 +634,7 @@ class TaskFactory:
             worker._spawned_at = time.time()
             started.append(worker)
         self.workers.extend(started)
+        self._workers_total = max(int(getattr(self, "_workers_total", 0) or 0), n)
         if self._run_started_at is None:
             self._run_started_at = time.time()
         self._peak_workers_alive = max(
@@ -748,8 +784,22 @@ class TaskFactory:
         stale_sec: float = 30.0,
         poll_interval_sec: float = 1.0,
         max_sample_retries: int = 3,
+        respawn_cooldown_sec_base: float = 5.0,
+        respawn_cooldown_sec_cap: float = 60.0,
+        death_window_sec: float = 60.0,
+        death_rate_abs_min: int = 10,
+        death_rate_frac: float = 0.20,
+        degraded_frac: float = 0.10,
+        pause_grace_sec: float = 60.0,
     ) -> None:
-        """Launch the Worker watchdog (WP-D6.1)."""
+        """Launch the Worker watchdog (WP-D6.1 / D26.1 PB-11)."""
+        self._respawn_cooldown_sec_base = max(0.0, float(respawn_cooldown_sec_base))
+        self._respawn_cooldown_sec_cap = max(0.0, float(respawn_cooldown_sec_cap))
+        self._death_window_sec = max(1.0, float(death_window_sec))
+        self._death_rate_abs_min = max(0, int(death_rate_abs_min))
+        self._death_rate_frac = max(0.0, float(death_rate_frac))
+        self._degraded_frac = max(0.0, float(degraded_frac))
+        self._pause_grace_sec = max(0.0, float(pause_grace_sec))
         self._watchdog.start(
             enabled=enabled,
             stale_sec=stale_sec,
@@ -841,6 +891,41 @@ class TaskFactory:
             self.workers = [
                 item for item in self.workers if item.worker_id != worker_id
             ]
+            inflight_uuid = _inflight_uuid_from_heartbeat(self.redis, heartbeat)
+            deaths = getattr(self, "_death_times", None)
+            if deaths is not None:
+                try:
+                    deaths.append(time.time())
+                except Exception:
+                    pass
+            consec = getattr(self, "_consecutive_failures", None)
+            if isinstance(consec, dict):
+                consec[worker_id] = int(consec.get(worker_id, 0) or 0) + 1
+            evaluate = getattr(self, "_evaluate_fuse", None)
+            if callable(evaluate):
+                evaluate()
+            now = time.time()
+            scan_mode = str(getattr(self, "_scan_mode", "running") or "running")
+            cooldown_until = getattr(self, "_cooldown_until", None)
+            if not isinstance(cooldown_until, dict):
+                cooldown_until = {}
+            until = float(cooldown_until.get(worker_id, 0.0) or 0.0)
+            skip_respawn = scan_mode in {"paused", "stopping", "draining"} or now < until
+            self._last_recovered_pid[worker_id] = dead_pid
+            logger = getattr(self, "_logger", None)
+            if skip_respawn:
+                if logger is not None:
+                    logger.warning(
+                        "cooldown skip respawn worker %d (reason=%s, requeued=%s, "
+                        "inflight_uuid=%s, cooldown=%.1f, scan_mode=%s)",
+                        worker_id,
+                        reason,
+                        requeued,
+                        inflight_uuid,
+                        max(0.0, until - now),
+                        scan_mode,
+                    )
+                return
             replacement = Worker(
                 worker_id,
                 self._redis_connection_config,
@@ -849,22 +934,264 @@ class TaskFactory:
             replacement.start()
             replacement._spawned_at = time.time()
             self.workers.append(replacement)
-            self._last_recovered_pid[worker_id] = dead_pid
             self._respawn_count += 1
+            self._last_respawn_ts = time.time()
             self._peak_workers_alive = max(
                 self._peak_workers_alive, len(self._alive_workers())
+            )
+            delay_fn = getattr(self, "_respawn_delay", None)
+            delay = float(delay_fn(worker_id)) if callable(delay_fn) else 5.0
+            cooldown_until[worker_id] = time.time() + delay
+            try:
+                self._cooldown_until = cooldown_until
+            except Exception:
+                pass
+            if logger is not None:
+                logger.warning(
+                    "recovered dead worker %d (reason=%s, requeued=%s, "
+                    "inflight_uuid=%s, cooldown=%.1f, scan_mode=%s, "
+                    "orphans_killed=%d, released_slots=%d, new_pid=%s)",
+                    worker_id,
+                    reason,
+                    requeued,
+                    inflight_uuid,
+                    delay,
+                    scan_mode,
+                    orphans_killed,
+                    released,
+                    replacement.pid,
+                )
+
+    def _float_attr(self, name: str, default: float) -> float:
+        if not hasattr(self, name):
+            return float(default)
+        raw = getattr(self, name)
+        if raw is None:
+            return float(default)
+        return float(raw)
+
+    def _int_attr(self, name: str, default: int) -> int:
+        if not hasattr(self, name):
+            return int(default)
+        raw = getattr(self, name)
+        if raw is None:
+            return int(default)
+        return int(raw)
+
+    def _respawn_delay(self, worker_id: int) -> float:
+        base = self._float_attr("_respawn_cooldown_sec_base", 5.0)
+        cap = self._float_attr("_respawn_cooldown_sec_cap", 60.0)
+        consec = getattr(self, "_consecutive_failures", None)
+        n = 1
+        if isinstance(consec, dict):
+            n = max(1, int(consec.get(int(worker_id), 1)))
+        delay = min(cap, base * (2 ** max(0, n - 1)))
+        if str(getattr(self, "_scan_mode", "running") or "running") == "degraded":
+            delay = max(delay, 20.0)
+        return float(delay)
+
+    def _fuse_thresholds(self) -> tuple[int, float, float]:
+        total = self._int_attr("_workers_total", 0)
+        if total <= 0:
+            total = max(1, len(getattr(self, "workers", []) or []))
+        degraded_frac = self._float_attr("_degraded_frac", 0.10)
+        death_rate_frac = self._float_attr("_death_rate_frac", 0.20)
+        abs_min = self._int_attr("_death_rate_abs_min", 10)
+        return total, degraded_frac * total, max(float(abs_min), death_rate_frac * total)
+
+    def _death_count_in_window(self, now: float) -> int:
+        window = self._float_attr("_death_window_sec", 60.0)
+        deaths = getattr(self, "_death_times", None)
+        if deaths is None:
+            return 0
+        try:
+            while deaths and (now - float(deaths[0])) > window:
+                deaths.popleft()
+        except Exception:
+            return 0
+        return len(deaths)
+
+    def _evaluate_fuse(self) -> None:
+        now = time.time()
+        death_count = self._death_count_in_window(now)
+        total, degraded_threshold, pause_threshold = self._fuse_thresholds()
+        alive = sum(1 for worker in list(self.workers) if worker.is_alive())
+        mode = str(getattr(self, "_scan_mode", "running") or "running")
+        if mode in {"draining", "stopping"}:
+            self._publish_fuse(mode, death_count=death_count, alive=alive)
+            return
+        pause_grace = self._float_attr("_pause_grace_sec", 60.0)
+        below = death_count < degraded_threshold
+        if below:
+            low_since = getattr(self, "_fuse_low_since", None)
+            if low_since is None:
+                self._fuse_low_since = now
+                low_since = now
+            low_long_enough = (now - float(low_since)) >= pause_grace
+        else:
+            self._fuse_low_since = None
+            low_long_enough = False
+        new_mode = mode
+        pause_reason = ""
+        if mode == "running":
+            if death_count >= pause_threshold:
+                new_mode = "paused"
+                pause_reason = "death_rate"
+            elif death_count >= degraded_threshold:
+                new_mode = "degraded"
+                pause_reason = "death_rate"
+        elif mode == "degraded":
+            if death_count >= pause_threshold:
+                new_mode = "paused"
+                pause_reason = "death_rate"
+            elif low_long_enough:
+                new_mode = "running"
+            else:
+                pause_reason = "death_rate"
+        elif mode == "paused":
+            pause_reason = "death_rate"
+            if alive == 0:
+                zero_since = getattr(self, "_fuse_zero_alive_since", None)
+                if zero_since is None:
+                    self._fuse_zero_alive_since = now
+                    zero_since = now
+                if (now - float(zero_since)) >= pause_grace:
+                    new_mode = "stopping"
+                    pause_reason = "workers_alive=0"
+            else:
+                self._fuse_zero_alive_since = None
+                if low_long_enough:
+                    new_mode = "running"
+                    pause_reason = ""
+        if new_mode != mode:
+            self._scan_mode = new_mode
+            if new_mode == "running":
+                self._fuse_low_since = None
+                self._fuse_zero_alive_since = None
+            logger = getattr(self, "_logger", None)
+            if logger is not None:
+                log = logger.error if new_mode in {"paused", "stopping"} else logger.warning
+                log(
+                    "scan_mode=%s death_rate_1m=%s workers_alive=%s pause_reason=%s",
+                    new_mode,
+                    death_count,
+                    alive,
+                    pause_reason,
+                )
+        if new_mode == "degraded" and not pause_reason:
+            pause_reason = "death_rate"
+        self._publish_fuse(
+            new_mode,
+            death_count=death_count,
+            alive=alive,
+            pause_reason=pause_reason,
+        )
+        if new_mode == "stopping" and mode != "stopping":
+            self._request_fuse_interrupt(pause_reason=pause_reason or "workers_alive=0")
+        if mode == "paused" and new_mode == "running":
+            fill = getattr(self, "_fill_empty_slots", None)
+            if callable(fill):
+                fill()
+
+    def _publish_fuse(
+        self,
+        scan_mode: str,
+        *,
+        death_count: int,
+        alive: int,
+        pause_reason: str = "",
+    ) -> None:
+        setter = getattr(self, "_set_scan_mode", None)
+        if not callable(setter):
+            core = getattr(self, "_core", None)
+            setter = getattr(core, "_set_scan_mode", None) if core is not None else None
+        if not callable(setter):
+            return
+        fields: dict[str, Any] = {
+            "pause_reason": pause_reason,
+            "workers_alive": int(alive),
+            "workers_respawned": int(getattr(self, "_respawn_count", 0) or 0),
+            "death_window_respawns": int(death_count),
+            "death_rate_1m": int(death_count),
+        }
+        last_respawn = getattr(self, "_last_respawn_ts", None)
+        if last_respawn is not None:
+            fields["last_respawn_ts"] = last_respawn
+        setter(scan_mode, **fields)
+
+    def _request_fuse_interrupt(self, *, pause_reason: str) -> None:
+        core = getattr(self, "_core", None)
+        if core is not None:
+            core._interrupt_requested = True
+        redis = getattr(core, "redis", None) if core is not None else None
+        if redis is None:
+            redis = getattr(self, "redis", None)
+        closer = getattr(redis, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+        shutdown = getattr(self, "request_worker_shutdown", None)
+        if callable(shutdown):
+            shutdown()
+        logger = getattr(self, "_logger", None)
+        if logger is not None:
+            logger.error(
+                "scan_mode=stopping pause_reason=%s; closed core redis clients",
+                pause_reason,
+            )
+
+    def _fill_empty_slots(self) -> None:
+        mode = str(getattr(self, "_scan_mode", "running") or "running")
+        if mode in {"paused", "stopping", "draining"}:
+            return
+        if getattr(self, "redis", None) is None:
+            return
+        total = int(getattr(self, "_workers_total", 0) or 0)
+        if total <= 0:
+            return
+        present = {int(worker.worker_id) for worker in list(self.workers)}
+        now = time.time()
+        cooldown = getattr(self, "_cooldown_until", None)
+        if not isinstance(cooldown, dict):
+            cooldown = {}
+        delay_fn = getattr(self, "_respawn_delay", None)
+        for worker_id in range(total):
+            if worker_id in present:
+                continue
+            until = float(cooldown.get(worker_id, 0.0) or 0.0)
+            if now < until:
+                continue
+            replacement = Worker(
+                worker_id,
+                getattr(self, "_redis_connection_config", {}) or {},
+                copy.deepcopy(getattr(self, "_worker_spawn_template", {}) or {}),
+            )
+            replacement.start()
+            replacement._spawned_at = time.time()
+            self.workers.append(replacement)
+            present.add(worker_id)
+            self._last_recovered_pid[worker_id] = replacement.pid
+            self._respawn_count += 1
+            self._last_respawn_ts = time.time()
+            delay = float(delay_fn(worker_id)) if callable(delay_fn) else 5.0
+            cooldown[worker_id] = time.time() + delay
+            try:
+                self._cooldown_until = cooldown
+            except Exception:
+                pass
+            self._peak_workers_alive = max(
+                getattr(self, "_peak_workers_alive", 0),
+                len(self._alive_workers()),
             )
             logger = getattr(self, "_logger", None)
             if logger is not None:
                 logger.warning(
-                    "recovered dead worker %d (reason=%s, orphans_killed=%d, "
-                    "released_slots=%d, requeued=%s, new_pid=%s)",
+                    "filled empty worker slot %d (cooldown=%.1f, scan_mode=%s)",
                     worker_id,
-                    reason,
-                    orphans_killed,
-                    released,
-                    requeued,
-                    replacement.pid,
+                    delay,
+                    mode,
                 )
 
     def shutdown(self, *, wait: bool = True) -> None:
@@ -883,7 +1210,33 @@ class TaskFactory:
         self._redis_connection_config.clear()
         self._last_recovered_pid.clear()
         self._respawn_count = 0
+        self._workers_total = 0
+        self._cooldown_until.clear()
+        self._consecutive_failures.clear()
+        self._death_times.clear()
+        self._scan_mode = "running"
+        self._fuse_low_since = None
+        self._fuse_zero_alive_since = None
+        self._last_respawn_ts = None
         self._logger.info("TaskFactory shutdown complete")
+
+
+def _inflight_uuid_from_heartbeat(redis: Any, heartbeat: dict[str, Any]) -> str:
+    task = None
+    decode = getattr(redis, "decode_heartbeat_task", None)
+    if callable(decode):
+        try:
+            task = decode(heartbeat)
+        except Exception:
+            task = None
+    if isinstance(task, dict) and task.get("uuid"):
+        return str(task.get("uuid") or "")
+    return str(
+        heartbeat.get("current_sample")
+        or heartbeat.get("current_uuid")
+        or heartbeat.get("current_task")
+        or ""
+    )
 
 
 __all__ = ["TaskFactory"]
