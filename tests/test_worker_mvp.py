@@ -235,7 +235,9 @@ class WorkerMVPTests(unittest.TestCase):
         task = {"uuid": "in-flight-1", "u_coords": [0.1]}
         redis = mock.Mock()
         redis.pull_task_to_inflight.side_effect = [task, None]
+        redis.occupy_inflight_task.return_value = None
         redis.get_inflight_task.return_value = None
+        redis.ack_inflight_task.return_value = True
         worker._redis = redis
         order: list[Any] = []
 
@@ -272,7 +274,9 @@ class WorkerMVPTests(unittest.TestCase):
         leftover = {"uuid": "left-1", "u_coords": [0.2]}
         redis = mock.Mock()
         redis.pull_task_to_inflight.return_value = None
-        redis.get_inflight_task.side_effect = [leftover, None]
+        redis.occupy_inflight_task.side_effect = [leftover, None]
+        redis.get_inflight_task.return_value = None
+        redis.ack_inflight_task.return_value = True
         worker._redis = redis
         processed: list[str] = []
 
@@ -333,6 +337,7 @@ class WorkerMVPTests(unittest.TestCase):
         leftover = {"uuid": "occ-1", "u_coords": [0.3]}
         redis = mock.Mock()
         redis.pull_task_to_inflight.return_value = None
+        redis.occupy_inflight_task.return_value = leftover
         redis.get_inflight_task.return_value = leftover
         worker._redis = redis
         processed: list[str] = []
@@ -348,6 +353,31 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertEqual(redis.pull_task_to_inflight.call_count, 1)
         self.assertFalse(worker._is_running)
         redis.ack_inflight_task.assert_not_called()
+
+    def test_ack_false_after_submit_exits_and_leaves_inflight(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 1},
+        )
+        task = {"uuid": "ack-miss", "u_coords": [0.4]}
+        redis = mock.Mock()
+        redis.pull_task_to_inflight.return_value = task
+        redis.occupy_inflight_task.return_value = None
+        redis.get_inflight_task.return_value = task
+        redis.ack_inflight_task.return_value = False
+        worker._redis = redis
+
+        def process_task(_payload: dict[str, Any]) -> None:
+            worker._inflight_submitted = True
+
+        worker.process_task = process_task  # type: ignore[method-assign]
+        worker._heartbeat = lambda *_a, **_k: None  # type: ignore[method-assign]
+        worker._main_loop()
+
+        self.assertFalse(worker._is_running)
+        redis.ack_inflight_task.assert_called_once_with("0", "ack-miss")
+        self.assertEqual(redis.pull_task_to_inflight.call_count, 1)
 
     def test_core_can_attach_to_explicit_external_redis(self) -> None:
         config = {

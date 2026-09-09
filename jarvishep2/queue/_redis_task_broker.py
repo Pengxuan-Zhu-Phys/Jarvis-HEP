@@ -39,6 +39,16 @@ class _TaskBroker:
         pipe.incr(OP_COUNT.format(kind="task"))
         pipe.execute()
 
+    def lpush_task(self, task: Mapping[str, Any]) -> None:
+        """LPUSH onto hep:task_queue so the payload is the FIFO head."""
+        self._require_client()
+        _validate_task_payload(task)
+        encoded = encode_payload(dict(task), codec=self._codec)
+        pipe = self.r.pipeline(transaction=True)
+        pipe.lpush(TASK_QUEUE, encoded)
+        pipe.incr(OP_COUNT.format(kind="task"))
+        pipe.execute()
+
     def pull_task(self, timeout: int = 5) -> dict[str, Any] | None:
         self._require_client()
         raw = self._blpop(TASK_QUEUE, timeout=timeout)

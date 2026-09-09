@@ -702,7 +702,12 @@ class Worker(Process):
         while self._is_running:
             task = self._redis.pull_task_to_inflight(wid, timeout=pull_timeout)
             if task is None:
-                leftover = self._redis.get_inflight_task(wid)
+                leftover = None
+                occupy = getattr(self._redis, "occupy_inflight_task", None)
+                if callable(occupy):
+                    leftover = occupy(wid)
+                if leftover is None:
+                    leftover = self._redis.get_inflight_task(wid)
                 if leftover is None:
                     self._heartbeat("idle")
                     continue
@@ -715,7 +720,11 @@ class Worker(Process):
             self._heartbeat("busy")
             self.process_task(task)
             if uuid and self._inflight_submitted:
-                self._redis.ack_inflight_task(wid, uuid)
+                acked = self._redis.ack_inflight_task(wid, uuid)
+                if not acked:
+                    self._is_running = False
+                    self._heartbeat("idle")
+                    break
             else:
                 self._is_running = False
                 self._heartbeat("idle")

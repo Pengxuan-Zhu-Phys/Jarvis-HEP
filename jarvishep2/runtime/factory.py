@@ -385,11 +385,14 @@ class _Watchdog:
         redis = self._factory.redis
         if redis is None:
             return False
-        payloads = redis.reclaim_inflight_task(worker_id)
-        if not payloads:
+        reclaim = getattr(redis, "reclaim_inflight_task", None)
+        if callable(reclaim):
+            payloads = list(reclaim(worker_id) or [])
+        else:
             task = redis.decode_heartbeat_task(heartbeat)
             payloads = [task] if task else []
         any_requeued = False
+        lpush_task = getattr(redis, "lpush_task", None)
         for task in payloads:
             retry_count = int(task.get("_retry_count", 0) or 0)
             if retry_count >= self.max_sample_retries:
@@ -405,7 +408,11 @@ class _Watchdog:
                     )
                 continue
             task["_retry_count"] = retry_count + 1
-            redis.push_task(task)
+            # LPUSH newest-to-oldest (LRANGE order) so the original owner is FIFO head.
+            if callable(lpush_task):
+                lpush_task(task)
+            else:
+                redis.push_task(task)
             any_requeued = True
         return any_requeued
 

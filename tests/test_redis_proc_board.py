@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
 from unittest import mock
 
@@ -234,6 +235,8 @@ class InflightOwnershipTests(unittest.TestCase):
 
         t1 = _task("r1", _retry_count=0)
         t2 = _task("r2", _retry_count=1)
+        self.queue.push_task(_task("t3"))
+        self.queue.push_task(_task("t4"))
         self._plant_inflight(t1, t2)
         watchdog = _Watchdog(SimpleNamespace(redis=self.queue))
         watchdog.max_sample_retries = 3
@@ -243,8 +246,55 @@ class InflightOwnershipTests(unittest.TestCase):
             self.queue._decode_task_payload(raw)
             for raw in self.queue.r.lrange(TASK_QUEUE, 0, -1)
         ]
-        by_uuid = {item["uuid"]: int(item["_retry_count"]) for item in queued}
-        self.assertEqual(by_uuid, {"r1": 1, "r2": 2})
+        self.assertEqual([item["uuid"] for item in queued], ["r1", "r2", "t3", "t4"])
+        by_uuid = {item["uuid"]: int(item.get("_retry_count") or 0) for item in queued}
+        self.assertEqual(by_uuid["r1"], 1)
+        self.assertEqual(by_uuid["r2"], 2)
+
+    def test_empty_reclaim_does_not_fallback_to_heartbeat(self) -> None:
+        from types import SimpleNamespace
+
+        from jarvishep2.runtime.factory import _Watchdog
+
+        heartbeat = {
+            "current_task": encode_payload(_task("already-acked"), codec="json"),
+        }
+        watchdog = _Watchdog(SimpleNamespace(redis=self.queue))
+        self.assertFalse(watchdog.requeue_in_flight_task(heartbeat, worker_id="0"))
+        self.assertEqual(int(self.queue.r.llen(TASK_QUEUE)), 0)
+
+    def test_heartbeat_fallback_when_reclaim_missing(self) -> None:
+        from types import SimpleNamespace
+
+        from jarvishep2.runtime.factory import _Watchdog
+
+        class _NoReclaim:
+            def __init__(self, queue):
+                self.queue = queue
+
+            def decode_heartbeat_task(self, heartbeat):
+                return self.queue.decode_heartbeat_task(heartbeat)
+
+            def lpush_task(self, task):
+                self.queue.lpush_task(task)
+
+            def push_task(self, task):
+                self.queue.push_task(task)
+
+            def submit_result(self, info):
+                self.queue.submit_result(info)
+
+        heartbeat = {
+            "current_task": encode_payload(_task("hb-only"), codec="json"),
+        }
+        watchdog = _Watchdog(SimpleNamespace(redis=_NoReclaim(self.queue)))
+        self.assertTrue(watchdog.requeue_in_flight_task(heartbeat, worker_id="0"))
+        queued = [
+            self.queue._decode_task_payload(raw)
+            for raw in self.queue.r.lrange(TASK_QUEUE, 0, -1)
+        ]
+        self.assertEqual([item["uuid"] for item in queued], ["hb-only"])
+        self.assertEqual(int(queued[0]["_retry_count"]), 1)
 
     def test_reclaim_drains_all_inflight_items(self) -> None:
         self._plant_inflight(_task("a"), _task("b"))
@@ -285,6 +335,61 @@ class InflightOwnershipTests(unittest.TestCase):
         occupied = self.queue.pull_task_to_inflight("0", timeout=1)
         self.assertIsNone(occupied)
 
+    def test_production_pull_raises_without_blmove(self) -> None:
+        queue = RedisQueue({"host": "127.0.0.1", "port": 1, "db": 0})
+        blocking = mock.MagicMock()
+        blocking.blmove.side_effect = Exception("unknown command 'BLMOVE'")
+        queue.r = blocking
+        queue.r_ctrl = mock.MagicMock()
+        queue._allow_steal_inflight = False
+        with self.assertRaises(RuntimeError) as ctx:
+            queue.pull_task_to_inflight("0", timeout=1)
+        self.assertIn("BLMOVE", str(ctx.exception))
+        self.assertIn("6.2", str(ctx.exception))
+
+    def test_blmove_timeout_with_llen_gt_1_runs_occupancy(self) -> None:
+        self._plant_inflight(_task("t1"), _task("t2"), _task("t3"))
+        self.queue.r.blmove = mock.Mock(return_value=None)  # type: ignore[method-assign]
+        got = self.queue.pull_task_to_inflight("0", timeout=1)
+        self.assertEqual(got["uuid"], "t1")
+        self.assertEqual(int(self.queue.r.llen(self.inflight)), 1)
+        self.assertEqual(self.queue.get_inflight_task("0")["uuid"], "t1")
+
+    def test_ack_and_reclaim_do_not_both_yield(self) -> None:
+        self._plant_inflight(_task("one"))
+        acked: list[bool] = []
+        reclaimed: list[list] = []
+
+        def do_ack() -> None:
+            acked.append(self.queue.ack_inflight_task("0", "one"))
+
+        def do_reclaim() -> None:
+            reclaimed.append(self.queue.reclaim_inflight_task("0"))
+
+        ack_thread = threading.Thread(target=do_ack)
+        reclaim_thread = threading.Thread(target=do_reclaim)
+        ack_thread.start()
+        reclaim_thread.start()
+        ack_thread.join()
+        reclaim_thread.join()
+        ack_got = bool(acked and acked[0])
+        rec_items = reclaimed[0] if reclaimed else []
+        rec_got = bool(rec_items)
+        self.assertTrue(ack_got or rec_got)
+        self.assertFalse(ack_got and rec_got)
+        if rec_got:
+            self.assertEqual(rec_items[0]["uuid"], "one")
+
+    def test_ack_then_reclaim_and_reclaim_then_ack_are_exclusive(self) -> None:
+        self._plant_inflight(_task("seq-a"))
+        self.assertTrue(self.queue.ack_inflight_task("0", "seq-a"))
+        self.assertEqual(self.queue.reclaim_inflight_task("0"), [])
+
+        self._plant_inflight(_task("seq-b"))
+        payloads = self.queue.reclaim_inflight_task("0")
+        self.assertEqual([item["uuid"] for item in payloads], ["seq-b"])
+        self.assertFalse(self.queue.ack_inflight_task("0", "seq-b"))
+
     def test_require_blmove_raises_on_missing_command(self) -> None:
         client = mock.MagicMock()
         client.execute_command.return_value = []
@@ -321,6 +426,12 @@ class InflightOwnershipTests(unittest.TestCase):
 
             def llen(self, *args, **kwargs):
                 return control.llen(*args, **kwargs)
+
+            def lrange(self, *args, **kwargs):
+                return control.lrange(*args, **kwargs)
+
+            def delete(self, *args, **kwargs):
+                return control.delete(*args, **kwargs)
 
             def lpop(self, *args, **kwargs):
                 return control.lpop(*args, **kwargs)

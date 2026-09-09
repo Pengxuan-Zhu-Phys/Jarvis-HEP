@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
@@ -307,6 +308,18 @@ class _ProcBoard:
     def _eval_ctrl(self, script: str, numkeys: int, *keys_and_args: Any) -> Any:
         return self._ctrl().eval(script, numkeys, *keys_and_args)
 
+    def _py_inflight_lock(self) -> threading.Lock:
+        lock = getattr(self, "_inflight_py_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._inflight_py_lock = lock
+        return lock
+
+    def _steal_allowed(self) -> bool:
+        if bool(getattr(self, "_allow_steal_inflight", False)):
+            return True
+        return self.r is not None and self.r_ctrl is self.r
+
     def _decode_task_payload(self, raw: Any) -> dict[str, Any] | None:
         if raw is None:
             return None
@@ -332,49 +345,55 @@ class _ProcBoard:
         return self._decode_task_payload(result[1])
 
     def _occupy_inflight_python(self, inflight_key: str) -> list[Any]:
-        ctrl = self._ctrl()
-        n_start = int(ctrl.llen(inflight_key) or 0)
-        if n_start == 0:
-            return ["empty"]
-        while int(ctrl.llen(inflight_key) or 0) > 1:
-            extra = ctrl.lpop(inflight_key)
-            if extra is None:
-                break
-            ctrl.lpush(TASK_QUEUE, extra)
-        if n_start == 1:
-            ctrl.hincrby(SAMPLE_STATS, "running", 1)
-        return ["ok", ctrl.lindex(inflight_key, 0)]
+        with self._py_inflight_lock():
+            ctrl = self._ctrl()
+            n_start = int(ctrl.llen(inflight_key) or 0)
+            if n_start == 0:
+                return ["empty"]
+            while int(ctrl.llen(inflight_key) or 0) > 1:
+                extra = ctrl.lpop(inflight_key)
+                if extra is None:
+                    break
+                ctrl.lpush(TASK_QUEUE, extra)
+            if n_start == 1:
+                ctrl.hincrby(SAMPLE_STATS, "running", 1)
+            return ["ok", ctrl.lindex(inflight_key, 0)]
 
     def _steal_to_inflight_python(self, inflight_key: str) -> list[Any]:
-        ctrl = self._ctrl()
-        if int(ctrl.llen(inflight_key) or 0) > 0:
-            return ["occupied"]
-        payload = ctrl.lpop(TASK_QUEUE)
-        if payload is None:
-            return ["empty"]
-        ctrl.lpush(inflight_key, payload)
-        ctrl.hincrby(SAMPLE_STATS, "running", 1)
-        return ["ok", payload]
+        with self._py_inflight_lock():
+            ctrl = self._ctrl()
+            if int(ctrl.llen(inflight_key) or 0) > 0:
+                return ["occupied"]
+            payload = ctrl.lpop(TASK_QUEUE)
+            if payload is None:
+                return ["empty"]
+            ctrl.lpush(inflight_key, payload)
+            ctrl.hincrby(SAMPLE_STATS, "running", 1)
+            return ["ok", payload]
 
     def _ack_inflight_python(self, inflight_key: str, uuid: str) -> int:
-        ctrl = self._ctrl()
-        raw = ctrl.lindex(inflight_key, 0)
-        if raw is None:
-            return 0
-        try:
-            payload = self._decode_task_payload(raw)
-        except (CodecError, TypeError, ValueError):
-            return 0
-        if payload is None or str(payload.get("uuid")) != uuid:
-            return 0
-        ctrl.lpop(inflight_key)
-        return 1
+        with self._py_inflight_lock():
+            ctrl = self._ctrl()
+            raw = ctrl.lindex(inflight_key, 0)
+            if raw is None:
+                return 0
+            try:
+                payload = self._decode_task_payload(raw)
+            except (CodecError, TypeError, ValueError):
+                return 0
+            if payload is None or str(payload.get("uuid")) != uuid:
+                return 0
+            popped = ctrl.lpop(inflight_key)
+            if popped is None:
+                return 0
+            return 1
 
     def _reclaim_inflight_python(self, inflight_key: str) -> list[Any]:
-        ctrl = self._ctrl()
-        items = list(ctrl.lrange(inflight_key, 0, -1) or [])
-        ctrl.delete(inflight_key)
-        return items
+        with self._py_inflight_lock():
+            ctrl = self._ctrl()
+            items = list(ctrl.lrange(inflight_key, 0, -1) or [])
+            ctrl.delete(inflight_key)
+            return items
 
     def _run_occupancy(self, inflight_key: str) -> dict[str, Any] | None:
         try:
@@ -464,10 +483,26 @@ class _ProcBoard:
         inflight_key = self._inflight_key(worker_id)
         moved = self._blmove_to_inflight(inflight_key, timeout)
         if moved is _BLMOVE_UNSUPPORTED:
+            if not self._steal_allowed():
+                raise RuntimeError(_BLMOVE_REQUIRED)
             return self._steal_to_inflight(inflight_key)
         if moved is None:
-            return None
+            return self.occupy_inflight_task(worker_id)
         return self._run_occupancy(inflight_key)
+
+    def occupy_inflight_task(self, worker_id: str) -> dict[str, Any] | None:
+        """Bounce extras until LLEN<=1, then return the remaining head.
+
+        LLEN==1 does not run occupancy (would double-count ``running``).
+        """
+        self._require_client()
+        inflight_key = self._inflight_key(worker_id)
+        llen = int(self._ctrl().llen(inflight_key) or 0)
+        if llen <= 0:
+            return None
+        if llen > 1:
+            return self._run_occupancy(inflight_key)
+        return self.get_inflight_task(worker_id)
 
     def get_inflight_task(self, worker_id: str) -> dict[str, Any] | None:
         """LINDEX 0; do not consume."""
