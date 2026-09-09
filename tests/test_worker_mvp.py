@@ -120,6 +120,75 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertFalse(worker._is_running)
         redis.get_control_lock_owner.assert_called_once_with()
 
+    def test_worker_ignores_transient_missing_control_lease(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"control_lock_owner": "owner-a"},
+        )
+        redis = mock.Mock()
+        redis.get_control_lock_owner.return_value = None
+        worker._redis = redis
+        stop = mock.Mock()
+        stop.wait.side_effect = [False, True]
+
+        worker._heartbeat_loop(stop, 0.1)
+
+        self.assertTrue(worker._is_running)
+        self.assertIsNotNone(worker._lease_missing_since)
+
+    def test_worker_stops_after_control_lease_missing_grace(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"control_lock_owner": "owner-a"},
+        )
+        redis = mock.Mock()
+        redis.get_control_lock_owner.return_value = None
+        worker._redis = redis
+        worker._lease_missing_since = time.monotonic() - 10_000.0
+        stop = mock.Mock()
+        stop.wait.side_effect = [False, True]
+
+        worker._heartbeat_loop(stop, 0.1)
+
+        self.assertFalse(worker._is_running)
+
+    def test_main_loop_heartbeats_in_flight_task_before_process(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 1},
+        )
+        task = {"uuid": "in-flight-1", "u_coords": [0.1]}
+        redis = mock.Mock()
+        redis.pull_task.side_effect = [task, None]
+        worker._redis = redis
+        order: list[Any] = []
+
+        def heartbeat(status: str) -> None:
+            order.append(
+                (
+                    status,
+                    dict(worker._current_task) if worker._current_task else None,
+                )
+            )
+            if status == "idle" and redis.pull_task.call_count >= 2:
+                worker._is_running = False
+
+        def process_task(payload: dict[str, Any]) -> None:
+            order.append(("process", payload.get("uuid")))
+            worker._is_running = False
+
+        worker._heartbeat = heartbeat  # type: ignore[method-assign]
+        worker.process_task = process_task  # type: ignore[method-assign]
+        worker._main_loop()
+
+        self.assertGreaterEqual(len(order), 2)
+        self.assertEqual(order[0][0], "busy")
+        self.assertEqual(order[0][1]["uuid"], "in-flight-1")
+        self.assertEqual(order[1], ("process", "in-flight-1"))
+
     def test_core_can_attach_to_explicit_external_redis(self) -> None:
         config = {
             "Runtime": {

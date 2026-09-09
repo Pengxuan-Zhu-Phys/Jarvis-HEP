@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import unittest
+from unittest import mock
 
 from jarvishep2._resume_service import _ResumeService
 from jarvishep2._runtime_supervisor import _RuntimeSupervisor
@@ -43,6 +45,71 @@ class CoreCollaboratorTests(unittest.TestCase):
         )
         shutdown_params = inspect.signature(Jarvis2Core.shutdown).parameters
         self.assertEqual(list(shutdown_params), ["self", "wait", "write_run_summary"])
+
+    def test_dead_archiver_process_is_restarted(self) -> None:
+        class _DeadArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 4242
+
+            def is_alive(self) -> bool:
+                return False
+
+            def join(self, timeout=None) -> None:
+                return None
+
+        core = Jarvis2Core()
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = logging.getLogger("test.archiver_restart")
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _DeadArchiver
+        ):
+            core.archiver = _DeadArchiver()
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_called_once_with("/tmp/samples.hdf5")
+        self.assertFalse(core._interrupt_requested)
+
+    def test_archiver_restart_failure_requests_shutdown(self) -> None:
+        class _DeadArchiver:
+            db_path = "/tmp/samples.hdf5"
+            pid = 7
+
+            def is_alive(self) -> bool:
+                return False
+
+            def join(self, timeout=None) -> None:
+                return None
+
+        core = Jarvis2Core()
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core._logger = logging.getLogger("test.archiver_restart")
+        core.init_archiver = mock.Mock(side_effect=RuntimeError("hdf5 locked"))
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _DeadArchiver
+        ):
+            core.archiver = _DeadArchiver()
+            core._runtime._ensure_archiver_alive()
+        self.assertTrue(core._interrupt_requested)
+
+    def test_archiver_liveness_skips_live_process(self) -> None:
+        class _LiveArchiver:
+            db_path = "/tmp/samples.hdf5"
+
+            def is_alive(self) -> bool:
+                return True
+
+        core = Jarvis2Core()
+        core._shutdown_done = False
+        core._interrupt_requested = False
+        core.init_archiver = mock.Mock()
+        with mock.patch(
+            "jarvishep2.runtime._runtime_supervisor.ArchiverProcess", _LiveArchiver
+        ):
+            core.archiver = _LiveArchiver()
+            core._runtime._ensure_archiver_alive()
+        core.init_archiver.assert_not_called()
 
 
 if __name__ == "__main__":

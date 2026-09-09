@@ -18,6 +18,55 @@ from jarvishep2.queue.redis_queue import (
     encode_payload,
 )
 
+
+def classify_control_lock(current: Any, expected: str) -> str:
+    """Classify a control-lock GET against the owner we expect.
+
+    ``ok`` — we still hold it. ``missing`` — key is gone (TTL blip / eviction);
+    Core's refresh is designed to reclaim an expired *own* lease, so this is
+    transient. ``stolen`` — a different owner holds it (another Jarvis).
+    """
+    expected_text = str(expected or "").strip()
+    if not expected_text:
+        return "ok"
+    if current is None:
+        return "missing"
+    current_text = _redis_text(current).strip()
+    if not current_text:
+        return "missing"
+    if current_text != expected_text:
+        return "stolen"
+    return "ok"
+
+
+def control_lock_missing_grace_sec(ttl_sec: int | float | None = None) -> float:
+    """How long Archiver/Workers tolerate a missing lock before exiting."""
+    ttl = CONTROL_LOCK_TTL_SEC if ttl_sec is None else max(5, int(ttl_sec))
+    return float(max(60, 2 * ttl))
+
+
+def next_control_lock_watch(
+    status: str,
+    *,
+    missing_since: float | None,
+    now: float,
+    grace_sec: float,
+) -> tuple[str, float | None]:
+    """Advance lock-watch state.
+
+    Returns ``(decision, missing_since)`` where decision is ``ok``,
+    ``continue_missing``, ``shutdown_missing``, or ``shutdown_stolen``.
+    """
+    if status == "ok":
+        return "ok", None
+    if status == "stolen":
+        return "shutdown_stolen", missing_since
+    if missing_since is None:
+        return "continue_missing", now
+    if (now - missing_since) >= max(1.0, float(grace_sec)):
+        return "shutdown_missing", missing_since
+    return "continue_missing", missing_since
+
 _ATOMIC_REFRESH_CONTROL_LOCK_LUA = """
 local current = redis.call('GET', KEYS[1])
 if not current then
@@ -114,7 +163,10 @@ class _ControlAndHeartbeat:
     def get_control_lock_owner(self) -> str | None:
         self._require_client()
         value = self.r.get(CONTROL_LOCK)
-        return None if value is None else str(value)
+        if value is None:
+            return None
+        text = _redis_text(value).strip()
+        return text or None
 
     def heartbeat(self, worker_id: str, **fields: Any) -> None:
         self._require_client()
