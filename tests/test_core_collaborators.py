@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import threading
 import unittest
 from unittest import mock
 
@@ -23,6 +24,7 @@ class CoreCollaboratorTests(unittest.TestCase):
         self.assertIs(core._runtime._core, core)
         self.assertIs(core._scan._core, core)
         self.assertIs(core._resume._core, core)
+        self.assertIsInstance(core._proc_board_lock, type(threading.Lock()))
 
     def test_new_without_init_still_lazily_builds_collaborators(self) -> None:
         core = Jarvis2Core.__new__(Jarvis2Core)

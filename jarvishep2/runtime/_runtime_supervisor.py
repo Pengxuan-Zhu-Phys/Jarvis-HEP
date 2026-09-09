@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 import signal
 import threading
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -90,6 +91,7 @@ class _RuntimeSupervisor:
         core._publish_runtime_metadata()
         if core._resume_policy != "resume":
             core._reset_redis_for_fresh_run()
+        self._publish_core_proc_board()
         core.init_sampler_from_config()
         if core.sampler is not None and hasattr(core.sampler, "set_persisted_uuids"):
             core.sampler.set_persisted_uuids(core._persisted_uuids)
@@ -468,6 +470,43 @@ class _RuntimeSupervisor:
         except Exception as exc:
             core._logger.warning("failed to release Redis control lock -> %s", exc)
         core._control_lock_owner = None
+
+    def _publish_core_proc_board(self) -> None:
+        """Bootstrap MAIN partition of hep:proc:core. Overlay only these fields."""
+        core = self._core
+        if core.redis is None:
+            return
+        lock = getattr(core, "_proc_board_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            core._proc_board_lock = lock
+        now = time.time()
+        fields: dict[str, Any] = {
+            "role": "core",
+            "scan_mode": "running",
+            "pid": os.getpid(),
+            "host": os.uname().nodename,
+            "scan_name": str(
+                core.info.get("scan_name") or core.config.get("scan_name") or ""
+            ),
+            "owner": str(getattr(core, "_control_lock_owner", None) or ""),
+            "ts": now,
+            "started_at": now,
+        }
+        run_id = core.info.get("run_id")
+        if run_id:
+            fields["run_id"] = str(run_id)
+        workers = None
+        runtime = getattr(core, "runtime", None)
+        if isinstance(runtime, Mapping):
+            workers = runtime.get("workers")
+        if workers is not None:
+            try:
+                fields["workers_total"] = int(workers)
+            except (TypeError, ValueError):
+                pass
+        with lock:
+            core.redis.publish_proc_board("core", **fields)
 
     def _publish_runtime_metadata(self) -> None:
         core = self._core

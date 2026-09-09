@@ -347,6 +347,13 @@ class Worker(Process):
             self._heartbeat("stopped")
         except Exception as exc:
             worker_log.warning("final heartbeat failed -> %s", exc)
+        if self._redis is not None:
+            try:
+                owner_id = str(self.worker_id)
+                self._redis.drop_proc_board("worker", owner_id=owner_id)
+                self._redis.drop_proc_board("children", owner_id=owner_id)
+            except Exception as exc:
+                worker_log.warning("proc board drop failed -> %s", exc)
         if self._scheduler is not None:
             try:
                 self._scheduler.shutdown(wait=True)

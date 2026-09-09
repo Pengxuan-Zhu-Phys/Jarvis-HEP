@@ -16,7 +16,12 @@ from jarvishep2.redis_queue import (
     CALC_FREE,
     CALC_STATUS,
     CONTROL_LOCK_TTL_SEC,
+    CONTROL_SOCKET_TIMEOUT_SEC,
+    INFLIGHT,
     OP_COUNT,
+    PROC_BOARD_TTL_SEC,
+    PROC_CORE,
+    PROC_WORKER,
     RESULTS,
     SAMPLE_STATS,
     TASK_QUEUE,
@@ -47,6 +52,7 @@ class RedisQueueKeyspaceSplitTests(unittest.TestCase):
     def test_public_type_composes_keyspace_mixins(self) -> None:
         from jarvishep2._redis_calc_pool import _CalcPool
         from jarvishep2._redis_control import _ControlAndHeartbeat
+        from jarvishep2._redis_proc_board import _ProcBoard
         from jarvishep2._redis_sample_buckets import _SampleBuckets
         from jarvishep2._redis_task_broker import _TaskBroker
 
@@ -55,10 +61,12 @@ class RedisQueueKeyspaceSplitTests(unittest.TestCase):
         self.assertIn(_CalcPool.__name__, names)
         self.assertIn(_SampleBuckets.__name__, names)
         self.assertIn(_ControlAndHeartbeat.__name__, names)
+        self.assertIn(_ProcBoard.__name__, names)
         self.assertTrue(callable(RedisQueue.push_task))
         self.assertTrue(callable(RedisQueue.acquire_calc))
         self.assertTrue(callable(RedisQueue.init_sample_buckets))
         self.assertTrue(callable(RedisQueue.claim_control_lock))
+        self.assertTrue(callable(RedisQueue.publish_proc_board))
 
 
 class RedisQueueKeyNamespaceTests(unittest.TestCase):
@@ -72,6 +80,11 @@ class RedisQueueKeyNamespaceTests(unittest.TestCase):
         self.assertEqual(SAMPLE_STATS, "hep:sample:stats")
         self.assertEqual(RESULTS, "hep:results:{uuid}")
         self.assertEqual(OP_COUNT, "hep:{kind}:op_count")
+        self.assertEqual(PROC_CORE, "hep:proc:core")
+        self.assertEqual(PROC_WORKER, "hep:proc:worker:{id}")
+        self.assertEqual(INFLIGHT, "hep:inflight:{worker}")
+        self.assertEqual(PROC_BOARD_TTL_SEC, 60)
+        self.assertEqual(CONTROL_SOCKET_TIMEOUT_SEC, 2.0)
 
     def test_calc_free_list_key_returns_pool_key_not_status_field(self):
         self.assertEqual(calc_free_list_key("DemoCalc"), "calc:free:DemoCalc")
@@ -304,6 +317,9 @@ class RedisQueueTests(unittest.TestCase):
         pack = self.queue.acquire_calc("EggBox", timeout=1)
         self.assertEqual(pack, "001")
         self.queue.r.hset(SAMPLE_STATS, mapping={"completed": 9, "failed": 2, "running": 3})
+        self.queue.r.hset(PROC_CORE, mapping={"role": "core"})
+        self.queue.r.hset(PROC_WORKER.format(id="0"), mapping={"role": "worker"})
+        self.queue.r.rpush(INFLIGHT.format(worker="0"), "task-0")
         result = self.queue.reset_run_ephemeral_keys(
             calculator_names=["EggBox"],
             worker_ids=[0, 1],
@@ -311,6 +327,9 @@ class RedisQueueTests(unittest.TestCase):
         self.assertGreaterEqual(int(result["deleted_keys"]), 1)
         self.assertEqual(self.queue.r.llen(TASK_QUEUE), 0)
         self.assertEqual(self.queue.r.llen(calc_free_list_key("EggBox")), 0)
+        self.assertEqual(self.queue.r.hgetall(PROC_CORE), {})
+        self.assertEqual(self.queue.r.hgetall(PROC_WORKER.format(id="0")), {})
+        self.assertEqual(int(self.queue.r.llen(INFLIGHT.format(worker="0"))), 0)
         stats = self.queue.fetch_sample_stats()
         self.assertEqual(int(stats.get("completed", -1)), 0)
         self.assertEqual(int(stats.get("failed", -1)), 0)

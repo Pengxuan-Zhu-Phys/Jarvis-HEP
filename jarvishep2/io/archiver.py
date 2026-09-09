@@ -24,6 +24,7 @@ from jarvishep2.io.file_ops import DEFAULT_DELETE_METHOD, delete_paths, normaliz
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.mp_context import get_spawn_context
 from jarvishep2.redis_queue import (
+    ARCHIVER_BOARD_TTL_SEC,
     RedisQueue,
     classify_control_lock,
     control_lock_missing_grace_sec,
@@ -787,6 +788,22 @@ class ArchiverProcess(Process):
         next_lease_check = 0.0
         missing_since: float | None = None
         grace_sec = control_lock_missing_grace_sec()
+
+        def _publish_archiver_board() -> None:
+            redis.publish_proc_board(
+                "archiver",
+                ttl_sec=ARCHIVER_BOARD_TTL_SEC,
+                role="archiver",
+                status="running",
+                pid=os.getpid(),
+                records_written=int(archiver.records_written),
+                last_bucket_packed=int(getattr(archiver, "buckets_packed", 0) or 0),
+                db_path=os.path.basename(self.db_path),
+                scan_name=self.scan_name or "",
+                ts=time.time(),
+            )
+
+        _publish_archiver_board()
         while not self._stop_event.is_set():
             time.sleep(0.1)
             with self.records_written.get_lock():
@@ -821,8 +838,10 @@ class ArchiverProcess(Process):
                         grace_sec,
                     )
                     break
+                _publish_archiver_board()
                 next_lease_check = now + 1.0
             elif now >= next_lease_check:
+                _publish_archiver_board()
                 next_lease_check = now + 1.0
         archiver.stop(wait=True, drain=True)
         with self.records_written.get_lock():
