@@ -245,16 +245,38 @@ class _Watchdog:
         return dict(rows.get(str(worker_id)) or {})
 
     def inspect_workers(self) -> None:
+        redis = self._factory.redis
         for worker in list(self._factory.workers):
             if not worker.is_alive():
                 self.handle_worker_failure(worker, reason="process_exit")
                 continue
-            heartbeat = self.worker_heartbeat(worker.worker_id)
-            status = str(heartbeat.get("status") or "").strip().lower()
-            if status not in {"busy", "starting"}:
+            wid = str(worker.worker_id)
+            board = {}
+            if redis is not None and hasattr(redis, "read_proc_board"):
+                board = redis.read_proc_board("worker", owner_id=wid)
+            last_seen = self.heartbeat_timestamp(board) or self.heartbeat_timestamp(
+                self.worker_heartbeat(worker.worker_id)
+            )
+            inflight_n = 0
+            if redis is not None:
+                from jarvishep2.queue.redis_queue import INFLIGHT
+                ctrl = redis._ctrl() if hasattr(redis, "_ctrl") else redis.r
+                try:
+                    inflight_n = int(ctrl.llen(INFLIGHT.format(worker=wid)) or 0)
+                except Exception:
+                    inflight_n = 0
+            status = str(board.get("status") or "").strip().lower()
+            if not status:
+                status = str(
+                    self.worker_heartbeat(worker.worker_id).get("status") or ""
+                ).strip().lower()
+            if inflight_n > 0 and status in {"idle", "", "starting"}:
+                self.handle_worker_failure(worker, reason="inflight_without_busy")
                 continue
-            last_seen = self.heartbeat_timestamp(heartbeat)
             if last_seen <= 0:
+                age = time.time() - worker._spawned_at  # AttributeError = bug
+                if age > self.stale_sec:
+                    self.handle_worker_failure(worker, reason="stale_heartbeat")
                 continue
             if (time.time() - last_seen) <= self.stale_sec:
                 continue
@@ -421,6 +443,7 @@ class TaskFactory:
             config = copy.deepcopy(shared_config)
             worker = Worker(worker_id, redis_config, config)
             worker.start()
+            worker._spawned_at = time.time()
             started.append(worker)
         self.workers.extend(started)
         if self._run_started_at is None:
@@ -644,6 +667,7 @@ class TaskFactory:
                 copy.deepcopy(self._worker_spawn_template),
             )
             replacement.start()
+            replacement._spawned_at = time.time()
             self.workers.append(replacement)
             self._last_recovered_pid[worker_id] = dead_pid
             self._respawn_count += 1

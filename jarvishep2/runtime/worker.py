@@ -118,15 +118,10 @@ class Worker(Process):
         return lock
 
     def _init_redis(self) -> None:
-        """Connect to Redis in the child process (spawn-safe)."""
+        """Connect to Redis in the child process (spawn-safe). Do not publish idle."""
         self._hb_lock()
         self._redis = RedisQueue(self.redis_config)
         self._redis.connect()
-        self._redis.heartbeat(
-            str(self.worker_id),
-            status="idle",
-            pid=self.pid,
-        )
 
     def _init_runtime(self) -> None:
         self._observables_lock = threading.Lock()
@@ -679,10 +674,13 @@ class Worker(Process):
             # starts early in _init_runtime, and any later setup exception must
             # still shut it down. Redis connect used to sit *outside* this try
             # so connect failures left only "Worker process started" in the log.
+            # Heartbeat thread starts before FileOperation/calculator bind so a
+            # hung init is visible to the watchdog as status=starting.
             self._init_redis()
-            self._init_runtime()
             self._heartbeat("starting")
             self._start_heartbeat_thread()
+            self._init_runtime()
+            self._heartbeat("idle")
             self._main_loop()
         except Exception as exc:
             try:

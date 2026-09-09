@@ -154,6 +154,61 @@ class WorkerMVPTests(unittest.TestCase):
 
         self.assertFalse(worker._is_running)
 
+    def test_init_redis_does_not_publish_idle_heartbeat(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 1, "db": 0}, {})
+        redis = mock.Mock()
+        with mock.patch("jarvishep2.runtime.worker.RedisQueue", return_value=redis):
+            worker._init_redis()
+        redis.connect.assert_called_once_with()
+        redis.heartbeat.assert_not_called()
+        self.assertIs(worker._redis, redis)
+
+    def test_run_starts_heartbeat_before_init_runtime(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"log_silence": True},
+        )
+        order: list[Any] = []
+        worker._init_redis = lambda: order.append("init_redis")  # type: ignore[method-assign]
+        worker._heartbeat = (  # type: ignore[method-assign]
+            lambda status: order.append(("heartbeat", status))
+        )
+        worker._start_heartbeat_thread = (  # type: ignore[method-assign]
+            lambda: order.append("start_heartbeat_thread")
+        )
+
+        def init_runtime() -> None:
+            self.assertIn("start_heartbeat_thread", order)
+            order.append("init_runtime")
+
+        worker._init_runtime = init_runtime  # type: ignore[method-assign]
+        worker._main_loop = lambda: order.append("main_loop")  # type: ignore[method-assign]
+        worker._shutdown_runtime = lambda *_a, **_k: None  # type: ignore[method-assign]
+
+        with (
+            mock.patch("jarvishep2.runtime.worker.setup_jarvis_logging"),
+            mock.patch(
+                "jarvishep2.runtime.worker.get_jarvis_logger",
+                return_value=mock.Mock(),
+            ),
+            mock.patch("signal.signal"),
+            mock.patch("jarvishep2.proc_title.set_process_title"),
+        ):
+            worker.run()
+
+        self.assertEqual(
+            order,
+            [
+                "init_redis",
+                ("heartbeat", "starting"),
+                "start_heartbeat_thread",
+                "init_runtime",
+                ("heartbeat", "idle"),
+                "main_loop",
+            ],
+        )
+
     def test_main_loop_heartbeats_in_flight_task_before_process(self) -> None:
         worker = Worker(
             0,
@@ -212,6 +267,24 @@ class WorkerMVPTests(unittest.TestCase):
         ensure.assert_not_called()
         queue.connect.assert_called_once_with()
         queue.ping.assert_called_once_with()
+
+    def test_start_workers_sets_spawned_at_in_parent(self) -> None:
+        server, redis_config = _start_tcp_fakeredis()
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                factory = TaskFactory.get_instance(redis_config)
+                factory.init_redis()
+                before = time.time()
+                workers = factory.start_workers(1, **_worker_config(tmpdir))
+                after = time.time()
+                worker = workers[0]
+                self.assertTrue(hasattr(worker, "_spawned_at"))
+                self.assertGreaterEqual(worker._spawned_at, before)
+                self.assertLessEqual(worker._spawned_at, after)
+                factory.shutdown()
+        finally:
+            server.shutdown()
+            server.server_close()
 
     def test_start_workers_refuses_duplicate_start(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
