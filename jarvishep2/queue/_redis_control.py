@@ -139,6 +139,10 @@ def _worker_board_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
     return board
 
 
+# Ownership is hep:inflight:{id}; never copy the task payload onto status/board.
+_HEARTBEAT_STATUS_OMIT = frozenset({"current_task", "u_coords", "execution_plan"})
+
+
 class _ControlAndHeartbeat:
     """Private RedisQueue mixin (D25.4)."""
 
@@ -245,7 +249,11 @@ class _ControlAndHeartbeat:
         status_key = WORKER_STATUS.format(id=wid)
         board_key = PROC_WORKER.format(id=wid)
         children_key = PROC_CHILDREN.format(id=wid)
-        mapping = {k: _encode_heartbeat_value(v) for k, v in fields.items()}
+        mapping = {
+            k: _encode_heartbeat_value(v)
+            for k, v in fields.items()
+            if k not in _HEARTBEAT_STATUS_OMIT
+        }
         board_mapping = {
             k: _encode_heartbeat_value(v)
             for k, v in _worker_board_fields(fields).items()
@@ -259,6 +267,7 @@ class _ControlAndHeartbeat:
             pipe = self._ctrl().pipeline(transaction=True)
             if mapping:
                 pipe.hset(status_key, mapping=mapping)
+            pipe.hdel(status_key, *_HEARTBEAT_STATUS_OMIT)
             if board_mapping:
                 pipe.hset(board_key, mapping=board_mapping)
             pipe.expire(board_key, ttl)
@@ -304,7 +313,7 @@ class _ControlAndHeartbeat:
         return encode_payload(dict(task), codec=self._codec)
 
     def decode_heartbeat_task(self, heartbeat: Mapping[str, Any]) -> dict[str, Any] | None:
-        """Decode a Worker heartbeat's serialized in-flight task payload."""
+        """Decode a leftover heartbeat task blob. Heartbeat no longer stores it."""
         raw = heartbeat.get("current_task")
         if raw is None or raw == "":
             return None

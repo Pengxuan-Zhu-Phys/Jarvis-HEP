@@ -91,6 +91,18 @@ class ProcBoardMixinTests(unittest.TestCase):
         leftover = self.queue.read_proc_board("worker", owner_id="99")
         self.assertEqual(leftover.get("role"), "worker")
 
+    def test_reconcile_resume_scan_deletes_out_of_range_proc_and_inflight(self) -> None:
+        self.queue.r.hset(PROC_CORE, mapping={"role": "core"})
+        self.queue.r.hset(PROC_WORKER.format(id="99"), mapping={"role": "worker"})
+        self.queue.r.hset(PROC_CHILDREN.format(id="77"), mapping={"role": "children"})
+        self.queue.r.rpush(INFLIGHT.format(worker="99"), "leftover")
+        self.queue.reconcile_resume_ephemeral(completed=4, failed=1)
+        self.assertEqual(self.queue.r.hgetall(PROC_CORE), {})
+        self.assertEqual(self.queue.read_proc_board("worker", owner_id="99"), {})
+        self.assertEqual(self.queue.read_proc_board("children", owner_id="77"), {})
+        self.assertEqual(int(self.queue.r.llen(INFLIGHT.format(worker="99"))), 0)
+        self.assertEqual(int(self.queue.fetch_sample_stats()["completed"]), 4)
+
     def test_heartbeat_dual_writes_status_and_worker_board(self) -> None:
         self.queue.heartbeat(
             "0",
@@ -108,10 +120,11 @@ class ProcBoardMixinTests(unittest.TestCase):
         self.assertEqual(board["current_uuid"], "")
         self.assertNotIn("current_task", board)
         self.assertNotIn("held_calc_packs", board)
+        self.assertNotIn("u_coords", board)
         self.assertEqual(int(board["held_calc_n"]), 1)
         status = self.queue.r.hgetall(WORKER_STATUS.format(id="0"))
         self.assertEqual(status["status"], "idle")
-        self.assertEqual(status["current_task"], "blob")
+        self.assertNotIn("current_task", status)
         self.assertTrue(status.get("held_calc_packs"))
 
     def test_heartbeat_overlays_children_pgids_without_extra_incr(self) -> None:

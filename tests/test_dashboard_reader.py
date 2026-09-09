@@ -43,7 +43,7 @@ class DashboardReaderTests(unittest.TestCase):
         queue.connect()
         writes = {"count": 0}
         assert queue.r is not None
-        for method_name in ("set", "incr", "hset", "rpush", "delete"):
+        for method_name in ("set", "incr", "hset", "rpush", "delete", "hincrby", "lpush"):
             original = getattr(queue.r, method_name)
 
             def _guard(name: str, original_fn):

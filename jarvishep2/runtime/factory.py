@@ -141,7 +141,29 @@ class _MonitorLoop:
         if redis is None:
             return {}
         worker_ids = [str(worker.worker_id) for worker in self._factory.workers]
-        return redis.fetch_worker_status(worker_ids)
+        if not worker_ids:
+            return {}
+        heartbeats = redis.fetch_worker_status(worker_ids)
+        read_boards = getattr(redis, "read_proc_boards", None)
+        boards = (
+            read_boards("worker", owner_ids=worker_ids)
+            if callable(read_boards)
+            else {}
+        )
+        merged: dict[str, dict[str, Any]] = {}
+        for worker_id in worker_ids:
+            row = dict(heartbeats.get(worker_id) or {})
+            row.pop("current_task", None)
+            row.pop("u_coords", None)
+            row.pop("execution_plan", None)
+            board = dict(boards.get(worker_id) or {})
+            if board:
+                row.update(board)
+            row.pop("current_task", None)
+            row.pop("u_coords", None)
+            row.pop("execution_plan", None)
+            merged[worker_id] = row
+        return merged
 
     @staticmethod
     def _carry_forward_section(

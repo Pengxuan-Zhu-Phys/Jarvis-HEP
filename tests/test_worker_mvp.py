@@ -823,6 +823,7 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertEqual(fields["file_operation_pgid"], 777)
         self.assertEqual(fields["calc_pgids"], [888])
         self.assertEqual(json.loads(fields["active_subprocess_pids"]), [888, 777])
+        self.assertNotIn("current_task", fields)
 
     @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
     def test_init_runtime_publishes_file_operation_session_leader(self) -> None:

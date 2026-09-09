@@ -188,7 +188,7 @@ class WorkerFailureTests(unittest.TestCase):
                 factory.redis.push_task(
                     {
                         "uuid": "slow-sample-1",
-                        "u_coords": [0.1, 0.2, 0.3],
+                        "u_coords": [0.1, 0.2],
                         "execution_plan": [
                             {"name": "SlowA", "type": "calculator", "layer": 0},
                         ],
