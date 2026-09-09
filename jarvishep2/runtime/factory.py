@@ -8,17 +8,97 @@ explicit construction preferred over the deprecated singleton shell.
 from __future__ import annotations
 
 import copy
+import json
 import os
 import signal
+import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from jarvishep2.calculator_pools import register_calculator_pools
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime.worker import Worker
+
+_FILE_OPERATION_TITLE_PREFIX = "Jarvis-FileOperation"
+
+
+def _optional_positive_pid(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        pid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def _parse_pid_list(raw: Any) -> list[int]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple)):
+        items: Any = list(raw)
+    else:
+        try:
+            items = json.loads(str(raw))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return []
+    if not isinstance(items, list):
+        return []
+    pids: list[int] = []
+    for item in items:
+        pid = _optional_positive_pid(item)
+        if pid is not None:
+            pids.append(pid)
+    return pids
+
+
+def _ps_command_by_pid() -> dict[int, str]:
+    """PID → command using the same ``ps`` source as list_jarvis_processes.
+
+    Never read ``/proc/{pid}/comm``: Linux truncates comm to 16 bytes
+    (``Jarvis-FileOperat``), so ``startswith("Jarvis-FileOperation")`` would
+    never match and FileOperation killpg would silently no-op.
+    """
+    try:
+        completed = subprocess.run(
+            ["ps", "-ax", "-o", "pid=,command="],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # Fail closed: skip FileOperation killpg rather than freeze recovery.
+        return {}
+    if int(completed.returncode) != 0:
+        return {}
+    mapping: dict[int, str] = {}
+    for line in (completed.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            continue
+        mapping[pid] = parts[1].strip()
+    return mapping
+
+
+def _is_file_operation_command(command: str) -> bool:
+    text = str(command or "").strip()
+    if not text:
+        return False
+    argv0 = text.split(None, 1)[0]
+    return argv0.startswith(_FILE_OPERATION_TITLE_PREFIX) or text.startswith(
+        _FILE_OPERATION_TITLE_PREFIX
+    )
 
 
 class _MonitorLoop:
@@ -322,16 +402,66 @@ class _Watchdog:
 
     @staticmethod
     def kill_orphan_process_groups(pids: list[int]) -> int:
-        """SIGKILL calculator process groups orphaned by a dead Worker.
+        """SIGKILL session-leader process groups orphaned by a dead Worker.
 
-        Children run with ``start_new_session=True``, so killing the Worker
-        does not kill them; left alone they would keep writing into a PackID
-        shadow directory that is about to be handed to a new owner. Only
-        session leaders are targeted (``getpgid(pid) == pid``) so a recycled
-        OS pid can never match an unrelated process.
+        Children run with ``start_new_session=True`` (calculators) or child-side
+        ``os.setsid()`` (FileOperation), so killing the Worker does not kill
+        them. Empty pgid is a no-op. Never ``os.kill`` a non-leader — that
+        helper stays on FileOperation parent ``shutdown()`` only.
+
+        Only ``getpgid(pid) == pid`` is killpg'd. A recycled pid that happens
+        to be a session leader can still be hit; this does not close the
+        theoretical PID-reuse hole. FileOperation title checks shrink that
+        window but a reused leader whose ``ps`` command= also prefixes
+        ``Jarvis-FileOperation`` can still be killed.
+
+        Linux ``/proc/{pid}/comm`` truncates to 16 bytes (``Jarvis-FileOperat``),
+        so ``startswith("Jarvis-FileOperation")`` would never match. Title
+        checks must use ``ps -ax -o pid=,command=`` like
+        ``process_cleanup.list_jarvis_processes``.
         """
         killed = 0
         for pid in pids:
+            try:
+                if os.getpgid(pid) != pid:
+                    continue
+                os.killpg(pid, signal.SIGKILL)
+                killed += 1
+            except (ProcessLookupError, PermissionError, OSError):
+                continue
+        return killed
+
+    @staticmethod
+    def kill_orphan_from_children_board(board: Mapping[str, Any]) -> int:
+        """Kill session-leader pgids from a children board.
+
+        Empty ``file_operation_pgid`` is a no-op (never ``os.kill`` the pid).
+        FileOperation: require ``ps -ax -o pid=,command=`` prefix
+        ``Jarvis-FileOperation`` (allow ``:<scan>``). Do not read
+        ``/proc/{pid}/comm`` — Linux truncates comm to 16 bytes
+        (``Jarvis-FileOperat``), so a startswith guard would never match.
+
+        Calculator: session-leader only, no Jarvis- title check (binaries are
+        not named Jarvis-). PID reuse of a session leader remains a residual
+        risk; this does not close the factory.py PID-reuse hole.
+        """
+        if not board:
+            return 0
+        killed = 0
+        fo_pgid = _optional_positive_pid(board.get("file_operation_pgid"))
+        if fo_pgid is not None:
+            commands = _ps_command_by_pid()
+            try:
+                if os.getpgid(fo_pgid) == fo_pgid and _is_file_operation_command(
+                    commands.get(fo_pgid, "")
+                ):
+                    os.killpg(fo_pgid, signal.SIGKILL)
+                    killed += 1
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
+        for pid in _parse_pid_list(board.get("calc_pgids")):
+            if pid == fo_pgid:
+                continue
             try:
                 if os.getpgid(pid) != pid:
                     continue
@@ -631,6 +761,10 @@ class TaskFactory:
     def _kill_orphan_process_groups(pids: list[int]) -> int:
         return _Watchdog.kill_orphan_process_groups(pids)
 
+    @staticmethod
+    def _kill_orphan_from_children_board(board: Mapping[str, Any]) -> int:
+        return _Watchdog.kill_orphan_from_children_board(board)
+
     def _handle_worker_failure(self, worker: Worker, *, reason: str) -> None:
         """Kill → sweep slots → requeue task → respawn (D6.1 recovery).
 
@@ -653,8 +787,24 @@ class TaskFactory:
             self._force_stop_worker(worker)
 
             heartbeat = self._worker_heartbeat(worker_id)
-            orphan_pids = self.redis.decode_heartbeat_subprocess_pids(heartbeat)
-            orphans_killed = self._kill_orphan_process_groups(orphan_pids)
+            children_board: dict[str, Any] = {}
+            read_board = getattr(self.redis, "read_children_board", None)
+            if callable(read_board):
+                try:
+                    children_board = dict(read_board(str(worker_id)) or {})
+                except Exception:
+                    children_board = {}
+            if children_board:
+                kill_from_board = getattr(self, "_kill_orphan_from_children_board", None)
+                if callable(kill_from_board):
+                    orphans_killed = kill_from_board(children_board)
+                else:
+                    orphans_killed = _Watchdog.kill_orphan_from_children_board(
+                        children_board
+                    )
+            else:
+                orphan_pids = self.redis.decode_heartbeat_subprocess_pids(heartbeat)
+                orphans_killed = self._kill_orphan_process_groups(orphan_pids)
             held_packs = self.redis.decode_heartbeat_held_packs(heartbeat)
             released = self.redis.sweep_held_calc_slots(held_packs)
             requeued = self._requeue_in_flight_task(heartbeat)

@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -175,10 +176,12 @@ class AsyncSubprocessScheduler:
         config: SubprocessRuntimeConfig | None = None,
         logger=None,
         status_path: str | None = None,
+        on_active_pids_changed: Callable[[list[int]], None] | None = None,
     ) -> None:
         self.config = config or SubprocessRuntimeConfig()
         self.logger = logger
         self.status_path = status_path
+        self._on_active_pids_changed = on_active_pids_changed
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -206,6 +209,9 @@ class AsyncSubprocessScheduler:
         # heartbeat and reaps the process groups before reusing PackID slots.
         self._active_pids: set[int] = set()
         self._active_pids_lock = threading.Lock()
+        self._pid_notify_lock = threading.Lock()
+        self._pid_notify_timer: threading.Timer | None = None
+        self._pid_notify_debounce_sec = 0.2
 
     def active_subprocess_pids(self) -> list[int]:
         """PIDs (== process-group ids) of children currently executing."""
@@ -217,12 +223,48 @@ class AsyncSubprocessScheduler:
             return
         with self._active_pids_lock:
             self._active_pids.add(int(pid))
+        self._schedule_active_pids_callback()
 
     def _unregister_active_pid(self, pid: int | None) -> None:
         if pid is None:
             return
         with self._active_pids_lock:
             self._active_pids.discard(int(pid))
+        self._schedule_active_pids_callback()
+
+    def _schedule_active_pids_callback(self) -> None:
+        with self._pid_notify_lock:
+            if self._on_active_pids_changed is None:
+                return
+            if self._pid_notify_timer is not None:
+                return
+            timer = threading.Timer(
+                self._pid_notify_debounce_sec,
+                self._fire_active_pids_callback,
+            )
+            timer.daemon = True
+            self._pid_notify_timer = timer
+            timer.start()
+
+    def _fire_active_pids_callback(self) -> None:
+        with self._pid_notify_lock:
+            self._pid_notify_timer = None
+            callback = self._on_active_pids_changed
+        if callback is None:
+            return
+        try:
+            callback(self.active_subprocess_pids())
+        except Exception:
+            return
+
+    def disable_active_pids_callback(self) -> None:
+        """Cancel a pending timer and drop the callback so unregister cannot republish."""
+        with self._pid_notify_lock:
+            timer = self._pid_notify_timer
+            self._pid_notify_timer = None
+            self._on_active_pids_changed = None
+        if timer is not None:
+            timer.cancel()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -305,6 +347,7 @@ class AsyncSubprocessScheduler:
         return fut.result(timeout=timeout)
 
     def shutdown(self, wait: bool = True, timeout: float = 30.0) -> None:
+        self.disable_active_pids_callback()
         with self._shutdown_lock:
             if self._shutdown_started:
                 if wait:

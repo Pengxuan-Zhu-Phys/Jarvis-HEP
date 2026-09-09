@@ -18,6 +18,7 @@ from jarvishep2.file_operation_service import (
     FileOperationService,
     _file_operation_main,
     _signal_process_tree,
+    wait_for_session_leader,
 )
 from jarvishep2.file_ops import apply_io_save_policy, save_io_copy
 from jarvishep2.proc_title import file_operation_title
@@ -109,6 +110,55 @@ class FileOperationServiceTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(dest))
                 service.delete([dest], missing_ok=False)
                 self.assertFalse(os.path.lexists(dest))
+            finally:
+                service.shutdown()
+
+    @unittest.skipUnless(hasattr(os, "getpgid"), "POSIX session-leader test")
+    def test_process_start_records_session_leader_pgid(self) -> None:
+        service = FileOperationService.start(mode="process", scan_name="pgid-test")
+        try:
+            self.assertIsNotNone(service.pid)
+            assert service.pid is not None
+            self.assertEqual(service.pgid, service.pid)
+            self.assertEqual(os.getpgid(service.pid), service.pid)
+        finally:
+            service.shutdown()
+
+    @unittest.skipUnless(hasattr(os, "getpgid") and hasattr(os, "setsid"), "POSIX")
+    def test_wait_for_session_leader_with_setsid_child(self) -> None:
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(30)"],
+        )
+        try:
+            pgid = wait_for_session_leader(
+                child.pid, timeout_sec=5.0, interval_sec=0.05
+            )
+            self.assertEqual(pgid, child.pid)
+            self.assertEqual(os.getpgid(child.pid), child.pid)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5.0)
+
+    def test_wait_for_session_leader_timeout_returns_none(self) -> None:
+        with mock.patch("jarvishep2.file_operation_service.os.getpgid", return_value=1):
+            started = time.monotonic()
+            self.assertIsNone(
+                wait_for_session_leader(
+                    os.getpid(), timeout_sec=0.15, interval_sec=0.04
+                )
+            )
+            self.assertLess(time.monotonic() - started, 1.0)
+
+    def test_start_records_empty_pgid_when_session_leader_wait_times_out(self) -> None:
+        with mock.patch(
+            "jarvishep2.file_operation_service.wait_for_session_leader",
+            return_value=None,
+        ):
+            service = FileOperationService.start(mode="process")
+            try:
+                self.assertIsNotNone(service.pid)
+                self.assertIsNone(service.pgid)
             finally:
                 service.shutdown()
 
