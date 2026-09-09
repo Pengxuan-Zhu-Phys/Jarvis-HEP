@@ -69,7 +69,7 @@ class _ProcBoard:
             if value is not None
         }
         ttl = _board_ttl_sec(role, ttl_sec)
-        pipe = self.r.pipeline(transaction=True)
+        pipe = self._ctrl().pipeline(transaction=True)
         if mapping:
             pipe.hset(key, mapping=mapping)
         pipe.expire(key, ttl)
@@ -84,7 +84,7 @@ class _ProcBoard:
         """HGETALL; missing key → {} . Never raises on empty."""
         self._require_client()
         key = self._proc_board_key(role, owner_id=owner_id)
-        return dict(self.r.hgetall(key) or {})
+        return dict(self._ctrl().hgetall(key) or {})
 
     def read_proc_boards(
         self,
@@ -97,7 +97,7 @@ class _ProcBoard:
         if not owner_ids:
             return {}
         ids = [str(owner_id) for owner_id in owner_ids]
-        pipe = self.r.pipeline(transaction=False)
+        pipe = self._ctrl().pipeline(transaction=False)
         for owner_id in ids:
             pipe.hgetall(self._proc_board_key(role, owner_id=owner_id))
         rows = pipe.execute()
@@ -116,12 +116,12 @@ class _ProcBoard:
         """EXPIRE only; False if key missing."""
         self._require_client()
         key = self._proc_board_key(role, owner_id=owner_id)
-        return bool(self.r.expire(key, _board_ttl_sec(role, ttl_sec)))
+        return bool(self._ctrl().expire(key, _board_ttl_sec(role, ttl_sec)))
 
     def drop_proc_board(self, role: str, *, owner_id: str | None = None) -> None:
         """Writer shutdown path."""
         self._require_client()
-        self.r.delete(self._proc_board_key(role, owner_id=owner_id))
+        self._ctrl().delete(self._proc_board_key(role, owner_id=owner_id))
 
     def publish_children_board(
         self,

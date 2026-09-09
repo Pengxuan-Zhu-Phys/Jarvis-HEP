@@ -151,7 +151,7 @@ class _ControlAndHeartbeat:
         if not owner_text:
             raise ValueError("control lock owner is required")
         ttl = max(5, int(ttl_sec))
-        return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
+        return bool(self._ctrl().set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
 
     def refresh_control_lock(
         self,
@@ -165,8 +165,9 @@ class _ControlAndHeartbeat:
         if not owner_text:
             raise ValueError("control lock owner is required")
         ttl = max(5, int(ttl_sec))
+        ctrl = self._ctrl()
         try:
-            result = self.r.eval(
+            result = ctrl.eval(
                 _ATOMIC_REFRESH_CONTROL_LOCK_LUA,
                 1,
                 CONTROL_LOCK,
@@ -178,12 +179,12 @@ class _ControlAndHeartbeat:
             # Real Redis always takes the atomic Lua path above.
             if "unknown command 'eval'" not in str(exc).lower():
                 raise
-            current = self.r.get(CONTROL_LOCK)
+            current = ctrl.get(CONTROL_LOCK)
             if current is None:
-                return bool(self.r.set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
+                return bool(ctrl.set(CONTROL_LOCK, owner_text, nx=True, ex=ttl))
             if _redis_text(current) != owner_text:
                 return False
-            return bool(self.r.expire(CONTROL_LOCK, ttl))
+            return bool(ctrl.expire(CONTROL_LOCK, ttl))
         return bool(int(result or 0))
 
     def release_control_lock(self, owner: str) -> bool:
@@ -192,8 +193,9 @@ class _ControlAndHeartbeat:
         owner_text = str(owner or "").strip()
         if not owner_text:
             return False
+        ctrl = self._ctrl()
         try:
-            result = self.r.eval(
+            result = ctrl.eval(
                 _ATOMIC_RELEASE_CONTROL_LOCK_LUA,
                 1,
                 CONTROL_LOCK,
@@ -202,15 +204,15 @@ class _ControlAndHeartbeat:
         except Exception as exc:
             if "unknown command 'eval'" not in str(exc).lower():
                 raise
-            current = self.r.get(CONTROL_LOCK)
+            current = ctrl.get(CONTROL_LOCK)
             if current is None or _redis_text(current) != owner_text:
                 return False
-            return bool(self.r.delete(CONTROL_LOCK))
+            return bool(ctrl.delete(CONTROL_LOCK))
         return bool(int(result or 0))
 
     def get_control_lock_owner(self) -> str | None:
         self._require_client()
-        value = self.r.get(CONTROL_LOCK)
+        value = self._ctrl().get(CONTROL_LOCK)
         if value is None:
             return None
         text = _redis_text(value).strip()
@@ -240,7 +242,7 @@ class _ControlAndHeartbeat:
             if board_ttl_sec is not None
             else PROC_BOARD_TTL_SEC
         )
-        pipe = self.r.pipeline(transaction=True)
+        pipe = self._ctrl().pipeline(transaction=True)
         if mapping:
             pipe.hset(status_key, mapping=mapping)
         if board_mapping:
