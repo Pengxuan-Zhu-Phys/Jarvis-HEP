@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
 import json
+import logging
 from typing import Any, Mapping, Sequence
 from uuid import UUID
 
@@ -144,6 +145,15 @@ def calc_status_busy_field(name: str) -> str:
 def _redis_text(value: Any) -> str:
     """Normalize redis-py decode-responses and byte-client return values."""
     return value.decode("utf-8") if isinstance(value, bytes) else str(value)
+
+
+def _is_redis_timeout(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    return name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower()
+
+
+def _warn_control_timeout(op: str, exc: BaseException) -> None:
+    logging.getLogger(__name__).warning("redis control %s timed out -> %s", op, exc)
 
 
 def _json_default(obj: Any) -> Any:
@@ -328,7 +338,10 @@ class RedisQueue(
             self.r_ctrl = None
 
     def _client_kwargs(self) -> dict[str, Any]:
-        """Blocking BLPOP/BLMOVE client. No-arg form MUST stay socket_timeout=None."""
+        """Kwargs for the blocking BLPOP/BLMOVE client.
+
+        socket_timeout=None must exceed any BLPOP wait; redis-py 8 defaults to 5s.
+        """
         return {
             "decode_responses": self._codec == "json",
             "socket_timeout": None,
@@ -381,9 +394,7 @@ class RedisQueue(
         try:
             return self.r.blpop(key, timeout=max(0, int(timeout)))
         except Exception as exc:
-            # redis.exceptions.TimeoutError (and socket.timeout wrappers).
-            name = type(exc).__name__
-            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+            if _is_redis_timeout(exc):
                 return None
             raise
 
@@ -394,8 +405,7 @@ class RedisQueue(
         try:
             return self.r.blpop(keys, timeout=max(0.0, float(timeout)))
         except Exception as exc:
-            name = type(exc).__name__
-            if name in {"TimeoutError", "Timeout"} or "timeout" in str(exc).lower():
+            if _is_redis_timeout(exc):
                 return None
             raise
 
@@ -631,8 +641,10 @@ class RedisQueue(
             _close(client)
 
     def _require_client(self) -> None:
-        if self.r is None or self.r_ctrl is None:
+        if self.r is None:
             raise RuntimeError("Redis client is not connected; call connect() or inject client")
+        if self.r_ctrl is None:
+            self.r_ctrl = self.r
 
 
 def _coerce_numeric(value: Any) -> int | float | str:

@@ -16,7 +16,9 @@ from jarvishep2.queue.redis_queue import (
     PROC_WORKER,
     WORKER_STATUS,
     _encode_heartbeat_value,
+    _is_redis_timeout,
     _redis_text,
+    _warn_control_timeout,
     decode_payload,
     encode_payload,
 )
@@ -212,7 +214,13 @@ class _ControlAndHeartbeat:
 
     def get_control_lock_owner(self) -> str | None:
         self._require_client()
-        value = self._ctrl().get(CONTROL_LOCK)
+        try:
+            value = self._ctrl().get(CONTROL_LOCK)
+        except Exception as exc:
+            if not _is_redis_timeout(exc):
+                raise
+            _warn_control_timeout("get_control_lock_owner", exc)
+            return None
         if value is None:
             return None
         text = _redis_text(value).strip()
@@ -242,16 +250,23 @@ class _ControlAndHeartbeat:
             if board_ttl_sec is not None
             else PROC_BOARD_TTL_SEC
         )
-        pipe = self._ctrl().pipeline(transaction=True)
-        if mapping:
-            pipe.hset(status_key, mapping=mapping)
-        if board_mapping:
-            pipe.hset(board_key, mapping=board_mapping)
-        pipe.expire(board_key, ttl)
-        # Same TTL as the worker board so children cannot evaporate first.
-        pipe.expire(children_key, ttl)
-        pipe.incr(OP_COUNT.format(kind="worker"))
-        pipe.execute()
+        try:
+            pipe = self._ctrl().pipeline(transaction=True)
+            if mapping:
+                pipe.hset(status_key, mapping=mapping)
+            if board_mapping:
+                pipe.hset(board_key, mapping=board_mapping)
+            pipe.expire(board_key, ttl)
+            # Same TTL as the worker board so children cannot evaporate first.
+            pipe.expire(children_key, ttl)
+            pipe.incr(OP_COUNT.format(kind="worker"))
+            pipe.execute()
+        except Exception as exc:
+            if not _is_redis_timeout(exc):
+                raise
+            _warn_control_timeout("heartbeat", exc)
+            self.touch_proc_board("worker", owner_id=wid, ttl_sec=ttl)
+            self.touch_proc_board("children", owner_id=wid, ttl_sec=ttl)
 
     def encode_task_for_heartbeat(self, task: Mapping[str, Any]) -> str:
         """Serialize an in-flight task for the Worker heartbeat hash."""

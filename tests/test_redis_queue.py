@@ -150,6 +150,10 @@ class RedisQueueConnectTests(unittest.TestCase):
         self.assertIs(queue.r_ctrl, clients[1])
         self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
         self.assertEqual(redis_cls.from_url.call_count, 2)
+        self.assertIsNone(redis_cls.from_url.call_args_list[0].kwargs["socket_timeout"])
+        self.assertEqual(redis_cls.from_url.call_args_list[1].kwargs["socket_timeout"], 2.0)
+        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[0].kwargs)
+        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[1].kwargs)
 
     def test_injected_client_shares_r_and_r_ctrl(self):
         client = object()
@@ -169,6 +173,16 @@ class RedisQueueConnectTests(unittest.TestCase):
         self.assertIsNone(queue.r_ctrl)
         queue.connect()
         self.assertIs(queue.r_ctrl, client)
+
+    def test_require_client_heals_r_only_injection(self):
+        import fakeredis
+
+        queue = RedisQueue({"host": "x", "port": 1, "db": 0})
+        queue.r = fakeredis.FakeRedis(decode_responses=True)
+        self.assertIsNone(queue.r_ctrl)
+        queue._require_client()
+        self.assertIs(queue.r_ctrl, queue.r)
+        self.assertTrue(queue.claim_control_lock("owner-a"))
 
     def test_close_closes_distinct_clients(self):
         order: list[str] = []
@@ -202,6 +216,11 @@ class RedisQueueConnectTests(unittest.TestCase):
         self.assertIsNone(queue._blpop(TASK_QUEUE, timeout=1))
         self.assertIsNone(queue.pull_task(timeout=1))
         self.assertIsNone(queue.pull_feedback(timeout=1))
+        self.assertIsNone(
+            queue.pull_feedback(
+                timeout=1, queues=["hep:feedback", "hep:feedback:chain:0"]
+            )
+        )
         self.assertIsNone(queue.pull_result(timeout=1))
 
     def test_lock_heartbeat_and_board_use_ctrl(self):
@@ -225,6 +244,39 @@ class RedisQueueConnectTests(unittest.TestCase):
         self.assertEqual(control.hget(WORKER_STATUS.format(id="0"), "status"), "idle")
         self.assertEqual(queue.r.hgetall(WORKER_STATUS.format(id="0")), {})
         self.assertEqual(queue.read_proc_board("worker", owner_id="0")["status"], "idle")
+
+    def test_control_timeout_skips_writes_and_empty_reads(self):
+        queue = make_fakeredis_queue(codec="json")
+
+        class _TimeoutCtrl:
+            def pipeline(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def hgetall(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def expire(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def delete(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def get(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+            def set(self, *_a, **_k):
+                raise TimeoutError("Timeout reading from socket")
+
+        queue.r_ctrl = _TimeoutCtrl()
+        queue.publish_proc_board("core", role="core", pid=1)
+        self.assertEqual(queue.read_proc_board("core"), {})
+        self.assertEqual(queue.read_proc_boards("worker", owner_ids=["0", "1"]), {"0": {}, "1": {}})
+        self.assertFalse(queue.touch_proc_board("core"))
+        queue.drop_proc_board("core")
+        queue.heartbeat("0", status="idle")
+        self.assertIsNone(queue.get_control_lock_owner())
+        with self.assertRaises(TimeoutError):
+            queue.claim_control_lock("owner-a")
 
     def test_blpop_treats_socket_timeout_as_empty(self):
         queue = make_fakeredis_queue(codec="json")
