@@ -19,9 +19,10 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import time
 from typing import Any, Callable
 from urllib.parse import unquote, urlparse
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 import zipfile
 
 from jarvishep2.project_crypto import (
@@ -136,15 +137,40 @@ def _write_user_cache_catalog(payload: dict) -> None:
         pass
 
 
-def _read_catalog_from_url(index_url: str, timeout_sec: float) -> dict:
+def _effective_index_url(index_url: str | None) -> str:
+    effective_url = (
+        str(index_url).strip()
+        if index_url is not None
+        else str(os.environ.get(OFFICIAL_LIBRARY_INDEX_ENV) or "").strip()
+    )
+    if not effective_url:
+        effective_url = DEFAULT_OFFICIAL_LIBRARY_INDEX_URL
+    return effective_url
+
+
+def _read_catalog_from_url(
+    index_url: str,
+    timeout_sec: float,
+    *,
+    cache_bust: bool = False,
+) -> dict:
     parsed = urlparse(index_url)
     if parsed.scheme not in {"https", "http", "file"}:
         raise OfficialCatalogError(
             f"Unsupported official Jarvis library source URL scheme: {parsed.scheme or '<none>'}"
         )
 
+    fetch_url = index_url
+    headers = {"User-Agent": "Jarvis-HEP"}
+    if cache_bust and parsed.scheme in {"https", "http"}:
+        sep = "&" if parsed.query else "?"
+        fetch_url = f"{index_url}{sep}jarvis_cb={int(time.time())}"
+        headers["Cache-Control"] = "no-cache"
+        headers["Pragma"] = "no-cache"
+
     try:
-        with urlopen(index_url, timeout=timeout_sec) as response:
+        request = Request(fetch_url, headers=headers)
+        with urlopen(request, timeout=timeout_sec) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise OfficialCatalogError(
@@ -264,14 +290,7 @@ def _normalize_catalog(payload: object) -> dict:
 
 
 def _load_catalog_payload(index_url: str | None, timeout_sec: float) -> dict:
-    effective_url = (
-        str(index_url).strip()
-        if index_url is not None
-        else str(os.environ.get(OFFICIAL_LIBRARY_INDEX_ENV) or "").strip()
-    )
-    if not effective_url:
-        effective_url = DEFAULT_OFFICIAL_LIBRARY_INDEX_URL
-
+    effective_url = _effective_index_url(index_url)
     try:
         payload = _read_catalog_from_url(effective_url, timeout_sec=timeout_sec)
         if isinstance(payload, dict):
@@ -294,23 +313,72 @@ def load_official_project_catalog(
     return _normalize_catalog(payload)
 
 
+def refresh_official_project_catalog(
+    index_url: str | None = None,
+    *,
+    timeout_sec: float | None = None,
+) -> dict:
+    """Force-fetch the live catalog, persist the user cache, and return it.
+
+    Unlike :func:`load_official_project_catalog`, this does not fall back to the
+    user cache or the packaged snapshot. Cache-busts HTTP(S) index URLs so a
+    stale CDN copy is less likely to hide a newly published archive.
+    """
+    timeout = _coerce_timeout(timeout_sec)
+    effective_url = _effective_index_url(index_url)
+    payload = _read_catalog_from_url(
+        effective_url,
+        timeout_sec=timeout,
+        cache_bust=True,
+    )
+    if isinstance(payload, dict):
+        _write_user_cache_catalog(payload)
+    return _normalize_catalog(payload)
+
+
+def official_projects_match(left: list[dict], right: list[dict]) -> bool:
+    """Return True when two project lists describe the same catalog entries."""
+    return _projects_fingerprint(left) == _projects_fingerprint(right)
+
+
+def _projects_fingerprint(projects: list[dict]) -> str:
+    rows = [
+        (
+            str(project.get("name") or ""),
+            str(project.get("archive_url") or ""),
+            str(project.get("summary") or ""),
+            str(project.get("access") or ""),
+            bool(project.get("requires_key")),
+            str(project.get("entrypoint") or ""),
+        )
+        for project in projects
+    ]
+    rows.sort(key=lambda row: row[0].lower())
+    return json.dumps(rows, ensure_ascii=False)
+
+
 def list_official_projects(index_url: str | None = None) -> list[dict]:
     catalog = load_official_project_catalog(index_url=index_url)
     return list(catalog["projects"])
 
 
-def get_official_project(project_name: str, index_url: str | None = None) -> dict:
+def _find_official_project(catalog: dict, project_name: str) -> dict:
     name = str(project_name or "").strip()
     if not name:
         raise OfficialProjectNotFoundError("Missing official project name.")
 
-    for project in list_official_projects(index_url=index_url):
-        if project["name"].lower() == name.lower():
+    for project in catalog.get("projects") or []:
+        if str(project.get("name") or "").lower() == name.lower():
             return project
 
     raise OfficialProjectNotFoundError(
         f"Official project not found in the official Jarvis library: {name}"
     )
+
+
+def get_official_project(project_name: str, index_url: str | None = None) -> dict:
+    catalog = load_official_project_catalog(index_url=index_url)
+    return _find_official_project(catalog, project_name)
 
 
 def format_project_list_table(projects: list[dict]) -> str:
@@ -569,6 +637,52 @@ def _download_archive(
     return downloaded
 
 
+def _download_official_archive(
+    project: dict,
+    archive_path: str,
+    timeout_sec: float,
+    *,
+    progress: bool | None,
+    progress_console: Any | None,
+) -> None:
+    archive_url = str(project.get("archive_url") or "").strip()
+    if not archive_url:
+        raise OfficialProjectFetchError(
+            f"No archive_url configured for official project: {project['name']}"
+        )
+    with _FetchDownloadUI(
+        project["name"],
+        archive_url,
+        enabled=_progress_wanted(progress),
+        console=progress_console,
+    ) as download_ui:
+        _download_archive(
+            archive_url,
+            archive_path,
+            timeout_sec=timeout_sec,
+            on_bytes=download_ui.on_bytes if download_ui.enabled else None,
+        )
+
+
+def _ensure_fetch_key(project: dict, key: str | None) -> bool:
+    requires_key = bool(project.get("requires_key"))
+    if not requires_key:
+        return False
+    from jarvishep2.project_crypto import resolve_fetch_key
+
+    if resolve_fetch_key(key):
+        return True
+    hint = project.get("encryption_hint") or ""
+    msg = (
+        f"Project '{project['name']}' is restricted. Fetch with:\n"
+        f"  Jarvis project fetch {project['name']} --key YOUR_KEY\n"
+        f"or set {PROJECT_FETCH_KEY_ENV}."
+    )
+    if hint:
+        msg += f"\nKey hint: {hint}"
+    raise OfficialProjectFetchError(msg)
+
+
 def _is_within_directory(base: str, target: str) -> bool:
     base_real = os.path.realpath(base)
     target_real = os.path.realpath(target)
@@ -670,20 +784,7 @@ def fetch_official_project(
             f"No archive_url configured for official project: {project['name']}"
         )
 
-    requires_key = bool(project.get("requires_key"))
-    if requires_key:
-        from jarvishep2.project_crypto import resolve_fetch_key
-
-        if not resolve_fetch_key(key):
-            hint = project.get("encryption_hint") or ""
-            msg = (
-                f"Project '{project['name']}' is restricted. Fetch with:\n"
-                f"  Jarvis project fetch {project['name']} --key YOUR_KEY\n"
-                f"or set {PROJECT_FETCH_KEY_ENV}."
-            )
-            if hint:
-                msg += f"\nKey hint: {hint}"
-            raise OfficialProjectFetchError(msg)
+    requires_key = _ensure_fetch_key(project, key)
 
     resolved_target = (
         os.path.abspath(os.path.join(os.getcwd(), project["name"]))
@@ -709,17 +810,37 @@ def fetch_official_project(
             staging_root = os.path.join(tmpdir, "staged")
             os.makedirs(extract_root, exist_ok=True)
 
-            with _FetchDownloadUI(
-                project["name"],
-                archive_url,
-                enabled=_progress_wanted(progress),
-                console=progress_console,
-            ) as download_ui:
-                _download_archive(
-                    archive_url,
+            try:
+                _download_official_archive(
+                    project,
                     archive_path,
                     timeout_sec=timeout,
-                    on_bytes=download_ui.on_bytes if download_ui.enabled else None,
+                    progress=progress,
+                    progress_console=progress_console,
+                )
+            except OfficialProjectFetchError as download_exc:
+                # Stale catalog JSON often points at a retired GitHub release
+                # asset (HTTP 404). Refresh once, then retry the download.
+                try:
+                    catalog = refresh_official_project_catalog(
+                        index_url=index_url,
+                        timeout_sec=timeout,
+                    )
+                except OfficialCatalogError:
+                    raise download_exc
+                project = _find_official_project(catalog, project["name"])
+                requires_key = _ensure_fetch_key(project, key)
+                print(
+                    "[Jarvis] Download failed; refreshed official library "
+                    "catalog, retrying...",
+                    file=sys.stderr,
+                )
+                _download_official_archive(
+                    project,
+                    archive_path,
+                    timeout_sec=timeout,
+                    progress=progress,
+                    progress_console=progress_console,
                 )
             try:
                 plain_path = maybe_decrypt_archive(
@@ -737,7 +858,7 @@ def fetch_official_project(
             source_root = _resolve_archive_project_root(extract_root, project)
             shutil.copytree(source_root, staging_root)
             shutil.move(staging_root, resolved_target)
-    except OfficialProjectFetchError:
+    except (OfficialProjectFetchError, OfficialProjectNotFoundError):
         if os.path.isdir(resolved_target):
             shutil.rmtree(resolved_target, ignore_errors=True)
         raise
@@ -777,4 +898,6 @@ __all__ = [
     "get_official_project",
     "list_official_projects",
     "load_official_project_catalog",
+    "official_projects_match",
+    "refresh_official_project_catalog",
 ]

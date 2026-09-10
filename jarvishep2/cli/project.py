@@ -214,6 +214,24 @@ def _run_project_pack_from_manifest(manifest_path: str) -> int:
     return EXIT_OK
 
 
+def _refresh_official_catalog_after_browse(
+    console: Console, projects: list[dict]
+) -> int:
+    from jarvishep2.official_project_library import (
+        OfficialLibraryError,
+        official_projects_match,
+        refresh_official_project_catalog,
+    )
+
+    try:
+        fresh = refresh_official_project_catalog()
+    except OfficialLibraryError:
+        return EXIT_OK
+    if not official_projects_match(projects, list(fresh.get("projects") or [])):
+        console.print("[Jarvis] Official library catalog updated.")
+    return EXIT_OK
+
+
 def _run_project_browse() -> int:
     from jarvishep2.official_project_library import (
         PROJECT_FETCH_KEY_ENV,
@@ -227,9 +245,10 @@ def _run_project_browse() -> int:
         print(f"[Jarvis] Failed to query the official library: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 
+    console = Console()
     if not projects:
-        Console().print("[dim]No verified projects are listed in the official library.[/]")
-        return EXIT_OK
+        console.print("[dim]No verified projects are listed in the official library.[/]")
+        return _refresh_official_catalog_after_browse(console, projects)
 
     table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold dim")
     table.add_column("NAME", style="bold #c8c8ff", no_wrap=True)
@@ -285,7 +304,7 @@ def _run_project_browse() -> int:
             style="bold cyan",
         )
 
-    Console().print(
+    console.print(
         Panel(
             Group(table, Text(""), key_note, Text(""), fetch_examples),
             title=(
@@ -297,7 +316,7 @@ def _run_project_browse() -> int:
             padding=(0, 1),
         )
     )
-    return EXIT_OK
+    return _refresh_official_catalog_after_browse(console, projects)
 
 
 def _run_project_info(project_name: str) -> int:

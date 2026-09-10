@@ -21,11 +21,14 @@ from jarvishep2.official_project_library import (
     OfficialProjectFetchReport,
     OfficialProjectNotFoundError,
     _download_archive,
+    _normalize_catalog,
     fetch_official_project,
     format_project_list_table,
     get_official_project,
     list_official_projects,
     load_official_project_catalog,
+    official_projects_match,
+    refresh_official_project_catalog,
 )
 from jarvishep2.project_crypto import (
     encrypt_file,
@@ -344,6 +347,9 @@ class OfficialLibraryTests(unittest.TestCase):
         with mock.patch(
             "jarvishep2.official_project_library._load_catalog_payload",
             return_value=payload,
+        ), mock.patch(
+            "jarvishep2.official_project_library.refresh_official_project_catalog",
+            return_value=_normalize_catalog(payload),
         ), redirect_stdout(output):
             self.assertEqual(dispatch_project(["browse"]), 0)
 
@@ -354,6 +360,115 @@ class OfficialLibraryTests(unittest.TestCase):
         self.assertIn("Key: required", rendered)
         self.assertIn("Jarvis project fetch Eggbox", rendered)
         self.assertIn("Jarvis project fetch iDM --key 'YOUR_KEY'", rendered)
+        self.assertNotIn("Official library catalog updated", rendered)
+
+    def test_cli_browse_reports_catalog_update_after_refresh(self) -> None:
+        shown = {
+            "schema_version": 1,
+            "library_name": "official Jarvis library",
+            "projects": [
+                {
+                    "name": "Eggbox",
+                    "category": "sampling",
+                    "summary": "public share package",
+                    "access": "public",
+                    "archive_url": "https://example.test/Eggbox_old.tar.gz",
+                    "entrypoint": "bin/Example_Bridson_Operas.yaml",
+                }
+            ],
+        }
+        fresh = {
+            "schema_version": 1,
+            "library_name": "official Jarvis library",
+            "projects": [
+                {
+                    "name": "Eggbox",
+                    "category": "sampling",
+                    "summary": "public share package",
+                    "access": "public",
+                    "archive_url": "https://example.test/Eggbox_new.tar.gz",
+                    "entrypoint": "bin/Example_Bridson_Operas.yaml",
+                },
+                {
+                    "name": "GMFit",
+                    "category": "dark-matter",
+                    "summary": "restricted share package",
+                    "access": "restricted",
+                    "requires_key": True,
+                    "archive_url": "https://example.test/GMFit_new.tar.gz.jenc",
+                    "entrypoint": "bin/task.yaml",
+                },
+            ],
+        }
+        output = io.StringIO()
+        with mock.patch(
+            "jarvishep2.official_project_library._load_catalog_payload",
+            return_value=shown,
+        ), mock.patch(
+            "jarvishep2.official_project_library.refresh_official_project_catalog",
+            return_value=_normalize_catalog(fresh),
+        ) as refresh, redirect_stdout(output):
+            self.assertEqual(dispatch_project(["browse"]), 0)
+
+        refresh.assert_called_once()
+        rendered = output.getvalue()
+        self.assertIn("Official library", rendered)
+        self.assertIn("Eggbox", rendered)
+        self.assertIn("Official library catalog updated", rendered)
+
+    def test_refresh_official_project_catalog_writes_user_cache(self) -> None:
+        payload = {
+            "schema_version": 1,
+            "library_name": "official Jarvis library",
+            "projects": [
+                {
+                    "name": "GMFit",
+                    "archive_url": "https://example.test/GMFit_share_new.tar.gz.jenc",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            cache = os.path.join(tmp, "official_catalog.json")
+            with mock.patch(
+                "jarvishep2.official_project_library.USER_CATALOG_CACHE_PATH",
+                cache,
+            ), mock.patch(
+                "jarvishep2.official_project_library._read_catalog_from_url",
+                return_value=payload,
+            ) as reader:
+                catalog = refresh_official_project_catalog()
+            self.assertTrue(reader.call_args.kwargs.get("cache_bust"))
+            self.assertEqual(catalog["projects"][0]["name"], "GMFit")
+            with open(cache, encoding="utf-8") as handle:
+                stored = json.load(handle)
+            self.assertEqual(
+                stored["projects"][0]["archive_url"],
+                "https://example.test/GMFit_share_new.tar.gz.jenc",
+            )
+
+    def test_read_catalog_from_url_supports_file_index(self) -> None:
+        from jarvishep2.official_project_library import _read_catalog_from_url
+
+        payload = {
+            "schema_version": 1,
+            "projects": [{"name": "LocalToy", "archive_url": "https://example.test/x.tar.gz"}],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "official_project_library.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            loaded = _read_catalog_from_url(f"file://{path}", timeout_sec=5.0)
+            busted = _read_catalog_from_url(
+                f"file://{path}", timeout_sec=5.0, cache_bust=True
+            )
+        self.assertEqual(loaded["projects"][0]["name"], "LocalToy")
+        self.assertEqual(busted["projects"][0]["name"], "LocalToy")
+
+    def test_official_projects_match_detects_archive_url_change(self) -> None:
+        left = [{"name": "GMFit", "archive_url": "https://example.test/old.jenc"}]
+        right = [{"name": "GMFit", "archive_url": "https://example.test/new.jenc"}]
+        self.assertTrue(official_projects_match(left, list(left)))
+        self.assertFalse(official_projects_match(left, right))
 
     def test_cli_info_uses_rich_project_card(self) -> None:
         output = io.StringIO()
@@ -395,6 +510,155 @@ class OfficialLibraryTests(unittest.TestCase):
                 os.environ.pop("JARVIS_PROJECT_FETCH_KEY", None)
                 with self.assertRaises(OfficialProjectFetchError):
                     fetch_official_project("Locked")
+
+    def _write_mini_project_tarball(self, tmp: str) -> str:
+        proj = os.path.join(tmp, "Mini")
+        os.makedirs(os.path.join(proj, "bin"))
+        with open(
+            os.path.join(proj, ".jarvis-project.json"), "w", encoding="utf-8"
+        ) as handle:
+            json.dump({"format": "jarvis-hep-standalone-project", "version": 1}, handle)
+        with open(os.path.join(proj, "bin", "run.yaml"), "w", encoding="utf-8") as handle:
+            handle.write("Scan:\n  name: mini\n")
+        tar_path = os.path.join(tmp, "mini.tar.gz")
+        with tarfile.open(tar_path, "w:gz") as tar:
+            tar.add(proj, arcname="Mini")
+        return tar_path
+
+    def test_fetch_retries_once_after_catalog_refresh_on_download_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tar_path = self._write_mini_project_tarball(tmp)
+            stale = {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "Mini",
+                        "access": "public",
+                        "archive_url": f"file://{os.path.join(tmp, 'missing_old.tar.gz')}",
+                        "archive_root": ".",
+                        "entrypoint": "bin/run.yaml",
+                    }
+                ],
+            }
+            fresh = {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "Mini",
+                        "access": "public",
+                        "archive_url": f"file://{tar_path}",
+                        "archive_root": ".",
+                        "entrypoint": "bin/run.yaml",
+                    }
+                ],
+            }
+            dest = os.path.join(tmp, "out", "Mini")
+            stderr = io.StringIO()
+            with mock.patch(
+                "jarvishep2.official_project_library._load_catalog_payload",
+                return_value=stale,
+            ), mock.patch(
+                "jarvishep2.official_project_library.refresh_official_project_catalog",
+                return_value=_normalize_catalog(fresh),
+            ) as refresh, redirect_stderr(stderr):
+                report = fetch_official_project("Mini", target_dir=dest, progress=False)
+
+            refresh.assert_called_once()
+            self.assertEqual(report.project_name, "Mini")
+            self.assertTrue(os.path.isfile(os.path.join(dest, "bin", "run.yaml")))
+            self.assertIn("refreshed official library catalog", stderr.getvalue())
+
+    def test_fetch_errors_when_retry_download_still_fails(self) -> None:
+        stale = {
+            "schema_version": 1,
+            "projects": [
+                {
+                    "name": "Mini",
+                    "access": "public",
+                    "archive_url": "file:///no/such/old.tar.gz",
+                    "archive_root": ".",
+                }
+            ],
+        }
+        fresh = {
+            "schema_version": 1,
+            "projects": [
+                {
+                    "name": "Mini",
+                    "access": "public",
+                    "archive_url": "file:///no/such/new.tar.gz",
+                    "archive_root": ".",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "Mini")
+            with mock.patch(
+                "jarvishep2.official_project_library._load_catalog_payload",
+                return_value=stale,
+            ), mock.patch(
+                "jarvishep2.official_project_library.refresh_official_project_catalog",
+                return_value=_normalize_catalog(fresh),
+            ) as refresh, redirect_stderr(io.StringIO()):
+                with self.assertRaises(OfficialProjectFetchError) as ctx:
+                    fetch_official_project("Mini", target_dir=dest, progress=False)
+            refresh.assert_called_once()
+            self.assertIn("Cannot download project archive", str(ctx.exception))
+            self.assertIn("new.tar.gz", str(ctx.exception))
+            self.assertFalse(os.path.exists(dest))
+
+    def test_fetch_keeps_original_error_when_catalog_refresh_fails(self) -> None:
+        stale = {
+            "schema_version": 1,
+            "projects": [
+                {
+                    "name": "Mini",
+                    "access": "public",
+                    "archive_url": "file:///no/such/old.tar.gz",
+                    "archive_root": ".",
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "Mini")
+            with mock.patch(
+                "jarvishep2.official_project_library._load_catalog_payload",
+                return_value=stale,
+            ), mock.patch(
+                "jarvishep2.official_project_library.refresh_official_project_catalog",
+                side_effect=OfficialCatalogError("offline"),
+            ), redirect_stderr(io.StringIO()):
+                with self.assertRaises(OfficialProjectFetchError) as ctx:
+                    fetch_official_project("Mini", target_dir=dest, progress=False)
+            self.assertIn("old.tar.gz", str(ctx.exception))
+            self.assertNotIn("offline", str(ctx.exception))
+
+    def test_fetch_does_not_refresh_catalog_when_download_succeeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tar_path = self._write_mini_project_tarball(tmp)
+            payload = {
+                "schema_version": 1,
+                "projects": [
+                    {
+                        "name": "Mini",
+                        "access": "public",
+                        "archive_url": f"file://{tar_path}",
+                        "archive_root": ".",
+                        "entrypoint": "bin/run.yaml",
+                    }
+                ],
+            }
+            dest = os.path.join(tmp, "out", "Mini")
+            with mock.patch(
+                "jarvishep2.official_project_library._load_catalog_payload",
+                return_value=payload,
+            ), mock.patch(
+                "jarvishep2.official_project_library.refresh_official_project_catalog",
+            ) as refresh:
+                report = fetch_official_project("Mini", target_dir=dest, progress=False)
+            refresh.assert_not_called()
+            self.assertEqual(report.project_name, "Mini")
+            self.assertTrue(os.path.isfile(os.path.join(dest, "bin", "run.yaml")))
 
 
 class ProjectCryptoTests(unittest.TestCase):
