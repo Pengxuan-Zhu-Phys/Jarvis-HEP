@@ -105,6 +105,7 @@ class RuntimeReadModelTests(unittest.TestCase):
         self.assertEqual(block["stale_sec"], WATCHDOG_DEFAULTS["stale_sec"])
         self.assertEqual(block["respawn_cooldown_sec_cap"], 60.0)
         self.assertEqual(block["pause_grace_sec"], 60.0)
+        self.assertEqual(block["inflight_idle_grace_sec"], 2.0)
         self.assertEqual(block["death_rate_frac"], 0.20)
 
     def test_watchdog_yaml_cooldown_survives_runtime_block(self) -> None:

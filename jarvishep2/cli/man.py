@@ -274,6 +274,7 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
             "death_rate_frac": "Fraction of workers whose deaths pause respawn.",
             "degraded_frac": "Fraction of workers whose deaths enter degraded.",
             "pause_grace_sec": "Seconds of low death-rate before leaving paused.",
+            "inflight_idle_grace_sec": "Seconds idle+inflight must last before recovery.",
         },
         "watchdog:\n  enabled: true\n  stale_sec: 30",
     ),
@@ -317,6 +318,7 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "death_rate_frac": "number",
     "degraded_frac": "number",
     "pause_grace_sec": "number",
+    "inflight_idle_grace_sec": "number",
 }
 
 # Keys-table navigation markers (human output). ▸ = deeper man page; · = leaf field.

@@ -265,6 +265,28 @@ class WorkerMVPTests(unittest.TestCase):
         self.assertEqual(order[1], ("process", "in-flight-1"))
         redis.ack_inflight_task.assert_called_once_with("0", "in-flight-1")
 
+    def test_main_loop_marks_busy_before_blmove_pull(self) -> None:
+        worker = Worker(
+            0,
+            {"host": "127.0.0.1", "port": 1, "db": 0},
+            {"pull_timeout": 1},
+        )
+        redis = mock.Mock()
+        seen: list[str] = []
+
+        def pull(_wid: str, timeout: int = 5):
+            seen.append(str(worker._last_status))
+            worker._is_running = False
+            return None
+
+        redis.pull_task_to_inflight.side_effect = pull
+        redis.occupy_inflight_task.return_value = None
+        redis.get_inflight_task.return_value = None
+        worker._redis = redis
+        worker._heartbeat = lambda *_a, **_k: None  # type: ignore[method-assign]
+        worker._main_loop()
+        self.assertEqual(seen, ["busy"])
+
     def test_none_with_inflight_leftover_does_not_busy_loop(self) -> None:
         worker = Worker(
             0,

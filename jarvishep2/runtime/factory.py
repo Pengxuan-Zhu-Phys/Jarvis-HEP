@@ -286,6 +286,8 @@ class _Watchdog:
         self.stale_sec = 30.0
         self.poll_interval_sec = 1.0
         self.max_sample_retries = 3
+        self.inflight_idle_grace_sec = 2.0
+        self._inflight_idle_since: dict[int, float] = {}
         self._logger = get_jarvis_logger("factory.watchdog")
 
     def start(
@@ -295,6 +297,7 @@ class _Watchdog:
         stale_sec: float = 30.0,
         poll_interval_sec: float = 1.0,
         max_sample_retries: int = 3,
+        inflight_idle_grace_sec: float = 2.0,
     ) -> None:
         if not enabled:
             return
@@ -303,6 +306,8 @@ class _Watchdog:
         self.stale_sec = max(1.0, float(stale_sec))
         self.poll_interval_sec = max(0.1, float(poll_interval_sec))
         self.max_sample_retries = max(0, int(max_sample_retries))
+        self.inflight_idle_grace_sec = max(0.0, float(inflight_idle_grace_sec))
+        self._inflight_idle_since.clear()
         self._running = True
 
         def _loop() -> None:
@@ -374,8 +379,10 @@ class _Watchdog:
                     self.worker_heartbeat(worker.worker_id).get("status") or ""
                 ).strip().lower()
             if inflight_n > 0 and status in {"idle", "", "starting"}:
-                self.handle_worker_failure(worker, reason="inflight_without_busy")
+                if self._inflight_idle_ready(int(worker.worker_id)):
+                    self.handle_worker_failure(worker, reason="inflight_without_busy")
                 continue
+            self._inflight_idle_since.pop(int(worker.worker_id), None)
             if last_seen <= 0:
                 age = time.time() - worker._spawned_at  # AttributeError = bug
                 if age > self.stale_sec:
@@ -392,6 +399,21 @@ class _Watchdog:
         fill = getattr(factory, "_fill_empty_slots", None)
         if callable(fill):
             fill()
+
+    def _inflight_idle_ready(self, worker_id: int) -> bool:
+        """True once idle+inflight has lasted past the occupy/heartbeat race.
+
+        BLMOVE makes ``hep:inflight:{w}`` visible before the Worker can publish
+        status=busy. Instant recovery here SIGKILLs a healthy process. A short
+        grace keeps leftover occupancy recoverable without that race.
+        """
+        grace = float(self.inflight_idle_grace_sec)
+        now = time.time()
+        since = self._inflight_idle_since.get(worker_id)
+        if since is None:
+            self._inflight_idle_since[worker_id] = now
+            return grace <= 0.0
+        return (now - since) >= grace
 
     def _reset_cooldown_if_healthy(self, worker: Worker) -> None:
         spawned = float(getattr(worker, "_spawned_at", 0.0) or 0.0)
@@ -813,6 +835,7 @@ class TaskFactory:
         death_rate_frac: float = 0.20,
         degraded_frac: float = 0.10,
         pause_grace_sec: float = 60.0,
+        inflight_idle_grace_sec: float = 2.0,
     ) -> None:
         """Launch the Worker watchdog (WP-D6.1 / D26.1 PB-11)."""
         self._respawn_cooldown_sec_base = max(0.0, float(respawn_cooldown_sec_base))
@@ -827,6 +850,7 @@ class TaskFactory:
             stale_sec=stale_sec,
             poll_interval_sec=poll_interval_sec,
             max_sample_retries=max_sample_retries,
+            inflight_idle_grace_sec=inflight_idle_grace_sec,
         )
 
     @staticmethod
@@ -874,6 +898,10 @@ class TaskFactory:
         """
         worker_id = int(worker.worker_id)
         dead_pid = worker.pid
+        watchdog = getattr(self, "_watchdog", None)
+        idle_since = getattr(watchdog, "_inflight_idle_since", None) if watchdog is not None else None
+        if isinstance(idle_since, dict):
+            idle_since.pop(worker_id, None)
         with self._recovery_lock:
             if self._last_recovered_pid.get(worker_id) == dead_pid:
                 return

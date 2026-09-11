@@ -695,6 +695,10 @@ class Worker(Process):
         pull_timeout = int(self.worker_config.get("pull_timeout", 5))
         wid = str(self.worker_id)
         while self._is_running:
+            # Flip in-memory status before BLMOVE so the 5s heartbeat thread
+            # cannot refresh status=idle after occupancy is visible in Redis.
+            with self._hb_lock():
+                self._last_status = "busy"
             task = self._redis.pull_task_to_inflight(wid, timeout=pull_timeout)
             if task is None:
                 leftover = None

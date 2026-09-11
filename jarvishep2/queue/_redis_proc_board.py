@@ -11,6 +11,7 @@ from jarvishep2.queue.redis_queue import (
     ARCHIVER_BOARD_TTL_SEC,
     CodecError,
     INFLIGHT,
+    INFLIGHT_UUIDS,
     PROC_ARCHIVER,
     PROC_BOARD_TTL_SEC,
     PROC_CHILDREN,
@@ -49,8 +50,9 @@ while redis.call('LLEN', KEYS[2]) > 1 do
 end
 if n_start == 1 then
     redis.call('HINCRBY', KEYS[3], 'running', 1)
+    return {'ok', redis.call('LINDEX', KEYS[2], 0), 1}
 end
-return {'ok', redis.call('LINDEX', KEYS[2], 0)}
+return {'ok', redis.call('LINDEX', KEYS[2], 0), 0}
 """
 
 # Test-only non-blocking steal. NEVER a production fallback.
@@ -64,7 +66,7 @@ if not payload then
 end
 redis.call('LPUSH', KEYS[2], payload)
 redis.call('HINCRBY', KEYS[3], 'running', 1)
-return {'ok', payload}
+return {'ok', payload, 1}
 """
 
 _ATOMIC_ACK_INFLIGHT_LUA = """
@@ -342,7 +344,42 @@ class _ProcBoard:
             return None
         if status != "ok" or len(result) < 2:
             return None
-        return self._decode_task_payload(result[1])
+        task = self._decode_task_payload(result[1])
+        counted = True
+        if len(result) >= 3:
+            try:
+                counted = int(result[2] or 0) == 1
+            except (TypeError, ValueError):
+                counted = False
+        if counted:
+            self._account_inflight_uuid(task)
+        return task
+
+    def _account_inflight_uuid(self, task: dict[str, Any] | None) -> None:
+        if not task:
+            return
+        uuid = str(task.get("uuid") or "").strip()
+        if not uuid:
+            return
+        try:
+            self._ctrl().sadd(INFLIGHT_UUIDS, uuid)
+        except Exception:
+            return
+
+    def _release_inflight_running(self, payloads: list[dict[str, Any]]) -> None:
+        uuids = [str(item.get("uuid") or "").strip() for item in payloads]
+        uuids = [item for item in uuids if item]
+        if not uuids:
+            return
+        ctrl = self._ctrl()
+        removed = 0
+        for uuid in uuids:
+            try:
+                removed += int(ctrl.srem(INFLIGHT_UUIDS, uuid) or 0)
+            except (TypeError, ValueError):
+                continue
+        if removed > 0:
+            ctrl.hincrby(SAMPLE_STATS, "running", -removed)
 
     def _occupy_inflight_python(self, inflight_key: str) -> list[Any]:
         with self._py_inflight_lock():
@@ -357,7 +394,8 @@ class _ProcBoard:
                 ctrl.lpush(TASK_QUEUE, extra)
             if n_start == 1:
                 ctrl.hincrby(SAMPLE_STATS, "running", 1)
-            return ["ok", ctrl.lindex(inflight_key, 0)]
+                return ["ok", ctrl.lindex(inflight_key, 0), 1]
+            return ["ok", ctrl.lindex(inflight_key, 0), 0]
 
     def _steal_to_inflight_python(self, inflight_key: str) -> list[Any]:
         with self._py_inflight_lock():
@@ -369,7 +407,7 @@ class _ProcBoard:
                 return ["empty"]
             ctrl.lpush(inflight_key, payload)
             ctrl.hincrby(SAMPLE_STATS, "running", 1)
-            return ["ok", payload]
+            return ["ok", payload, 1]
 
     def _ack_inflight_python(self, inflight_key: str, uuid: str) -> int:
         with self._py_inflight_lock():
@@ -549,6 +587,7 @@ class _ProcBoard:
                 continue
             if decoded is not None:
                 payloads.append(decoded)
+        self._release_inflight_running(payloads)
         return payloads
 
     def list_inflight_worker_ids(self) -> list[str]:

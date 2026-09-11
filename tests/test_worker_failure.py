@@ -282,6 +282,7 @@ class IdleWatchdogTests(unittest.TestCase):
         factory.redis = queue
         factory.workers = [self._alive_stub()]
         factory._watchdog.stale_sec = 30.0
+        factory._watchdog.inflight_idle_grace_sec = 0.0
         now = time.time()
         queue.heartbeat("0", status="idle", last_heartbeat=now, ts=now)
         assert queue.r is not None
@@ -293,11 +294,44 @@ class IdleWatchdogTests(unittest.TestCase):
         queue = make_fakeredis_queue()
         factory.redis = queue
         factory.workers = [self._alive_stub()]
+        factory._watchdog.inflight_idle_grace_sec = 0.0
         now = time.time()
         queue.heartbeat("0", status="starting", last_heartbeat=now, ts=now)
         assert queue.r is not None
         queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"orphan-2"}')
         self.assertEqual(self._inspect(factory), ["inflight_without_busy"])
+
+    def test_idle_inflight_waits_for_grace_before_recovery(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 30.0
+        factory._watchdog.inflight_idle_grace_sec = 2.0
+        now = time.time()
+        queue.heartbeat("0", status="idle", last_heartbeat=now, ts=now)
+        assert queue.r is not None
+        queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"race-1"}')
+        self.assertEqual(self._inspect(factory), [])
+        factory._watchdog._inflight_idle_since[0] = now - 3.0
+        self.assertEqual(self._inspect(factory), ["inflight_without_busy"])
+
+    def test_idle_inflight_clears_when_heartbeat_becomes_busy(self) -> None:
+        factory = TaskFactory({})
+        queue = make_fakeredis_queue()
+        factory.redis = queue
+        factory.workers = [self._alive_stub()]
+        factory._watchdog.stale_sec = 30.0
+        factory._watchdog.inflight_idle_grace_sec = 2.0
+        now = time.time()
+        queue.heartbeat("0", status="idle", last_heartbeat=now, ts=now)
+        assert queue.r is not None
+        queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"race-2"}')
+        self.assertEqual(self._inspect(factory), [])
+        self.assertIn(0, factory._watchdog._inflight_idle_since)
+        queue.heartbeat("0", status="busy", last_heartbeat=now, ts=now)
+        self.assertEqual(self._inspect(factory), [])
+        self.assertNotIn(0, factory._watchdog._inflight_idle_since)
 
     def test_missing_heartbeat_past_spawned_at_is_stale(self) -> None:
         factory = TaskFactory({})

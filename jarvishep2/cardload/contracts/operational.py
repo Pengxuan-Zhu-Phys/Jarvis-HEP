@@ -36,6 +36,7 @@ _WATCHDOG_KEYS = frozenset(
         "death_rate_frac",
         "degraded_frac",
         "pause_grace_sec",
+        "inflight_idle_grace_sec",
     }
 )
 _ARCHIVER_KEYS = frozenset(ARCHIVER_DEFAULTS.keys())

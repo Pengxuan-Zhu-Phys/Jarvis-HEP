@@ -56,6 +56,7 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "death_rate_frac": 0.20,
     "degraded_frac": 0.10,
     "pause_grace_sec": 60.0,
+    "inflight_idle_grace_sec": 2.0,
 }
 FACTORY_DEFAULTS: dict[str, Any] = {}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
@@ -373,6 +374,11 @@ def normalize_watchdog_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     watchdog["pause_grace_sec"] = _watchdog_float(
         raw.get("pause_grace_sec", watchdog["pause_grace_sec"]),
         default=float(WATCHDOG_DEFAULTS["pause_grace_sec"]),
+        min_value=0.0,
+    )
+    watchdog["inflight_idle_grace_sec"] = _watchdog_float(
+        raw.get("inflight_idle_grace_sec", watchdog["inflight_idle_grace_sec"]),
+        default=float(WATCHDOG_DEFAULTS["inflight_idle_grace_sec"]),
         min_value=0.0,
     )
     return watchdog

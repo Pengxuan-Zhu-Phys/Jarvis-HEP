@@ -39,6 +39,9 @@ CHAIN_FEEDBACK_QUEUE_PATTERN = "hep:feedback:chain:*"
 WORKER_STATUS = "hep:worker:status:{id}"
 CALC_STATUS = "hep:calculator:status"
 SAMPLE_STATS = "hep:sample:stats"
+# UUIDs whose occupy path incremented SAMPLE_STATS.running. Reclaim SREM+decr
+# only when submit_result has not already cleared the member.
+INFLIGHT_UUIDS = "hep:sample:inflight_uuids"
 OP_COUNT = "hep:{kind}:op_count"
 # SAMPLE bucket allocator (limit samples per bucket; seal → ready for tar pack).
 BUCKET_META = "hep:sample:bucket:meta"
@@ -432,6 +435,7 @@ class RedisQueue(
             ARCHIVE_QUEUE,
             FEEDBACK_QUEUE,
             SAMPLE_STATS,
+            INFLIGHT_UUIDS,
             CALC_STATUS,
             BUCKET_META,
             BUCKET_READY_QUEUE,
@@ -706,6 +710,7 @@ __all__ = [
     "CodecError",
     "FEEDBACK_QUEUE",
     "INFLIGHT",
+    "INFLIGHT_UUIDS",
     "OP_COUNT",
     "PROC_ARCHIVER",
     "PROC_BOARD_TTL_SEC",

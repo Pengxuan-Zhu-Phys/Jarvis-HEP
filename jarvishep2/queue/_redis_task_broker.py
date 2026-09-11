@@ -15,6 +15,7 @@ from jarvishep2.queue.redis_queue import (
     FEEDBACK_QUEUE,
     OP_COUNT,
     RESULTS,
+    INFLIGHT_UUIDS,
     SAMPLE_STATS,
     TASK_QUEUE,
     TaskValidationError,
@@ -151,6 +152,7 @@ class _TaskBroker:
         _validate_result_payload(info)
         encoded = encode_payload(dict(info), codec=self._codec)
         status = str(info.get("status", "Completed"))
+        uuid = str(info.get("uuid") or "").strip()
         pipe = self.r.pipeline(transaction=True)
         pipe.rpush(ARCHIVE_QUEUE, encoded)
         if status == "Failed":
@@ -159,6 +161,8 @@ class _TaskBroker:
         else:
             pipe.hincrby(SAMPLE_STATS, "completed", 1)
             pipe.hincrby(SAMPLE_STATS, "running", -1)
+        if uuid:
+            pipe.srem(INFLIGHT_UUIDS, uuid)
         pipe.incr(OP_COUNT.format(kind="sample"))
         pipe.execute()
 

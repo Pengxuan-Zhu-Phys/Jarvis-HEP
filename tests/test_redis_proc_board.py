@@ -11,6 +11,7 @@ from unittest import mock
 from jarvishep2.redis_queue import (
     ARCHIVER_BOARD_TTL_SEC,
     INFLIGHT,
+    INFLIGHT_UUIDS,
     PROC_ARCHIVER,
     PROC_BOARD_TTL_SEC,
     PROC_CHILDREN,
@@ -432,6 +433,33 @@ class InflightOwnershipTests(unittest.TestCase):
         payloads = self.queue.reclaim_inflight_task("0")
         self.assertEqual([item["uuid"] for item in payloads], ["seq-b"])
         self.assertFalse(self.queue.ack_inflight_task("0", "seq-b"))
+
+    def test_reclaim_decrements_running_when_occupy_was_not_submitted(self) -> None:
+        self.queue.push_task(_task("only"))
+        got = self.queue.pull_task_to_inflight("0", timeout=0)
+        self.assertEqual(got["uuid"], "only")
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 1)
+        self.assertEqual(int(self.queue.r.sismember(INFLIGHT_UUIDS, "only") or 0), 1)
+        payloads = self.queue.reclaim_inflight_task("0")
+        self.assertEqual([item["uuid"] for item in payloads], ["only"])
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 0)
+        self.assertEqual(int(self.queue.r.sismember(INFLIGHT_UUIDS, "only") or 0), 0)
+
+    def test_reclaim_after_submit_does_not_double_decrement_running(self) -> None:
+        self.queue.push_task(_task("done"))
+        self.queue.pull_task_to_inflight("0", timeout=0)
+        self.queue.submit_result(
+            {"uuid": "done", "status": "Completed", "observables": {}}
+        )
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 0)
+        self.queue.reclaim_inflight_task("0")
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 0)
+
+    def test_planted_reclaim_without_occupy_does_not_steal_running(self) -> None:
+        self.queue.r.hset(SAMPLE_STATS, mapping={"running": 7})
+        self._plant_inflight(_task("planted"))
+        self.queue.reclaim_inflight_task("0")
+        self.assertEqual(int(self.queue.r.hget(SAMPLE_STATS, "running") or 0), 7)
 
     def test_require_blmove_raises_on_missing_command(self) -> None:
         client = mock.MagicMock()
