@@ -1,0 +1,7 @@
+RESOURCES  (LOCKED)
+width 78   cdot at column 38 of the inner row; CPU rail longer than MEM
+CPU · MEM; fds on the bottom edge, right-aligned. Do not restyle.
+
+╭─ RESOURCES ────────────────────────────────────────────────────────────────╮
+│CPU ├██████████▋───────────────┤ 41%  ·  MEM ├█████▊──────────────┤ 18.4/64G│
+╰───────────────────────────────────────────────── 41% · 18.4G · 1240/10240 ─╯

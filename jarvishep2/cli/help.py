@@ -491,12 +491,24 @@ def build_parser() -> argparse.ArgumentParser:
     convert_p.add_argument("task_yaml", help="Path to scan task YAML")
 
     monitor_p = sub.add_parser(
-        "monitor", help="List running scans, or print one selected scan monitor snapshot"
+        "monitor",
+        help="Open the live TUI, or print one snapshot with --once",
     )
     monitor_p.add_argument(
         "scan_ref",
         nargs="?",
-        help="Running scan reference (sticky R1/R2, control PID, or Scan.name)",
+        help="Skip the chooser and attach this scan (sticky R1/R2, control PID, or Scan.name)",
+    )
+    monitor_p.add_argument(
+        "--once",
+        action="store_true",
+        help="Do not open the TUI; print the scan list or one snapshot and exit",
+    )
+    monitor_p.add_argument(
+        "--json",
+        action="store_true",
+        dest="monitor_json",
+        help="With --once, emit JSON instead of text",
     )
 
     # ``plot`` is handled by argv passthrough in main(), matching jplot.

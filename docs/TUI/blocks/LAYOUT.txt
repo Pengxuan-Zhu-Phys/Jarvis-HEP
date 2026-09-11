@@ -1,0 +1,76 @@
+Overview blocks — composition
+=============================
+
+Each block is a rounded fieldset. The label sits ON the top edge,
+left side:  ╭─ SAMPLES ─────────╮
+Inside: two layers split by a blank row.
+
+    ╭─ LABEL ──────────────────╮
+    │  总   one-line summary    │
+    │                           │
+    │  分   breakdown           │
+    ╰───────────────────────────╯
+
+Half-width blocks are 56 cols (two-up on 120).
+Full-width blocks are 78 cols (one-up on 80, or a full row on 120).
+
+Edit the numbered files. Do not wrap. Corners stay ╭╮╰╯.
+
+
+Blocks
+------
+
+file                  label         总                         分
+00-status.txt         STATUS        name ● mode elapsed        REF / redis / hz
+01-samples.txt        SAMPLES       done/target + bar + %      run fail remain; rate eta avg
+02-queues.txt         QUEUES        pending total              task archive feedback chains
+03-workers.txt        WORKERS       alive/total                busy idle stale; cpu mem
+04-calculators.txt    CALCULATORS   busy/free packs            per calculator bar
+05-sparks.txt         SPARKS        latest /min queue cpu      three local sparklines
+06-live.txt           LIVE          n/n up + four dots         method run host started
+07-resources.txt      RESOURCES     cpu + mem C-rail bars, equal split; fds on bottom edge
+
+
+120 x 36  (two-up)
+------------------
+
+    ╭─ RESOURCES ────────────────────────────────────────────╮
+    │ cpu ████  mem ████  fds ████                           │
+    ╰────────────────────────────────── 41% · 18.4G · 1240/10240 ─╯
+    ╭─ STATUS ───────────────────────────────────────────────╮
+    │ ...                                                    │
+    ╰────────────────────────────────────────────────────────╯
+    ╭─ SAMPLES ─────────╮  ╭─ QUEUES ──────────╮
+    │                   │  │                   │
+    ╰───────────────────╯  ╰───────────────────╯
+    ╭─ WORKERS ─────────╮  ╭─ CALCULATORS ─────╮
+    │                   │  │                   │
+    ╰───────────────────╯  ╰───────────────────╯
+    ╭─ SPARKS ───────────────────────────────────────────────╮
+    │                                                        │
+    ╰────────────────────────────────────────────────────────╯
+    ╭─ LIVE ─────────────────────────────────────────────────╮
+    │                                                        │
+    ╰────────────────────────────────────────────────────────╯
+
+
+80 x 24  (stack; drop STATUS into the 总 of SAMPLES if height fights)
+--------------------------------------------------------------------
+
+    RESOURCES       (总 only, always first)
+    SAMPLES
+    QUEUES
+    WORKERS
+    CALCULATORS     (may clip 分 rows)
+    SPARKS          (may hide)
+    LIVE            (may hide)
+
+Narrow rule: keep 总, clip 分 from the bottom. Never wrap a line.
+Full-width SPARKS / LIVE / STATUS become 56-col on 80 by shrinking bars.
+
+
+Chrome (not a block)
+--------------------
+
+topbar, folder tabs, page frame, hint stay outside these files.
+These blocks live *inside* the rounded page frame, between tabs and hint.

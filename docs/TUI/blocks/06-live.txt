@@ -1,0 +1,12 @@
+LIVE
+width 78   rows 7   rounded fieldset   label sits on the top-left of the frame
+总  control-plane up / n
+分  each role + method / run / host
+
+╭─ LIVE ─────────────────────────────────────────────────────────────────────╮
+│4 / 4 up     core ●   archiver ●   redis ●   lock ●                         │
+│                                                                            │
+│method  AdaptiveBridson     run  run-20260910-120104                        │
+│host    nersc-login-02      started  2026-09-10 12:01:04 UTC                │
+│workers 47/48               stale 1                                         │
+╰────────────────────────────────────────────────────────────────────────────╯

@@ -1,0 +1,24 @@
+┌ Jarvis  iDM_Vector_V1  ● run  00:42:18  R1 ──────────────────────────── 2.0Hz┐
+│                                  ╭───────────╮                               │
+│1 Over.     2 Wrk.     3 Fac.     │ 4 Sampler │    5 Cal.     6 Sam.    7 Hos.│
+├──────────────────────────────────╯           ╰─┬─────────────────────────────┤
+│SAMPLER  AdaptiveBridson                        │hep:task_queue               │
+│                                                │                             │
+│QUEUE              LEN                          │key            hep:task_queue│
+│>hep:task_queue      24                         │llen           24            │
+│ hep:archive_queue    6                         │role           pending sample│
+│ hep:feedback         0                         │payloads       not listed (v1│
+│ hep:feedback:chain:0 0                         │method         AdaptiveBridso│
+│ hep:feedback:chain:1 0                         │run_id         run-20260910-1│
+│ hep:feedback:chain:2 0                         │feedback       0             │
+│                                                │chains         3             │
+│bounds.point_number   3000                      │                             │
+│bounds.seed           7                         │                             │
+│archived_prefix       1842                      │                             │
+│checkpoint            checkpoints/iDM_Vector_V1/│                             │
+│checkpoint mtime      12:42:01                  │                             │
+│                                                │                             │
+│                                                │                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│1-7 pages   tab   j/k   enter pin   esc   [ ] hz   q   ?                      │
+└──────────────────────────────────────────────────────────────────────────────┘

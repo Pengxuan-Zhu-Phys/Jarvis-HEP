@@ -1,0 +1,105 @@
+Jarvis Monitor — type ramp
+==========================
+
+Say the scheme name when asking for a change. Hex lives in
+``jarvishep2/monitor/styles.py`` (ROLES). Canvases are colourless; the
+live TUI applies the role.
+
+Do not restyle a locked scheme without saying so. ``hint`` is locked.
+
+
+Foundation (do not violate)
+---------------------------
+
+No square frames anywhere in Jarvis Monitor. Page frames, tabs, hero,
+panels, and overlays use rounded corners only:
+
+    ╭ ─ ╮     Textual:  border: round
+    │   │     Never:    border: solid, ┌ ┐ └ ┘ as a page/tab box
+    ╰ ─ ╯
+
+The terminal window in a .txt canvas may stay square; every *in-app*
+box is rounded.
+
+Tabs (folder tab on a rounded page frame)
+-----------------------------------------
+
+Order is always 1..7, left to right. The active tab does not jump to
+column 0; it stays in its index (Overview left, Host right).
+
+Active tab
+    Always full ``│ 1 Overview │`` — space after each bar, after the
+    number, and after the name. Scheme ``tab-active`` (bold gold).
+    Rounded cap ╭─╮ / │ │ open at the bottom into the page.
+
+Idle tabs  (LOCKED)
+    1. Full ``N Name``, gap 5, leftover padded equally onto idle slots.
+    2. If overflow: ``N Cal.`` (dot = ellipsis), then shrink gap 5→2.
+    3. When the gap is 2 and it still overflows, shrink the *name*:
+       ``Cal.`` → ``Ca.`` → ``C.`` → ```` (number remains).
+    4. Only after names are empty may gaps go below 2.
+
+This tab strip is frozen. Do not restyle without saying so.
+
+Page frame
+    One rounded rectangle around the whole information area (everything
+    between the tab strip and the hint bar). The active tab is a notch
+    in that top edge, not a separate island.
+
+
+Schemes
+-------
+
+hint-key        bold gold      footer key name (Enter, J/K, Q)
+hint-meaning    dim            ``: attach`` after the key
+hint-sep        dark dim       the ``|`` between groups
+                               LOCKED: ``Key: meaning  |  Key: meaning``
+
+topbar          bold gold      git branch, path, and clock
+                               with git:     ⎇ main · ~/path          · 8:53 PM
+                               without git:  ~/path                  · 8:53 PM
+                               (first · only between branch and path;
+                               second · sits on the clock)
+
+hero-tag        bold gold      "Jarvis Monitor" under the wordmark
+banner          blue→gold      Jarvis -v wordmark / tagline / authors
+dim             grey           secondary copy, empty states
+body            light          default dashboard numbers
+panel-title     bold ice-blue  SAMPLES / QUEUES / WORKERS / …
+tab-active      bold gold      folder tab: ``N Name `` (one space after
+                               the number, one after the name)
+tab-idle        dim            equal leftover slots; shorten when tight;
+                               at least 5 spaces between idle labels
+frame           Jarvis blue    tab cap, page-frame, and panel outlines
+                               (same blue above and below)
+live            gold           ● liveness dots
+bar             LOCKED C rail  ├████▌────────┤
+                               Fill 1/8-blocks, empty is ─.
+                               Active cells gradient left→right:
+                               navy #134a8d → ice #73b8f4 (0%→100% of track).
+                               Caps ├┤ use frame blue. Empty ─ is dim.
+
+RESOURCES block  (LOCKED)
+    Top of Overview. 总 only — one inner row, no 分.
+    ``CPU ├rail┤ 41%  ·  MEM ├rail┤ 18.4/64G``
+    ``·`` is on the content-area center column; CPU/MEM rails
+    differ because the suffixes differ. One space after G before
+    the frame. Bottom-edge subtitle, right-aligned:
+    ``41% · 18.4G · 1240/10240`` (fds lives here, not inside).
+    Labels uppercase. Separator is two spaces, middot, two spaces.
+cursor          blue bg/white  selected table row
+spark           block chars    ▁▂▃▄▅▆▇█ local TUI ring
+
+
+Palette (do not invent new hex in widgets)
+------------------------------------------
+
+gold        #f6d33f
+ice         #73b8f4
+blue        #2f7fd8
+navy        #134a8d
+dim         #8d93a1
+dark        #4a5160
+ink         #101216
+paper       #e6e8eb
+cursor-bg   #2f7fd8

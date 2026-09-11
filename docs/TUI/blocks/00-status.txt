@@ -1,0 +1,10 @@
+STATUS
+width 78   rows 5   rounded fieldset   label sits on the top-left of the frame
+总  who / mode / elapsed
+分  REF, redis, hz
+
+╭─ STATUS ───────────────────────────────────────────────────────────────────╮
+│simu-iDM_Vector_V1    ● running    00:42:18                                 │
+│                                                                            │
+│REF  SIM     redis  127.0.0.1:6379     hz  2.0                              │
+╰────────────────────────────────────────────────────────────────────────────╯

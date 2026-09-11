@@ -1,0 +1,194 @@
+Screen {
+    background: #101216;
+    color: #e6e8eb;
+}
+
+#splash {
+    height: 1fr;
+    padding: 0 0;
+}
+
+#topbar {
+    height: 1;
+    padding: 0 1;
+    color: #8d93a1;
+}
+
+#topbar-left {
+    width: 1fr;
+    color: #f6d33f;
+    text-style: bold;
+    text-overflow: ellipsis;
+}
+
+#topbar-clock {
+    width: 12;
+    content-align: right middle;
+    color: #f6d33f;
+    text-style: bold;
+}
+
+#hero {
+    height: auto;
+    min-height: 10;
+    padding: 1 2;
+    margin: 0 1 1 1;
+    border: round #4f7cff;
+    background: transparent;
+}
+
+#logo-monitor {
+    width: 16;
+    height: 8;
+    padding: 0;
+    content-align: left top;
+    color: #ffffff;
+}
+
+#home-panel {
+    width: 1fr;
+    padding: 0 2 0 2;
+    height: auto;
+}
+
+#banner {
+    height: auto;
+    color: #f5f7fb;
+}
+
+#monitor-tag {
+    height: auto;
+    margin-top: 1;
+    color: #f6d33f;
+}
+
+#chooser {
+    height: 1fr;
+    padding: 0 0;
+    width: 1fr;
+}
+
+#chooser-title {
+    height: 1;
+    color: #8d93a1;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#scans {
+    height: 1fr;
+    width: 1fr;
+    background: transparent;
+    padding: 0;
+    scrollbar-size-vertical: 0;
+    scrollbar-size-horizontal: 0;
+}
+
+#scans > .datatable--cursor {
+    background: #2f7fd8;
+    color: #ffffff;
+    text-style: bold;
+}
+
+#notice {
+    height: auto;
+    color: #f6d33f;
+    padding: 0 1;
+}
+
+#hint {
+    height: 1;
+    color: #8d93a1;
+    padding: 0 1;
+    text-style: none;
+}
+
+#session {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#session-title {
+    height: auto;
+    color: #73b8f4;
+    text-style: bold;
+}
+
+#session-body {
+    height: 1fr;
+    color: #8d93a1;
+    padding: 1 0;
+}
+
+#workspace {
+    height: 1fr;
+}
+
+#tab-bar {
+    height: 3;
+    padding: 0 1;
+    margin-bottom: 0;
+    color: #2f7fd8;
+}
+
+#page-frame {
+    height: 1fr;
+    margin: 0 1;
+    border-left: round #2f7fd8;
+    border-right: round #2f7fd8;
+    border-bottom: round #2f7fd8;
+    border-top: none;
+}
+
+#pages {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#overview {
+    height: 1fr;
+    overflow-y: auto;
+    scrollbar-size-vertical: 1;
+}
+
+#ov-row1,
+#ov-row2 {
+    height: auto;
+    min-height: 8;
+}
+
+.ov-block {
+    border: round #2f7fd8;
+    border-title-align: left;
+    border-title-color: #73b8f4;
+    border-title-style: bold;
+    padding: 0 1 1 1;
+    margin: 0 0 1 0;
+    height: auto;
+    color: #e6e8eb;
+}
+
+#ov-row1 > .ov-block,
+#ov-row2 > .ov-block {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#ov-row1 > .ov-block:last-child,
+#ov-row2 > .ov-block:last-child {
+    margin-right: 0;
+}
+
+#ov-calcs {
+    min-height: 10;
+}
+
+#ov-resources {
+    height: auto;
+    min-height: 1;
+    padding: 0 1;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
+

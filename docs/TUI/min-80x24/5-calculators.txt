@@ -1,0 +1,24 @@
+┌ Jarvis  iDM_Vector_V1  ● run  00:42:18  R1 ──────────────────────────── 2.0Hz┐
+│                                         ╭───────────────╮                    │
+│1 Over.    2 Wrk.    3 Fac.    4 Spl.    │ 5 Calculators │    6 Sam.    7 Hos.│
+├─────────────────────────────────────────╯               ╰────────────────────┤
+│CALCULATORS  pack pools                         │SoftSUSY                     │
+│                                                │                             │
+│NAME           BUSY  FREE  TOTAL  UTIL          │pack   owner                 │
+│>SoftSUSY          4    12     16   25%  ███░░░░│001    worker-03             │
+│ micrOMEGAs        0     8      8    0%  ░░░░░░░│002    worker-07             │
+│ HiggsBounds       2    10     12   17%  ██░░░░░│003    worker-12             │
+│ HiggsSignals      1    11     12    8%  █░░░░░░│004    worker-22             │
+│ SModelS           0    16     16    0%  ░░░░░░░│005-16 free                  │
+│ HiggsTools        2     8     10   20%  ██░░░░░│                             │
+│ FeynHiggs         0     4      4    0%  ░░░░░░░│hash   hep:calculator:status │
+│ SPheno            1     6      7   14%  ██░░░░░│busy   calc:busy:SoftSUSY    │
+│                                                │free   calc:free:SoftSUSY    │
+│                                                │mode   exclusive             │
+│                                                │                             │
+│                                                │                             │
+│                                                │                             │
+│                                                │                             │
+├──────────────────────────────────────────────────────────────────────────────┤
+│1-7 pages   tab   j/k   enter pin   esc   [ ] hz   q   ?                      │
+└──────────────────────────────────────────────────────────────────────────────┘

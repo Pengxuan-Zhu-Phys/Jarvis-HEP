@@ -9,6 +9,7 @@ Help chrome lives in ``jarvishep2.cli.help``, project tools in
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from typing import Any
 
@@ -154,9 +155,36 @@ def dispatch_version() -> int:
     return EXIT_OK
 
 
+def _want_monitor_tui() -> bool:
+    stdout_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    stdin_tty = bool(getattr(sys.stdin, "isatty", lambda: False)())
+    return stdout_tty and stdin_tty
+
+
 def dispatch_monitor(args: argparse.Namespace) -> int:
+    scan_ref = str(getattr(args, "scan_ref", "") or "").strip()
+    once = bool(getattr(args, "once", False))
+    as_json = bool(getattr(args, "monitor_json", False))
+    if as_json:
+        once = True
+
+    if not once and _want_monitor_tui():
+        from jarvishep2.monitor import TEXTUAL_EXTRA, run_tui
+
+        try:
+            return int(run_tui(scan_ref=scan_ref or None))
+        except ImportError as exc:
+            print(
+                "Jarvis monitor TUI requires Textual "
+                f"(pip install '{TEXTUAL_EXTRA}'). {exc}",
+                file=sys.stderr,
+            )
+
+    return _dispatch_monitor_snapshot(scan_ref, as_json=as_json)
+
+
+def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
     from jarvishep2.process_cleanup import (
-        format_scan_table,
         list_active_scans,
         print_scan_table,
         resolve_scan_reference,
@@ -164,8 +192,23 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
     )
 
     scans = list_active_scans()
-    scan_ref = str(getattr(args, "scan_ref", "") or "").strip()
     if not scan_ref:
+        if as_json:
+            from jarvishep2.monitor.scans import list_scan_choices
+
+            payload = [
+                {
+                    "reference": choice.reference,
+                    "name": choice.name,
+                    "control_pid": choice.control_pid,
+                    "process_count": choice.process_count,
+                    "pids": list(choice.pids),
+                }
+                for choice in list_scan_choices(lambda: scans)
+            ]
+            json.dump(payload, sys.stdout)
+            sys.stdout.write("\n")
+            return EXIT_OK
         print_scan_table(scans)
         return EXIT_OK
     try:
@@ -180,7 +223,10 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         print("Unable to verify this scan's Redis runtime metadata.", file=sys.stderr)
         return EXIT_RUN_FAILED
     if int(metadata.get("control_pid", -1)) not in {proc.pid for proc in scan.processes}:
-        print("Redis runtime metadata does not match the selected control process.", file=sys.stderr)
+        print(
+            "Redis runtime metadata does not match the selected control process.",
+            file=sys.stderr,
+        )
         return EXIT_RUN_FAILED
     redis_config = dict(metadata["redis"])
     from jarvishep2.factory import TaskFactory

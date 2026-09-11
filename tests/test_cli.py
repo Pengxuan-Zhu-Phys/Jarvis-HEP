@@ -144,7 +144,7 @@ class CliParseTests(unittest.TestCase):
             "Refresh CSV snapshots",
         )
         runtime_steps = (
-            "List running scans, or print one selected",
+            "Open the live TUI, or print one snapshot",
             "List process groups, or show one scan / ZP",
             "List process groups, or terminate one",
         )
