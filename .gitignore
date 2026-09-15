@@ -1,4 +1,5 @@
 # Repo-root / local runtime (scans, plots, checkpoints)
+docs/
 logs/
 checkpoints/
 outputs/
