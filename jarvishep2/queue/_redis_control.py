@@ -113,6 +113,15 @@ def _worker_board_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
     fo_pid = fields.get("file_operation_pid")
     if fo_pid is not None and fo_pid != "":
         board["file_operation_pid"] = fo_pid
+    fo_mode = fields.get("file_operation_mode")
+    if fo_mode is not None and str(fo_mode).strip():
+        board["file_operation_mode"] = str(fo_mode).strip()
+    ttl = fields.get("board_ttl_sec")
+    if ttl is not None and ttl != "":
+        try:
+            board["board_ttl_sec"] = max(1, int(ttl))
+        except (TypeError, ValueError):
+            pass
     if "held_calc_n" in fields and fields.get("held_calc_n") is not None:
         try:
             board["held_calc_n"] = int(fields["held_calc_n"])
@@ -231,6 +240,25 @@ class _ControlAndHeartbeat:
         text = _redis_text(value).strip()
         return text or None
 
+    def publish_held_calc_packs(
+        self,
+        worker_id: str,
+        held_packs: Mapping[str, Any],
+    ) -> None:
+        """One-field HSET of held_calc_packs. Watchdog sweep, not telemetry."""
+        self._require_client()
+        try:
+            self._ctrl().hset(
+                WORKER_STATUS.format(id=str(worker_id)),
+                "held_calc_packs",
+                _encode_heartbeat_value(dict(held_packs)),
+            )
+        except Exception as exc:
+            if _is_redis_timeout(exc):
+                _warn_control_timeout("publish_held_calc_packs", exc)
+                return
+            raise
+
     def heartbeat(
         self,
         worker_id: str,
@@ -249,6 +277,15 @@ class _ControlAndHeartbeat:
         status_key = WORKER_STATUS.format(id=wid)
         board_key = PROC_WORKER.format(id=wid)
         children_key = PROC_CHILDREN.format(id=wid)
+        ttl = (
+            max(1, int(board_ttl_sec))
+            if board_ttl_sec is not None
+            else PROC_BOARD_TTL_SEC
+        )
+        # The TTL is compact readiness evidence for the proc board, not an
+        # ownership payload. Preserve the effective default as well as an
+        # explicit caller override so Monitor can judge board age honestly.
+        fields.setdefault("board_ttl_sec", ttl)
         mapping = {
             k: _encode_heartbeat_value(v)
             for k, v in fields.items()
@@ -258,11 +295,16 @@ class _ControlAndHeartbeat:
             k: _encode_heartbeat_value(v)
             for k, v in _worker_board_fields(fields).items()
         }
-        ttl = (
-            max(1, int(board_ttl_sec))
-            if board_ttl_sec is not None
-            else PROC_BOARD_TTL_SEC
-        )
+        try:
+            board_fo_pgid: Any = (
+                "" if children_pgid is None or children_pgid == "" else int(children_pgid)
+            )
+            if board_fo_pgid != "" and int(board_fo_pgid) <= 0:
+                board_fo_pgid = ""
+        except (TypeError, ValueError):
+            board_fo_pgid = ""
+        if board_fo_pgid != "":
+            board_mapping["file_operation_pgid"] = _encode_heartbeat_value(board_fo_pgid)
         try:
             pipe = self._ctrl().pipeline(transaction=True)
             if mapping:
@@ -273,14 +315,7 @@ class _ControlAndHeartbeat:
             pipe.expire(board_key, ttl)
             if overlay_children:
                 fo_pid = fields.get("file_operation_pid")
-                try:
-                    fo_pgid_value: Any = (
-                        "" if children_pgid is None or children_pgid == "" else int(children_pgid)
-                    )
-                    if fo_pgid_value != "" and int(fo_pgid_value) <= 0:
-                        fo_pgid_value = ""
-                except (TypeError, ValueError):
-                    fo_pgid_value = ""
+                fo_pgid_value = board_fo_pgid
                 if isinstance(calc_pgids, (list, tuple)):
                     calc_list = [int(pid) for pid in calc_pgids]
                 else:

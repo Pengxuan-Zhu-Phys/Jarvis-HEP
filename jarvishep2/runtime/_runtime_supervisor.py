@@ -18,6 +18,7 @@ from jarvishep2.runtime.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import CONTROL_LOCK_TTL_SEC, PROC_BOARD_TTL_SEC, RedisQueue
 from jarvishep2.runtime_metadata import write_scan_metadata
+from jarvishep2.sampling.telemetry import sampler_status_json
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
@@ -625,6 +626,12 @@ class _RuntimeSupervisor:
         redis = core.redis
         if redis is not None:
             try:
+                drop = getattr(redis, "drop_monitor_keys", None)
+                if callable(drop):
+                    drop()
+            except Exception:
+                pass
+            try:
                 lock = getattr(core, "_proc_board_lock", None)
                 if lock is None:
                     redis.publish_proc_board("core", scan_mode="stopping")
@@ -693,6 +700,9 @@ class _RuntimeSupervisor:
             "pid": os.getpid(),
             "ts": now,
         }
+        sampler = getattr(core, "sampler", None)
+        if sampler is not None:
+            lease_fields["sampler_status"] = sampler_status_json(sampler)
         redis_fields: dict[str, Any] = {
             "role": "redis",
             "status": str(redis_status),
@@ -785,6 +795,9 @@ class _RuntimeSupervisor:
                 fields["workers_total"] = int(workers)
             except (TypeError, ValueError):
                 pass
+        sampler = getattr(core, "sampler", None)
+        if sampler is not None:
+            fields["sampler_status"] = sampler_status_json(sampler)
         with lock:
             core.redis.publish_proc_board("core", **fields)
 
@@ -811,6 +824,13 @@ class _RuntimeSupervisor:
             if key not in _FUSE_BOARD_FIELDS or value is None:
                 continue
             payload[key] = value
+        if mode == "stopping":
+            try:
+                drop = getattr(core.redis, "drop_monitor_keys", None)
+                if callable(drop):
+                    drop()
+            except Exception:
+                pass
         with lock:
             core.redis.publish_proc_board("core", ttl_sec=ttl, **payload)
 

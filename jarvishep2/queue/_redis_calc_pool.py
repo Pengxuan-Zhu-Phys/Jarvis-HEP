@@ -9,6 +9,9 @@ from typing import Any
 
 from jarvishep2.queue.redis_queue import (
     CALC_STATUS,
+    MONITOR_CALC_BUSY,
+    MONITOR_SAMPLE_RUNNING,
+    MONITOR_WANT,
     OP_COUNT,
     SHARED_HELD_PREFIX,
     _redis_text,
@@ -23,22 +26,54 @@ from jarvishep2.queue.redis_queue import (
     is_stable_calc_pack_id,
 )
 
+# Ownership HSET is unconditional. CALC_STATUS / op_count / sidecar only when
+# hep:monitor:want ch:calc is on. Returns {acquired, want_calc}.
+_ATOMIC_CLAIM_CALC_LUA = """
+redis.call('HSET', KEYS[1], ARGV[1], ARGV[5])
+local want_calc = 0
+if redis.call('EXISTS', KEYS[4]) == 1 then
+    local ch_calc = redis.call('HGET', KEYS[4], 'ch:calc')
+    if ch_calc and ch_calc ~= '0' and ch_calc ~= '' then
+        want_calc = 1
+        if ARGV[4] ~= '' then
+            redis.call('HSET', KEYS[5], ARGV[1], ARGV[4])
+        end
+        redis.call('HINCRBY', KEYS[2], ARGV[2], -1)
+        redis.call('HINCRBY', KEYS[2], ARGV[3], 1)
+        redis.call('INCR', KEYS[3])
+    end
+    local ch_sample = redis.call('HGET', KEYS[4], 'ch:sample')
+    if ch_sample and ch_sample ~= '0' and ch_sample ~= '' and ARGV[4] ~= '' and ARGV[6] ~= '' then
+        redis.call('HSET', KEYS[6], ARGV[4], ARGV[6])
+    end
+end
+return {1, want_calc}
+"""
+
 _ATOMIC_RELEASE_CALC_LUA = """
 local removed = redis.call('HDEL', KEYS[1], ARGV[1])
 if removed == 0 then
-    return 0
+    return {0, 0}
 end
 redis.call('RPUSH', KEYS[2], ARGV[1])
-redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
-redis.call('HINCRBY', KEYS[3], ARGV[3], -1)
-redis.call('INCR', KEYS[4])
-return 1
+local want_calc = 0
+if redis.call('EXISTS', KEYS[5]) == 1 then
+    local ch_calc = redis.call('HGET', KEYS[5], 'ch:calc')
+    if ch_calc and ch_calc ~= '0' and ch_calc ~= '' then
+        want_calc = 1
+        redis.call('HDEL', KEYS[6], ARGV[1])
+        redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
+        redis.call('HINCRBY', KEYS[3], ARGV[3], -1)
+        redis.call('INCR', KEYS[4])
+    end
+end
+return {1, want_calc}
 """
 
 _ATOMIC_RELEASE_SHARED_CALC_LUA = """
 local removed = redis.call('HDEL', KEYS[1], ARGV[1])
 if removed == 0 then
-    return 0
+    return {0, 0}
 end
 redis.call('RPUSH', KEYS[2], ARGV[1])
 if ARGV[4] == '' then
@@ -46,11 +81,35 @@ if ARGV[4] == '' then
 else
     redis.call('HSET', KEYS[3], ARGV[1], ARGV[4])
 end
-redis.call('HINCRBY', KEYS[4], ARGV[2], 1)
-redis.call('HINCRBY', KEYS[4], ARGV[3], -1)
-redis.call('INCR', KEYS[5])
-return 1
+local want_calc = 0
+if redis.call('EXISTS', KEYS[6]) == 1 then
+    local ch_calc = redis.call('HGET', KEYS[6], 'ch:calc')
+    if ch_calc and ch_calc ~= '0' and ch_calc ~= '' then
+        want_calc = 1
+        redis.call('HDEL', KEYS[7], ARGV[1])
+        redis.call('HINCRBY', KEYS[4], ARGV[2], 1)
+        redis.call('HINCRBY', KEYS[4], ARGV[3], -1)
+        redis.call('INCR', KEYS[5])
+    end
+end
+return {1, want_calc}
 """
+
+
+def _lua_eval_unavailable(exc: BaseException) -> bool:
+    return "unknown command 'eval'" in str(exc).lower()
+
+
+def _unpack_lua_pair(result: Any) -> tuple[bool, bool]:
+    """Unpack Lua `{flag, want_calc}`. Never treat the tuple itself as a bool."""
+    if isinstance(result, (list, tuple)) and len(result) >= 2:
+        return bool(int(result[0] or 0)), bool(int(result[1] or 0))
+    return bool(int(result or 0)), False
+
+
+def _channel_on(raw: Any) -> bool:
+    text = _redis_text(raw or "").strip()
+    return text not in {"", "0"}
 
 
 class _CalcPool:
@@ -169,25 +228,131 @@ class _CalcPool:
                 counts[mode] += 1
         return counts
 
+    def _monitor_channels(self) -> tuple[bool, bool]:
+        """(ch:calc, ch:sample). Missing want → (False, False). Fail-closed."""
+        try:
+            ctrl = self._ctrl()
+            if int(ctrl.exists(MONITOR_WANT) or 0) != 1:
+                return False, False
+            calc = ctrl.hget(MONITOR_WANT, "ch:calc")
+            sample = ctrl.hget(MONITOR_WANT, "ch:sample")
+            return _channel_on(calc), _channel_on(sample)
+        except Exception:
+            return False, False
+
+    def _claim_exclusive_pack(
+        self,
+        name: str,
+        pack_id: str,
+        *,
+        worker_id: str = "",
+        overlay_json: str = "",
+        busy_value: str = "running",
+    ) -> bool:
+        """HSET ownership; return want_calc. Sidecar/status only if ch:calc."""
+        want_calc = self._eval_claim_calc(
+            name,
+            pack_id,
+            worker_id=worker_id,
+            overlay_json=overlay_json,
+            busy_value=busy_value,
+        )
+        return want_calc
+
+    def _eval_claim_calc(
+        self,
+        name: str,
+        pack_id: str,
+        *,
+        worker_id: str = "",
+        overlay_json: str = "",
+        busy_value: str = "running",
+    ) -> bool:
+        busy_key = calc_busy_packs_key(name)
+        sidecar = MONITOR_CALC_BUSY.format(name=name)
+        if worker_id is None or worker_id == "":
+            owner = ""
+        else:
+            try:
+                owner = str(int(worker_id))
+            except (TypeError, ValueError):
+                owner = str(worker_id).strip()
+        overlay = str(overlay_json or "")
+        try:
+            result = self.r.eval(
+                _ATOMIC_CLAIM_CALC_LUA,
+                6,
+                busy_key,
+                CALC_STATUS,
+                OP_COUNT.format(kind="calculator"),
+                MONITOR_WANT,
+                sidecar,
+                MONITOR_SAMPLE_RUNNING,
+                pack_id,
+                calc_status_free_field(name),
+                calc_status_busy_field(name),
+                owner,
+                busy_value,
+                overlay,
+            )
+        except Exception as exc:
+            if not _lua_eval_unavailable(exc):
+                raise
+            return self._claim_calc_python(
+                name,
+                pack_id,
+                worker_id=owner,
+                overlay_json=overlay,
+                busy_value=busy_value,
+            )
+        _acquired, want_calc = _unpack_lua_pair(result)
+        return want_calc
+
+    def _claim_calc_python(
+        self,
+        name: str,
+        pack_id: str,
+        *,
+        worker_id: str,
+        overlay_json: str,
+        busy_value: str,
+    ) -> bool:
+        """fakeredis-without-EVAL fallback. Tests only."""
+        want_calc, want_sample = self._monitor_channels()
+        pipe = self.r.pipeline(transaction=True)
+        pipe.hset(calc_busy_packs_key(name), pack_id, busy_value)
+        if want_calc:
+            if worker_id:
+                pipe.hset(MONITOR_CALC_BUSY.format(name=name), pack_id, worker_id)
+            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
+            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
+            pipe.incr(OP_COUNT.format(kind="calculator"))
+        if want_sample and worker_id and overlay_json:
+            pipe.hset(MONITOR_SAMPLE_RUNNING, worker_id, overlay_json)
+        pipe.execute()
+        return want_calc
+
     def _claim_shared_pack(
         self,
         name: str,
         pack_id: str,
         current_mode: str | None,
         target_mode: str,
-    ) -> tuple[str, str | None]:
+        *,
+        worker_id: str = "",
+        overlay_json: str = "",
+    ) -> tuple[str, str | None, bool]:
         if not is_stable_calc_pack_id(pack_id):
             self._discard_stale_free_token(name, pack_id)
             raise ValueError(f"invalid shared calculator PackID {pack_id!r} for {name!r}")
-        pipe = self.r.pipeline(transaction=True)
-        # This label has no ownership semantics (the hash key and PackID do);
-        # it lets concurrently starting Workers spread cold packs across modes.
-        pipe.hset(calc_busy_packs_key(name), pack_id, f"running:{target_mode}")
-        pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
-        pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
-        pipe.incr(OP_COUNT.format(kind="calculator"))
-        pipe.execute()
-        return pack_id, current_mode
+        want_calc = self._eval_claim_calc(
+            name,
+            pack_id,
+            worker_id=worker_id,
+            overlay_json=overlay_json,
+            busy_value=f"running:{target_mode}",
+        )
+        return pack_id, current_mode, want_calc
 
     def acquire_shared_calc(
         self,
@@ -197,7 +362,34 @@ class _CalcPool:
         modes: Sequence[str],
         timeout: int = 30,
         affinity_wait_sec: float = 3.0,
+        worker_id: str = "",
+        overlay_json: str = "",
     ) -> tuple[str, str | None] | None:
+        got = self._acquire_shared_calc(
+            name,
+            mode,
+            modes=modes,
+            timeout=timeout,
+            affinity_wait_sec=affinity_wait_sec,
+            worker_id=worker_id,
+            overlay_json=overlay_json,
+        )
+        if got is None:
+            return None
+        pack_id, current_mode, _want = got
+        return pack_id, current_mode
+
+    def _acquire_shared_calc(
+        self,
+        name: str,
+        mode: str,
+        *,
+        modes: Sequence[str],
+        timeout: int = 30,
+        affinity_wait_sec: float = 3.0,
+        worker_id: str = "",
+        overlay_json: str = "",
+    ) -> tuple[str, str | None, bool] | None:
         """Acquire one parent PackID, preferring a pack already built for *mode*.
 
         This is the broker half of affinity scheduling.  Workers choose a
@@ -228,7 +420,12 @@ class _CalcPool:
                     continue
                 try:
                     return self._claim_shared_pack(
-                        parent, _redis_text(raw).strip(), current_mode, target,
+                        parent,
+                        _redis_text(raw).strip(),
+                        current_mode,
+                        target,
+                        worker_id=worker_id,
+                        overlay_json=overlay_json,
                     )
                 except ValueError:
                     continue
@@ -248,7 +445,12 @@ class _CalcPool:
                 if raw is not None:
                     try:
                         return self._claim_shared_pack(
-                            parent, _redis_text(raw[1]).strip(), target, target,
+                            parent,
+                            _redis_text(raw[1]).strip(),
+                            target,
+                            target,
+                            worker_id=worker_id,
+                            overlay_json=overlay_json,
                         )
                     except ValueError:
                         continue
@@ -270,7 +472,12 @@ class _CalcPool:
                     continue
                 try:
                     return self._claim_shared_pack(
-                        parent, _redis_text(raw).strip(), current_mode, target,
+                        parent,
+                        _redis_text(raw).strip(),
+                        current_mode,
+                        target,
+                        worker_id=worker_id,
+                        overlay_json=overlay_json,
                     )
                 except ValueError:
                     continue
@@ -285,7 +492,14 @@ class _CalcPool:
             popped_key, pack = _redis_text(raw[0]), _redis_text(raw[1]).strip()
             current_mode = next((candidate_mode for key, candidate_mode in candidates if key == popped_key), None)
             try:
-                return self._claim_shared_pack(parent, pack, current_mode, target)
+                return self._claim_shared_pack(
+                    parent,
+                    pack,
+                    current_mode,
+                    target,
+                    worker_id=worker_id,
+                    overlay_json=overlay_json,
+                )
             except ValueError:
                 continue
 
@@ -301,9 +515,10 @@ class _CalcPool:
             calc_shared_free_list_key(parent, target_mode)
             if target_mode else calc_shared_unassigned_list_key(parent)
         )
-        return self._eval_atomic_release_shared_calc(
+        released, _want = self._eval_atomic_release_shared_calc(
             parent, pack, free_key, target_mode,
         )
+        return released
 
     def _eval_atomic_release_shared_calc(
         self,
@@ -311,42 +526,51 @@ class _CalcPool:
         pack_id: str,
         free_key: str,
         target_mode: str,
-    ) -> bool:
-        """Atomically return a shared PackID and record its trusted warm mode."""
+    ) -> tuple[bool, bool]:
+        """Atomically return a shared PackID and record its trusted warm mode.
+
+        Returns ``(released, want_calc)``. Packmode + affinity RPUSH are
+        unconditional; sidecar/status/op_count only when ch:calc is on.
+        """
         busy_key = calc_busy_packs_key(parent)
         mode_key = calc_shared_pack_mode_key(parent)
+        sidecar = MONITOR_CALC_BUSY.format(name=parent)
         try:
             result = self.r.eval(
                 _ATOMIC_RELEASE_SHARED_CALC_LUA,
-                5,
+                7,
                 busy_key,
                 free_key,
                 mode_key,
                 CALC_STATUS,
                 OP_COUNT.format(kind="calculator"),
+                MONITOR_WANT,
+                sidecar,
                 pack_id,
                 calc_status_free_field(parent),
                 calc_status_busy_field(parent),
                 target_mode,
             )
         except Exception as exc:
-            # Keep the same fakeredis compatibility contract as normal pools.
-            if "unknown command 'eval'" not in str(exc).lower():
+            if not _lua_eval_unavailable(exc):
                 raise
             if not self.r.hdel(busy_key, pack_id):
-                return False
+                return False, False
+            want_calc, _want_sample = self._monitor_channels()
             pipe = self.r.pipeline(transaction=True)
             pipe.rpush(free_key, pack_id)
             if target_mode:
                 pipe.hset(mode_key, pack_id, target_mode)
             else:
                 pipe.hdel(mode_key, pack_id)
-            pipe.hincrby(CALC_STATUS, calc_status_free_field(parent), 1)
-            pipe.hincrby(CALC_STATUS, calc_status_busy_field(parent), -1)
-            pipe.incr(OP_COUNT.format(kind="calculator"))
+            if want_calc:
+                pipe.hdel(sidecar, pack_id)
+                pipe.hincrby(CALC_STATUS, calc_status_free_field(parent), 1)
+                pipe.hincrby(CALC_STATUS, calc_status_busy_field(parent), -1)
+                pipe.incr(OP_COUNT.format(kind="calculator"))
             pipe.execute()
-            return True
-        return bool(int(result or 0))
+            return True, want_calc
+        return _unpack_lua_pair(result)
 
     def force_release_shared_calc(self, name: str, pack_id: str) -> bool:
         """Return an uncertain shared pack to unassigned after a Worker failure."""
@@ -354,6 +578,9 @@ class _CalcPool:
 
     def _discard_stale_free_token(self, name: str, token: str) -> None:
         """Drop a non-PackID free-list entry (e.g. legacy ``ready``/UUID) permanently."""
+        want_calc, _want_sample = self._monitor_channels()
+        if not want_calc:
+            return
         free_field = calc_status_free_field(name)
         try:
             current = int(self.r.hget(CALC_STATUS, free_field) or 0)
@@ -362,44 +589,61 @@ class _CalcPool:
         if current > 0:
             self.r.hincrby(CALC_STATUS, free_field, -1)
 
-    def acquire_calc(self, name: str, timeout: int = 30) -> str | None:
+    def acquire_calc(
+        self,
+        name: str,
+        timeout: int = 30,
+        *,
+        worker_id: str = "",
+        overlay_json: str = "",
+    ) -> str | None:
         """Claim one free PackID exclusively (blocks until a slot or timeout).
 
         Only stable numeric PackIDs (``001`` …) are returned. Junk free-list
         values (``ready``, UUIDs, empty) are discarded and the wait continues.
         Returns ``None`` only when *timeout* elapses with no valid free slot.
         """
+        pack, _want = self._acquire_calc(
+            name, timeout=timeout, worker_id=worker_id, overlay_json=overlay_json
+        )
+        return pack
+
+    def _acquire_calc(
+        self,
+        name: str,
+        timeout: int = 30,
+        *,
+        worker_id: str = "",
+        overlay_json: str = "",
+    ) -> tuple[str | None, bool]:
+        """BLPOP + claim. Returns ``(pack, want_calc)``; pack is None on timeout."""
         self._require_client()
         pool_key = calc_free_list_key(name)
-        busy_key = calc_busy_packs_key(name)
         deadline = time.monotonic() + max(0.0, float(timeout))
 
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return None
-            # redis-py BLPOP timeout is whole seconds; keep waiting in chunks.
+                return None, False
             wait_sec = max(1, int(remaining) if remaining >= 1 else 1)
             raw = self._blpop(pool_key, timeout=wait_sec)
             if raw is None:
                 if time.monotonic() >= deadline:
-                    return None
+                    return None, False
                 continue
 
             pack_id = str(raw[1]).strip()
             if not is_stable_calc_pack_id(pack_id):
-                # Legacy free-list pollution — drop and wait for a real slot.
                 self._discard_stale_free_token(name, pack_id)
                 continue
 
-            # free → running (exclusive ownership for this worker/sample).
-            pipe = self.r.pipeline(transaction=True)
-            pipe.hset(busy_key, pack_id, "running")
-            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), -1)
-            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), 1)
-            pipe.incr(OP_COUNT.format(kind="calculator"))
-            pipe.execute()
-            return pack_id
+            want_calc = self._claim_exclusive_pack(
+                name,
+                pack_id,
+                worker_id=worker_id,
+                overlay_json=overlay_json,
+            )
+            return pack_id, want_calc
 
     def release_calc(self, name: str, pack_id: str) -> None:
         """Return a PackID to free after the sample finishes (running → free)."""
@@ -411,47 +655,52 @@ class _CalcPool:
         # Never put non-stable ids back into the free list (closes the UUID loop).
         if not is_stable_calc_pack_id(pack_id):
             busy_key = calc_busy_packs_key(name)
-            # Best-effort cleanup if an old worker still held a UUID slot.
             self.r.hdel(busy_key, pack_id)
             return
 
-        busy_key = calc_busy_packs_key(name)
-        result = self._eval_atomic_release_calc(name, pack_id)
-        if not result:
+        released, _want = self._eval_atomic_release_calc(name, pack_id)
+        if not released:
             raise ValueError(f"unknown pack_id '{pack_id}' for calculator '{name}'")
 
-    def _eval_atomic_release_calc(self, name: str, pack_id: str) -> bool:
-        """Atomically transition one busy calculator slot back to free."""
+    def _eval_atomic_release_calc(self, name: str, pack_id: str) -> tuple[bool, bool]:
+        """Atomically transition one busy calculator slot back to free.
+
+        Returns ``(released, want_calc)``. Must not be used as ``if not result``.
+        """
         busy_key = calc_busy_packs_key(name)
+        sidecar = MONITOR_CALC_BUSY.format(name=name)
         if not is_stable_calc_pack_id(pack_id):
-            return bool(self.r.hdel(busy_key, pack_id))
+            return bool(self.r.hdel(busy_key, pack_id)), False
         try:
             result = self.r.eval(
                 _ATOMIC_RELEASE_CALC_LUA,
-                4,
+                6,
                 busy_key,
                 calc_free_list_key(name),
                 CALC_STATUS,
                 OP_COUNT.format(kind="calculator"),
+                MONITOR_WANT,
+                sidecar,
                 pack_id,
                 calc_status_free_field(name),
                 calc_status_busy_field(name),
             )
         except Exception as exc:
-            # fakeredis versions used by the offline test suite may omit EVAL;
-            # real Redis always takes the atomic Lua path above.
-            if "unknown command 'eval'" not in str(exc).lower():
+            if not _lua_eval_unavailable(exc):
                 raise
             if not self.r.hdel(busy_key, pack_id):
-                return False
+                return False, False
+            want_calc, _want_sample = self._monitor_channels()
             pipe = self.r.pipeline(transaction=True)
             pipe.rpush(calc_free_list_key(name), pack_id)
-            pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
-            pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
-            pipe.incr(OP_COUNT.format(kind="calculator"))
+            if want_calc:
+                pipe.hdel(sidecar, pack_id)
+                pipe.hincrby(CALC_STATUS, calc_status_free_field(name), 1)
+                pipe.hincrby(CALC_STATUS, calc_status_busy_field(name), -1)
+                pipe.incr(OP_COUNT.format(kind="calculator"))
             pipe.execute()
-            return True
-        return bool(int(result or 0))
+            return True, want_calc
+        return _unpack_lua_pair(result)
 
     def force_release_calc(self, name: str, pack_id: str) -> bool:
         """Best-effort PackID return for failure/cleanup paths (never raises).
@@ -466,9 +715,8 @@ class _CalcPool:
         if not name:
             return False
         self._require_client()
-        # False means the slot was already free/not owned; Redis/EVAL errors
-        # propagate so callers can distinguish them and retain local ownership.
-        return self._eval_atomic_release_calc(name, pack_id)
+        released, _want = self._eval_atomic_release_calc(name, pack_id)
+        return released
 
     def sweep_held_calc_slots(self, held_packs: Mapping[str, Any]) -> int:
         """Release calculator slots recorded for a dead Worker (WP-D6.1)."""

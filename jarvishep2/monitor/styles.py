@@ -6,6 +6,8 @@ GOLD = "#f6d33f"
 ICE = "#73b8f4"
 BLUE = "#2f7fd8"
 NAVY = "#134a8d"
+RED = "#ef6b73"
+GREEN = "#35c98a"
 DIM = "#8d93a1"
 DARK = "#4a5160"
 INK = "#101216"
@@ -25,6 +27,23 @@ ROLES: dict[str, str] = {
     "tab-idle": DIM,
     "frame": BLUE,
     "live": GOLD,
+    "health-good": ICE,
+    "health-warn": GOLD,
+    "health-critical": f"bold {RED}",
+    "health-idle": DIM,
+    "health-led-good": GREEN,
+    "health-led-warn": GOLD,
+    "health-led-critical": RED,
+    "health-info": f"bold {GOLD}",
+    "pacman-pellet": NAVY,
+    "pacman-block": BLUE,
+    "pacman": f"bold {PAPER}",
+    "pacman-giant": f"bold {GOLD}",
+    "pacman-caught": f"bold {RED}",
+    "pacman-ghost-red": RED,
+    "pacman-ghost-yellow": GOLD,
+    "pacman-ghost-blue": ICE,
+    "pacman-ghost-flee": NAVY,
     "bar": BLUE,
     "cursor": f"bold {PAPER} on {BLUE}",
     "spark": PAPER,
@@ -42,10 +61,12 @@ __all__ = [
     "DARK",
     "DIM",
     "GOLD",
+    "GREEN",
     "ICE",
     "INK",
     "NAVY",
     "PAPER",
+    "RED",
     "ROLES",
     "paint",
 ]

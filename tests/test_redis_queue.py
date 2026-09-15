@@ -20,6 +20,11 @@ from jarvishep2.redis_queue import (
     CONTROL_LOCK_TTL_SEC,
     CONTROL_SOCKET_TIMEOUT_SEC,
     INFLIGHT,
+    MONITOR_CALC_BUSY,
+    MONITOR_KEY_PATTERN,
+    MONITOR_SAMPLE_RUNNING,
+    MONITOR_WANT,
+    MONITOR_WANT_TTL_SEC,
     OP_COUNT,
     PROC_BOARD_TTL_SEC,
     PROC_CORE,
@@ -64,6 +69,10 @@ class RedisQueueKeyspaceSplitTests(unittest.TestCase):
         self.assertIn(_SampleBuckets.__name__, names)
         self.assertIn(_ControlAndHeartbeat.__name__, names)
         self.assertIn(_ProcBoard.__name__, names)
+        from jarvishep2._redis_monitor import _MonitorTelemetry
+
+        self.assertIn(_MonitorTelemetry.__name__, names)
+        self.assertTrue(callable(RedisQueue.set_monitor_want))
         self.assertTrue(callable(RedisQueue.push_task))
         self.assertTrue(callable(RedisQueue.acquire_calc))
         self.assertTrue(callable(RedisQueue.init_sample_buckets))
@@ -85,6 +94,11 @@ class RedisQueueKeyNamespaceTests(unittest.TestCase):
         self.assertEqual(PROC_CORE, "hep:proc:core")
         self.assertEqual(PROC_WORKER, "hep:proc:worker:{id}")
         self.assertEqual(INFLIGHT, "hep:inflight:{worker}")
+        self.assertEqual(MONITOR_WANT, "hep:monitor:want")
+        self.assertEqual(MONITOR_CALC_BUSY, "hep:monitor:calc:busy:{name}")
+        self.assertEqual(MONITOR_SAMPLE_RUNNING, "hep:monitor:sample:running")
+        self.assertEqual(MONITOR_WANT_TTL_SEC, 5)
+        self.assertEqual(MONITOR_KEY_PATTERN, "hep:monitor:*")
         self.assertEqual(PROC_BOARD_TTL_SEC, 60)
         self.assertEqual(CONTROL_SOCKET_TIMEOUT_SEC, 2.0)
 
@@ -363,19 +377,31 @@ class RedisQueueTests(unittest.TestCase):
         self.assertEqual(pack_b, "002")
         self.assertIsNone(pack_c)
 
+        occupancy = self.queue.fetch_calc_occupancy(
+            ["DemoCalc"], slots={"DemoCalc": 2}
+        )
+        self.assertEqual(occupancy["DemoCalc"]["busy"], 2)
+        self.assertEqual(occupancy["DemoCalc"]["free"], 0)
+        self.assertEqual(self.queue.r.hlen(calc_busy_packs_key("DemoCalc")), 2)
+        # Want off: status cache and calculator op_count must not move.
         status = self.queue.r.hgetall(CALC_STATUS)
-        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 0)
-        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 2)
-        self.assertEqual(self.queue.get_op_count("calculator"), 2)
+        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 2)
+        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
+        self.assertEqual(self.queue.get_op_count("calculator"), 0)
 
         self.queue.release_calc("DemoCalc", pack_a)
         pack_d = self.queue.acquire_calc("DemoCalc", timeout=1)
         # Same PackID returned to the free list and reclaimed.
         self.assertEqual(pack_d, "001")
 
+        occupancy = self.queue.fetch_calc_occupancy(
+            ["DemoCalc"], slots={"DemoCalc": 2}
+        )
+        self.assertEqual(occupancy["DemoCalc"]["busy"], 2)
+        self.assertEqual(occupancy["DemoCalc"]["free"], 0)
         status = self.queue.r.hgetall(CALC_STATUS)
-        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 0)
-        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 2)
+        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 2)
+        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
 
     def test_acquire_discards_legacy_ready_token_and_returns_stable_id(self):
         """Stale free-list junk like ``ready`` must never become a PackID."""
@@ -627,6 +653,7 @@ class RedisQueueTests(unittest.TestCase):
         self.assertEqual(snapshot["proc_archiver"], {})
         self.assertEqual(snapshot["proc_redis"], {})
         self.assertNotIn("proc_workers", snapshot)
+        self.assertEqual(snapshot["calculator_occupancy"], {})
 
     def test_codec_round_trip_json(self):
         payload = {"arr": np.array([1, 2, 3])}

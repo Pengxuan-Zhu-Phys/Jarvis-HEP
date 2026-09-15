@@ -127,10 +127,17 @@ def run_monitor(
     *,
     factory: Any | None = None,
     redis: Any | None = None,
+    calculator_names: list[str] | None = None,
+    calculator_slots: dict[str, int] | None = None,
 ) -> int:
     from jarvishep2.dashboard import attach_reader, format_monitor_view
 
-    reader = attach_reader(factory=factory, redis=redis)
+    reader = attach_reader(
+        factory=factory,
+        redis=redis,
+        calculator_names=calculator_names,
+        calculator_slots=calculator_slots,
+    )
     view = reader.read()
     if not view.has_active_scan():
         print("No active scan found.", file=sys.stderr)
@@ -153,6 +160,15 @@ def dispatch_version() -> int:
 
     print(render_logo_with_version())
     return EXIT_OK
+
+
+def _calculator_pools_from_metadata(
+    metadata: dict[str, Any],
+) -> tuple[list[str] | None, dict[str, int] | None]:
+    """INF-18 catalogue when present; otherwise SnapshotReader discovers names."""
+    from jarvishep2.runtime_metadata import calculator_pools_from_metadata
+
+    return calculator_pools_from_metadata(metadata)
 
 
 def _want_monitor_tui() -> bool:
@@ -229,6 +245,7 @@ def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
         )
         return EXIT_RUN_FAILED
     redis_config = dict(metadata["redis"])
+    names, slots = _calculator_pools_from_metadata(metadata)
     from jarvishep2.factory import TaskFactory
     from jarvishep2.redis_queue import RedisQueue
 
@@ -236,7 +253,11 @@ def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
     try:
         factory.init_redis()
         if factory.get_monitor_snapshot():
-            return run_monitor(factory=factory)
+            return run_monitor(
+                factory=factory,
+                calculator_names=names,
+                calculator_slots=slots,
+            )
     except Exception:
         pass
 
@@ -247,7 +268,11 @@ def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
         print(f"Unable to connect to Redis for monitor attach: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
     try:
-        return run_monitor(redis=redis)
+        return run_monitor(
+            redis=redis,
+            calculator_names=names,
+            calculator_slots=slots,
+        )
     finally:
         redis.close()
 

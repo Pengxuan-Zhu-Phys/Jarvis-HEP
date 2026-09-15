@@ -40,6 +40,12 @@ OVERVIEW_KEYS: tuple[tuple[str, str], ...] = (
     ("Q", "quit"),
 )
 
+OVERVIEW_ONLY_KEYS: tuple[tuple[str, str], ...] = (
+    ("Esc", "chooser"),
+    ("R", "refresh"),
+    ("Q", "quit"),
+)
+
 
 def render_key_hint(pairs: tuple[tuple[str, str], ...] | list[tuple[str, str]]) -> str:
     """Bold gold key names, dim ``: meaning``, groups split by `` | ``."""
@@ -58,6 +64,7 @@ def render_key_hint_plain(
 
 __all__ = [
     "OVERVIEW_KEYS",
+    "OVERVIEW_ONLY_KEYS",
     "SESSION_KEYS",
     "SPLASH_KEYS",
     "render_key_hint",

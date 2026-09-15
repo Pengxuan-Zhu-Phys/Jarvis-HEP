@@ -12,7 +12,11 @@ from typing import Any
 
 from jarvishep2.calculator_modes import mode_info
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.redis_queue import SHARED_HELD_PREFIX
+from jarvishep2.redis_queue import (
+    SHARED_HELD_PREFIX,
+    calc_shared_free_list_key,
+    calc_shared_unassigned_list_key,
+)
 from jarvishep2.sample import Sample
 from jarvishep2.sample import ExecutionStep
 from jarvishep2.workflow import group_by_layer
@@ -126,8 +130,18 @@ class SampleExecutor:
         shared_parent = info[0] if info is not None else None
         target_mode = info[1] if info is not None else None
         held_key = SHARED_HELD_PREFIX + shared_parent if shared_parent else step_name
+        wid = str(int(worker.worker_id))
+        overlay = json.dumps(
+            {
+                "uuid": str(getattr(worker, "_current_sample_uuid", None) or ""),
+                "step": str(step_name),
+                "t0": time.time(),
+            },
+            separators=(",", ":"),
+        )
+        want_calc = False
         if shared_parent and target_mode:
-            acquired = worker._redis.acquire_shared_calc(
+            acquired = worker._redis._acquire_shared_calc(
                 shared_parent,
                 target_mode,
                 modes=worker._shared_mode_sets.get(shared_parent, [target_mode]),
@@ -135,15 +149,25 @@ class SampleExecutor:
                 affinity_wait_sec=float(
                     worker.worker_config.get("shared_mode_affinity_wait_sec", 3.0)
                 ),
+                worker_id=wid,
+                overlay_json=overlay,
             )
             pack_id = acquired[0] if acquired is not None else None
+            want_calc = bool(acquired[2]) if acquired is not None else False
         else:
-            pack_id = worker._redis.acquire_calc(step_name, timeout=timeout)
+            pack_id, want_calc = worker._redis._acquire_calc(
+                step_name,
+                timeout=timeout,
+                worker_id=wid,
+                overlay_json=overlay,
+            )
         if pack_id is None:
             raise TimeoutError(f"timed out acquiring calculator slot for '{step_name}'")
         with worker._hb_lock():
             worker._held_calc_packs[held_key] = pack_id
-        worker._heartbeat("busy")
+        self._publish_held_calc_packs()
+        if want_calc:
+            self._maybe_heartbeat("busy")
         runtime_ready = False
         try:
             module.acquire_pack_id(pack_id)
@@ -160,13 +184,42 @@ class SampleExecutor:
                 worker._merge_calculator_observables(sample, step_name, pack_id, updated)
         finally:
             # Hard release: Redis socket errors must not leave the slot busy.
-            worker._force_release_pack(
+            want_release = self._force_release_pack(
                 held_key,
                 pack_id,
                 shared_parent=shared_parent,
                 ready_mode=target_mode if runtime_ready else None,
             )
-            worker._heartbeat("busy")
+            if want_release:
+                self._maybe_heartbeat("busy")
+
+    def _maybe_heartbeat(self, status: str) -> None:
+        worker = self._worker
+        try:
+            worker._heartbeat(status)
+        except Exception as exc:
+            try:
+                get_jarvis_logger("worker", worker_id=worker.worker_id).warning(
+                    "optional inflight heartbeat failed -> %s", exc
+                )
+            except Exception:
+                pass
+
+    def _publish_held_calc_packs(self) -> None:
+        worker = self._worker
+        if worker._redis is None:
+            return
+        try:
+            with worker._hb_lock():
+                held = dict(worker._held_calc_packs)
+            worker._redis.publish_held_calc_packs(str(worker.worker_id), held)
+        except Exception as exc:
+            try:
+                get_jarvis_logger("worker", worker_id=worker.worker_id).warning(
+                    "held_calc_packs publish failed -> %s", exc
+                )
+            except Exception:
+                pass
 
     def _force_release_pack(
         self,
@@ -175,29 +228,58 @@ class SampleExecutor:
         *,
         shared_parent: str | None = None,
         ready_mode: str | None = None,
-    ) -> None:
-        """Return a calculator PackID, retaining local ownership on Redis errors."""
+    ) -> bool:
+        """Return a calculator PackID, retaining local ownership on Redis errors.
+
+        Returns ``want_calc`` from the release EVAL (False on failure / want off).
+        """
         worker = self._worker
     
         if worker._redis is None:
-            return
+            return False
         with worker._hb_lock():
             held_pack = pack_id or worker._held_calc_packs.get(step_name)
         if not held_pack:
-            return
+            return False
+        want_calc = False
         try:
-            # False is the benign already-free/double-release result; an
-            # exception means Redis could not confirm the transition.
             if shared_parent:
-                worker._redis.release_shared_calc(
-                    shared_parent, str(held_pack), ready_mode,
+                target_mode = str(ready_mode or "").strip()
+                free_key = (
+                    calc_shared_free_list_key(shared_parent, target_mode)
+                    if target_mode
+                    else calc_shared_unassigned_list_key(shared_parent)
                 )
+                release = getattr(worker._redis, "_eval_atomic_release_shared_calc", None)
+                if callable(release):
+                    _released, want_calc = release(
+                        shared_parent, str(held_pack), free_key, target_mode,
+                    )
+                else:
+                    # Lightweight test doubles and third-party adapters only
+                    # promise the public API. They cannot return want_calc,
+                    # so retain the safe default of no optional heartbeat.
+                    worker._redis.release_shared_calc(
+                        shared_parent, str(held_pack), ready_mode,
+                    )
             elif str(step_name).startswith(SHARED_HELD_PREFIX):
-                worker._redis.force_release_shared_calc(
-                    str(step_name).removeprefix(SHARED_HELD_PREFIX), str(held_pack),
-                )
+                parent = str(step_name).removeprefix(SHARED_HELD_PREFIX)
+                release = getattr(worker._redis, "_eval_atomic_release_shared_calc", None)
+                if callable(release):
+                    _released, want_calc = release(
+                        parent,
+                        str(held_pack),
+                        calc_shared_unassigned_list_key(parent),
+                        "",
+                    )
+                else:
+                    worker._redis.force_release_shared_calc(parent, str(held_pack))
             else:
-                worker._redis.force_release_calc(step_name, str(held_pack))
+                release = getattr(worker._redis, "_eval_atomic_release_calc", None)
+                if callable(release):
+                    _released, want_calc = release(step_name, str(held_pack))
+                else:
+                    worker._redis.force_release_calc(step_name, str(held_pack))
         except Exception as exc:
             try:
                 get_jarvis_logger("worker", worker_id=worker.worker_id).error(
@@ -208,10 +290,12 @@ class SampleExecutor:
                 )
             except Exception:
                 pass
-            return
+            return False
         with worker._hb_lock():
             if worker._held_calc_packs.get(step_name) == str(held_pack):
                 worker._held_calc_packs.pop(step_name, None)
+        self._publish_held_calc_packs()
+        return bool(want_calc)
 
     def _force_release_all_held_packs(self, logger: Any | None = None) -> None:
         """Safety net for process_task finally — release every slot this worker holds."""
@@ -222,7 +306,7 @@ class SampleExecutor:
         with worker._hb_lock():
             held = dict(worker._held_calc_packs)
         for step_name, pack_id in held.items():
-            worker._force_release_pack(str(step_name), str(pack_id))
+            self._force_release_pack(str(step_name), str(pack_id))
 
     def _merge_calculator_observables(
         self,

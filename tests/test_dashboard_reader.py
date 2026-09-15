@@ -10,8 +10,14 @@ import unittest
 from unittest import mock
 
 from jarvishep2.client import run_monitor
-from jarvishep2.dashboard import SnapshotReader, attach_reader
+from jarvishep2.dashboard import SnapshotReader, attach_reader, format_monitor_view
 from jarvishep2.factory import TaskFactory
+from jarvishep2.redis_queue import (
+    CALC_STATUS,
+    chain_feedback_queue,
+    calc_status_busy_field,
+    calc_status_free_field,
+)
 from jarvishep2.monitoring.run_summary import (
     RUN_SUMMARY_FIELD_ORDER,
     RunSummaryRenderer,
@@ -38,6 +44,35 @@ class DashboardReaderTests(unittest.TestCase):
         self.assertEqual(view.queues["task_queue_length"], 1)
         self.assertGreaterEqual(view.op_counts.get("task", 0), 1)
 
+    def test_snapshot_reader_reads_only_explicit_feedback_shards(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.connect()
+        assert queue.r is not None
+        queue.r.rpush(chain_feedback_queue(0), "known-chain-result")
+        queue.r.rpush(chain_feedback_queue(9), "unlisted-chain-result")
+        view = attach_reader(redis=queue, feedback_chain_ids=[0, 1]).read()
+        self.assertEqual(view.queues["feedback_shards"], {"0": 1, "1": 0})
+        self.assertEqual(view.queues["feedback_queue_length"], 0)
+
+    def test_worker_projection_keeps_file_operator_evidence(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.connect()
+        queue.heartbeat(
+            "3",
+            status="busy",
+            pid=110,
+            ts=1.0,
+            board_ttl_sec=30,
+            file_operation_pid=220,
+            file_operation_pgid=220,
+            file_operation_mode="process",
+        )
+        worker = attach_reader(redis=queue, owner_ids=["3"]).read().workers[0]
+        self.assertEqual(worker["file_operation_pid"], 220)
+        self.assertEqual(worker["file_operation_pgid"], 220)
+        self.assertEqual(worker["file_operation_mode"], "process")
+        self.assertEqual(worker["board_ttl_sec"], 30)
+
     def test_snapshot_reader_is_read_only(self) -> None:
         queue = make_fakeredis_queue()
         queue.connect()
@@ -56,6 +91,46 @@ class DashboardReaderTests(unittest.TestCase):
             setattr(queue.r, method_name, _guard(method_name, original))
         attach_reader(redis=queue).read()
         self.assertEqual(writes["count"], 0)
+
+    def test_snapshot_reader_uses_occupancy_when_want_is_off(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.connect()
+        queue.register_calc_pool("DemoCalc", 2)
+        pack = queue.acquire_calc("DemoCalc", timeout=1)
+        self.assertEqual(pack, "001")
+        view = attach_reader(redis=queue).read()
+        self.assertEqual(
+            view.occupancy["DemoCalc"],
+            {"free": 1, "busy": 1, "slots": 2},
+        )
+        self.assertEqual(view.calculators["DemoCalc"]["busy"], 1)
+        status = queue.r.hgetall(CALC_STATUS)
+        self.assertEqual(int(status[calc_status_free_field("DemoCalc")]), 2)
+        self.assertEqual(int(status[calc_status_busy_field("DemoCalc")]), 0)
+        text = format_monitor_view(view)
+        self.assertIn("calculator_occupancy:", text)
+        self.assertIn("DemoCalc", text)
+
+    def test_snapshot_reader_skips_calc_status_when_names_are_given(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.connect()
+        queue.register_calc_pool("DemoCalc", 2)
+        queue.acquire_calc("DemoCalc", timeout=1)
+        original = queue.r.hgetall
+
+        def _guard(key, *args, **kwargs):
+            if str(key) == CALC_STATUS:
+                raise AssertionError("must not HGETALL hep:calculator:status")
+            return original(key, *args, **kwargs)
+
+        queue.r.hgetall = _guard  # type: ignore[method-assign]
+        view = attach_reader(
+            redis=queue,
+            calculator_names=["DemoCalc"],
+            calculator_slots={"DemoCalc": 2},
+        ).read()
+        self.assertEqual(view.occupancy["DemoCalc"]["busy"], 1)
+        self.assertEqual(view.occupancy["DemoCalc"]["free"], 1)
 
     def test_run_monitor_exits_when_no_active_scan(self) -> None:
         queue = make_fakeredis_queue()

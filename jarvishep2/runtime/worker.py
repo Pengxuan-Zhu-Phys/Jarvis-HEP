@@ -315,6 +315,31 @@ class Worker(Process):
             except Exception:
                 return
 
+    def _publish_sample_overlay(self, action: str) -> None:
+        """Sibling of process_task start/finally. Never called from heartbeat()."""
+        if self._redis is None:
+            return
+        try:
+            wid = str(int(self.worker_id))
+            if action == "end":
+                self._redis.clear_sample_overlay(wid)
+                return
+            self._redis.publish_sample_overlay(
+                wid,
+                {
+                    "uuid": str(self._current_sample_uuid or ""),
+                    "step": "",
+                    "t0": time.time(),
+                },
+            )
+        except Exception as exc:
+            try:
+                get_jarvis_logger("worker", worker_id=self.worker_id).warning(
+                    "sample overlay publish failed -> %s", exc
+                )
+            except Exception:
+                return
+
     def _heartbeat(self, status: str | None = None) -> None:
         if self._redis is None:
             return
@@ -343,6 +368,9 @@ class Worker(Process):
             "held_calc_packs": json.dumps(held_packs),
             "active_subprocess_pids": json.dumps(active_pids),
             "file_operation_pid": file_operation_pid,
+            "file_operation_mode": (
+                self._file_ops.mode if self._file_ops is not None else ""
+            ),
             "board_ttl_sec": self._board_ttl_sec(),
         }
         if self._children_board_open:
@@ -492,7 +520,7 @@ class Worker(Process):
         *,
         shared_parent: str | None = None,
         ready_mode: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Return a calculator PackID, retaining local ownership on Redis errors."""
         return self._get_executor()._force_release_pack(step_name, pack_id, shared_parent=shared_parent, ready_mode=ready_mode)
 
@@ -624,6 +652,7 @@ class Worker(Process):
         sample = Sample.from_task_dict(payload)
         self._current_sample_uuid = sample.uuid
         self._heartbeat("busy")
+        self._publish_sample_overlay("start")
         top = get_jarvis_logger(
             "worker",
             worker_id=self.worker_id,
@@ -686,6 +715,7 @@ class Worker(Process):
                 self._cleanup_transient_paths(sample)
             except Exception as cleanup_exc:
                 top.error("sample cleanup failed after release -> %s", cleanup_exc)
+            self._publish_sample_overlay("end")
             self._current_sample_uuid = None
             with self._hb_lock():
                 self._current_task = None

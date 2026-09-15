@@ -18,6 +18,7 @@ class MonitorView:
     factory: dict[str, Any] = field(default_factory=dict)
     workers: list[dict[str, Any]] = field(default_factory=list)
     calculators: dict[str, Any] = field(default_factory=dict)
+    occupancy: dict[str, dict[str, int]] = field(default_factory=dict)
     samples: dict[str, Any] = field(default_factory=dict)
     resources: dict[str, Any] = field(default_factory=dict)
     queues: dict[str, Any] = field(default_factory=dict)
@@ -43,6 +44,7 @@ class MonitorView:
     @classmethod
     def from_snapshot(cls, snapshot: dict[str, Any]) -> MonitorView:
         sample_stats = dict(snapshot.get("sample_stats") or {})
+        occupancy = _occupancy_from_snapshot(snapshot)
         observed_at = _coerce_float(snapshot.get("timestamp"))
         # Redis attach leaves timestamp None; still need a clock for heartbeat age.
         age_now = observed_at if observed_at is not None else time.time()
@@ -55,12 +57,15 @@ class MonitorView:
                 "workers_total": int(snapshot.get("workers_total", 0) or 0),
             },
             workers=_project_workers(snapshot, now=age_now),
-            calculators=dict(snapshot.get("calculator_status") or {}),
+            calculators=occupancy if occupancy else dict(snapshot.get("calculator_status") or {}),
+            occupancy=occupancy,
             samples=sample_stats,
             resources={},
             queues={
                 "task_queue_length": int(snapshot.get("task_queue_length", 0) or 0),
                 "archive_queue_length": int(snapshot.get("archive_queue_length", 0) or 0),
+                "feedback_queue_length": snapshot.get("feedback_queue_length"),
+                "feedback_shards": dict(snapshot.get("feedback_shards") or {}),
             },
             op_counts={
                 str(key): int(value or 0)
@@ -84,14 +89,25 @@ class SnapshotReader:
         source: TaskFactory | RedisQueue,
         *,
         owner_ids: list[str] | None = None,
+        calculator_names: list[str] | None = None,
+        calculator_slots: Mapping[str, int] | None = None,
+        feedback_chain_ids: list[int] | None = None,
     ) -> None:
         self._source = source
         self._owner_ids = owner_ids
+        self._calculator_names = list(calculator_names or [])
+        self._calculator_slots = dict(calculator_slots or {})
+        self._feedback_chain_ids = list(feedback_chain_ids or [])
 
     def read(self) -> MonitorView:
         if isinstance(self._source, TaskFactory):
             return MonitorView.from_snapshot(self._source.get_monitor_snapshot())
-        raw = self._source.snapshot_raw(owner_ids=self._owner_ids)
+        raw = self._source.snapshot_raw(
+            owner_ids=self._owner_ids,
+            calculator_names=self._calculator_names or None,
+            calculator_slots=self._calculator_slots or None,
+            feedback_chain_ids=self._feedback_chain_ids or None,
+        )
         raw.setdefault("workers", [])
         raw.setdefault("workers_alive", 0)
         raw.setdefault("workers_total", 0)
@@ -104,11 +120,26 @@ def attach_reader(
     factory: TaskFactory | None = None,
     redis: RedisQueue | None = None,
     owner_ids: list[str] | None = None,
+    calculator_names: list[str] | None = None,
+    calculator_slots: Mapping[str, int] | None = None,
+    feedback_chain_ids: list[int] | None = None,
 ) -> SnapshotReader:
     if factory is not None:
-        return SnapshotReader(factory, owner_ids=owner_ids)
+        return SnapshotReader(
+            factory,
+            owner_ids=owner_ids,
+            calculator_names=calculator_names,
+            calculator_slots=calculator_slots,
+            feedback_chain_ids=feedback_chain_ids,
+        )
     if redis is not None:
-        return SnapshotReader(redis, owner_ids=owner_ids)
+        return SnapshotReader(
+            redis,
+            owner_ids=owner_ids,
+            calculator_names=calculator_names,
+            calculator_slots=calculator_slots,
+            feedback_chain_ids=feedback_chain_ids,
+        )
     raise ValueError("attach_reader requires a TaskFactory or RedisQueue")
 
 
@@ -120,7 +151,7 @@ def format_monitor_view(view: MonitorView) -> str:
         f"task_queue_length: {view.queues.get('task_queue_length', 0)}",
         f"archive_queue_length: {view.queues.get('archive_queue_length', 0)}",
         f"sample_stats: {view.samples}",
-        f"calculator_status: {view.calculators}",
+        f"calculator_occupancy: {view.occupancy or view.calculators}",
         f"op_counts: {view.op_counts}",
         f"scan_mode: {view.proc_core.get('scan_mode')}",
     ]
@@ -134,6 +165,22 @@ def format_monitor_view(view: MonitorView) -> str:
             f"alive={worker.get('alive')}"
         )
     return "\n".join(lines) + "\n"
+
+
+def _occupancy_from_snapshot(snapshot: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    raw = snapshot.get("calculator_occupancy")
+    if isinstance(raw, Mapping) and raw:
+        out: dict[str, dict[str, int]] = {}
+        for name, row in raw.items():
+            if not isinstance(row, Mapping):
+                continue
+            out[str(name)] = {
+                "free": int(row.get("free", 0) or 0),
+                "busy": int(row.get("busy", 0) or 0),
+                "slots": int(row.get("slots", 0) or 0),
+            }
+        return out
+    return {}
 
 
 def _project_workers(
@@ -172,7 +219,13 @@ def _worker_display(row: Mapping[str, Any], *, now: float | None) -> dict[str, A
         "pid": row.get("pid"),
         "status": row.get("status") or row.get("state"),
         "current_uuid": "" if current in (None, "") else str(current),
+        "held_calc_n": _coerce_int(row.get("held_calc_n")),
         "heartbeat_age_s": age,
+        "board_ttl_sec": _coerce_int(row.get("board_ttl_sec")),
+        "file_operation_pid": _coerce_int(row.get("file_operation_pid")),
+        "file_operation_pgid": _coerce_int(row.get("file_operation_pgid")),
+        "file_operation_mode": str(row.get("file_operation_mode") or "").strip()
+        or None,
         "alive": row.get("alive"),
     }
 
@@ -182,6 +235,15 @@ def _coerce_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None
 

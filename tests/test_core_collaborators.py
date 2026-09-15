@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from jarvishep2._resume_service import _ResumeService
@@ -365,6 +367,13 @@ class CoreCollaboratorTests(unittest.TestCase):
         core._interrupt_requested = False
         core._control_lock_owner = "owner-1"
         core._logger = logging.getLogger("test.lease_tick")
+        core.sampler = SimpleNamespace(
+            method="Random",
+            _index=12,
+            _maxp=100,
+            _accepted_index=10,
+            _seed=7,
+        )
         queue.publish_proc_board("core", role="core", scan_mode="paused")
         with mock.patch.object(
             queue, "publish_proc_board", wraps=queue.publish_proc_board
@@ -375,6 +384,9 @@ class CoreCollaboratorTests(unittest.TestCase):
         board = queue.read_proc_board("core")
         self.assertEqual(board.get("scan_mode"), "paused")
         self.assertEqual(int(board.get("redis_alive")), 1)
+        sampler_status = json.loads(board["sampler_status"])
+        self.assertEqual(sampler_status["method"], "Random")
+        self.assertEqual(sampler_status["progress"]["current"], 12)
 
     def test_external_redis_board_has_empty_pid(self) -> None:
         queue = make_fakeredis_queue()

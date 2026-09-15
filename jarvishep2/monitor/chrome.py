@@ -44,9 +44,13 @@ def _abbrev_levels(full: str) -> list[str]:
     return [full, *dotted, ""]
 
 
-def _idle_for_level(active_index: int, level: int) -> list[str | None]:
+def _idle_for_level(
+    active_index: int,
+    level: int,
+    pages: tuple[tuple[str, str], ...] = PAGES,
+) -> list[str | None]:
     texts: list[str | None] = []
-    for j, (_slug, name) in enumerate(PAGES):
+    for j, (_slug, name) in enumerate(pages):
         if j == active_index:
             texts.append(None)
             continue
@@ -56,8 +60,8 @@ def _idle_for_level(active_index: int, level: int) -> list[str | None]:
     return texts
 
 
-def _max_name_level() -> int:
-    return max(len(_abbrev_levels(name)) - 1 for _slug, name in PAGES)
+def _max_name_level(pages: tuple[tuple[str, str], ...] = PAGES) -> int:
+    return max(len(_abbrev_levels(name)) - 1 for _slug, name in pages)
 
 
 def folder_tab_lines(
@@ -65,20 +69,24 @@ def folder_tab_lines(
     active: int,
     *,
     compact: bool | None = None,
+    pages: tuple[tuple[str, str], ...] = PAGES,
 ) -> tuple[str, str, str, list[tuple[str, int, int]]]:
     """Folder tab on a rounded page frame.
 
-    Active inner is `` 1 Overview `` (space after the bar, after the
-    number, and after the name). Idle tabs: full name → ``Cal.`` while
+    Active inner is `` 1 Overview `` in the future multi-page workspace.
+    The released one-tab workspace uses `` Overview `` without a number and
+    joins its lower frame rule to the far-right page edge. Idle tabs: full name → ``Cal.`` while
     shrinking gaps down to 2 → then ``Ca.`` / ``C.`` / empty. Frozen.
     """
     del compact
     if width <= 0:
         width = 80
-    count = len(PAGES)
+    count = len(pages)
     index = max(1, min(count, active)) - 1
-    full = PAGES[index][1]
-    inner = f" {index + 1} {full} "
+    full = pages[index][1]
+    # The released single tab is intentionally broad and calm instead of
+    # looking like a cramped numbered navigation chip.
+    inner = full.center(18) if count == 1 else f" {index + 1} {full} "
     box_w = len(inner) + 2
     if box_w > width:
         inner = inner[: max(0, width - 2)].ljust(max(0, width - 2))
@@ -92,10 +100,10 @@ def folder_tab_lines(
         used += sum(len(text) for text in texts if text is not None)
         return used <= width
 
-    idle = _idle_for_level(index, 0)
+    idle = _idle_for_level(index, 0, pages)
     gap_w = IDLE_GAP
     if not _fits(idle, IDLE_GAP):
-        idle = _idle_for_level(index, 1)
+        idle = _idle_for_level(index, 1, pages)
         picked = False
         for gap_w in range(IDLE_GAP, MIN_GAP_BEFORE_SHRINK - 1, -1):
             if _fits(idle, gap_w):
@@ -104,8 +112,8 @@ def folder_tab_lines(
         if not picked:
             gap_w = MIN_GAP_BEFORE_SHRINK
             chosen = idle
-            for level in range(2, _max_name_level() + 1):
-                candidate = _idle_for_level(index, level)
+            for level in range(2, _max_name_level(pages) + 1):
+                candidate = _idle_for_level(index, level, pages)
                 if _fits(candidate, MIN_GAP_BEFORE_SHRINK):
                     chosen = candidate
                     break
@@ -136,7 +144,7 @@ def folder_tab_lines(
     join_parts: list[str] = []
     hits: list[tuple[str, int, int]] = []
     column = 0
-    for j, (slug, _name) in enumerate(PAGES):
+    for j, (slug, _name) in enumerate(pages):
         if j == index:
             top_parts.append("╭" + ("─" * len(inner)) + "╮")
             mid_parts.append("│" + inner + "│")
@@ -164,7 +172,14 @@ def folder_tab_lines(
         join[0] = "╭"
     else:
         join[0] = "│"
-    if index != count - 1:
+    if count == 1:
+        # Overview v1 is the only visible folder tab.  Continue its lower
+        # rule all the way to the right page-frame edge rather than leaving a
+        # visual gap where the future tabs would have been.
+        for column in range(box_w, max(box_w, width - 1)):
+            join[column] = "─"
+        join[-1] = "╮"
+    elif index != count - 1:
         join[-1] = "╮"
     else:
         join[-1] = "│"
@@ -203,9 +218,13 @@ class MonitorTopbar(Horizontal):
 class TabBar(Static):
     """Frozen folder-tab strip. See docs/TUI/STYLES.txt (Tabs)."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        pages: tuple[tuple[str, str], ...] = PAGES,
+    ) -> None:
         super().__init__(id="tab-bar")
-        self._slug = "overview"
+        self._pages = pages
+        self._slug = pages[0][0]
         self._hits: list[tuple[str, int, int]] = []
 
     def on_mount(self) -> None:
@@ -218,24 +237,28 @@ class TabBar(Static):
         self._slug = slug
         width = self.size.width or 80
         active = 1
-        for index, (page_slug, _) in enumerate(PAGES, start=1):
+        for index, (page_slug, _) in enumerate(self._pages, start=1):
             if page_slug == slug:
                 active = index
                 break
-        top, mid, join, hits = folder_tab_lines(width, active)
+        top, mid, join, hits = folder_tab_lines(
+            width,
+            active,
+            pages=self._pages,
+        )
         self._hits = hits
         gold = "tab-active"
         dim = "tab-idle"
         # Colour the active label gold, idle names dim; box drawing stays.
-        _, full = PAGES[active - 1]
-        needle = f" {active} {full} "
+        _, full = self._pages[active - 1]
+        needle = f" {full} " if len(self._pages) == 1 else f" {active} {full} "
         if needle in mid:
             mid = mid.replace(
                 needle,
                 paint(gold, needle),
                 1,
             )
-        for index, (_, idle_full) in enumerate(PAGES, start=1):
+        for index, (_, idle_full) in enumerate(self._pages, start=1):
             if index == active:
                 continue
             tokens = []
@@ -262,8 +285,11 @@ class TabBar(Static):
 
 
 class MonitorHint(Static):
-    def __init__(self) -> None:
-        super().__init__(render_key_hint(OVERVIEW_KEYS), id="hint")
+    def __init__(
+        self,
+        pairs: tuple[tuple[str, str], ...] = OVERVIEW_KEYS,
+    ) -> None:
+        super().__init__(render_key_hint(pairs), id="hint")
 
     def set_keys(self, pairs: tuple[tuple[str, str], ...]) -> None:
         self.update(render_key_hint(pairs))

@@ -147,6 +147,8 @@ class ProcBoardMixinTests(unittest.TestCase):
         self.assertEqual(json.loads(board["calc_pgids"]), [20, 21])
         self.assertEqual(board["updated_reason"], "heartbeat")
         self.assertGreater(int(self.queue.r.ttl(PROC_CHILDREN.format(id="0"))), 10)
+        worker = self.queue.read_proc_board("worker", owner_id="0")
+        self.assertEqual(int(worker["file_operation_pgid"]), 10)
 
     def test_heartbeat_renews_children_board_ttl(self) -> None:
         self.queue.publish_children_board(

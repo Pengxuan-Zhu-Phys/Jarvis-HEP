@@ -151,10 +151,47 @@ Screen {
     scrollbar-size-vertical: 1;
 }
 
+#live-overview-body {
+    height: 1fr;
+    border: round #2f7fd8;
+    color: #e6e8eb;
+    padding: 1 2;
+}
+
 #ov-row1,
 #ov-row2 {
     height: auto;
     min-height: 8;
+}
+
+#ov-row3 {
+    height: 6;
+    min-height: 6;
+}
+
+#ov-lower-grid {
+    width: 1fr;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+}
+
+#ov-lower-left,
+#ov-lower-right {
+    width: 1fr;
+    height: auto;
+    min-height: 0;
+    margin: 0;
+}
+
+/* QUEUES and WORKERS have six rendered body rows plus their two borders.
+   Do not inherit the generic bottom padding: it creates a ninth, empty row. */
+#ov-queues,
+#ov-workers {
+    height: 8;
+    min-height: 8;
+    padding: 0 1;
+    margin-bottom: 0;
 }
 
 .ov-block {
@@ -168,27 +205,181 @@ Screen {
     color: #e6e8eb;
 }
 
+#ov-calcs {
+    width: 1fr;
+    height: auto;
+    min-height: 3;
+    padding: 0 1;
+    margin-bottom: 0;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
 #ov-row1 > .ov-block,
-#ov-row2 > .ov-block {
+#ov-row2 > .ov-block,
+#ov-row3 > .ov-block,
+#ov-row3 > #ov-health-spacer,
+#ov-lower-left > .ov-block,
+#ov-lower-right > .ov-block {
     width: 1fr;
     margin-right: 1;
+    margin-bottom: 0;
 }
 
 #ov-row1 > .ov-block:last-child,
-#ov-row2 > .ov-block:last-child {
+#ov-row2 > .ov-block:last-child,
+#ov-lower-right > .ov-block:last-child {
     margin-right: 0;
 }
 
-#ov-calcs {
-    min-height: 10;
+#ov-lower-right > #ov-health,
+#ov-lower-right > #ov-queues,
+#ov-lower-right > #ov-workers {
+    width: 1fr;
+    margin-right: 0;
+}
+
+#ov-pacman,
+#ov-pacman-left {
+    width: 1fr;
+    height: 0;
+    min-height: 0;
+    padding: 0 1;
+    margin: 0;
+    color: #134a8d;
+    overflow: hidden;
+}
+
+#ov-pacman-left {
+    margin-right: 1;
+}
+
+#ov-health {
+    height: 6;
+    min-height: 6;
+    padding: 0 1;
+    margin-right: 1;
+    margin-bottom: 0;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
+#ov-health-spacer {
+    height: 6;
+    margin-right: 0;
+    margin-bottom: 0;
+}
+
+.health-row {
+    width: 1fr;
+    height: 1;
+    padding: 0;
+}
+
+.health-row.health-info-hover {
+    background: #1b2736;
+}
+
+HealthDetailModal {
+    align: center middle;
+    background: #101216 78%;
+}
+
+#health-detail-dialog {
+    width: 64;
+    max-width: 90%;
+    height: auto;
+    border: round #2f7fd8;
+    background: #101216;
+    padding: 1 2;
+}
+
+#health-detail-title {
+    height: 1;
+    margin-bottom: 1;
+}
+
+#health-detail-body {
+    height: auto;
+    color: #e6e8eb;
+}
+
+#health-detail-close {
+    width: 12;
+    margin-top: 1;
+    align-horizontal: right;
+    background: #2f7fd8;
+    color: #e6e8eb;
 }
 
 #ov-resources {
     height: auto;
     min-height: 1;
     padding: 0 1;
+    margin-bottom: 0;
     border-subtitle-align: right;
     border-subtitle-color: #8d93a1;
 }
 
+#ov-status {
+    padding: 0 1 0 1;
+    margin-bottom: 0;
+}
 
+#ov-samples {
+    padding: 0 1 0 1;
+    margin-bottom: 0;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
+#ov-queues {
+    height: 8;
+    min-height: 8;
+    padding: 0 1;
+    margin-bottom: 0;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
+#ov-sparks {
+    padding: 0 1 0 1;
+    margin-bottom: 0;
+    border-subtitle-align: right;
+    border-subtitle-color: #8d93a1;
+}
+
+#calculators,
+#samples,
+#workers,
+#factory,
+#sampler,
+#host {
+    layout: horizontal;
+    height: 1fr;
+}
+
+#calculators-list,
+#samples-list,
+#workers-list,
+#factory-list,
+#sampler-list,
+#host-list {
+    width: 3fr;
+    border: round #2f7fd8;
+    color: #e6e8eb;
+    padding: 1 2;
+}
+
+#calculators-detail,
+#samples-detail,
+#workers-detail,
+#factory-detail,
+#sampler-detail,
+#host-detail {
+    width: 2fr;
+    margin-left: 1;
+    border: round #2f7fd8;
+    color: #e6e8eb;
+    padding: 1 2;
+}

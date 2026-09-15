@@ -22,6 +22,40 @@ class ScanChoice:
     simulated: bool = False
 
 
+class ScanExitWatch:
+    """Observe the attached Core's process identity, including PID reuse."""
+
+    def __init__(self, choice: ScanChoice) -> None:
+        self._pid = None if choice.simulated else choice.control_pid
+        self._process = None
+        self._exited = False
+        # Capture identity on attach, before the first periodic check.
+        self.has_exited()
+
+    def has_exited(self) -> bool:
+        if self._pid is None:
+            return False
+        if self._exited:
+            return True
+        try:
+            import psutil
+        except ImportError:
+            return False
+        try:
+            if self._process is None:
+                self._process = psutil.Process(self._pid)
+            self._exited = (
+                not self._process.is_running()
+                or self._process.status() in {psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD}
+            )
+        except psutil.NoSuchProcess:
+            self._exited = True
+        except psutil.AccessDenied:
+            # Lack of permission is not evidence that the scan exited.
+            pass
+        return self._exited
+
+
 def choice_from_scan(scan: JarvisScan) -> ScanChoice:
     control = _control_pid_for_processes(scan.processes)
     return ScanChoice(
@@ -73,6 +107,7 @@ def resolve_choice(
 
 __all__ = [
     "ScanChoice",
+    "ScanExitWatch",
     "choice_from_scan",
     "list_scan_choices",
     "resolve_choice",

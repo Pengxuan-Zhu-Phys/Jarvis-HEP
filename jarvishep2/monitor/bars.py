@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from rich.cells import cell_len
+
 from jarvishep2.monitor.styles import DARK, ICE, NAVY, paint
 
 BLOCKS = " ▏▎▍▌▋▊▉█"
@@ -72,7 +74,8 @@ def bar_rail(value: float, width: int) -> str:
 
 
 def visible_width(markup: str) -> int:
-    return len(_MARKUP.sub("", markup))
+    """Return terminal-cell width after removing Rich markup tags."""
+    return cell_len(_MARKUP.sub("", markup))
 
 
 # Palette check: STYLES navy/ice stay the source of the gradient endpoints.

@@ -3,7 +3,8 @@
 
 D25.4/D26.1: ``RedisQueue`` is the public connection façade. Keyspaces live on
 private mixins (``_TaskBroker``, ``_CalcPool``, ``_SampleBuckets``,
-``_ControlAndHeartbeat``, ``_ProcBoard``). Callers keep importing ``RedisQueue``.
+``_ControlAndHeartbeat``, ``_ProcBoard``, ``_MonitorTelemetry``). Callers keep
+importing ``RedisQueue``.
 """
 
 from __future__ import annotations
@@ -63,6 +64,12 @@ PROC_REDIS = "hep:proc:redis"
 PROC_WORKER = "hep:proc:worker:{id}"
 PROC_CHILDREN = "hep:proc:children:{id}"
 INFLIGHT = "hep:inflight:{worker}"
+# Opt-in TUI inflight telemetry. Not ownership. Default-off (missing want).
+MONITOR_WANT = "hep:monitor:want"
+MONITOR_CALC_BUSY = "hep:monitor:calc:busy:{name}"
+MONITOR_SAMPLE_RUNNING = "hep:monitor:sample:running"
+MONITOR_WANT_TTL_SEC = 5
+MONITOR_KEY_PATTERN = "hep:monitor:*"
 PROC_BOARD_TTL_SEC = 60
 ARCHIVER_BOARD_TTL_SEC = 120
 CONTROL_SOCKET_TIMEOUT_SEC = 2.0
@@ -143,6 +150,35 @@ def calc_status_free_field(name: str) -> str:
 def calc_status_busy_field(name: str) -> str:
     """Hash field inside CALC_STATUS for busy-slot count."""
     return f"{name}:busy"
+
+
+def _pool_names_from_calc_status(status: Mapping[str, Any]) -> list[str]:
+    """Catalogue of pool names from CALC_STATUS field keys. Not occupancy."""
+    names: list[str] = []
+    seen: set[str] = set()
+    for raw in dict(status or {}):
+        text = str(raw)
+        if text.endswith(":free") or text.endswith(":busy"):
+            name = text.rsplit(":", 1)[0].strip()
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+    return names
+
+
+def _registered_slots_from_calc_status(status: Mapping[str, Any]) -> dict[str, int]:
+    """Configured pool sizes from the register-time CALC_STATUS catalogue."""
+    slots: dict[str, int] = {}
+    for name in _pool_names_from_calc_status(status):
+        try:
+            free_n = int(status.get(calc_status_free_field(name), 0) or 0)
+            busy_n = int(status.get(calc_status_busy_field(name), 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        total = free_n + busy_n
+        if total > 0:
+            slots[name] = total
+    return slots
 
 
 def _redis_text(value: Any) -> str:
@@ -309,20 +345,26 @@ from jarvishep2.queue._redis_control import (
     control_lock_missing_grace_sec,
     next_control_lock_watch,
 )
+from jarvishep2.queue._redis_monitor import _MonitorTelemetry
 from jarvishep2.queue._redis_proc_board import _ProcBoard
 from jarvishep2.queue._redis_sample_buckets import _SampleBuckets
 from jarvishep2.queue._redis_task_broker import _TaskBroker
 
 
 class RedisQueue(
-    _TaskBroker, _CalcPool, _SampleBuckets, _ControlAndHeartbeat, _ProcBoard
+    _TaskBroker,
+    _CalcPool,
+    _SampleBuckets,
+    _ControlAndHeartbeat,
+    _ProcBoard,
+    _MonitorTelemetry,
 ):
     """Redis broker for tasks, calculator pools, results, and monitor counters.
 
     Internals (D25.4/D26.1): task/archive/feedback, calculator pools, SAMPLE
-    buckets, control lock + worker heartbeats, and proc boards are mixin
-    keyspaces. This class owns the connection, codec, and cross-keyspace
-    reset/monitor helpers.
+    buckets, control lock + worker heartbeats, proc boards, and opt-in
+    monitor telemetry are mixin keyspaces. This class owns the connection,
+    codec, and cross-keyspace reset/monitor helpers.
     """
 
     # redis-py 5+/8 default socket_timeout=5 races with BLPOP(timeout<=5) used
@@ -442,6 +484,7 @@ class RedisQueue(
             BUCKET_LOCK,
         ]
         keys.extend(ctrl.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
+        keys.extend(ctrl.scan_iter(match=MONITOR_KEY_PATTERN))
         for kind in sorted(_VALID_OP_KINDS):
             keys.append(OP_COUNT.format(kind=kind))
         for name in calculator_names or []:
@@ -505,6 +548,7 @@ class RedisQueue(
         # here also drops leftover ids outside that range.
         keys.extend(ctrl.scan_iter(match="hep:proc:*"))
         keys.extend(ctrl.scan_iter(match="hep:inflight:*"))
+        keys.extend(ctrl.scan_iter(match=MONITOR_KEY_PATTERN))
         deleted = int(ctrl.delete(*keys) or 0) if keys else 0
         ctrl.hset(
             SAMPLE_STATS,
@@ -603,19 +647,62 @@ class RedisQueue(
             raise ValueError(f"invalid op_count kind: {kind}")
         return int(self.r.incrby(OP_COUNT.format(kind=kind), amount))
 
-    def snapshot_raw(self, *, owner_ids: list[str] | None = None) -> dict[str, Any]:
+    def snapshot_raw(
+        self,
+        *,
+        owner_ids: list[str] | None = None,
+        calculator_names: list[str] | None = None,
+        calculator_slots: Mapping[str, int] | None = None,
+        feedback_chain_ids: Sequence[int] | None = None,
+    ) -> dict[str, Any]:
         """Read-only monitor snapshot. Worker boards only when owner_ids is given.
 
         owner_ids must come from OS inventory. This method never SCANs
-        hep:worker:* / hep:proc:*.
+        hep:worker:* / hep:proc:*. Occupancy is LLEN/HLEN of known pool keys,
+        not the stale ``hep:calculator:status`` cache.
         """
         self._require_client()
         ctrl = self._ctrl()
-        calc_status = ctrl.hgetall(CALC_STATUS) or {}
+        names = [str(name).strip() for name in list(calculator_names or []) if str(name).strip()]
+        slots = {
+            str(name): int(value)
+            for name, value in dict(calculator_slots or {}).items()
+            if str(name).strip()
+        }
+        calc_status: dict[str, Any] = {}
+        if not names:
+            calc_status = ctrl.hgetall(CALC_STATUS) or {}
+            names = _pool_names_from_calc_status(calc_status)
+            for name, total in _registered_slots_from_calc_status(calc_status).items():
+                slots.setdefault(name, total)
+        chain_ids: list[int] = []
+        for raw_chain_id in feedback_chain_ids or ():
+            try:
+                chain_id = int(raw_chain_id)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if chain_id >= 0 and chain_id not in chain_ids:
+                chain_ids.append(chain_id)
+        occupancy = self.fetch_calc_occupancy(names, slots=slots)
         sample_stats = ctrl.hgetall(SAMPLE_STATS) or {}
+        queue_pipe = ctrl.pipeline(transaction=False)
+        queue_pipe.llen(TASK_QUEUE)
+        queue_pipe.llen(ARCHIVE_QUEUE)
+        queue_pipe.llen(FEEDBACK_QUEUE)
+        for chain_id in chain_ids:
+            queue_pipe.llen(chain_feedback_queue(chain_id))
+        queue_lengths = queue_pipe.execute()
+        task_length, archive_length, feedback_length = queue_lengths[:3]
+        feedback_shards = {
+            str(chain_id): int(length or 0)
+            for chain_id, length in zip(chain_ids, queue_lengths[3:])
+        }
         snapshot: dict[str, Any] = {
-            "task_queue_length": int(ctrl.llen(TASK_QUEUE)),
-            "archive_queue_length": int(ctrl.llen(ARCHIVE_QUEUE)),
+            "task_queue_length": int(task_length or 0),
+            "archive_queue_length": int(archive_length or 0),
+            "feedback_queue_length": int(feedback_length or 0),
+            "feedback_shards": feedback_shards,
+            "calculator_occupancy": occupancy,
             "calculator_status": {k: _coerce_numeric(v) for k, v in calc_status.items()},
             "sample_stats": {k: _coerce_numeric(v) for k, v in sample_stats.items()},
             "op_counts": {kind: self.get_op_count(kind) for kind in sorted(_VALID_OP_KINDS)},
@@ -711,6 +798,11 @@ __all__ = [
     "FEEDBACK_QUEUE",
     "INFLIGHT",
     "INFLIGHT_UUIDS",
+    "MONITOR_CALC_BUSY",
+    "MONITOR_KEY_PATTERN",
+    "MONITOR_SAMPLE_RUNNING",
+    "MONITOR_WANT",
+    "MONITOR_WANT_TTL_SEC",
     "OP_COUNT",
     "PROC_ARCHIVER",
     "PROC_BOARD_TTL_SEC",
