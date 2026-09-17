@@ -87,23 +87,28 @@ def _slot_positions(pool: CalculatorPoolData, width: int, slots: int) -> list[in
     return positions
 
 
-def _constellation(pool: CalculatorPoolData, width: int, phase: float) -> str:
+def _constellation(pool: CalculatorPoolData, width: int, phase: float) -> tuple[str, ...]:
+    """Render every PackID, wrapping the stable constellation to the next row."""
     slots = max(0, int(pool.slots))
     busy = {pack for pack in pool.busy_packs if 1 <= int(pack) <= slots}
-    if slots <= width:
+    rows: list[str] = []
+    # Keep at least one activity row for an empty pool so status rows have a
+    # predictable companion.  A pool wider than its panel flows downward;
+    # PackID order remains left-to-right, then top-to-bottom.
+    for start in range(0, max(1, slots), width):
+        row_slots = min(width, max(0, slots - start))
         cells = [" "] * width
-        positions = _slot_positions(pool, width, slots)
-        for pack in range(1, slots + 1):
+        positions = _slot_positions(pool, width, row_slots)
+        for offset, position in enumerate(positions):
+            pack = start + offset + 1
             # One physical PackID owns one stable, irregularly-spaced cell.
-            position = positions[pack - 1]
             cells[position] = _star(pack, phase) if pack in busy else "[#134a8d]☆[/]"
-        return "".join(cells)
-    # A narrow terminal cannot truthfully give every PackID a fixed cell.
-    # Use explicit counts rather than inventing a compressed ordering.
-    return paint("dim", _clip(f"✦×{len(busy)}  ·×{slots - len(busy)}", width))
+        rendered = "".join(cells)
+        rows.append(rendered + " " * max(0, width - visible_width(rendered)))
+    return tuple(rows)
 
 
-def _pool_rows(pool: CalculatorPoolData, width: int, phase: float) -> tuple[str, str]:
+def _pool_rows(pool: CalculatorPoolData, width: int, phase: float) -> tuple[str, tuple[str, ...]]:
     slots = max(0, int(pool.slots))
     busy = len({pack for pack in pool.busy_packs if 1 <= int(pack) <= slots})
     state = "ACTIVE" if busy else "QUIET"
@@ -120,8 +125,7 @@ def _pool_rows(pool: CalculatorPoolData, width: int, phase: float) -> tuple[str,
         + " "
         + f"[bold #e6e8eb]{f'{busy} / {slots}':>{count_width}}[/]"
     )
-    stars = _constellation(pool, width, phase)
-    return status, stars + " " * max(0, width - visible_width(stars))
+    return status, _constellation(pool, width, phase)
 
 
 def render_calculators_block(
@@ -146,7 +150,9 @@ def render_calculators_block(
         + f"[bold #e6e8eb]{summary}[/]"
     ]
     for pool in pools:
-        rows.extend(_pool_rows(pool, width, pulse_phase))
+        status, constellation = _pool_rows(pool, width, pulse_phase)
+        rows.append(status)
+        rows.extend(constellation)
     return CalculatorsBlockRender(
         border_title=_title(outer_width or width + 4),
         body="\n".join(rows),

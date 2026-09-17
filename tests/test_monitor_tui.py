@@ -357,6 +357,34 @@ class CalculatorsBlockTests(unittest.TestCase):
         self.assertNotIn("░", rendered.body)
         self.assertEqual(rendered.border_subtitle, "✦ white pulse = occupied · ☆ quiet = free")
 
+    def test_large_pool_wraps_every_packid_over_multiple_activity_rows(self) -> None:
+        data = CalculatorsBlockData(
+            pools=(CalculatorPoolData("LargePool", 190, (1, 63, 190)),),
+        )
+        first = render_calculators_block(52, data, pulse_phase=0.0).body
+        second = render_calculators_block(52, data, pulse_phase=0.65).body
+        first_lines = first.splitlines()
+        second_lines = second.splitlines()
+        activity = first_lines[2:]
+        self.assertEqual(len(first_lines), 6)  # fleet + status + ceil(190 / 52)
+        self.assertEqual(len(activity), 4)
+        self.assertTrue(all(visible_width(line) == 52 for line in activity))
+        plain = re.sub(r"\[/?[^\]]*\]", "", "".join(activity))
+        self.assertEqual(plain.count("✦"), 3)
+        self.assertEqual(plain.count("☆"), 187)
+        self.assertEqual(plain.count("✦") + plain.count("☆"), 190)
+        self.assertNotIn("×", plain)
+
+        def positions(lines):
+            return tuple(
+                (row, col)
+                for row, line in enumerate(lines[2:])
+                for col, char in enumerate(re.sub(r"\[/?[^\]]*\]", "", line))
+                if char in "✦☆"
+            )
+
+        self.assertEqual(positions(first_lines), positions(second_lines))
+
     def test_simu_busy_packs_are_not_synthesized_as_a_left_aligned_bar(self) -> None:
         frame = SimuEngine().empty_frame()
         pools = {pool.name: pool for pool in frame.calculator_block.pools}
