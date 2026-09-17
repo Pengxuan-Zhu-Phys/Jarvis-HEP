@@ -124,8 +124,10 @@ class ArchiveProcessor:
         persisted_index_prefix: int = 0,
         persisted_indices: set[int] | None = None,
         replace_duplicates: bool = False,
+        store_samples: bool = True,
     ) -> None:
         self.writer = writer
+        self.store_samples = store_samples
         self.sample_root = os.path.abspath(str(sample_root))
         self.delete_method = normalize_delete_method(delete_method)
         self.strategy = normalize_move_strategy(strategy)
@@ -148,7 +150,8 @@ class ArchiveProcessor:
         self._last_flushed: list[dict[str, Any]] = []
         self._last_flush = time.monotonic()
         self._lock = threading.Lock()
-        os.makedirs(self.sample_root, exist_ok=True)
+        if self.store_samples:
+            os.makedirs(self.sample_root, exist_ok=True)
 
     @classmethod
     def from_config(
@@ -178,6 +181,7 @@ class ArchiveProcessor:
             persisted_index_prefix=persisted_index_prefix,
             persisted_indices=persisted_indices,
             replace_duplicates=bool(cfg.get("replace_duplicates", False)),
+            store_samples=bool(cfg.get("store_samples", True)),
         )
 
     def has_pending(self) -> bool:
@@ -280,6 +284,20 @@ class ArchiveProcessor:
         sample_index = self._sample_index(result)
         if self._is_persisted(uuid, sample_index) and not self.replace_duplicates:
             return False
+
+        if not self.store_samples or not result.get("store_samples", True):
+            # Scalar results remain durable; scratch paths must never be handed
+            # off, inspected for product lists, or moved into SAMPLE.
+            observables = result.get("observables", {})
+            record = dict(observables) if isinstance(observables, Mapping) else {}
+            record.setdefault("uuid", uuid)
+            record.setdefault("status", str(result.get("status") or "Completed"))
+            if sample_index is not None:
+                record.setdefault("sample_index", sample_index)
+            self.writer.add_record(record)
+            self.records_written += 1
+            self._mark_persisted(uuid, sample_index)
+            return True
 
         staging_path = str(result.get("staging_path") or "").strip()
         save_dir = str(result.get("save_dir") or "").strip()
@@ -421,7 +439,7 @@ class SimpleArchiver:
         cfg = dict(ARCHIVER_DEFAULTS)
         if isinstance(archiver_config, Mapping):
             cfg.update(archiver_config)
-        self.pack_buckets = bool(cfg.get("pack_buckets", True))
+        self.pack_buckets = bool(cfg.get("pack_buckets", True)) and bool(cfg.get("store_samples", True))
         self.buckets_packed = 0
         # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
         self._logger = logger or get_jarvis_logger("archiver")

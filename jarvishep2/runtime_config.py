@@ -8,7 +8,6 @@ from typing import Any, Mapping
 from jarvishep2.archive_handoff import normalize_move_strategy
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
 from jarvishep2.sample_bucket import (
-    SAMPLE_DIRECTORY_DEFAULTS,
     normalize_sample_directory,
 )
 from jarvishep2.yaml_types import require_bool
@@ -19,6 +18,7 @@ RUNTIME_DEFAULTS: dict[str, Any] = {
     "workers": 0,
     "batch_size": 256,
     "sample_artifacts": "auto",
+    "store_samples": True,
     "checkpoint_heartbeat_sec": 30.0,
 }
 
@@ -62,6 +62,7 @@ FACTORY_DEFAULTS: dict[str, Any] = {}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
 SUPPORTED_ENVREQS_V2_KEYS = frozenset(
     {
+        "store_samples",
         "workers",
         "batch_size",
         "sample_directory",
@@ -167,6 +168,10 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     runtime = dict(RUNTIME_DEFAULTS)
     if not isinstance(raw, Mapping):
         return runtime
+    if "store_samples" in raw:
+        runtime["store_samples"] = require_bool(
+            raw["store_samples"], field="EnvReqs.V2.store_samples"
+        )
 
     mode = str(raw.get("mode", runtime["mode"])).strip().lower()
     mode = _LEGACY_RUNTIME_MODE_ALIASES.get(mode, mode)
@@ -266,7 +271,11 @@ def get_archiver_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
     envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
     v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
     archiver = v2.get("archiver") if isinstance(v2, Mapping) else None
-    return normalize_archiver_block(archiver if isinstance(archiver, Mapping) else None)
+    normalized = normalize_archiver_block(archiver if isinstance(archiver, Mapping) else None)
+    normalized["store_samples"] = get_runtime_block(config)["store_samples"]
+    if not normalized["store_samples"]:
+        normalized["pack_buckets"] = False
+    return normalized
 
 
 def get_sample_directory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -275,9 +284,11 @@ def get_sample_directory_config(config: Mapping[str, Any] | None) -> dict[str, A
         return normalize_sample_directory(None)
     envreqs = config.get("EnvReqs") if isinstance(config.get("EnvReqs"), Mapping) else {}
     v2 = envreqs.get("V2") if isinstance(envreqs, Mapping) else None
-    if isinstance(v2, Mapping) and isinstance(v2.get("sample_directory"), Mapping):
-        return normalize_sample_directory(v2.get("sample_directory"))
-    return normalize_sample_directory(dict(SAMPLE_DIRECTORY_DEFAULTS))
+    raw = v2.get("sample_directory") if isinstance(v2, Mapping) else None
+    normalized = normalize_sample_directory(raw if isinstance(raw, Mapping) else None)
+    if not get_runtime_block(config)["store_samples"]:
+        normalized.update(enabled=False, pack=False)
+    return normalized
 
 
 def pack_buckets_enabled(config: Mapping[str, Any] | None) -> bool:
@@ -433,7 +444,7 @@ def _runtime_payload_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(raw_runtime, Mapping):
         payload.update(dict(raw_runtime))
     v2 = _envreqs_v2(config)
-    for key in ("workers", "batch_size", "checkpoint_heartbeat_sec"):
+    for key in ("workers", "batch_size", "checkpoint_heartbeat_sec", "store_samples"):
         if key in v2:
             payload[key] = v2[key]
     if isinstance(v2.get("redis"), Mapping) and "redis" not in payload:
@@ -494,6 +505,8 @@ def should_eager_materialize(sample_cfg: Mapping[str, Any] | None) -> bool:
     """Return True when per-sample dirs/logs must exist before workflow execution."""
     if not isinstance(sample_cfg, Mapping):
         return True
+    if not sample_cfg.get("store_samples", True):
+        return bool(sample_cfg.get("workflow_has_calculator") or sample_cfg.get("workflow_references_sdir"))
 
     mode = str(sample_cfg.get("sample_artifacts", RUNTIME_DEFAULTS["sample_artifacts"])).strip().lower()
     if mode == "always":
@@ -522,5 +535,7 @@ def parse_registered_executables(config: Mapping[str, Any] | None) -> list[dict[
 def should_materialize_on_failure(sample_cfg: Mapping[str, Any] | None) -> bool:
     if not isinstance(sample_cfg, Mapping):
         return True
+    if not sample_cfg.get("store_samples", True):
+        return False
     mode = str(sample_cfg.get("sample_artifacts", RUNTIME_DEFAULTS["sample_artifacts"])).strip().lower()
     return mode != "never"

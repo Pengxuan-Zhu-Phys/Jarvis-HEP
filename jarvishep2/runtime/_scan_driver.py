@@ -483,7 +483,8 @@ class _ScanDriver:
         core.info["check_modules"] = True
         sample_root = core._resolve_sample_root()
         database_dir = core._resolve_database_dir()
-        os.makedirs(sample_root, exist_ok=True)
+        if get_runtime_block(core.config)["store_samples"]:
+            os.makedirs(sample_root, exist_ok=True)
         os.makedirs(database_dir, exist_ok=True)
         core.info["sample_root"] = sample_root
         core.info["database_dir"] = database_dir

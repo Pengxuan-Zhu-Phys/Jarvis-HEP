@@ -87,6 +87,12 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                     )
                 )
 
+            if "store_samples" in v2 and try_bool(v2["store_samples"]) is None:
+                issues.append(issue(
+                    "error", "JV2-ENV-054", "EnvReqs.V2.store_samples",
+                    "expected YAML boolean true or false",
+                ))
+
             if "workers" in v2:
                 workers = try_int(v2.get("workers"))
                 if workers is None or workers < 0:

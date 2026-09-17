@@ -592,6 +592,8 @@ class Worker(Process):
 
     def _handoff_sample_to_staging(self, sample: Sample) -> None:
         """Fast metadata-only move of materialized work dirs into staging (WP-D4.1)."""
+        if not sample.info.get("store_samples", True):
+            return
         if not self._handoff_to_staging or not self._staging_dir:
             return
         if not isinstance(sample.info, dict):
@@ -642,11 +644,16 @@ class Worker(Process):
 
     def process_task(self, task: Mapping[str, Any]) -> None:
         """Core pipeline: rebuild Sample, execute workflow, submit result."""
+        sample_config = dict(self.worker_config.get("sample_config") or {})
+        store_samples = sample_config.get("store_samples", True)
         payload = stamp_task_sample_bucket(
             self._redis,
             dict(task),
-            enabled=self._sample_buckets_enabled,
+            enabled=self._sample_buckets_enabled and store_samples,
         )
+        if not store_samples:
+            for key in ("bucket_dir", "bucket_id", "bucket_name", "_bucket_parent"):
+                payload.pop(key, None)
 
         self._current_task = payload
         sample = Sample.from_task_dict(payload)
@@ -657,7 +664,6 @@ class Worker(Process):
             "worker",
             worker_id=self.worker_id,
         ).bind(sample_uuid=sample.uuid)
-        sample_config = dict(self.worker_config.get("sample_config") or {})
         # Stamp bucket parent before set_config so materialize lands under SAMPLE/<bucket>/<uuid>.
         if payload.get("bucket_dir"):
             sample_config["_bucket_parent"] = payload["bucket_dir"]
@@ -683,15 +689,15 @@ class Worker(Process):
             if str(self.worker_config.get("console_level") or "WARNING").upper() == "DEBUG"
             else "ERROR",
         )
-        sample.set_config(sample_config)
-        sample.start()
         try:
+            sample.set_config(sample_config)
+            sample.start()
             self._get_executor().process(sample)
         except Exception as exc:
             sample.record_failure(exc)
             materialize_failure_artifacts(sample.info, error=exc)
             # Multi-line command failures embed cwd/cmd/stderr; keep them intact.
-            top.error("sample failed; see sample log ->\n%s", exc)
+            top.error("sample failed ->\n%s", exc)
         finally:
             # Always return calculator PackIDs first — even if handoff/archive fails.
             self._force_release_all_held_packs(logger=top)
@@ -715,6 +721,11 @@ class Worker(Process):
                 self._cleanup_transient_paths(sample)
             except Exception as cleanup_exc:
                 top.error("sample cleanup failed after release -> %s", cleanup_exc)
+            finally:
+                try:
+                    sample.cleanup_transient_directory()
+                except Exception as cleanup_exc:
+                    top.error("sample scratch cleanup failed -> %s", cleanup_exc)
             self._publish_sample_overlay("end")
             self._current_sample_uuid = None
             with self._hb_lock():

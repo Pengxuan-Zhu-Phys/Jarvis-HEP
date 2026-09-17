@@ -203,6 +203,15 @@ File logs remain available under `logs/<scan>/`.
 
 ## Outputs
 
+Set `EnvReqs.V2.store_samples: false` for large scans that only need DATABASE
+results (default: `true`). This disables SAMPLE directories, bucket packing and
+per-sample logs, including failure logs. Required `@Sdir` files and calculator
+IO copies use temporary scratch space and are removed after each sample;
+scalar observables, failure status, resume data and process-level logs remain.
+The switch overrides sample storage/packing settings and persistent `save: true`
+retention. Existing SAMPLE files are left untouched. See
+[storage policy](docs/sample-storage.md) for details and limitations.
+
 For a scan named `my_scan`, the project root typically contains:
 
 ```text

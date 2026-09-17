@@ -19,6 +19,7 @@ from jarvishep2.redis_queue import (
 )
 from jarvishep2.sample import Sample
 from jarvishep2.sample import ExecutionStep
+from jarvishep2.runtime_config import should_eager_materialize
 from jarvishep2.workflow import group_by_layer
 
 
@@ -67,7 +68,8 @@ class SampleExecutor:
         elif sample.opera_params:
             sample.adopt_params(sample.opera_params, as_observables=True)
         sample.apply_mcmc_identity()
-        sample.materialize(worker_id=str(worker.worker_id))
+        if sample.info.get("store_samples", True) or should_eager_materialize(sample.info):
+            sample.materialize(worker_id=str(worker.worker_id))
         delay_sec = float(worker.worker_config.get("test_process_delay_sec", 0) or 0)
         if delay_sec > 0:
             time.sleep(delay_sec)

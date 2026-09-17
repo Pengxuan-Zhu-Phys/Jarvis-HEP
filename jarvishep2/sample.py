@@ -6,13 +6,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import os
+import shutil
+import tempfile
 from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
 import numpy as np
 
 from jarvishep2.runtime_config import should_eager_materialize, should_materialize_on_failure
-from jarvishep2.sample_logger import BufferedSampleLogger, SampleLogger
+from jarvishep2.sample_logger import BufferedSampleLogger, NullSampleLogger, SampleLogger
 
 
 def _sample_logger_extra(info: Mapping[str, Any], *, module: str) -> dict[str, Any]:
@@ -37,7 +39,8 @@ def _make_lazy_sample_logger(
     module: str,
     info: Mapping[str, Any] | None = None,
 ) -> BufferedSampleLogger:
-    return BufferedSampleLogger(
+    logger_type = BufferedSampleLogger if (info or {}).get("store_samples", True) else NullSampleLogger
+    return logger_type(
         extra=_sample_logger_extra(info or {}, module=module)
     )
 
@@ -317,6 +320,10 @@ class Sample:
                 if key in self.info:
                     projection[key] = self.info[key]
         projection.pop("logger", None)
+        if not self.info.get("store_samples", True):
+            projection["store_samples"] = False
+            for key in ("save_dir", "run_log", "staging_path", "product_list", "bucket_id", "bucket_dir", "bucket_name"):
+                projection.pop(key, None)
         return projection
 
     def bind_params(self, mapper: UMapperProtocol | None) -> None:
@@ -442,11 +449,20 @@ class Sample:
         bucket_parent: str | None = None,
         failure_message: str | None = None,
     ) -> str:
-        if self._materialized:
+        if self.info.get("_materialized") and self.info.get("save_dir"):
             return str(self.info.get("save_dir"))
 
         if worker_id is not None:
             self.info["worker_id"] = worker_id
+
+        if not self.info.get("store_samples", True):
+            # A private scratch directory supports @Sdir and downstream file
+            # consumers without creating anything under the permanent SAMPLE tree.
+            save_dir = tempfile.mkdtemp(prefix="jarvis-sample-")
+            self.info.update(save_dir=save_dir, run_log=None, _materialized=True,
+                             _transient_sample_dir=save_dir)
+            self._materialized = True
+            return save_dir
 
         buffered = self._buffered_logger(self.info)
 
@@ -478,6 +494,16 @@ class Sample:
                 logger.error(failure_message)
 
         return save_dir
+
+    def cleanup_transient_directory(self) -> None:
+        """Remove only the scratch directory allocated by this sample."""
+        path = self.info.get("_transient_sample_dir")
+        if path:
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            self.info.pop("_transient_sample_dir", None)
+            self.info.update(save_dir=None, run_log=None, _materialized=False)
+            self._materialized = False
 
     def _open_sample_logger(self, *, announce_creation: bool = True) -> None:
         logger_name = f"Sample@{self.info['uuid']}"
@@ -622,7 +648,7 @@ class Sample:
                 )
 
     def close(self) -> None:
-        if self._materialized:
+        if self._materialized and self.info.get("store_samples", True):
             logger = self._active_logger()
             if logger is not None:
                 logger.info(self._build_close_message())
@@ -774,7 +800,7 @@ def ensure_sample_materialized(
     """Materialize sample artifacts on demand (e.g. @Sdir resolution)."""
     if not isinstance(sample_info, dict):
         return None
-    if str(sample_info.get("sample_artifacts", "auto")).strip().lower() == "never":
+    if sample_info.get("store_samples", True) and str(sample_info.get("sample_artifacts", "auto")).strip().lower() == "never":
         return None
     if sample_info.get("_materialized") and sample_info.get("save_dir"):
         return str(sample_info["save_dir"])

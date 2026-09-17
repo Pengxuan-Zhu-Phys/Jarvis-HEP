@@ -147,6 +147,8 @@ class CalculatorModule:
 
     def ensure_install_logger(self) -> Any:
         """Open (or reuse) the pack-local installation log sink."""
+        if isinstance(self.sample_info, Mapping) and not self.sample_info.get("store_samples", True):
+            return self._logger()
         if self._install_logger is not None:
             return self._install_logger
         from jarvishep2.sample_logger import SampleLogger
@@ -195,7 +197,7 @@ class CalculatorModule:
             # Install stage: use pack Installation_*.log only when we may actually install.
             # Reuse hits still log a short line there if the stamp file already exists.
             install_log = self._logger()
-            if self.clone_shadow and self.PackID:
+            if self.clone_shadow and self.PackID and sample_info.get("store_samples", True):
                 try:
                     if not self._preparer.can_reuse_install():
                         install_log = self.ensure_install_logger()

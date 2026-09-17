@@ -552,7 +552,9 @@ class RuntimePreparer:
     def ensure_symlink_runtime(self, sample_info: Mapping[str, Any]) -> str | None:
         if self.spec.clone_shadow or not self.spec.source:
             return None
-        save_dir = ensure_sample_materialized(dict(sample_info))
+        save_dir = ensure_sample_materialized(
+            sample_info if isinstance(sample_info, dict) else dict(sample_info)
+        )
         if save_dir is None:
             raise RuntimeError(
                 f"symlink runtime requires materialized save_dir for '{self.spec.name}'"

@@ -367,3 +367,10 @@ class BufferedSampleLogger:
 
     def critical(self, message: Any, *args: Any, **kwargs: Any) -> None:
         self.log("CRITICAL", message, *args, **kwargs)
+
+
+class NullSampleLogger(BufferedSampleLogger):
+    """Discard sample detail without buffering, file sinks, or console forwarding."""
+
+    def log(self, level: Any, message: Any, *args: Any, **kwargs: Any) -> None:
+        pass

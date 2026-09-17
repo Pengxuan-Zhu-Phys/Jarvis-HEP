@@ -42,6 +42,7 @@
           "x-jarvis-zone": "closed",
           "properties": {
             "workers": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
+            "store_samples": {"type": "boolean", "default": true, "description": "Retain SAMPLE artifacts and per-sample logs. False uses disposable scratch directories and keeps DATABASE results."},
             "batch_size": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
             "sample_directory": {
               "type": "object",

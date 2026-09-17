@@ -12,6 +12,7 @@ from jarvishep2.calculator_modes import expand_calculator_modes
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_delete_method,
+    get_runtime_block,
     get_sample_directory_config,
     workflow_has_calculator,
     workflow_references_sdir,
@@ -105,7 +106,8 @@ def build_worker_config(
     scan_name = str(cfg.get("scan_name") or sample_config.get("scan_name") or "").strip()
     if scan_name:
         sample_config.setdefault("scan_name", scan_name)
-    runtime_block = cfg.get("Runtime") if isinstance(cfg.get("Runtime"), Mapping) else {}
+    runtime_block = get_runtime_block(cfg)
+    sample_config["store_samples"] = runtime_block["store_samples"]
     sample_config.setdefault(
         "sample_artifacts",
         str((runtime_block or {}).get("sample_artifacts", "auto")),

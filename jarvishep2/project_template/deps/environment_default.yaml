@@ -103,6 +103,8 @@ EnvReqs:
         expected_output: "yes"
 
   V2:
+    # False: no SAMPLE artifacts or sample logs; keep DATABASE, use temporary scratch.
+    store_samples: true
     workers: 4
     batch_size: 256
 

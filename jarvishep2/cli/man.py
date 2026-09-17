@@ -138,6 +138,7 @@ _ENVREQS_TOP_HELP: dict[str, str] = {
 }
 
 _ENVREQS_V2_HELP: dict[str, str] = {
+    "store_samples": "Default true. False disables SAMPLE storage, packing and per-sample logs; required files use disposable scratch space while DATABASE results remain durable.",
     "workers": "Worker count. Project default: 4; Jarvis check forces 1 at runtime.",
     "batch_size": "Runtime batch size. Project default: 256.",
     "monitor": "Reserved monitor configuration. The interface is reserved; runtime monitor behavior is not active yet.",
@@ -305,6 +306,7 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "watchdog": "mapping",
     "force_serial_layers": "boolean",
     "sample_artifacts": "enum",
+    "store_samples": "boolean",
     "data": "string",
     "n_samples": "integer",
     "timeout_sec": "number",

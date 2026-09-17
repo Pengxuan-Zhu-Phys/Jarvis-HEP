@@ -279,7 +279,9 @@ class CommandParser:
                 )
             resolved = resolved.replace("@SampleID", str(sample_uuid))
         if "@Sdir" in resolved:
-            save_dir = ensure_sample_materialized(dict(sample_info))
+            save_dir = ensure_sample_materialized(
+                sample_info if isinstance(sample_info, dict) else dict(sample_info)
+            )
             if save_dir is None:
                 raise RuntimeError(
                     f"@Sdir requires save_dir during stage '{stage}' for field '{field}'"

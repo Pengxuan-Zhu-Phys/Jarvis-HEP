@@ -1021,7 +1021,8 @@ class _RuntimeSupervisor:
         database_dir = core._resolve_database_dir()
         sample_root = core._resolve_sample_root()
         os.makedirs(database_dir, exist_ok=True)
-        os.makedirs(sample_root, exist_ok=True)
+        if get_runtime_block(core.config)["store_samples"]:
+            os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = dict(get_archiver_config(core.config))
         if bool(core.config.get("_check_modules_sample_layout")):
@@ -1113,7 +1114,8 @@ class _RuntimeSupervisor:
             return
         sample_dir = get_sample_directory_config(core.config)
         sample_root = core._resolve_sample_root()
-        os.makedirs(sample_root, exist_ok=True)
+        if get_runtime_block(core.config)["store_samples"]:
+            os.makedirs(sample_root, exist_ok=True)
         meta = core.redis.init_sample_buckets(
             sample_root=sample_root,
             limit=int(sample_dir.get("limit", 200)),

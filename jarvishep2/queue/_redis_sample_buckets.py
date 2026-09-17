@@ -33,7 +33,8 @@ class _SampleBuckets:
         """Initialize Redis SAMPLE bucket meta for this run."""
         self._require_client()
         root = os.path.abspath(str(sample_root))
-        os.makedirs(root, exist_ok=True)
+        if enabled:
+            os.makedirs(root, exist_ok=True)
         mapping = {
             "sample_root": root,
             "limit": int(max(1, limit)),
