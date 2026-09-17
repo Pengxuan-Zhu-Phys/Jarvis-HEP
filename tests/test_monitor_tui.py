@@ -531,7 +531,7 @@ class PacmanGameTests(unittest.TestCase):
 
         self.assertTrue(all(1 <= len(blocks) <= 2 for blocks in game._blocks))
 
-    def test_pacman_breaks_blocks_but_ghosts_turn_around(self) -> None:
+    def test_pacman_and_ghosts_break_blocks(self) -> None:
         game = PacmanGame()
         game._ensure_board(12, 3)
         game._blocks = [{0}, set(), set()]
@@ -545,6 +545,14 @@ class PacmanGameTests(unittest.TestCase):
         game._move_ghosts(2, 0, 12)
 
         self.assertEqual((ghost.row, ghost.column, ghost.direction), (0, 10, -1))
+        self.assertNotIn(0, game._blocks[1])
+
+    def test_ghost_count_is_randomized_within_board_row_count(self) -> None:
+        for rows in (1, 2, 5):
+            game = PacmanGame()
+            game._ensure_board(24, rows)
+            self.assertGreaterEqual(len(game._ghosts), 1)
+            self.assertLessEqual(len(game._ghosts), rows)
 
     def test_caught_pacman_does_not_pause_pellet_recovery(self) -> None:
         game = PacmanGame()
@@ -592,9 +600,8 @@ class PacmanGameTests(unittest.TestCase):
 
         game._advance_game()
 
-        self.assertIsNotNone(game._giant)
-        assert game._giant is not None
-        self.assertNotEqual(game._giant, initial_position)
+        self.assertEqual(len(game._giants), 1)
+        self.assertNotIn(initial_position, game._giants)
 
     def test_caught_pacman_holds_position_for_one_second(self) -> None:
         game = PacmanGame()

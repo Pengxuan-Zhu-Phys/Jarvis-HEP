@@ -97,8 +97,20 @@ def test_frightened_ghost_can_leave_a_wall_after_bouncing():
     game._giant_ticks = 10
     game._move_ghosts(0, 8, 12)
     assert ghost.direction == 1
+    assert not game._blocks[0]
     game._move_ghosts(0, 8, 12)
     assert ghost.column == 4
+
+
+def test_random_power_pellets_accumulate_at_one_minute_intervals():
+    game = board()
+    game._giants = {(0, 3)}
+    game._giant_spawn_ticks = 0
+
+    game._advance_giant_spawn((0, 0))
+
+    assert len(game._giants) == 2
+    assert game._giant_spawn_ticks == round(60 / game._TICK_SECONDS)
 
 
 def test_rendering_width_and_state_survive_long_cycles_and_resizes():

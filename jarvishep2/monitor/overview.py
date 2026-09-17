@@ -616,6 +616,7 @@ class _PacmanGhost:
     direction: int
     role: str
     speed: int
+    bounce_ticks: int = 0
 
 
 class PacmanGame(Static):
@@ -629,7 +630,9 @@ class PacmanGame(Static):
         "pacman-ghost-blue",
     )
     _GHOST_SPEEDS = (1, 2, 1)
+    _TICK_SECONDS = 0.14
     _CAUGHT_TICKS = 7  # 7 × 0.14 s ≈ 1 second.
+    _GIANT_SPAWN_INTERVAL_TICKS = round(60 / _TICK_SECONDS)
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)
@@ -643,13 +646,13 @@ class PacmanGame(Static):
         self._ghosts: list[_PacmanGhost] = []
         self._giant_ticks = 0
         self._caught_ticks = 0
-        self._giant: tuple[int, int] | None = None
+        self._giants: set[tuple[int, int]] = set()
         self._giant_spawn_ticks = 0
         self._rng = random.Random(0x4A4152564953)
 
     def on_mount(self) -> None:
         self._paint_lane()
-        self.set_interval(0.14, self._tick)
+        self.set_interval(self._TICK_SECONDS, self._tick)
 
     def on_resize(self, _event: Resize) -> None:
         self._paint_lane()
@@ -684,8 +687,8 @@ class PacmanGame(Static):
         self._restore_queue.clear()
         self._giant_ticks = 0
         self._caught_ticks = 0
-        self._giant = None
-        self._giant_spawn_ticks = self._next_giant_delay(track_width)
+        self._giants.clear()
+        self._giant_spawn_ticks = self._next_giant_delay()
         # Sweep down, then back up. Every visited row is eaten left-to-right so
         # ᗧ always faces the direction of travel.
         row_order = list(range(board_rows)) + list(range(board_rows - 2, 0, -1))
@@ -696,15 +699,14 @@ class PacmanGame(Static):
         ]
         self._path_index = 0
         max_ghost_column = max(0, track_width - 2)
-        start_columns = (
-            track_width // 4,
-            track_width // 2,
-            (track_width * 3) // 4,
-        )
+        # Give each board a little different traffic density while keeping it
+        # proportional to the vertical space available.  The local seeded RNG
+        # makes that variation reproducible within a monitor session.
+        ghost_count = self._rng.randint(1, board_rows)
         self._ghosts = []
-        for index, (role, start_column) in enumerate(
-            zip(self._GHOST_ROLES, start_columns)
-        ):
+        for index in range(ghost_count):
+            role = self._GHOST_ROLES[index % len(self._GHOST_ROLES)]
+            start_column = ((index + 1) * track_width) // (ghost_count + 1)
             row = index % board_rows
             self._ghosts.append(
                 _PacmanGhost(
@@ -716,7 +718,7 @@ class PacmanGame(Static):
                     ),
                     direction=1 if index % 2 == 0 else -1,
                     role=role,
-                    speed=self._GHOST_SPEEDS[index],
+                    speed=self._GHOST_SPEEDS[index % len(self._GHOST_SPEEDS)],
                 )
             )
         # Even a narrow board must not start a two-cell ghost inside a wall.
@@ -776,22 +778,21 @@ class PacmanGame(Static):
     def _consume(self, row: int, column: int) -> None:
         self._blocks[row].discard(column)
         self._pellets[row][column] = False
-        if self._giant == (row, column):
-            self._giant = None
+        if (row, column) in self._giants:
+            self._giants.remove((row, column))
             self._giant_ticks = max(12, self._shape[0] // 2)
-            self._giant_spawn_ticks = self._next_giant_delay(self._shape[0])
 
-    def _next_giant_delay(self, width: int) -> int:
-        return self._rng.randint(max(6, width // 6), max(12, width // 2))
+    def _next_giant_delay(self) -> int:
+        """Wait one minute before placing the next random power pellet."""
+        return self._GIANT_SPAWN_INTERVAL_TICKS
 
     def _advance_giant_spawn(self, occupied: tuple[int, int]) -> None:
-        if self._giant is not None:
-            return
         if self._giant_spawn_ticks > 0:
             self._giant_spawn_ticks -= 1
             return
         width, height = self._shape
         blocked = {occupied}
+        blocked.update(self._giants)
         for ghost in self._ghosts:
             blocked.add((ghost.row, ghost.column))
             blocked.add((ghost.row, ghost.column + 1))
@@ -804,8 +805,8 @@ class PacmanGame(Static):
             if (row, column) not in blocked
         ]
         if choices:
-            self._giant = self._rng.choice(choices)
-        self._giant_spawn_ticks = self._next_giant_delay(width)
+            self._giants.add(self._rng.choice(choices))
+        self._giant_spawn_ticks = self._next_giant_delay()
 
     def _queue_row_restore(self, row: int) -> None:
         queued = set(self._restore_queue)
@@ -822,8 +823,7 @@ class PacmanGame(Static):
         width, height = self._shape
         actor = self._path[self._path_index] if self._path else None
         blocked = {actor} if actor is not None else set()
-        if self._giant is not None:
-            blocked.add(self._giant)
+        blocked.update(self._giants)
         for ghost in self._ghosts:
             blocked.add((ghost.row, ghost.column))
             blocked.add((ghost.row, ghost.column + 1))
@@ -856,7 +856,9 @@ class PacmanGame(Static):
                 continue
             if width < 2:
                 continue
-            if self._giant_ticks and ghost.row == pacman_row:
+            just_bounced = ghost.bounce_ticks > 0
+            ghost.bounce_ticks = max(0, ghost.bounce_ticks - 1)
+            if self._giant_ticks and not just_bounced and ghost.row == pacman_row:
                 away = -1 if ghost.column <= pacman_column else 1
                 # A flee decision must not undo a wall bounce every frame.
                 lane = ghost.row * (max_column + 1) + ghost.column
@@ -876,7 +878,11 @@ class PacmanGame(Static):
                 next_column in self._blocks[next_row]
                 or next_column + 1 in self._blocks[next_row]
             ):
+                # Ghosts smash through a wall: it vanishes, and the ghost
+                # reverses to make the collision readable on the next tick.
+                self._blocks[next_row].difference_update((next_column, next_column + 1))
                 ghost.direction *= -1
+                ghost.bounce_ticks = 1
                 continue
             ghost.row = next_row
             ghost.column = next_column
@@ -928,8 +934,7 @@ class PacmanGame(Static):
         for row, blocks in enumerate(self._blocks):
             for column in blocks:
                 cells[row][column] = ("▣", "pacman-block")
-        if self._giant is not None:
-            giant_row, giant_column = self._giant
+        for giant_row, giant_column in self._giants:
             cells[giant_row][giant_column] = ("●", "pacman-giant")
         pacman = self._PACMAN_CLOSED if self._step % 2 else self._PACMAN_OPEN
         pacman_role = "pacman-giant" if self._giant_ticks else "pacman"
@@ -951,10 +956,11 @@ class PacmanGame(Static):
             footprint = {(ghost.row, position), (ghost.row, position + 1)}
             if footprint & occupied or self._blocks[ghost.row].intersection((position, position + 1)):
                 continue
-            if self._giant is not None:
-                giant_row, giant_column = self._giant
-                if ghost.row == giant_row and position <= giant_column <= position + 1:
-                    continue
+            if any(
+                ghost.row == giant_row and position <= giant_column <= position + 1
+                for giant_row, giant_column in self._giants
+            ):
+                continue
             role = "pacman-ghost-flee" if self._giant_ticks else ghost.role
             cells[ghost.row][position] = ("👻", role)
             cells[ghost.row][position + 1] = None
