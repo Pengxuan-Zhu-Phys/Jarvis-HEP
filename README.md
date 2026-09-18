@@ -40,7 +40,7 @@ Requirements:
 From PyPI:
 
 ```bash
-python3 -m pip install 'Jarvis-HEP[distributed]'
+python3 -m pip install Jarvis-HEP
 ```
 
 If the short-lived `jarvishep2` distribution was installed previously, remove
@@ -49,19 +49,20 @@ it before installing V2 from `Jarvis-HEP`; both distributions provide the same
 
 ```bash
 python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade 'Jarvis-HEP[distributed]'
+python3 -m pip install --upgrade Jarvis-HEP
 ```
 
 From a source checkout:
 
 ```bash
-python3 -m pip install -e '.[distributed]'
+python3 -m pip install -e .
 ```
 
-For development and tests:
+For development and tests, install the test tools separately:
 
 ```bash
-python3 -m pip install -e '.[distributed,dev]'
+python3 -m pip install -e .
+python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
 Start Redis before a real scan. For example, on macOS:
@@ -82,14 +83,10 @@ Debian/Ubuntu, Fedora/RHEL, Amazon Linux, Arch, openSUSE, Alpine, Gentoo, Void,
 NixOS and other package-manager families. The check marker is stored at
 `~/.jarvis/redis-install-check-v1`.
 
-The default install includes the current compatible releases of
-`Jarvis-HEP-Portal`, `Jarvis-Operas`, and the `JarvisPLOT` distribution
-(product name: Jarvis-PLOT). The optional extras
-are:
-
-- `distributed`: Redis, `msgpack`, and `aiofiles`
-- `plot`: compatibility alias for the default [Jarvis-PLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT) dependency (`JarvisPLOT` on PyPI)
-- `dev`: pytest, fakeredis, and colorlog
+The default install includes every Jarvis runtime dependency: the Redis Python
+client, `msgpack`, `aiofiles`, Textual Monitor, `Jarvis-HEP-Portal`,
+`Jarvis-Operas`, and [JarvisPLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT).
+Jarvis does not publish optional dependency groups.
 
 For the complete installation guide, Redis options, and project-packaging
 workflow, see [INSTALL.md](INSTALL.md).
@@ -240,7 +237,8 @@ Jarvis shuts down its Workers, Archiver, and any Redis process it manages.
 ## Development
 
 ```bash
-python3 -m pip install -e '.[distributed,dev]'
+python3 -m pip install -e .
+python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 python3 -m pytest -q
 ```
 

@@ -19,7 +19,7 @@ for the task-YAML schema see
 From PyPI:
 
 ```bash
-python3 -m pip install 'Jarvis-HEP[distributed]'
+python3 -m pip install Jarvis-HEP
 ```
 
 If you previously installed the short-lived `jarvishep2` distribution, remove
@@ -28,7 +28,7 @@ two distributions should not be installed together:
 
 ```bash
 python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade 'Jarvis-HEP[distributed]'
+python3 -m pip install --upgrade Jarvis-HEP
 ```
 
 From a source checkout:
@@ -36,11 +36,11 @@ From a source checkout:
 ```bash
 cd ~/Jarvis-Workshop/Jarvis-HEP
 
-# runtime + real-Redis extras (recommended)
-python3 -m pip install -e '.[distributed]'
+# runtime (recommended)
+python3 -m pip install -e .
 
-# development (tests, fakeredis, colorlog)
-python3 -m pip install -e '.[distributed,dev]'
+# development tests
+python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
 Core runtime depends on:
@@ -58,19 +58,13 @@ Local editable installs of those packages are fine during development:
 ```bash
 python3 -m pip install -e ../Jarvis-Portal
 python3 -m pip install -e ../Jarvis-Operas
-python3 -m pip install -e '.[distributed,dev]'
+python3 -m pip install -e .
+python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
-Extras:
-
-- `distributed` = `redis`, `msgpack`, `aiofiles`
-- `plot` = **compatibility alias** for the core `JarvisPLOT` dependency
-- `dev` = `pytest`, `fakeredis`, `colorlog`
-- `operas` = **deprecated no-op alias** (Operas is core since D12.0; kept for old install scripts)
-
-```bash
-python3 -m pip install -e '.[distributed,dev]'
-```
+All Jarvis runtime dependencies are installed by default; Jarvis does not
+publish optional dependency groups. Test-only tools remain separate from the
+runtime package.
 
 ## Task-card contract
 

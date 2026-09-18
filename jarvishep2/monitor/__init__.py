@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-TEXTUAL_EXTRA = "Jarvis-HEP[monitor]"
-
-
 def run_tui(
     *,
     scan_ref: str | None = None,
@@ -18,4 +15,4 @@ def run_tui(
     return EXIT_OK
 
 
-__all__ = ["TEXTUAL_EXTRA", "run_tui"]
+__all__ = ["run_tui"]

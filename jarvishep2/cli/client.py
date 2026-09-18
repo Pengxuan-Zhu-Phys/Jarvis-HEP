@@ -185,14 +185,14 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
         once = True
 
     if not once and _want_monitor_tui():
-        from jarvishep2.monitor import TEXTUAL_EXTRA, run_tui
+        from jarvishep2.monitor import run_tui
 
         try:
             return int(run_tui(scan_ref=scan_ref or None))
         except ImportError as exc:
             print(
-                "Jarvis monitor TUI requires Textual "
-                f"(pip install '{TEXTUAL_EXTRA}'). {exc}",
+                "Jarvis monitor TUI requires the default Textual dependency. "
+                f"Reinstall Jarvis-HEP with `pip install --upgrade Jarvis-HEP`. {exc}",
                 file=sys.stderr,
             )
 

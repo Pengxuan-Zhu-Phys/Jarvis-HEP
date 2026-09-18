@@ -45,7 +45,8 @@ the first release is published.
 
    ```bash
    python3 -m pip install --upgrade build twine
-   python3 -m pip install '.[distributed,dev]'
+   python3 -m pip install -e .
+   python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
    python3 -m pytest -q
    python3 -m build
    python3 -m twine check dist/*
@@ -83,7 +84,7 @@ same `jarvishep2` Python package, so they should not coexist in one environment:
 
 ```bash
 python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade 'Jarvis-HEP[distributed]'
+python3 -m pip install --upgrade Jarvis-HEP
 ```
 
 Existing V1 users can upgrade directly from `Jarvis-HEP` 1.x to 2.x, but V2 is
