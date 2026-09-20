@@ -11,7 +11,7 @@ from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.variables import Variable, load_variables
 from jarvishep2.log_kv import format_duration
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 
 # Poll interval while waiting for in-flight slots (backpressure).
@@ -69,7 +69,9 @@ class FixedSetSampler(CheckpointedSampler):
         self._seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._checkpoint_heartbeat_sec = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
+        self._checkpoint_heartbeat_sec = float(
+            get_checkpoint_config(self.config)["heartbeat"]
+        )
         # Default backpressure: keep the pipeline full but bounded.
         # Subclasses (e.g. Bridson) may override with Bounds.max_worker.
         explicit = runtime.get("max_inflight", bounds.get("max_worker"))

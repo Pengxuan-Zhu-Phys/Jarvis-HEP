@@ -256,6 +256,10 @@ class _ResumeService:
 
         if core.sampler is None or not hasattr(core.sampler, "export_runtime_state"):
             return None
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        if not get_checkpoint_config(getattr(core, "config", None))["enabled"]:
+            return None
         persistence: dict[str, Any] = {}
         if core.archiver is not None and hasattr(core.archiver, "persistence_state"):
             persistence = dict(core.archiver.persistence_state())

@@ -65,8 +65,14 @@ class SeededOperaSampler(SamplingVirtial):
         self._last_safe_state = deepcopy(self.export_runtime_state())
         if self._checkpoint_heartbeat is not None:
             self._checkpoint_heartbeat.stop()
+            self._checkpoint_heartbeat = None
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        ckpt = get_checkpoint_config(getattr(self, "config", None))
+        if not ckpt["enabled"]:
+            return
         self._checkpoint_heartbeat = CheckpointHeartbeat(
-            interval_sec=CHECKPOINT_HEARTBEAT_SEC,
+            interval_sec=float(ckpt["heartbeat"] or CHECKPOINT_HEARTBEAT_SEC),
             save_callback=lambda reason="checkpoint_heartbeat": self.persist_runtime_checkpoint(
                 force=True,
                 reason=reason,
@@ -203,6 +209,10 @@ class SeededOperaSampler(SamplingVirtial):
         archiver_persistence: Mapping[str, Any] | None = None,
     ) -> bool:
         if self._save_checkpoint_callback is None:
+            return False
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        if not get_checkpoint_config(getattr(self, "config", None))["enabled"]:
             return False
         if not force:
             from jarvishep2.sampling.runtime_checkpoint import safe_barrier_ready

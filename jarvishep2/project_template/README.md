@@ -78,10 +78,9 @@ See `bin/sampling/README.md`.
 ## Scheduling defaults
 
 `deps/environment_default.yaml` supplies `EnvReqs.V2` (workers, SAMPLE buckets, archiver,
-and `checkpoint_heartbeat_sec`).  The heartbeat defaults to 30 seconds; lower it for
-expensive samples when you want a tighter resume replay bound.
-Override in the task YAML or edit the defaults file. There is **no** top-level `Runtime`
-block on V2 — use `EnvReqs.V2` instead.
+and `checkpoint`).  `checkpoint.heartbeat` is the write interval in seconds (minimum 30,
+default 30). Override in the task YAML or edit the defaults file. There is **no**
+top-level `Runtime` block on V2 — use `EnvReqs.V2` instead.
 
 ## Package for sharing
 

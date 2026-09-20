@@ -328,6 +328,12 @@ def load_task_yaml(path: str) -> dict[str, Any]:
         ("task EnvReqs.V2", task_v2_settings),
     ):
         unsupported = set(source) - SUPPORTED_ENVREQS_V2_KEYS
+        if "checkpoint_heartbeat_sec" in unsupported:
+            raise ValueError(
+                "unsupported "
+                f"{source_name} setting checkpoint_heartbeat_sec; "
+                "set EnvReqs.V2.checkpoint.heartbeat (seconds, minimum 30)"
+            )
         if unsupported:
             keys = ", ".join(sorted(str(key) for key in unsupported))
             supported = ", ".join(sorted(SUPPORTED_ENVREQS_V2_KEYS))

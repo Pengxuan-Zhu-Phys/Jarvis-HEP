@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import pickle
 import tempfile
 import threading
 import unittest
@@ -14,6 +15,10 @@ import numpy as np
 
 from jarvishep2.Sampling.Source.Dynesty.py.dynesty import DynamicNestedSampler
 from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_uuid import looks_uuid_augmented
+from jarvishep2.Sampling.Source.MCMC.chain_history import (
+    CHAIN_HISTORY_RAM_TAIL,
+    ChainHistory,
+)
 from jarvishep2.Sampling.diagnostics_export import (
     DATABASE_CHAIN_DIAGNOSTIC_COLUMNS,
     DATABASE_NESTED_RESULT_COLUMNS,
@@ -83,6 +88,63 @@ class EssDiagnosticTests(unittest.TestCase):
         self.assertIsNotNone(ess)
         assert ess is not None
         self.assertLess(ess, 30.0)
+
+
+class ChainHistoryBoundsTests(unittest.TestCase):
+    def test_ram_tail_drops_old_events_and_pickles(self) -> None:
+        history = ChainHistory(maxlen=4)
+        for index in range(10):
+            history.append_from_values(
+                iter=index,
+                state="UPDATE",
+                proposal=None,
+                logl=-float(index),
+                accepted=index % 2 == 0,
+                temperature=1.0,
+            )
+        self.assertEqual(len(history), 4)
+        self.assertEqual(history.total_appended, 10)
+        self.assertEqual([ev.iter for ev in history.all()], [6, 7, 8, 9])
+        restored = pickle.loads(pickle.dumps(history))
+        self.assertIsInstance(restored, ChainHistory)
+        self.assertEqual(len(restored), 4)
+        self.assertEqual(restored.total_appended, 10)
+        self.assertEqual([ev.iter for ev in restored.all()], [6, 7, 8, 9])
+
+    def test_default_tail_is_bounded(self) -> None:
+        self.assertEqual(CHAIN_HISTORY_RAM_TAIL, 256)
+        history = ChainHistory()
+        self.assertEqual(history._maxlen, 256)
+
+    def test_export_does_not_clobber_streamed_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            database = os.path.join(tmp, "DATABASE")
+            os.makedirs(database, exist_ok=True)
+            streamed = os.path.join(database, "chain_history.csv")
+            with open(streamed, "w", encoding="utf-8") as handle:
+                handle.write("chain_id,step,accepted,weight,logl,temperature,state\n")
+                handle.write("0,0,1,1,-1.0,1.0,UPDATE\n")
+                handle.write("0,1,0,0,-2.0,1.0,UPDATE\n")
+
+            class _Hist:
+                def all(self):
+                    return []
+
+            class _Chain:
+                chain_id = 0
+                history = _Hist()
+
+            class _Reg:
+                def all(self):
+                    return [_Chain()]
+
+            written = export_mcmc_diagnostics(
+                tmp, summary={"method": "MCMC"}, registry=_Reg()
+            )
+            self.assertEqual(written["chain_history"], streamed)
+            with open(streamed, encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), 2)
 
 
 class McmcDiagnosticsExportTests(unittest.TestCase):

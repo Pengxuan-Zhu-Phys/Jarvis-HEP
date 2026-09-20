@@ -88,7 +88,19 @@
               "additionalProperties": true
             },
             "check_modules": {"type": "object", "x-jarvis-zone": "delegated", "additionalProperties": true},
-            "checkpoint_heartbeat_sec": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric"}
+            "checkpoint": {
+              "type": "object",
+              "x-jarvis-zone": "closed",
+              "description": "Resume checkpoint policy. heartbeat is the interval in seconds (minimum 30).",
+              "properties": {
+                "enabled": {"type": "boolean", "default": true},
+                "heartbeat": {
+                  "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveNumeric",
+                  "description": "Checkpoint interval in seconds. Minimum 30. Default 30."
+                }
+              },
+              "additionalProperties": false
+            }
           },
           "additionalProperties": false
         }

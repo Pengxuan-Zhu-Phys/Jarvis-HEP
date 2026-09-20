@@ -74,8 +74,18 @@ class CheckpointedSampler(SamplingVirtial, ABC):
         self._checkpoint_snapshots.append((initial_index, initial))
         if self._checkpoint_heartbeat is not None:
             self._checkpoint_heartbeat.stop()
+            self._checkpoint_heartbeat = None
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        ckpt = get_checkpoint_config(getattr(self, "config", None))
+        if not ckpt["enabled"]:
+            return
         self._checkpoint_heartbeat = CheckpointHeartbeat(
-            interval_sec=float(getattr(self, "_checkpoint_heartbeat_sec", CHECKPOINT_HEARTBEAT_SEC)),
+            interval_sec=float(
+                getattr(self, "_checkpoint_heartbeat_sec", None)
+                or ckpt["heartbeat"]
+                or CHECKPOINT_HEARTBEAT_SEC
+            ),
             # The heartbeat must not snapshot sampler state, acquire the
             # runtime-checkpoint lock, or touch Redis.  It only requests a
             # capture at the next natural batch boundary (D21.9).
@@ -198,6 +208,10 @@ class CheckpointedSampler(SamplingVirtial, ABC):
         archiver_persistence: Mapping[str, Any] | None = None,
     ) -> bool:
         if self._save_checkpoint_callback is None:
+            return False
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        if not get_checkpoint_config(getattr(self, "config", None))["enabled"]:
             return False
         if not force:
             from jarvishep2.sampling.runtime_checkpoint import safe_barrier_ready

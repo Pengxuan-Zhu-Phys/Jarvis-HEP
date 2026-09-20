@@ -9,8 +9,10 @@ import unittest
 
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.runtime_config import (
+    CHECKPOINT_DEFAULTS,
     RUNTIME_DEFAULTS,
     WATCHDOG_DEFAULTS,
+    get_checkpoint_config,
     get_runtime_block,
     get_watchdog_config,
     normalize_runtime_block,
@@ -33,7 +35,7 @@ class RuntimeReadModelTests(unittest.TestCase):
                 "V2": {
                     "workers": 4,
                     "batch_size": 16,
-                    "checkpoint_heartbeat_sec": 12,
+                    "checkpoint": {"heartbeat": 60},
                     "worker": {
                         "force_serial_layers": True,
                         "sample_artifacts": "always",
@@ -47,7 +49,9 @@ class RuntimeReadModelTests(unittest.TestCase):
         self.assertEqual(runtime["mode"], "redis")
         self.assertEqual(runtime["workers"], 4)
         self.assertEqual(runtime["batch_size"], 16)
-        self.assertEqual(runtime["checkpoint_heartbeat_sec"], 12.0)
+        self.assertEqual(runtime["checkpoint"]["heartbeat"], 60.0)
+        self.assertTrue(runtime["checkpoint"]["enabled"])
+        self.assertEqual(get_checkpoint_config(skip_loader)["heartbeat"], 60.0)
         self.assertTrue(runtime["force_serial_layers"])
         self.assertEqual(runtime["sample_artifacts"], "always")
         self.assertEqual(runtime["redis"]["host"], "10.1.2.3")
@@ -61,7 +65,8 @@ class RuntimeReadModelTests(unittest.TestCase):
                     "  V2:\n"
                     "    workers: 4\n"
                     "    batch_size: 16\n"
-                    "    checkpoint_heartbeat_sec: 12\n"
+                    "    checkpoint:\n"
+                    "      heartbeat: 60\n"
                     "    worker:\n"
                     "      force_serial_layers: true\n"
                     "      sample_artifacts: always\n"
@@ -85,7 +90,7 @@ class RuntimeReadModelTests(unittest.TestCase):
             "mode",
             "workers",
             "batch_size",
-            "checkpoint_heartbeat_sec",
+            "checkpoint",
             "force_serial_layers",
             "sample_artifacts",
         ):
@@ -98,6 +103,8 @@ class RuntimeReadModelTests(unittest.TestCase):
         self.assertTrue(core.is_redis_runtime())
         self.assertEqual(core.runtime["workers"], 3)
         self.assertEqual(core.runtime["mode"], "redis")
+        self.assertEqual(get_checkpoint_config({})["heartbeat"], CHECKPOINT_DEFAULTS["heartbeat"])
+        self.assertTrue(get_checkpoint_config({})["enabled"])
 
     def test_normalize_watchdog_block_reads_respawn_cooldown(self) -> None:
         block = normalize_watchdog_block({"respawn_cooldown_sec_base": 7.5})
@@ -125,6 +132,12 @@ class RuntimeReadModelTests(unittest.TestCase):
         self.assertEqual(watchdog["respawn_cooldown_sec_base"], 8.0)
         self.assertEqual(watchdog["death_rate_frac"], 0.25)
         self.assertEqual(watchdog["stale_sec"], WATCHDOG_DEFAULTS["stale_sec"])
+
+    def test_checkpoint_enabled_false_keeps_default_heartbeat(self) -> None:
+        config = {"EnvReqs": {"V2": {"checkpoint": {"enabled": False}}}}
+        ckpt = get_checkpoint_config(config)
+        self.assertFalse(ckpt["enabled"])
+        self.assertEqual(ckpt["heartbeat"], CHECKPOINT_DEFAULTS["heartbeat"])
 
 
 if __name__ == "__main__":

@@ -160,11 +160,11 @@ class SamplerSetConfigWiringTests(unittest.TestCase):
                         "run_nested": {"dlogz": 0.5, "checkpoint_every": 3},
                     },
                 },
-                "EnvReqs": {"V2": {"checkpoint_heartbeat_sec": 12}},
+                "EnvReqs": {"V2": {"checkpoint": {"heartbeat": 60}}},
             }
         )
-        self.assertEqual(s._checkpoint_every_sec, 12.0)
-        self.assertEqual(s._checkpoint_heartbeat_sec, 12.0)
+        self.assertEqual(s._checkpoint_every_sec, 60.0)
+        self.assertEqual(s._checkpoint_heartbeat_sec, 60.0)
         self.assertNotIn("checkpoint_every", s._run_nested_kwargs)
 
     def test_dynesty_dynamic_default_and_full_sampler_block(self) -> None:

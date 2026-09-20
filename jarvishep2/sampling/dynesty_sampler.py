@@ -39,7 +39,7 @@ from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from
 from jarvishep2.sampling.variables import load_variables
 from jarvishep2.contracts.nested import NESTED_CONSTRUCTOR_USER_KEYS
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 
 # Side-file basename next to Jarvis ``state.pkl`` for dynesty's native engine
@@ -251,15 +251,15 @@ def extract_run_nested_kwargs(
     if not isinstance(run_raw, Mapping):
         run_raw = {}
     run: dict[str, Any] = {str(k): v for k, v in run_raw.items()}
-    # Checkpoint cadence lives only under EnvReqs.V2.checkpoint_heartbeat_sec.
+    # Checkpoint cadence lives only under EnvReqs.V2.checkpoint.heartbeat.
     for banned in HEP_OWNED_RUN_NESTED_KEYS:
         if banned in run:
             run.pop(banned, None)
             if logger is not None:
                 logger.warning(
                     "nested sampler: ignoring Sampling.Bounds.run_nested.%s "
-                    "(HEP-owned; set EnvReqs.V2.checkpoint_heartbeat_sec for "
-                    "checkpoint interval, resume path is automatic)",
+                    "(HEP-owned; set EnvReqs.V2.checkpoint.heartbeat for "
+                    "checkpoint interval in seconds, resume path is automatic)",
                     banned,
                 )
 
@@ -616,10 +616,9 @@ class DynestySampler(CheckpointedSampler):
         self._selectionexp = sampling.get("selection")
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        # Single source of truth: EnvReqs.V2.checkpoint_heartbeat_sec (via runtime).
-        # Used for dynesty nested_engine.pkl cadence.
-        heartbeat = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
-        self._checkpoint_every_sec = max(1.0, heartbeat)
+        # Single source of truth: EnvReqs.V2.checkpoint.heartbeat (seconds).
+        ckpt = get_checkpoint_config(self.config)
+        self._checkpoint_every_sec = float(ckpt["heartbeat"])
         self._checkpoint_heartbeat_sec = self._checkpoint_every_sec
 
         # Engine is fixed by Method (Dynesty=dynamic, MultiNest=static).
@@ -677,13 +676,19 @@ class DynestySampler(CheckpointedSampler):
             self.config.get("scan_name") or scan_mapping.get("name") or "scan"
         )
         if redis is not None and self._submitted_uuids:
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                persisted = redis.get_archived_uuids(scan_name)
-                self.set_persisted_uuids(persisted)
-                if set(self._submitted_uuids) <= persisted:
-                    break
-                time.sleep(0.05)
+            from jarvishep2.sampling.runtime_checkpoint import (
+                wait_for_archived_uuid_window,
+            )
+
+            window = [str(uuid) for uuid in self._submitted_uuids]
+            missing = wait_for_archived_uuid_window(
+                redis, scan_name, window, timeout_sec=5.0
+            )
+            missing_set = set(missing)
+            acked = [uuid for uuid in window if uuid not in missing_set]
+            if acked:
+                self._persisted_uuids.update(acked)
+            self._submitted_uuids = list(missing)
         return self.persist_runtime_checkpoint(force=True, reason=reason)
 
     def _feedback_export_state(self) -> dict[str, Any]:
@@ -704,6 +709,13 @@ class DynestySampler(CheckpointedSampler):
         self._seed_seq = np.random.SeedSequence(self._seed)
         self._on_failure = str(state.get("on_failure") or self._on_failure or "reject")
         self._import_checkpoint_control_state(state)
+        pending = self._pending_uuids
+        if not pending:
+            self._submitted_uuids = []
+        else:
+            self._submitted_uuids = [
+                str(uuid) for uuid in self._submitted_uuids if str(uuid) in pending
+            ]
 
     def _build_sample_for_pool(self, payload: np.ndarray, uuid: str) -> Sample:
         """Build a Sample from unit-cube coords (uuid already assigned)."""
@@ -995,9 +1007,15 @@ class DynestySampler(CheckpointedSampler):
         # it; keep a long interval no-op so CheckpointedSampler wiring stays happy.
         if self._checkpoint_heartbeat is not None:
             self._checkpoint_heartbeat.stop()
+            self._checkpoint_heartbeat = None
+        ckpt = get_checkpoint_config(getattr(self, "config", None))
+        if not ckpt["enabled"]:
+            self._logger.info("%s checkpoint disabled (EnvReqs.V2.checkpoint.enabled=false)", self.method)
+            return
         interval = float(
             getattr(self, "_checkpoint_heartbeat_sec", None)
             or getattr(self, "_checkpoint_every_sec", None)
+            or ckpt["heartbeat"]
             or CHECKPOINT_HEARTBEAT_SEC
         )
         self._checkpoint_heartbeat = CheckpointHeartbeat(
@@ -1302,8 +1320,9 @@ class DynestySampler(CheckpointedSampler):
             logger=self._logger,
         )
         # HEP injects checkpoint path/interval from EnvReqs.V2 — never from Sampling YAML.
-        run_kwargs["checkpoint_file"] = self._engine_path()
-        run_kwargs["checkpoint_every"] = float(self._checkpoint_every_sec)
+        if get_checkpoint_config(self.config)["enabled"]:
+            run_kwargs["checkpoint_file"] = self._engine_path()
+            run_kwargs["checkpoint_every"] = float(self._checkpoint_every_sec)
         # Dynesty's save_sampler writes ``path.tmp`` then renames — parent dir
         # must exist (stock dynesty does not create it).
         ckpt = run_kwargs.get("checkpoint_file")

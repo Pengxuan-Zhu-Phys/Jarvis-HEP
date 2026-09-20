@@ -871,10 +871,22 @@ class ManCliTests(unittest.TestCase):
             "factory",
             "worker",
             "check_modules",
+            "checkpoint",
         ):
             nested = resolve_man_request([f"yaml.EnvReqs.V2.{topic}"])
             self.assertTrue(nested["keys"], msg=topic)
             self.assertTrue(all(key.get("description") for key in nested["keys"]))
+        checkpoint = resolve_man_request(["yaml.EnvReqs.V2.checkpoint"])
+        self.assertEqual(
+            {key["name"] for key in checkpoint["keys"]},
+            {"enabled", "heartbeat"},
+        )
+        heartbeat = next(key for key in checkpoint["keys"] if key["name"] == "heartbeat")
+        self.assertIn("sec", heartbeat["description"])
+        self.assertEqual(
+            checkpoint["diagnostics"],
+            ["JV2-ENV-012", "JV2-ENV-013", "JV2-ENV-014"],
+        )
 
     def test_array_bracket_topics_are_rejected(self) -> None:
         err = io.StringIO()

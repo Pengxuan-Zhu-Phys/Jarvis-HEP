@@ -16,6 +16,7 @@ import json
 import sys
 from difflib import get_close_matches
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Mapping
 
 from rich import box
@@ -162,9 +163,9 @@ _ENVREQS_V2_HELP: dict[str, str] = {
         "YAML location for the check CSV. Jarvis check overrides workers and "
         "archive layout while it runs."
     ),
-    "checkpoint_heartbeat_sec": (
-        "Checkpoint heartbeat interval in seconds; minimum 1. Project runtime "
-        "default: 30."
+    "checkpoint": (
+        "Resume checkpoint policy: enabled and heartbeat. heartbeat is the "
+        "write interval in seconds (sec); minimum 30, default 30."
     ),
 }
 
@@ -261,6 +262,14 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
         },
         "check_modules:\n  data: \"&J/data/check_modules_points.csv\"\n  n_samples: 10\n  timeout_sec: 120",
     ),
+    "checkpoint": (
+        "Resume checkpoint policy. File path and --resume stay outside YAML.",
+        {
+            "enabled": "Write state.pkl when true. Default true.",
+            "heartbeat": "Write interval in seconds (sec). Minimum 30. Default 30.",
+        },
+        "checkpoint:\n  enabled: true\n  heartbeat: 30",
+    ),
     "watchdog": (
         "Watchdog policy nested under EnvReqs.V2.factory.",
         {
@@ -310,6 +319,7 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "data": "string",
     "n_samples": "integer",
     "timeout_sec": "number",
+    "heartbeat": "number",
     "stale_sec": "number",
     "poll_interval_sec": "number",
     "max_sample_retries": "integer",
@@ -1526,13 +1536,14 @@ def _envreqs_nested_page(
     fields: Mapping[str, str],
     example: str,
     *,
-    diagnostic: str = "JV2-ENV-001",
+    diagnostic: str | Sequence[str] = "JV2-ENV-001",
     zone: str = "delegated",
 ) -> dict[str, Any]:
     keys = []
     for name, description in fields.items():
         field_type = _ENVREQS_FIELD_TYPES.get(name, "any")
         keys.append(_env_key(name, field_type, description))
+    diagnostics = [diagnostic] if isinstance(diagnostic, str) else list(diagnostic)
     return {
         "path": path,
         "context": {},
@@ -1541,7 +1552,7 @@ def _envreqs_nested_page(
         "summary": title,
         "keys": keys,
         "examples": [example],
-        "diagnostics": [diagnostic],
+        "diagnostics": diagnostics,
         "see_also": ["Jarvis man yaml.EnvReqs", "Jarvis validate TASK.yaml"],
         "further_reading": None,
     }
@@ -1618,9 +1629,11 @@ def _envreqs_v2_page() -> dict[str, Any]:
             "factory",
             "worker",
             "check_modules",
+            "checkpoint",
         )
     }
     keys = [
+        _env_key("store_samples", "boolean", _ENVREQS_V2_HELP["store_samples"], default=True),
         _env_key("workers", "integer", _ENVREQS_V2_HELP["workers"], default=4),
         _env_key("batch_size", "integer", _ENVREQS_V2_HELP["batch_size"], default=256),
         _env_key("sample_directory", "mapping", _ENVREQS_V2_HELP["sample_directory"], man=nav["sample_directory"]),
@@ -1630,12 +1643,7 @@ def _envreqs_v2_page() -> dict[str, Any]:
         _env_key("factory", "mapping", _ENVREQS_V2_HELP["factory"], man=nav["factory"]),
         _env_key("worker", "mapping", _ENVREQS_V2_HELP["worker"], man=nav["worker"]),
         _env_key("check_modules", "mapping", _ENVREQS_V2_HELP["check_modules"], man=nav["check_modules"]),
-        _env_key(
-            "checkpoint_heartbeat_sec",
-            "number",
-            _ENVREQS_V2_HELP["checkpoint_heartbeat_sec"],
-            default=30,
-        ),
+        _env_key("checkpoint", "mapping", _ENVREQS_V2_HELP["checkpoint"], man=nav["checkpoint"]),
     ]
     overlay = (
         "EnvReqs:\n"
@@ -1746,12 +1754,19 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
         nested_key = lowered[-1]
         if nested_key in _ENVREQS_NESTED_PAGES:
             title, fields, example = _ENVREQS_NESTED_PAGES[nested_key]
+            extra: dict[str, Any] = {"zone": "closed"}
+            if nested_key == "checkpoint":
+                extra["diagnostic"] = [
+                    "JV2-ENV-012",
+                    "JV2-ENV-013",
+                    "JV2-ENV-014",
+                ]
             return _envreqs_nested_page(
                 "$.EnvReqs.V2." + ".".join(parts[1:]),
                 title,
                 fields,
                 example,
-                zone="closed",
+                **extra,
             )
 
     if len(lowered) == 1 and lowered[0] == "os":

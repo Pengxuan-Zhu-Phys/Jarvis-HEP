@@ -1061,12 +1061,12 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                 cfg["task_root"] = tmp
                 cfg["task_result_dir"] = tmp
                 cfg["scan_name"] = "mn-ckpt"
-                cfg["EnvReqs"] = {"V2": {"checkpoint_heartbeat_sec": 11}}
+                cfg["EnvReqs"] = {"V2": {"checkpoint": {"heartbeat": 45}}}
 
                 mid = MultiNestSampler()
                 mid.set_config(cfg)
                 mid.set_redis(queue)
-                self.assertEqual(mid._checkpoint_every_sec, 11.0)
+                self.assertEqual(mid._checkpoint_every_sec, 45.0)
                 self.assertFalse(mid._use_dynamic)
 
                 pool = RedisEvaluationPool(

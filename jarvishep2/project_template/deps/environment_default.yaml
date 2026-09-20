@@ -142,3 +142,7 @@ EnvReqs:
       data: "&J/data/check_modules_points.csv"
       n_samples: 10
       timeout_sec: 120
+
+    checkpoint:
+      enabled: true
+      heartbeat: 30   # seconds; minimum 30

@@ -60,6 +60,13 @@ def write_sampler_summary_json(
     return out
 
 
+def chain_history_csv_path(
+    task_result_dir: str, *, filename: str = "chain_history.csv"
+) -> str:
+    """Absolute path of the streaming / export chain-history CSV."""
+    return os.path.join(_database_dir(task_result_dir), filename)
+
+
 def write_chain_history_csv(
     task_result_dir: str,
     rows: Sequence[Mapping[str, Any]],
@@ -147,10 +154,15 @@ def export_mcmc_diagnostics(
     if summary:
         path = write_sampler_summary_json(task_result_dir, summary)
         written["sampler_summary"] = path
-    rows = chain_history_rows_from_registry(registry)
-    hist = write_chain_history_csv(task_result_dir, rows)
-    if hist:
-        written["chain_history"] = hist
+    existing = chain_history_csv_path(task_result_dir)
+    if os.path.isfile(existing) and os.path.getsize(existing) > 0:
+        # Live scan already streamed rows; do not clobber with the RAM tail.
+        written["chain_history"] = existing
+    else:
+        rows = chain_history_rows_from_registry(registry)
+        hist = write_chain_history_csv(task_result_dir, rows)
+        if hist:
+            written["chain_history"] = hist
     return written
 
 

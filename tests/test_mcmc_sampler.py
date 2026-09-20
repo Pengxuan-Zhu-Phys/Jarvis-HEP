@@ -7,6 +7,7 @@ import pytest
 
 pytestmark = pytest.mark.slow
 
+import csv
 import tempfile
 import threading
 import unittest
@@ -83,6 +84,7 @@ def _mcmc_config(
     return {
         "project_name": "mcmc_test",
         "Scan": {"name": f"{method.lower()}-scan"},
+        "task_root": tmpdir,
         "task_result_dir": tmpdir,
         "Runtime": runtime,
         "Sampling": {
@@ -429,6 +431,62 @@ class DistributorMCMCTests(unittest.TestCase):
                 )
             )
             self.assertEqual(calls, ["ToyMCMC_sampling_step_1"])
+
+    def test_toymcmc_submitted_window_and_history_stay_bounded(self) -> None:
+        from jarvishep2.Sampling.Source.MCMC.chain_history import (
+            CHAIN_HISTORY_RAM_TAIL,
+        )
+        from jarvishep2.Sampling.diagnostics_export import chain_history_csv_path
+
+        sampler = Distributor.set_method("ToyMCMC")
+        assert isinstance(sampler, MCMCBaseSampler)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _mcmc_config(
+                method="ToyMCMC", tmpdir=tmp, nchains=2, niters=80, workers=1
+            )
+            sampler.set_config(cfg)
+            queue = make_fakeredis_queue()
+            sampler.set_redis(queue)
+            n_steps = 40
+            for _ in range(n_steps):
+                props = list(sampler.propose_generation() or [])
+                self.assertEqual(len(props), 2)
+                sampler._submit_sample_batch(props)
+                for sample in props:
+                    queue.publish_feedback(
+                        {
+                            "uuid": sample.uuid,
+                            "observables": {"LogL": -0.25},
+                        }
+                    )
+                results = sampler.wait_for_generation(timeout=5.0)
+                sampler.absorb_generation(results)
+                sampler._on_generation_completed()
+                self.assertLessEqual(len(sampler._submitted_uuids), 2)
+            self.assertEqual(sampler._submitted_uuids, [])
+            chain = sampler._ensure_registry().all()[0]
+            self.assertLessEqual(len(chain.history.all()), CHAIN_HISTORY_RAM_TAIL)
+            self.assertEqual(chain.history.total_appended, n_steps)
+            sampler._close_history_csv()
+            csv_path = chain_history_csv_path(tmp)
+            with open(csv_path, encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            self.assertEqual(len(rows), n_steps * 2)
+            blob_mid = sampler.export_runtime_state()["native_mcmc_state_blob"]
+            for _ in range(n_steps):
+                props = list(sampler.propose_generation() or [])
+                sampler._submit_sample_batch(props)
+                for sample in props:
+                    queue.publish_feedback(
+                        {"uuid": sample.uuid, "observables": {"LogL": -0.25}}
+                    )
+                sampler.absorb_generation(sampler.wait_for_generation(timeout=5.0))
+                sampler._on_generation_completed()
+            blob_late = sampler.export_runtime_state()["native_mcmc_state_blob"]
+            # Native pickle is a RAM tail, not O(iterations). Allow slack for
+            # RNG state / counters but reject linear growth.
+            self.assertLess(len(blob_late), len(blob_mid) * 3)
+            self.assertEqual(len(sampler.export_runtime_state()["submitted_uuids"]), 0)
 
     def test_toymcmc_broadcasts_scalar_scale_to_all_chains(self) -> None:
         sampler = Distributor.set_method("ToyMCMC")

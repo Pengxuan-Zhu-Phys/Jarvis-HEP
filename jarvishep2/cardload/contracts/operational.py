@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 from jarvishep2.cardload.contracts.common import try_bool, try_float, try_int, unknown_keys
 from jarvishep2.runtime_config import (
     ARCHIVER_DEFAULTS,
+    CHECKPOINT_HEARTBEAT_MIN_SEC,
+    CHECKPOINT_KEYS,
     SUPPORTED_ENVREQS_V2_KEYS,
     VALID_ARCHIVER_MODES,
     VALID_SAMPLE_ARTIFACTS,
@@ -76,6 +78,23 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
         else:
             # Unknown top-level V2 keys already rejected at load; re-check for safety.
             extra = unknown_keys(v2, SUPPORTED_ENVREQS_V2_KEYS)
+            if "checkpoint_heartbeat_sec" in extra:
+                extra = [key for key in extra if key != "checkpoint_heartbeat_sec"]
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-ENV-014",
+                        "EnvReqs.V2.checkpoint_heartbeat_sec",
+                        "this key was removed; set EnvReqs.V2.checkpoint.heartbeat "
+                        "(seconds, minimum 30)",
+                        hint=(
+                            "EnvReqs:\n"
+                            "  V2:\n"
+                            "    checkpoint:\n"
+                            "      heartbeat: 30"
+                        ),
+                    )
+                )
             if extra:
                 issues.append(
                     issue(
@@ -117,18 +136,51 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                         )
                     )
 
-            if "checkpoint_heartbeat_sec" in v2:
-                heartbeat = try_float(v2.get("checkpoint_heartbeat_sec"))
-                if heartbeat is None or heartbeat < 1.0:
+            checkpoint = v2.get("checkpoint")
+            if checkpoint is not None and not isinstance(checkpoint, Mapping):
+                issues.append(
+                    issue(
+                        "error",
+                        "JV2-ENV-013",
+                        "EnvReqs.V2.checkpoint",
+                        f"expected a mapping, got {type(checkpoint).__name__}",
+                    )
+                )
+            elif isinstance(checkpoint, Mapping):
+                checkpoint_extra = unknown_keys(checkpoint, CHECKPOINT_KEYS)
+                if checkpoint_extra:
                     issues.append(
                         issue(
                             "error",
-                            "JV2-ENV-012",
-                            "EnvReqs.V2.checkpoint_heartbeat_sec",
-                            "expected number ≥ 1 second, got "
-                            f"{v2.get('checkpoint_heartbeat_sec')!r}",
+                            "JV2-ENV-013",
+                            "EnvReqs.V2.checkpoint",
+                            "unsupported setting(s): "
+                            f"{', '.join(checkpoint_extra)}; "
+                            f"supported: {', '.join(sorted(CHECKPOINT_KEYS))}",
                         )
                     )
+                if "enabled" in checkpoint and try_bool(checkpoint["enabled"]) is None:
+                    issues.append(
+                        issue(
+                            "error",
+                            "JV2-ENV-013",
+                            "EnvReqs.V2.checkpoint.enabled",
+                            "expected YAML boolean true or false",
+                        )
+                    )
+                if "heartbeat" in checkpoint:
+                    heartbeat = try_float(checkpoint.get("heartbeat"))
+                    if heartbeat is None or heartbeat < CHECKPOINT_HEARTBEAT_MIN_SEC:
+                        issues.append(
+                            issue(
+                                "error",
+                                "JV2-ENV-012",
+                                "EnvReqs.V2.checkpoint.heartbeat",
+                                "expected number ≥ "
+                                f"{int(CHECKPOINT_HEARTBEAT_MIN_SEC)} seconds, got "
+                                f"{checkpoint.get('heartbeat')!r}",
+                            )
+                        )
 
             monitor = v2.get("monitor")
             if monitor is not None and not isinstance(monitor, Mapping):

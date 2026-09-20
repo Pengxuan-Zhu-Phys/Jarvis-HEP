@@ -24,7 +24,9 @@ Concrete methods only override thin hooks (``_make_engine``,
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import os
 import pickle
 import time
 from collections.abc import Mapping, Sequence
@@ -33,7 +35,7 @@ from typing import Any
 import numpy as np
 
 from jarvishep2.sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
-from jarvishep2.sampling.Source.MCMC.chain_history import ChainHistory
+from jarvishep2.sampling.Source.MCMC.chain_history import ChainEvent, ChainHistory
 from jarvishep2.sampling.Source.MCMC.config_contract import (
     normalize_proposal_scales,
     parse_common_chain_counts,
@@ -46,7 +48,7 @@ from jarvishep2.sampling.variables import load_variables
 from jarvishep2.log_kv import PermilleProgress
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 
 _FAILED_LOGL = -1.0e300
@@ -77,6 +79,11 @@ def _pickle_mcmc_engine(engine: Any) -> tuple[bytes, bool]:
     finally:
         if isinstance(attrs, dict) and getter is not missing:
             attrs["_population_getter"] = getter
+
+
+def _canonical_engine_type_name(name: str) -> str:
+    """Compare engine types across the Sampling → sampling package alias."""
+    return str(name).replace("jarvishep2.Sampling.", "jarvishep2.sampling.")
 
 
 def _unpickle_mcmc_engine(
@@ -164,6 +171,9 @@ class MCMCBaseSampler(FeedbackSampler):
             "_last_sampling_checkpoint_at",
             "_last_sampling_checkpoint_generation",
             "_submit_progress",
+            "_history_csv_handle",
+            "_history_csv_writer",
+            "_history_csv_header_written",
         }
     )
 
@@ -191,6 +201,9 @@ class MCMCBaseSampler(FeedbackSampler):
         self._last_sampling_checkpoint_at = 0.0
         self._last_sampling_checkpoint_generation = -1
         self._submit_progress: PermilleProgress | None = None
+        self._history_csv_handle: Any = None
+        self._history_csv_writer: Any = None
+        self._history_csv_header_written = False
 
     # ------------------------------------------------------------------ config
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -214,9 +227,8 @@ class MCMCBaseSampler(FeedbackSampler):
         seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._sampling_checkpoint_interval_sec = max(
-            1.0,
-            float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0),
+        self._sampling_checkpoint_interval_sec = float(
+            get_checkpoint_config(self.config)["heartbeat"]
         )
         self._last_sampling_checkpoint_at = 0.0
         self._last_sampling_checkpoint_generation = -1
@@ -338,6 +350,8 @@ class MCMCBaseSampler(FeedbackSampler):
 
     def _on_generation_completed(self) -> None:
         """Hook after a generation is absorbed. Base emits scan progress."""
+        self._retain_in_flight_submitted_uuids()
+        self._flush_history_csv()
         self._emit_progress()
 
     def _on_runtime_state_imported(self) -> None:
@@ -449,10 +463,15 @@ class MCMCBaseSampler(FeedbackSampler):
                 engine_type = (
                     f"{type(engine).__module__}.{type(engine).__qualname__}"
                 )
-                if str(item.get("engine_type", engine_type)) != engine_type:
+                stored_type = str(item.get("engine_type", engine_type))
+                if _canonical_engine_type_name(stored_type) != _canonical_engine_type_name(
+                    engine_type
+                ):
                     raise ValueError("native MCMC engine type mismatch")
                 history = item.get("history")
-                if not isinstance(history, ChainHistory):
+                if history is None:
+                    history = ChainHistory()
+                elif not isinstance(history, ChainHistory):
                     raise ValueError("native MCMC chain history is invalid")
                 chains.append(
                     ChainRuntime(
@@ -818,14 +837,7 @@ class MCMCBaseSampler(FeedbackSampler):
                     # Idle until the outer loop starts the next step.
                     chain.open_stage = None
                     chain.window_iter = int(chain.window_iter) + 1
-                    chain.history.append_from_values(
-                        iter=chain.iter,
-                        state="UPDATE",
-                        proposal=getattr(engine, "proposed_param", None),
-                        logl=chain.last_logl,
-                        accepted=accepted,
-                        temperature=chain.temperature,
-                    )
+                    self._record_chain_event(chain, accepted=accepted)
                 else:
                     next_stage = outcome.get("next_stage")
                     chain.open_stage = (
@@ -842,15 +854,103 @@ class MCMCBaseSampler(FeedbackSampler):
                 chain.last_logl = getattr(engine, "last_loglikelihood", logl)
                 chain.open_stage = None
                 chain.window_iter = int(chain.window_iter) + 1
-                chain.history.append_from_values(
-                    iter=chain.iter,
-                    state="UPDATE",
-                    proposal=getattr(engine, "proposed_param", None),
-                    logl=chain.last_logl,
-                    accepted=accepted,
-                    temperature=chain.temperature,
-                )
+                self._record_chain_event(chain, accepted=accepted)
             self._uuid_to_meta.pop(uuid, None)
+
+    def _task_result_dir(self) -> str:
+        return str(
+            self.config.get("task_result_dir")
+            or (self.config.get("Runtime") or {}).get("task_result_dir")
+            or ""
+        ).strip()
+
+    def _record_chain_event(self, chain: ChainRuntime, *, accepted: bool) -> None:
+        """Append a RAM-tail event and stream the diagnostic CSV row.
+
+        Proposal coordinates stay in DATABASE samples.hdf5 — they are not
+        kept on the ChainEvent (object overhead dominated iDM-scale RAM).
+        """
+        chain.history.append_from_values(
+            iter=chain.iter,
+            state="UPDATE",
+            proposal=None,
+            logl=chain.last_logl,
+            accepted=accepted,
+            temperature=chain.temperature,
+        )
+        event = chain.history.last()
+        if event is not None:
+            self._stream_history_event(int(chain.chain_id), event)
+
+    def _history_csv_path(self) -> str | None:
+        task_dir = self._task_result_dir()
+        if not task_dir:
+            return None
+        from jarvishep2.sampling.diagnostics_export import chain_history_csv_path
+
+        return chain_history_csv_path(task_dir)
+
+    def _ensure_history_csv(self) -> Any:
+        if self._history_csv_writer is not None:
+            return self._history_csv_writer
+        path = self._history_csv_path()
+        if path is None:
+            return None
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        exists = os.path.isfile(path) and os.path.getsize(path) > 0
+        handle = open(path, "a", encoding="utf-8", newline="")
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "chain_id",
+                "step",
+                "accepted",
+                "weight",
+                "logl",
+                "temperature",
+                "state",
+            ],
+            extrasaction="ignore",
+        )
+        if not exists:
+            writer.writeheader()
+            self._history_csv_header_written = True
+        self._history_csv_handle = handle
+        self._history_csv_writer = writer
+        return writer
+
+    def _stream_history_event(self, chain_id: int, event: ChainEvent) -> None:
+        writer = self._ensure_history_csv()
+        if writer is None:
+            return
+        accepted = bool(event.accepted)
+        writer.writerow(
+            {
+                "chain_id": int(chain_id),
+                "step": int(event.iter),
+                "accepted": int(accepted),
+                "weight": 1 if accepted else 0,
+                "logl": "" if event.logl is None else event.logl,
+                "temperature": float(event.temperature),
+                "state": str(event.state),
+            }
+        )
+
+    def _flush_history_csv(self) -> None:
+        handle = self._history_csv_handle
+        if handle is not None:
+            handle.flush()
+
+    def _close_history_csv(self) -> None:
+        handle = self._history_csv_handle
+        if handle is not None:
+            try:
+                handle.flush()
+                handle.close()
+            except Exception:
+                pass
+        self._history_csv_handle = None
+        self._history_csv_writer = None
 
     def _needs_stage_followup(self, chain_ids: Sequence[int] | None = None) -> bool:
         registry = self._ensure_registry()
@@ -1108,16 +1208,13 @@ class MCMCBaseSampler(FeedbackSampler):
 
     def _finalize_run(self) -> None:
         self._finished = True
+        self._close_history_csv()
         self._summary = self._build_summary()
         # D13.6: additive DATABASE diagnostics (summary JSON + chain_history.csv).
         try:
             from jarvishep2.sampling.diagnostics_export import export_mcmc_diagnostics
 
-            task_dir = str(
-                self.config.get("task_result_dir")
-                or (self.config.get("Runtime") or {}).get("task_result_dir")
-                or ""
-            ).strip()
+            task_dir = self._task_result_dir()
             if task_dir:
                 written = export_mcmc_diagnostics(
                     task_dir,

@@ -136,6 +136,10 @@ EnvReqs:
     monitor:
       hz: 120
 
+    checkpoint:
+      enabled: true
+      heartbeat: 30   # seconds; minimum 30
+
     # Optional factory / worker policy (defaults match code).
     # factory:
     #   watchdog:

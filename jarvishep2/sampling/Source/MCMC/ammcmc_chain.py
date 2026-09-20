@@ -3,9 +3,14 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import numpy as np
+
+# Sliding window for the adaptive covariance. Full-chain history in RAM
+# (and in state.pkl via export_state) made long AM/DRAM scans O(N).
+_AM_HISTORY_FLOOR = 256
 
 
 class AMMCMCChain:
@@ -39,9 +44,12 @@ class AMMCMCChain:
         self._adapt_eps = float(adapt_eps)
         self._adapt_scale = float(adapt_scale)
 
-        self._history: list[np.ndarray] = []
+        self._history: deque[np.ndarray] = deque(maxlen=self._history_maxlen())
         self._cov = (self.proposal_scale**2) * np.eye(self._dim)
         self._accepted_since_adapt = 0
+
+    def _history_maxlen(self) -> int:
+        return max(_AM_HISTORY_FLOOR, int(self._adapt_window) * 8)
 
     def __iter__(self):
         return self
@@ -144,7 +152,7 @@ class AMMCMCChain:
             "adapt_window": self._adapt_window,
             "adapt_eps": self._adapt_eps,
             "adapt_scale": self._adapt_scale,
-            "history": [np.asarray(h, dtype=float).tolist() for h in self._history],
+            "history": [np.asarray(h, dtype=float).tolist() for h in list(self._history)],
             "cov": np.asarray(self._cov, dtype=float).tolist(),
             "accepted_since_adapt": int(self._accepted_since_adapt),
             "rng_state": self._rng.bit_generator.state,
@@ -164,9 +172,8 @@ class AMMCMCChain:
         self._adapt_window = int(state.get("adapt_window", self._adapt_window))
         self._adapt_eps = float(state.get("adapt_eps", self._adapt_eps))
         self._adapt_scale = float(state.get("adapt_scale", self._adapt_scale))
-        self._history = [
-            np.asarray(h, dtype=float) for h in (state.get("history") or [])
-        ]
+        restored = [np.asarray(h, dtype=float) for h in (state.get("history") or [])]
+        self._history = deque(restored, maxlen=self._history_maxlen())
         cov = state.get("cov")
         if cov is not None:
             self._cov = np.asarray(cov, dtype=float)

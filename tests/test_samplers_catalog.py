@@ -417,7 +417,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
     def test_bridson_seed_zero_resume_restores_coordinates(self) -> None:
         """seed 0 must reseed (not skip); otherwise uuid matches but physics drifts."""
         cfg = {
-            "EnvReqs": {"V2": {"workers": 1, "checkpoint_heartbeat_sec": 10}},
+            "EnvReqs": {"V2": {"workers": 1, "checkpoint": {"heartbeat": 30}}},
             "Sampling": {
                 "Method": "Bridson",
                 "Bounds": {"seed": 0, "radius": 0.35, "max_attempt": 12},

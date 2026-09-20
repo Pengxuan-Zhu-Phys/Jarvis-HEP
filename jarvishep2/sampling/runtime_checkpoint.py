@@ -8,7 +8,8 @@ import json
 import os
 import pickle
 import threading
-from collections.abc import Mapping
+import time
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
@@ -322,6 +323,38 @@ def save_checkpoint(path: str, payload: Mapping[str, Any]) -> str:
         raise ValueError(reason)
     atomic_pickle_dump(path, payload)
     return path
+
+
+def wait_for_archived_uuid_window(
+    redis: Any,
+    scan_name: str,
+    uuids: Sequence[str],
+    *,
+    timeout_sec: float = 5.0,
+    poll_sec: float = 0.05,
+) -> list[str]:
+    """Poll until *uuids* are in the archive set, or *timeout_sec* elapses.
+
+    Uses ``SISMEMBER`` per UUID (``missing_archived_uuids``). Never
+    ``SMEMBERS`` the full archive set. Returns the still-missing window
+    (empty if every UUID was acknowledged).
+    """
+    window = [str(item).strip() for item in uuids if str(item).strip()]
+    if redis is None or not window:
+        return []
+    missing_fn = getattr(redis, "missing_archived_uuids", None)
+    if not callable(missing_fn):
+        return window
+    deadline = time.monotonic() + max(0.0, float(timeout_sec))
+    remaining = list(window)
+    while remaining:
+        remaining = [str(item) for item in missing_fn(scan_name, remaining)]
+        if not remaining:
+            return []
+        if time.monotonic() >= deadline:
+            return remaining
+        time.sleep(max(0.0, float(poll_sec)))
+    return remaining
 
 
 def safe_barrier_ready(

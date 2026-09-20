@@ -13,13 +13,20 @@ from jarvishep2.sample_bucket import (
 from jarvishep2.yaml_types import require_bool
 
 
+CHECKPOINT_DEFAULTS: dict[str, Any] = {
+    "enabled": True,
+    "heartbeat": 30.0,  # seconds
+}
+CHECKPOINT_HEARTBEAT_MIN_SEC = 30.0
+CHECKPOINT_KEYS = frozenset(CHECKPOINT_DEFAULTS)
+
 RUNTIME_DEFAULTS: dict[str, Any] = {
     "mode": "redis",
     "workers": 0,
     "batch_size": 256,
     "sample_artifacts": "auto",
     "store_samples": True,
-    "checkpoint_heartbeat_sec": 30.0,
+    "checkpoint": dict(CHECKPOINT_DEFAULTS),
 }
 
 VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
@@ -72,7 +79,7 @@ SUPPORTED_ENVREQS_V2_KEYS = frozenset(
         "factory",
         "worker",
         "check_modules",
-        "checkpoint_heartbeat_sec",
+        "checkpoint",
     }
 )
 
@@ -187,11 +194,7 @@ def normalize_runtime_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
         sample_artifacts = RUNTIME_DEFAULTS["sample_artifacts"]
     runtime["sample_artifacts"] = sample_artifacts
 
-    heartbeat = raw.get("checkpoint_heartbeat_sec", runtime["checkpoint_heartbeat_sec"])
-    try:
-        runtime["checkpoint_heartbeat_sec"] = max(1.0, float(heartbeat))
-    except (TypeError, ValueError):
-        runtime["checkpoint_heartbeat_sec"] = RUNTIME_DEFAULTS["checkpoint_heartbeat_sec"]
+    runtime["checkpoint"] = normalize_checkpoint_block(raw.get("checkpoint"))
 
     redis_block = raw.get("redis")
     if isinstance(redis_block, Mapping):
@@ -263,6 +266,37 @@ def normalize_archiver_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
             field="EnvReqs.V2.archiver.pack_buckets",
         )
     return archiver
+
+
+def normalize_checkpoint_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalize ``EnvReqs.V2.checkpoint`` (enabled + heartbeat in seconds)."""
+    checkpoint = dict(CHECKPOINT_DEFAULTS)
+    if not isinstance(raw, Mapping):
+        return checkpoint
+    if "enabled" in raw:
+        checkpoint["enabled"] = require_bool(
+            raw.get("enabled"), field="EnvReqs.V2.checkpoint.enabled"
+        )
+    if "heartbeat" in raw:
+        try:
+            heartbeat = float(raw.get("heartbeat"))
+        except (TypeError, ValueError):
+            heartbeat = float(CHECKPOINT_DEFAULTS["heartbeat"])
+        checkpoint["heartbeat"] = max(CHECKPOINT_HEARTBEAT_MIN_SEC, heartbeat)
+    return checkpoint
+
+
+def get_checkpoint_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return normalized checkpoint policy from ``EnvReqs.V2.checkpoint``."""
+    if not isinstance(config, Mapping):
+        return normalize_checkpoint_block(None)
+    runtime = get_runtime_block(config)
+    block = runtime.get("checkpoint")
+    if isinstance(block, Mapping):
+        return normalize_checkpoint_block(block)
+    v2 = _envreqs_v2(config)
+    raw = v2.get("checkpoint") if isinstance(v2, Mapping) else None
+    return normalize_checkpoint_block(raw if isinstance(raw, Mapping) else None)
 
 
 def get_archiver_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -444,9 +478,11 @@ def _runtime_payload_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(raw_runtime, Mapping):
         payload.update(dict(raw_runtime))
     v2 = _envreqs_v2(config)
-    for key in ("workers", "batch_size", "checkpoint_heartbeat_sec", "store_samples"):
+    for key in ("workers", "batch_size", "store_samples"):
         if key in v2:
             payload[key] = v2[key]
+    if isinstance(v2.get("checkpoint"), Mapping):
+        payload["checkpoint"] = v2["checkpoint"]
     if isinstance(v2.get("redis"), Mapping) and "redis" not in payload:
         payload["redis"] = v2["redis"]
     factory_settings = v2.get("factory")

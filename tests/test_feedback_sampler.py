@@ -165,6 +165,48 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
 
         self.assertTrue(sampler.checkpoint_at_barrier())
         self.assertEqual(sampler._persisted_uuids, {"u0"})
+        self.assertEqual(sampler._submitted_uuids, [])
+
+    def test_checkpoint_barrier_sismember_does_not_smembers_full_set(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config(
+            {"Scan": {"name": "wide-scan"}, "Runtime": {"mode": "redis"}}
+        )
+        sampler.set_redis(queue)
+        sampler._submitted_uuids = ["keep-me"]
+        queue.add_archived_uuids("wide-scan", ["keep-me"])
+        queue.add_archived_uuids(
+            "wide-scan", [f"noise-{index}" for index in range(2000)]
+        )
+
+        def boom(*_args, **_kwargs):
+            raise AssertionError("checkpoint must not SMEMBERS hep:archived_uuids")
+
+        queue.get_archived_uuids = boom  # type: ignore[method-assign]
+        sampler._save_checkpoint_callback = lambda **_kwargs: True
+        self.assertTrue(sampler.checkpoint_at_barrier())
+        self.assertEqual(sampler._persisted_uuids, {"keep-me"})
+        self.assertEqual(sampler._submitted_uuids, [])
+
+    def test_submit_wave_replaces_submitted_window_when_idle(self) -> None:
+        queue = make_fakeredis_queue()
+        sampler = _ToyFeedbackSampler()
+        sampler.set_config({"Runtime": {"mode": "redis", "workers": 1}})
+        sampler.set_redis(queue)
+        sampler._batch_size = 8
+        first = sampler.propose_generation()
+        assert first is not None
+        sampler._submit_sample_batch(first)
+        self.assertEqual(sampler._submitted_uuids, ["a", "b"])
+        for uuid in list(sampler._pending_uuids):
+            sampler._clear_pending(uuid)
+        sampler._retain_in_flight_submitted_uuids()
+        self.assertEqual(sampler._submitted_uuids, [])
+        second = sampler.propose_generation()
+        assert second is not None
+        sampler._submit_sample_batch(second)
+        self.assertEqual(sampler._submitted_uuids, ["c"])
 
     def test_never_published_scan_mode_does_not_abort_generation(self) -> None:
         queue = make_fakeredis_queue()
@@ -265,6 +307,13 @@ class FeedbackSamplerUnitTests(unittest.TestCase):
         self.assertLess(elapsed, 1.5)
         self.assertIn("paused", str(ctx.exception).lower())
         self.assertIn("death_rate", str(ctx.exception))
+
+    def test_missing_archived_uuids_is_sismember_not_full_set(self) -> None:
+        queue = make_fakeredis_queue()
+        queue.add_archived_uuids("scan", ["a", "b"])
+        queue.add_archived_uuids("scan", [f"noise-{i}" for i in range(500)])
+        self.assertEqual(queue.missing_archived_uuids("scan", ["a", "c", "b"]), ["c"])
+        self.assertEqual(queue.missing_archived_uuids("scan", []), [])
 
 
 if __name__ == "__main__":

@@ -105,25 +105,46 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         Caller is responsible for assigning deterministic uuids and any
         method-specific bookkeeping *before* calling this method. Each sample
         uuid is registered as pending.
+
+        ``_submitted_uuids`` is the *in-flight / unacked window* (one
+        generation, or the current async in-flight set), never the lifetime
+        submission list. A new wave with empty pending replaces the window.
         """
         if not samples:
             return 0
         self._require_redis(f"{type(self).__name__}._submit_sample_batch")
+        was_idle = not self._pending_uuids
         batch: list[Sample] = []
+        wave: list[str] = []
         n = 0
         for sample in samples:
             uuid = str(sample.uuid)
             self._register_pending(uuid)
             batch.append(sample)
+            wave.append(uuid)
             n += 1
             if len(batch) >= self._batch_size:
                 self._submit_group(list(batch))
-                self._submitted_uuids.extend(s.uuid for s in batch)
                 batch = []
         if batch:
             self._submit_group(list(batch))
-            self._submitted_uuids.extend(s.uuid for s in batch)
+        if was_idle:
+            self._submitted_uuids = wave
+        else:
+            self._submitted_uuids.extend(wave)
         return n
+
+    def _retain_in_flight_submitted_uuids(self) -> None:
+        """Drop completed UUIDs from the submitted window (keep pending only)."""
+        pending = self._pending_uuids
+        if not self._submitted_uuids:
+            return
+        if not pending:
+            self._submitted_uuids.clear()
+            return
+        self._submitted_uuids = [
+            str(uuid) for uuid in self._submitted_uuids if str(uuid) in pending
+        ]
 
     # --------------------------------------------------------- feedback drain
     def wait_for_any_feedback(
@@ -384,13 +405,19 @@ class FeedbackSampler(CheckpointedSampler, ABC):
             self.config.get("scan_name") or scan_mapping.get("name") or "scan"
         )
         if redis is not None and self._submitted_uuids:
-            deadline = time.monotonic() + 5.0
-            while time.monotonic() < deadline:
-                persisted = redis.get_archived_uuids(scan_name)
-                self.set_persisted_uuids(persisted)
-                if set(self._submitted_uuids) <= persisted:
-                    break
-                time.sleep(0.05)
+            from jarvishep2.sampling.runtime_checkpoint import (
+                wait_for_archived_uuid_window,
+            )
+
+            window = [str(uuid) for uuid in self._submitted_uuids]
+            missing = wait_for_archived_uuid_window(
+                redis, scan_name, window, timeout_sec=5.0
+            )
+            missing_set = set(missing)
+            acked = [uuid for uuid in window if uuid not in missing_set]
+            if acked:
+                self._persisted_uuids.update(acked)
+            self._submitted_uuids = list(missing)
         return self.persist_runtime_checkpoint(force=True, reason=reason)
 
     # ---------------------------------------------------------- method hooks
@@ -465,6 +492,9 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         self._seed_seq = np.random.SeedSequence(self._seed)
         self._on_failure = str(state.get("on_failure") or self._on_failure or "reject")
         self._import_checkpoint_control_state(state)
+        # Historical UUID lists in old checkpoints are not resume-critical
+        # (engines / pending_uuids are). Drop them so RAM stays O(in-flight).
+        self._retain_in_flight_submitted_uuids()
 
 
 def _redis_closed(exc: BaseException) -> bool:

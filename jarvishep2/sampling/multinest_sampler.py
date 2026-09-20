@@ -12,7 +12,7 @@ channel + factory pool as Dynesty). V2 keeps that contract:
   pointing at the MultiNest CSV (V1 plot.py parity)
 * **checkpoint / resume**: same stack as :class:`DynestySampler` —
   ``nested_engine.pkl`` + ``state.pkl`` under ``checkpoints/<scan>/MultiNest/``,
-  cadence from ``EnvReqs.V2.checkpoint_heartbeat_sec`` only (not Sampling YAML).
+  cadence from ``EnvReqs.V2.checkpoint.heartbeat`` only (seconds; not Sampling YAML).
 """
 
 from __future__ import annotations

@@ -76,6 +76,7 @@ def _cfg(
     return {
         "project_name": "ensemble_test",
         "Scan": {"name": f"{method.lower()}-scan"},
+        "task_root": tmpdir,
         "task_result_dir": tmpdir,
         "Runtime": runtime,
         "Sampling": {

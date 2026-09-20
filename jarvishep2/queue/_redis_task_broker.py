@@ -102,10 +102,31 @@ class _TaskBroker:
         return int(self.r.sadd(key, *values))
 
     def get_archived_uuids(self, scan_name: str) -> set[str]:
-        """Read the process-visible durable-archive acknowledgement cache."""
+        """Read the process-visible durable-archive acknowledgement cache.
+
+        ``SMEMBERS`` of this set is O(scan size). Hot paths must use
+        :meth:`missing_archived_uuids` (SISMEMBER per UUID) instead.
+        """
         self._require_client()
         key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
         return {_redis_text(item) for item in (self.r.smembers(key) or set())}
+
+    def missing_archived_uuids(self, scan_name: str, uuids: Sequence[str]) -> list[str]:
+        """Return members of *uuids* not yet in the archive set (SISMEMBER).
+
+        One pipeline of ``SISMEMBER`` calls — never ``SMEMBERS``. Cost is
+        O(len(uuids)), which the caller must keep to the in-flight window.
+        """
+        self._require_client()
+        values = [str(item).strip() for item in uuids if str(item).strip()]
+        if not values:
+            return []
+        key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
+        pipe = self.r.pipeline(transaction=False)
+        for item in values:
+            pipe.sismember(key, item)
+        flags = pipe.execute()
+        return [item for item, flag in zip(values, flags) if not flag]
 
     def clear_archived_uuids(self, scan_name: str) -> int:
         """Clear the Redis cache for a fresh run; DATABASE remains authoritative."""

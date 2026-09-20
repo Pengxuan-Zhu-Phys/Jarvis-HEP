@@ -13,7 +13,7 @@ from jarvishep2.sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.sampling.sampling_utils import evaluate_selection
 from jarvishep2.sampling.stateless_batch import run_stateless_distributed
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 from jarvishep2.task_config import resolve_sampling_path
 
@@ -75,7 +75,9 @@ class CSVSampler(CheckpointedSampler):
         self._csv_encoding = str(csv_cfg.get("encoding", "utf-8"))
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._checkpoint_heartbeat_sec = float(runtime.get("checkpoint_heartbeat_sec", 30.0) or 30.0)
+        self._checkpoint_heartbeat_sec = float(
+            get_checkpoint_config(self.config)["heartbeat"]
+        )
         self._uuid_column_resolved = self._resolve_uuid_column_from_file()
         self._validate_source_uuids()
 

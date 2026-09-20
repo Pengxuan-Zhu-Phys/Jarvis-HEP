@@ -338,12 +338,26 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ENV-010" for i in report.errors()))
 
-    def test_checkpoint_heartbeat_must_be_a_positive_duration(self) -> None:
+    def test_checkpoint_heartbeat_must_be_at_least_30_seconds(self) -> None:
         cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["checkpoint_heartbeat_sec"] = 0
+        cfg["EnvReqs"]["V2"]["checkpoint"] = {"heartbeat": 15}
         report = validate_task_config(cfg)
         self.assertFalse(report.ok)
         self.assertTrue(any(i.code == "JV2-ENV-012" for i in report.errors()))
+
+    def test_flat_checkpoint_heartbeat_sec_is_rejected(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["EnvReqs"]["V2"]["checkpoint_heartbeat_sec"] = 30
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        self.assertTrue(any(i.code == "JV2-ENV-014" for i in report.errors()))
+
+    def test_checkpoint_unknown_key_is_rejected(self) -> None:
+        cfg = _minimal_dynesty_config()
+        cfg["EnvReqs"]["V2"]["checkpoint"] = {"history_tail": 256}
+        report = validate_task_config(cfg)
+        self.assertFalse(report.ok)
+        self.assertTrue(any(i.code == "JV2-ENV-013" for i in report.errors()))
 
     def test_nested_run_nested_rejects_hep_owned_checkpoint_keys(self) -> None:
         """Checkpoint interval is EnvReqs.V2 only — not Sampling.Bounds.run_nested."""

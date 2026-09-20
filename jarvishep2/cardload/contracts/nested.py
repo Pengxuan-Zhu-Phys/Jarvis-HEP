@@ -165,14 +165,15 @@ def validate_nested_bounds(
                         f"{path}.run_nested",
                         "key(s) are runtime/resume owned and must not appear under "
                         f"Sampling.Bounds.run_nested: {', '.join(banned)}. "
-                        "Set EnvReqs.V2.checkpoint_heartbeat_sec for the checkpoint "
-                        "interval (default 30s); engine path and resume are automatic.",
+                        "Set EnvReqs.V2.checkpoint.heartbeat for the checkpoint "
+                        "interval (seconds, default 30); engine path and resume are automatic.",
                         hint=(
                             "Remove checkpoint_every / checkpoint_file / resume from "
                             "Bounds.run_nested. Example:\n"
                             "EnvReqs:\n"
                             "  V2:\n"
-                            "    checkpoint_heartbeat_sec: 15"
+                            "    checkpoint:\n"
+                            "      heartbeat: 30"
                         ),
                     )
                 )
