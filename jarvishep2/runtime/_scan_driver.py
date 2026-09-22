@@ -26,6 +26,22 @@ from jarvishep2.task_config import (
     sampling_method,
 )
 
+# Redis can already be empty while the last batch is still inside the Archiver
+# (duplicate scan, then HDF5 fsync). That pause is longer than a few seconds on
+# a large live shard. Fail fast only once the Archiver is idle and still short.
+_ARCHIVE_IDLE_STALL_SEC = 5.0
+
+
+def _archiver_persistence_busy(archiver: Any) -> bool:
+    """True while a popped batch is still buffered or being committed."""
+    probe = getattr(archiver, "persistence_busy", None)
+    if not callable(probe):
+        return False
+    try:
+        return bool(probe())
+    except Exception:
+        return False
+
 
 class _ScanDriver:
     """Private Jarvis2Core collaborator (D25.3)."""
@@ -604,6 +620,9 @@ class _ScanDriver:
         last_written = -1
         stall_since: float | None = None
         while time.monotonic() < deadline:
+            # Busy is sampled first. A flush holds the processor lock across the
+            # HDF5 write, and records_written moves only after that write starts.
+            busy = _archiver_persistence_busy(core.archiver)
             written = core._archiver_records_written()
             counters = core._live_sample_counters()
             if progress is not None:
@@ -643,7 +662,9 @@ class _ScanDriver:
                         format_duration(time.time() - progress.t0),
                     )
                 return
-            # Detect permanent stall: workers done, archive queue empty, count frozen.
+            # Workers finished and Redis has nothing left. A frozen counter is a
+            # lost tail only when the Archiver is idle. An in-memory batch, or a
+            # flush that has not published its rows yet, must keep waiting.
             workers_done = (
                 core.redis is None
                 or (
@@ -652,10 +673,16 @@ class _ScanDriver:
                     and counters["ok"] + counters["failed"] >= total
                 )
             )
-            if workers_done and counters["archive_q"] == 0 and written == last_written:
+            idle_short = (
+                workers_done
+                and counters["archive_q"] == 0
+                and written == last_written
+                and not busy
+            )
+            if idle_short:
                 if stall_since is None:
                     stall_since = time.monotonic()
-                elif time.monotonic() - stall_since >= 5.0:
+                elif time.monotonic() - stall_since >= _ARCHIVE_IDLE_STALL_SEC:
                     raise TimeoutError(
                         f"archive drain stalled: workers finished "
                         f"(ok={counters['ok']} failed={counters['failed']}) but only "

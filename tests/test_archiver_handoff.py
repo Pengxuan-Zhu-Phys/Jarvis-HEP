@@ -251,6 +251,49 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             self.assertEqual(writer.records_persisted, 3)
             writer.close()
 
+    def test_pending_count_is_visible_before_duplicate_scan(self) -> None:
+        published: list[int] = []
+
+        class _SlowWriter(RollingHDF5Writer):
+            def __init__(self) -> None:
+                self.pending_at_drop: int | None = None
+
+            def drop_matching_records(self, **_kwargs: object) -> int:
+                self.pending_at_drop = published[-1] if published else None
+                return 0
+
+            def begin_batch(self) -> None:
+                return None
+
+            def add_record(self, _observables: object) -> None:
+                return None
+
+            def commit_batch(self) -> int:
+                return 1
+
+            def abort_batch(self) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writer = _SlowWriter()
+            processor = ArchiveProcessor(
+                writer,
+                sample_root=os.path.join(tmpdir, "SAMPLE"),
+                batch_size=10,
+                flush_interval_sec=60.0,
+                replace_duplicates=True,
+            )
+            processor._on_pending = published.append
+            self.assertEqual(
+                processor.ingest({"uuid": "u-0", "observables": {"x": 0}}),
+                0,
+            )
+            self.assertEqual(published, [1])
+            self.assertEqual(processor.flush_batch(force=True), 1)
+            self.assertEqual(writer.pending_at_drop, 1)
+            self.assertEqual(published[-1], 0)
+            self.assertFalse(processor.has_pending())
+
     def test_drop_matching_records_removes_uuid_and_index_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")

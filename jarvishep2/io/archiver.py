@@ -150,6 +150,8 @@ class ArchiveProcessor:
         self._last_flushed: list[dict[str, Any]] = []
         self._last_flush = time.monotonic()
         self._lock = threading.Lock()
+        # Invoked with the processor lock held. Must not take that lock again.
+        self._on_pending: Any | None = None
         if self.store_samples:
             os.makedirs(self.sample_root, exist_ok=True)
 
@@ -189,6 +191,12 @@ class ArchiveProcessor:
         with self._lock:
             return bool(self._batch)
 
+    def _notify_pending_locked(self) -> None:
+        callback = self._on_pending
+        if callback is None:
+            return
+        callback(len(self._batch))
+
     def _flush_due_locked(self) -> bool:
         """Flush a non-empty batch when either persistence threshold is reached."""
         return bool(self._batch) and (
@@ -200,6 +208,7 @@ class ArchiveProcessor:
         """Queue one archive payload; persist at the batch or time threshold."""
         with self._lock:
             self._batch.append(dict(result))
+            self._notify_pending_locked()
             if self._flush_due_locked():
                 return self._flush_batch_locked()
             return 0
@@ -220,10 +229,15 @@ class ArchiveProcessor:
         self._last_flushed = []
         if not self._batch:
             self._last_flush = time.monotonic()
+            self._notify_pending_locked()
             return 0
         if not force and not self._flush_due_locked():
+            self._notify_pending_locked()
             return 0
 
+        # Publish the tail before the duplicate scan. The row counter stays
+        # put through that scan, which can outlast the parent's idle-stall window.
+        self._notify_pending_locked()
         batched_writer = isinstance(self.writer, (StreamingHDF5Writer, RollingHDF5Writer))
         previous_records_written = self.records_written
         previous_prefix = self.persisted_index_prefix
@@ -254,8 +268,10 @@ class ArchiveProcessor:
             self.persisted_index_prefix = previous_prefix
             self._persisted_indices = previous_indices
             self._last_flushed = []
+            self._notify_pending_locked()
             raise
         self._batch.clear()
+        self._notify_pending_locked()
         self._last_flush = time.monotonic()
         return written
 
@@ -431,8 +447,12 @@ class SimpleArchiver:
         archiver_config: Mapping[str, Any] | None = None,
         scan_name: str | None = None,
         logger: Any | None = None,
+        pending_batch: Any | None = None,
     ) -> None:
         self.redis = redis_queue
+        # Process mode publishes the in-memory batch length so the parent stall
+        # check can see rows that Redis has already popped.
+        self._pending_published = pending_batch
         self.scan_name = str(scan_name or "scan").strip() or "scan"
         self.sample_root = os.path.abspath(str(sample_root))
         self.poll_timeout = max(0.05, float(poll_timeout))
@@ -479,6 +499,7 @@ class SimpleArchiver:
             persisted_index_prefix=prefix,
             persisted_indices=persisted_indices,
         )
+        self.processor._on_pending = self._on_pending_count
         if legacy_uuids:
             self.redis.add_archived_uuids(self.scan_name, sorted(legacy_uuids))
         self.redis.set_archived_index_prefix(self.scan_name, prefix)
@@ -494,6 +515,46 @@ class SimpleArchiver:
     @property
     def records_written(self) -> int:
         return self.processor.records_written
+
+    def persistence_busy(self) -> bool:
+        """True when a popped batch is buffered or a flush holds the writer lock.
+
+        ``records_written`` does not move until the duplicate scan finishes and
+        the batch is committed. Callers waiting on that counter must not treat
+        this window as a dead Archiver.
+        """
+        thread = self._thread
+        if thread is None or not thread.is_alive():
+            return False
+        lock = self.processor._lock
+        if not lock.acquire(blocking=False):
+            return True
+        try:
+            return bool(self.processor._batch)
+        finally:
+            lock.release()
+
+    def _on_pending_count(self, pending: int) -> None:
+        """Publish batch length. Runs under the processor lock."""
+        counter = self._pending_published
+        if counter is None:
+            return
+        with counter.get_lock():
+            counter.value = int(pending)
+
+    def _publish_pending(self) -> None:
+        counter = self._pending_published
+        if counter is None:
+            return
+        lock = self.processor._lock
+        if not lock.acquire(blocking=False):
+            return
+        try:
+            pending = len(self.processor._batch)
+        finally:
+            lock.release()
+        with counter.get_lock():
+            counter.value = int(pending)
 
     def persistence_state(self) -> dict[str, Any]:
         state = self.processor.persistence_state()
@@ -576,18 +637,24 @@ class SimpleArchiver:
         )
 
     def _ingest_result(self, result: Mapping[str, Any]) -> int:
-        written = self.processor.ingest(result)
-        if written:
-            self._note_last_flushed()
-            self._maybe_log_progress()
-        return written
+        try:
+            written = self.processor.ingest(result)
+            if written:
+                self._note_last_flushed()
+                self._maybe_log_progress()
+            return written
+        finally:
+            self._publish_pending()
 
     def _flush_and_note(self, *, force: bool = False) -> int:
-        written = self.processor.flush_batch(force=force)
-        if written:
-            self._note_last_flushed()
-            self._maybe_log_progress()
-        return written
+        try:
+            written = self.processor.flush_batch(force=force)
+            if written:
+                self._note_last_flushed()
+                self._maybe_log_progress()
+            return written
+        finally:
+            self._publish_pending()
 
     def _pack_ready_buckets(self) -> int:
         """Tar sealed buckets that Redis marked ready (archived == assigned)."""
@@ -750,6 +817,9 @@ class ArchiverProcess(Process):
         self.log_path = str(log_path or "").strip() or None
         self._stop_event = get_spawn_context().Event()
         self.records_written = get_spawn_context().Value("i", 0)
+        self.pending_batch = get_spawn_context().Value("i", 0)
+        # 1 while the child archive loop is the one publishing pending_batch.
+        self._loop_alive = get_spawn_context().Value("i", 0)
 
     def run(self) -> None:
         from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
@@ -800,8 +870,10 @@ class ArchiverProcess(Process):
             archiver_config=self.archiver_config,
             scan_name=self.scan_name,
             logger=logger,
+            pending_batch=self.pending_batch,
         )
         archiver.start()
+        self._set_loop_alive(True)
         expected_owner = str(self.archiver_config.get("control_lock_owner") or "").strip()
         next_lease_check = 0.0
         missing_since: float | None = None
@@ -831,6 +903,14 @@ class ArchiverProcess(Process):
         _publish_archiver_board()
         while not self._stop_event.is_set():
             time.sleep(0.1)
+            if self._stop_event.is_set():
+                break
+            thread = archiver._thread
+            if thread is None or not thread.is_alive():
+                logger.warning(
+                    "Archiver loop exited before stop; draining any buffered batch"
+                )
+                break
             with self.records_written.get_lock():
                 self.records_written.value = int(archiver.records_written)
             now = time.monotonic()
@@ -868,7 +948,16 @@ class ArchiverProcess(Process):
             elif now >= next_lease_check:
                 _publish_archiver_board()
                 next_lease_check = now + 1.0
-        archiver.stop(wait=True, drain=True)
+        # Publish rows before writer.close() exports CSV. That export can take
+        # longer than the idle-stall window, and the batch counter is already 0.
+        try:
+            archiver.drain()
+        except Exception as exc:
+            logger.warning("Archiver drain before stop failed -> %s", exc)
+        with self.records_written.get_lock():
+            self.records_written.value = int(archiver.records_written)
+        archiver.stop(wait=True, drain=False)
+        self._set_loop_alive(False)
         with self.records_written.get_lock():
             self.records_written.value = int(archiver.records_written)
         try:
@@ -880,6 +969,21 @@ class ArchiverProcess(Process):
         except Exception:
             pass
         redis.close()
+
+    def _set_loop_alive(self, alive: bool) -> None:
+        with self._loop_alive.get_lock():
+            self._loop_alive.value = 1 if alive else 0
+
+    def persistence_busy(self) -> bool:
+        """True when the child still holds a popped batch that is not durable yet."""
+        try:
+            if not self.is_alive():
+                return False
+            if int(self._loop_alive.value) == 0:
+                return False
+            return int(self.pending_batch.value) > 0
+        except Exception:
+            return False
 
     def drain(self, *, idle_timeout: float = 2.0) -> int:
         """Best-effort: process mode drains on stop; expose no-op for core finalize."""

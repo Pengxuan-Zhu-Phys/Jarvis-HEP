@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import threading
 import time
 import unittest
 from unittest import mock
 
+from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.log_kv import PermilleProgress, format_duration
+from jarvishep2.mp_context import get_spawn_context
 
 
 class FormatDurationTests(unittest.TestCase):
@@ -128,6 +131,146 @@ class WaitForResultsProgressTests(unittest.TestCase):
 
         self.assertGreaterEqual(state["polls"], 4)
         self.assertTrue(any("sample drain complete" in line for line in messages))
+
+    def test_wait_for_results_waits_out_a_slow_pending_batch(self) -> None:
+        core = Jarvis2Core()
+
+        class _Log:
+            def debug(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+            def info(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+            def warning(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+        core._logger = _Log()  # type: ignore[assignment]
+        clock = _VirtualClock()
+
+        class _Archiver:
+            def persistence_busy(self) -> bool:
+                return clock.now < 8.0
+
+            @property
+            def records_written(self) -> int:
+                return 5 if clock.now >= 8.0 else 4
+
+        class _Redis:
+            def fetch_sample_stats(self):
+                return {"completed": 5, "failed": 0, "running": 0}
+
+            def get_queue_lengths(self):
+                return {"task_queue_length": 0, "archive_queue_length": 0}
+
+        core.archiver = _Archiver()  # type: ignore[assignment]
+        core.redis = _Redis()  # type: ignore[assignment]
+        with (
+            mock.patch(
+                "jarvishep2.runtime._scan_driver.time.monotonic",
+                clock.monotonic,
+            ),
+            mock.patch("jarvishep2.runtime._scan_driver.time.sleep", clock.sleep),
+        ):
+            core.wait_for_results(5, timeout=30.0, poll_interval=0.1)
+        self.assertGreaterEqual(clock.now, 8.0)
+
+    def test_wait_for_results_stalls_when_archiver_is_idle(self) -> None:
+        core = Jarvis2Core()
+
+        class _Log:
+            def debug(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+            def info(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+            def warning(self, msg, *a, **k):  # noqa: ANN001
+                return None
+
+        core._logger = _Log()  # type: ignore[assignment]
+        clock = _VirtualClock()
+
+        class _Archiver:
+            def persistence_busy(self) -> bool:
+                return False
+
+            @property
+            def records_written(self) -> int:
+                return 4
+
+        class _Redis:
+            def fetch_sample_stats(self):
+                return {"completed": 5, "failed": 0, "running": 0}
+
+            def get_queue_lengths(self):
+                return {"task_queue_length": 0, "archive_queue_length": 0}
+
+        core.archiver = _Archiver()  # type: ignore[assignment]
+        core.redis = _Redis()  # type: ignore[assignment]
+        with (
+            mock.patch(
+                "jarvishep2.runtime._scan_driver.time.monotonic",
+                clock.monotonic,
+            ),
+            mock.patch("jarvishep2.runtime._scan_driver.time.sleep", clock.sleep),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "archive drain stalled"):
+                core.wait_for_results(5, timeout=30.0, poll_interval=0.1)
+        self.assertLess(clock.now, 30.0)
+        self.assertGreaterEqual(clock.now, 5.0)
+
+
+class PersistenceBusyTests(unittest.TestCase):
+    def test_thread_archiver_stays_busy_while_flush_holds_the_lock(self) -> None:
+        archiver = SimpleArchiver.__new__(SimpleArchiver)
+        archiver.processor = mock.Mock()
+        archiver.processor._lock = threading.Lock()
+        archiver.processor._batch = [{"uuid": "tail"}]
+        archiver._thread = mock.Mock()
+        archiver._thread.is_alive.return_value = True
+
+        self.assertTrue(archiver.persistence_busy())
+        self.assertTrue(archiver.processor._lock.acquire(blocking=False))
+        try:
+            self.assertTrue(archiver.persistence_busy())
+        finally:
+            archiver.processor._lock.release()
+        archiver.processor._batch.clear()
+        self.assertFalse(archiver.persistence_busy())
+        archiver.processor._batch.append({"uuid": "tail"})
+        archiver._thread.is_alive.return_value = False
+        self.assertFalse(archiver.persistence_busy())
+
+    def test_process_archiver_busy_requires_live_loop_and_pending_batch(self) -> None:
+        proc = ArchiverProcess.__new__(ArchiverProcess)
+        ctx = get_spawn_context()
+        proc._loop_alive = ctx.Value("i", 1)
+        proc.pending_batch = ctx.Value("i", 49)
+        proc.is_alive = mock.Mock(return_value=True)  # type: ignore[method-assign]
+
+        self.assertTrue(proc.persistence_busy())
+        proc.pending_batch.value = 0
+        self.assertFalse(proc.persistence_busy())
+        proc.pending_batch.value = 49
+        with proc._loop_alive.get_lock():
+            proc._loop_alive.value = 0
+        self.assertFalse(proc.persistence_busy())
+        with proc._loop_alive.get_lock():
+            proc._loop_alive.value = 1
+        proc.is_alive.return_value = False
+        self.assertFalse(proc.persistence_busy())
+
+
+class _VirtualClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += float(seconds)
 
 
 if __name__ == "__main__":
