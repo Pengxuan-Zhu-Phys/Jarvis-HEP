@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.11`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.14`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -120,8 +120,8 @@ V2 task cards use one closed, consistent vocabulary across `validate`, `check`,
 - Declare at least one execution backend: `Calculators` or `Operas`.
 - Put method-specific sampler settings under `Sampling.Bounds` and use lower
   `snake_case` keys.
-- Put V2 runtime settings such as worker count and checkpoint heartbeat under
-  `EnvReqs.V2`.
+- Put V2 runtime settings such as worker count and `checkpoint` (heartbeat in
+  seconds) under `EnvReqs.V2`.
 - Use `Jarvis check TASK.yaml` for the fixed-point calculator smoke test.
 - Outputs are written to the project output tree; `cleanup.strategy` and
   `archiver.handoff` are not V2 task-card interfaces.

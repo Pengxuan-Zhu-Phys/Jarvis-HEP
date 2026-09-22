@@ -64,7 +64,7 @@ class EnsembleChain:
         if self.iterations >= self.n_iterations:
             raise StopIteration
 
-        if self.iterations == 0:
+        if self.last_loglikelihood is None:
             proposal = self._rng.random(self._dim)
             self.proposed_param = proposal
             self._last_log_jacobian = 0.0
@@ -72,34 +72,19 @@ class EnsembleChain:
 
         others = self._other_population()
         if not others:
-            proposal = np.clip(
-                self.param + self._rng.normal(0.0, self.proposal_scale, size=self._dim),
-                0.0,
-                1.0,
+            proposal = self.param + self._rng.normal(
+                0.0, self.proposal_scale, size=self._dim
             )
             self.proposed_param = proposal
             self._last_log_jacobian = 0.0
             return proposal
 
-        proposal = None
-        log_jacobian = 0.0
-        for _ in range(2048):
-            partner = np.asarray(
-                others[int(self._rng.integers(0, len(others)))], dtype=float
-            )
-            z = float(self._draw_stretch_factor())
-            cand = partner + z * (self.param - partner)
-            if np.all((cand >= 0.0) & (cand <= 1.0)):
-                proposal = cand
-                log_jacobian = (self._dim - 1.0) * np.log(max(1.0e-12, z))
-                break
-        if proposal is None:
-            proposal = np.clip(
-                self.param + self._rng.normal(0.0, self.proposal_scale, size=self._dim),
-                0.0,
-                1.0,
-            )
-            log_jacobian = 0.0
+        partner = np.asarray(
+            others[int(self._rng.integers(0, len(others)))], dtype=float
+        )
+        z = float(self._draw_stretch_factor())
+        proposal = partner + z * (self.param - partner)
+        log_jacobian = (self._dim - 1.0) * np.log(z)
 
         self.proposed_param = np.asarray(proposal, dtype=float)
         self._last_log_jacobian = float(log_jacobian)
@@ -110,7 +95,12 @@ class EnsembleChain:
         beta = float(beta)
         accepted = False
 
-        if self.iterations == 0 or self.last_loglikelihood is None:
+        if not np.isfinite(new_loglikelihood) or not np.all(
+            (self.proposed_param >= 0.0) & (self.proposed_param <= 1.0)
+        ):
+            self.iterations += 1
+            return False
+        if self.last_loglikelihood is None:
             accepted = True
         else:
             delta = (new_loglikelihood - float(self.last_loglikelihood)) * beta

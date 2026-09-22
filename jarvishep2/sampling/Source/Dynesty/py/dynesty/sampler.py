@@ -1382,6 +1382,7 @@ class Sampler:
 
                 if checkpoint_file is not None and timer.is_time():
                     self.save(checkpoint_file)
+                    timer.reset()
 
             # Add remaining live points to samples.
             if add_live:

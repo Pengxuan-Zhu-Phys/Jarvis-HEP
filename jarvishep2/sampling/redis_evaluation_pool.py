@@ -43,8 +43,13 @@ class RedisEvaluationPool:
     extract_logl :
         ``extract_logl(feedback_record) -> float``.
     batch_size :
-        Max tasks pushed before waiting (pipeline size). Also the default
-        dynesty ``queue_size`` / evolve-thread count.
+        Max tasks per Redis push. The batch map waits after submitting chunks.
+    njobs :
+        Concurrent evolve walks, independent of Redis push size. Defaults to
+        batch_size for legacy callers; nested samplers pass runtime workers.
+    accepts_payload :
+        Optional prior/selection predicate; rejected points return -1e300
+        without publishing a task.
     timeout :
         Seconds to wait for a full generation barrier.
     seed :
@@ -62,6 +67,8 @@ class RedisEvaluationPool:
         seed: int = 0,
         method: str = "Dynesty",
         logger=None,
+        accepts_payload: Callable[[np.ndarray], bool] | None = None,
+        njobs: int | None = None,
     ) -> None:
         self.redis = redis
         self.build_sample = build_sample
@@ -70,7 +77,8 @@ class RedisEvaluationPool:
         self.timeout = float(timeout)
         self.seed = int(seed)
         self.method = str(method)
-        self.njobs = self.batch_size
+        self.njobs = max(1, int(njobs if njobs is not None else self.batch_size))
+        self.accepts_payload = accepts_payload
         self._call_index = 0
         self._index_lock = threading.Lock()
         self._waiters_lock = threading.Lock()
@@ -178,7 +186,7 @@ class RedisEvaluationPool:
         if not self._logged_evolve_parallel:
             self._logger.info(
                 "%s evolve: mapping %d SamplerArgument jobs on %d threads "
-                "(batch_size/queue_size=%d); inner logL via Redis Workers",
+                "(evolve slots=%d); inner logL via Redis Workers",
                 self.method,
                 n,
                 workers,
@@ -249,12 +257,9 @@ class RedisEvaluationPool:
     def _register_waiters(self, uuids: Sequence[str]) -> list[Future]:
         futs: list[Future] = []
         with self._waiters_lock:
+            if len(set(uuids)) != len(uuids) or any(uuid in self._waiters for uuid in uuids):
+                raise ValueError("RedisEvaluationPool received duplicate sample UUID in pending logL calls")
             for uuid in uuids:
-                if uuid in self._waiters:
-                    raise ValueError(
-                        "RedisEvaluationPool received duplicate sample UUID "
-                        f"{uuid!r} while another logL call is still waiting"
-                    )
                 fut: Future = Future()
                 self._waiters[uuid] = fut
                 futs.append(fut)
@@ -359,21 +364,25 @@ class RedisEvaluationPool:
     def _redis_batch_logl(self, items: list[Any]) -> list[Any]:
         pending: dict[str, int] = {}
         samples: list[Sample] = []
-        for item in items:
+        results: list[Any | None] = [None] * len(items)
+        seen: set[str] = set()
+        for index, item in enumerate(items):
             uuid, payload = _uuid_and_payload(
                 item, seed=self.seed, index=self._alloc_index()
             )
-            if uuid in pending:
-                previous_index = pending[uuid]
+            if uuid in seen:
                 raise ValueError(
                     "RedisEvaluationPool received duplicate sample UUID "
                     f"{uuid!r} in one loglikelihood batch "
-                    f"(indices {previous_index} and {len(samples)}); "
                     "UUIDs must be unique per batch"
                 )
+            seen.add(uuid)
+            if self.accepts_payload is not None and not self.accepts_payload(payload):
+                results[index] = -1.0e300
+                continue
             sample = self.build_sample(payload, uuid)
             sample.uuid = uuid
-            pending[uuid] = len(samples)
+            pending[uuid] = index
             samples.append(sample)
 
         ordered = [s.uuid for s in samples]
@@ -387,7 +396,6 @@ class RedisEvaluationPool:
             self._forget_waiters(ordered)
             raise
 
-        results: list[Any | None] = [None] * len(samples)
         for uuid, val in zip(ordered, values):
             results[pending[uuid]] = val
 

@@ -69,25 +69,13 @@ class AMMCMCChain:
         if self.iterations >= self.n_iterations:
             raise StopIteration
 
-        if self.iterations == 0:
+        if self.last_loglikelihood is None:
             proposed_param = self._rng.random(self._dim)
             self.proposed_param = proposed_param
             return proposed_param
 
-        for _ in range(2048):
-            step = self._draw_adaptive_step()
-            proposed_param = self.param + step
-            if np.all((proposed_param >= 0.0) & (proposed_param <= 1.0)):
-                self.proposed_param = proposed_param
-                return proposed_param
-
-        proposed_param = np.clip(
-            self.param + self._rng.normal(0.0, self.proposal_scale, size=self._dim),
-            0.0,
-            1.0,
-        )
-        self.proposed_param = proposed_param
-        return proposed_param
+        self.proposed_param = self.param + self._draw_adaptive_step()
+        return self.proposed_param
 
     def _maybe_adapt_cov(self) -> None:
         if not self._adapt_enabled:
@@ -115,7 +103,12 @@ class AMMCMCChain:
         beta = float(beta)
         accepted = False
 
-        if self.iterations == 0 or self.last_loglikelihood is None:
+        valid = np.isfinite(new_loglikelihood) and np.all(
+            (self.proposed_param >= 0.0) & (self.proposed_param <= 1.0)
+        )
+        if not valid:
+            accepted = False
+        elif self.last_loglikelihood is None:
             accepted = True
         else:
             delta = (new_loglikelihood - float(self.last_loglikelihood)) * beta
@@ -127,8 +120,10 @@ class AMMCMCChain:
         if accepted:
             self.param = np.asarray(self.proposed_param, dtype=float)
             self.last_loglikelihood = new_loglikelihood
-            self._history.append(np.array(self.param, dtype=float))
             self._accepted_since_adapt += 1
+        if self.last_loglikelihood is not None:
+            # Covariance is estimated from chain states, including rejections.
+            self._history.append(np.array(self.param, dtype=float))
             self._maybe_adapt_cov()
 
         self.iterations += 1

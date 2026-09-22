@@ -40,6 +40,8 @@ class DRAMChain(AMMCMCChain):
             rng=rng,
         )
         self._dr_steps = max(1, int(dr_steps))
+        if self._dr_steps > 2:
+            raise ValueError("DRAM supports dr_steps=1 or 2; higher-stage MH is not valid delayed rejection")
         if dr_scale_factors is None:
             dr_scale_factors = [1.0, 0.5]
         self._dr_scale_factors = self._normalize_scale_factors(dr_scale_factors)
@@ -91,6 +93,8 @@ class DRAMChain(AMMCMCChain):
             return self._rng.normal(0.0, scale, size=self._dim)
 
     def _accept_prob(self, old_logl, new_logl, beta=1.0):
+        if not np.isfinite(new_logl):
+            return 0.0
         if old_logl is None:
             return 1.0
         delta = (float(new_logl) - float(old_logl)) * float(beta)
@@ -104,7 +108,8 @@ class DRAMChain(AMMCMCChain):
         c = np.asarray(cov, dtype=float)
         if c.shape != (self._dim, self._dim):
             c = (self.proposal_scale**2) * np.eye(self._dim, dtype=float)
-        c = c + self._adapt_eps * np.eye(self._dim, dtype=float)
+        # Use exactly the covariance that generated stage 1. Adding another
+        # ridge here changes the proposal-density ratio in delayed rejection.
         sign, logdet = np.linalg.slogdet(c)
         if sign <= 0:
             c = c + (10.0 * self._adapt_eps) * np.eye(self._dim, dtype=float)
@@ -115,6 +120,8 @@ class DRAMChain(AMMCMCChain):
         return -0.5 * (self._dim * np.log(2.0 * np.pi) + logdet + quad)
 
     def _accept_prob_stage2(self, logl_stage2, beta):
+        if not np.isfinite(logl_stage2):
+            return 0.0
         if self.last_loglikelihood is None:
             return 1.0
         if 0 not in self._stage_proposals or 0 not in self._stage_logl or 0 not in self._stage_alpha:
@@ -137,8 +144,10 @@ class DRAMChain(AMMCMCChain):
         log_q_y2_y1 = self._log_mvn_density(y1, y2, cov1)
         log_q_x_y1 = self._log_mvn_density(y1, x, cov1)
 
-        numer = float(beta) * logl_y2 + log_q_y2_y1 + np.log(max(1e-12, 1.0 - alpha1_y2y1))
-        denom = float(beta) * logl_x + log_q_x_y1 + np.log(max(1e-12, 1.0 - alpha1_xy1))
+        if alpha1_y2y1 >= 1.0 or alpha1_xy1 >= 1.0:
+            return 0.0
+        numer = float(beta) * logl_y2 + log_q_y2_y1 + np.log1p(-alpha1_y2y1)
+        denom = float(beta) * logl_x + log_q_x_y1 + np.log1p(-alpha1_xy1)
         ratio = float(np.exp(np.clip(numer - denom, -700.0, 0.0)))
         return min(1.0, ratio)
 
@@ -157,6 +166,9 @@ class DRAMChain(AMMCMCChain):
             self._stage_proposals.get(int(stage_index), self.param),
             dtype=float,
         )
+        if self.last_loglikelihood is not None:
+            self._history.append(np.array(self.param, dtype=float))
+            self._maybe_adapt_cov()
         self.iterations += 1
         self._clear_stage_cache()
 
@@ -167,26 +179,11 @@ class DRAMChain(AMMCMCChain):
         if sid == 0:
             self._clear_stage_cache()
 
-        if self.iterations == 0 and sid == 0:
+        if self.last_loglikelihood is None and sid == 0:
             proposal = self._rng.random(self._dim)
             self._stage_cov[sid] = (self.proposal_scale**2) * np.eye(self._dim, dtype=float)
         else:
-            proposal = None
-            for _ in range(2048):
-                step = self._draw_stage_step(sid)
-                cand = self.param + step
-                if np.all((cand >= 0.0) & (cand <= 1.0)):
-                    proposal = cand
-                    break
-            if proposal is None:
-                scale = self.proposal_scale * self._dr_scale_factors[
-                    min(sid, len(self._dr_scale_factors) - 1)
-                ]
-                proposal = np.clip(
-                    self.param + self._rng.normal(0.0, scale, size=self._dim),
-                    0.0,
-                    1.0,
-                )
+            proposal = self.param + self._draw_stage_step(sid)
             self._stage_cov[sid] = self._stage_covariance(sid)
 
         proposal = np.asarray(proposal, dtype=float)
@@ -200,6 +197,9 @@ class DRAMChain(AMMCMCChain):
             raise RuntimeError(f"DRAM stage proposal not found for stage={sid}")
 
         new_logl = float(new_loglikelihood)
+        proposal = self._stage_proposals[sid]
+        if not np.all((proposal >= 0.0) & (proposal <= 1.0)):
+            new_logl = -np.inf
         beta = float(beta)
 
         if sid == 0:
@@ -216,7 +216,7 @@ class DRAMChain(AMMCMCChain):
                     "stage_attempts": 1,
                     "logl": self.last_loglikelihood,
                 }
-            if self._dr_steps > 1 and self.iterations > 0:
+            if self._dr_steps > 1 and self.last_loglikelihood is not None:
                 return {
                     "iteration_done": False,
                     "accepted": False,
@@ -296,6 +296,8 @@ class DRAMChain(AMMCMCChain):
     def import_state(self, state: dict[str, Any]) -> None:
         super().import_state(state)
         self._dr_steps = max(1, int(state.get("dr_steps", self._dr_steps)))
+        if self._dr_steps > 2:
+            raise ValueError("DRAM checkpoint requires unsupported dr_steps > 2")
         factors = state.get("dr_scale_factors")
         if factors is not None:
             self._dr_scale_factors = self._normalize_scale_factors(factors)

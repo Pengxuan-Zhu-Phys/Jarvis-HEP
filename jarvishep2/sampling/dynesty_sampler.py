@@ -24,8 +24,6 @@ import csv
 import inspect
 import os
 import pickle
-import tempfile
-import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
@@ -578,6 +576,8 @@ class DynestySampler(CheckpointedSampler):
         self._pool_call_index = 0
         self._loglike_bridge: NestedRedisLogL | None = None
         self._checkpoint_every_sec = 60.0
+        self._native_snapshot_ready = False
+        self._parallel_workers = 1
         # Only True after import_runtime_state / arm_engine_resume (Core --resume).
         # Prevents a leftover nested_engine.pkl from poisoning a fresh run.
         self._resume_engine_requested = False
@@ -615,6 +615,7 @@ class DynestySampler(CheckpointedSampler):
         self._init_seed_sequence(self._rseed)
         self._selectionexp = sampling.get("selection")
         workers = int(runtime.get("workers", 1) or 1)
+        self._parallel_workers = max(1, workers)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
         # Single source of truth: EnvReqs.V2.checkpoint.heartbeat (seconds).
         ckpt = get_checkpoint_config(self.config)
@@ -721,18 +722,21 @@ class DynestySampler(CheckpointedSampler):
         """Build a Sample from unit-cube coords (uuid already assigned)."""
         u = np.asarray(payload, dtype=np.float64).reshape(-1)
         if u.size != self._dim:
-            # If physical coords slipped through, clip to dim
-            u = u[: self._dim]
+            raise ValueError(f"{self.method}: expected {self._dim} coordinates, got {u.size}")
         sample = self._build_sample(u)
         sample.uuid = uuid
-        if self._selectionexp:
-            physical = physical_from_u(u, self.vars, self._mapper_pipeline)
-            if not evaluate_selection(
-                self._selectionexp, physical, context=self._expression_context
-            ):
-                # Mark for -inf via a side channel — Worker still runs; bridge uses selection.
-                sample.observables["_dynesty_selection_reject"] = True
         return sample
+
+    def _accepts_pool_payload(self, u: np.ndarray) -> bool:
+        if u.size != self._dim:
+            raise ValueError(f"{self.method}: expected {self._dim} coordinates, got {u.size}")
+        if not self._selectionexp:
+            return True
+        return evaluate_selection(
+            self._selectionexp,
+            physical_from_u(u, self.vars, self._mapper_pipeline),
+            context=self._expression_context,
+        )
 
     def _local_loglike(self, params: Any) -> float:
         """Disabled control-side toy logL (must never run in a real scan).
@@ -776,8 +780,8 @@ class DynestySampler(CheckpointedSampler):
         kwargs["nlive"] = self._nlive
         kwargs["pool"] = pool
         kwargs["rstate"] = rstate
-        # queue_size: user override wins; else batch_size / pool size.
-        kwargs.setdefault("queue_size", max(1, self._batch_size))
+        # Transport chunk size must not limit the number of concurrent walks.
+        kwargs.setdefault("queue_size", self._parallel_workers)
         return kwargs
 
     # ------------------------------------------------------------------ resume
@@ -834,7 +838,19 @@ class DynestySampler(CheckpointedSampler):
         """
         bridge.attach_pool(pool)
         self._loglike_bridge = bridge
+        queue_size = int(self._constructor_kwargs.get("queue_size") or self._parallel_workers)
+        use_pool = dict(self._constructor_kwargs.get("use_pool") or {})
         for layer in self._iter_nested_sampler_layers(sampler):
+            layer.use_pool = dict(use_pool)
+            for attr, key in (
+                ("use_pool_ptform", "prior_transform"),
+                ("use_pool_logl", "loglikelihood"),
+                ("use_pool_evolve", "propose_point"),
+                ("use_pool_update", "update_bound"),
+                ("use_pool_stopfn", "stop_function"),
+            ):
+                setattr(layer, attr, bool(use_pool.get(key, True)))
+            layer.queue_size = queue_size if layer.use_pool_evolve else 1
             try:
                 layer.pool = pool
                 layer.mapper = pool.map
@@ -960,6 +976,9 @@ class DynestySampler(CheckpointedSampler):
             if cb is not None:
                 try:
                     sampler_self._last_safe_state = None
+                    # The side file and blob above already represent this exact
+                    # barrier. The callback must not pickle/write them again.
+                    sampler_self._native_snapshot_ready = True
                     cb(reason="dynesty_engine_checkpoint")
                 except Exception as exc:
                     sampler_self._logger.warning(
@@ -967,6 +986,8 @@ class DynestySampler(CheckpointedSampler):
                         sampler_self.method,
                         exc,
                     )
+                finally:
+                    sampler_self._native_snapshot_ready = False
 
         engine.save = _save_with_jarvis_state  # type: ignore[method-assign]
         self._wrapped_dynesty_save = True
@@ -1200,7 +1221,8 @@ class DynestySampler(CheckpointedSampler):
         timeout = generation_timeout
         self._require_redis(f"{self.method}.run_adaptive")
         self._ensure_seed_sequence()
-        if self._finished and self._sampler is not None and not self._resume_engine_requested:
+        if self._finished:
+            self._resume_engine_requested = False
             return int((self._summary or {}).get("ncall") or 0)
 
         from jarvishep2.sampling.Source.Dynesty.py.dynesty import (
@@ -1227,6 +1249,16 @@ class DynestySampler(CheckpointedSampler):
             seed=self._seed,
             method=self.method,
             logger=inner_logger,
+            accepts_payload=self._accepts_pool_payload,
+            njobs=self._parallel_workers,
+        )
+        self._logger.info(
+            "%s parallelism: workers=%d queue_size=%s transport_batch=%d propose_point=%s; "
+            "each walk is sequential and each map waits for its slowest walk",
+            self.method, pool.size,
+            self._constructor_kwargs.get("queue_size", self._parallel_workers),
+            self._batch_size,
+            (self._constructor_kwargs.get("use_pool") or {}).get("propose_point", True),
         )
         # Resume call_index so any non-uuid fallback UUIDs stay deterministic.
         pool._call_index = max(0, int(self._pool_call_index or 0))
@@ -1350,10 +1382,8 @@ class DynestySampler(CheckpointedSampler):
         except BaseException:
             # Interrupt / crash path: persist engine so --resume can continue.
             try:
-                self._save_engine_side_file()
-                blob = self._pickle_native_sampler()
-                if blob is not None:
-                    self._native_sampler_blob = blob
+                if get_checkpoint_config(self.config)["enabled"]:
+                    self.export_runtime_state()
             except Exception as save_exc:
                 self._logger.warning(
                     "%s: emergency engine checkpoint failed: %s",
@@ -1396,15 +1426,13 @@ class DynestySampler(CheckpointedSampler):
                 self._logger.info("%s diagnostics %s → %s", self.method, key, path)
         except Exception as exc:
             self._logger.warning("failed to write nested sampler_summary: %s", exc)
-        # Final engine snapshot (completed) + Jarvis state.pkl.
-        try:
-            self._save_engine_side_file()
-            blob = self._pickle_native_sampler()
-            if blob is not None:
-                self._native_sampler_blob = blob
-        except Exception as exc:
-            self._logger.warning("%s: final engine snapshot failed: %s", self.method, exc)
-        self.checkpoint_at_barrier(reason="dynesty_finished")
+        # The runtime callback exports once; without Core, keep a native
+        # snapshot for callers that use this sampler directly.
+        if get_checkpoint_config(self.config)["enabled"]:
+            if self._save_checkpoint_callback is not None:
+                self.checkpoint_at_barrier(reason="dynesty_finished")
+            else:
+                self.export_runtime_state()
         # Official nested summary block (nlive/niter/ncall/eff/logz) → sampler.log
         try:
             self._log_nested_run_summary()
@@ -1559,12 +1587,13 @@ class DynestySampler(CheckpointedSampler):
         Redis / logger / pool are never pickled; they are reattached on resume.
         """
         # Prefer a fresh snapshot of the live engine when present (interrupt path).
-        if self._sampler is not None:
+        if self._sampler is not None and not self._native_snapshot_ready:
             blob = self._pickle_native_sampler()
             if blob is not None:
                 self._native_sampler_blob = blob
             try:
-                self._save_engine_side_file()
+                if get_checkpoint_config(self.config)["enabled"]:
+                    self._save_engine_side_file()
             except Exception as exc:
                 self._logger.warning(
                     "%s: engine side-file write during export failed: %s",
@@ -1572,6 +1601,8 @@ class DynestySampler(CheckpointedSampler):
                     exc,
                 )
 
+        if self._loglike_bridge is not None and self._loglike_bridge._pool is not None:
+            self._pool_call_index = self._loglike_bridge._pool._call_index
         state = self._feedback_export_state()
         # Strip non-pickleable keys from constructor kwargs (callables).
         safe_ctor = {
@@ -1625,6 +1656,10 @@ class DynestySampler(CheckpointedSampler):
         self._rseed = int(state.get("rseed", self._rseed) or self._rseed)
         if "use_dynamic" in state:
             self._use_dynamic = bool(state.get("use_dynamic"))
+        runtime_ctor = {
+            k: self._constructor_kwargs[k]
+            for k in ("queue_size", "use_pool") if k in self._constructor_kwargs
+        }
         ctor = state.get("constructor_kwargs")
         if isinstance(ctor, Mapping):
             # Drop any legacy non-serializable leftovers.
@@ -1639,6 +1674,9 @@ class DynestySampler(CheckpointedSampler):
                     "rstate",
                 }
             }
+        for key in ("queue_size", "use_pool"):
+            self._constructor_kwargs.pop(key, None)
+        self._constructor_kwargs.update(runtime_ctor)
         run = state.get("run_nested_kwargs")
         if isinstance(run, Mapping):
             self._run_nested_kwargs = {

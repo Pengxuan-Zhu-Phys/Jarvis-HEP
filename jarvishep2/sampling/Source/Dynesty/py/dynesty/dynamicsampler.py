@@ -1912,6 +1912,7 @@ class DynamicSampler:
                             != DynamicSamplerStatesEnum.INBASEADDLIVE
                             and self.checkpoint_timer.is_time()):
                         self.save(checkpoint_file)
+                        self.checkpoint_timer.reset()
                     # Print progress (Jarvis logger).
                     if print_progress:
                         emit_progress(
@@ -2182,6 +2183,7 @@ class DynamicSampler:
                         # batch run and we are just adding live-points in
                         # the end
                         self.save(checkpoint_file)
+                        timer.reset()
             finally:
                 if pbar is not None:
                     pbar.close()

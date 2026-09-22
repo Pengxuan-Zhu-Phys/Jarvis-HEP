@@ -33,23 +33,28 @@ class MCMCChain:
     def __next__(self):
         if self.iterations >= self.n_iterations:
             raise StopIteration
-        if self.iterations == 0:
+        if self.last_loglikelihood is None:
             proposed_param = self._rng.random(self.param.shape[0])
             self.proposed_param = proposed_param
             return proposed_param
-        while True:
-            step = self._rng.normal(0.0, self.proposal_scale, size=self.param.shape)
-            proposed_param = self.param + step
-            if np.all((proposed_param >= 0.0) & (proposed_param <= 1.0)):
-                self.proposed_param = proposed_param
-                return proposed_param
+        # Draw once. Conditioning proposals on staying inside the cube makes
+        # the kernel asymmetric near its edges. The driver rejects outside
+        # points without evaluating physics and retains the repeated state.
+        step = self._rng.normal(0.0, self.proposal_scale, size=self.param.shape)
+        self.proposed_param = self.param + step
+        return self.proposed_param
 
     def update(self, new_loglikelihood, beta=1.0) -> bool:
         accepted = False
         new_loglikelihood = float(new_loglikelihood)
         beta = float(beta)
 
-        if self.iterations == 0 or self.last_loglikelihood is None:
+        if not np.isfinite(new_loglikelihood) or not np.all(
+            (self.proposed_param >= 0.0) & (self.proposed_param <= 1.0)
+        ):
+            self.iterations += 1
+            return False
+        if self.last_loglikelihood is None:
             accepted = True
         else:
             delta = (new_loglikelihood - float(self.last_loglikelihood)) * beta

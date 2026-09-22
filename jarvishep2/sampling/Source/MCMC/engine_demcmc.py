@@ -83,24 +83,12 @@ class DEMCMCChain:
     def __next__(self):
         if self.iterations >= self.n_iterations:
             raise StopIteration
-        if self.iterations == 0:
+        if self.last_loglikelihood is None:
             proposal = self._rng.random(self._dim)
             self.proposed_param = proposal
             return proposal
 
-        proposal = None
-        for _ in range(2048):
-            step = self._draw_demove()
-            cand = self.param + step
-            if np.all((cand >= 0.0) & (cand <= 1.0)):
-                proposal = cand
-                break
-        if proposal is None:
-            proposal = np.clip(
-                self.param + self._rng.normal(0.0, self.proposal_scale, size=self._dim),
-                0.0,
-                1.0,
-            )
+        proposal = self.param + self._draw_demove()
         self.proposed_param = np.asarray(proposal, dtype=float)
         return self.proposed_param
 
@@ -109,7 +97,12 @@ class DEMCMCChain:
         beta = float(beta)
         accepted = False
 
-        if self.iterations == 0 or self.last_loglikelihood is None:
+        if not np.isfinite(new_loglikelihood) or not np.all(
+            (self.proposed_param >= 0.0) & (self.proposed_param <= 1.0)
+        ):
+            self.iterations += 1
+            return False
+        if self.last_loglikelihood is None:
             accepted = True
         else:
             delta = (new_loglikelihood - float(self.last_loglikelihood)) * beta

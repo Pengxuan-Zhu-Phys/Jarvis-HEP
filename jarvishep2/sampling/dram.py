@@ -26,6 +26,8 @@ class DRAMSampler(AdaptiveMCMCBase):
         self._dr_steps = bounds_get_int(
             bounds, "dr_steps", aliases=("dr.steps",), default=2, minimum=1
         )
+        if self._dr_steps > 2:
+            raise ValueError("DRAM supports dr_steps=1 or 2 only")
         factors = bounds_get_list(
             bounds, "dr_scale_factors", aliases=("dr.scale_factors",), default=[1.0, 0.5]
         )

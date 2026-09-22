@@ -66,7 +66,8 @@
             },
             "dr_steps": {
               "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/positiveIntegerish",
-              "description": "Number of delayed-rejection stages per iteration, including the first proposal (default 2)."
+              "maximum": 2,
+              "description": "Number of delayed-rejection stages, including the first proposal: 1 or 2 (default 2). Higher-order delayed rejection is not implemented."
             },
             "dr_scale_factors": {
               "type": "array",

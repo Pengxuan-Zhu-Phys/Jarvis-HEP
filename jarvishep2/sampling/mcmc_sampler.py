@@ -29,6 +29,7 @@ import hashlib
 import os
 import pickle
 import time
+from collections import deque
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -51,7 +52,7 @@ from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
 from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 
-_FAILED_LOGL = -1.0e300
+_FAILED_LOGL = -np.inf
 _MCMC_NATIVE_STATE_FORMAT = "jarvis-hep.mcmc-native"
 _MCMC_NATIVE_STATE_VERSION = 1
 
@@ -94,6 +95,12 @@ def _unpickle_mcmc_engine(
 ) -> Any:
     """Restore one engine and reconnect any sampler-owned population callback."""
     engine = pickle.loads(blob)
+    # Native unpickle bypasses import_state. Older AM/DRAM checkpoints carry
+    # an unbounded list, which would otherwise keep growing after upgrading.
+    if hasattr(engine, "_history_maxlen") and hasattr(engine, "_history"):
+        engine._history = deque(engine._history, maxlen=engine._history_maxlen())
+    if int(getattr(engine, "_dr_steps", 1)) > 2:
+        raise ValueError("DRAM checkpoint requires unsupported dr_steps > 2")
     if requires_population_getter or type(engine).__name__ in {
         "EnsembleChain",
         "DEMCMCChain",
@@ -152,6 +159,7 @@ class MCMCBaseSampler(FeedbackSampler):
             "_total_accepted",
             "_total_proposed",
             "_failed_uuids",
+            "_total_failed",
             "_summary",
         }
     )
@@ -193,7 +201,8 @@ class MCMCBaseSampler(FeedbackSampler):
         self._finished = False
         self._total_accepted = 0
         self._total_proposed = 0
-        self._failed_uuids: list[str] = []
+        self._failed_uuids: deque[str] = deque(maxlen=256)
+        self._total_failed = 0
         self._summary: dict[str, Any] | None = None
         # MCMC checkpointing is time-cadenced at a feedback barrier. The
         # durable archive barrier is reserved for explicit/final checkpoints.
@@ -524,7 +533,9 @@ class MCMCBaseSampler(FeedbackSampler):
             return False
         written = self.persist_runtime_checkpoint(force=True, reason=reason)
         if written:
-            self._last_sampling_checkpoint_at = now
+            # A slow save must not consume the next sampling interval and
+            # trigger another full checkpoint on the very next iteration.
+            self._last_sampling_checkpoint_at = time.monotonic()
             self._last_sampling_checkpoint_generation = int(self._generation)
         return bool(written)
 
@@ -656,39 +667,6 @@ class MCMCBaseSampler(FeedbackSampler):
             if stage != 0:
                 raise RuntimeError(f"{self.method} does not support stage={stage}")
             u = np.asarray(next(engine), dtype=np.float64)
-        # Selection filter: redraw (selection-only; does not advance iterations).
-        if self._selectionexp:
-            for _ in range(4096):
-                physical = physical_from_u(u, self.vars, self._mapper_pipeline)
-                if evaluate_selection(
-                    self._selectionexp,
-                    physical,
-                    context=self._expression_context,
-                ):
-                    break
-                if hasattr(engine, "propose_stage"):
-                    u = np.asarray(engine.propose_stage(stage), dtype=np.float64)
-                else:
-                    # re-propose without advancing: undo is hard for plain MCMC;
-                    # re-call next would skip — for selection we redraw from same state
-                    # by manually sampling like engine.__next__ without bumping iters.
-                    # Safer: only re-run propose_stage path for DRAM/AM; for MCMC use
-                    # a local redraw of the same engine next after temporarily
-                    # decrementing — not available. Redraw gaussian from current param.
-                    if engine.iterations == 0:
-                        u = engine._rng.random(self._dim)
-                    else:
-                        step = engine._rng.normal(
-                            0.0, engine.proposal_scale, size=self._dim
-                        )
-                        u = np.clip(engine.param + step, 0.0, 1.0)
-                    engine.proposed_param = u
-            else:
-                self._logger.warning(
-                    "chain %s stage %s: selection never passed; using last proposal",
-                    chain.chain_id,
-                    stage,
-                )
         return u
 
     def _build_chain_sample(
@@ -765,13 +743,28 @@ class MCMCBaseSampler(FeedbackSampler):
                 stage = 0
                 chain.open_stage = 0
             u = self._propose_u_for_chain(chain, stage)
-            samples.append(self._build_chain_sample(chain, stage, u))
+            sample = self._build_chain_sample(chain, stage, u)
+            valid = bool(np.all(np.isfinite(u) & (u >= 0.0) & (u <= 1.0)))
+            if valid and self._selectionexp:
+                valid = evaluate_selection(
+                    self._selectionexp,
+                    physical_from_u(u, self.vars, self._mapper_pipeline),
+                    context=self._expression_context,
+                )
+            if valid:
+                samples.append(sample)
+            else:
+                # A prior/selection rejection is a real Markov step, not a
+                # redraw or a failed calculator. No invalid task reaches Redis.
+                self.absorb_generation([{
+                    "uuid": sample.uuid, "logL": -np.inf, "prior_rejected": True,
+                }])
         return samples
 
     def propose_generation(self) -> Sequence[Sample] | None:
         """Propose stage-0 for the next Metropolis step across active chains."""
         samples = self._propose_for_stages(stages="step")
-        if not samples:
+        if not samples and self._all_finished():
             return None
         return samples
 
@@ -811,12 +804,14 @@ class MCMCBaseSampler(FeedbackSampler):
             chain = registry.get(int(meta["chain_id"]))
             stage = int(meta["stage"])
             logl = self._extract_logl(record)
-            if logl is None:
+            if logl is None and not record.get("prior_rejected", False):
+                self._total_failed += 1
                 self._failed_uuids.append(uuid)
                 if self._failure_policy_halt(record):
                     raise RuntimeError(
                         f"{self.method}: Failed sample {uuid} with on_failure=halt"
                     )
+            if logl is None:
                 logl = _FAILED_LOGL
             beta = 1.0
             if chain.temperature > 0:
@@ -1063,8 +1058,6 @@ class MCMCBaseSampler(FeedbackSampler):
     ) -> int:
         """Propose → barrier → absorb for one subset of chains; return submitted count."""
         batch = self._propose_for_stages(stages="step", chain_ids=chain_ids)
-        if not batch:
-            return 0
         submitted = self._submit_sample_batch(batch)
         results = self.wait_for_generation(
             timeout=timeout, queues=self._pending_feedback_queues()
@@ -1074,8 +1067,6 @@ class MCMCBaseSampler(FeedbackSampler):
             stage_batch = self._propose_for_stages(
                 stages="followup", chain_ids=chain_ids
             )
-            if not stage_batch:
-                break
             submitted += self._submit_sample_batch(stage_batch)
             results = self.wait_for_generation(
                 timeout=timeout, queues=self._pending_feedback_queues()
@@ -1315,7 +1306,7 @@ class MCMCBaseSampler(FeedbackSampler):
             "ess_logl_mean": (
                 float(sum(ess_values) / len(ess_values)) if ess_values else None
             ),
-            "failed_samples": len(self._failed_uuids),
+            "failed_samples": self._total_failed,
             "chains": chains,
         }
         if self._uses_half_ensemble():
@@ -1377,6 +1368,7 @@ class MCMCBaseSampler(FeedbackSampler):
                 "total_accepted": self._total_accepted,
                 "total_proposed": self._total_proposed,
                 "failed_uuids": list(self._failed_uuids),
+                "total_failed": self._total_failed,
                 "uuid_to_meta": dict(self._uuid_to_meta),
                 "summary": self._summary,
                 "chains": [
@@ -1494,7 +1486,9 @@ class MCMCBaseSampler(FeedbackSampler):
             self._finished = bool(state.get("finished", False))
             self._total_accepted = int(state.get("total_accepted", 0) or 0)
             self._total_proposed = int(state.get("total_proposed", 0) or 0)
-            self._failed_uuids = list(state.get("failed_uuids") or [])
+            failures = list(state.get("failed_uuids") or [])
+            self._failed_uuids = deque(failures, maxlen=256)
+            self._total_failed = int(state.get("total_failed", len(failures)))
             self._uuid_to_meta = {
                 str(k): dict(v)
                 for k, v in dict(state.get("uuid_to_meta") or {}).items()

@@ -365,6 +365,10 @@ class DelayTimer:
         self.delay = delay
         self.last_time = time.time()
 
+    def reset(self):
+        """Start the next interval after a completed checkpoint write."""
+        self.last_time = time.time()
+
     def is_time(self):
         """
         Returns true if more than self.dt seconds has passed

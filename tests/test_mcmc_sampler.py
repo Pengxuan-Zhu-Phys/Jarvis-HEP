@@ -128,7 +128,9 @@ class EngineUnitTests(unittest.TestCase):
             for i in range(5):
                 next(eng)
                 eng.update(-float(i))
-                logls.append(float(eng.last_loglikelihood or 0.0))
+                # Different seeds may both reject all four follow-up moves;
+                # compare actual states rather than that acceptance pattern.
+                logls.extend(np.asarray(eng.param, dtype=float).tolist())
             return logls
 
         self.assertEqual(run(1), run(1))
@@ -450,7 +452,8 @@ class DistributorMCMCTests(unittest.TestCase):
             n_steps = 40
             for _ in range(n_steps):
                 props = list(sampler.propose_generation() or [])
-                self.assertEqual(len(props), 2)
+                # Out-of-prior proposals now count as local rejected steps.
+                self.assertLessEqual(len(props), 2)
                 sampler._submit_sample_batch(props)
                 for sample in props:
                     queue.publish_feedback(
