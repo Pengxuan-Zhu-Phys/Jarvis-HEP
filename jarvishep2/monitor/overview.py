@@ -12,6 +12,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Click, Leave, MouseMove, Resize
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -603,10 +604,16 @@ def render_resource_row(
 class FieldBlock(Static):
     """Rounded fieldset; ``border_title`` is the label on the top-left edge."""
 
+    class Resized(Message):
+        """Posted after layout gives this block a new size."""
+
     def __init__(self, label: str, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self.add_class("ov-block")
         self.border_title = label
+
+    def on_resize(self, _event: Resize) -> None:
+        self.post_message(self.Resized())
 
 
 @dataclass
@@ -1115,6 +1122,13 @@ class OverviewPane(Vertical):
         calculators_widget.border_title = rendered.border_title
         calculators_widget.border_subtitle = rendered.border_subtitle
         calculators_widget.update(rendered.body)
+
+    def on_field_block_resized(self, message: FieldBlock.Resized) -> None:
+        # A block's new height is only known after layout. Syncing from
+        # set_frame alone can read the previous geometry and leave the filler
+        # at a stale height until the next frame.
+        message.stop()
+        self.call_after_refresh(self._sync_pacman_height)
 
     def on_resize(self) -> None:
         self.call_after_refresh(self._sync_pacman_height)
