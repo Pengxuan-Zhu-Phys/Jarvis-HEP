@@ -13,6 +13,9 @@ from typing import Any
 import click
 import typer.rich_utils
 from rich import box
+from rich.align import Align
+from rich.highlighter import RegexHighlighter
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -89,6 +92,19 @@ class JarvisHelpGroup(click.Group):
         )
 
 
+class _MetavarHighlighter(RegexHighlighter):
+    """Dim ``[ | ] < >`` in metavars (Typer removed its own copy in 0.27)."""
+
+    highlights = [
+        r"^(?P<metavar_sep>(\[|<))",
+        r"(?P<metavar_sep>\|)",
+        r"(?P<metavar_sep>(\]|>))(\.\.\.)?$",
+    ]
+
+
+_metavar_highlighter = getattr(typer.rich_utils, "metavar_highlighter", None) or _MetavarHighlighter()
+
+
 def _fixed_option_label(
     param: click.Option | click.Argument, ctx: click.Context
 ) -> tuple[Text, Text]:
@@ -100,7 +116,7 @@ def _fixed_option_label(
         metavar = "<str>" if param.name == "task_yaml" else param.make_metavar(ctx=ctx)
         return (
             typer.rich_utils.highlighter(param.name or ""),
-            typer.rich_utils.metavar_highlighter(metavar),
+            _metavar_highlighter(metavar),
         )
 
     long_options = [option for option in param.opts if option.startswith("--")]
@@ -121,7 +137,7 @@ def _print_fixed_options_panel(
     name: str,
     params: list[click.Option] | list[click.Argument],
     ctx: click.Context,
-    markup_mode: typer.rich_utils.MarkupMode,
+    markup_mode: str,
     console: Any,
 ) -> None:
     """Render options in the same fixed columns as command panels."""
@@ -165,7 +181,7 @@ def _print_fixed_commands_panel(
     *,
     name: str,
     commands: list[click.Command],
-    markup_mode: typer.rich_utils.MarkupMode,
+    markup_mode: str,
     console: Any,
     cmd_len: int,
 ) -> None:
@@ -208,6 +224,63 @@ def _print_fixed_commands_panel(
             title_align=typer.rich_utils.ALIGN_COMMANDS_PANEL,
         )
     )
+
+
+def _print_rich_help(command: click.Command, ctx: click.Context, console: Any) -> None:
+    """Lay out usage, description, parameter panels and command panels.
+
+    Typer's ``rich_format_help`` only renders its own ``TyperOption`` /
+    ``TyperArgument`` / ``TyperGroup`` types since 0.26, so the plain Click
+    objects built from argparse would be dropped. The layout lives here and
+    only Typer's styling helpers are reused.
+    """
+    markup_mode = typer.rich_utils.MARKUP_MODE_RICH
+    console.print(
+        Padding(typer.rich_utils.highlighter(command.get_usage(ctx)), 1),
+        style=typer.rich_utils.STYLE_USAGE_COMMAND,
+    )
+    if command.help:
+        console.print(
+            Padding(
+                Align(
+                    typer.rich_utils._get_help_text(obj=command, markup_mode=markup_mode),
+                    pad=False,
+                ),
+                (0, 1, 1, 1),
+            )
+        )
+    arguments: list[click.Argument] = []
+    options: list[click.Option] = []
+    for param in command.get_params(ctx):
+        if getattr(param, "hidden", False):
+            continue
+        if isinstance(param, click.Argument):
+            arguments.append(param)
+        elif isinstance(param, click.Option):
+            options.append(param)
+    for name, params in (("Arguments", arguments), ("Options", options)):
+        _print_fixed_options_panel(
+            name=name, params=params, ctx=ctx, markup_mode=markup_mode, console=console
+        )
+    if isinstance(command, click.Group):
+        panels: dict[str, list[click.Command]] = {"Commands": []}
+        for command_name in command.list_commands(ctx):
+            sub = command.get_command(ctx, command_name)
+            if sub is None or sub.hidden:
+                continue
+            panel = getattr(sub, typer.rich_utils._RICH_HELP_PANEL_NAME, None) or "Commands"
+            panels.setdefault(panel, []).append(sub)
+        cmd_len = max(
+            (len(sub.name or "") for subs in panels.values() for sub in subs), default=0
+        )
+        for name, subs in panels.items():
+            _print_fixed_commands_panel(
+                name=name,
+                commands=subs,
+                markup_mode=markup_mode,
+                console=console,
+                cmd_len=cmd_len,
+            )
 
 
 class JarvisArgumentParser(argparse.ArgumentParser):
@@ -304,37 +377,31 @@ class JarvisArgumentParser(argparse.ArgumentParser):
         output = io.StringIO()
         old_force_terminal = typer.rich_utils.FORCE_TERMINAL
         old_max_width = typer.rich_utils.MAX_WIDTH
-        old_options_panel = typer.rich_utils._print_options_panel
-        old_commands_panel = typer.rich_utils._print_commands_panel
         try:
             typer.rich_utils.FORCE_TERMINAL = terminal_stdout.isatty()
             typer.rich_utils.MAX_WIDTH = shutil.get_terminal_size().columns
-            typer.rich_utils._print_options_panel = _print_fixed_options_panel
-            typer.rich_utils._print_commands_panel = _print_fixed_commands_panel
             with contextlib.redirect_stdout(output):
-                typer.rich_utils.rich_format_help(
-                    obj=command,
-                    ctx=click.Context(
+                console = typer.rich_utils._get_rich_console()
+                _print_rich_help(
+                    command,
+                    click.Context(
                         command,
                         info_name=self.prog,
                         **self._RICH_CONTEXT_SETTINGS,
                     ),
-                    markup_mode=typer.rich_utils.MARKUP_MODE_RICH,
+                    console,
                 )
                 if root_help:
-                    legacy_params = self._click_params(legacy=True)
-                    typer.rich_utils._print_options_panel(
+                    _print_fixed_options_panel(
                         name="Legacy options",
-                        params=legacy_params,
+                        params=self._click_params(legacy=True),
                         ctx=click.Context(command, info_name=self.prog),
                         markup_mode=typer.rich_utils.MARKUP_MODE_RICH,
-                        console=typer.rich_utils._get_rich_console(),
+                        console=console,
                     )
         finally:
             typer.rich_utils.FORCE_TERMINAL = old_force_terminal
             typer.rich_utils.MAX_WIDTH = old_max_width
-            typer.rich_utils._print_options_panel = old_options_panel
-            typer.rich_utils._print_commands_panel = old_commands_panel
         return output.getvalue()
 
 def build_parser() -> argparse.ArgumentParser:
