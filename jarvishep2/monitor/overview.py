@@ -1029,7 +1029,11 @@ class OverviewPane(Vertical):
         right_blocks_height = workers.region.y + workers.region.height - right.region.y
         difference = left_blocks_height - right_blocks_height
         for game, desired in ((left_game, max(0, -difference)), (right_game, max(0, difference))):
-            if game.region.height != desired:
+            # Compare with the requested height, not region.height: the region
+            # still shows the last layout, so a pending grow followed by a
+            # shrink back to that old size would otherwise be skipped.
+            current = game.styles.height
+            if current is None or current.value != desired:
                 game.styles.height = desired
 
     def _tick_status_breathe(self) -> None:
