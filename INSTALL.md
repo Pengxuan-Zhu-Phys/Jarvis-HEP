@@ -20,15 +20,6 @@ From PyPI:
 python3 -m pip install Jarvis-HEP
 ```
 
-If you previously installed the short-lived `jarvishep2` distribution, remove
-it first. It contains the same Python import package as `Jarvis-HEP` V2 and the
-two distributions should not be installed together:
-
-```bash
-python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade Jarvis-HEP
-```
-
 From a source checkout:
 
 ```bash

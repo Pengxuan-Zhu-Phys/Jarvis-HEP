@@ -43,15 +43,6 @@ From PyPI:
 python3 -m pip install Jarvis-HEP
 ```
 
-If the short-lived `jarvishep2` distribution was installed previously, remove
-it before installing V2 from `Jarvis-HEP`; both distributions provide the same
-`jarvishep2` import package and should not be installed together:
-
-```bash
-python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade Jarvis-HEP
-```
-
 From a source checkout:
 
 ```bash
