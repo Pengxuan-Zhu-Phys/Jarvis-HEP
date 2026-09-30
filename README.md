@@ -111,22 +111,24 @@ List the built-in examples with:
 Jarvis man example
 ```
 
-## Task-card contract
+## Writing a task card
 
-V2 task cards use one closed, consistent vocabulary across `validate`, `check`,
-`run`, and `man`:
+A task card is the YAML file that describes one scan. Every Jarvis command
+(`validate`, `check`, `run`, `man`) reads the same set of fields:
 
-- Required top-level blocks: `Scan`, `Sampling`, and `EnvReqs`.
-- Declare at least one execution backend: `Calculators` or `Operas`.
-- Put method-specific sampler settings under `Sampling.Bounds` and use lower
-  `snake_case` keys.
-- Put V2 runtime settings such as worker count and `checkpoint` (heartbeat in
-  seconds) under `EnvReqs.V2`.
-- Use `Jarvis check TASK.yaml` for the fixed-point calculator smoke test.
-- Outputs are written to the project output tree; `cleanup.strategy` and
-  `archiver.handoff` are not V2 task-card interfaces.
+- Every card needs three top-level sections: `Scan` (the scan name), `Sampling`
+  (how parameter points are chosen), and `EnvReqs` (runtime settings).
+- A card also needs at least one of `Calculators` (external programs) or
+  `Operas` (Python functions) to compute results for each point.
+- Settings for the chosen sampling method go under `Sampling.Bounds`, written
+  in lowercase with underscores, e.g. `point_number`.
+- Runtime settings go under `EnvReqs.V2`, for example the number of parallel
+  `workers` and `checkpoint.heartbeat` (how often, in seconds, progress is
+  saved so an interrupted scan can be resumed; minimum 30).
+- To test your calculators on a few points before a full scan, use
+  `Jarvis check TASK.yaml`.
 
-A card starts with this shape:
+A minimal card looks like this:
 
 ```yaml
 Scan:
@@ -153,7 +155,7 @@ Operas:
       operator: my_package.my_function
 ```
 
-Use the generated manuals instead of guessing field names:
+Jarvis has a built-in manual for every field, so you don't need to guess names:
 
 ```bash
 Jarvis man                         # interactive YAML authoring guide
@@ -165,14 +167,14 @@ Jarvis man yaml.EnvReqs.V2         # one YAML section
 Jarvis man calculator.execution.output --type JSON
 ```
 
-`Jarvis validate` performs schema and semantic checks without starting Redis or
-Workers. It is the recommended gate before `run`.
+`Jarvis validate` checks a card for mistakes without starting a scan (and
+without needing Redis). Run it before every `Jarvis run`.
 
 ## CLI workflow
 
 ```bash
 Jarvis validate TASK.yaml          # validate only
-Jarvis check TASK.yaml             # fixed-point calculator smoke test
+Jarvis check TASK.yaml             # quick test of calculators on a few points
 Jarvis run TASK.yaml               # execute a distributed scan
 Jarvis run TASK.yaml --resume      # resume from a checkpoint
 Jarvis convert TASK.yaml           # refresh DATABASE/samples.csv from HDF5
@@ -200,39 +202,81 @@ File logs remain available under `logs/<scan>/`.
 
 ## Outputs
 
-Set `EnvReqs.V2.store_samples: false` for large scans that only need DATABASE
-results (default: `true`). This disables SAMPLE directories, bucket packing and
-per-sample logs, including failure logs. Required `@Sdir` files and calculator
-IO copies use temporary scratch space and are removed after each sample;
-scalar observables, failure status, resume data and process-level logs remain.
-The switch overrides sample storage/packing settings and persistent `save: true`
-retention. Existing SAMPLE files are left untouched. See
-[storage policy](docs/sample-storage.md) for details and limitations.
-
-For a scan named `my_scan`, the project root typically contains:
+For a scan named `my_scan`, the project folder typically contains:
 
 ```text
 outputs/my_scan/
 ├── DATABASE/
-│   ├── samples.hdf5              # archived observables
-│   └── samples.csv               # CSV snapshot after `Jarvis convert`
+│   ├── samples.hdf5              # results for every evaluated point
+│   └── samples.csv               # same results as CSV, written when the scan finishes
 ├── SAMPLE/
-│   ├── 000001/<uuid>/             # per-sample files when retained
-│   └── 000001.tar.gz              # packed sample bucket when enabled
-├── run_summary.json
+│   ├── 000001/<uuid>/             # files produced for each point (if kept)
+│   └── 000001.tar.gz              # the same files, compressed in groups (if enabled)
+├── run_summary.json              # counts, timing and speed of the run
 ├── run_summary.csv
 └── run_summary.txt
 
 logs/my_scan/
-├── core.log
-├── sampler.log
-├── archiver.log
-└── worker-00.log ...
+├── core.log                      # main process
+├── sampler.log                   # choosing parameter points
+├── archiver.log                  # writing results to disk
+└── worker-00.log ...             # one log per parallel worker
 ```
 
-Checkpoints are stored under
+If a scan was interrupted, or you want to regenerate `samples.csv`, run
+`Jarvis convert TASK.yaml`.
+
+Progress for resuming is saved under
 `checkpoints/<scan>/<sampler>/state.pkl`. Press `Ctrl+C` to stop a scan cleanly;
-Jarvis shuts down its Workers, Archiver, and any Redis process it manages.
+Jarvis stops all of its worker processes and any Redis server it started
+itself. Continue later with `Jarvis run TASK.yaml --resume`.
+
+**Saving disk space.** By default Jarvis keeps a folder of files for every
+point under `SAMPLE/`. For large scans where you only need the numbers in
+`DATABASE/`, set:
+
+```yaml
+EnvReqs:
+  V2:
+    store_samples: false
+```
+
+Calculators still run normally, but their files are written to a temporary
+folder and deleted after each point. Results, error status for failed points,
+resume data and the main logs are kept; per-point files and per-point logs
+are not. See [SAMPLE storage](docs/sample-storage.md) for details.
+
+## Documentation
+
+- [Online documentation](https://pengxuan-zhu-phys.github.io/Jarvis-Docs/)
+- `Jarvis man` — built-in manual for every task-card field, with examples
+- [INSTALL.md](INSTALL.md) — installation, Redis setup, full command list, and
+  sharing projects
+- [SAMPLE storage](docs/sample-storage.md) — keeping or discarding per-point files
+- [Project template](jarvishep2/project_template/README.md) — what
+  `Jarvis project create` puts in a new project
+
+Coming from Jarvis-HEP 1.x? Version 2 replaces it and 1.x is no longer
+developed. The command is still called `Jarvis`; check older task cards with
+`Jarvis validate` before running them.
+
+## Citation
+
+If you use Jarvis-HEP in your research, please cite:
+
+```bibtex
+@article{Guo:2026jarvishep,
+  title         = {Jarvis-HEP: A lightweight Python framework for workflow
+                   composition and parameter scans in high-energy physics},
+  author        = {Guo, Erdong and Jackson, Paul and Yang, Jin-Min and Zhu, Pengxuan},
+  year          = {2026},
+  eprint        = {2604.25557},
+  archivePrefix = {arXiv}
+}
+```
+
+Please also cite the sampling algorithms you use. `Jarvis --refs` prints the
+references for Jarvis-HEP and for each built-in sampler.
 
 ## Development
 
@@ -283,13 +327,8 @@ python3 -m pytest -q tests/test_variable_distributions.py
 python3 -m pytest -q tests/test_worker_failure.py
 ```
 
-Useful repository documentation:
+## License
 
-- [INSTALL.md](INSTALL.md) — installation, CLI details, Redis, projects, and packaging
-- [Task-card schema](docs/task-card-schema.md) — validation layers and V2 configuration rules
-- [Validation diagnostics](docs/validation-diagnostics.md) — actionable `JV2-*` error codes
-- [RLTPMCMC extension guide](docs/sampler-extension-guide.md) — how collaborators add `RLTPMCMCSampler`
-- [Project template](jarvishep2/project_template/README.md) — standalone project layout
-
-V1 (`jarvishep`) is frozen and CLI-retired. V2 uses `jarvishep2` and the
-`Jarvis` command; `Jarvis2` is not installed.
+Jarvis-HEP is released under the [MIT License](LICENSE). Bundled third-party
+code keeps its own license (for example
+[Dynesty](jarvishep2/sampling/Source/Dynesty/LICENSE)).

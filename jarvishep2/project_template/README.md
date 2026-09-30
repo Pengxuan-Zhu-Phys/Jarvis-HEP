@@ -14,8 +14,8 @@ Jarvis project create <name>
 | `bin/sampling/` | Nested sampling `Sampling:` templates (Dynesty / MultiNest) |
 | `data/` | Small input tables / fixtures |
 | `deps/` | Default environment policy (`environment_default.yaml`) |
-| `jarvis.project.yaml` | Project descriptor (`&J` root) |
-| `.jarvis-project.json` | Machine-readable layout marker |
+| `jarvis.project.yaml` | Project settings. Its folder is the project root, which task cards write as `&J` (e.g. `&J/data/points.csv`) |
+| `.jarvis-project.json` | Marks this folder as a Jarvis project (used by Jarvis; don't edit) |
 
 Runtime directories (`outputs/`, `logs/`, `images/`, `checkpoints/`) appear on first run.
 
@@ -28,7 +28,7 @@ Jarvis run bin/quickstart_bridson_operas.yaml
 Jarvis bin/quickstart_bridson_operas.yaml
 ```
 
-CSV operas smoke:
+Example that reads its points from a CSV file:
 
 ```bash
 Jarvis run bin/quickstart_csv_operas.yaml
@@ -122,6 +122,7 @@ Jarvis project fetch YourProjectName --key 'YOUR_KEY'
 # or: export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
 ```
 
-Official catalog (public list + restricted entries) lives in
-**Jarvis-Examples** `catalog/official_project_library.json` — not a PyPI package.
-See `Jarvis-Books/Jarvis-HEP V2/components/project_tools.md` and `INSTALL.md`.
+The list of official example projects (public and restricted) is kept in the
+[Jarvis-Examples](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples)
+repository. For all `Jarvis project` commands, see the
+[installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/INSTALL.md).
