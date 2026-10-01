@@ -43,6 +43,10 @@ On the console the module label, timestamp, and level are colored. Log files
 must not contain color codes. (Today the logo banner at the top of
 `core.log` still does; see §4.)
 
+A traceback attached to a record (`logger.exception`, `exc_info=True`) is
+written below the message in the log file. The screen shows only the message,
+and shows the traceback too when running with `--debug`.
+
 ### 1.2 Colors
 
 The module label is colored by component. **Jarvis yellow and Jarvis blue are
@@ -115,7 +119,7 @@ Rules:
 ### 1.5 Message wording
 
 Keep the V1 phrasing, with V1's spelling mistakes corrected (`initializaing`
-→ `initializing`, `submited` → `submitted`). A user who knows one sampler's
+→ `initializing`, `submited` → `submitted`, `submittion` → `submission`). A user who knows one sampler's
 log can read any other.
 
 | Purpose | Pattern (V1 wording) | Example |
@@ -160,9 +164,10 @@ The **stop reason** in S10 is one short phrase, e.g. `point_number reached`,
 `converged (dlogz < 0.5)`, `max_generations reached`, `interrupted`,
 `all chains finished`.
 
-S1, S6, S9 and S10 are emitted by the sampler base class, so a sampler only
-supplies the values (see [Enforcement](#enforcement)). A sampler writes S5
-and its method fields itself.
+S1, S2, S3, S6, S8 (for a scan that stops on an error), S9 and S10 are
+written by the runtime (`jarvishep2/sampling/lifecycle_log.py`), so a sampler
+only supplies the values through hooks (see [Enforcement](#enforcement)). A
+sampler must not write these lines itself. It writes S5, S7 and S11.
 
 ## 3. Method-specific content
 
@@ -172,43 +177,66 @@ and its method fields itself.
 | CSV | — | file, rows read, rows skipped (and why) |
 | Bridson | — | radius, points generated |
 | AdaptiveBridson | per generation: radius change, band, cores, points (already logged) | convergence, generations, cores, final points |
-| MCMC family (MCMC, ToyMCMC, AMMCMC, DRAM, EnsembleMCMC, DEMCMC, PTMCMC, PTEnsemble) | at a fixed interval: steps done per chain, acceptance rate per chain; AMMCMC/DRAM: covariance updates; DRAM: stage-2 attempts and accepts; PT: swap attempts and accepts per pair of temperatures | proposed, accepted, acceptance rate, rejected outside the prior, failed evaluations, diagnostics files |
-| Nested (Dynesty, MultiNest) | at a fixed interval: iteration, ncall, current logZ ± error, dlogz | nlive, iterations, ncall, efficiency, logZ ± error, result files |
+| MCMC family (MCMC, ToyMCMC, AMMCMC, DRAM, EnsembleMCMC, DEMCMC, PTMCMC, PTEnsemble) | `<Method> Chains ->` at a fixed interval and once at the end: steps done, acceptance rate per chain (first 16 chains); AMMCMC/DRAM: covariance updates; DRAM: stage-2 accepted / attempted; PT: swaps accepted / attempted | proposed, accepted, acceptance rate, rejected outside the prior, failed evaluations, R-hat, mean ESS, diagnostics files |
+| Nested (Dynesty, MultiNest) | the engine's `<Method> Progress ->` block (V1 cadence: every iteration at INFO, every 100th at WARNING): iteration, ncall, efficiency, logZ ± error, dlogz | nlive, iterations, ncall, efficiency, logZ ± error, result files |
 
-"At a fixed interval" means time-based (default every 60 s), not per step, so
+"At a fixed interval" means time-based (every 60 s), not per step, so
 long runs do not flood `sampler.log`.
 
-## 4. Status today
+The settings table (S2) lists the sampler's own settings rows. A sampler
+without the settings hook (for example a plug-in) gets `Sampling.Bounds` as
+written in the card instead.
 
-From a review of the V2 sources (2026-10). ✓ = present, partial, ✗ = missing.
+## 4. Status
+
+Review of the V2 sources (2026-10) and the state after the logging work on
+this branch. ✓ = present, partial, ✗ = missing.
 
 | Sampler | S1 Start | S2 Settings | S4/S5 Progress | S6 Checkpoint | S9/S10 Result & summary |
 | --- | --- | --- | --- | --- | --- |
-| Random | ✗ | ✗ | ✓ | ✗ | ✗ |
-| Grid | ✗ | partial | ✓ | ✗ | ✗ |
-| CSV | ✗ | ✗ | ✗ | ✗ | ✗ (no log lines at all) |
-| Bridson | ✓ | ✗ | ✗ | ✗ | ✓ result, ✗ summary |
-| AdaptiveBridson | ✓ (own wording, not the V1 phrase) | ✓ | ✓ | ✗ | ✓ |
-| MCMC family | ✓ | ✓ | partial (no per-chain acceptance) | ✗ | ✓ |
-| Dynesty / MultiNest | partial | partial | from the dynesty engine | partial | ✓ |
+| Random | ✗ → ✓ | ✗ → ✓ | ✓ | ✗ → ✓ | ✗ → ✓ |
+| Grid | ✗ → ✓ | partial → ✓ | ✓ | ✗ → ✓ | ✗ → ✓ |
+| CSV | ✗ → ✓ | ✗ → ✓ | ✗ → ✓ (S5 not needed) | ✗ → ✓ | ✗ → ✓ |
+| Bridson | ✓ | ✗ → ✓ | ✗ → ✓ | ✗ → ✓ | partial → ✓ |
+| AdaptiveBridson | own wording → ✓ | ✓ | ✓ (V1 step format) | ✗ → ✓ | ✓ |
+| MCMC family | ✓ | ✓ | partial → ✓ (per-chain acceptance) | ✗ → ✓ | ✓ |
+| Dynesty / MultiNest | partial → ✓ | partial → ✓ | ✓ (engine block) | partial → ✓ | ✓ |
 
-Gaps that affect every sampler:
+Gaps that affected every sampler, and what was done:
 
-- The seed is never logged, so a log cannot tell how to reproduce a run.
-- Periodic checkpoint saves are not logged; only the save on interrupt is.
-- No traceback is ever written: no code uses `logger.exception` or
-  `exc_info=True`.
-- The logo banner is written to `core.log` with its terminal color codes.
+- The seed was never logged → it is a row of every settings table.
+- Periodic checkpoint saves were not logged → every save is logged (S6).
+- No traceback was ever written → unexpected errors in the scan loop, the
+  worker sample loop, the Archiver loop, and per-sample failures (in
+  `Sample_running.log`) now carry their traceback in the log files. A
+  calculator command that fails or times out keeps its plain message, which
+  already shows the command, folder and output.
+- Still open: the logo banner is written to `core.log` with its terminal
+  color codes.
 
 ## Enforcement
 
-- **Base class.** The sampler base class emits S1, S2, S6, S9 and S10. A
-  sampler provides two small hooks: one returning its settings rows (S2) and
-  one returning its summary rows and stop reason (S10). The wording and
-  tables then come out identical for every sampler.
-- **Contract test.** For every method in the sampler catalog, a short run
-  checks that `sampler.log` contains S1, S2, S3, S9 and S10 in the Jarvis
-  layout. A sampler that skips them, built-in or plug-in, fails the test.
+- **Runtime lifecycle log.** The runtime emits S1, S2, S3, S6, S8, S9 and
+  S10 for every sampler (`jarvishep2/sampling/lifecycle_log.py`). A sampler
+  provides up to three small optional hooks:
+
+  ```python
+  def log_settings_rows(self) -> list[tuple[str, object]]:  # S2 rows
+      return [("radius", self._radius)]
+
+  def log_summary_rows(self) -> list[tuple[str, object]]:   # S10 rows
+      return [("grid points", self._n_points)]
+
+  def log_stop_reason(self) -> str | None:                  # S10 stop reason
+      return "end of file reached" if self._done else None
+  ```
+
+  The wording and tables then come out identical for every sampler.
+- **Contract test.** `tests/test_sampler_logging_contract.py` runs the
+  lifecycle for every method in the sampler catalog and checks S1, S2, S3,
+  S6, S9 and S10: wording, level, the `Jarvis-HEP.Sampler.<Method>` label,
+  the Jarvis layout, and that no hook fails. A sampler that breaks them,
+  built-in or plug-in, fails the test.
 
 ## Decisions
 

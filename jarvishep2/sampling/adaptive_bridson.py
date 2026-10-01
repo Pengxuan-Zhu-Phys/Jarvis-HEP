@@ -2912,30 +2912,57 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             path = os.path.join(out_dir, "levelset.json")
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=2)
-            self._logger.info(
-                "AdaptiveBridson finished: reason=%s, converged=%s, "
-                "points=%d, gen=%d, cores=%d, final=%d, "
-                "half_width=%g%s, band=%s..%s (Δ=%s), wrote=%s",
-                self._stop_reason,
-                self._converged,
-                payload["n_points_total"],
-                payload["n_generations"],
-                len(cores),
-                len(final_idx),
-                w_final,
-                " configured" if self._final_half_width_configured else " =core",
-                f"{self._t_min:g}" if self._t_min is not None else "n/a",
-                f"{self._t_max:g}" if self._t_max is not None else "n/a",
-                (
-                    f"{self._t_max - self._t_min:g}"
+            self._final_summary = {
+                "unique": int(payload["n_unique_submitted"]),
+                "cores": len(cores),
+                "final": len(final_idx),
+                "half_width": f"{w_final:g}"
+                + (" (configured)" if self._final_half_width_configured else " (= core)"),
+                "band": (
+                    f"{self._t_min:g} .. {self._t_max:g} (Δ = {self._t_max - self._t_min:g})"
                     if self._t_min is not None and self._t_max is not None
                     else "n/a"
                 ),
-                path,
-            )
+            }
+            self._logger.warning("Level set saved to %s", path)
         except OSError as exc:
             self._logger.warning("failed to write levelset.json: %s", exc)
         return payload
+
+    # ------------------------------------------------------------------ logging
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        return [
+            ("target", f"{self._target_expression} = {self._target_value:g}"),
+            ("initial radius", f"{self._initial_radius:g}"),
+            ("min radius", f"{self._min_radius:g}"),
+            ("outer / core half-width", f"{self._outer_half_width:g} / {self._core_half_width:g}"),
+            ("radius shrink", self._radius_shrink_mode),
+            ("max generations", self._max_generations),
+            ("max points", self._max_points),
+        ]
+
+    def log_summary_rows(self) -> list[tuple[str, Any]]:
+        summary = dict(getattr(self, "_final_summary", None) or {})
+        rows: list[tuple[str, Any]] = [
+            ("converged", "yes" if self._converged else "no"),
+            ("generations", int(self._generation)),
+            ("unique points evaluated", summary.get("unique", self._unique_point_count())),
+            ("control points", len(self._points)),
+            ("final radius", f"{float(self._radius):g}" if self._radius is not None else "n/a"),
+        ]
+        if summary:
+            rows.extend(
+                [
+                    ("cores", summary["cores"]),
+                    ("final points", summary["final"]),
+                    ("final half-width", summary["half_width"]),
+                    ("band", summary["band"]),
+                ]
+            )
+        return rows
+
+    def log_stop_reason(self) -> str | None:
+        return str(self._stop_reason).replace("_", " ") if self._stop_reason else None
 
     # ------------------------------------------------------------------- driver
     def run_adaptive(
@@ -2960,19 +2987,6 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             )
             return 0
 
-        self._logger.info(
-            "AdaptiveBridson start: target=%s=%g, r0=%g, min_r=%g, "
-            "outer/core=%g/%g, shrink=%s, max_gen=%d, max_points=%d",
-            self._target_expression,
-            self._target_value,
-            self._initial_radius,
-            self._min_radius,
-            self._outer_half_width,
-            self._core_half_width,
-            self._radius_shrink_mode,
-            self._max_generations,
-            self._max_points,
-        )
 
         total_submitted = 0
         if not self._submitted_u_keys and self._points:
@@ -3922,8 +3936,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             else float(self._core_half_width)
         )
         self._logger.info(
-            "AdaptiveBridson gen=%d: r_g %g→%g, band=%s..%s "
-            "(Δ=%s, target<%g), cores=%d",
+            "AdaptiveBridson Generation -> %d | radius -> %g → %g | band -> %s .. %s "
+            "| width -> %s (target < %g) | cores -> %d",
             int(self._generation),
             old_r,
             self._radius,

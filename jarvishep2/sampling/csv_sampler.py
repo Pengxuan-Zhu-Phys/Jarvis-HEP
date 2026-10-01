@@ -237,6 +237,32 @@ class CSVSampler(CheckpointedSampler):
         sample.opera_params = dict(record["params"])
         return sample
 
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        """Settings rows for the sampler log (docs/logging-spec.md S2)."""
+        rows: list[tuple[str, Any]] = [
+            ("file", self._csv_path),
+            ("columns", ", ".join(self._selected_variables) if self._selected_variables else "all"),
+            ("uuid column", self._uuid_column_resolved or "none (derived from row number)"),
+        ]
+        if self._selectionexp:
+            rows.append(("selection", self._selectionexp))
+        return rows
+
+    def log_summary_rows(self) -> list[tuple[str, Any]]:
+        """Summary rows for the sampler log (docs/logging-spec.md S10)."""
+        rows_read = int(self._runtime_csv_cursor)
+        rows: list[tuple[str, Any]] = [
+            ("file", self._csv_path),
+            ("rows read", rows_read),
+            ("points submitted", int(self._accepted_index)),
+        ]
+        if self._selectionexp:
+            rows.append(("rows skipped by selection", rows_read - int(self._accepted_index)))
+        return rows
+
+    def log_stop_reason(self) -> str | None:
+        return "end of file reached" if self._records_exhausted else None
+
     def record_submitted_batch(self, uuids: list[str]) -> None:
         """CSV is indexed and replayed; retaining UUIDs is unnecessary."""
         return

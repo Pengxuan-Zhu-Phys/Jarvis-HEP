@@ -9,6 +9,7 @@ and raw message passthrough.
 from __future__ import annotations
 
 import atexit
+import copy
 import logging
 import os
 import queue
@@ -126,6 +127,29 @@ _LABEL_SEGMENT_CANON: dict[str, str] = {
     "monitor": "Monitor",
     "watchdog": "Watchdog",
 }
+
+
+def _sampler_method_canon() -> dict[str, str]:
+    """Exact ``Sampling.Method`` spellings, keyed by lower case / snake case.
+
+    Labels must read ``Jarvis-HEP.Sampler.MCMC``, not ``...Mcmc``.
+    """
+    try:
+        from jarvishep2.sampler_catalog import names
+    except Exception:  # pragma: no cover - catalog is import-safe
+        return {}
+    canon: dict[str, str] = {}
+    for method in names():
+        canon[method.lower()] = method
+        snake = "".join(
+            f"_{char.lower()}" if char.isupper() and index and not method[index - 1].isupper() else char.lower()
+            for index, char in enumerate(method)
+        )
+        canon.setdefault(snake, method)
+    return canon
+
+
+_LABEL_SEGMENT_CANON.update(_sampler_method_canon())
 
 
 def _canon_label_segment(seg: str) -> str:
@@ -323,10 +347,22 @@ class JarvisContextFormatter(logging.Formatter):
         *,
         colorize: bool = False,
         style: Mapping[str, Any] | None = None,
+        show_traceback: bool = True,
     ) -> None:
         super().__init__()
         self.colorize = bool(colorize)
+        # Tracebacks always go to log files; the screen shows them only at DEBUG.
+        self.show_traceback = bool(show_traceback)
         self._style = dict(style or process_style())
+
+    def _with_traceback(self, record: logging.LogRecord, message: str) -> str:
+        if not self.show_traceback:
+            return message
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            return f"{message}\n{record.exc_text}" if message else record.exc_text
+        return message
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         created = datetime.fromtimestamp(record.created)
@@ -360,12 +396,7 @@ class JarvisContextFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         if bool(getattr(record, "raw", False)):
-            message = record.getMessage()
-            if record.exc_info:
-                if not record.exc_text:
-                    record.exc_text = self.formatException(record.exc_info)
-                if record.exc_text:
-                    message = f"{message}\n{record.exc_text}" if message else record.exc_text
+            message = self._with_traceback(record, record.getMessage())
             # StreamHandler appends its terminator after formatting.  Do not
             # add another newline here, otherwise every raw subprocess line
             # is rendered with a blank line between it and the next line.
@@ -374,12 +405,7 @@ class JarvisContextFormatter(logging.Formatter):
         module = self._module_label(record)
         timestamp = self.formatTime(record)
         level = record.levelname
-        message = record.getMessage()
-        if record.exc_info:
-            if not record.exc_text:
-                record.exc_text = self.formatException(record.exc_info)
-            if record.exc_text:
-                message = f"{message}\n{record.exc_text}" if message else record.exc_text
+        message = self._with_traceback(record, record.getMessage())
 
         # DataRecorder (DATABASE / samples.hdf5) uses the special Ϡ bullet.
         data_mod = str(
@@ -478,6 +504,25 @@ class JarvisLoggerAdapter(logging.LoggerAdapter):
         return type(self)(self.logger, merged)
 
 
+class _TracebackQueueHandler(QueueHandler):
+    """QueueHandler that keeps the traceback apart from the message.
+
+    The stock ``prepare`` folds the traceback into ``msg``, so every sink
+    (the screen included) would print it. Here it travels as ``exc_text`` and
+    each formatter decides whether to show it.
+    """
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        prepared = copy.copy(record)
+        prepared.msg = record.getMessage()
+        prepared.args = None
+        if record.exc_info and not record.exc_text:
+            prepared.exc_text = logging.Formatter().formatException(record.exc_info)
+        prepared.exc_info = None
+        prepared.stack_info = None
+        return prepared
+
+
 def _resolve_level(level: str | int) -> int:
     if isinstance(level, int):
         return level
@@ -488,7 +533,11 @@ def _resolve_level(level: str | int) -> int:
 def _make_console_handler(*, level: int, style: Mapping[str, Any] | None = None) -> logging.Handler:
     stream = logging.StreamHandler(sys.stderr)
     stream.setLevel(level)
-    stream.setFormatter(JarvisContextFormatter(colorize=True, style=style))
+    stream.setFormatter(
+        JarvisContextFormatter(
+            colorize=True, style=style, show_traceback=level <= logging.DEBUG
+        )
+    )
     return stream
 
 
@@ -671,7 +720,7 @@ def setup_jarvis_logging(
 
     if use_queue and sink_handlers:
         log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
-        queue_handler = QueueHandler(log_queue)
+        queue_handler = _TracebackQueueHandler(log_queue)
         queue_handler.setLevel(root_level)
         logger.addHandler(queue_handler)
 

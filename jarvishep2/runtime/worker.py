@@ -39,6 +39,7 @@ from jarvishep2.redis_queue import (
     control_lock_missing_grace_sec,
     next_control_lock_watch,
 )
+from jarvishep2.log_kv import is_expected_failure
 from jarvishep2.sample import Sample, materialize_failure_artifacts
 from jarvishep2.sample import ExecutionStep
 from jarvishep2.workflow import max_layer_width, resolve_module_layers
@@ -696,8 +697,10 @@ class Worker(Process):
         except Exception as exc:
             sample.record_failure(exc)
             materialize_failure_artifacts(sample.info, error=exc)
+            sample.log_failure_traceback(exc)
             # Multi-line command failures embed cwd/cmd/stderr; keep them intact.
-            top.error("sample failed ->\n%s", exc)
+            # Other errors carry their traceback to the worker log file.
+            top.error("sample failed ->\n%s", exc, exc_info=not is_expected_failure(exc))
         finally:
             # Always return calculator PackIDs first — even if handoff/archive fails.
             self._force_release_all_held_packs(logger=top)
@@ -717,15 +720,15 @@ class Worker(Process):
                     try:
                         self._redis.finish_sample_bucket(bucket_id)
                     except Exception as bucket_exc:
-                        top.error("bucket finish failed for %s -> %s", bucket_id, bucket_exc)
+                        top.error("bucket finish failed for %s -> %s", bucket_id, bucket_exc, exc_info=True)
                 self._cleanup_transient_paths(sample)
             except Exception as cleanup_exc:
-                top.error("sample cleanup failed after release -> %s", cleanup_exc)
+                top.error("sample cleanup failed after release -> %s", cleanup_exc, exc_info=True)
             finally:
                 try:
                     sample.cleanup_transient_directory()
                 except Exception as cleanup_exc:
-                    top.error("sample scratch cleanup failed -> %s", cleanup_exc)
+                    top.error("sample scratch cleanup failed -> %s", cleanup_exc, exc_info=True)
             self._publish_sample_overlay("end")
             self._current_sample_uuid = None
             with self._hb_lock():

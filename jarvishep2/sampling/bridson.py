@@ -150,7 +150,6 @@ class Bridson(FixedSetSampler):
         ndim = len(self.vars)
         if ndim < 2 or ndim >= 5:
             raise ValueError("Bridson supports 2d to 4d parameter spaces only")
-        self._logger.warning("Initializing the Bridson Sampling")
         # seed 0 is a valid deterministic seed — do not treat it as "unset"
         # (``if self._seed`` would skip seeding and break resume: same uuid
         # stream, different coordinates).
@@ -171,10 +170,25 @@ class Bridson(FixedSetSampler):
             # Fresh submit-progress bar for this grid generation.
             self.barinfo = {}
         self._logger.info(
-            "Bridson Sampler obtains %d samples in %.2f sec",
+            "Bridson Grid -> points -> %d | radius -> %g | built in -> %s",
             self.info["NSamples"],
-            self.info["t0"],
+            self._radius,
+            format_duration(self.info["t0"]),
         )
+
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        return [
+            ("radius", self._radius),
+            ("max attempts per point", self._k),
+            *super().log_settings_rows(),
+        ]
+
+    def log_summary_rows(self) -> list[tuple[str, Any]]:
+        return [
+            ("radius", self._radius),
+            ("grid points", int(self.info.get("NSamples", 0) or 0)),
+            *super().log_summary_rows(),
+        ]
 
     def _ensure_grid(self) -> None:
         if self._P is None:

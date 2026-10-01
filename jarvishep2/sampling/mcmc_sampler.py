@@ -52,6 +52,15 @@ from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
 from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 
+_STEP_LOG_INTERVAL_SEC = 60.0
+_STEP_LOG_MAX_CHAINS = 16
+_LOG_COUNTER_DEFAULTS = {
+    "prior_rejected": 0,
+    "stage2_attempts": 0,
+    "stage2_accepts": 0,
+    "cov_updates": 0,
+}
+
 _FAILED_LOGL = -np.inf
 _MCMC_NATIVE_STATE_FORMAT = "jarvis-hep.mcmc-native"
 _MCMC_NATIVE_STATE_VERSION = 1
@@ -161,6 +170,7 @@ class MCMCBaseSampler(FeedbackSampler):
             "_failed_uuids",
             "_total_failed",
             "_summary",
+            "_log_counters",
         }
     )
     _checkpoint_excluded_attributes = frozenset(
@@ -182,6 +192,7 @@ class MCMCBaseSampler(FeedbackSampler):
             "_history_csv_handle",
             "_history_csv_writer",
             "_history_csv_header_written",
+            "_last_step_log_at",
         }
     )
 
@@ -204,6 +215,9 @@ class MCMCBaseSampler(FeedbackSampler):
         self._failed_uuids: deque[str] = deque(maxlen=256)
         self._total_failed = 0
         self._summary: dict[str, Any] | None = None
+        # Counters for the step line and the summary table (sampler.log only).
+        self._log_counters: dict[str, int] = dict(_LOG_COUNTER_DEFAULTS)
+        self._last_step_log_at = 0.0
         # MCMC checkpointing is time-cadenced at a feedback barrier. The
         # durable archive barrier is reserved for explicit/final checkpoints.
         self._sampling_checkpoint_interval_sec = 30.0
@@ -292,30 +306,119 @@ class MCMCBaseSampler(FeedbackSampler):
             extra += f" accept_rate={self._total_accepted / proposed:.4f}"
         return extra
 
-    def _progress_config_extra(self) -> str:
-        """Method-specific knobs appended to the configured INFO line."""
-        bits: list[str] = []
+    def _config_rows(self) -> list[tuple[str, Any]]:
+        """Method-specific knobs for the settings table."""
+        rows: list[tuple[str, Any]] = []
         if self._uses_pt():
-            bits.append(f"ladder={list(getattr(self, '_temperature_ladder', []))}")
-            bits.append(
-                f"exchange_interval={int(getattr(self, '_exchange_interval', 1))}"
-            )
+            rows.append(("temperature ladder", list(getattr(self, "_temperature_ladder", []))))
+            rows.append(("exchange interval", int(getattr(self, "_exchange_interval", 1))))
         stretch_a = getattr(self, "_stretch_a", None)
         if stretch_a is not None:
-            bits.append(f"stretch_a={stretch_a}")
+            rows.append(("stretch a", stretch_a))
         if hasattr(self, "_de_gamma"):
-            bits.append(f"de_gamma={self._de_gamma}")
-            bits.append(f"de_noise={self._de_noise}")
-            bits.append(f"de_crossover={self._de_crossover}")
+            rows.append(("DE gamma", self._de_gamma))
+            rows.append(("DE noise", self._de_noise))
+            rows.append(("DE crossover", self._de_crossover))
         if hasattr(self, "_adapt_enabled"):
-            bits.append(f"adapt_enabled={self._adapt_enabled}")
-            bits.append(f"adapt_start_iter={self._adapt_start_iter}")
-            bits.append(f"adapt_window={self._adapt_window}")
+            rows.append(("adaptation", "on" if self._adapt_enabled else "off"))
+            rows.append(("adaptation starts at step", self._adapt_start_iter))
+            rows.append(("adaptation window", self._adapt_window))
         if hasattr(self, "_dr_steps"):
-            bits.append(f"dr_steps={self._dr_steps}")
-        if not bits:
-            return ""
-        return " " + " ".join(bits)
+            rows.append(("delayed-rejection stages", self._dr_steps))
+        return rows
+
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        role = "replicas" if self._uses_pt() else "chains"
+        rows: list[tuple[str, Any]] = [
+            (role, self._nchains),
+            ("iterations per chain", self._niters),
+            ("total transitions", self._progress_total()),
+            ("proposal scale", self._proposal_scales),
+            ("on failure", getattr(self, "_on_failure", "reject")),
+        ]
+        if self._selectionexp:
+            rows.append(("selection", self._selectionexp))
+        rows.extend(self._config_rows())
+        return rows
+
+    def log_summary_rows(self) -> list[tuple[str, Any]]:
+        counters = self._log_counters
+        proposed = int(self._total_proposed)
+        rows: list[tuple[str, Any]] = [
+            ("proposed", proposed),
+            ("accepted", int(self._total_accepted)),
+            (
+                "acceptance rate",
+                f"{self._total_accepted / proposed:.4f}" if proposed else "n/a",
+            ),
+            ("rejected outside the prior", int(counters.get("prior_rejected", 0))),
+            ("failed evaluations", int(self._total_failed)),
+        ]
+        rows.extend(self._step_counter_rows())
+        summary = self._summary or {}
+        if summary.get("rhat_logl") is not None:
+            rows.append(("R-hat (logL)", f"{float(summary['rhat_logl']):.4f}"))
+        if summary.get("ess_logl_mean") is not None:
+            rows.append(("mean ESS (logL)", f"{float(summary['ess_logl_mean']):.1f}"))
+        for key, path in dict(summary.get("diagnostics") or {}).items():
+            rows.append((f"diagnostics {key}", path))
+        return rows
+
+    def log_stop_reason(self) -> str | None:
+        if self._finished:
+            return "all chains finished"
+        return None
+
+    def _step_counter_rows(self) -> list[tuple[str, Any]]:
+        counters = self._log_counters
+        rows: list[tuple[str, Any]] = []
+        if self._uses_pt():
+            rows.append(
+                (
+                    "swaps accepted",
+                    f"{int(getattr(self, '_swap_accepts', 0))} / "
+                    f"{int(getattr(self, '_swap_attempts', 0))}",
+                )
+            )
+        if hasattr(self, "_dr_steps"):
+            rows.append(
+                (
+                    "stage-2 accepted",
+                    f"{int(counters.get('stage2_accepts', 0))} / "
+                    f"{int(counters.get('stage2_attempts', 0))}",
+                )
+            )
+        if hasattr(self, "_adapt_enabled"):
+            rows.append(("covariance updates", int(counters.get("cov_updates", 0))))
+        return rows
+
+    def _maybe_log_step(self, *, force: bool = False) -> None:
+        """Time-based S5 step line: steps and acceptance per chain."""
+        now = time.monotonic()
+        if not force:
+            if not self._last_step_log_at:
+                self._last_step_log_at = now
+                return
+            if now - self._last_step_log_at < _STEP_LOG_INTERVAL_SEC:
+                return
+        self._last_step_log_at = now
+        chains = list(self._ensure_registry().all())
+        if not chains:
+            return
+        steps = [int(chain.engine.iterations) for chain in chains]
+        rates = []
+        for chain in chains[:_STEP_LOG_MAX_CHAINS]:
+            total = int(chain.accepted) + int(chain.rejected)
+            rate = f"{int(chain.accepted) / total:.2f}" if total else "n/a"
+            rates.append(f"{chain.chain_id}: {rate}")
+        if len(chains) > _STEP_LOG_MAX_CHAINS:
+            rates.append(f"… {len(chains) - _STEP_LOG_MAX_CHAINS} more")
+        parts = [
+            f"steps -> {min(steps)}..{max(steps)} / {self._niters}",
+            f"accept rate -> {', '.join(rates)}",
+        ]
+        parts.extend(f"{key} -> {value}" for key, value in self._step_counter_rows())
+        self._logger.info("%s Chains -> %s", self.method, " | ".join(parts))
 
     def _ensure_progress(self) -> None:
         total = self._progress_total()
@@ -325,18 +428,6 @@ class MCMCBaseSampler(FeedbackSampler):
             self._logger,
             total=total,
             label=f"{self.method} transitions completed",
-        )
-        self._logger.warning("Initializing the %s Sampling", self.method)
-        self._logger.info(
-            "%s Sampler configured: %s=%d iterations=%d "
-            "total_transitions=%d proposal_scale=%s%s",
-            self.method,
-            "replicas" if self._uses_pt() else "chains",
-            self._nchains,
-            self._niters,
-            total,
-            self._proposal_scales,
-            self._progress_config_extra(),
         )
         self._submit_progress.update(
             self._progress_done(),
@@ -352,10 +443,12 @@ class MCMCBaseSampler(FeedbackSampler):
             self._progress_done(),
             extra=self._progress_extra(),
         )
+        self._maybe_log_step()
 
     def _on_run_started(self) -> None:
         """Hook for runtime observers. Base emits scan progress; call super()."""
         self._ensure_progress()
+        self._last_step_log_at = time.monotonic()
 
     def _on_generation_completed(self) -> None:
         """Hook after a generation is absorbed. Base emits scan progress."""
@@ -803,6 +896,10 @@ class MCMCBaseSampler(FeedbackSampler):
                 continue
             chain = registry.get(int(meta["chain_id"]))
             stage = int(meta["stage"])
+            if record.get("prior_rejected", False):
+                self._log_counters["prior_rejected"] = (
+                    int(self._log_counters.get("prior_rejected", 0)) + 1
+                )
             logl = self._extract_logl(record)
             if logl is None and not record.get("prior_rejected", False):
                 self._total_failed += 1
@@ -818,9 +915,14 @@ class MCMCBaseSampler(FeedbackSampler):
                 beta = 1.0 / float(chain.temperature)
             engine = chain.engine
             self._total_proposed += 1
+            cov_before = getattr(engine, "_cov", None)
             if hasattr(engine, "consume_stage_result"):
                 outcome = engine.consume_stage_result(stage, logl, beta=beta)
                 accepted = bool(outcome.get("accepted", False))
+                if stage >= 1:
+                    self._bump_counter("stage2_attempts")
+                    if accepted:
+                        self._bump_counter("stage2_accepts")
                 if accepted:
                     self._total_accepted += 1
                     chain.accepted += 1
@@ -850,7 +952,12 @@ class MCMCBaseSampler(FeedbackSampler):
                 chain.open_stage = None
                 chain.window_iter = int(chain.window_iter) + 1
                 self._record_chain_event(chain, accepted=accepted)
+            if cov_before is not None and getattr(engine, "_cov", None) is not cov_before:
+                self._bump_counter("cov_updates")
             self._uuid_to_meta.pop(uuid, None)
+
+    def _bump_counter(self, key: str) -> None:
+        self._log_counters[key] = int(self._log_counters.get(key, 0)) + 1
 
     def _task_result_dir(self) -> str:
         return str(
@@ -1042,7 +1149,7 @@ class MCMCBaseSampler(FeedbackSampler):
                 self._swap_accepts += 1
         for chain in self._ensure_registry().all():
             chain.window_iter = 0
-        self._logger.info(
+        self._logger.debug(
             "%s exchange: attempted=%d accepted=%d",
             self.method,
             attempted,
@@ -1215,25 +1322,16 @@ class MCMCBaseSampler(FeedbackSampler):
                 if written and self._summary is not None:
                     self._summary["diagnostics"] = written
                 for key, path in written.items():
-                    self._logger.info("%s diagnostics %s → %s", self.method, key, path)
+                    self._logger.warning("%s diagnostics (%s) saved to %s", self.method, key, path)
         except Exception as exc:
-            self._logger.warning("failed to export MCMC diagnostics: %s", exc)
+            self._logger.warning(
+                "%s diagnostics were not written -> %s", self.method, exc, exc_info=True
+            )
         # The normal loop uses a feedback-only checkpoint. The final snapshot
         # is the one place where MCMC asks for the durable archive barrier.
         if self._save_checkpoint_callback is not None:
             self.checkpoint_at_barrier(reason=f"{self.method}_finished")
-        self._logger.info(
-            "%s finished: proposed=%d accepted=%d accept_rate=%.4f async=%s",
-            self.method,
-            self._total_proposed,
-            self._total_accepted,
-            (
-                self._total_accepted / self._total_proposed
-                if self._total_proposed
-                else 0.0
-            ),
-            self._uses_async_chain_pipeline(),
-        )
+        self._maybe_log_step(force=True)
 
     # ----------------------------------------------------------------- driver
     def run_adaptive(
@@ -1369,6 +1467,7 @@ class MCMCBaseSampler(FeedbackSampler):
                 "total_proposed": self._total_proposed,
                 "failed_uuids": list(self._failed_uuids),
                 "total_failed": self._total_failed,
+                "log_counters": dict(self._log_counters),
                 "uuid_to_meta": dict(self._uuid_to_meta),
                 "summary": self._summary,
                 "chains": [
@@ -1489,6 +1588,10 @@ class MCMCBaseSampler(FeedbackSampler):
             failures = list(state.get("failed_uuids") or [])
             self._failed_uuids = deque(failures, maxlen=256)
             self._total_failed = int(state.get("total_failed", len(failures)))
+            self._log_counters = dict(_LOG_COUNTER_DEFAULTS)
+            self._log_counters.update(
+                {str(k): int(v) for k, v in dict(state.get("log_counters") or {}).items()}
+            )
             self._uuid_to_meta = {
                 str(k): dict(v)
                 for k, v in dict(state.get("uuid_to_meta") or {}).items()

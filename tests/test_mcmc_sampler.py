@@ -579,12 +579,12 @@ class DistributorMCMCTests(unittest.TestCase):
                 registry.get(0).engine.iterations = iteration
                 sampler._emit_progress()
 
-            self.assertTrue(
-                any("Initializing the ToyMCMC Sampling" in line for line in warning_messages)
-            )
-            self.assertTrue(
-                any("ToyMCMC Sampler configured" in line for line in info_messages)
-            )
+            # S1 and the settings table come from the runtime lifecycle log;
+            # the sampler only contributes rows.
+            self.assertFalse(any("Initializing" in line for line in warning_messages))
+            settings = dict(sampler.log_settings_rows())
+            self.assertEqual(settings["chains"], sampler._nchains)
+            self.assertEqual(settings["total transitions"], 1000)
             self.assertTrue(
                 any(
                     line.startswith("0‰ of 0/1000 ToyMCMC transitions completed")
@@ -642,20 +642,8 @@ class DistributorMCMCTests(unittest.TestCase):
                     sampler._logger = _Capture()  # type: ignore[assignment]
                     sampler._ensure_registry()
                     sampler._emit_progress()
-                    self.assertTrue(
-                        any(
-                            f"Initializing the {method} Sampling" in line
-                            for line in warning_messages
-                        ),
-                        warning_messages,
-                    )
-                    self.assertTrue(
-                        any(
-                            f"{method} Sampler configured" in line
-                            for line in info_messages
-                        ),
-                        info_messages,
-                    )
+                    settings = dict(sampler.log_settings_rows())
+                    self.assertIn("iterations per chain", settings)
                     self.assertTrue(
                         any(
                             "‰ of" in line
@@ -692,19 +680,7 @@ class DistributorMCMCTests(unittest.TestCase):
             sampler._logger = _Capture()  # type: ignore[assignment]
             registry = sampler._ensure_registry()
             sampler._emit_progress()
-            self.assertTrue(
-                any(
-                    "Initializing the EnsembleMCMC Sampling" in line
-                    for line in warning_messages
-                )
-            )
-            self.assertTrue(
-                any(
-                    "EnsembleMCMC Sampler configured" in line and "stretch_a=" in line
-                    for line in info_messages
-                ),
-                info_messages,
-            )
+            self.assertIn("stretch a", dict(sampler.log_settings_rows()))
             self.assertTrue(
                 any(
                     line.startswith("0‰ of 0/1000 EnsembleMCMC transitions completed")

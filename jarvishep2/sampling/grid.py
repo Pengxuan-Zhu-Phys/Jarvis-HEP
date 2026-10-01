@@ -11,7 +11,7 @@ import numpy as np
 
 from jarvishep2.sampling.fixed_set_sampler import FixedSetSampler
 from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from_u
-from jarvishep2.log_kv import PermilleProgress
+from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 
@@ -67,10 +67,16 @@ class Grid(FixedSetSampler):
             ):
                 self._submit_progress.update(0, force=True)
         self._logger.info(
-            "Grid generated %d points in %.2f s",
+            "Grid -> points -> %d | shape -> %s | built in -> %s",
             self.info["NSamples"],
-            self.info["t0"],
+            " × ".join(str(d) for d in dims),
+            format_duration(self.info["t0"]),
         )
+
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        shape = " × ".join(str(int(var.parameters.get("num", 0))) for var in self.vars)
+        shape += " (" + ", ".join(str(var.name) for var in self.vars) + ")"
+        return [("grid shape", shape), *super().log_settings_rows()]
 
     def _ensure_grid(self) -> None:
         if self._P is None:
