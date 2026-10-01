@@ -205,11 +205,11 @@ class ListProcessesTests(_StickyRefTestCase):
 
     def test_parses_ps_output_and_skips_self(self) -> None:
         fake = (
-            "  111 python3 -m pytest\n"
-            "  222 Jarvis:DemoScan\n"
-            "  333 Jarvis-Worker-0:DemoScan\n"
-            "  444 Jarvis-Redis:DemoScan\n"
-            "  555 /Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve\n"
+            "  111   501 python3 -m pytest\n"
+            "  222   501 Jarvis:DemoScan\n"
+            "  333   501 Jarvis-Worker-0:DemoScan\n"
+            "  444   502 Jarvis-Redis:DemoScan\n"
+            "  555   501 /Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve\n"
         )
         with mock.patch("jarvishep2.process_cleanup.os.getpid", return_value=999):
             with mock.patch("jarvishep2.process_cleanup.subprocess.run") as run:
@@ -225,6 +225,7 @@ class ListProcessesTests(_StickyRefTestCase):
             ],
         )
         self.assertEqual([p.pid for p in procs], [222, 333, 444])
+        self.assertEqual([p.uid for p in procs], [501, 501, 502])
 
     def test_format_empty(self) -> None:
         self.assertIn("No running Jarvis processes", format_process_table([]))
@@ -412,3 +413,99 @@ class CliPsKillTests(_StickyRefTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnershipTests(_StickyRefTestCase):
+    """Everyone sees every Jarvis task; only the owner (or root) may stop it."""
+
+    ME, OTHER = 501, 502
+
+    def _procs(self) -> list[JarvisProcess]:
+        return [
+            JarvisProcess(pid=10, command="Jarvis:quickstart", uid=self.ME),
+            JarvisProcess(pid=11, command="Jarvis-Worker-0:quickstart", uid=self.ME),
+            JarvisProcess(pid=20, command="Jarvis:quickstart", uid=self.OTHER),
+            JarvisProcess(pid=21, command="Jarvis-Worker-0:quickstart", uid=self.OTHER),
+        ]
+
+    def _as(self, uid: int):
+        return mock.patch("jarvishep2.process_cleanup.os.geteuid", return_value=uid)
+
+    def test_same_scan_name_of_two_users_stays_two_groups(self) -> None:
+        scans = list_active_scans(self._procs())
+        self.assertEqual(len(scans), 2)
+        self.assertEqual(
+            sorted((scan.uid, [proc.pid for proc in scan.processes]) for scan in scans),
+            [(self.ME, [10, 11]), (self.OTHER, [20, 21])],
+        )
+
+    def test_bare_name_resolves_to_your_own_scan(self) -> None:
+        scans = list_active_scans(self._procs())
+        with self._as(self.ME):
+            self.assertEqual(resolve_scan_reference("quickstart", scans).uid, self.ME)
+        with self._as(0), self.assertRaisesRegex(ValueError, "several users"):
+            resolve_scan_reference("quickstart", scans)
+
+    def test_another_users_scan_does_not_block_the_same_name(self) -> None:
+        from jarvishep2.process_cleanup import ensure_scan_name_available
+
+        others_only = [proc for proc in self._procs() if proc.uid == self.OTHER]
+        with self._as(self.ME), mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes", return_value=others_only
+        ):
+            ensure_scan_name_available("quickstart")
+        with self._as(self.OTHER), mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes", return_value=others_only
+        ), self.assertRaisesRegex(RuntimeError, "already running"):
+            ensure_scan_name_available("quickstart")
+
+    def test_kill_refuses_another_users_scan(self) -> None:
+        from jarvishep2.client import main
+
+        scans = list_active_scans(self._procs())
+        theirs = next(scan for scan in scans if scan.uid == self.OTHER)
+        with self._as(self.ME), mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes", return_value=self._procs()
+        ), mock.patch("jarvishep2.process_cleanup.kill_jarvis_processes") as kill_fn:
+            self.assertEqual(main(["kill", theirs.reference, "--yes"]), 1)
+        kill_fn.assert_not_called()
+
+    def test_root_may_kill_another_users_scan(self) -> None:
+        from jarvishep2.client import main
+
+        procs = self._procs()
+        scans = list_active_scans(procs)
+        theirs = next(scan for scan in scans if scan.uid == self.OTHER)
+        with self._as(0), mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes", side_effect=[procs, []]
+        ), mock.patch(
+            "jarvishep2.process_cleanup._verified_runtime_metadata", return_value={}
+        ), mock.patch(
+            "jarvishep2.process_cleanup.kill_jarvis_processes",
+            return_value={"signaled": [20, 21], "killed": [], "missing": [], "failed": []},
+        ) as kill_fn:
+            self.assertEqual(main(["kill", theirs.reference, "--yes"]), 0)
+        self.assertEqual(sorted(proc.pid for proc in kill_fn.call_args.args[0]), [20, 21])
+
+    def test_kill_zp_only_takes_your_own_orphans(self) -> None:
+        from jarvishep2.client import main
+
+        orphans = [
+            JarvisProcess(pid=30, command="Jarvis-Worker-0", uid=self.ME),
+            JarvisProcess(pid=40, command="Jarvis-Worker-0", uid=self.OTHER),
+        ]
+        with self._as(self.ME), mock.patch(
+            "jarvishep2.process_cleanup.list_jarvis_processes", side_effect=[orphans, []]
+        ), mock.patch(
+            "jarvishep2.process_cleanup.kill_jarvis_processes",
+            return_value={"signaled": [30], "killed": [], "missing": [], "failed": []},
+        ) as kill_fn:
+            self.assertEqual(main(["kill", "ZP", "--yes"]), 0)
+        self.assertEqual([proc.pid for proc in kill_fn.call_args.args[0]], [30])
+
+    def test_table_shows_owner(self) -> None:
+        with mock.patch("jarvishep2.process_cleanup._owner_name", side_effect=lambda uid: f"u{uid}"):
+            text = format_scan_table(list_active_scans(self._procs()))
+        self.assertIn("OWNER", text)
+        self.assertIn(f"u{self.ME}", text)
+        self.assertIn(f"u{self.OTHER}", text)

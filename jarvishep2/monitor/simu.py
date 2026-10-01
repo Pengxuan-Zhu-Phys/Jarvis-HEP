@@ -55,7 +55,7 @@ class OverviewFrame:
     workers_total: int
     stale: int
     busy: int
-    cpu: float
+    cpu: float | None
     mem_g: float
     mem_total_g: float
     method: str
@@ -78,6 +78,9 @@ class OverviewFrame:
     sampler: SamplerDisplay
     resources_available: bool = True
     health_items: tuple[tuple[str, str, str, str], ...] = ()
+    # Cores used by the scan and cores it may use (shown beside the CPU %).
+    cpu_cores_used: float | None = None
+    cpu_cores_available: int | None = None
 
 
 class SimuEngine:
@@ -432,6 +435,8 @@ class SimuEngine:
             stale=self.stale,
             busy=self.busy,
             cpu=self.cpu,
+            cpu_cores_used=self.cpu * 64 / 100.0,
+            cpu_cores_available=64,
             mem_g=self.mem_g,
             mem_total_g=64.0,
             method=sampler.method,

@@ -1,52 +1,53 @@
-# SAMPLE storage policy
+# SAMPLE storage
 
-Implemented 2026-09-17: `EnvReqs.V2.store_samples` is a strict YAML boolean,
-defaulting to `true`. Project environment defaults can be overridden by a task.
+By default Jarvis keeps a folder of files for every evaluated point under
+`outputs/<scan>/SAMPLE/`: calculator input and output files you marked with
+`save: true`, and a log for that point. For large scans this can use a lot of
+disk space and create millions of small files. If you only need the numbers
+stored in `DATABASE/`, turn this off:
 
 ```yaml
 EnvReqs:
   V2:
-    store_samples: false
+    store_samples: false   # default: true
 ```
 
-When false, the runtime does not create SAMPLE or allocate numbered buckets,
-does not tar buckets, and does not open or buffer per-sample logs (including
-failure details and calculator installation reuse logs). Process-level logs,
-errors, DATABASE observables/status and durable resume indices remain enabled.
-The setting overrides `sample_directory.enabled`, `sample_directory.pack`,
-`archiver.pack_buckets`, persistent IO `save: true` retention, and `worker.sample_artifacts`.
+The value must be `true` or `false`. You can set it in the project defaults
+(`deps/environment_default.yaml`) and override it in a single task card.
 
-Pure numeric samples need no directory. Calculators and workflows using `@Sdir`
-receive an isolated directory from Python's system temporary-directory policy
-(`TMPDIR` on Unix can select local scratch). IO files, including copies needed
-after a calculator PackID is released, remain available to downstream steps
-until that sample completes. The Worker cleans its owned scratch directory in
-the finalization path, also on computation or archive-submission failure. No
-scratch directory is sent to the Archiver as a persistent product directory.
-File-path observables are temporary references, not retained downloadable files.
+## What changes
 
-Existing SAMPLE directories are never deleted by changing this setting. YAML
-changes apply to newly started runs; they do not reconfigure running processes.
-Required calculator files still incur temporary IO, and calculator-authored
-files at explicit paths outside SAMPLE remain under that calculator's control.
-SIGKILL, machine failure or filesystem errors can leave scratch behind; this
-setting does not add a background scratch scavenger. Installation metadata and
-process logs are retained for operational diagnostics.
+With `store_samples: false`:
 
-## Implementation and verification
+- No `SAMPLE/` folders or `SAMPLE/*.tar.gz` archives are created.
+- No per-point logs are written, including the logs of failed points.
+- Calculators still run normally. Each point gets its own temporary folder
+  (the one `@Sdir` refers to), which is deleted when that point is finished,
+  whether it succeeded or failed. Files marked `save: true` are deleted too.
+- File paths stored as results in `DATABASE/` point to these temporary files,
+  so they will no longer exist after the scan.
+- Points that need no files at all (for example, pure Python functions) run
+  without any folder.
 
-The normalized runtime flag feeds Worker blueprints, bucket configuration and
-Archiver policy. Sample owns scratch allocation, log suppression and cleanup;
-the existing IO copy policy runs inside scratch to preserve downstream readers.
-On-demand `@Sdir` resolution updates the shared sample info so repeated resolution
-uses the same directory and cleanup knows which directory it owns. DATABASE
-batch commit and resume behavior are unchanged.
+What is kept:
 
-Regression coverage: strict boolean validation, inherited defaults and task
-overrides, default-on behavior, lazy `@Sdir` reuse, silent bound loggers, numeric
-samples without directories, scratch cleanup on success/failure, DATABASE
-status and resume prefix, and a real calculator check against golden results.
+- All results in `DATABASE/`, including which points failed.
+- Resume data, so `Jarvis run TASK.yaml --resume` still works.
+- The main logs under `logs/<scan>/`.
 
-This change uses the current implementation and Jarvis-Books V2 design docs as
-authorized in the implementation conversation: the five historical canonical
-documents named by the workspace AGENTS.md are absent from this checkout.
+This setting takes priority over `sample_directory.enabled`,
+`sample_directory.pack`, `archiver.pack_buckets`, `worker.sample_artifacts`,
+and `save: true` on individual files.
+
+## Things to know
+
+- The temporary folders are created in your system's temporary directory. On
+  Linux and macOS you can choose where by setting the `TMPDIR` environment
+  variable, e.g. to a fast local disk on a cluster node.
+- If a scan is killed abruptly (for example with `kill -9`, a machine crash,
+  or a full disk), some temporary folders may be left behind. Jarvis does not
+  clean these up later; delete them by hand if needed.
+- Files that a calculator writes to fixed paths outside its point folder are
+  not affected.
+- Changing this setting never deletes existing `SAMPLE/` folders, and it only
+  applies to scans started after the change.

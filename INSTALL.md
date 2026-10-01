@@ -1,18 +1,17 @@
 # Jarvis-HEP V2 — Installation
 
-Quick install guide for the V2 distributed runtime (PyPI distribution
-`Jarvis-HEP`, Python package `jarvishep2`, CLI `Jarvis`).
-For the architecture see
-`~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/DESIGN_2.0_DISTRIBUTED.md`;
-for the task-YAML schema see
-`~/Jarvis-Workshop/Jarvis-Books/Jarvis-HEP V2/YAML_REFERENCE_2.0.md`.
+How to install and use Jarvis-HEP V2. It is installed from PyPI as
+`Jarvis-HEP`, imported in Python as `jarvishep2`, and run with the `Jarvis`
+command. For the fields you can use in a task YAML, run `Jarvis man` or see the
+[online documentation](https://pengxuan-zhu-phys.github.io/Jarvis-Docs/).
 
 ## Requirements
 
 - **Python ≥ 3.10** (Workers use the `spawn` multiprocessing context; macOS and Linux supported)
-- **Redis server** for distributed runs. V2 connects internally to the local
-  `127.0.0.1:6379` service; it is not configured in task YAML. Tests do *not* need one — the
-  suite runs on `fakeredis`.
+- **Redis server program** (`redis-server`, `redis6-server`, or the compatible
+  `valkey-server`) installed on the machine. Jarvis starts and stops its own Redis
+  for each scan, so you do not run a Redis service yourself. Tests do *not* need
+  one — the suite runs on `fakeredis`.
 
 ## Install
 
@@ -22,19 +21,11 @@ From PyPI:
 python3 -m pip install Jarvis-HEP
 ```
 
-If you previously installed the short-lived `jarvishep2` distribution, remove
-it first. It contains the same Python import package as `Jarvis-HEP` V2 and the
-two distributions should not be installed together:
-
-```bash
-python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade Jarvis-HEP
-```
-
 From a source checkout:
 
 ```bash
-cd ~/Jarvis-Workshop/Jarvis-HEP
+git clone https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP.git
+cd Jarvis-HEP
 
 # runtime (recommended)
 python3 -m pip install -e .
@@ -53,7 +44,8 @@ These three packages are core dependencies. Their minimum versions track the
 current PyPI releases so a fresh `pip install Jarvis-HEP` resolves the latest
 compatible release available from the index.
 
-Local editable installs of those packages are fine during development:
+If you are developing those packages too, clone them next to `Jarvis-HEP` and
+install all of them from source:
 
 ```bash
 python3 -m pip install -e ../Jarvis-Portal
@@ -66,42 +58,67 @@ All Jarvis runtime dependencies are installed by default; Jarvis does not
 publish optional dependency groups. Test-only tools remain separate from the
 runtime package.
 
-## Task-card contract
+## Task-card rules
 
-Use the same contract for every task card and every CLI path:
+A task card is the YAML file that describes one scan. All `Jarvis` commands
+read it the same way:
 
-- Required: `Scan.name`, `Sampling.Method`, and `EnvReqs`.
-- Conditional: at least one of `Calculators` or `Operas`.
-- Optional: `LibDeps`.
-- Method-specific sampler settings are under `Sampling.Bounds` and use lower
-  `snake_case` keys.
-- Runtime settings are under `EnvReqs.V2`. `EnvReqs.OS` is the supported
-  V1-compatible host preflight list; each item uses `name` and `version`
-  (`>=X.Y`), while an empty list imposes no OS restriction. Other undeclared
-  siblings are rejected.
-- `Jarvis check TASK.yaml` is the only check entry point. The only fixed-point
-  CSV setting is `EnvReqs.V2.check_modules.data`.
-- Outputs go directly to `SAMPLE/`; task YAML has no `cleanup.strategy` or
-  `archiver.handoff` interface.
+- Required: `Scan.name`, `Sampling.Method`, and an `EnvReqs` section.
+- At least one of `Calculators` (external programs) or `Operas` (Python
+  functions) must be present.
+- Optional: `LibDeps` (external libraries your calculators need).
+- Settings for the chosen sampling method go under `Sampling.Bounds`, written
+  in lowercase with underscores (e.g. `point_number`).
+- Runtime settings (number of workers, checkpoint interval, …) go under
+  `EnvReqs.V2`.
+- The other blocks allowed under `EnvReqs` are checks run before the scan
+  starts: `Python`, `CERN_ROOT`, `Check_default_dependencies`, and `OS`.
+  `OS` lists the operating systems the scan may run on; each item has a
+  `name` (as reported by Python's `platform.system()`, e.g. `Linux` or
+  `Darwin`) and a minimum `version` such as `>=5.4`. An empty list allows any
+  system. Any other key under `EnvReqs` is an error.
+- `Jarvis check TASK.yaml` runs your calculators on a few points as a quick
+  test, one at a time. To test specific points, list them in a CSV file and
+  set its path in `EnvReqs.V2.check_modules.data`; otherwise a few points are
+  drawn from your sampler.
 
-`Jarvis man`, `Jarvis validate`, `Jarvis run`, and `Jarvis check` use this same
-vocabulary. Use `Jarvis man` before writing or editing a card.
+Run `Jarvis man` before writing or editing a card, and `Jarvis validate` before
+running it.
 
-**CLI ownership.** The product command is **`Jarvis`** (this package). V1
-(`Jarvis-HEP` / `jarvishep`) is retired from the CLI: it no longer installs a
-console script. The old **`Jarvis2`** command is removed. Do not import
-`jarvishep` from V2 code.
+**Commands.** Jarvis-HEP V2 installs a single command, `Jarvis`. The V1-era
+`Jarvis2` command no longer exists.
 
 ## Redis
 
+Jarvis uses Redis to pass work between its processes. You only need to
+**install** the Redis server program; do **not** start it as a service:
+
 ```bash
 # macOS
-brew install redis && brew services start redis
-# or containerized
-docker run -d --name jarvis-redis -p 6379:6379 redis:7
-# sanity check
-redis-cli ping        # → PONG
+brew install redis            # no `brew services start redis`
+# Ubuntu / Debian
+sudo apt install -y redis-server
 ```
+
+For every scan, Jarvis starts its own Redis server on the local machine (it
+shows up as `Jarvis-Redis:<scan>` in `Jarvis ps`) and stops it when the scan
+ends or you press Ctrl+C.
+
+The port comes from `EnvReqs.V2.redis.port` in the project's
+`deps/environment_default.yaml` (default 6379). If something else already uses
+that port, for example a Redis service you started yourself:
+
+- for task cards that load the project's default environment
+  (`EnvReqs.Check_default_dependencies.default_yaml_path`, as in the cards made
+  by `Jarvis project create`), Jarvis picks the next free port, writes it into
+  `deps/environment_default.yaml`, and prints a warning;
+- for other task cards, the run stops with
+  `Redis port 127.0.0.1:6379 is already used by another program`. Stop the other Redis
+  (`brew services stop redis`, or `sudo systemctl stop redis-server` on Linux)
+  or make the card load the project defaults.
+
+Some Linux packages start a Redis service automatically when installed; stop and
+disable it the same way if you see that error.
 
 ### First-command Redis check
 
@@ -144,8 +161,8 @@ This is a one-time advisory and never runs the package manager automatically.
 The completion marker is `~/.jarvis/redis-install-check-v1`; remove that marker
 if you intentionally want Jarvis to show the onboarding check again.
 
-> Redis connection details are intentionally internal to V2. Ensure the local service above is
-> running before launching a scan; V2 fails early with a focused connection error if it is not.
+> Redis is managed by Jarvis and is not configured in task YAML. If no Redis server
+> program is installed, `Jarvis run` fails early with a message saying so.
 
 ## Verify
 
@@ -246,11 +263,11 @@ Jarvis --version
 Jarvis --refs                        # framework and bundled-sampler citations
 
 Jarvis run quickstart.yaml           # preferred
-Jarvis run quickstart.yaml --console-level WARNING
+Jarvis run quickstart.yaml --console-level INFO   # show progress messages (default: WARNING)
 Jarvis run quickstart.yaml --silence # no console log; files under logs/<scan>/ still written
 Jarvis quickstart.yaml               # legacy alias → run
-Jarvis check path/to/check.yaml      # fixed-point calculator smoke (only check entry point)
-Jarvis validate path/to/task.yaml    # schema + contract gate
+Jarvis check path/to/check.yaml      # quick test of calculators on a few points
+Jarvis validate path/to/task.yaml    # check the card for mistakes without running
 Jarvis man                           # YAML writing manuals (keys, paths, examples)
 Jarvis man calculator.execution.output --type JSON
 Jarvis man operas                    # Operas.Modules list YAML shape
@@ -277,10 +294,11 @@ Jarvis path/to/plot.yaml --plot      # deprecated warning → prefer `Jarvis plo
 
 ## Project tools (scaffold, catalog, public / restricted packs)
 
-All packing and **encrypt/decrypt** go through the CLI. End users do **not** run `openssl`
-by hand. Design notes:
-`Jarvis-Books/Jarvis-HEP V2/components/project_tools.md` and
-`Jarvis-Examples/catalog/README.md`.
+Packing, encrypting and decrypting projects are all done with `Jarvis project`
+commands; you never need to run `openssl` yourself. The list of official
+example projects is kept in the
+[Jarvis-Examples](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples)
+repository.
 
 ### Local project
 
@@ -317,13 +335,17 @@ Jarvis project fetch Eggbox            # public — no key
 # See Key: required in the browse output
 Jarvis project browse
 
-# Decrypt + unpack (preferred)
-Jarvis project fetch SecretName --key 'YOUR_KEY'
+# Type the key without it being shown or saved in your shell history
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
 
-# Or set the key once
-export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
+# Decrypt + unpack
 Jarvis project fetch SecretName
 ```
+
+You can also pass `--key 'YOUR_KEY'`, but then the key is part of the command
+line: other users on the same machine can see it with `ps` while the command
+runs, and it is saved in your shell history. On shared machines, use the
+environment variable above.
 
 Backend: OpenSSL-compatible AES-256-CBC (PBKDF2). Jarvis uses system `openssl` if
 available, otherwise optional `pip install cryptography`. **You still only call
@@ -332,11 +354,14 @@ available, otherwise optional `pip install cryptography`. **You still only call
 ### Restricted projects — maintainers (encrypt)
 
 ```bash
+# Same key variable as for fetch
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
+
 # Pack then encrypt → *.tar.gz.jenc
-Jarvis project pack MyPrivate --repro --encrypt --key 'YOUR_KEY'
+Jarvis project pack MyPrivate --repro --encrypt
 
 # Or encrypt an existing archive
-Jarvis project encrypt MyPrivate_repro_….tar.gz --key 'YOUR_KEY'
+Jarvis project encrypt MyPrivate_repro_….tar.gz
 ```
 
 Upload the `.jenc`, register it in `Jarvis-Examples/catalog/official_project_library.json`
@@ -362,15 +387,24 @@ scenes are partial). Portal / Operas / project tools are native `Jarvis` subcomm
 
 Outputs under `outputs/<scan>/` (example scan name depends on the YAML):
 
-- `DATABASE/samples.hdf5` — full **observables** JSON rows (params + module outputs + `LogL` + optional paths)
-- `DATABASE/samples.csv` — full-column CSV export of the same records (post-run plot emit)
-- `SAMPLE/<bucket>/<uuid>/` or `SAMPLE/<bucket>.tar.gz` — per-sample artifacts (`save: true` files, logs)
-- `run_summary.json` / `.csv` / `.txt` — end-of-run counters + throughput
-- Console / main log ends with a **`[Scan Performance]`** block (`samples / sec`, `avg sample (sec)`, …)
-- Logs under `logs/<scan>/` by component: `core.log`, `worker-00.log`…, `archiver.log`
-  (style from packaged `jarvishep2/card/logging.yaml`; per-sample detail in `SAMPLE/.../Sample_running.log`)
-- Console: default **INFO** on screen; `Jarvis run … --console-level WARNING`; `--silence` / `-s` turns screen off
-- Checkpoints: `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
+- `DATABASE/samples.hdf5` — one row per evaluated point: input parameters,
+  calculator/operator outputs, `LogL`, and file paths if any
+- `DATABASE/samples.csv` — the same table as CSV, written automatically when the
+  scan finishes; run `Jarvis convert TASK.yaml` to regenerate it (for example
+  after an interrupted scan)
+- `SAMPLE/<bucket>/<uuid>/` or `SAMPLE/<bucket>.tar.gz` — files kept for each
+  point (outputs marked `save: true`, per-point logs)
+- `run_summary.json` / `.csv` / `.txt` — how many points succeeded or failed,
+  and how fast the scan ran
+- The screen output and main log end with a **`[Scan Performance]`** block
+  (`samples / sec`, `avg sample (sec)`, …)
+- Logs are under `logs/<scan>/`, one file per process: `core.log`,
+  `worker-00.log`…, `archiver.log`. The log for a single point is in
+  `SAMPLE/.../Sample_running.log`.
+- Screen messages: default level **WARNING**; use `--console-level INFO` for more
+  detail, or `--silence` / `-s` to turn screen output off. Log files always keep
+  full detail.
+- Resume data: `<project-root>/checkpoints/<scan>/<sampler>/state.pkl`
 
 ## Uninstall
 

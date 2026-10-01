@@ -77,15 +77,7 @@ Do not upload with a local token as part of the normal release process. Do not
 enable `skip-existing`: a duplicate version should fail visibly instead of
 hiding a release mistake.
 
-## Migration from the temporary `jarvishep2` distribution
-
-The temporary `jarvishep2` distribution and `Jarvis-HEP` V2 both contain the
-same `jarvishep2` Python package, so they should not coexist in one environment:
-
-```bash
-python3 -m pip uninstall jarvishep2
-python3 -m pip install --upgrade Jarvis-HEP
-```
+## Upgrading from V1
 
 Existing V1 users can upgrade directly from `Jarvis-HEP` 1.x to 2.x, but V2 is
 a major-version migration: the old `jarvishep` import package is replaced by

@@ -939,7 +939,9 @@ class WorkerMVPTests(unittest.TestCase):
             calc_pgids=[],
             reason="spawn",
         )
-        worker._file_ops = mock.Mock(pid=1, pgid=1)
+        # The heartbeat also publishes the FileOperation mode (a str on the
+        # real FileOperationService), so the stand-in must carry it too.
+        worker._file_ops = mock.Mock(pid=1, pgid=1, mode="process")
         worker._scheduler = mock.Mock()
         worker._scheduler.active_subprocess_pids.return_value = [42]
         with mock.patch(

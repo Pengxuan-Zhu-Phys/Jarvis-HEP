@@ -12,6 +12,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.events import Click, Leave, MouseMove, Resize
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
@@ -573,6 +574,17 @@ def _layers(total: list[str], detail: list[str]) -> str:
     return "\n".join([*total, "", *detail])
 
 
+def render_resource_subtitle(frame: OverviewFrame) -> str:
+    """Border text: cores in use and the process closest to its fd limit."""
+    used, available = frame.cpu_cores_used, frame.cpu_cores_available
+    if used is None or not available:
+        cores = "— cores"
+    else:
+        cores = f"{used:0.1f} / {available} cores"
+    fds = "fds —" if frame.fds_limit <= 0 else f"fds {frame.fds}/{frame.fds_limit}"
+    return f"{cores} · {fds}"
+
+
 def render_resource_row(
     inner_w: int,
     cpu: float | None,
@@ -582,7 +594,7 @@ def render_resource_row(
     """LOCKED RESOURCES inner row. See docs/TUI/STYLES.txt."""
     cpu_sfx = " —" if cpu is None else f" {cpu:0.0f}%"
     mem_known = mem_g is not None and mem_total_g is not None and mem_total_g > 0
-    mem_sfx = " —" if not mem_known else f" {mem_g:0.1f}/{mem_total_g:0.0f}G"
+    mem_sfx = " —" if not mem_known else f" ≈{mem_g:0.1f}/{mem_total_g:0.0f}G"
     inner_w = max(24, inner_w)
     dot_at = inner_w // 2
     left_w = max(8, dot_at - 2)
@@ -603,10 +615,16 @@ def render_resource_row(
 class FieldBlock(Static):
     """Rounded fieldset; ``border_title`` is the label on the top-left edge."""
 
+    class Resized(Message):
+        """Posted after layout gives this block a new size."""
+
     def __init__(self, label: str, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self.add_class("ov-block")
         self.border_title = label
+
+    def on_resize(self, _event: Resize) -> None:
+        self.post_message(self.Resized())
 
 
 @dataclass
@@ -1029,7 +1047,11 @@ class OverviewPane(Vertical):
         right_blocks_height = workers.region.y + workers.region.height - right.region.y
         difference = left_blocks_height - right_blocks_height
         for game, desired in ((left_game, max(0, -difference)), (right_game, max(0, difference))):
-            if game.region.height != desired:
+            # Compare with the requested height, not region.height: the region
+            # still shows the last layout, so a pending grow followed by a
+            # shrink back to that old size would otherwise be skipped.
+            current = game.styles.height
+            if current is None or current.value != desired:
                 game.styles.height = desired
 
     def _tick_status_breathe(self) -> None:
@@ -1111,6 +1133,13 @@ class OverviewPane(Vertical):
         calculators_widget.border_title = rendered.border_title
         calculators_widget.border_subtitle = rendered.border_subtitle
         calculators_widget.update(rendered.body)
+
+    def on_field_block_resized(self, message: FieldBlock.Resized) -> None:
+        # A block's new height is only known after layout. Syncing from
+        # set_frame alone can read the previous geometry and leave the filler
+        # at a stale height until the next frame.
+        message.stop()
+        self.call_after_refresh(self._sync_pacman_height)
 
     def on_resize(self) -> None:
         self.call_after_refresh(self._sync_pacman_height)
@@ -1223,10 +1252,7 @@ class OverviewPane(Vertical):
                     frame.mem_total_g,
                 )
             )
-            fds = "—" if frame.fds_limit <= 0 else f"{frame.fds}/{frame.fds_limit}"
-            res_widget.border_subtitle = (
-                f"{frame.cpu:0.0f}% · {frame.mem_g:0.1f}G · {fds}"
-            )
+            res_widget.border_subtitle = render_resource_subtitle(frame)
         else:
             res_widget.update(render_resource_row(inner_w, None, None, None))
             res_widget.border_subtitle = "host metrics unavailable · fds —"

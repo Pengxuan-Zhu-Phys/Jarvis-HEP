@@ -710,6 +710,37 @@ class ProjectCryptoTests(unittest.TestCase):
                 self.assertEqual(handle.read(), b"hello-jarvis-secret-payload-0123456789")
             os.unlink(out)
 
+    def test_openssl_key_is_not_on_the_command_line(self) -> None:
+        import subprocess
+
+        from jarvishep2 import project_crypto
+
+        if project_crypto._openssl_bin() is None:
+            self.skipTest("openssl is not installed")
+        key = "unit-test-key-not-in-argv"
+        calls: list[list[str]] = []
+        real_run = subprocess.run
+
+        def spy(args, **kwargs):
+            calls.append([str(arg) for arg in args])
+            return real_run(args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plain = os.path.join(tmp, "payload.tar.gz")
+            enc = plain + ".jenc"
+            out = os.path.join(tmp, "roundtrip")
+            with open(plain, "wb") as handle:
+                handle.write(b"payload")
+            with mock.patch.object(project_crypto.subprocess, "run", side_effect=spy):
+                project_crypto.encrypt_file(plain, enc, key=key)
+                project_crypto.decrypt_file(enc, out, key=key)
+            with open(out, "rb") as handle:
+                self.assertEqual(handle.read(), b"payload")
+        self.assertEqual(len(calls), 2)
+        for argv in calls:
+            self.assertFalse(any(key in arg for arg in argv), argv)
+        self.assertNotIn(project_crypto._OPENSSL_PASS_ENV, os.environ)
+
     def test_fetch_encrypted_archive_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             # Build a tiny project tarball then encrypt it.

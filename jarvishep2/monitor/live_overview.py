@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import time
 from typing import Any
 
@@ -116,20 +116,18 @@ class LiveOverviewProjector:
         cpu_reading = _float(host.get("cpu_percent"))
         memory_used = max(0, _int(host.get("memory_used")))
         memory_total = max(0, _int(host.get("memory_total")))
-        resources_available = (
-            bool(host.get("available"))
-            and cpu_reading is not None
-            and memory_total > 0
-        )
-        cpu = cpu_reading or 0.0
+        # CPU is unknown on the first refresh; the block still shows memory.
+        resources_available = bool(host.get("available")) and memory_total > 0
+        cores_used = _float(host.get("cpu_cores_used"))
+        cores_available = max(0, _int(host.get("cpu_cores_available")))
         processes = [row for row in host.get("processes", ()) if isinstance(row, dict)]
-        fds = sum(max(0, _int(row.get("fds"))) for row in processes)
-        fd_limits = [
-            max(0, _int(row.get("fd_limit")))
-            for row in processes
-            if _int(row.get("fd_limit")) > 0
-        ]
-        fds_limit = sum(fd_limits) if fd_limits else 0
+        # Each process has its own descriptor limit, so report the one closest
+        # to running out rather than a sum across processes.
+        fds, fds_limit = 0, 0
+        for row in processes:
+            used, limit = max(0, _int(row.get("fds"))), max(0, _int(row.get("fd_limit")))
+            if limit and (not fds_limit or used / limit > fds / fds_limit):
+                fds, fds_limit = used, limit
 
         core = frame.proc_core
         mode = str(core.get("scan_mode") or core.get("status") or "unknown").lower()
@@ -138,7 +136,7 @@ class LiveOverviewProjector:
         started = (
             "—"
             if started_at is None
-            else datetime.fromtimestamp(started_at, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            else datetime.fromtimestamp(started_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         )
         health = self._health_items(frame, now=now)
         if not frame.stale:
@@ -180,7 +178,9 @@ class LiveOverviewProjector:
             workers_total=workers_total,
             stale=stale_workers,
             busy=busy,
-            cpu=cpu,
+            cpu=cpu_reading,
+            cpu_cores_used=cores_used,
+            cpu_cores_available=cores_available or None,
             mem_g=memory_used / 1024**3,
             mem_total_g=memory_total / 1024**3,
             method=sampler.method,

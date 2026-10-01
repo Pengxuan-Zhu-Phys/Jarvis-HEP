@@ -130,7 +130,10 @@ class AsyncSubprocessSchedulerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 127)
         self.assertEqual(result.cwd, "/tmp")
         self.assertEqual(result.cmd_display, "./definitely_missing_jarvis_bin")
-        self.assertIn("No such file", result.stderr_tail)
+        # Commands run through /bin/sh, whose wording differs: bash says "No
+        # such file or directory", dash (Debian/Ubuntu) says "not found".
+        # Both name the missing command, which is what the tail must keep.
+        self.assertIn("definitely_missing_jarvis_bin", result.stderr_tail)
 
     def test_snapshot_tracks_pending_and_peak_running(self) -> None:
         delay = 0.3

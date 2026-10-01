@@ -39,12 +39,24 @@ def test_pacman_follows_shorter_column_and_disappears_when_equal():
                         frame,
                         calculator_block=CalculatorsBlockData(frame.calculator_block.pools[:count]),
                     ))
-                    # Allow the newly visible board's first animation tick.
-                    await pilot.pause(0.2)
                     left = pane.query_one("#ov-pacman-left")
                     right = pane.query_one("#ov-pacman")
                     calcs = pane.query_one("#ov-calcs")
                     workers = pane.query_one("#ov-workers")
+                    # The filler height is set after a refresh and applied on
+                    # the next layout pass, and a newly visible board paints on
+                    # its first animation tick. Wait for that instead of a fixed
+                    # delay, which a busy machine can overrun.
+                    for _ in range(40):
+                        await pilot.pause(0.05)
+                        difference = workers.region.bottom - calcs.region.bottom
+                        game = left if difference > 0 else right
+                        if (
+                            left.region.height == max(0, difference)
+                            and right.region.height == max(0, -difference)
+                            and (not difference or "·" in str(game.render()))
+                        ):
+                            break
                     difference = workers.region.bottom - calcs.region.bottom
                     assert left.region.height == max(0, difference)
                     assert right.region.height == max(0, -difference)

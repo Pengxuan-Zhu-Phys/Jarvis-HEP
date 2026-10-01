@@ -201,15 +201,15 @@ class _RuntimeSupervisor:
             core.redis = RedisQueue(redis_config, client=client)
         else:
             core.redis = RedisQueue(redis_config)
-        core.redis.connect()
+        from redis.exceptions import ConnectionError as RedisConnectionError
+
         try:
+            core.redis.connect()
             core.redis.ping()
-        except Exception as exc:
-            host = redis_config.get("host", "127.0.0.1")
-            port = redis_config.get("port", 6379)
+        except (ConnectionError, RedisConnectionError) as exc:
             raise RuntimeError(
-                f"internal Redis is unavailable at {host}:{port}; "
-                "install redis-server or start a local Redis service"
+                f"{exc}. Jarvis starts its own Redis for each scan; check the warnings "
+                "above for why it could not start"
             ) from exc
         return core.redis
 
@@ -222,6 +222,7 @@ class _RuntimeSupervisor:
             redis_port_open,
             update_default_redis_port,
         )
+        from jarvishep2.queue.redis_server import RedisServerNotFoundError
 
         if core._managed_redis is not None and core._managed_redis.started_by_us:
             return
@@ -232,10 +233,22 @@ class _RuntimeSupervisor:
         if redis_port_open(host, requested_port):
             defaults_path = core.config.get("environment_defaults_path")
             if not defaults_path or core.config.get("redis_port_task_override"):
+                if core.config.get("redis_port_task_override"):
+                    fix = (
+                        "Remove EnvReqs.V2.redis.port from the task YAML so Jarvis can "
+                        "pick a free port in the project's default environment YAML."
+                    )
+                else:
+                    fix = (
+                        "Stop that program (for example a Redis service you started "
+                        "yourself), or use a task card that loads the project's default "
+                        "environment (EnvReqs.Check_default_dependencies.default_yaml_path, "
+                        "as in the cards made by `Jarvis project create`); Jarvis then "
+                        "picks a free port."
+                    )
                 raise RuntimeError(
-                    f"Redis port {host}:{requested_port} is already in use. "
-                    "Set EnvReqs.V2.redis.port in the project default environment YAML "
-                    "(not in the task YAML) to enable automatic port reassignment."
+                    f"Redis port {host}:{requested_port} is already used by another "
+                    f"program. Jarvis starts its own Redis for each scan. {fix}"
                 )
             selected_port = find_available_redis_port(host, requested_port + 1)
             update_default_redis_port(str(defaults_path), selected_port)
@@ -269,6 +282,8 @@ class _RuntimeSupervisor:
                 work_dir=work_dir,
                 force_start=reassigned,
             )
+        except RedisServerNotFoundError:
+            raise
         except Exception as exc:
             if reassigned:
                 raise RuntimeError(
