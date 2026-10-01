@@ -35,7 +35,8 @@ Task YAML → sampler → Redis → Workers → Archiver
 Requirements:
 
 - Python 3.10 or newer
-- Redis for distributed runs; V2 uses the local `127.0.0.1:6379` service
+- The Redis server program (`redis-server`, or the compatible `valkey-server`)
+  installed on the machine. You do not need to start it: see below.
 
 From PyPI:
 
@@ -56,13 +57,18 @@ python3 -m pip install -e .
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
-Start Redis before a real scan. For example, on macOS:
+Install Redis, but do not start it as a service. Jarvis starts its own Redis
+server for each scan and stops it when the scan ends. For example, on macOS:
 
 ```bash
-brew install redis
-brew services start redis
-redis-cli ping       # PONG
+brew install redis   # install only; no `brew services start redis`
 ```
+
+If another Redis is already running on port 6379 (for example one started with
+`brew services start redis`), Jarvis cannot use that port. Inside a project
+created with `Jarvis project create`, it picks the next free port and writes
+it into `deps/environment_default.yaml`. A task card outside a project stops
+with a "port is already used by another program" error instead.
 
 On the first `Jarvis` command after installation, Jarvis checks whether a
 Redis-compatible server executable (`redis-server`, `redis6-server`, or

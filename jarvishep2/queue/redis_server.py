@@ -30,6 +30,10 @@ from jarvishep2.proc_title import redis_title
 _REDIS_SERVER_BINARIES = ("redis-server", "redis6-server", "valkey-server")
 
 
+class RedisServerNotFoundError(RuntimeError):
+    """No redis-server compatible executable is installed."""
+
+
 def redis_port_open(host: str, port: int, *, timeout: float = 0.35) -> bool:
     """Return True when a TCP connect to host:port succeeds."""
     try:
@@ -170,8 +174,12 @@ class ManagedRedisServer:
 
         binary = find_redis_server_binary()
         if not binary:
-            raise RuntimeError(
-                "redis-server not found on PATH; install Redis or start a local service"
+            raise RedisServerNotFoundError(
+                "no Redis server program found on PATH (looked for "
+                + ", ".join(_REDIS_SERVER_BINARIES)
+                + "). Install one, e.g. `brew install redis` or "
+                "`sudo apt install redis-server`. Jarvis starts and stops it for each "
+                "scan; you do not need to run it as a service."
             )
         self.binary = binary
 
@@ -338,6 +346,7 @@ def ensure_local_redis(
 
 __all__ = [
     "ManagedRedisServer",
+    "RedisServerNotFoundError",
     "ensure_local_redis",
     "find_redis_server_binary",
     "redis_port_open",

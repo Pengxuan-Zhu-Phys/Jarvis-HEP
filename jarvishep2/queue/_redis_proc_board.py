@@ -30,8 +30,8 @@ from jarvishep2.queue.redis_queue import (
 
 
 _BLMOVE_REQUIRED = (
-    "Jarvis-HEP D26.1 requires BLMOVE (Redis/Valkey ≥ 6.2); "
-    "Ubuntu 22.04 redis-server is 6.0. Install Redis ≥ 6.2 or valkey-server."
+    "Jarvis-HEP needs Redis or Valkey 6.2 or newer (it uses the BLMOVE command). "
+    "Ubuntu 22.04's redis-server package is 6.0; install a newer Redis or valkey-server."
 )
 _BLMOVE_UNSUPPORTED = object()
 _INFLIGHT_SCAN_MATCH = "hep:inflight:*"
@@ -486,6 +486,15 @@ class _ProcBoard:
         """COMMAND INFO BLMOVE (or INFO redis_version ≥ 6.2). Fail fast."""
         self._require_client()
         client = self.r
+        # A server that does not answer at all must not be reported as too old.
+        try:
+            client.ping()
+        except Exception as exc:
+            config = dict(getattr(self, "config", {}) or {})
+            endpoint = config.get("url") or (
+                f"{config.get('host', 'localhost')}:{config.get('port', 6379)}"
+            )
+            raise ConnectionError(f"cannot reach Redis at {endpoint}: {exc}") from exc
         for name in ("BLMOVE", "blmove"):
             try:
                 info = client.execute_command("COMMAND", "INFO", name)

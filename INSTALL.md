@@ -8,9 +8,10 @@ command. For the fields you can use in a task YAML, run `Jarvis man` or see the
 ## Requirements
 
 - **Python ≥ 3.10** (Workers use the `spawn` multiprocessing context; macOS and Linux supported)
-- **Redis server** for distributed runs. V2 connects internally to the local
-  `127.0.0.1:6379` service; it is not configured in task YAML. Tests do *not* need one — the
-  suite runs on `fakeredis`.
+- **Redis server program** (`redis-server`, `redis6-server`, or the compatible
+  `valkey-server`) installed on the machine. Jarvis starts and stops its own Redis
+  for each scan, so you do not run a Redis service yourself. Tests do *not* need
+  one — the suite runs on `fakeredis`.
 
 ## Install
 
@@ -89,14 +90,33 @@ running it.
 
 ## Redis
 
+Jarvis uses Redis to pass work between its processes. You only need to
+**install** the Redis server program; do **not** start it as a service:
+
 ```bash
 # macOS
-brew install redis && brew services start redis
-# or containerized
-docker run -d --name jarvis-redis -p 6379:6379 redis:7
-# sanity check
-redis-cli ping        # → PONG
+brew install redis            # no `brew services start redis`
+# Ubuntu / Debian
+sudo apt install -y redis-server
 ```
+
+For every scan, Jarvis starts its own Redis server on the local machine (it
+shows up as `Jarvis-Redis:<scan>` in `Jarvis ps`) and stops it when the scan
+ends or you press Ctrl+C.
+
+The port comes from `EnvReqs.V2.redis.port` in the project's
+`deps/environment_default.yaml` (default 6379). If something else already uses
+that port, for example a Redis service you started yourself:
+
+- inside a project made with `Jarvis project create`, Jarvis picks the next free
+  port, writes it into `deps/environment_default.yaml`, and prints a warning;
+- for a task card outside a project, the run stops with
+  `Redis port 127.0.0.1:6379 is already used by another program`. Stop the other Redis
+  (`brew services stop redis`, or `sudo systemctl stop redis-server` on Linux)
+  or run the card from inside a project.
+
+Some Linux packages start a Redis service automatically when installed; stop and
+disable it the same way if you see that error.
 
 ### First-command Redis check
 
@@ -139,8 +159,8 @@ This is a one-time advisory and never runs the package manager automatically.
 The completion marker is `~/.jarvis/redis-install-check-v1`; remove that marker
 if you intentionally want Jarvis to show the onboarding check again.
 
-> Redis connection details are intentionally internal to V2. Ensure the local service above is
-> running before launching a scan; V2 fails early with a focused connection error if it is not.
+> Redis is managed by Jarvis and is not configured in task YAML. If no Redis server
+> program is installed, `Jarvis run` fails early with a message saying so.
 
 ## Verify
 
