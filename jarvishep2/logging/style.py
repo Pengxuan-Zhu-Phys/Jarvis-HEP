@@ -21,6 +21,17 @@ _DEFAULT_STYLE: dict[str, Any] = {
         "hdf5_writer_module": "Jarvis-HEP.DataRecorder",
         "head": "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n",
         "append_context": True,
+        # Console color of the module label, per component. Jarvis yellow and
+        # Jarvis blue (the logo colors) belong to the control process and the
+        # samplers; other components must not reuse them.
+        "module_colors": {
+            "core": "#f6d33f",
+            "sampler": "#2f7fd8",
+            "factory": "#d670d6",
+            "archiver": "#35c98a",
+            "datarecorder": "#35c98a",
+            "worker": "#a78bfa",
+        },
     },
     "sample": {
         "date_format": "%m-%d %H:%M:%S.%f",

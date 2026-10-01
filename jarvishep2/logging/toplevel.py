@@ -296,6 +296,25 @@ def format_record_context(record: logging.LogRecord) -> str:
     return " ".join(parts)
 
 
+def _default_module_colors() -> dict[str, str]:
+    from jarvishep2.logging.style import _DEFAULT_STYLE
+
+    return dict(_DEFAULT_STYLE["process"]["module_colors"])
+
+
+_DEFAULT_MODULE_COLORS = _default_module_colors()
+
+
+def _ansi_truecolor(hex_color: str) -> str:
+    """``#rrggbb`` → 24-bit ANSI foreground; unknown values fall back to Jarvis yellow."""
+    text = str(hex_color or "").strip().lstrip("#")
+    try:
+        red, green, blue = (int(text[index : index + 2], 16) for index in (0, 2, 4))
+    except ValueError:
+        red, green, blue = 0xF6, 0xD3, 0x3F
+    return f"\033[38;2;{red};{green};{blue}m"
+
+
 class JarvisContextFormatter(logging.Formatter):
     """Process-log formatter driven by ``card/logging.yaml`` (default = V1 look)."""
 
@@ -329,6 +348,15 @@ class JarvisContextFormatter(logging.Formatter):
         if name.startswith(f"{JARVIS_HEP_LOG_DOMAIN}."):
             return name[len(JARVIS_HEP_LOG_DOMAIN) + 1 :] or name
         return name or "Jarvis-HEP"
+
+    def _module_color(self, record: logging.LogRecord, module: str) -> str:
+        """ANSI color for the module label, chosen by component."""
+        colors = dict(_DEFAULT_MODULE_COLORS)
+        configured = self._style.get("module_colors")
+        if isinstance(configured, Mapping):
+            colors.update({str(key): str(value) for key, value in configured.items()})
+        component = "worker" if module.startswith("Sample@") else resolve_record_component(record)
+        return _ansi_truecolor(colors.get(component) or colors["core"])
 
     def format(self, record: logging.LogRecord) -> str:
         if bool(getattr(record, "raw", False)):
@@ -370,7 +398,8 @@ class JarvisContextFormatter(logging.Formatter):
         )
 
         if self.colorize and sys.stderr.isatty():
-            cyan, green, reset = "\033[36m", "\033[32m", "\033[0m"
+            module_color = self._module_color(record, module)
+            green, reset = "\033[32m", "\033[0m"
             level_colors = {
                 "DEBUG": "\033[36m",
                 "INFO": "\033[32m",
@@ -382,7 +411,7 @@ class JarvisContextFormatter(logging.Formatter):
             # Colorize module/timestamp/level inside the configured head template.
             head = head_tmpl.format(
                 bullet=bullet,
-                module=f"{cyan}{module}{reset}",
+                module=f"{module_color}{module}{reset}",
                 timestamp=f"{green}{timestamp}{reset}",
                 level=f"{level_color}{level}{reset}" if level_color else level,
                 message="",

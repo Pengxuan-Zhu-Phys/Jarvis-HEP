@@ -228,7 +228,7 @@ class Jarvis2Core:
         self._logger = get_jarvis_logger("core")
         try:
             self._logger.warning("\n" + render_logo_with_version())
-            self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
+            self._logger.warning("Jarvis-HEP V2 logging system initialized successfully!")
             self._logger.info(
                 "component logs under %s "
                 "(core.log, factory.log, sampler.log, archiver.log, "

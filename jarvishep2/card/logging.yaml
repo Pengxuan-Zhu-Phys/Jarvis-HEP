@@ -14,6 +14,16 @@ process:
   head: "\n{bullet} {module} \n\t-> {timestamp} - [{level}] >>> \n"
   # If true, append trailing key=value context from LogRecord extras.
   append_context: true
+  # Console color of the module label, per component (files are never colored).
+  # Jarvis yellow and Jarvis blue (the logo colors) are reserved for the control
+  # process and the samplers; give other components their own colors.
+  module_colors:
+    core: "#f6d33f"          # Jarvis yellow — Jarvis-HEP
+    sampler: "#2f7fd8"       # Jarvis blue   — Jarvis-HEP.Sampler.*
+    factory: "#d670d6"       # Jarvis-HEP.Factory
+    archiver: "#35c98a"      # Jarvis-HEP.Archiver
+    datarecorder: "#35c98a"  # Jarvis-HEP.DataRecorder (Ϡ bullet)
+    worker: "#a78bfa"        # Jarvis-HEP.Worker.NN and Sample@…
 
 sample:
   date_format: "%m-%d %H:%M:%S.%f"

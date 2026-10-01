@@ -569,3 +569,42 @@ print("OK")
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModuleLabelColorTests(unittest.TestCase):
+    """Console label colors: Jarvis yellow for control, Jarvis blue for samplers."""
+
+    def _label_color(self, logger_name: str, module: str) -> str:
+        from unittest import mock
+
+        from jarvishep2.logging import JarvisContextFormatter
+
+        record = logging.LogRecord(logger_name, logging.WARNING, __file__, 1, "hello", None, None)
+        record.jarvis_module = module
+        with mock.patch("sys.stderr.isatty", return_value=True):
+            text = JarvisContextFormatter(colorize=True).format(record)
+        start = text.index("\033[38;2;")
+        return text[start : text.index("m", start) + 1]
+
+    def test_jarvis_yellow_and_blue_are_reserved(self) -> None:
+        yellow = "\033[38;2;246;211;63m"
+        blue = "\033[38;2;47;127;216m"
+        self.assertEqual(self._label_color("jarvis_hep.core", "Jarvis-HEP"), yellow)
+        self.assertEqual(
+            self._label_color("jarvis_hep.sampler.random", "Jarvis-HEP.Sampler.Random"), blue
+        )
+        others = {
+            self._label_color("jarvis_hep.factory", "Jarvis-HEP.Factory"),
+            self._label_color("jarvis_hep.archiver", "Jarvis-HEP.Archiver"),
+            self._label_color("jarvis_hep.worker", "Jarvis-HEP.Worker.00"),
+        }
+        self.assertNotIn(yellow, others)
+        self.assertNotIn(blue, others)
+        self.assertEqual(len(others), 3)
+
+    def test_file_output_has_no_color(self) -> None:
+        from jarvishep2.logging import JarvisContextFormatter
+
+        record = logging.LogRecord("jarvis_hep.core", logging.WARNING, __file__, 1, "hello", None, None)
+        record.jarvis_module = "Jarvis-HEP"
+        self.assertNotIn("\033[", JarvisContextFormatter(colorize=False).format(record))

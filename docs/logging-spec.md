@@ -43,7 +43,26 @@ On the console the module label, timestamp, and level are colored. Log files
 must not contain color codes. (Today the logo banner at the top of
 `core.log` still does; see §4.)
 
-### 1.2 How to get a logger
+### 1.2 Colors
+
+The module label is colored by component. **Jarvis yellow and Jarvis blue are
+the Jarvis colors (from the logo) and have top priority**: they belong to the
+control process and the samplers, and no other component may use them.
+
+| Component | Label | Color |
+| --- | --- | --- |
+| Control process | `Jarvis-HEP` | Jarvis yellow `#f6d33f` |
+| Samplers | `Jarvis-HEP.Sampler.*` | Jarvis blue `#2f7fd8` |
+| Factory | `Jarvis-HEP.Factory` | magenta `#d670d6` |
+| Archiver | `Jarvis-HEP.Archiver` | green `#35c98a` |
+| DATABASE writer | `Jarvis-HEP.DataRecorder` | green `#35c98a` (told apart by the `Ϡ` bullet) |
+| Workers and samples | `Jarvis-HEP.Worker.NN`, `Sample@…` | lavender `#a78bfa` |
+
+The timestamp stays green and the level keeps its level color, as in V1.
+Colors are set in `card/logging.yaml` under `process.module_colors`; a new
+component gets its own entry there, never a reuse of yellow or blue.
+
+### 1.3 How to get a logger
 
 Always log through the Jarvis logger. Never use `print()` or a bare
 `logging.getLogger()` for anything a user should see.
@@ -70,7 +89,7 @@ The logger name decides the file (`sampler.*` → `sampler.log`); a
 `Jarvis-HEP.Sampler…` label also routes there. A sampler that logs under any
 other name ends up in `core.log` instead of `sampler.log`.
 
-### 1.3 Levels
+### 1.4 Levels
 
 Jarvis uses levels the way V1 did. The screen shows WARNING and above by
 default; files keep everything from DEBUG up.
@@ -93,15 +112,17 @@ Rules:
   traceback goes to the file; keep the first line of the message short and
   readable.
 
-### 1.4 Message wording
+### 1.5 Message wording
 
-Keep the V1 phrasing. A user who knows one sampler's log can read any other.
+Keep the V1 phrasing, with V1's spelling mistakes corrected (`initializaing`
+→ `initializing`, `submited` → `submitted`). A user who knows one sampler's
+log can read any other.
 
 | Purpose | Pattern (V1 wording) | Example |
 | --- | --- | --- |
 | Start | `Initializing the <Method> Sampling` | `Initializing the Bridson Sampling` |
 | Ready to submit | `WorkerFactory is ready for <Method> sampler` | `WorkerFactory is ready for Grid sampler` |
-| Progress | `<‰>‰ of <done>/<total> <what> in <HH:MM:SS.mmm>` | `250‰ of 1000/4000 samples submited in 00:00:12.481` |
+| Progress | `<‰>‰ of <done>/<total> <what> in <HH:MM:SS.mmm>` | `250‰ of 1000/4000 samples submitted in 00:00:12.481` |
 | One-line facts | `<Subject> -> <key> -> <value> \| <key> -> <value>` | `DRAM Chain -> 3 \| accept rate -> 0.27 \| stage-2 accepts -> 41` |
 | Table block | `<Title> ->` followed by a two-column table from `format_two_column_log` | `Random Sampler Summary ->` + table |
 | Result | `<Method> Sampler obtains <N> samples in <T>` | `Grid Sampler obtains 4000 samples in 00:01:12.004` |
@@ -189,14 +210,12 @@ Gaps that affect every sampler:
   checks that `sampler.log` contains S1, S2, S3, S9 and S10 in the Jarvis
   layout. A sampler that skips them, built-in or plug-in, fails the test.
 
-## Open decisions
+## Decisions
 
-These are differences between V1 and the current V2 output, left for the
-maintainer to decide:
+Settled by the maintainer (2026-10):
 
-1. **Sampler label.** V1 used `Jarvis-HEP.<Method>` (e.g. `Jarvis-HEP.Bridson`);
-   V2 uses `Jarvis-HEP.Sampler.<Method>`.
-2. **Label colors.** V1 colored the module label per component (core cyan,
-   sampler red, factory magenta); V2 uses cyan for all.
-3. **Typos kept from V1.** V1 logs `Sampling method initializaing ...` and
-   `samples submited`. Keep them for continuity, or correct them.
+1. **Sampler label**: `Jarvis-HEP.Sampler.<Method>` (V2), not V1's
+   `Jarvis-HEP.<Method>`.
+2. **Colors**: per component, with Jarvis yellow for the control process and
+   Jarvis blue for samplers (§1.2).
+3. **V1 spelling mistakes are corrected**; the V1 wording is kept otherwise.

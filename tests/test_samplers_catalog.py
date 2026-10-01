@@ -314,7 +314,7 @@ class GridSamplerUnitTests(unittest.TestCase):
         self.assertEqual(next_sample.sample_index, 2)
 
     def test_bridson_prefix_replay_suppresses_submit_progress(self) -> None:
-        """D21.14: local resume replay must not log 'samples submited' ‰ lines."""
+        """D21.14: local resume replay must not log 'samples submitted' ‰ lines."""
         from jarvishep2.Sampling.bridson import Bridson
 
         sampler = Bridson()
@@ -364,7 +364,7 @@ class GridSamplerUnitTests(unittest.TestCase):
             advanced = sampler.advance_to_persisted_prefix(target)
         self.assertEqual(advanced, target)
         self.assertFalse(
-            any("submited" in msg or "submitted" in msg for msg in messages),
+            any("submitted" in msg for msg in messages),
             messages,
         )
         self.assertEqual(sampler.barinfo, {})
@@ -376,7 +376,7 @@ class GridSamplerUnitTests(unittest.TestCase):
         ):
             sample = sampler.propose_next()
         self.assertIsNotNone(sample)
-        self.assertTrue(any("submited" in msg for msg in messages), messages)
+        self.assertTrue(any("submitted" in msg for msg in messages), messages)
 
     def test_restore_point_advances_only_after_batch_is_persisted(self) -> None:
         sampler = Grid()
@@ -587,7 +587,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         self.assertTrue(all(p <= sampler._max_inflight for p in peaks))
 
     def test_submit_progress_heartbeat_logs_permille(self) -> None:
-        """V1-style ``N‰ of i/N samples submited`` heartbeat while proposing."""
+        """V1-style ``N‰ of i/N samples submitted`` heartbeat while proposing."""
         sampler = Bridson()
         sampler.set_config(
             {
@@ -639,7 +639,7 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         progress_lines = [
             line
             for line in info_messages + warning_messages
-            if "‰ of" in line and "samples submited" in line
+            if "‰ of" in line and "samples submitted" in line
         ]
         self.assertTrue(progress_lines, "expected Bridson submit progress heartbeats")
         self.assertTrue(any(line.startswith("0‰ of") for line in progress_lines))

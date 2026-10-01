@@ -223,8 +223,8 @@ class Bridson(FixedSetSampler):
             return
 
         def _log_progress(permille: int) -> None:
-            # Keep V1 wording (including the historical "submited" spelling).
-            msg = "{}‰ of {}/{} samples submited in {}".format(
+            # V1 wording, with the V1 spelling "submited" corrected.
+            msg = "{}‰ of {}/{} samples submitted in {}".format(
                 permille,
                 int(self._index),
                 total,
