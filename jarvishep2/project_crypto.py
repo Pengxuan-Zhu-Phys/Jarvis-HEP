@@ -27,6 +27,9 @@ ENCRYPTION_SCHEME_NONE = "none"
 PROJECT_FETCH_KEY_ENV = "JARVIS_PROJECT_FETCH_KEY"
 # OpenSSL 1.1.1+ / 3.x default for ``enc -pbkdf2`` without -iter
 _OPENSSL_PBKDF2_ITERS = 10000
+# The key reaches openssl through the child's environment, never its argv:
+# command lines are visible to every user on the host via ``ps``.
+_OPENSSL_PASS_ENV = "JARVIS_OPENSSL_PASSPHRASE"
 
 
 class ProjectCryptoError(RuntimeError):
@@ -55,6 +58,12 @@ def _openssl_bin() -> str | None:
     return shutil.which("openssl")
 
 
+def _openssl_env(passphrase: str) -> dict[str, str]:
+    env = dict(os.environ)
+    env[_OPENSSL_PASS_ENV] = passphrase
+    return env
+
+
 def _crypto_backend_hint() -> str:
     return (
         "Restricted project crypto needs either `openssl` on PATH "
@@ -80,10 +89,11 @@ def _encrypt_with_openssl(plain: str, out: str, passphrase: str) -> None:
                 "-out",
                 out,
                 "-pass",
-                f"pass:{passphrase}",
+                f"env:{_OPENSSL_PASS_ENV}",
             ],
             check=True,
             capture_output=True,
+            env=_openssl_env(passphrase),
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()
@@ -107,10 +117,11 @@ def _decrypt_with_openssl(enc: str, out: str, passphrase: str) -> None:
                 "-out",
                 out,
                 "-pass",
-                f"pass:{passphrase}",
+                f"env:{_OPENSSL_PASS_ENV}",
             ],
             check=True,
             capture_output=True,
+            env=_openssl_env(passphrase),
         )
     except subprocess.CalledProcessError as exc:
         detail = (exc.stderr or b"").decode("utf-8", errors="replace").strip()

@@ -107,20 +107,26 @@ pack:
 Do **not** run `openssl` by hand. Use:
 
 ```bash
+# Type the key without it being shown or saved in your shell history
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
+
 # Pack + encrypt → *.tar.gz.jenc
-Jarvis project pack . --repro --encrypt --key 'YOUR_KEY'
+Jarvis project pack . --repro --encrypt
 
 # Or encrypt an existing tarball
-Jarvis project encrypt path/to/archive.tar.gz --key 'YOUR_KEY'
+Jarvis project encrypt path/to/archive.tar.gz
 ```
 
 Collaborators fetch with:
 
 ```bash
 Jarvis project browse
-Jarvis project fetch YourProjectName --key 'YOUR_KEY'
-# or: export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
+Jarvis project fetch YourProjectName
 ```
+
+`--key 'YOUR_KEY'` also works, but puts the key on the command line, where
+other users of the machine can see it with `ps` and your shell history keeps it.
 
 The list of official example projects (public and restricted) is kept in the
 [Jarvis-Examples](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples)

@@ -313,13 +313,17 @@ Jarvis project fetch Eggbox            # public — no key
 # See Key: required in the browse output
 Jarvis project browse
 
-# Decrypt + unpack (preferred)
-Jarvis project fetch SecretName --key 'YOUR_KEY'
+# Type the key without it being shown or saved in your shell history
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
 
-# Or set the key once
-export JARVIS_PROJECT_FETCH_KEY='YOUR_KEY'
+# Decrypt + unpack
 Jarvis project fetch SecretName
 ```
+
+You can also pass `--key 'YOUR_KEY'`, but then the key is part of the command
+line: other users on the same machine can see it with `ps` while the command
+runs, and it is saved in your shell history. On shared machines, use the
+environment variable above.
 
 Backend: OpenSSL-compatible AES-256-CBC (PBKDF2). Jarvis uses system `openssl` if
 available, otherwise optional `pip install cryptography`. **You still only call
@@ -328,11 +332,14 @@ available, otherwise optional `pip install cryptography`. **You still only call
 ### Restricted projects — maintainers (encrypt)
 
 ```bash
+# Same key variable as for fetch
+read -rs JARVIS_PROJECT_FETCH_KEY && export JARVIS_PROJECT_FETCH_KEY
+
 # Pack then encrypt → *.tar.gz.jenc
-Jarvis project pack MyPrivate --repro --encrypt --key 'YOUR_KEY'
+Jarvis project pack MyPrivate --repro --encrypt
 
 # Or encrypt an existing archive
-Jarvis project encrypt MyPrivate_repro_….tar.gz --key 'YOUR_KEY'
+Jarvis project encrypt MyPrivate_repro_….tar.gz
 ```
 
 Upload the `.jenc`, register it in `Jarvis-Examples/catalog/official_project_library.json`
