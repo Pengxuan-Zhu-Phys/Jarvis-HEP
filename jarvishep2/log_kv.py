@@ -5,7 +5,42 @@ from __future__ import annotations
 
 import textwrap
 import time
+import traceback
 from typing import Any, Iterable
+
+
+def is_expected_failure(exc: BaseException) -> bool:
+    """True for failures whose message already says everything.
+
+    A calculator command that exits non-zero or times out is reported with its
+    command, folder and output; a Python traceback adds nothing there.
+    """
+    import asyncio
+    import concurrent.futures
+
+    from jarvishep2.async_subprocess import SubprocessExecutionError
+
+    return isinstance(
+        exc,
+        (
+            SubprocessExecutionError,
+            TimeoutError,
+            asyncio.TimeoutError,
+            concurrent.futures.TimeoutError,
+        ),
+    )
+
+
+def failure_traceback(exc: BaseException | str | None) -> str:
+    """Traceback text for an unexpected failure, or ``""``.
+
+    For loggers that cannot take ``exc_info`` (the per-sample log).
+    """
+    if not isinstance(exc, BaseException) or is_expected_failure(exc):
+        return ""
+    if exc.__traceback__ is None:
+        return ""
+    return "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).rstrip()
 
 
 def format_duration(seconds: float) -> str:

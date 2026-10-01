@@ -14,6 +14,7 @@ from uuid import uuid4
 import numpy as np
 
 from jarvishep2.runtime_config import should_eager_materialize, should_materialize_on_failure
+from jarvishep2.log_kv import failure_traceback
 from jarvishep2.sample_logger import BufferedSampleLogger, NullSampleLogger, SampleLogger
 
 
@@ -70,6 +71,12 @@ _INFO_PROJECTION_KEYS = (
     "failed_module",
 )
 _TIMING_KEYS = ("elapsed_s", "started_at", "finished_at")
+
+
+def _failure_message(error: BaseException | str | None) -> str | None:
+    if error is None:
+        return None
+    return f"Sample failed -> {error}"
 
 
 @runtime_checkable
@@ -524,10 +531,23 @@ class Sample:
         if self._materialized and self.info.get("save_dir"):
             return str(self.info["save_dir"])
 
-        message = None
-        if error is not None:
-            message = f"Sample failed -> {error}"
+        message = _failure_message(error)
         return self.materialize(failure_message=message)
+
+    def log_failure_traceback(self, error: BaseException | str | None) -> None:
+        """Write the traceback of an unexpected failure to this sample's log.
+
+        File only: the screen already shows the one-line failure.
+        """
+        trace = failure_traceback(error)
+        if not trace:
+            return
+        logger = self._active_logger()
+        if logger is None:
+            return
+        logger.bind(to_console=False, sample_log_to_console=False).error(
+            "Traceback of the failure ->\n" + trace
+        )
 
     def _mirror_fields_to_info(self) -> None:
         """Project field SSOT into ``info`` (D9.6).
@@ -634,7 +654,7 @@ class Sample:
     def start(self) -> None:
         logger = self._active_logger()
         if logger is not None:
-            logger.info("Sample -> {} is ready for submittion".format(self.uuid))
+            logger.info("Sample -> {} is ready for submission".format(self.uuid))
         self.set_status("Running")
         if self._with_nuisance and isinstance(self.info, dict):
             self.info.setdefault("nuisance", {})
@@ -822,9 +842,7 @@ def materialize_failure_artifacts(
     if sample_info.get("_materialized") and sample_info.get("save_dir"):
         return str(sample_info["save_dir"])
 
-    message = None
-    if error is not None:
-        message = f"Sample failed -> {error}"
+    message = _failure_message(error)
 
     return ensure_sample_materialized(sample_info, failure_message=message)
 

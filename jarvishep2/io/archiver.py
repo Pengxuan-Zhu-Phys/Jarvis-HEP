@@ -717,6 +717,15 @@ class SimpleArchiver:
     def _run_loop(self) -> None:
         # Thread shares the control process title; only Process-mode Archiver
         # renames the OS process. Keep this loop name for debugger visibility.
+        try:
+            self._run_loop_body()
+        except Exception as exc:
+            self._logger.error(
+                "Archiver meets error when archiving results -> %s", exc, exc_info=True
+            )
+            raise
+
+    def _run_loop_body(self) -> None:
         timeout = max(1, int(round(self.poll_timeout)))
         while not self._stop_event.is_set():
             result = self.redis.pull_result(timeout=timeout)

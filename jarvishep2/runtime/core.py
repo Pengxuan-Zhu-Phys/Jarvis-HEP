@@ -113,6 +113,14 @@ from jarvishep2.runtime._runtime_supervisor import _RuntimeSupervisor
 from jarvishep2.runtime._scan_driver import _ScanDriver
 
 
+def _mark_logged(exc: BaseException) -> None:
+    """Flag *exc* as already logged with its traceback, so callers skip it."""
+    try:
+        exc._jarvis_logged = True  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
+
 class Jarvis2Core:
     """Distributed run façade: load/validate/run, holding private collaborators."""
 
@@ -145,6 +153,8 @@ class Jarvis2Core:
         # the post-flush count rather than the pre-shutdown snapshot.
         self._final_archived_records: int | None = None
         self._interrupt_requested = False
+        # Required sampler lifecycle records (docs/logging-spec.md §2).
+        self._sampler_log: Any = None
         self._signal_handlers_installed = False
         self._previous_signal_handlers: dict[int, Any] = {}
         self._logger = get_jarvis_logger("core")
@@ -228,7 +238,7 @@ class Jarvis2Core:
         self._logger = get_jarvis_logger("core")
         try:
             self._logger.warning("\n" + render_logo_with_version())
-            self._logger.warning("Jarvis-HEP V2 logging system initialized successful!")
+            self._logger.warning("Jarvis-HEP V2 logging system initialized successfully!")
             self._logger.info(
                 "component logs under %s "
                 "(core.log, factory.log, sampler.log, archiver.log, "
@@ -505,6 +515,13 @@ class Jarvis2Core:
         )
         self.set_sampler(sampler)
         self.info["sampler_name"] = str(getattr(sampler, "method", type(sampler).__name__))
+        from jarvishep2.sampling.lifecycle_log import SamplerLifecycleLog
+
+        self._sampler_log = SamplerLifecycleLog(sampler, config=self.config)
+        self._sampler_log.start(
+            resume=self._resume_policy == "resume",
+            workers=int(self.runtime.get("workers", 0) or 0),
+        )
         # Safety net: prepare_resume may have looked up the wrong path before
         # Method was known.  Re-resolve under the real sampler name and import.
         if (
@@ -530,6 +547,8 @@ class Jarvis2Core:
                         self._logger.info(
                             "Loaded resume checkpoint after sampler init → %s", path
                         )
+        if self._resume_policy == "resume" and self._resume_checkpoint_payload is not None:
+            self._sampler_log.checkpoint_loaded(self.checkpoint_file())
         return sampler
 
     def bootstrap_distributed_runtime(self) -> None:
@@ -853,11 +872,20 @@ class Jarvis2Core:
                     timeout=check_timeout,
                     verify_golden=verify_golden,
                 )
-            elif method in STATELESS_METHODS:
-                submitted = self.run_distributed_scan()
             elif method:
-                # Stateful / feedback-driven methods (e.g. AdaptiveBridson, MCMC, nested).
-                submitted = self.run_adaptive_scan()
+                if self._sampler_log is not None:
+                    self._sampler_log.ready()
+                try:
+                    if method in STATELESS_METHODS:
+                        submitted = self.run_distributed_scan()
+                    else:
+                        # Stateful / feedback-driven methods (e.g. AdaptiveBridson, MCMC, nested).
+                        submitted = self.run_adaptive_scan()
+                except Exception as exc:
+                    if self._sampler_log is not None:
+                        self._sampler_log.failure("running the scan", exc)
+                        _mark_logged(exc)
+                    raise
             else:
                 raise NotImplementedError(
                     "Unsupported task: configure Sampling.Method "
@@ -872,6 +900,8 @@ class Jarvis2Core:
                 self._logger.info("final archive verification before normal exit")
                 self._wait_for_archive_caught_up(timeout=120.0)
                 outcome = self._capture_run_outcome(submitted=submitted)
+                if self._sampler_log is not None:
+                    self._sampler_log.result(outcome)
 
             # D19.2: partial_failure is common in physics (failed points are
             # useful science). Emit plots/CSV from surviving samples; only a
@@ -925,7 +955,18 @@ class Jarvis2Core:
                 error="interrupted",
                 error_type="KeyboardInterrupt",
             )
+            if self._sampler_log is not None and not is_check:
+                self._sampler_log.result(outcome)
             return outcome
+        except Exception as exc:
+            if not getattr(exc, "_jarvis_logged", False):
+                self._logger.error(
+                    "Jarvis-HEP meets error when %s -> %s",
+                    "checking the modules" if is_check else "running the scan",
+                    exc,
+                    exc_info=True,
+                )
+            raise
         finally:
             try:
                 self.shutdown(

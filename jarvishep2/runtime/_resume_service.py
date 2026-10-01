@@ -329,6 +329,9 @@ class _ResumeService:
         )
         path = core.checkpoint_file()
         save_checkpoint(path, payload)
+        sampler_log = getattr(core, "_sampler_log", None)
+        if sampler_log is not None:
+            sampler_log.checkpoint_saved(path, reason)
         return path
 
     def _save_interrupt_checkpoint(self) -> str | None:

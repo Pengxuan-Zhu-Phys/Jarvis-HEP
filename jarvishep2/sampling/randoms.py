@@ -48,6 +48,9 @@ class RandomS(FixedSetSampler):
         self._generator_ready = False
         self._submit_progress = None
 
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        return [("point number", self._maxp), *super().log_settings_rows()]
+
     def initialize(self) -> None:
         # Seed 0 is valid and must reseed for reproducible resume trajectories.
         np.random.seed(int(self._seed))

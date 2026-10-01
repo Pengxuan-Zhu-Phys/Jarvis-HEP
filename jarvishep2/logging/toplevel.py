@@ -9,6 +9,7 @@ and raw message passthrough.
 from __future__ import annotations
 
 import atexit
+import copy
 import logging
 import os
 import queue
@@ -126,6 +127,29 @@ _LABEL_SEGMENT_CANON: dict[str, str] = {
     "monitor": "Monitor",
     "watchdog": "Watchdog",
 }
+
+
+def _sampler_method_canon() -> dict[str, str]:
+    """Exact ``Sampling.Method`` spellings, keyed by lower case / snake case.
+
+    Labels must read ``Jarvis-HEP.Sampler.MCMC``, not ``...Mcmc``.
+    """
+    try:
+        from jarvishep2.sampler_catalog import names
+    except Exception:  # pragma: no cover - catalog is import-safe
+        return {}
+    canon: dict[str, str] = {}
+    for method in names():
+        canon[method.lower()] = method
+        snake = "".join(
+            f"_{char.lower()}" if char.isupper() and index and not method[index - 1].isupper() else char.lower()
+            for index, char in enumerate(method)
+        )
+        canon.setdefault(snake, method)
+    return canon
+
+
+_LABEL_SEGMENT_CANON.update(_sampler_method_canon())
 
 
 def _canon_label_segment(seg: str) -> str:
@@ -296,6 +320,25 @@ def format_record_context(record: logging.LogRecord) -> str:
     return " ".join(parts)
 
 
+def _default_module_colors() -> dict[str, str]:
+    from jarvishep2.logging.style import _DEFAULT_STYLE
+
+    return dict(_DEFAULT_STYLE["process"]["module_colors"])
+
+
+_DEFAULT_MODULE_COLORS = _default_module_colors()
+
+
+def _ansi_truecolor(hex_color: str) -> str:
+    """``#rrggbb`` → 24-bit ANSI foreground; unknown values fall back to Jarvis yellow."""
+    text = str(hex_color or "").strip().lstrip("#")
+    try:
+        red, green, blue = (int(text[index : index + 2], 16) for index in (0, 2, 4))
+    except ValueError:
+        red, green, blue = 0xF6, 0xD3, 0x3F
+    return f"\033[38;2;{red};{green};{blue}m"
+
+
 class JarvisContextFormatter(logging.Formatter):
     """Process-log formatter driven by ``card/logging.yaml`` (default = V1 look)."""
 
@@ -304,10 +347,22 @@ class JarvisContextFormatter(logging.Formatter):
         *,
         colorize: bool = False,
         style: Mapping[str, Any] | None = None,
+        show_traceback: bool = True,
     ) -> None:
         super().__init__()
         self.colorize = bool(colorize)
+        # Tracebacks always go to log files; the screen shows them only at DEBUG.
+        self.show_traceback = bool(show_traceback)
         self._style = dict(style or process_style())
+
+    def _with_traceback(self, record: logging.LogRecord, message: str) -> str:
+        if not self.show_traceback:
+            return message
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            return f"{message}\n{record.exc_text}" if message else record.exc_text
+        return message
 
     def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
         created = datetime.fromtimestamp(record.created)
@@ -330,14 +385,18 @@ class JarvisContextFormatter(logging.Formatter):
             return name[len(JARVIS_HEP_LOG_DOMAIN) + 1 :] or name
         return name or "Jarvis-HEP"
 
+    def _module_color(self, record: logging.LogRecord, module: str) -> str:
+        """ANSI color for the module label, chosen by component."""
+        colors = dict(_DEFAULT_MODULE_COLORS)
+        configured = self._style.get("module_colors")
+        if isinstance(configured, Mapping):
+            colors.update({str(key): str(value) for key, value in configured.items()})
+        component = "worker" if module.startswith("Sample@") else resolve_record_component(record)
+        return _ansi_truecolor(colors.get(component) or colors["core"])
+
     def format(self, record: logging.LogRecord) -> str:
         if bool(getattr(record, "raw", False)):
-            message = record.getMessage()
-            if record.exc_info:
-                if not record.exc_text:
-                    record.exc_text = self.formatException(record.exc_info)
-                if record.exc_text:
-                    message = f"{message}\n{record.exc_text}" if message else record.exc_text
+            message = self._with_traceback(record, record.getMessage())
             # StreamHandler appends its terminator after formatting.  Do not
             # add another newline here, otherwise every raw subprocess line
             # is rendered with a blank line between it and the next line.
@@ -346,12 +405,7 @@ class JarvisContextFormatter(logging.Formatter):
         module = self._module_label(record)
         timestamp = self.formatTime(record)
         level = record.levelname
-        message = record.getMessage()
-        if record.exc_info:
-            if not record.exc_text:
-                record.exc_text = self.formatException(record.exc_info)
-            if record.exc_text:
-                message = f"{message}\n{record.exc_text}" if message else record.exc_text
+        message = self._with_traceback(record, record.getMessage())
 
         # DataRecorder (DATABASE / samples.hdf5) uses the special Ϡ bullet.
         data_mod = str(
@@ -370,7 +424,8 @@ class JarvisContextFormatter(logging.Formatter):
         )
 
         if self.colorize and sys.stderr.isatty():
-            cyan, green, reset = "\033[36m", "\033[32m", "\033[0m"
+            module_color = self._module_color(record, module)
+            green, reset = "\033[32m", "\033[0m"
             level_colors = {
                 "DEBUG": "\033[36m",
                 "INFO": "\033[32m",
@@ -382,7 +437,7 @@ class JarvisContextFormatter(logging.Formatter):
             # Colorize module/timestamp/level inside the configured head template.
             head = head_tmpl.format(
                 bullet=bullet,
-                module=f"{cyan}{module}{reset}",
+                module=f"{module_color}{module}{reset}",
                 timestamp=f"{green}{timestamp}{reset}",
                 level=f"{level_color}{level}{reset}" if level_color else level,
                 message="",
@@ -449,6 +504,25 @@ class JarvisLoggerAdapter(logging.LoggerAdapter):
         return type(self)(self.logger, merged)
 
 
+class _TracebackQueueHandler(QueueHandler):
+    """QueueHandler that keeps the traceback apart from the message.
+
+    The stock ``prepare`` folds the traceback into ``msg``, so every sink
+    (the screen included) would print it. Here it travels as ``exc_text`` and
+    each formatter decides whether to show it.
+    """
+
+    def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
+        prepared = copy.copy(record)
+        prepared.msg = record.getMessage()
+        prepared.args = None
+        if record.exc_info and not record.exc_text:
+            prepared.exc_text = logging.Formatter().formatException(record.exc_info)
+        prepared.exc_info = None
+        prepared.stack_info = None
+        return prepared
+
+
 def _resolve_level(level: str | int) -> int:
     if isinstance(level, int):
         return level
@@ -459,7 +533,11 @@ def _resolve_level(level: str | int) -> int:
 def _make_console_handler(*, level: int, style: Mapping[str, Any] | None = None) -> logging.Handler:
     stream = logging.StreamHandler(sys.stderr)
     stream.setLevel(level)
-    stream.setFormatter(JarvisContextFormatter(colorize=True, style=style))
+    stream.setFormatter(
+        JarvisContextFormatter(
+            colorize=True, style=style, show_traceback=level <= logging.DEBUG
+        )
+    )
     return stream
 
 
@@ -642,7 +720,7 @@ def setup_jarvis_logging(
 
     if use_queue and sink_handlers:
         log_queue: queue.Queue[logging.LogRecord] = queue.Queue(-1)
-        queue_handler = QueueHandler(log_queue)
+        queue_handler = _TracebackQueueHandler(log_queue)
         queue_handler.setLevel(root_level)
         logger.addHandler(queue_handler)
 

@@ -1275,8 +1275,8 @@ class DynestySampler(CheckpointedSampler):
             self._sampler = restored
             self._wrapped_dynesty_save = False  # restored object has stock .save
             self._logger.warning(
-                "%s RESUME: continuing dynesty engine it=%s ncall=%s state=%s "
-                "(run_nested resume=%s)",
+                "%s engine resumed -> iteration -> %s | ncall -> %s | state -> %s "
+                "| run_nested resume -> %s",
                 self.method,
                 getattr(restored, "it", "?"),
                 getattr(restored, "ncall", "?"),
@@ -1315,13 +1315,13 @@ class DynestySampler(CheckpointedSampler):
                     logger=self._logger,
                 )
 
-            self._logger.warning(
-                "%s START FRESH %s nlive=%d ndim=%d dynamic=%s bound=%s sample=%s",
+            self._logger.info(
+                "%s engine started fresh -> %s | nlive -> %d | ndim -> %d "
+                "| bound -> %s | sample -> %s",
                 self.method,
                 sampler_cls.__name__,
                 self._nlive,
                 self._dim,
-                self._use_dynamic,
                 ctor.get("bound", "multi"),
                 ctor.get("sample", "auto"),
             )
@@ -1386,9 +1386,10 @@ class DynestySampler(CheckpointedSampler):
                     self.export_runtime_state()
             except Exception as save_exc:
                 self._logger.warning(
-                    "%s: emergency engine checkpoint failed: %s",
+                    "%s emergency engine checkpoint was not saved -> %s",
                     self.method,
                     save_exc,
+                    exc_info=True,
                 )
             raise
         finally:
@@ -1412,7 +1413,9 @@ class DynestySampler(CheckpointedSampler):
                 else:
                     self._summary["dynesty_result_csv"] = path_text
         except Exception as exc:
-            self._logger.warning("failed to write nested result CSV: %s", exc)
+            self._logger.warning(
+                "%s result CSV was not written -> %s", self.method, exc, exc_info=True
+            )
         # D13.6: sampler_summary.json (logZ, ncall, …) under DATABASE/.
         try:
             from jarvishep2.sampling.diagnostics_export import export_nested_diagnostics
@@ -1423,9 +1426,11 @@ class DynestySampler(CheckpointedSampler):
             if written and self._summary is not None:
                 self._summary.setdefault("diagnostics", {}).update(written)
             for key, path in written.items():
-                self._logger.info("%s diagnostics %s → %s", self.method, key, path)
+                self._logger.warning("%s diagnostics (%s) saved to %s", self.method, key, path)
         except Exception as exc:
-            self._logger.warning("failed to write nested sampler_summary: %s", exc)
+            self._logger.warning(
+                "%s sampler summary was not written -> %s", self.method, exc, exc_info=True
+            )
         # The runtime callback exports once; without Core, keep a native
         # snapshot for callers that use this sampler directly.
         if get_checkpoint_config(self.config)["enabled"]:
@@ -1437,15 +1442,9 @@ class DynestySampler(CheckpointedSampler):
         try:
             self._log_nested_run_summary()
         except Exception as exc:
-            self._logger.warning("failed to log nested run summary: %s", exc)
-        self._logger.info(
-            "%s finished logZ=%.4f ± %.4f niter=%s ncall=%s",
-            self.method,
-            self._summary.get("logz", float("nan")),
-            self._summary.get("logzerr", float("nan")),
-            self._summary.get("niter"),
-            self._summary.get("ncall"),
-        )
+            self._logger.warning(
+                "%s run summary could not be logged -> %s", self.method, exc, exc_info=True
+            )
         return int(self._summary.get("ncall") or 0)
 
     def _log_nested_run_summary(self) -> None:
@@ -1486,6 +1485,63 @@ class DynestySampler(CheckpointedSampler):
             )
         # One multi-line INFO record → sampler.log (module Sampler:dynesty/multinest).
         self._logger.info("%s run summary\n%s", self.method, str(text).rstrip())
+
+    # ------------------------------------------------------------------ logging
+    def log_settings_rows(self) -> list[tuple[str, Any]]:
+        rows: list[tuple[str, Any]] = [
+            ("nlive", self._nlive),
+            ("dlogz", self._dlogz),
+            ("dynamic", "yes" if self._use_dynamic else "no"),
+        ]
+        for key in ("bound", "sample"):
+            if key in self._constructor_kwargs:
+                rows.append((key, self._constructor_kwargs[key]))
+        if self._selectionexp:
+            rows.append(("selection", self._selectionexp))
+        rows.append(
+            (
+                "engine checkpoint",
+                self._engine_path() if get_checkpoint_config(self.config)["enabled"] else "off",
+            )
+        )
+        return rows
+
+    def log_summary_rows(self) -> list[tuple[str, Any]]:
+        summary = self._summary or {}
+        if not summary.get("finished") or "niter" not in summary:
+            return [("iterations", getattr(self._sampler, "it", "n/a"))]
+        niter = int(summary.get("niter") or 0)
+        ncall = int(summary.get("ncall") or 0)
+        rows: list[tuple[str, Any]] = [
+            ("nlive", summary.get("nlive", self._nlive)),
+            ("iterations", niter),
+            ("ncall", ncall),
+            ("efficiency", self._efficiency_text(summary, niter, ncall)),
+            (
+                "logZ",
+                f"{float(summary.get('logz', float('nan'))):.4f} ± "
+                f"{float(summary.get('logzerr', float('nan'))):.4f}",
+            ),
+        ]
+        for key in ("dynesty_result_csv", "multinest_result_csv"):
+            if summary.get(key):
+                rows.append(("result file", summary[key]))
+        for key, path in dict(summary.get("diagnostics") or {}).items():
+            rows.append((f"diagnostics {key}", path))
+        return rows
+
+    @staticmethod
+    def _efficiency_text(summary: Mapping[str, Any], niter: int, ncall: int) -> str:
+        # Same number as the engine's own summary block ("eff(%)").
+        eff = summary.get("eff")
+        if eff is not None and np.isfinite(float(eff)):
+            return f"{float(eff):.2f} %"
+        return f"{100.0 * niter / ncall:.2f} %" if ncall else "n/a"
+
+    def log_stop_reason(self) -> str | None:
+        if self._finished:
+            return f"converged (dlogz < {self._dlogz:g})"
+        return None
 
     def _task_result_dir(self) -> str:
         return str(
@@ -1529,9 +1585,11 @@ class DynestySampler(CheckpointedSampler):
             fallback_nlive=self._nlive,
             param_names=param_names or None,
         )
+        already_reported = written is not None and written == self._dynesty_csv_path
         self._dynesty_csv_path = written
-        self._logger.info(
-            "%s clean nested CSV saved → %s (niter dead points; not all logL calls)",
+        # The runtime rewrites the same file after the run; report it once.
+        (self._logger.debug if already_reported else self._logger.warning)(
+            "%s results (one row per dead point) saved to %s",
             self.method,
             written,
         )
@@ -1553,6 +1611,10 @@ class DynestySampler(CheckpointedSampler):
             except Exception:
                 pass
             niter = int(res["niter"]) if "niter" in res.keys() else 0
+            try:
+                eff = float(res["eff"]) if "eff" in res.keys() else None
+            except Exception:
+                eff = None
             samples_uid = None
             if "samples_uid" in res.keys():
                 samples_uid = list(res["samples_uid"])
@@ -1563,11 +1625,14 @@ class DynestySampler(CheckpointedSampler):
                 "logzerr": logzerr,
                 "ncall": ncall,
                 "niter": niter,
+                "eff": eff,
                 "nlive": self._nlive,
                 "samples_uid": samples_uid,
             }
         except Exception as exc:
-            self._logger.warning("failed to build dynesty summary: %s", exc)
+            self._logger.warning(
+                "%s summary could not be built -> %s", self.method, exc, exc_info=True
+            )
             return {"method": self.method, "finished": self._finished, "error": str(exc)}
 
     def summary(self) -> dict[str, Any]:
