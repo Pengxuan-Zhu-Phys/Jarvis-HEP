@@ -108,12 +108,14 @@ The port comes from `EnvReqs.V2.redis.port` in the project's
 `deps/environment_default.yaml` (default 6379). If something else already uses
 that port, for example a Redis service you started yourself:
 
-- inside a project made with `Jarvis project create`, Jarvis picks the next free
-  port, writes it into `deps/environment_default.yaml`, and prints a warning;
-- for a task card outside a project, the run stops with
+- for task cards that load the project's default environment
+  (`EnvReqs.Check_default_dependencies.default_yaml_path`, as in the cards made
+  by `Jarvis project create`), Jarvis picks the next free port, writes it into
+  `deps/environment_default.yaml`, and prints a warning;
+- for other task cards, the run stops with
   `Redis port 127.0.0.1:6379 is already used by another program`. Stop the other Redis
   (`brew services stop redis`, or `sudo systemctl stop redis-server` on Linux)
-  or run the card from inside a project.
+  or make the card load the project defaults.
 
 Some Linux packages start a Redis service automatically when installed; stop and
 disable it the same way if you see that error.

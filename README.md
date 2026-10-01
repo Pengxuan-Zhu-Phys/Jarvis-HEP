@@ -65,10 +65,11 @@ brew install redis   # install only; no `brew services start redis`
 ```
 
 If another Redis is already running on port 6379 (for example one started with
-`brew services start redis`), Jarvis cannot use that port. Inside a project
-created with `Jarvis project create`, it picks the next free port and writes
-it into `deps/environment_default.yaml`. A task card outside a project stops
-with a "port is already used by another program" error instead.
+`brew services start redis`), Jarvis cannot use that port. For task cards that
+load the project's default environment (the cards made by
+`Jarvis project create` do), it picks the next free port and writes it into
+`deps/environment_default.yaml`. Other task cards stop with a "port is already
+used by another program" error instead.
 
 On the first `Jarvis` command after installation, Jarvis checks whether a
 Redis-compatible server executable (`redis-server`, `redis6-server`, or

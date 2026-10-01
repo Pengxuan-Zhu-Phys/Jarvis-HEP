@@ -241,8 +241,10 @@ class _RuntimeSupervisor:
                 else:
                     fix = (
                         "Stop that program (for example a Redis service you started "
-                        "yourself), or run this task from a project made with "
-                        "`Jarvis project create`, where Jarvis picks a free port."
+                        "yourself), or use a task card that loads the project's default "
+                        "environment (EnvReqs.Check_default_dependencies.default_yaml_path, "
+                        "as in the cards made by `Jarvis project create`); Jarvis then "
+                        "picks a free port."
                     )
                 raise RuntimeError(
                     f"Redis port {host}:{requested_port} is already used by another "
