@@ -71,6 +71,8 @@ _ROLE_HEAD_PREFIXES: tuple[str, ...] = (
 class JarvisProcess:
     pid: int
     command: str
+    # Owner's user id; ``None`` when unknown (treated as the current user).
+    uid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,38 @@ class JarvisScan:
     reference: str
     name: str
     processes: tuple[JarvisProcess, ...]
+    uid: int | None = None
+
+
+def _current_uid() -> int | None:
+    geteuid = getattr(os, "geteuid", None)
+    return int(geteuid()) if geteuid is not None else None
+
+
+def _is_superuser() -> bool:
+    return _current_uid() == 0
+
+
+def _is_own(proc: JarvisProcess) -> bool:
+    """Every user may see all Jarvis tasks, but may stop only their own."""
+    current = _current_uid()
+    return proc.uid is None or current is None or proc.uid == current
+
+
+def _owner_name(uid: int | None) -> str:
+    if uid is None:
+        return "?"
+    try:
+        import pwd
+
+        return pwd.getpwuid(int(uid)).pw_name
+    except (ImportError, KeyError, OverflowError, ValueError):
+        return str(uid)
+
+
+def _scan_uid(processes: Iterable[JarvisProcess]) -> int | None:
+    uids = {proc.uid for proc in processes}
+    return next(iter(uids)) if len(uids) == 1 else None
 
 
 def _title_head(command: str) -> str:
@@ -141,7 +175,7 @@ def list_jarvis_processes(*, exclude_pids: Iterable[int] | None = None) -> list[
     try:
         # Portable: PID + full command/args (title after setproctitle).
         completed = subprocess.run(
-            ["ps", "-ax", "-o", "pid=,command="],
+            ["ps", "-ax", "-o", "pid=,uid=,command="],
             capture_output=True,
             text=True,
             check=False,
@@ -156,19 +190,20 @@ def list_jarvis_processes(*, exclude_pids: Iterable[int] | None = None) -> list[
         line = line.strip()
         if not line:
             continue
-        parts = line.split(None, 1)
-        if len(parts) < 2:
+        parts = line.split(None, 2)
+        if len(parts) < 3:
             continue
         try:
             pid = int(parts[0])
+            uid = int(parts[1])
         except ValueError:
             continue
         if pid in skip or pid <= 1:
             continue
-        command = parts[1].strip()
+        command = parts[2].strip()
         if not _command_is_jarvis(command):
             continue
-        found.append(JarvisProcess(pid=pid, command=command))
+        found.append(JarvisProcess(pid=pid, command=command, uid=uid))
     found.sort(key=lambda item: item.pid)
     return found
 
@@ -234,7 +269,7 @@ def list_zombie_processes(
     """
     candidates = list(procs if procs is not None else list_jarvis_processes())
     controlled_scans = {
-        name
+        (proc.uid, name)
         for proc in candidates
         if _is_control_command(proc.command)
         if (name := _scan_name_from_command(proc.command)) is not None
@@ -246,7 +281,7 @@ def list_zombie_processes(
             if _is_unscoped_jarvis_title(proc.command):
                 zombies.append(proc)
             continue
-        if name not in controlled_scans:
+        if (proc.uid, name) not in controlled_scans:
             zombies.append(proc)
     return sorted(zombies, key=lambda proc: proc.pid)
 
@@ -434,7 +469,12 @@ def _apply_sticky_references(scans: list[JarvisScan]) -> list[JarvisScan]:
         control_pid = _control_pid_for_processes(scan.processes)
         if control_pid is None:
             updated.append(
-                JarvisScan(reference=scan.name, name=scan.name, processes=scan.processes)
+                JarvisScan(
+                    reference=scan.name,
+                    name=scan.name,
+                    processes=scan.processes,
+                    uid=scan.uid,
+                )
             )
             continue
         slot = pid_to_slot[control_pid]
@@ -443,6 +483,7 @@ def _apply_sticky_references(scans: list[JarvisScan]) -> list[JarvisScan]:
                 reference=f"R{slot}",
                 name=scan.name,
                 processes=scan.processes,
+                uid=scan.uid,
             )
         )
 
@@ -457,20 +498,24 @@ def _apply_sticky_references(scans: list[JarvisScan]) -> list[JarvisScan]:
 def list_running_scans(
     procs: Iterable[JarvisProcess] | None = None,
 ) -> list[JarvisScan]:
-    """Group titled control/worker/file-operation/archiver/Redis processes into scan rows."""
-    grouped: dict[str, list[JarvisProcess]] = {}
+    """Group titled control/worker/file-operation/archiver/Redis processes into scan rows.
+
+    Groups are per owner: two users may run scans with the same name.
+    """
+    grouped: dict[tuple[int | None, str], list[JarvisProcess]] = {}
     for proc in procs if procs is not None else list_jarvis_processes():
         name = _scan_name_from_command(proc.command)
         if name:
-            grouped.setdefault(name, []).append(proc)
+            grouped.setdefault((proc.uid, name), []).append(proc)
     scans: list[JarvisScan] = []
-    for name in sorted(grouped, key=str.casefold):
-        processes = tuple(sorted(grouped[name], key=lambda proc: proc.pid))
+    for uid, name in sorted(grouped, key=lambda key: (key[1].casefold(), str(key[0]))):
+        processes = tuple(sorted(grouped[(uid, name)], key=lambda proc: proc.pid))
         scans.append(
             JarvisScan(
                 reference=name,  # replaced by sticky R# when a control is live
                 name=name,
                 processes=processes,
+                uid=uid,
             )
         )
     return _apply_sticky_references(scans)
@@ -493,7 +538,8 @@ def ensure_scan_name_available(scan_name: str, *, cleanup_stale: bool = False) -
     if not name:
         raise ValueError("scan name is required")
     for scan in list_running_scans():
-        if scan.name != name:
+        # Another user's scan with the same name does not block this one.
+        if scan.name != name or not all(_is_own(proc) for proc in scan.processes):
             continue
         control_alive = any(
             _is_control_command(proc.command)
@@ -518,7 +564,7 @@ def ensure_scan_name_available(scan_name: str, *, cleanup_stale: bool = False) -
         remaining = [
             proc
             for proc in list_jarvis_processes()
-            if _scan_name_from_command(proc.command) == name
+            if _scan_name_from_command(proc.command) == name and _is_own(proc)
         ]
         if remaining:
             raise RuntimeError(
@@ -547,10 +593,18 @@ def resolve_scan_reference(selector: str, scans: Iterable[JarvisScan]) -> Jarvis
         bare_pid = int(text)
 
     for scan in choices:
-        if text == scan.name:
-            return scan
         if bare_pid is not None and _control_pid_for_processes(scan.processes) == bare_pid:
             return scan
+    named = [scan for scan in choices if text == scan.name]
+    if len(named) > 1:
+        # Same name under several owners: a bare name means your own scan.
+        own = [scan for scan in named if all(_is_own(proc) for proc in scan.processes)]
+        if len(own) == 1:
+            return own[0]
+        refs = ", ".join(f"{scan.reference} ({_owner_name(scan.uid)})" for scan in named)
+        raise ValueError(f"Scan name {text!r} is used by several users; choose by REF: {refs}")
+    if named:
+        return named[0]
     available = ", ".join(f"{scan.reference} ({scan.name})" for scan in choices) or "none"
     raise ValueError(f"Unknown running scan {text!r}; available: {available}")
 
@@ -563,32 +617,36 @@ def format_scan_table(
     zombies = tuple(zombie_processes)
     if not scans and not zombies:
         return "No running Jarvis scan tasks.\n"
-    rows: list[tuple[str, str, str, tuple[JarvisProcess, ...]]] = []
+    rows: list[tuple[str, str, str, str, tuple[JarvisProcess, ...]]] = []
     for scan in scans:
         control = _control_pid_for_processes(scan.processes)
         rows.append(
             (
                 scan.reference,
                 scan.name,
+                _owner_name(scan.uid),
                 str(control) if control is not None else "-",
                 scan.processes,
             )
         )
     if zombies:
-        rows.append((ZP_REFERENCE, ZP_LABEL, "-", zombies))
-    ref_w = max(len(reference) for reference, _, _, _ in rows)
-    name_w = max(len(name) for _, name, _, _ in rows)
-    ctrl_w = max(len(control) for _, _, control, _ in rows)
+        owners = ",".join(sorted({_owner_name(proc.uid) for proc in zombies}))
+        rows.append((ZP_REFERENCE, ZP_LABEL, owners, "-", zombies))
+    ref_w = max(len(row[0]) for row in rows)
+    name_w = max(len(row[1]) for row in rows)
+    owner_w = max(len("OWNER"), *(len(row[2]) for row in rows))
+    ctrl_w = max(len(row[3]) for row in rows)
     lines = [
         f"Running Jarvis process groups ({len(rows)}):",
-        f"{'REF':<{ref_w}}  {'SCAN':<{name_w}}  {'CONTROL':<{ctrl_w}}  PROCESSES  PIDS",
-        f"{'-' * ref_w}  {'-' * name_w}  {'-' * ctrl_w}  ---------  ----",
+        f"{'REF':<{ref_w}}  {'SCAN':<{name_w}}  {'OWNER':<{owner_w}}  "
+        f"{'CONTROL':<{ctrl_w}}  PROCESSES  PIDS",
+        f"{'-' * ref_w}  {'-' * name_w}  {'-' * owner_w}  {'-' * ctrl_w}  ---------  ----",
     ]
-    for reference, name, control, processes in rows:
+    for reference, name, owner, control, processes in rows:
         pids = ",".join(str(proc.pid) for proc in processes)
         lines.append(
-            f"{reference:<{ref_w}}  {name:<{name_w}}  {control:<{ctrl_w}}  "
-            f"{len(processes):>9}  {pids}"
+            f"{reference:<{ref_w}}  {name:<{name_w}}  {owner:<{owner_w}}  "
+            f"{control:<{ctrl_w}}  {len(processes):>9}  {pids}"
         )
     example = scans[0].reference if scans else "R1"
     lines.append(
@@ -613,6 +671,7 @@ def print_scan_table(
     table = Table(box=box.SIMPLE_HEAVY, show_header=True, header_style="bold dim")
     table.add_column("REF", style="bold green", no_wrap=True)
     table.add_column("SCAN", style="bold #c8c8ff")
+    table.add_column("OWNER", no_wrap=True)
     table.add_column("CONTROL", style="bold cyan", no_wrap=True)
     table.add_column("PROCESSES", justify="right")
     table.add_column("PIDS", style="dim")
@@ -621,6 +680,7 @@ def print_scan_table(
         table.add_row(
             scan.reference,
             scan.name,
+            _owner_name(scan.uid),
             str(control) if control is not None else "-",
             str(len(scan.processes)),
             ", ".join(str(proc.pid) for proc in scan.processes),
@@ -629,6 +689,7 @@ def print_scan_table(
         table.add_row(
             ZP_REFERENCE,
             f"{ZP_LABEL} [dim](no live control)[/]",
+            ",".join(sorted({_owner_name(proc.uid) for proc in zombies})),
             "-",
             str(len(zombies)),
             ", ".join(str(proc.pid) for proc in zombies),
@@ -726,6 +787,9 @@ def print_scan_processes(
     details.add_column()
     details.add_row("REF", f"[bold green]{scan.reference}[/]")
     details.add_row("SCAN", f"[bold #c8c8ff]{scan.name}[/]")
+    owners = sorted({_owner_name(proc.uid) for proc in scan.processes})
+    if owners:
+        details.add_row("OWNER", ", ".join(owners))
     if metadata is not None:
         redis = metadata.get("redis")
         if isinstance(redis, dict):
@@ -912,12 +976,22 @@ def kill_running_jarvis_cli(
     if not scan_ref:
         print_scan_table(scans, zombies)
         return 0
+    superuser = _is_superuser()
     is_zombie_group = str(scan_ref).strip().upper() == ZP_REFERENCE
     if is_zombie_group:
         if not zombies:
             print("No ZP (unscoped Jarvis processes) found.")
             return 0
-        targets = list(zombies)
+        targets = list(zombies) if superuser else [proc for proc in zombies if _is_own(proc)]
+        skipped = len(zombies) - len(targets)
+        if skipped:
+            owners = ", ".join(
+                sorted({_owner_name(proc.uid) for proc in zombies if not _is_own(proc)})
+            )
+            print(f"Skipping {skipped} ZP process(es) owned by other users ({owners}).")
+        if not targets:
+            print("None of the ZP processes belong to you; only their owner or root can stop them.")
+            return 0
         scan = None
         print_zombie_processes(targets, kill_warning=True)
     else:
@@ -928,10 +1002,20 @@ def kill_running_jarvis_cli(
             print_scan_table(scans, zombies)
             return 2
         targets = list(scan.processes)
+        others = sorted({_owner_name(proc.uid) for proc in targets if not _is_own(proc)})
+        if others and not superuser:
+            print(
+                f"{scan.reference} ({scan.name}) belongs to {', '.join(others)}. "
+                "You can view it, but only its owner or root can stop it.",
+                file=sys.stderr,
+            )
+            return 1
         metadata = _verified_runtime_metadata(scan)
         if _scan_has_advertised_redis(scan) and metadata is None:
             return 1
         print_scan_processes(scan, metadata, kill_warning=True)
+        if others:
+            print(f"Note: you are root and are stopping a scan owned by {', '.join(others)}.")
     if not targets:
         return 0
     if not confirm_kill(len(targets), yes=yes):
@@ -949,13 +1033,14 @@ def kill_running_jarvis_cli(
         print(f"  failed pids: {result['failed']}")
         return 1
     if is_zombie_group:
-        left = list_zombie_processes()
+        target_pids = {proc.pid for proc in targets}
+        left = [proc for proc in list_zombie_processes() if proc.pid in target_pids]
     else:
         assert scan is not None
         left = [
             proc
             for proc in list_jarvis_processes()
-            if _scan_name_from_command(proc.command) == scan.name
+            if _scan_name_from_command(proc.command) == scan.name and proc.uid == scan.uid
         ]
     if left:
         print("Still running after kill:")
