@@ -11,6 +11,8 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
+# Before Python 3.11 this is not the builtin TimeoutError.
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from typing import Any
 
 import numpy as np
@@ -347,7 +349,7 @@ class RedisEvaluationPool:
                         continue
                     try:
                         fut.result(timeout=min(0.1, remaining))
-                    except TimeoutError:
+                    except FutureTimeoutError:
                         pass
             return [self.extract_logl(fut.result(timeout=0)) for fut in futs]
         finally:

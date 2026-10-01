@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 import time
 from typing import Any
 
@@ -136,7 +136,7 @@ class LiveOverviewProjector:
         started = (
             "—"
             if started_at is None
-            else datetime.fromtimestamp(started_at, tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            else datetime.fromtimestamp(started_at, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         )
         health = self._health_items(frame, now=now)
         if not frame.stale:
