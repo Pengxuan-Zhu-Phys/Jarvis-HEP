@@ -574,6 +574,17 @@ def _layers(total: list[str], detail: list[str]) -> str:
     return "\n".join([*total, "", *detail])
 
 
+def render_resource_subtitle(frame: OverviewFrame) -> str:
+    """Border text: cores in use and the process closest to its fd limit."""
+    used, available = frame.cpu_cores_used, frame.cpu_cores_available
+    if used is None or not available:
+        cores = "— cores"
+    else:
+        cores = f"{used:0.1f} / {available} cores"
+    fds = "fds —" if frame.fds_limit <= 0 else f"fds {frame.fds}/{frame.fds_limit}"
+    return f"{cores} · {fds}"
+
+
 def render_resource_row(
     inner_w: int,
     cpu: float | None,
@@ -583,7 +594,7 @@ def render_resource_row(
     """LOCKED RESOURCES inner row. See docs/TUI/STYLES.txt."""
     cpu_sfx = " —" if cpu is None else f" {cpu:0.0f}%"
     mem_known = mem_g is not None and mem_total_g is not None and mem_total_g > 0
-    mem_sfx = " —" if not mem_known else f" {mem_g:0.1f}/{mem_total_g:0.0f}G"
+    mem_sfx = " —" if not mem_known else f" ≈{mem_g:0.1f}/{mem_total_g:0.0f}G"
     inner_w = max(24, inner_w)
     dot_at = inner_w // 2
     left_w = max(8, dot_at - 2)
@@ -1241,10 +1252,7 @@ class OverviewPane(Vertical):
                     frame.mem_total_g,
                 )
             )
-            fds = "—" if frame.fds_limit <= 0 else f"{frame.fds}/{frame.fds_limit}"
-            res_widget.border_subtitle = (
-                f"{frame.cpu:0.0f}% · {frame.mem_g:0.1f}G · {fds}"
-            )
+            res_widget.border_subtitle = render_resource_subtitle(frame)
         else:
             res_widget.update(render_resource_row(inner_w, None, None, None))
             res_widget.border_subtitle = "host metrics unavailable · fds —"

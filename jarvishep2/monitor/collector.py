@@ -109,9 +109,8 @@ class Collector:
         self._sampler_progress_key: tuple[str, str, float] | None = None
         self._sampler_progress_points: deque[tuple[float, float]] = deque()
         self._queue_directions = QueueDirectionWindow()
-        self._host_cpu_sample_at: float | None = None
-        self._host_cpu_percent: float = 0.0
-        self._host_processes: dict[int, Any] = {}
+        self._machine_cpu_primed = False
+        self._cpu_meter = _CpuMeter()
         self.last_frame = CollectorFrame(page="overview")
 
     @property
@@ -575,7 +574,21 @@ class Collector:
         self._want_on = True
 
     def _collect_host_snapshot(self) -> dict[str, Any]:
-        """Collect host totals and only the PIDs already admitted by the scan list."""
+        """Rough resource use of this scan, read from the OS by PID only.
+
+        No Redis access. The scan's process tree hangs off the control
+        process: Redis, Workers (with their calculators), and the Archiver
+        are all its descendants, so respawned Workers are picked up without
+        any bookkeeping.
+
+        ``cpu_percent`` / ``memory_used`` describe this scan (CPU as a share
+        of the cores the scan may use, memory as summed RSS, which counts
+        shared pages more than once). ``machine_*`` keys hold whole-host
+        values for reference. CPU comes from cumulative CPU time including
+        reaped children, so calculators that start and exit between two
+        refreshes still count. The first refresh has no interval yet and
+        reports ``None``.
+        """
         try:
             import psutil
         except ImportError:
@@ -587,7 +600,88 @@ class Collector:
             load = tuple(float(value) for value in os.getloadavg())
         except (AttributeError, OSError):
             load = ()
-        processes: list[dict[str, Any]] = []
+        # CPU seconds are wall-clock based; the injectable clock is for rates.
+        now = time.monotonic()
+        machine_cpu: float | None = float(psutil.cpu_percent(interval=None))
+        if not self._machine_cpu_primed:
+            # psutil's first interval-less reading is a meaningless 0.0.
+            self._machine_cpu_primed = True
+            machine_cpu = None
+
+        roots = self._scan_root_pids()
+        root_pid = roots[0] if len(roots) == 1 else None
+        cores_available = _available_cores(psutil, root_pid)
+
+        rows: list[dict[str, Any]] = []
+        scan_cpu_seconds = 0.0
+        scan_rss = 0
+        seen: set[int] = set()
+        groups: list[tuple[Any, list[Any], bool]] = []
+        for pid in roots:
+            try:
+                root = psutil.Process(pid)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                rows.append({"role": self._role_for(pid, ""), "pid": pid, "alive": False})
+                continue
+            if root_pid is not None:
+                # The control process gets its own row; each direct child
+                # (Redis, Workers, Archiver) is a row with its descendants.
+                groups.append((root, [], False))
+                for child in _safe_children(psutil, root, recursive=False):
+                    groups.append((child, _safe_children(psutil, child, recursive=True), True))
+            else:
+                groups.append((root, _safe_children(psutil, root, recursive=True), True))
+
+        for top, descendants, with_children in groups:
+            row = _process_row(psutil, top)
+            row["role"] = self._role_for(row["pid"], row.get("cmdline", ""))
+            row_seconds = 0.0
+            row_rss = 0
+            for index, proc in enumerate([top, *descendants]):
+                if proc.pid in seen:
+                    continue
+                seen.add(proc.pid)
+                # The control row excludes its reaped children here; they are
+                # still part of the scan total below.
+                include_children = with_children or index > 0
+                own, reaped, rss = _cpu_and_rss(psutil, proc)
+                row_seconds += own + (reaped if include_children else 0.0)
+                scan_cpu_seconds += own + reaped
+                row_rss += rss
+            scan_rss += row_rss
+            cores = self._cpu_meter.rate(
+                ("row", row["pid"], row.get("created_at")), row_seconds, now
+            )
+            row["cpu_percent"] = None if cores is None else 100.0 * cores
+            row["rss"] = row_rss
+            rows.append(row)
+
+        scan_cores = self._cpu_meter.rate(("scan", tuple(roots)), scan_cpu_seconds, now)
+        self._cpu_meter.prune(now)
+        cpu_percent = (
+            None
+            if scan_cores is None or not cores_available
+            else 100.0 * scan_cores / cores_available
+        )
+        return {
+            "available": True,
+            "timestamp": time.time(),
+            "cpu_percent": cpu_percent,
+            "cpu_cores_used": scan_cores,
+            "cpu_cores_available": cores_available,
+            "memory_used": int(scan_rss),
+            "memory_total": int(memory.total),
+            "machine_cpu_percent": machine_cpu,
+            "machine_memory_used": int(memory.used),
+            "swap_used": int(swap.used),
+            "swap_total": int(swap.total),
+            "load": load,
+            "processes": rows,
+        }
+
+    def _scan_root_pids(self) -> list[int]:
+        """The control PID when known; otherwise every PID from the inventory."""
+        pids: list[int] = []
         for known in self._process_inventory:
             try:
                 pid = int(known.get("pid") or 0)
@@ -595,56 +689,131 @@ class Collector:
                 continue
             if pid <= 0:
                 continue
-            row = {"role": str(known.get("role") or "process"), "pid": pid}
+            if str(known.get("role") or "") == "core":
+                return [pid]
+            pids.append(pid)
+        return pids
+
+    def _role_for(self, pid: int, cmdline: str) -> str:
+        for known in self._process_inventory:
             try:
-                process = self._host_processes.get(pid)
-                if process is None or not process.is_running():
-                    process = psutil.Process(pid)
-                    self._host_processes[pid] = process
-                with process.oneshot():
-                    rss = int(process.memory_info().rss)
-                    row.update(
-                        {
-                            "alive": process.is_running(),
-                            "cpu_percent": float(process.cpu_percent(interval=None)),
-                            "rss": rss,
-                            "ppid": process.ppid(),
-                            "threads": process.num_threads(),
-                            "cmdline": " ".join(process.cmdline()),
-                            "created_at": float(process.create_time()),
-                        }
-                    )
-                    try:
-                        row["fds"] = int(process.num_fds())
-                    except (AttributeError, OSError):
-                        row["fds"] = None
-                    try:
-                        soft_limit, _hard_limit = process.rlimit(psutil.RLIMIT_NOFILE)
-                        row["fd_limit"] = int(soft_limit)
-                    except (AttributeError, OSError, ValueError):
-                        row["fd_limit"] = None
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                self._host_processes.pop(pid, None)
-                row["alive"] = False
-            processes.append(row)
-        # psutil measures CPU since its previous call. A manual refresh next
-        # to a timer tick must not replace a valid reading with a near-zero
-        # duration sample (psutil recommends at least 0.1 seconds).
-        now = time.monotonic()
-        if self._host_cpu_sample_at is None or now - self._host_cpu_sample_at >= 0.1:
-            self._host_cpu_percent = float(psutil.cpu_percent(interval=None))
-            self._host_cpu_sample_at = now
-        return {
-            "available": True,
-            "timestamp": time.time(),
-            "cpu_percent": self._host_cpu_percent,
-            "memory_used": int(memory.used),
-            "memory_total": int(memory.total),
-            "swap_used": int(swap.used),
-            "swap_total": int(swap.total),
-            "load": load,
-            "processes": processes,
-        }
+                if int(known.get("pid") or 0) == int(pid):
+                    role = str(known.get("role") or "")
+                    if role and role != "process":
+                        return role
+            except (TypeError, ValueError):
+                continue
+        return _role_from_title(cmdline)
+
+
+class _CpuMeter:
+    """Turn cumulative CPU seconds into cores used between two refreshes."""
+
+    def __init__(self) -> None:
+        self._last: dict[Any, tuple[float, float]] = {}
+        self._rates: dict[Any, float] = {}
+
+    def rate(self, key: Any, cpu_seconds: float, now: float) -> float | None:
+        """Cores used since the last call for ``key``; ``None`` on the first call.
+
+        When no fresh value can be measured, the previous one is repeated:
+        after a refresh that came too soon, or when the total went down
+        because a process left the group (the baseline restarts there).
+        """
+        previous = self._last.get(key)
+        if previous is None:
+            self._last[key] = (float(cpu_seconds), float(now))
+            return None
+        last_seconds, last_now = previous
+        wall = float(now) - last_now
+        if wall <= 0.05:
+            return self._rates.get(key)
+        self._last[key] = (float(cpu_seconds), float(now))
+        delta = float(cpu_seconds) - last_seconds
+        if delta < 0:
+            return self._rates.get(key)
+        self._rates[key] = delta / wall
+        return self._rates[key]
+
+    def prune(self, now: float, *, max_age: float = 60.0) -> None:
+        stale = [key for key, (_, at) in self._last.items() if now - at > max_age]
+        for key in stale:
+            del self._last[key]
+            self._rates.pop(key, None)
+
+
+def _safe_children(psutil: Any, proc: Any, *, recursive: bool) -> list[Any]:
+    try:
+        return list(proc.children(recursive=recursive))
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return []
+
+
+def _cpu_and_rss(psutil: Any, proc: Any) -> tuple[float, float, int]:
+    """Own CPU seconds, CPU seconds of reaped children, and RSS bytes."""
+    try:
+        times = proc.cpu_times()
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return 0.0, 0.0, 0
+    try:
+        rss = int(proc.memory_info().rss)
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        rss = 0
+    own = float(times.user) + float(times.system)
+    reaped = float(getattr(times, "children_user", 0.0) or 0.0) + float(
+        getattr(times, "children_system", 0.0) or 0.0
+    )
+    return own, reaped, rss
+
+
+def _process_row(psutil: Any, proc: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {"pid": int(proc.pid), "alive": False}
+    try:
+        with proc.oneshot():
+            row.update(
+                {
+                    "alive": proc.is_running(),
+                    "ppid": proc.ppid(),
+                    "threads": proc.num_threads(),
+                    "cmdline": " ".join(proc.cmdline()),
+                    "created_at": float(proc.create_time()),
+                }
+            )
+            try:
+                row["fds"] = int(proc.num_fds())
+            except (AttributeError, OSError):
+                row["fds"] = None
+            try:
+                soft_limit, _hard_limit = proc.rlimit(psutil.RLIMIT_NOFILE)
+                row["fd_limit"] = int(soft_limit)
+            except (AttributeError, OSError, ValueError):
+                row["fd_limit"] = None
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        row["alive"] = False
+    return row
+
+
+def _available_cores(psutil: Any, pid: int | None) -> int:
+    """Cores this scan may use: its CPU affinity when known, else all logical cores."""
+    if pid is not None:
+        try:
+            affinity = psutil.Process(pid).cpu_affinity()
+            if affinity:
+                return len(affinity)
+        except (AttributeError, psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+            pass
+    return int(psutil.cpu_count(logical=True) or 1)
+
+
+def _role_from_title(command: str) -> str:
+    title = str(command or "").strip().split(None, 1)[0] if str(command or "").strip() else ""
+    if re.match(r"^Jarvis-Worker-\d+(?::|$)", title):
+        return "worker"
+    if "archiver" in title.lower():
+        return "archiver"
+    if title.startswith(("redis-server", "Jarvis-Redis")):
+        return "redis"
+    return "process"
 
 
 def open_collector(choice: ScanChoice) -> Collector | None:
@@ -711,17 +880,9 @@ def _process_inventory(scan: Any, *, control_pid: int | None = None) -> list[dic
         except (TypeError, ValueError):
             continue
         command = str(getattr(process, "command", "")).strip()
-        title = command.split(None, 1)[0] if command else ""
-        if re.match(r"^Jarvis-Worker-\d+(?::|$)", title):
-            role = "worker"
-        elif "archiver" in title.lower():
-            role = "archiver"
-        elif title.startswith("redis-server"):
-            role = "redis"
-        elif control_pid is not None and pid == int(control_pid):
+        role = _role_from_title(command)
+        if role == "process" and control_pid is not None and pid == int(control_pid):
             role = "core"
-        else:
-            role = "process"
         rows.append({"role": role, "pid": pid, "command": command})
     return rows
 

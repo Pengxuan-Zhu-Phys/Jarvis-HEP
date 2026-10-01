@@ -225,30 +225,48 @@ class HostPane(Horizontal):
             )
             right.update("PROCESS DETAIL\n\nNo process is selected.")
             return
-        mem_used = float(host.get("memory_used", 0) or 0) / (1024**3)
-        mem_total = float(host.get("memory_total", 0) or 0) / (1024**3)
-        swap_used = float(host.get("swap_used", 0) or 0) / (1024**3)
-        swap_total = float(host.get("swap_total", 0) or 0) / (1024**3)
+        gib = 1024**3
+        scan_mem = float(host.get("memory_used", 0) or 0) / gib
+        mem_total = float(host.get("memory_total", 0) or 0) / gib
+        machine_mem = float(host.get("machine_memory_used", 0) or 0) / gib
+        swap_used = float(host.get("swap_used", 0) or 0) / gib
+        swap_total = float(host.get("swap_total", 0) or 0) / gib
         load = host.get("load") or ()
         load_text = " / ".join(f"{float(value):.2f}" for value in load) or "—"
+        cpu = host.get("cpu_percent")
+        cores_used = host.get("cpu_cores_used")
+        cores_available = host.get("cpu_cores_available")
+        scan_cpu = "—" if cpu is None else f"{float(cpu):.1f}%"
+        cores = (
+            ""
+            if cores_used is None or not cores_available
+            else f" ({float(cores_used):.1f} / {int(cores_available)} cores)"
+        )
+        machine_cpu = host.get("machine_cpu_percent")
+        machine_cpu_text = "—" if machine_cpu is None else f"{float(machine_cpu):.1f}%"
         rows = list(host.get("processes") or [])
         lines = [
-            f"HOST{stale}  scan process inventory",
+            f"HOST{stale}  this scan (rough; memory counts shared pages more than once)",
             "",
-            f"CPU  {float(host.get('cpu_percent', 0) or 0):.1f}%    LOAD  {load_text}",
-            f"MEM  {mem_used:.1f}/{mem_total:.1f}G    SWAP  {swap_used:.1f}/{swap_total:.1f}G",
+            f"SCAN     CPU  {scan_cpu}{cores}    MEM  ≈{scan_mem:.1f}G",
+            f"MACHINE  CPU  {machine_cpu_text}    LOAD  {load_text}",
+            f"         MEM  {machine_mem:.1f}/{mem_total:.1f}G    SWAP  {swap_used:.1f}/{swap_total:.1f}G",
             "",
-            "ROLE       PID     CPU%   RSS      FDS  ALIVE",
+            "ROLE       PID       CPU%     RSS   FDS  ALIVE",
         ]
         if rows:
             for row in rows:
                 rss = float(row.get("rss", 0) or 0) / (1024**2)
+                row_cpu = row.get("cpu_percent")
+                row_cpu_text = "—" if row_cpu is None else f"{float(row_cpu):.1f}"
                 lines.append(
                     f"{_text(row.get('role'), 'process'):<10.10} "
-                    f"{_text(row.get('pid')):<6.6}  "
-                    f"{float(row.get('cpu_percent', 0) or 0):>4.1f}  "
-                    f"{rss:>6.1f}M  {_text(row.get('fds')):>3}  {_text(row.get('alive'))}"
+                    f"{_text(row.get('pid')):<7.7}  "
+                    f"{row_cpu_text:>6}  "
+                    f"{rss:>6.1f}M  {_text(row.get('fds')):>4}  {_text(row.get('alive'))}"
                 )
+            lines.append("")
+            lines.append("CPU% per row: 100 = one core, including that process's children.")
         else:
             lines.append("—    no process from this scan is available")
         left.update("\n".join(lines))
