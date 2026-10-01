@@ -1,6 +1,7 @@
 # Repo-root / local runtime (scans, plots, checkpoints)
 /docs/*
 !/docs/sample-storage.md
+!/docs/logging-spec.md
 logs/
 checkpoints/
 outputs/
