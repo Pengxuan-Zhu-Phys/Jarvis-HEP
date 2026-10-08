@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from jarvishep2.sampling.checkpointed_sampler import CheckpointedSampler
@@ -18,6 +19,7 @@ from jarvishep2.sample import Sample
 _INFLIGHT_POLL_SEC = 0.05
 # How often to log a backpressure wait line (seconds).
 _BACKPRESSURE_LOG_INTERVAL_SEC = 2.0
+_CONTROL_POLL_SEC = 0.1
 
 
 class FixedSetSampler(CheckpointedSampler):
@@ -38,6 +40,7 @@ class FixedSetSampler(CheckpointedSampler):
             "vars", "_batch_size", "_max_inflight", "_logger",
             "_backpressure_last_log", "_checkpoint_heartbeat_sec",
             "_mapper_pipeline",
+            "_interrupt_check", "_control_next_check",
         }
     )
 
@@ -54,6 +57,37 @@ class FixedSetSampler(CheckpointedSampler):
         self._max_inflight = 16
         self._logger = get_jarvis_logger("sampler.fixed")
         self._backpressure_last_log = 0.0
+        self._interrupt_check: Callable[[], bool] | None = None
+        self._control_next_check = 0.0
+
+    def set_interrupt_check(self, check: Callable[[], bool]) -> None:
+        """Bind the control process's stop flag without checkpointing it."""
+        self._interrupt_check = check
+
+    def check_runtime_control(self) -> None:
+        """Observe interruption each tick, and the shared scan mode at 10 Hz."""
+        check = self._interrupt_check
+        if bool(getattr(self, "_interrupt_requested", False)) or (check and check()):
+            raise KeyboardInterrupt
+        now = time.monotonic()
+        if self.redis is None or now < self._control_next_check:
+            return
+        self._control_next_check = now + _CONTROL_POLL_SEC
+        read = getattr(self.redis, "read_proc_board", None)
+        if not callable(read):
+            return
+        board = read("core") or {}
+        if not isinstance(board, Mapping):
+            return
+        mode = str(board.get("scan_mode") or "").strip().lower()
+        if mode in {"paused", "stopping", "draining"}:
+            raise RuntimeError(
+                f"{getattr(self, 'method', type(self).__name__)} sampling aborted: "
+                f"scan_mode={mode} pause_reason={board.get('pause_reason') or mode}"
+            )
+
+    def _sampling_tick(self) -> None:
+        self.check_runtime_control()
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -90,6 +124,7 @@ class FixedSetSampler(CheckpointedSampler):
     def flush_batch(self, batch: list[Sample]) -> int:
         if not batch:
             return 0
+        self.check_runtime_control()
         if len(batch) == 1:
             self._submit(batch[0])
         else:
@@ -130,6 +165,7 @@ class FixedSetSampler(CheckpointedSampler):
     ) -> None:
         """Block until fewer than ``max_inflight`` samples are outstanding."""
         while self._inflight(pushed, base_finished=base_finished) >= max_inflight:
+            self._sampling_tick()
             now = time.time()
             if now - self._backpressure_last_log >= _BACKPRESSURE_LOG_INTERVAL_SEC:
                 self._backpressure_last_log = now
@@ -160,6 +196,7 @@ class FixedSetSampler(CheckpointedSampler):
         t0 = time.time()
 
         while True:
+            self._sampling_tick()
             self._wait_for_inflight_room(
                 pushed, base_finished=base_finished, max_inflight=max_inflight
             )
@@ -169,6 +206,7 @@ class FixedSetSampler(CheckpointedSampler):
             target = min(self._batch_size, room)
 
             while len(batch) < target:
+                self._sampling_tick()
                 sample = self.propose_next()
                 if sample is None:
                     if batch:
@@ -213,6 +251,7 @@ class FixedSetSampler(CheckpointedSampler):
         self._suppress_submit_progress = True
         try:
             while self._accepted_index < target:
+                self._sampling_tick()
                 if self.propose_next() is None:
                     break
         finally:

@@ -184,8 +184,10 @@ sampler must not write these lines itself. It writes S5, S7 and S11.
 long runs do not flood `sampler.log`.
 
 The settings table (S2) lists the sampler's own settings rows. A sampler
-without the settings hook (for example a plug-in) gets `Sampling.Bounds` as
-written in the card instead.
+without the settings hook gets `Sampling.Bounds` as written in the card
+instead. User plug-ins always have the hook: the plug-in adapter lists point
+number, plug-in version and selection, then the plug-in's own
+`settings_rows` (see [Plug-ins](#plug-ins)).
 
 ## 4. Status
 
@@ -237,6 +239,38 @@ Gaps that affected every sampler, and what was done:
   S6, S9 and S10: wording, level, the `Jarvis-HEP.Sampler.<Method>` label,
   the Jarvis layout, and that no hook fails. A sampler that breaks them,
   built-in or plug-in, fails the test.
+
+### Plug-ins
+
+Implemented in S1 of the external sampler work
+(`jarvishep2/sampling/plugin_sampler.py`;
+[technical design](jarvis-hep-sampler/technical-design.md) §4.5, §6.2).
+A user plug-in written with Jarvis-HEP-Sampler never touches the logger
+directly:
+
+- The plug-in adapter (`PluginSampler`) implements the three runtime hooks
+  above. Its settings table lists point number, `plugin <Method> <version>
+  (<hash>)`, selection and explicit plug-in options. Optional `settings_rows`
+  enriches matching keys and adds defaults or derived values; it is not
+  required to record the card's explicit options. Plug-in settings are limited
+  to 32 rows and text values to 256 characters. The adapter adds the
+  plug-in's `summary_rows` and `stop_reason`, and emits S4 progress as
+  `<Method> candidates sampled` against `point_number`.
+- A plug-in that fails while it is being prepared (before Redis starts) is
+  reported as `<Method> Sampler meets error when preparing the plug-in -> …`,
+  with the plug-in's own traceback in `sampler.log`.
+- For the records a sampler writes itself, the plug-in calls the `log`
+  object it receives in its contexts: `log.step(title, rows)` for S5,
+  `log.adjust(name, old, new, why)` for S7, and `log.saved(what, path)` for
+  S11. Inside Jarvis-HEP these go to `Jarvis-HEP.Sampler.<Method>` in the
+  layout of §1.
+- The contract test sweeps every method in the catalog, so the shipped
+  `LatinHypercube` plug-in and loaded user plug-ins are covered like
+  built-ins.
+- Reporting failures produce at most one warning per hook per session;
+  retained diagnostics are bounded. The sampling thread computes `status`
+  snapshots. Monitor and control-heartbeat readers only use the cache, so a
+  slow reporting hook cannot block lease renewal or access the plan concurrently.
 
 ## Decisions
 

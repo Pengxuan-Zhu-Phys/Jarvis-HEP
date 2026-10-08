@@ -7,7 +7,6 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from jarvishep2.mapper import (
-    STATISTICAL_METHODS,
     MapperError,
     _is_affine_in_sample_vars,
     build_mapper_spec_from_config,
@@ -115,7 +114,10 @@ def validate_mapper(
         return issues
 
     sample_names = [v.name for v in spec.variables]
-    is_stat = method_name in STATISTICAL_METHODS
+    # Call-time lookup: plug-in methods declare `statistical` in their PLUGIN dict.
+    from jarvishep2.sampler_catalog import is_statistical
+
+    is_stat = is_statistical(str(method_name or ""))
 
     if is_stat and n_mapped > n_vars:
         issues.append(

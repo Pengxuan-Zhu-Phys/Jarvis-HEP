@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-05",
+  "head": "0bbcf675",
+  "python": "3.13.13",
+  "numpy": "2.5.0",
+  "command": "python -m pytest -q -m 'not slow' --tb=short --junitxml=/private/tmp/jarvis-hep-review-2026-10-05.xml",
+  "sandbox": "escalated execution for loopback TCP and process metrics",
+  "passed": 1205,
+  "failed": 2,
+  "deselected": 163,
+  "subtests_passed": 140,
+  "duration_seconds": 240.24,
+  "failures": [
+    {
+      "class": "tests.test_monitor_resources.ScanTreeCpuTests",
+      "test": "test_short_lived_children_are_counted",
+      "failure": "tests/test_monitor_resources.py:82: in test_short_lived_children_are_counted\n    self.assertGreater(min(cores), 0.3, cores)\n                       ^^^^^^^^^^\nE   TypeError: '<' not supported between instances of 'NoneType' and 'NoneType'"
+    },
+    {
+      "class": "tests.test_task_schema_corpus.TaskSchemaCorpusTests",
+      "test": "test_shipped_yaml_corpus_is_ascii_only",
+      "failure": "tests/test_task_schema_corpus.py:113: in test_shipped_yaml_corpus_is_ascii_only\n    self.assertEqual(bad, [])\nE   AssertionError: Lists differ: [\"/Users/p.zhu/Jarvis-Workshop/Jarvis-Exam[80 chars]n']\"] != []\nE   \nE   First list contains 1 additional elements.\nE   First extra element 0:\nE   \"/Users/p.zhu/Jarvis-Workshop/Jarvis-Examples/iDM/bin/iDM_Vector_LZ2026_HighER.yaml: ['$.Sampling.Variables[1].description']\"\nE   \nE   + []\nE   - ['/Users/p.zhu/Jarvis-Workshop/Jarvis-Examples/iDM/bin/iDM_Vector_LZ2026_HighER.yaml: '\nE   -  \"['$.Sampling.Variables[1].description']\"]"
+    }
+  ],
+  "status": "not fully green",
+  "source_log": "/private/tmp/jarvis-hep-review-2026-10-05.log"
+}

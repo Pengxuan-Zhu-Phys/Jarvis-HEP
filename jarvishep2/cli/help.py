@@ -48,6 +48,7 @@ _COMMAND_HELP_PANELS = {
     "portal": "Extensions & projects",
     "operas": "Extensions & projects",
     "project": "Extensions & projects",
+    "sampler": "Extensions & projects",
 }
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
@@ -65,6 +66,7 @@ _COMMAND_HELP_ORDER = {
     "kill": 90,
     # Project / extension entry points
     "project": 100,
+    "sampler": 105,
     "portal": 110,
     "operas": 120,
     # Nested helper workflows
@@ -605,6 +607,13 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
+    # ``sampler`` uses argv passthrough to its own sub-parser.
+    sub.add_parser(
+        "sampler",
+        help="Your own samplers (init/check/load/list/info/remove)",
+        add_help=False,
+    )
+
     ps_p = sub.add_parser(
         "ps",
         help="List process groups, or show one scan / ZP group",
@@ -719,6 +728,47 @@ def build_project_help_parser() -> JarvisArgumentParser:
     return parser
 
 
+def build_sampler_help_parser() -> JarvisArgumentParser:
+    """``Jarvis sampler``: create, check, load and manage your own samplers."""
+    parser = JarvisArgumentParser(
+        prog="Jarvis sampler",
+        description=(
+            "Write your own sampler as one Python file, load it once, then use it as "
+            "Sampling.Method like a built-in method."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sub = parser.add_subparsers(
+        dest="sampler_command", required=False, parser_class=JarvisArgumentParser
+    )
+
+    init = sub.add_parser("init", help="Create a sampler file from the template")
+    init.add_argument("method", help="Sampling.Method name, e.g. MyLatinHypercube")
+    init.add_argument("--output", help="File or directory to write (default ./<Method>.py)")
+
+    check = sub.add_parser("check", help="Check a sampler offline (no Redis)")
+    check.add_argument("target", help="Sampler file, or the name of a loaded sampler")
+    context = check.add_mutually_exclusive_group()
+    context.add_argument("--dimension", type=int, help="Number of variables (default 2)")
+    context.add_argument("--card", help="Task YAML to take Variables and Bounds from")
+    check.add_argument("--options", help="YAML file with the sampler's Bounds options")
+    check.add_argument("--points", type=int, help="Total candidate budget (default: the card's, else 100)")
+    check.add_argument("--seed", type=int, help="Seed (default: the card's, else 0)")
+
+    load = sub.add_parser("load", help="Load or replace a sampler for every new run")
+    load.add_argument("file", help="Sampler .py file")
+
+    sub.add_parser("list", help="List loaded and shipped plug-in samplers")
+
+    info = sub.add_parser("info", help="Show one loaded sampler")
+    info.add_argument("method", help="Sampling.Method name")
+
+    remove = sub.add_parser("remove", help="Unload a sampler (your file is kept)")
+    remove.add_argument("method", help="Sampling.Method name")
+    remove.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
+    return parser
+
+
 def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:
     """Render contextual parser help while keeping dispatchers integer-returning."""
     try:
@@ -727,4 +777,3 @@ def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> i
         return int(exc.code)
     parser.print_help()
     return EXIT_OK
-

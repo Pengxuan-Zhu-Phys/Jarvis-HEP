@@ -11,13 +11,14 @@ from pathlib import Path
 
 from jarvishep2.contracts.methods import (
     _MCMC_METHODS,
-    _METHODS_NEED_VARIABLES,
     _NESTED_METHODS,
+    method_needs_variables,
 )
 from jarvishep2.distributor import Distributor
 from jarvishep2.mapper import STATISTICAL_METHODS
 from jarvishep2.sampler_catalog import (
     available_methods,
+    builtin_plugin_specs,
     builtin_specs,
     mcmc_names,
     methods_need_variables,
@@ -34,19 +35,30 @@ class SamplerCatalogConsistencyTests(unittest.TestCase):
         with MANIFEST_PATH.open(encoding="utf-8") as handle:
             manifest = json.load(handle)
         method_schemas = manifest["sampling_methods"]
-        self.assertEqual(set(method_schemas), set(names()))
+        builtins = {spec.name for spec in builtin_specs()}
+        plugins = {spec.name for spec in builtin_plugin_specs()}
+        # Bundled schemas cover the built-ins; plug-ins bring their own options schema.
+        self.assertEqual(set(method_schemas), builtins)
         self.assertEqual(dict(method_schemas), schema_ids())
-        self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
+        # The test session's sampler registry is empty (tests/conftest.py).
+        self.assertEqual(set(names()), builtins | plugins)
+        self.assertEqual(set(Distributor.available_methods()), set(names()))
         self.assertEqual(available_methods(), sorted(names()))
 
-    def test_every_spec_has_a_factory(self) -> None:
-        registered = set(Distributor.available_methods())
-        self.assertEqual({spec.name for spec in builtin_specs()}, registered)
+    def test_every_builtin_has_a_factory_and_plugins_have_none(self) -> None:
+        from jarvishep2.distributor import _REGISTRY
+
+        self.assertEqual({spec.name for spec in builtin_specs()}, set(_REGISTRY))
+        for spec in builtin_plugin_specs():
+            self.assertNotIn(spec.name, _REGISTRY)
+            self.assertTrue(spec.is_plugin)
 
     def test_family_views_match_contracts_and_mapper(self) -> None:
         self.assertEqual(_NESTED_METHODS, nested_names())
         self.assertEqual(_MCMC_METHODS, mcmc_names())
-        self.assertEqual(_METHODS_NEED_VARIABLES, methods_need_variables())
+        self.assertEqual(
+            {name for name in names() if method_needs_variables(name)}, methods_need_variables()
+        )
         self.assertEqual(STATISTICAL_METHODS, statistical_names())
         self.assertEqual(statistical_names(), nested_names() | mcmc_names())
         self.assertNotIn("CSV", methods_need_variables())

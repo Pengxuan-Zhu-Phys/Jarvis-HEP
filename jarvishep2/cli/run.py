@@ -140,7 +140,7 @@ def dispatch_validate(
             "Config validation successful. The task YAML meets the V2 contract.",
             file=sys.stderr,
         )
-        if report.warnings():
+        if report.warnings() or report.notes():
             print(format_report(report), file=sys.stderr)
         else:
             # Keep format_report_success available for tests / quieter tooling.

@@ -14,7 +14,8 @@ command: `Jarvis`.
 | Capability | V2 implementation |
 | --- | --- |
 | Distributed execution | Redis-backed queue with Python `spawn` Workers |
-| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `Dynesty`, and `MultiNest` |
+| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `LatinHypercube`, `Dynesty`, and `MultiNest` |
+| Your own samplers | [Jarvis-HEP-Sampler](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler) plug-ins: write one Python file, `Jarvis sampler load` it, use it as `Sampling.Method` |
 | HEP calculator integration | [Jarvis-HEP-Portal](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Portal) for calculator file I/O |
 | Python operators | [Jarvis-Operas](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Operas) for registered operators and expressions |
 | Reliability | Checkpoints, resume, graceful shutdown, and per-sample failure artifacts |
@@ -188,6 +189,8 @@ Additional integrations are available through native subcommands:
 Jarvis project create MyScan
 Jarvis project browse
 Jarvis project fetch Eggbox
+Jarvis sampler init MySampler      # write your own sampler from a template
+Jarvis sampler load MySampler.py   # then use Sampling.Method: MySampler
 Jarvis portal man
 Jarvis operas list
 Jarvis gen-plot-yaml TASK.yaml

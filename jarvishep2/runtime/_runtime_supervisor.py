@@ -95,6 +95,9 @@ class _RuntimeSupervisor:
         # Preflight remains before command setup, Redis, Workers, and Archiver,
         # while init_logger above ensures all outcomes reach core.log.
         core.check_environment_requirements()
+        # A plug-in sampler is imported and prepared here, so its errors stop
+        # the run before Redis, Workers or the Archiver start.
+        core.preflight_sampler_plugin()
         # LibDeps is globally shared.  Resolve its V1 tokens with no registered
         # executable side effects, install/reuse it once, then register tools.
         root_path = core._environment_summary.get("ROOT path")
@@ -855,7 +858,11 @@ class _RuntimeSupervisor:
         if core.redis is None:
             return
         redis_config = core.redis.connection_config()
-        path = write_scan_metadata(config=core.config, info=core.info, redis=redis_config)
+        preflight = getattr(core, "_plugin_preflight", None)
+        plugin = preflight.runtime_metadata() if preflight is not None else None
+        path = write_scan_metadata(
+            config=core.config, info=core.info, redis=redis_config, plugin=plugin,
+        )
         core.redis.set_runtime_metadata_path(path)
         core.info["runtime_metadata_path"] = path
 

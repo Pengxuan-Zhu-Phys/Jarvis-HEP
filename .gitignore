@@ -2,6 +2,7 @@
 /docs/*
 !/docs/sample-storage.md
 !/docs/logging-spec.md
+!/docs/jarvis-hep-sampler/
 logs/
 checkpoints/
 outputs/

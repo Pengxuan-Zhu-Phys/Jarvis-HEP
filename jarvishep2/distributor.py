@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Sampler factory dispatch via a register table (V1-compatible method names)."""
+"""Sampler factory dispatch via a register table (V1-compatible method names).
+
+Built-in samplers have a factory here. Plug-in methods (shipped built-in
+plug-ins and user plug-ins from ``Jarvis sampler load``) have no factory: they
+come from ``sampler_catalog`` and are run by ``PluginSampler``.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from jarvishep2.Sampling.sampler import SamplingVirtial
+from jarvishep2 import sampler_catalog
 from jarvishep2.sampler_catalog import builtin_specs
 
 SamplerFactory = Callable[[], SamplingVirtial]
@@ -27,18 +33,34 @@ class SamplerRegistration:
 _REGISTRY: dict[str, SamplerRegistration] = {}
 
 
+def _plugin_stateless_names() -> list[str]:
+    return [
+        spec.name
+        for spec in sampler_catalog.iter_specs()
+        if spec.is_plugin and spec.stateless and spec.name not in _REGISTRY
+    ]
+
+
 class _StatelessMethodsView:
-    """Live view of stateless method names (safe under ``from … import``)."""
+    """Live view of stateless method names (safe under ``from … import``).
+
+    Registered factories answer first; plug-in methods answer from the catalog.
+    """
 
     def __contains__(self, item: object) -> bool:
-        registration = _REGISTRY.get(str(item).strip())
-        return registration is not None and registration.stateless
+        key = str(item).strip()
+        registration = _REGISTRY.get(key)
+        if registration is not None:
+            return registration.stateless
+        spec = sampler_catalog.spec_for(key)
+        return bool(spec is not None and spec.is_plugin and spec.stateless)
 
     def __iter__(self) -> Iterator[str]:
-        return (reg.name for reg in _REGISTRY.values() if reg.stateless)
+        registered = [reg.name for reg in _REGISTRY.values() if reg.stateless]
+        return iter(registered + _plugin_stateless_names())
 
     def __len__(self) -> int:
-        return sum(1 for reg in _REGISTRY.values() if reg.stateless)
+        return sum(1 for _ in self)
 
     def __repr__(self) -> str:
         return f"frozenset({sorted(self)!r})"
@@ -103,14 +125,20 @@ class Distributor:
 
     @classmethod
     def available_methods(cls) -> list[str]:
-        return sorted(_REGISTRY.keys())
+        """Registered factories plus plug-in methods from the catalog."""
+        plugins = {spec.name for spec in sampler_catalog.iter_specs() if spec.is_plugin}
+        return sorted(set(_REGISTRY) | plugins)
 
     @classmethod
     def get_resume_status(cls, method: str) -> str:
-        registration = _REGISTRY.get(str(method).strip())
-        if registration is None:
-            return "intentionally unsupported"
-        return registration.resume
+        key = str(method).strip()
+        registration = _REGISTRY.get(key)
+        if registration is not None:
+            return registration.resume
+        spec = sampler_catalog.spec_for(key)
+        if spec is not None and spec.is_plugin:
+            return spec.resume
+        return "intentionally unsupported"
 
     @classmethod
     def resume_support_status(cls) -> dict[str, str]:
@@ -121,10 +149,16 @@ class Distributor:
         key = str(method).strip()
         registration = _REGISTRY.get(key)
         if registration is None:
+            spec = sampler_catalog.spec_for(key)
+            if spec is not None and spec.is_plugin:
+                from jarvishep2.sampling.plugin_sampler import create_plugin_sampler
+
+                return create_plugin_sampler(spec)
             available = ", ".join(Distributor.available_methods()) or "none"
             raise NotImplementedError(
                 f"Sampling.Method '{method}' is not implemented in Jarvis-HEP V2 yet. "
-                f"Available: {available}"
+                f"Available: {available}. A sampler of your own must be loaded first: "
+                "Jarvis sampler load <file>"
             )
         sampler = registration.factory()
         if not isinstance(sampler, SamplingVirtial):

@@ -24,6 +24,11 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     "JV2-MTH-001": {"kind": "yaml", "path": "Sampling.Bounds"},
     "JV2-MTH-002": {"kind": "sampler"},
     "JV2-MTH-003": {"kind": "sampler"},
+    # Plug-in samplers (Jarvis-HEP-Sampler)
+    "JV2-PLG-001": {"kind": "sampler"},
+    "JV2-PLG-002": {"kind": "sampler"},
+    "JV2-PLG-003": {"kind": "sampler"},
+    "JV2-PLG-004": {"kind": "sampler"},
     "JV2-MTH-010": {"kind": "sampler", "method": "Bridson"},
     "JV2-MTH-011": {"kind": "sampler", "method": "Bridson"},
     "JV2-MTH-012": {"kind": "sampler", "method": "Bridson"},

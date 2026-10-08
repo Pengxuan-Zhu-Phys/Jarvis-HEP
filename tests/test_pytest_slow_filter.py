@@ -29,6 +29,21 @@ class DefaultSlowFilterTests(unittest.TestCase):
             "slow",
         )
 
+    def test_option_values_are_not_selected_test_paths(self) -> None:
+        for option in ("--deselect", "--ignore", "--junitxml", "--override-ini", "-o"):
+            self.assertEqual(
+                drop_default_slow_markexpr("not slow", ["tests/", option, "tests/fake.py::test_a"]),
+                "not slow",
+            )
+        self.assertEqual(
+            drop_default_slow_markexpr("not slow", ["--deselect=tests/fake.py::test_a", "tests/"]),
+            "not slow",
+        )
+        self.assertEqual(
+            drop_default_slow_markexpr("not slow", ["--deselect", "tests/fake.py::test_a", "tests/real.py"]),
+            "",
+        )
+
     def test_named_py_file_drops_default_filter(self) -> None:
         self.assertEqual(
             drop_default_slow_markexpr("not slow", ["tests/test_mcmc_sampler.py"]),
