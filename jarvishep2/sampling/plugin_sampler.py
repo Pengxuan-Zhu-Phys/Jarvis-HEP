@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
-import json
 import math
 import os
 import tempfile
@@ -32,7 +31,6 @@ from jarvishep2.log_kv import PermilleProgress, format_two_column_log
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 from jarvishep2.sampler_catalog import (
-    SOURCE_USER,
     PluginRecord,
     SamplerSpec,
     plugin_record,
@@ -45,7 +43,7 @@ from jarvishep2.sampling.sampling_utils import (
     physical_from_u,
 )
 
-IDENTITY_VERSION = 1
+IDENTITY_VERSION = 2
 
 
 def plugin_logger(method: str) -> Any:
@@ -78,6 +76,7 @@ def plugin_identity(
     seed: int,
     point_number: int,
     options: Mapping[str, Any],
+    generation_mode: str = "draw",
 ) -> tuple[str, dict[str, Any]]:
     """Hard scan identity (design §7.3): SHA-256 of the science-defining fields.
 
@@ -97,6 +96,8 @@ def plugin_identity(
         "api_version": metadata.api_version,
         "state_version": metadata.state_version,
         "stream_protocol": STREAM_PROTOCOL,
+        "generation_mode": generation_mode,
+        "block_size": metadata.block_size if generation_mode == "draw_block" else None,
         "variables": sampling.get("Variables") or [],
         "mapper": sampling.get("Mapper") or [],
         "selection": sampling.get("selection"),
@@ -104,8 +105,9 @@ def plugin_identity(
         "point_number": int(point_number),
         "options": thaw_options(options),
     }
-    text = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest(), fields
+    from jarvishep2.sampling.plugin_identity import canonical_hash
+
+    return canonical_hash(fields), fields
 
 
 def plugin_source_dir(task_root: str, scan_name: str, method: str) -> Path:
@@ -170,91 +172,123 @@ def _variable_names(config: Mapping[str, Any]) -> list[str]:
 
 
 def preflight_plugin(
-    config: Mapping[str, Any],
-    *,
-    task_root: str | None = None,
-    scan_name: str | None = None,
-    resume: bool = False,
+    config: Mapping[str, Any], *, task_root: str | None = None,
+    scan_name: str | None = None, resume: bool = False,
+    checkpoint_state: Mapping[str, Any] | None = None,
 ) -> PluginPreflight | None:
-    """Load and prepare the plug-in named by ``Sampling.Method``; None for a built-in.
-
-    With *task_root* and *scan_name*, the plug-in source used by this scan is
-    kept under :func:`plugin_source_dir`. A resume uses that copy, so a later
-    ``Jarvis sampler load`` cannot silently change a running scan's points.
-    """
+    """Resolve exact scan source and reject drift before any run resources start."""
     from jarvis_hep_sampler import IndependentSession, SamplerLog, SamplerRegistry
-    from jarvis_hep_sampler.errors import PluginLoadError
-    from jarvis_hep_sampler.loader import load_plugin_file
-
+    from jarvis_hep_sampler.errors import PluginLoadError, PluginResumeMismatch
+    from jarvis_hep_sampler.loader import load_plugin_source
     from jarvishep2.cardload.task_config import sampling_method
+    from jarvishep2.sampling.plugin_identity import (
+        BINDING_VERSION, binding_record, check_identity, environment_versions,
+        identity_path, read_binding, source_path, validate_checkpoint, write_binding,
+    )
 
-    method = sampling_method(config)
-    spec = spec_for(method)
+    # Programmatic callers may provide the layout separately.
+    cfg = dict(config)
+    if task_root:
+        cfg["task_root"] = task_root
+    if scan_name:
+        cfg["scan_name"] = scan_name
+    method = sampling_method(cfg)
+    binding = read_binding(cfg) if resume else None
+    record = binding_record(cfg) if binding else plugin_record(method)
+    spec = (SamplerSpec(name=method, source=record.source, family="plugin",
+                        stateless=record.profile == "independent", statistical=record.statistical)
+            if record else spec_for(method))
     if spec is None or not spec.is_plugin:
         return None
-    record = plugin_record(method)
-    if record is None:
-        raise PluginLoadError(f"{method} is not loaded; run: Jarvis sampler load <file>", method=method)
-    if not spec.stateless:
-        raise PluginLoadError(
-            f"{method} uses profile {record.profile!r}, which this Jarvis-HEP cannot run yet",
-            method=method,
-        )
-
-    logger = plugin_logger(method)
-    source_dir = (
-        plugin_source_dir(task_root, scan_name, method) if task_root and scan_name else None
-    )
-    plugin = None
-    resumed_from_copy = False
-    if resume and source_dir is not None and source_dir.is_dir():
-        copies = sorted(source_dir.glob(f"{method}-*.py"), key=lambda path: path.stat().st_mtime)
-        if copies:
-            plugin = load_plugin_file(copies[-1])
-            resumed_from_copy = True
-            if plugin.source_sha256 != record.source_sha256:
-                logger.warning(
-                    "%s plug-in: resuming with this scan's own copy (%s); the loaded version "
-                    "is %s and is not used",
-                    method,
-                    plugin.source_sha256[:12],
-                    record.source_sha256[:12],
-                )
-    if plugin is None:
-        if record.source == SOURCE_USER:
-            plugin = SamplerRegistry().load_snapshot(method)
-        else:
-            plugin = load_plugin_file(record.snapshot_path)
-    copy = None
+    if record is None or not spec.stateless:
+        raise PluginLoadError(f"{method} is not a loaded independent sampler", method=method)
+    path = identity_path(cfg)
+    source_dir = plugin_source_dir(task_root, scan_name, method) if task_root and scan_name else None
+    database = path.parent
     if source_dir is not None:
-        copy = _write_copy(
-            source_dir, f"{method}-{plugin.source_sha256[:12]}.py", plugin.source_bytes
+        has_data = any(p.is_file() and p.stat().st_size for pattern in ("*.hdf5", "*.h5", "*.csv")
+                       for p in database.glob(pattern))
+        checkpoint = source_dir.parent / "state.pkl"
+        if binding is None and (has_data or checkpoint.exists() or path.exists()):
+            raise PluginResumeMismatch("existing scan has no usable source binding; use --resume "
+                                       "for a bound scan, or choose a new scan name", method=method)
+    if binding:
+        from jarvis_hep_sampler.metadata import parse_metadata
+        from jarvis_hep_sampler.options import freeze_options, parse_reserved, split_bounds
+        meta = parse_metadata(binding["metadata"])
+        reserved, options = split_bounds(_sampling(cfg).get("Bounds") or {}, meta.profile)
+        settings = parse_reserved(reserved, meta.profile)
+        identity, fields = plugin_identity(
+            cfg, metadata=meta, seed=settings.seed, point_number=settings.point_number,
+            options=freeze_options(options), generation_mode=binding["identity_fields"]["generation_mode"],
         )
-
+        check_identity(binding["identity_fields"], fields, method=method)
+        if checkpoint_state is not None:
+            validate_checkpoint(checkpoint_state, identity=identity, source=binding["source_sha256"],
+                                fields=fields, method=method)
+        origin = source_path(cfg, binding)
+        if origin.exists():
+            payload = origin.read_bytes()
+        else:
+            # Only a byte-identical registered snapshot may repair a missing copy.
+            from jarvishep2.sampler_catalog import registered_plugin_record
+            current = SamplerRegistry().get(method)
+            live = registered_plugin_record(method)
+            candidate = (SamplerRegistry().snapshot_path(current) if current is not None
+                         else Path(live.snapshot_path) if live and live.source != "scan" else None)
+            if candidate is None or not candidate.is_file():
+                raise PluginResumeMismatch("bound source is missing and no identical snapshot is available",
+                                           method=method, source=str(origin))
+            payload = candidate.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != binding["source_sha256"]:
+            raise PluginResumeMismatch("bound source SHA-256 mismatch; refusing resume",
+                                       method=method, source=str(origin))
+    else:
+        origin = Path(record.snapshot_path)
+        payload = origin.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != record.source_sha256:
+            raise PluginLoadError("registered source SHA-256 mismatch", method=method, source=str(origin))
+    plugin = load_plugin_source(payload, origin=origin)
     session = IndependentSession.from_bounds(
-        plugin,
-        _sampling(config).get("Bounds") or {},
-        variable_names=_variable_names(config),
+        plugin, _sampling(cfg).get("Bounds") or {}, variable_names=_variable_names(cfg),
         log=SamplerLog(method, JarvisLogBackend(method)),
     )
-    session.prepare()
     identity, fields = plugin_identity(
-        config,
-        metadata=plugin.metadata,
-        seed=session.seed,
-        point_number=session.point_number,
-        options=session.options,
+        cfg, metadata=plugin.metadata, seed=session.seed, point_number=session.point_number,
+        options=session.options, generation_mode="draw_block" if plugin.function("draw_block") else "draw",
     )
-    return PluginPreflight(
-        spec=spec,
-        record=record,
-        plugin=plugin,
-        session=session,
-        identity=identity,
-        identity_fields=fields,
-        source_copy=copy,
-        resumed_from_copy=resumed_from_copy,
-    )
+    if binding:
+        check_identity(binding["identity_fields"], fields, method=method)
+    if checkpoint_state is not None:
+        validate_checkpoint(checkpoint_state, identity=identity, source=plugin.source_sha256,
+                            fields=fields, method=method)
+    session.prepare()
+    logger = plugin_logger(method)
+    environment = environment_versions()
+    if binding and environment != binding["environment"]:
+        logger.warning("%s plug-in: environment changed (%s -> %s); exact cross-version reproduction is not promised",
+                       method, binding["environment"], environment)
+    copy = None
+    if source_dir is not None:
+        if binding:
+            copy = source_path(cfg, binding)
+            if not copy.exists():
+                _write_copy(copy.parent, copy.name, payload)
+            logger.warning("%s plug-in: resuming with the scan's own copy %s", method, plugin.source_sha256[:12])
+        else:
+            copy = _write_copy(source_dir, f"{method}-{plugin.source_sha256}.py", payload)
+            write_binding(path, {
+                "binding_version": BINDING_VERSION, "hard_identity": identity, "identity_fields": fields,
+                "source_sha256": plugin.source_sha256,
+                "source_file": str(copy.relative_to(Path(task_root).resolve())),
+                "metadata": plugin.metadata.to_dict(), "options_schema": plugin.options_schema,
+                "hooks": list(plugin.hooks), "original_source": record.source_path,
+                "environment": environment,
+            })
+    return PluginPreflight(spec=spec, record=record, plugin=plugin, session=session,
+                           identity=identity, identity_fields=fields, source_copy=copy,
+                           resumed_from_copy=bool(binding))
 
 
 class PluginSampler(FixedSetSampler):
@@ -395,19 +429,23 @@ class PluginSampler(FixedSetSampler):
         return payload
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        self._import_common_fields(state)
-        self._maxp = int(state.get("maxp", self._maxp) or self._maxp)
-        saved = state.get("plugin") if isinstance(state.get("plugin"), Mapping) else {}
-        saved_identity = str(saved.get("identity") or "")
-        if saved_identity and self._identity and saved_identity != self._identity:
-            self._logger.warning(
-                "%s plug-in: the checkpoint was written for a different scan identity "
-                "(%s, now %s); the science settings or plug-in version changed",
-                self.method,
-                saved_identity[:16],
-                self._identity[:16],
-            )
+        from jarvishep2.sampling.plugin_identity import validate_checkpoint
+        validate_checkpoint(state, identity=self._identity, source=self.plugin_source_sha256,
+                            fields=self._preflight.identity_fields, method=self.method)
+        # Configuration belongs to the newly prepared session, never the checkpoint.
+        self._index = state["index"]
+        self._accepted_index = state["accepted_index"]
+        self._import_checkpoint_control_state(state)
         self._submit_progress = None
+
+    def advance_to_persisted_prefix(self, prefix: int) -> int:
+        from jarvis_hep_sampler.errors import PluginResumeMismatch
+        if self._accepted_index > prefix:
+            raise PluginResumeMismatch("checkpoint cursor is ahead of the durable prefix", method=self.method)
+        reached = super().advance_to_persisted_prefix(prefix)
+        if reached != prefix:
+            raise PluginResumeMismatch("candidate stream cannot reach the durable prefix", method=self.method)
+        return reached
 
     # ------------------------------------------------------------- logging
     def _stats(self) -> Any:

@@ -856,8 +856,12 @@ def fetch_official_project(
                 plain_tmp = plain_path
             _extract_archive(plain_path, extract_root)
             source_root = _resolve_archive_project_root(extract_root, project)
+            from jarvishep2.project_samplers import inspect_packaged_samplers
+            sampler_notices = inspect_packaged_samplers(source_root)
             shutil.copytree(source_root, staging_root)
             shutil.move(staging_root, resolved_target)
+            for notice in sampler_notices:
+                print(f"[Jarvis] {notice.replace(source_root, resolved_target)}")
     except (OfficialProjectFetchError, OfficialProjectNotFoundError):
         if os.path.isdir(resolved_target):
             shutil.rmtree(resolved_target, ignore_errors=True)

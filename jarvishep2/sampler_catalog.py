@@ -24,6 +24,8 @@ callers must not freeze name sets at import.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -32,6 +34,7 @@ from typing import Any, Iterator
 SOURCE_BUILTIN = "builtin"
 SOURCE_BUILTIN_PLUGIN = "builtin-plugin"
 SOURCE_USER = "user"
+SOURCE_SCAN = "scan"
 PLUGIN_FAMILY = "plugin"
 
 _SCHEMA_PREFIX = "https://jarvis-hep.org/schema/v2/sampling/methods"
@@ -78,6 +81,19 @@ class PluginRecord:
     snapshot_path: str
     source_sha256: str
     loaded_at: str = ""
+
+
+_SCAN_RECORD: ContextVar[PluginRecord | None] = ContextVar("sampler_scan_record", default=None)
+
+
+@contextmanager
+def scan_plugin_context(record: PluginRecord | None):
+    """Resolve one scan's saved metadata without changing the user's registry."""
+    token = _SCAN_RECORD.set(record)
+    try:
+        yield
+    finally:
+        _SCAN_RECORD.reset(token)
 
 
 def _method(
@@ -336,6 +352,15 @@ def _builtin_plugin_record(name: str) -> PluginRecord:
 def plugin_record(name: str) -> PluginRecord | None:
     """Plug-in details for *name*, or None for a built-in or unknown method."""
     key = str(name).strip()
+    saved = _SCAN_RECORD.get()
+    if saved is not None and saved.method == key:
+        return saved
+    return registered_plugin_record(key)
+
+
+def registered_plugin_record(name: str) -> PluginRecord | None:
+    """Current registration, deliberately ignoring a scan's contextual binding."""
+    key = str(name).strip()
     if key in _BUILTIN_PLUGIN_BY_NAME:
         return _builtin_plugin_record(key)
     _, records, _ = _user_layer()
@@ -346,8 +371,13 @@ def plugin_record(name: str) -> PluginRecord | None:
 def iter_specs() -> Iterator[SamplerSpec]:
     """Every method: built-ins, built-in plug-ins, then user plug-ins."""
     yield from _SPECS
-    yield from builtin_plugin_specs()
-    yield from user_specs()
+    saved = _SCAN_RECORD.get()
+    for spec in (*builtin_plugin_specs(), *user_specs()):
+        if saved is None or spec.name != saved.method:
+            yield spec
+    if saved is not None:
+        yield SamplerSpec(name=saved.method, stateless=saved.profile == "independent",
+                          statistical=saved.statistical, family=PLUGIN_FAMILY, source=SOURCE_SCAN)
 
 
 def spec_for(name: str) -> SamplerSpec | None:
@@ -355,6 +385,10 @@ def spec_for(name: str) -> SamplerSpec | None:
     spec = _BY_NAME.get(key)
     if spec is not None:
         return spec
+    saved = _SCAN_RECORD.get()
+    if saved is not None and saved.method == key:
+        return SamplerSpec(name=key, stateless=saved.profile == "independent",
+                           statistical=saved.statistical, family=PLUGIN_FAMILY, source=SOURCE_SCAN)
     item = _BUILTIN_PLUGIN_BY_NAME.get(key)
     if item is not None:
         return item[0]
@@ -442,6 +476,7 @@ __all__ = [
     "PluginRecord",
     "SOURCE_BUILTIN",
     "SOURCE_BUILTIN_PLUGIN",
+    "SOURCE_SCAN",
     "SOURCE_USER",
     "SamplerSpec",
     "available_methods",
@@ -462,8 +497,10 @@ __all__ = [
     "names",
     "nested_names",
     "plugin_record",
+    "registered_plugin_record",
     "reserved_method_names",
     "schema_ids",
+    "scan_plugin_context",
     "spec_for",
     "statistical_names",
     "user_registry_error",

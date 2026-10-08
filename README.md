@@ -45,16 +45,18 @@ From PyPI:
 python3 -m pip install Jarvis-HEP
 ```
 
-From a source checkout:
+From a source checkout, prepare the SDK first while its first public release is pending:
 
 ```bash
-python3 -m pip install -e .
+../Jarvis-HEP-Sampler/jhsrel
+./jhrel --sampler-dist ../Jarvis-HEP-Sampler/dist/0.1.0
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.14/*.whl
 ```
 
 For development and tests, install the test tools separately:
 
 ```bash
-python3 -m pip install -e .
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.14/*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
@@ -282,7 +284,9 @@ references for Jarvis-HEP and for each built-in sampler.
 ## Development
 
 ```bash
-python3 -m pip install -e .
+release_dir="$(mktemp -d)"
+./jhrel --sampler-dist ../Jarvis-HEP-Sampler/dist/0.1.0 --output "$release_dir"
+python3 -m pip install --force-reinstall ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl "$release_dir/"*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 python3 -m pytest -q
 ```

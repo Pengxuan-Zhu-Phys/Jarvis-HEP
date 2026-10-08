@@ -275,6 +275,7 @@ class Jarvis2Core:
                 task_root=str(self.info.get("task_root") or ""),
                 scan_name=str(self.info.get("scan_name") or ""),
                 resume=self._resume_policy == "resume",
+                checkpoint_state=(getattr(self, "_resume_checkpoint_payload", None) or {}).get("sampler_state"),
             )
         except Exception as exc:
             plugin_logger(method).error(
@@ -421,6 +422,7 @@ class Jarvis2Core:
         validate: bool = True,
         strict: bool = False,
         check_modules: bool | None = None,
+        resume: bool = False,
     ) -> dict[str, Any]:
         """Load task YAML and merge normalized layout into ``self.config``.
 
@@ -432,7 +434,10 @@ class Jarvis2Core:
         self.runtime = get_runtime_block(self.config)
         self._populate_info_from_config()
         if validate:
-            self.validate_loaded_config(strict=strict, check_modules=check_modules)
+            from jarvishep2.sampler_catalog import scan_plugin_context
+            from jarvishep2.sampling.plugin_identity import binding_record
+            with scan_plugin_context(binding_record(self.config) if resume else None):
+                self.validate_loaded_config(strict=strict, check_modules=check_modules)
         return self.config
 
     def validate_loaded_config(
@@ -889,6 +894,19 @@ class Jarvis2Core:
         )
 
     def run(
+        self, *, resume: bool = False, check_modules: bool = False,
+        verify_golden: Mapping[str, Any] | None = None, write_run_summary: bool = True,
+        check_timeout: float | None = None,
+    ) -> RunOutcome:
+        from jarvishep2.sampler_catalog import scan_plugin_context
+        from jarvishep2.sampling.plugin_identity import binding_record
+        use_binding = not check_modules and (resume or os.path.isfile(self.checkpoint_file()))
+        with scan_plugin_context(binding_record(self.config) if use_binding else None):
+            return self._run_configured(resume=resume, check_modules=check_modules,
+                                        verify_golden=verify_golden, write_run_summary=write_run_summary,
+                                        check_timeout=check_timeout)
+
+    def _run_configured(
         self,
         *,
         resume: bool = False,

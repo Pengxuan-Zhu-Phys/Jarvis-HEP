@@ -203,6 +203,7 @@ def dispatch_run(
         print("Task YAML is required.", file=sys.stderr)
         return EXIT_USAGE
 
+    from jarvis_hep_sampler.errors import PluginError
     from jarvishep2.core import Jarvis2Core
     from jarvishep2.task_config import TaskCardLoadError
 
@@ -213,6 +214,7 @@ def dispatch_run(
             validate=True,
             strict=strict,
             check_modules=check_modules if check_modules else None,
+            **({"resume": True} if resume else {}),
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
@@ -227,6 +229,10 @@ def dispatch_run(
         # Includes ConfigValidationError (subclass of ValueError).
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
+
+    except PluginError as exc:
+        print(f"Run failed: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
 
     if debug:
         console_level = "DEBUG"
@@ -249,7 +255,7 @@ def dispatch_run(
     except NotImplementedError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
-    except (RuntimeError, TimeoutError, OSError) as exc:
+    except (RuntimeError, TimeoutError, OSError, PluginError) as exc:
         print(f"Run failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
 

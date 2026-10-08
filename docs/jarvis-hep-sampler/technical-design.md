@@ -1,19 +1,20 @@
 # Jarvis-HEP-Sampler — Technical Design
 
-版本：**2.2**（2026-10-09，Australia/Adelaide）。产品方向保持定型；S1 收尾结果与剩余 S2/S3 范围见 §10–§11。
+版本：**2.3**（2026-10-09，Australia/Adelaide）。产品方向保持定型；本次落实默认严格恢复、项目源码打包与全量构件发布准备，证据与剩余范围见 §10.7。
 实施状态：
 
-- **S0 初版已交付，S1 所需 SDK 补齐已验收**：SDK 位于 `Jarvis-Workshop/Jarvis-HEP-Sampler`（0.1.0，本地提交基线 `78a2cd2` 加未提交修正；未发布）。
-- **S1 接入收尾已验收，尚未提交/发布**：R03–R10 已关闭，R13 的 S1 部分已完成；定向测试及真实 Redis 教程流程通过。全量 fast gate 仍有两项与既有基线相同的失败；P7 严格恢复、P8 打包不属于本阶段已通过的能力。
-- **S2 未实现**：拆分为 S2a 外部插件恢复安全、S2b 可移植性与发布、S2c 内置方法推广。S3 仅预留元数据，不能运行。
+- **S0/S1 已提交**：SDK 功能补齐 `79972c7`；HEP 接入 `0d85950`。SDK 完整构件发布准备已提交 `cf924cb`；均未推送/上传。
+- **S2a 默认严格恢复已实现并验收**：scan 绑定完整源码 hash；删除/覆盖登记不影响恢复；科学配置、checkpoint 与源码错误在导入旧状态或启动资源前拒绝。真实 SIGINT 后的 checkpoint / DATABASE-only 两条恢复路径通过，其他 P7 特殊故障仍单列待办。
+- **S2b 项目源码打包与本机完整构件验收已完成**：share/repro/full 和 manifest 导出完整 hash 清单，fetch 不导入或自动登记；SDK 已安装 wheel 146 项通过；HEP 完整依赖安装、真实采样与打包重载通过。未公开发布，远程矩阵待执行。
+- **后续范围**：显式更换既有 scan 源码、P7 的空洞/失败 batch/拒绝尾段组合、远程兼容矩阵与性能测量继续跟踪；S2c 内置方法推广、S3 generational 尚未开始。本次不修改或编译 TeX。
 
-审阅基线：Jarvis-HEP `0bbcf675` / `2.0.14` **加当前未提交实现**；SDK `78a2cd2`。结论不代表上述 HEP commit 已含插件支持。
+实施基线：HEP `0d85950` / 2.0.14 加本次 S2 变更；SDK `cf924cb` / 0.1.0。软件版本未因发布准备自动增加；准备构件不等于 PyPI 发布。
 
-1. **Roadmap phase**：外部 sampler 扩展 S0–S3。本次完成 S1 的实现修正、回归与 TeX 用户教程；本文继续维护唯一的目标、设计与开发台账。
-2. **Affected modules**：新 distribution Jarvis-HEP-Sampler（SDK）；HEP 侧涉及 sampler_catalog、Distributor、cardload、runtime bootstrap/resume、新的 plugin adapter、lifecycle_log、telemetry、monitor、runtime_metadata、CLI（`Jarvis sampler`、`Jarvis man`）、project_packager。
-3. **Public interfaces**：`Jarvis sampler init|check|load|list|info|remove`、一等 `Sampling.Method`、持久登记保持不变。`check --card` 保留 card 预算，checker 新增重新导入及新进程重启检查。`--accept-plugin-change`、`sampler_identity.json` 和插件打包仍待实现。
-4. **Main risks**：配置改变仍能恢复旧游标，scan 副本仍按 mtime 选择（R01/R02）；公开安装、跨平台兼容和插件打包未验收（R12）。同步用户函数没有强制超时；慢 reporting hook 现在只阻塞采样线程，续租不再执行它。
-5. **Verification performed**：SDK 146 passed；HEP 定向 56 passed / 24 subtests；全量 fast 1241 passed、2 failed、163 deselected / 141 subtests。TeX 示例在独立 CLI 进程完成 init→edit→check→load→validate/man/run→reload/remove，真实 Redis/spawn 完成并归档 1000 点。完整命令、证据与边界见 §10.6；跨平台 CI、严格恢复故障矩阵仍未执行。
+1. **Roadmap phase**：S1 提交收尾，S2a 默认恢复安全与 S2b 项目打包/构件安装。本文仍是唯一设计台账。
+2. **Affected modules**：catalog、plugin_identity / plugin_sampler、core / resume / supervisor、CLI run、project_packager / project_samplers / fetch；两仓 pyproject、shell 发布入口、CI 和非 TeX 文档。
+3. **Public interfaces**：插件 API v1 和 `Jarvis sampler` 命令不变；新增持久 scan 身份记录和恢复校验。`jhsrel` / `jhrel` 默认准备完整 wheel/sdist，`--upload` 显式发布；无 extras 或 editable 安装分支。`--accept-plugin-change` 未开放。
+4. **Main risks**：用户函数仍无强制超时；单入口快照不含第三方依赖/资源；跨 Python/NumPy 版本不承诺逐位一致。最终全仓 fast 有 4 项失败：CPU 采样、外部 Examples 非 ASCII，以及两项单独重跑通过的计时/monitor 就绪用例；不能写成全仓全绿。
+5. **Verification performed**：最终定向 158 passed / 24 subtests；真实中断恢复 2 passed，含拒绝时无源码导入、无 Redis、DATABASE/checkpoint 不变；SDK 已安装 wheel 146 passed。完整构件、全仓 gate 与环境证据归档在 §10.7。
 
 AGENTS.md 指定的五份 canonical 文档在当前仓库不存在。本文是 Jarvis-HEP-Sampler 唯一的权威设计记录。
 
@@ -471,10 +472,10 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 schema 仍然完全可选。S1 已修正 man 的解析根，本地 `$defs` / `$ref` 的类型、说明和默认值与校验一致。SDK 禁止引用解析时自动访问网络：无法解析的本地引用或外部资源引用返回定位明确的离线诊断。需要复用 schema 时把定义放进同一文档；schema 默认值只供展示，不自动写入 options，插件自行应用默认值（R09 已验收）。
 
-**`Jarvis run` 的 preflight** 插在 `_runtime_supervisor.bootstrap_distributed_runtime` 里 `check_environment_requirements()` 之后、`prepare_libraries` 和 `init_redis()` 之前。导入、参数及初始化阶段的问题会在 Redis、Worker、Archiver 启动之前暴露；draw 的错误在执行时报告。目标顺序为：
+**`Jarvis run` 的 preflight** 在恢复服务中先于 DATABASE 整理/恢复和旧游标导入；fresh 路径在 supervisor 中先于 scan 清理、HDF5 写入准备和运行资源启动。导入、参数及初始化阶段的问题会在 Redis、Worker、Archiver 启动之前暴露；draw 的错误在执行时报告。目标顺序为：
 
 1. 确定这次用哪份源码（§7.4）；
-2. 核对将执行的源码字节与绑定 hash，恢复时先完成身份检查（S2a）；
+2. 核对将执行的源码字节与绑定 hash，恢复时先完成身份与 checkpoint 检查；
 3. 从同一份字节导入；
 4. 调用 `validate_options`；
 5. 调用 `prepare`。
@@ -550,7 +551,9 @@ def draw(context: DrawContext, rng: np.random.Generator, plan) -> np.ndarray:
 | builtin-plugin | 随 HEP 发布、用插件格式写的方法（§6.6） | 不能 |
 | user | `~/.jarvis/samplers/sources.json` | 重新 load 时覆盖 |
 
-**`SamplerSpec` 的变化。** 新增字段 `source`（取值 `builtin` / `builtin-plugin` / `user`）和属性 `is_plugin`。插件的登记内容不放进 spec，而是由 `plugin_record(method)` 单独返回一个 `PluginRecord`（版本、profile、description、`options_schema`、hooks、源文件、快照路径、hash）。user 层从登记读出，不执行插件代码；builtin-plugin 层在第一次需要时加载包内文件一次。插件的 spec 由元数据生成：
+**恢复上下文（S2a）。** `scan_plugin_context` 用 ContextVar 暂时提供当前 scan 的元数据，退出后恢复原 catalog；不覆盖用户登记，也不改变其他方法。`SOURCE_SCAN` 可用于该次 card 校验、方法解析、日志和 run metadata；`registered_plugin_record` 专门查询实时登记。扫描源码只在 preflight 核对 hash 后导入。
+
+**`SamplerSpec` 的变化。** 新增字段 `source`（取值 `builtin` / `builtin-plugin` / `user` / 恢复时的 `scan`）和属性 `is_plugin`。插件的登记内容不放进 spec，而是由 `plugin_record(method)` 单独返回一个 `PluginRecord`（版本、profile、description、`options_schema`、hooks、源文件、快照路径、hash）。user 层从登记读出，不执行插件代码；builtin-plugin 层在第一次需要时加载包内文件一次。插件的 spec 由元数据生成：
 
 - `stateless = (profile == "independent")`；
 - `statistical` 取自元数据；
@@ -594,7 +597,7 @@ def draw(context: DrawContext, rng: np.random.Generator, plan) -> np.ndarray:
   - `log_stop_reason` 优先用插件的 `stop_reason`，否则是 `point_number reached`。
   - 三个 hook 经 session 的同名方法转发；异常每个 hook/session 只记一次 WARNING。`status` 由采样线程更新缓存，telemetry 只读宿主快照。
 - **日志后端**：`JarvisLogBackend` 把 SDK `log` 绑定到 `Jarvis-HEP.Sampler.<Method>` 和 `format_two_column_log`。
-- **checkpoint 身份核对（S1 部分）**：checkpoint payload 带 `plugin.identity`；导入时身份不一致只写 WARNING。拒绝续跑的规则在 S2a 实现（§7.4）。
+- **checkpoint 身份核对（S2a）**：导入前核对 identity、源码 hash、预算、seed、selection 与合法游标；旧 state 不能覆盖当前 session 的科学配置。身份不符抛 PluginResumeMismatch，不回退 fresh、不删除 checkpoint。
 - **运行总结**：`[Scan Performance]` 的 sampler 一栏对插件写方法名（内置方法仍是类名）。
 
 generational profile 的 adapter 放在同一个文件里，在 S3 实现（§4.6）。
@@ -621,7 +624,7 @@ generational profile 的 adapter 放在同一个文件里，在 S3 实现（§4.
   - 前两行与 Random 相同：`CANDIDATES n / point_number` 和进度条；
   - 副标题为 `PLUGIN <version> · ACCEPTED n · SEED s · <插件指标，最多两个> · SAVED …`；
   - `CUSTOM METHOD` 只留给既不是内置、也不是插件的方法。
-- **`runtime_metadata.py`**：插件 knobs 的 allowlist 为预算、seed、插件版本、源码 hash12 和完整 `source_sha256`。运行 supervisor 从当次 preflight 取得实际执行来源，重新 load 不会改写这次运行的版本/hash（R04 已验收）。插件 options 不进入 run metadata；完整科学身份的持久绑定仍由 S2a 实现。
+- **`runtime_metadata.py`**：插件 knobs 的 allowlist 为预算、seed、插件版本、源码 hash12 和完整 `source_sha256`。运行 supervisor 从当次 preflight 取得实际执行来源，重新 load 不会改写这次运行的版本/hash（R04 已验收）。插件 options 不进入 run metadata；完整科学身份持久化在 DATABASE 的独立绑定记录。
 
 ### 6.5 CLI 与手册
 
@@ -644,13 +647,13 @@ generational profile 的 adapter 放在同一个文件里，在 S3 实现（§4.
 
 ### 6.7 打包
 
-**S2b 待实现。** `project_packager` 在打包 share、repro、full 三种 profile 时：
+**S2b 已实现；验收见 §10.7。** `project_packager` 在打包 share、repro、full 三种 profile 时：
 
-- 找出 card 用到的 user 层插件，把它们的快照放进包内的 `.jarvis-pack/samplers/<Method>.py`；
+- 找出 card 用到的 user 层插件，把它们的快照放进包内的 `.jarvis-pack/samplers/<Method>-<完整 SHA-256>.py`，清单为 `.jarvis-pack/samplers.json`；
 - repro/full 导出已有 scan 时，以 scan 绑定的源码为准，不取用户后来 load 的版本；包内清单记录完整 hash、插件/API 版本和已知环境信息，fetch 时核对完整性；
 - `Jarvis project fetch` 或解包之后，列出所需插件。未登记或同名但 hash 不同时，打印包内来源与 `Jarvis sampler load <path>` 提示；不能因为本机已有同名就静默跳过。
 
-不会自动 load。登记属于用户本机的状态。
+同名不同 hash 在清单中分别保留；重新打包替换旧生成清单/快照，避免重复 tar 成员。fetch 在复制到目标目录前核对来源路径与完整 hash；损坏时失败且不留下项目目录。不会自动 load。登记属于用户本机的状态。share 仍可带已有结果；新采样使用新 scan 名，恢复既有 scan 则使用 `--resume`。
 
 验收必须在空登记目录、无 sibling checkout 的干净环境中完成，并覆盖同名不同版本；提示安装插件导入的依赖。源码入口与依赖环境是两项不同的可移植性要求，单个 `.py` 快照不代表环境已打包。
 
@@ -689,7 +692,7 @@ def stream(seed: int, *key: int) -> np.random.Generator:
 
 ### 7.3 身份
 
-**硬身份（`hard_identity`，目标定义）** 是以下内容 canonical JSON 的 SHA-256。当前实现缺少生成模式/块长等保护，见 R01：
+**硬身份（`hard_identity`，identity_version=2）** 是以下内容 canonical JSON 的 SHA-256，已包含生成模式与块长：
 
 - 方法名、插件 `version`、profile、`api_version`、`state_version`、`STREAM_PROTOCOL`；
 - profile 的生成模式（`draw` / `draw_block`）及 `block_size`；后者决定块随机流，不能被当作仅影响性能的 batch 参数；
@@ -699,7 +702,7 @@ def stream(seed: int, *key: int) -> np.random.Generator:
 身份记在两个地方：
 
 - **DATABASE 目录**：`<database_dir>/sampler_identity.json`，内容包括硬身份 hash、它的全部输入字段、源码 hash、SDK/Python/NumPy 版本。全新 scan 在 Archiver 启动之前，由 control 进程原子写入。之所以用独立文件而不是 HDF5 属性，是因为 control 进程不能以追加模式打开 `samples.hdf5`，否则会和 Archiver 的写锁冲突（`_runtime_supervisor.py:76-90`）。
-- **checkpoint payload**：包含同样的身份字段。
+- **checkpoint payload**：`sampler_state.plugin` 保存硬身份 hash 与来源 hash；完整硬身份输入来自独立绑定，checkpoint 另有预算/seed/selection/游标。
 
 **软身份** 是源码 hash（插件 `version` 不变的情况下）、SDK 版本、Python 版本、NumPy 版本。
 
@@ -707,30 +710,17 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 
 ### 7.4 续跑规则
 
-每个 scan 开始时，preflight 把当次使用的插件源码复制到 `<task_root>/checkpoints/<scan>/<Method>/plugin/<Method>-<hash12>.py`（与 `state.pkl` 在同一目录，见 `runtime_checkpoint.checkpoint_path`）。目标是由身份记录绑定确切路径与完整 hash，而非按目录 mtime 猜测。首次初始化全部成功后才提交绑定；失败不能改变已有 scan 的来源。重新 load/remove 用户登记不删除 scan 副本；恢复入口的解析与校验也须支持从 scan 绑定读取元数据（当前仍依赖 catalog 登记）。
+每个新 scan 初始化全部成功后，preflight 将源码原子复制到 `<task_root>/checkpoints/<scan>/<Method>/plugin/<Method>-<完整 SHA-256>.py`，随后原子发布 `<task_result_dir>/DATABASE/sampler_identity.json`（binding_version=1）。记录绑定确切路径、完整 hash、完整硬身份字段、元数据、schema/hooks 和 SDK/Python/NumPy 版本。初始化失败不留下可恢复绑定；多份副本或 mtime 变化不影响来源选择。
 
-`--resume` 的判断规则如下。先只读取得 scan 身份与源码绑定，用其中的元数据解析恢复配置；验证成功后才能导入游标和执行恢复副作用：
+`--resume` 先只读绑定，使用该 scan 元数据校验 card，不依赖实时登记。随后执行：
 
-1. **核对硬身份。** 在导入 checkpoint 游标、跳过 DATABASE prefix 或启动有写入副作用的运行资源之前完成比较。不一致就抛出 `PluginResumeMismatch`，列出不一致的字段，提示换一个 scan 名重新开始。这一步不能覆盖，也不能用旧 checkpoint 的预算/seed/selection 覆盖当前 session。当前 bootstrap 先读 DATABASE 状态，S2a 须调整这条时序。
-2. **没有身份文件。** 插件方法的 DATABASE 非空却没有 `sampler_identity.json` 时，拒绝续跑。
-3. **选择源码。** 依据 scan 的身份记录，先定位并核对完整 hash，再导入其副本。副本缺失时只有 hash 完全相同的登记快照可自动补回；副本 hash 不符时拒绝。登记有更新时写 S7，仍使用 scan 副本；登记已删除但 scan 绑定完整时仍应可续跑。`--accept-plugin-change` 的显式切换须另通过 §7.3 的核对，并记录来源变更。
-4. **环境版本不同。** 只写 S7 WARNING，继续运行。
+1. **核对硬身份和 checkpoint。** 在导入插件源码、旧游标或启动写入资源前比较科学字段；checkpoint 还须匹配来源、预算、seed、selection 和游标范围。不一致列出字段并拒绝，不能用旧 state 覆盖当前配置。损坏 checkpoint 不删除、不降级为 fresh。
+2. **身份缺失或损坏。** 已有插件 DATABASE/checkpoint 不得从当前登记猜测来源。旧 S1 格式不能自动“升级”成已验证身份；使用新 scan，或另行设计可验证的迁移。
+3. **选择源码。** 依据绑定路径核对完整 hash 后，从同一字节导入。缺失时只可用 byte-identical 登记/内置快照修复，并在初始化成功后补回；不同 hash 或损坏副本拒绝。删除登记、覆盖版本和较新的孤立副本均不影响原 scan。
+4. **环境变化。** SDK/Python/NumPy 差异写 WARNING，绑定不变；不承诺跨环境逐位相同。
+5. **prefix 重放。** 重放不足或旧游标超过 durable prefix 不得静默继续；adapter 抛 PluginResumeMismatch。DATABASE 空洞/部分 batch 失败/拒绝尾段的完整联合故障矩阵仍需后续验收，不能用两条成功恢复路径冒充已覆盖。
 
-**S1 已实现的部分：**
-
-- scan 级源码副本（每次运行都写；内容相同时不重写）；
-- 续跑时优先使用副本，取修改时间最新的一份；与登记版本不同时写 WARNING；
-- 硬身份的计算（`plugin_sampler.plugin_identity`）和由它派生的 UUID 前缀；
-- checkpoint payload 带身份，导入时不一致只写 WARNING。
-
-这些只是实现事实，**不是 P7 已通过**。2026-10-08 审阅复现了旧预算 8 / 新 session 预算 2 的混合状态，以及初始化失败留下的副本被下一次 resume 选中，S1 收尾没有修复这两项。无 checkpoint 时也必须检查 DATABASE 身份；恢复失败不能降级为“从当前登记重新采样然后跳过旧 prefix”。
-
-**留给 S2a：**
-
-- `sampler_identity.json`、源码 hash 绑定及生成模式/块长的硬身份；
-- 身份不符、记录缺失、损坏副本、重放不足的拒绝规则，以及无登记时的恢复入口；
-- `--accept-plugin-change`；
-- 环境版本记录。
+**未开放：** `--accept-plugin-change`。切换源码必须先实现 §7.3 对所有已持久化点的坐标/accepted 对应一致性核对；不能仅凭相同 UUID 放行。当前默认恢复始终使用绑定源码。
 
 续跑的机制本身沿用现有实现：
 
@@ -809,23 +799,23 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 
 | 阶段 | 当前状态 | 退出条件 |
 | --- | --- | --- |
-| **S0 SDK 初版** | 初版已提交 `0e841bd`、`78a2cd2`；S1 补齐在工作区验收通过，未提交/发布 | contexts/loader/registry/session/template/testing 及 R03/R05/R07/R08/R09 的 SDK 修正通过 146 项测试；公开构件与兼容矩阵仍属 S2b |
-| **S1 HEP 接入** | 收尾验收完成；HEP/SDK 改动尚未提交，未发布 | R03–R10 已关闭；R13 的参数解析与本阶段证据已完成。定向、真实 Redis 教程及 Ctrl+C 通过，TeX 第 38 章已接入。全量 fast 两项既有失败未关闭，不等于全仓 gate 通过；严格恢复依赖 S2a |
-| **S2a 外部插件恢复安全** | 未实现；首个对外版本的必要 gate | 关闭 R01/R02；身份、源码绑定、实际执行来源贯通；通过 P7 的真实中断/故障恢复矩阵。源码切换功能须满足 §7.3 后才可开放 |
-| **S2b 可移植性与发布** | 未实现；发布 workflow 文件存在不等于已发布 | 关闭 R12；通过 P8、干净环境安装及 SDK/HEP 兼容矩阵；补齐版本说明和 §9.3 性能数据；SDK 构件先可获取，再发布依赖它的 HEP |
+| **S0 SDK 初版** | 初版 `0e841bd` / `78a2cd2`，S1 补齐 `79972c7` 已提交；发布准备 `cf924cb`；未发布 | 146 项 SDK 测试通过；最终构件安装与 smoke 再次通过。远程矩阵仍未执行 |
+| **S1 HEP 接入** | 收尾验收完成并提交 `0d85950`；未发布 | R03–R10 已关闭；TeX 第 38 章已接入。本次不修改/编译 TeX；全仓已有失败单列记录 |
+| **S2a 外部插件恢复安全** | 默认严格身份/源码恢复已验收，R01/R02 关闭；完整扩展故障矩阵和显式源码切换仍待办 | 两条真实 SIGINT 恢复及配置/来源/checkpoint 拒绝通过；空洞/失败 batch/selection 拒绝尾段联合验收和 §7.3 显式切换后续补齐 |
+| **S2b 可移植性与发布** | 项目来源打包/fetch 已验收；完整构件验证见 §10.7；未公开发布 | P8、无 sibling/PYTHONPATH 的完整 wheel 安装与空/冲突登记运行；远程兼容矩阵、性能数据仍待办。SDK 先发布，再发布依赖它的 HEP |
 | **S2c 内置方法推广** | 未开始，后续独立范围 | 逐方法验收身份与历史 DATABASE 兼容；不把所有内置方法改造混入 SDK 首发关键路径 |
 | **S3 generational** | 仅有名称/元数据预留，SDK 明确拒绝运行 | 先关闭 R11 的状态与反馈语义缺口，再交付 adapter、模板、离线驱动和 barrier 故障恢复测试 |
 
-下一阶段从 S2a 的 R01/R02 开始，建立严格身份与源码绑定，再做真实恢复故障验收；随后 S2b 打包、构件安装和兼容矩阵。S2c、S3 后置。当前不宜优先增加更多算法模板。
+下一阶段补齐 P7 特殊故障、远程兼容矩阵和性能证据，再决定源码显式切换是否进入首发。默认严格绑定、项目来源打包和本机完整构件验收是本次落实范围。S2c、S3 后置。当前不宜优先增加更多算法模板。
 
 ### 10.2 审阅发现与待办（2026-10-08）
 
-严重性用“高/中”表示，与对等契约 P1–P9 的编号无关。第二列保留 2026-10-08 审阅时的事实，第三列记录当前状态：R03–R10 已关闭；R01/R02/R11/R12 仍开放，R13 仅 S1 部分关闭。“高”项仍阻止对外承诺完整恢复对等。
+严重性用“高/中”表示，与对等契约 P1–P9 的编号无关。第二列保留 2026-10-08 审阅时的事实，第三列记录当前状态：R01–R10 的默认 independent 路径已关闭；R11、R12 的发布/跨平台部分以及 R13 的扩展 P7 矩阵仍开放。不得承诺未经联合故障验收的完整恢复对等。
 
 | ID / 严重性 / 阶段 | 审阅时的事实与影响 | 当前状态、责任模块与验收 |
 | --- | --- | --- |
-| **R01 高 · S2a** 恢复身份不是硬约束 | `plugin_sampler.import_runtime_state` 先导入旧字段，身份不同只告警。探针得到 adapter 预算 8、session 预算 2、options 已改变的混合状态。`plugin_identity` 漏掉 `block_size`：块长 4/8 的 identity 相同而`candidate_index=4` 的坐标不同 | **HEP adapter / resume service**：实现 §7.3–7.4，在导入游标或复用 DATABASE 之前拒绝不兼容配置；没有 checkpoint 也必须检查。增加生成模式与块长；覆盖 seed/N/options/Variables/Mapper/selection/版本变更，以及重放达不到 durable prefix 时拒绝。不同源码不能仅凭 UUID 相同继续去重 |
-| **R02 高 · S2a** scan 源码没有稳定绑定 | `preflight_plugin` 按 mtime 取最新副本，先写 copy 再 prepare；失败的初始化可污染下一次恢复。副本无独立可信 hash 校验；没有副本时回退当前登记；即使 scan 副本还在，入口仍依赖 catalog 登记 | **HEP preflight / cardload / resume**：持久化确切路径与完整 hash；成功初始化后原子提交绑定；默认恢复不依赖最新用户登记。验收 reload/remove、失败 prepare、多副本/改 mtime、篡改、缺失副本及登记缺失；拒绝场景不得写入旧 scan |
+| **R01 高 · S2a** 恢复会混合旧游标与新科学配置 | 原实现把 checkpoint `_maxp` 等导入新 session，block_size 不进入身份 | **已关闭（默认严格恢复）**。identity_version=2 包含生成模式/块长；metadata-only 比较先于源码导入；checkpoint 不得覆盖预算/seed/selection。回归覆盖科学字段、游标与真实 CLI 拒绝，见 §10.7 |
+| **R02 高 · S2a** scan 源码没有稳定绑定 | 原实现按 mtime 取副本，失败 prepare 留副本；恢复入口依赖实时登记 | **已关闭（默认绑定）**。成功 prepare 后原子记录确切路径/full hash；read-only scan 元数据贯通解析与运行。真实 reload/remove、腐坏源码、不同科学配置和坏 checkpoint 覆盖；单测覆盖失败初始化、孤立较新副本、缺失仅同字节修复 |
 | **R03 高 · S1 + SDK 补齐** 观测 hook 能阻塞租约 | 静态调用链：`_control_lease_loop → _ensure_managed_redis_alive → _publish_lease_proc_boards → sampler_status_json → plugin_status → session.status`。用户 hook 同步运行在租约线程，可能阻止下一次续租，并与 draw 并发访问 plan；SDK `_hook_failed` 每次追加错误和写日志，无上限 | **已关闭**。PluginSampler 在采样线程更新 status，telemetry/lease 只读缓存；SDK 错误限频、限量。HEP `test_slow_status_cannot_block_control_lease` 用事件阻塞 hook，实际 control loop 仍调用续租且不并发执行 hook；SDK 连续 1000 次变更错误消息只保留/告警一次 |
 | **R04 中 · S1** provenance 记录了错误版本 | `runtime_metadata._plugin_knobs` 查当前登记。加载 v2 后恢复旧 scan：实际执行 v1，metadata 却写 v2/hash(v2) | **已关闭（运行来源）**。supervisor 传入 preflight 的实际 version/full hash/N/seed；HEP `test_metadata_uses_the_prepared_source_after_reload` 验证已登记 v2、实际执行 v1 时 metadata 仍为 v1/full hash。严格 scan 身份绑定与恢复拒绝规则继续归 R01/R02 |
 | **R05 中 · S1 + SDK 补齐** 可选 hook 实际成为参数日志的前提 | 没有 `settings_rows` 时 `log_settings_rows` 只有预算和 plugin 行；显式 `upper=0.5` 消失。当前测试插件实现了 hook，掩盖这一缺口 | **已关闭（参数日志）**。adapter 总是记录显式 options，hook 只补充/合并展示；32 行与 256 字符文本限制。HEP 三种参数化用例覆盖无 schema/无 hook、有 schema/无 hook、hook 抛异常；完整科学配置持久绑定继续属 S2a |
@@ -835,8 +825,8 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 | **R09 中 · S1 + SDK 补齐** schema 的展示与校验不一致 | 合法的局部 `$defs/$ref` 在 check 中通过；`cli.man._plugin_method_page` 调 `_key_entries` 未传 schema 根，手册中的 number/说明变成 any/空白。外部引用的离线策略未定 | **已关闭**。HEP man/example 传入 schema 根；SDK 引用解析不自动联网。回归覆盖本地引用的类型/说明/default、无 schema、无效本地与外部引用的离线诊断；schema 仍可省略 |
 | **R10 中 · S1** 协作停止承诺没有实现证据 | `PluginSampler.propose_next` 在 selection 持续拒绝时一直循环；`FixedSetSampler._wait_for_inflight_room` 只 sleep/poll；都没有 §7.6 宣称的中断/scan-mode 检查 | **已关闭（协作停止）**。HEP 回归覆盖全拒绝候选、prefix 重放、inflight 无空位时的 interrupt/paused 状态；真实 Redis/spawn 的运行收到 SIGINT 后 exit 130、保存 checkpoint、清理子进程和 Redis 端口，见 §10.6。无强制用户函数超时；中断后的严格恢复仍属 S2a |
 | **R11 中 · S3 前置** generational 过早声称接口冻结 | `ask(state, context, rng)` 只返回 proposals，随机 proposal 之后的状态归属不清；result 没有 selection 拒绝状态；空代上限、score 缺失、pending 状态恢复未定义。SDK 当前只校验元数据，拒绝载入执行 | **SDK 契约 + HEP FeedbackSampler adapter**：先完成 §4.6 列出的状态机与逐 proposal 终态；toy 优化/反馈算法跑乱序、失败、全拒绝、空代和 barrier 前后中断。通过后再冻结可运行接口，不在首发说明中声称已支持任意 MCMC |
-| **R12 中 · S2b** 可分发性仍停留在设计 | HEP 已声明 SDK 硬依赖，但 SDK 尚未发布；本地 editable/sibling 安装不能证明用户可安装。project pack 尚无插件集成，单入口快照不包含其导入包和资源 | **HEP project_packager / fetch + 两仓发布文档与 CI**：按 §6.7 导出所用源码与来源清单，覆盖同名不同 hash；记录实测 HEP/SDK 兼容组合与 SDK API 范围。干净 venv 从构件安装、无 sibling/PYTHONPATH、空登记和冲突登记各完成运行；依赖缺失时有可定位错误，不隐式安装用户依赖 |
-| **R13 中 · S1/S2a gate** 测试覆盖和结果的措辞失真 | 历史 25 个集成测试有成功路径和模拟 runtime；100 点完成后再 resume 不等于真实中断恢复。历史总 gate 有 8 个失败。`drop_default_slow_markexpr` 会把 `--deselect` 后的 node id 当显式选中测试，从而移除默认 slow 过滤 | **S1 部分已关闭，S2a 故障矩阵仍开放**。conftest 按已注册 pytest 选项跳过其值，回归覆盖 deselect/ignore/junitxml 等；真实路径仍允许显式选 slow。§10.6 如实记录 fast gate exit 1 和两项与既有基线相同的失败，不再以完成后 resume 或 checker 声称 P7 全部通过 |
+| **R12 中 · S2b** 可分发性需要构件证据 | 历史 editable/sibling 安装不能证明用户安装；单入口不含其依赖环境 | **源码打包/fetch 已验收，构件结果见 §10.7；公开发布/远程矩阵仍开放**。清单保存 full hash 和环境，同名多版本保留；fetch 拒绝损坏来源而不导入源码。两仓统一完整 wheel/sdist 安装和可选显式上传；HEP API 依赖范围 `>=0.1.0,<0.2`。用户依赖仍由用户安装 |
+| **R13 中 · S1/S2a gate** 测试措辞失真 | 历史完成后 resume 冒充中断验收，slow 参数解析会改变 gate 范围 | **S1 和本次默认严格恢复证据已完成；其余 P7 矩阵仍开放**。真实 SIGINT→覆盖/移除→恢复逐坐标/UUID 核对；full gate 初跑 CLI 两个新增失败已修复并定向回归，最终结果如实见 §10.7 |
 
 ### 10.3 历史验证记录与边界
 
@@ -879,7 +869,7 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 
 ### 10.6 S1 收尾验收（2026-10-08–09，Australia/Adelaide）
 
-**范围与环境。** macOS arm64、Python 3.13.13、NumPy 2.5.0；HEP `0bbcf675` 加插件接入工作区，SDK `78a2cd2` 加本次补齐。改动尚未提交、未发布。pytest 使用隔离登记；初次受 sandbox 限制的 loopback 测试不计为通过，随后以允许本地 TCP/spawn 的执行环境重跑。SDK 在 `/private/tmp/jhs-s1-work` 验证后写回实际仓库，逐文件核对 src/tests 字节一致；真实教程去掉 PYTHONPATH，使用实际 editable SDK。
+**当时范围与环境（提交状态保留为历史）。** macOS arm64、Python 3.13.13、NumPy 2.5.0；HEP `0bbcf675` 加插件接入工作区，SDK `78a2cd2` 加本次补齐。改动尚未提交、未发布。pytest 使用隔离登记；初次受 sandbox 限制的 loopback 测试不计为通过，随后以允许本地 TCP/spawn 的执行环境重跑。SDK 在 `/private/tmp/jhs-s1-work` 验证后写回实际仓库，逐文件核对 src/tests 字节一致；真实教程去掉 PYTHONPATH，使用实际 editable SDK。
 
 | 验证 | 结果与退出码 | 可检查证据 |
 | --- | --- | --- |
@@ -913,7 +903,40 @@ python -m pytest -q -m 'not slow' \
 
 **文档归属。** 用户主教程为 Jarvis-Books TeX 第 38 章 **Jarvis-HEP-Sampler: Implementing Your Own Sampler**；SDK README 指向该章，authoring 文档保留 API 参考和能力边界。本设计台账不再添加另一份用户教程。按维护者要求，后续 TeX 修改交给其自动化工具编译，不默认运行手工编译。本次编译曾绕过本机 biber universal 二进制的 lipo 兼容问题，未修改系统安装。
 
-**S1 结论。** 外部 independent sampler 的生成、可选校验、持久载入、普通 card 执行、Redis 发布/归档、日志/monitor 与协作停止收尾完成。尚未执行 P7 的严格恢复故障矩阵、P8 插件打包、干净构件安装/跨平台 CI 或性能基准；R01/R02/R12 与 R13 的 S2a 部分继续开放，generational 的 R11 继续留在 S3。
+**S1 当时结论（后续进展见 §10.7）。** 外部 independent sampler 的生成、可选校验、持久载入、普通 card 执行、Redis 发布/归档、日志/monitor 与协作停止收尾完成。尚未执行 P7 的严格恢复故障矩阵、P8 插件打包、干净构件安装/跨平台 CI 或性能基准；R01/R02/R12 与 R13 的 S2a 部分继续开放，generational 的 R11 继续留在 S3。
+
+### 10.7 S2 落地与发布准备（2026-10-09）
+
+**提交与范围。** S1 SDK `79972c7`、HEP `0d85950`；SDK 发布准备 `cf924cb`。本次新增严格绑定、checkpoint 配置保护、扫描上下文、源码项目包和完整构件 shell 流程。未写 TeX、未编译、未 push/tag/upload。
+
+| 验证 | 实际结果 | 证据 |
+| --- | --- | --- |
+| 最终 HEP 定向（含 CLI 兼容） | **158 passed / 24 subtests**，exit 0；1 条除零警告，36.31 秒 | `/private/tmp/jarvis-s2-focused-final.log`、对应 XML；CLI、runtime、插件身份、pack/fetch、logging/metadata、slow 参数选择 |
+| 真实 Redis/spawn 中断与恢复 | **2 passed**，exit 0，122.40 秒 | `/private/tmp/jarvis-s2-runtime-final.log`、XML；211 候选、block=8、selection 后 169 个 accepted，最终坐标与解析 indexed 序列/UUID 核对，单行归档 |
+| 拒绝时副作用 | seed 改变、损坏副本、坏 checkpoint 均 exit 1；插件导入计数不变、Redis 端口关闭、DATABASE/checkpoint 字节不变 | 同一真实测试；checkpoint 与 DATABASE-only 两条路径都在 reload/remove 登记之后恢复，Worker 不导入入口源码 |
+| 项目打包/fetch | share/repro/full/manifest 的来源与完整 hash 正确；两份同名版本保留；坏来源 fetch 不保留目标、不导入、不登记；重复打包无重复 tar 成员 | `tests/test_project_samplers.py`；与 project tools / plugin identity 的组合 **60 passed**，4.09 秒；已纳入最终 158 项 |
+| 最终 SDK 构件安装 | wheel/sdist + Twine check；全新 venv 安装全部依赖，pip check；模板/跨进程 check/登记；**146 项已安装 wheel 测试通过**，2.34 秒 | `/private/tmp/jarvis-sdk-release-final.log`；构件、SHA256SUMS、release-verification.json 在 `/private/tmp/jarvis-sdk-release-final/` |
+| HEP 构件安装 | **exit 0**：wheel/sdist + Twine、完整依赖安装/pip check、CLI init/check/load/validate/man、真实 Redis/spawn 16 点、项目包冲突/空登记提示→显式 load→新 scan 16 点均通过 | `/private/tmp/jarvis-hep-release.log`；构件、SHA256SUMS、release-verification.json 在 `/private/tmp/jarvis-hep-release/` |
+| 全量 fast | 最终 **1267 passed / 4 failed / 165 deselected / 141 subtests**，exit 1，369.46 秒；初跑的两项 CLI 新增失败已修复。最终失败逐项见下文 | `/private/tmp/jarvis-s2-fast-final.log`、XML；初跑为 `/private/tmp/jarvis-s2-fast.log`、XML |
+| 全仓额外两项单独复核 | layer force-serial 相对耗时、Worker monitor 就绪两项 **2 passed**，13.78 秒；不能据此把原全量结果改成通过 | `/private/tmp/jarvis-s2-timing-recheck.log`、XML |
+| lint 与 shell | SDK `ruff check --no-cache .` 通过；HEP 新增模块/测试/scripts 的 `ruff --select F` 通过；两仓 bash -n、Bash/Zsh source/direct help 通过 | 不作无关的全仓 lint 清理；远程 CI 尚未执行 |
+
+最终 full fast 的失败与复核：
+
+- `test_monitor_resources.py::ScanTreeCpuTests::test_short_lived_children_are_counted`：`min(cores)` 收到 None，TypeError；与 §10.6 / 既有台账记录相同。
+- `test_task_schema_corpus.py::TaskSchemaCorpusTests::test_shipped_yaml_corpus_is_ascii_only`：同一外部 Jarvis-Examples iDM card 的 description 非 ASCII，与 §10.6 相同。
+- `test_layer_concurrency.py::LayerConcurrencyIntegrationTests::test_force_serial_layers_matches_explicit_serial_layers`：两次 wall time 差 1.169 秒，超过 0.56 秒阈值；独立复核通过。
+- `test_worker_mvp.py::WorkerMVPTests::test_task_factory_starts_worker_and_monitor_snapshot`：固定等待 0.3 秒后 snapshot 仍为空；独立复核通过。
+
+后两项的单独复核支持时序敏感的判断，但没有同日旧 checkout A/B，不能笼统认定“全部失败都与实现无关”。没有修改这四项用例或其实现来掩盖失败；GitHub 的全仓发布 gate 继续保留，不绕过红灯。
+
+本机 runtime 测试仍为 macOS arm64 / Python 3.13.13 / NumPy 2.5.0。全新完整安装使用 SDK 0.1.0 与 HEP 2.0.14，NumPy 2.5.3，jsonschema 4.26.0；完整依赖版本由构件目录的验证 JSON 记录。运行流程从安装 venv 取 HEP/SDK，清除 PYTHONPATH，隔离 HOME/登记，运行目录没有 sibling 源码。
+
+**发布入口。** SDK `./jhsrel`，HEP `./jhrel --sampler-dist <SDK 构件目录>`；两者支持 `--output`、`--python`、可选 X.Y.Z 和显式 `--upload`。默认只准备，`--dry` 是同义兼容参数且不能与 upload 合用。只有完整 wheel/sdist，禁止 extras/editable/跳过依赖安装。工具和完整安装分别使用临时 venv；SDK 跑已安装 wheel 的完整测试，HEP 跑真实 Redis/spawn 用户工作流与项目包重载。验证成功才导出构件、SHA256SUMS 和依赖版本 JSON；不覆盖已有构件。
+
+源码快照取 Git 跟踪文件的当前内容（包括已暂存新文件），不收集无关未跟踪实验。需先把拟发布文件加入 Git；指定版本时同时更新 pyproject 和 runtime 版本。`--sampler-dist` 显式安装该目录唯一 SDK wheel，避免从索引选到别的构件。上传使用 Twine 非交互流程；CI Trusted Publishing 只接收 wheel/sdist。正式发布前选尚未使用的版本，确认远程 gate、发布 SDK，再发布 HEP；当前验证版本不自动成为正式发布号。
+
+**仍未验收的范围。** 远程 Linux/macOS×Python 3.10–3.13 矩阵、最低依赖组合、§9.3 性能测量，以及 P7 的 DATABASE 空洞/部分 batch 失败/拒绝尾段联合故障。显式源码切换、S2c、S3 尚未实现。这些不以本机 smoke 或 146/158 条测试概括为已完成。
 
 ---
 

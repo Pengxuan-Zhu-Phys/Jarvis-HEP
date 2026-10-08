@@ -10,6 +10,8 @@ import platform
 import sys
 import tarfile
 import tempfile
+from pathlib import Path
+from io import BytesIO
 
 import yaml
 
@@ -61,6 +63,30 @@ class ProjectNotFoundError(ProjectPackError):
 
 class ProjectProfileError(ProjectPackError):
     pass
+
+
+def _sampler_assets(root: str, included: list[str], profile: str) -> dict[str, bytes]:
+    from jarvishep2.project_samplers import sampler_assets
+    try:
+        return sampler_assets(root, included, profile)
+    except Exception as exc:
+        raise ProjectPackError(f"Cannot export sampler sources: {exc}") from exc
+
+
+def _add_sampler_assets(tar, assets: dict[str, bytes], prefix: str = "") -> None:
+    for name, payload in assets.items():
+        info = tarfile.TarInfo(str(Path(prefix) / name) if prefix else name)
+        info.size = len(payload)
+        info.mode = 0o644
+        tar.addfile(info, BytesIO(payload))
+
+
+def _without_generated_assets(files: list[str]) -> list[str]:
+    """Replace previously fetched sampler assets when repacking a project."""
+    generated = {f".jarvis-pack/{name}" for name in (
+        "samplers.json", "manifest.json", "checksums.sha256", "included_files.txt", "excluded_files.txt")}
+    return [rel for rel in files if rel not in generated
+            and not rel.startswith(".jarvis-pack/samplers/")]
 
 
 @dataclass(frozen=True)
@@ -603,17 +629,21 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
         os.makedirs(output_parent, exist_ok=True)
 
     total_bytes = 0
+    assets = _sampler_assets(project_root, final_files, mode)
+    final_files = _without_generated_assets(final_files)
     with tarfile.open(archive_path, "w:gz") as tar:
         for rel in final_files:
             src = os.path.join(project_root, rel)
             total_bytes += max(0, int(os.path.getsize(src)))
             tar.add(src, arcname=rel, recursive=False)
+        _add_sampler_assets(tar, assets)
+        total_bytes += sum(map(len, assets.values()))
 
     return ProjectPackReport(
         project_root=project_root,
         archive_path=archive_path,
         profile=mode,
-        included_files=len(final_files),
+        included_files=len(final_files) + len(assets),
         excluded_files=excluded_count,
         total_bytes=total_bytes,
     )
@@ -694,12 +724,21 @@ def create_project_package(project_root: str | None, profile: str = "repro") -> 
     archive_path = os.path.join(output_root, archive_name)
 
     checksums: list[str] = []
+    assets = _sampler_assets(target, included, profile)
+    # Generated assets supersede any index left by a previous fetched package.
+    included = _without_generated_assets(included)
+    total_bytes = sum(map(len, assets.values()))
     with tarfile.open(archive_path, "w:gz") as tar:
         for rel in included:
             src = os.path.join(target, rel)
+            total_bytes += max(0, int(os.path.getsize(src)))
             checksums.append(f"{_sha256(src)}  {rel}")
             arcname = os.path.join(project_name, rel)
             tar.add(src, arcname=arcname, recursive=False)
+        _add_sampler_assets(tar, assets, project_name)
+        for rel, payload in assets.items():
+            checksums.append(f"{hashlib.sha256(payload).hexdigest()}  {rel}")
+        included += list(assets)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             meta_paths = _write_metadata_files(

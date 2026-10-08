@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import sys
 import threading
 from collections.abc import Mapping
@@ -37,8 +38,39 @@ class _ResumeService:
         """Preload checkpoint state before sampler bring-up (CLI ``--resume``)."""
         core = self._core
 
-        core._preload_resume_checkpoint(resume=resume, fresh=fresh)
+        from jarvishep2.sampler_catalog import is_plugin
+        if not fresh and is_plugin(sampling_method(core.config)):
+            self._prepare_plugin_resume(resume=resume)
+        else:
+            core._preload_resume_checkpoint(resume=resume, fresh=fresh)
         core._resume_checkpoint_preloaded = True
+
+    def _prepare_plugin_resume(self, *, resume: bool) -> None:
+        """Never downgrade a refused plug-in resume to fresh sampling."""
+        from jarvis_hep_sampler.errors import PluginResumeMismatch
+        core = self._core
+        path = core.checkpoint_file()
+        exists = os.path.isfile(path)
+        if exists and not resume and not core.prompt_resume_from_checkpoint(path):
+            raise PluginResumeMismatch("existing plug-in scan cannot be restarted in place; use a new scan name")
+        core._resume_policy = "resume" if resume or exists else "fresh"
+        core._resume_checkpoint_payload = None
+        if exists:
+            try:
+                payload = load_checkpoint(path)
+                ok, reason = check_mapper_fingerprint(payload, core.config)
+                if not ok:
+                    raise ValueError(reason)
+                ok, reason = check_operas_constants_fingerprint(payload)
+                if not ok:
+                    raise ValueError(reason)
+                core._resume_checkpoint_payload = payload
+            except (ValueError, OSError, EOFError, pickle.UnpicklingError) as exc:
+                raise PluginResumeMismatch(f"checkpoint rejected: {exc}; use a new scan name") from exc
+        # This validates both source/configuration and the checkpoint before
+        # DATABASE recovery, old cursors, or resource bootstrap can write.
+        core.init_logger()
+        core.preflight_sampler_plugin()
 
     def _resolve_checkpoint_sampler_name(self) -> str:
         """Directory name under ``checkpoints/<scan>/``.

@@ -359,6 +359,7 @@ def test_bootstrap_runs_the_preflight_before_redis(tmp_path: Path) -> None:
 
     core = mock.MagicMock()
     core._resume_policy = "fresh"
+    core._plugin_preflight = None
     core._resolve_database_dir.return_value = str(tmp_path)
     core.preflight_sampler_plugin.side_effect = lambda: calls.append("preflight")
     core.check_environment_requirements.side_effect = lambda: calls.append("environment")
