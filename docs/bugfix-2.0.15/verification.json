@@ -81,5 +81,13 @@
   "artifacts": {
     "jarvis_hep-2.0.15-py3-none-any.whl": "3024ba96a1c42bbf1f98e08a8e1ac704a45c2e424b623c47fb2a744dc70c4ce9",
     "jarvis_hep-2.0.15.tar.gz": "e93986d6ab42313d4d437ecf5a8330daefe2be03b3720b03a1c72d0031b2fb5c"
+  },
+  "implementation_commits": {
+    "Jarvis-HEP": "d4d2a8f",
+    "Jarvis-Operas": "ec575f3"
+  },
+  "release_commit_source_hash_check": {
+    "passed": true,
+    "files_checked": 331
   }
 }

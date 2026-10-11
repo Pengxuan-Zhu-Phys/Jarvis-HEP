@@ -140,3 +140,12 @@ VAL-01 至 OPR-01、QA-02、SDK-01、QA-03、QA-01 完成。REL-01 的候选准�
 发行文件位于 `dist/2.0.15/`；依赖候选位于 `dependencies/sampler` 和 `dependencies/operas`，每个目录都有 wheel/sdist、校验和和验证报告。见 [验证结果](bugfix-2.0.15/verification.json)、[发行源码清单](bugfix-2.0.15/source-manifest.json)、[用户发布步骤](bugfix-2.0.15/release-notes.md)。实现统一进入本次 2.0.15 本地修复提交（以本地 Git log 为准）。
 
 限制：本机 macOS/Python 3.13 验证不代表跨平台 CI 已运行；CPU 活进程估算可能遗漏短命进程；nested 未报告终止原因时只报告 engine returned；启动 ready 上限默认 120 秒。Diver 原始改动及其 F1/F2/F5 未进入发行包。
+
+### 本地实现提交
+
+| 任务 | 实现提交 | 最终证据 |
+| --- | --- | --- |
+| VAL-01、RUN-01、MON-01、MON-02、PLOT-01、CLI-01、QA-02、SDK-01、QA-03、QA-01、REL-01 候选准备 | HEP `d4d2a8f` | verification.json、source-manifest.json、dist/2.0.15/release-verification.json |
+| OPR-01 | Operas `ec575f3`（1.4.2） | 43 CLI tests、完整 HEP 安装包 help smoke、独立最终 venv help |
+
+已核对本地 HEP 实现提交中的 Python/Shell/pyproject 源码与实际构建源码哈希一致。当前工作区剩余 Diver package-data 等原始改动保持未提交。
