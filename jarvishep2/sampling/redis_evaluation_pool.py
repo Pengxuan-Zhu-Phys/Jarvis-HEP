@@ -298,6 +298,11 @@ class RedisEvaluationPool:
             return
         self._dispatch_feedback(record)
 
+    def _check_worker_startup(self) -> None:
+        check = getattr(self.redis, "_worker_startup_check", None)
+        if callable(check):
+            check()
+
     def _wait_feedback(self, uuids: Sequence[str], futs: Sequence[Future]) -> list[Any]:
         """Wait for *uuids* without a background BLPOP thread.
 
@@ -311,6 +316,7 @@ class RedisEvaluationPool:
         pending = set(uuids)
         try:
             while pending:
+                self._check_worker_startup()
                 pending.difference_update(
                     uuid for uuid in list(pending) if self._waiter_done(uuid)
                 )
@@ -324,6 +330,7 @@ class RedisEvaluationPool:
                 if self._pump_lock.acquire(blocking=False):
                     try:
                         while pending:
+                            self._check_worker_startup()
                             pending.difference_update(
                                 uuid
                                 for uuid in list(pending)

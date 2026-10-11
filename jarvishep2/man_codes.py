@@ -141,6 +141,7 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     # Operas
     "JV2-OPR-001": {"kind": "operas"},
     "JV2-OPR-002": {"kind": "operas"},
+    "JV2-EXP-001": {"kind": "operas"},
     # Calculator modes / pools
     "JV2-MOD-001": {"kind": "calculator", "topic": "module"},
     "JV2-MOD-002": {"kind": "calculator", "topic": "execution"},

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from jarvishep2.process_cleanup import (
     JarvisScan,
@@ -20,6 +21,17 @@ class ScanChoice:
     process_count: int
     pids: tuple[int, ...]
     simulated: bool = False
+
+
+def worker_inventory(scan: JarvisScan) -> list[dict]:
+    """Live Worker identities from the same OS inventory used by Jarvis ps."""
+    rows = []
+    for process in scan.processes:
+        title = process.command.strip().split(None, 1)[0]
+        match = re.match(r"^Jarvis-Worker-(\d+)(?::|$)", title)
+        if match:
+            rows.append({"worker_id": str(int(match.group(1))), "pid": process.pid, "alive": True})
+    return rows
 
 
 class ScanExitWatch:

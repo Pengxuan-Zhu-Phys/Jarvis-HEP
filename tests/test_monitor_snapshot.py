@@ -229,7 +229,8 @@ class MonitorSnapshotTests(unittest.TestCase):
 
         view = attach_reader(redis=queue, owner_ids=["0"]).read()
         self.assertEqual(writes["count"], 0)
-        self.assertIsNone(view.timestamp)
+        self.assertIsNotNone(view.timestamp)
+        self.assertLess(abs(time.time() - view.timestamp), 2.0)
         self.assertEqual(view.proc_core.get("scan_mode"), "running")
         self.assertEqual(len(view.workers), 1)
         self.assertEqual(view.workers[0]["status"], "idle")

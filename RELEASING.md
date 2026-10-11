@@ -35,30 +35,10 @@ the first release is published.
 
 ## Release procedure
 
-1. Run `./jhrel <version> --dry` to bump the version in both
-   `pyproject.toml` and `jarvishep2/__init__.py`, then build and check the
-   wheel (upload is skipped). Those two fields are the source of truth for the
-   PyPI version and for `Jarvis -v`. Choose a version that does not already
-   exist under `Jarvis-HEP`. Optionally pass `--install` to reinstall the
-   editable package and verify the CLI banner reports the new version.
-2. Run the local release checks:
+1. Complete the development ledger and run the fast gate plus relevant runtime tests. Add intended new files to Git; the helper snapshots tracked files and their current edits. Keep unfinished packages out of the release snapshot.
+2. Run `./jhrel <version> --output dist/<version>` to update both source version fields, build wheel and sdist, install the complete wheel with all dependencies in a clean venv, run `pip check`, installed CLI/runtime smoke and the 2.0.15 regression contracts. `--dry` is an alias for this default; neither uploads. The helper emits `release-verification.json` and `SHA256SUMS` only after verification. `--install` is not supported.
 
-   ```bash
-   python3 -m pip install --upgrade build twine
-   python3 -m pip install -e .
-   python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
-   python3 -m pytest -q
-   python3 -m build
-   python3 -m twine check dist/*
-   ```
-
-   The default test command intentionally skips the long-running
-   `tests/test_adaptive_bridson.py`, `tests/test_ensemble_samplers.py`,
-   `tests/test_distributed_acceptance.py`, `tests/test_distributed_resume.py`,
-   `tests/test_mcmc_sampler.py`, `tests/test_worker_pool.py`,
-   `tests/test_variable_distributions.py`, and `tests/test_worker_failure.py`;
-   run the relevant files separately before sampler- or distributed-runtime-
-   specific releases.
+   For unpublished dependency candidates use `--sampler-dist DIR` and `--operas-dist DIR`. These install the dependency wheels with every declared dependency; publish dependencies before releasing HEP. Use a fresh output directory for each build. Build/test tools are separate from the complete distribution, with no editable install or dependency extras.
 
 3. Merge the release commit into `master`.
 4. Create a GitHub Release whose tag is exactly `v<version>`, for example:
@@ -82,3 +62,7 @@ hiding a release mistake.
 Existing V1 users can upgrade directly from `Jarvis-HEP` 1.x to 2.x, but V2 is
 a major-version migration: the old `jarvishep` import package is replaced by
 `jarvishep2`.
+
+## 2.0.15 handoff
+
+See [the development ledger](docs/development-ledger-2.0.15.md) and [release notes](docs/bugfix-2.0.15/release-notes.md). The agent prepares verified candidates locally; the user creates the final release/tag and publishes. No upload, tag creation or push is performed during candidate preparation.

@@ -117,6 +117,49 @@ class Worker(Process):
         self._heartbeat_thread: threading.Thread | None = None
         self._lease_missing_since: float | None = None
         self._inflight_submitted = False
+        self._startup_reader = None
+        self._startup_writer = None
+        self._startup_status = None
+
+    def enable_startup_report(self) -> None:
+        """Create a parent/child handshake before spawn (no Redis dependency)."""
+        self._startup_reader, self._startup_writer = _SPAWN_CTX.Pipe(duplex=False)
+
+    def start(self) -> None:
+        super().start()
+        if self._startup_writer is not None:
+            self._startup_writer.close()
+            self._startup_writer = None
+
+    def startup_status(self):
+        reader = self._startup_reader
+        if reader is not None and self._startup_status is None and reader.poll():
+            try:
+                self._startup_status = reader.recv()
+            except EOFError:
+                self._startup_status = {"error": "Worker exited before reporting startup"}
+            reader.close()
+            self._startup_reader = None
+        return self._startup_status
+
+    def close_startup_report(self) -> None:
+        for connection in (self._startup_reader, self._startup_writer):
+            if connection is not None:
+                connection.close()
+        self._startup_reader = self._startup_writer = None
+
+    def _report_startup(self, error: BaseException | None = None) -> None:
+        writer = self._startup_writer
+        if writer is not None:
+            try:
+                writer.send({"ready": error is None, "error": (
+                    f"{type(error).__name__}: {error}" if error is not None else None
+                )})
+            except (BrokenPipeError, OSError):
+                pass
+            finally:
+                writer.close()
+                self._startup_writer = None
 
     def _get_executor(self) -> SampleExecutor:
         executor = getattr(self, "_executor", None)
@@ -775,6 +818,20 @@ class Worker(Process):
             self._heartbeat("idle")
 
     def run(self) -> None:
+        if self._startup_reader is not None:
+            self._startup_reader.close()
+            self._startup_reader = None
+        try:
+            self._run_worker()
+        except BaseException as exc:
+            # Includes failures in logging/title setup before the Redis/runtime
+            # cleanup boundary. After ready, the writer is already closed.
+            self._report_startup(exc)
+            raise
+        finally:
+            self.close_startup_report()
+
+    def _run_worker(self) -> None:
         from jarvishep2.proc_title import set_process_title, worker_title
 
         # Prefer explicit worker_config.scan_name; fall back to sample_config.
@@ -838,6 +895,7 @@ class Worker(Process):
             pass
         signal.signal(signal.SIGTERM, self._handle_signal)
         signal.signal(signal.SIGINT, self._handle_signal)
+        runtime_ready = False
         try:
             # Keep initialization inside the cleanup boundary: FileOperation
             # starts early in _init_runtime, and any later setup exception must
@@ -850,8 +908,12 @@ class Worker(Process):
             self._start_heartbeat_thread()
             self._init_runtime()
             self._heartbeat("idle")
+            runtime_ready = True
+            self._report_startup()
             self._main_loop()
         except Exception as exc:
+            if not runtime_ready:
+                self._report_startup(exc)
             try:
                 worker_log.exception("Worker crashed -> %s", exc)
             except Exception:
@@ -859,6 +921,7 @@ class Worker(Process):
             raise
         finally:
             self._shutdown_runtime(worker_log)
+            self.close_startup_report()
 
 
 __all__ = ["Worker"]

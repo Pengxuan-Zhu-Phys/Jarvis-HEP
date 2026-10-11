@@ -254,6 +254,8 @@ class HostPane(Horizontal):
             "",
             "ROLE       PID       CPU%     RSS   FDS  ALIVE",
         ]
+        if host.get("cpu_accounting") == "live-tree-estimate":
+            lines.insert(2, "CPU is a live-process estimate; work between observations may be missed.")
         if rows:
             for row in rows:
                 rss = float(row.get("rss", 0) or 0) / (1024**2)

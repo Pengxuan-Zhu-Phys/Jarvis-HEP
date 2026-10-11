@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.14`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.15`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -50,13 +50,13 @@ From a source checkout, prepare the SDK first while its first public release is 
 ```bash
 ../Jarvis-HEP-Sampler/jhsrel
 ./jhrel --sampler-dist ../Jarvis-HEP-Sampler/dist/0.1.0
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.14/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.15/*.whl
 ```
 
 For development and tests, install the test tools separately:
 
 ```bash
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.14/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.15/*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
@@ -282,6 +282,9 @@ Please also cite the sampling algorithms you use. `Jarvis --refs` prints the
 references for Jarvis-HEP and for each built-in sampler.
 
 ## Development
+
+The fixes and release gates for 2.0.15 are tracked in the
+[development ledger](docs/development-ledger-2.0.15.md).
 
 ```bash
 release_dir="$(mktemp -d)"

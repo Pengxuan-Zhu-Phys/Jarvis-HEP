@@ -234,6 +234,13 @@ def guidance_for(code: str, path: str, message: str) -> tuple[str, str | None]:
             "Mapper:\n  - name: x\n    expression: \"cos(t)\"\n"
             "  - name: y\n    expression: \"sin(t)\"",
         )
+    if code == "JV2-EXP-001":
+        return (
+            "Check the expression syntax and registered namespace.function name. "
+            "Run jopera list to inspect available operators; install the supplying "
+            "Operas plug-in before validating or running the task.",
+            'expression: "math.add(x, 2)"',
+        )
     if code == "JV2-OPR-002":
         return (
             "Operas.Modules.operator must name a callable operator, not a "

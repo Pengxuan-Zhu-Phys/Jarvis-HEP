@@ -53,8 +53,8 @@ class MonitorView:
                 "task_queue_length": int(snapshot.get("task_queue_length", 0) or 0),
             },
             factory={
-                "workers_alive": int(snapshot.get("workers_alive", 0) or 0),
-                "workers_total": int(snapshot.get("workers_total", 0) or 0),
+                "workers_alive": _coerce_int(snapshot.get("workers_alive")),
+                "workers_total": _coerce_int(snapshot.get("workers_total")),
             },
             workers=_project_workers(snapshot, now=age_now),
             calculators=occupancy if occupancy else dict(snapshot.get("calculator_status") or {}),
@@ -92,9 +92,11 @@ class SnapshotReader:
         calculator_names: list[str] | None = None,
         calculator_slots: Mapping[str, int] | None = None,
         feedback_chain_ids: list[int] | None = None,
+        workers: list[dict[str, Any]] | None = None,
     ) -> None:
         self._source = source
         self._owner_ids = owner_ids
+        self._workers = workers
         self._calculator_names = list(calculator_names or [])
         self._calculator_slots = dict(calculator_slots or {})
         self._feedback_chain_ids = list(feedback_chain_ids or [])
@@ -108,10 +110,15 @@ class SnapshotReader:
             calculator_slots=self._calculator_slots or None,
             feedback_chain_ids=self._feedback_chain_ids or None,
         )
-        raw.setdefault("workers", [])
-        raw.setdefault("workers_alive", 0)
-        raw.setdefault("workers_total", 0)
-        raw["timestamp"] = None
+        if self._workers is not None:
+            raw["workers"] = self._workers
+            raw["workers_alive"] = sum(bool(row.get("alive")) for row in self._workers)
+            configured = _coerce_int((raw.get("proc_core") or {}).get("workers_total"))
+            raw["workers_total"] = max(len(self._workers), configured or 0)
+        else:
+            raw["workers_alive"] = None
+            raw["workers_total"] = len(self._owner_ids) if self._owner_ids is not None else None
+        raw["timestamp"] = time.time()
         return MonitorView.from_snapshot(raw)
 
 
@@ -123,6 +130,7 @@ def attach_reader(
     calculator_names: list[str] | None = None,
     calculator_slots: Mapping[str, int] | None = None,
     feedback_chain_ids: list[int] | None = None,
+    workers: list[dict[str, Any]] | None = None,
 ) -> SnapshotReader:
     if factory is not None:
         return SnapshotReader(
@@ -131,6 +139,7 @@ def attach_reader(
             calculator_names=calculator_names,
             calculator_slots=calculator_slots,
             feedback_chain_ids=feedback_chain_ids,
+            workers=workers,
         )
     if redis is not None:
         return SnapshotReader(
@@ -139,6 +148,7 @@ def attach_reader(
             calculator_names=calculator_names,
             calculator_slots=calculator_slots,
             feedback_chain_ids=feedback_chain_ids,
+            workers=workers,
         )
     raise ValueError("attach_reader requires a TaskFactory or RedisQueue")
 
@@ -147,7 +157,7 @@ def format_monitor_view(view: MonitorView) -> str:
     lines = [
         "Jarvis Monitor Snapshot",
         f"timestamp: {view.timestamp}",
-        f"workers: {view.factory.get('workers_alive', 0)}/{view.factory.get('workers_total', 0)} alive",
+        f"workers: {_known_count(view.factory.get('workers_alive'))}/{_known_count(view.factory.get('workers_total'))} alive",
         f"task_queue_length: {view.queues.get('task_queue_length', 0)}",
         f"archive_queue_length: {view.queues.get('archive_queue_length', 0)}",
         f"sample_stats: {view.samples}",
@@ -165,6 +175,10 @@ def format_monitor_view(view: MonitorView) -> str:
             f"alive={worker.get('alive')}"
         )
     return "\n".join(lines) + "\n"
+
+
+def _known_count(value: Any) -> str:
+    return "unknown" if value is None else str(value)
 
 
 def _occupancy_from_snapshot(snapshot: Mapping[str, Any]) -> dict[str, dict[str, int]]:
@@ -191,14 +205,19 @@ def _project_workers(
     heartbeats = dict(snapshot.get("worker_heartbeats") or {})
     proc_workers = dict(snapshot.get("proc_workers") or {})
     rows = list(snapshot.get("workers") or [])
-    if not rows and proc_workers:
+    if "workers" not in snapshot and proc_workers:
         rows = [{"worker_id": worker_id, **dict(row or {})} for worker_id, row in proc_workers.items()]
     projected: list[dict[str, Any]] = []
     for row in rows:
         worker_id = str(row.get("worker_id") if row.get("worker_id") is not None else "")
         merged = dict(row)
-        merged.update(dict(heartbeats.get(worker_id) or {}))
-        merged.update(dict(proc_workers.get(worker_id) or {}))
+        for board in (heartbeats.get(worker_id), proc_workers.get(worker_id)):
+            board = dict(board or {})
+            if row.get("alive") is not None and board.get("pid") and str(board["pid"]) != str(row.get("pid")):
+                continue  # Board from a previous occupant of this Worker slot.
+            merged.update(board)
+        if row.get("alive") is not None:
+            merged.update({key: row[key] for key in ("worker_id", "pid", "alive")})
         projected.append(_worker_display(merged, now=now))
     return projected
 

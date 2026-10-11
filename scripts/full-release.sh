@@ -5,6 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="${JARVIS_RELEASE_PYTHON:-python3}"
 output=""
 sampler_dist=""
+operas_dist=""
 upload=0
 dry=0
 requested_version=""
@@ -12,16 +13,17 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --upload) upload=1; shift ;;
     --dry) dry=1; shift ;;
-    --output|--sampler-dist|--python)
+    --output|--sampler-dist|--operas-dist|--python)
       [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 2; }
       case "$1" in
         --output) output="$2" ;;
         --sampler-dist) sampler_dist="$2" ;;
+        --operas-dist) operas_dist="$2" ;;
         --python) python_bin="$2" ;;
       esac
       shift 2 ;;
     -h|--help)
-      echo 'Usage: release [X.Y.Z] [--output DIR] [--sampler-dist DIR] [--python PYTHON] [--upload]'
+      echo 'Usage: release [X.Y.Z] [--output DIR] [--sampler-dist DIR] [--operas-dist DIR] [--python PYTHON] [--upload]'
       echo 'Default: build wheel/sdist, install all dependencies in a clean venv, verify; no upload.'
       exit 0 ;;
     *)
@@ -33,6 +35,7 @@ done
 # Resolve user paths before changing to the repository directory.
 if [[ -n "$output" && "$output" != /* ]]; then output="$PWD/$output"; fi
 if [[ -n "$sampler_dist" && "$sampler_dist" != /* ]]; then sampler_dist="$PWD/$sampler_dist"; fi
+if [[ -n "$operas_dist" && "$operas_dist" != /* ]]; then operas_dist="$PWD/$operas_dist"; fi
 cd "$root"
 work="$(mktemp -d "${TMPDIR:-/tmp}/jarvis-full-release.XXXXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -92,12 +95,26 @@ if [[ -n "$sampler_dist" ]]; then
   [[ ${#sampler_wheels[@]} -eq 1 && -f "${sampler_wheels[0]}" ]] || { echo 'Expected exactly one SDK wheel in --sampler-dist' >&2; exit 2; }
   install_args+=("${sampler_wheels[0]}" --find-links "$sampler_dist")
 fi
+# An unpublished dependency patch can be verified locally before the maintainer
+# publishes dependencies in order. The normal index-only path is unchanged.
+if [[ -n "$operas_dist" ]]; then
+  [[ -d "$operas_dist" ]] || { echo 'Missing Operas artifact directory' >&2; exit 2; }
+  operas_wheels=("$operas_dist/"jarvis_operas-*.whl)
+  [[ ${#operas_wheels[@]} -eq 1 && -f "${operas_wheels[0]}" ]] || { echo 'Expected exactly one Operas wheel in --operas-dist' >&2; exit 2; }
+  install_args+=("${operas_wheels[0]}" --find-links "$operas_dist")
+fi
 # Deliberately resolve and install every declared dependency; never --no-deps or -e.
 "$install_python" -m pip install --disable-pip-version-check "${install_args[@]}"
 "$install_python" -m pip check
 mkdir "$work/verify"
 cd "$work/verify"
 "$install_python" -I "$work/source/scripts/smoke_install.py" "$version"
+if [[ -f "$work/source/tests/test_release_2015_regressions.py" ]]; then
+  "$install_python" -m pip install --disable-pip-version-check pytest fakeredis colorlog
+  JARVIS_OPERAS_CURVE_CACHE_ROOT="$work/verify/operas-cache" \
+    "$install_python" -I -m pytest -q -o pythonpath= \
+    "$work/source/tests/test_release_2015_regressions.py"
+fi
 package="$("$build_python" -c 'import sys,tomli as tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["name"])' "$root/pyproject.toml")"
 if [[ "$package" == 'Jarvis-HEP-Sampler' ]]; then
   "$install_python" -m pip install --disable-pip-version-check pytest
@@ -119,6 +136,8 @@ if p['name'] == 'Jarvis-HEP':
     assert not any(n.startswith('jarvishep/') for n in z.namelist())
 assert m.version(p['name']) == p['version']
 report = {'distribution': p['name'], 'version': p['version'], 'installation': 'complete wheel with all dependencies',
+          'checks': {'twine': 'passed', 'pip_check': 'passed', 'installed_smoke': 'passed',
+                     'release_regressions': 'passed' if (source/'tests/test_release_2015_regressions.py').exists() else 'not included'},
           'artifacts': {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in wheels+sdists},
           'installed_dependencies': {d.metadata['Name']: d.version for d in m.distributions()}}
 (out/'release-verification.json').write_text(json.dumps(report, sort_keys=True, indent=2)+'\n')

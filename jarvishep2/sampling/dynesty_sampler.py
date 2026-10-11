@@ -1540,7 +1540,12 @@ class DynestySampler(CheckpointedSampler):
 
     def log_stop_reason(self) -> str | None:
         if self._finished:
-            return f"converged (dlogz < {self._dlogz:g})"
+            # run_nested returns normally on convergence, budgets and custom
+            # stopping rules. This vendored API does not report which fired.
+            budgets = [key for key in ("maxiter", "maxcall", "maxbatch")
+                       if self._run_nested_kwargs.get(key) is not None]
+            detail = f"; configured budgets: {', '.join(budgets)}" if budgets else ""
+            return f"engine returned (termination criterion not reported{detail})"
         return None
 
     def _task_result_dir(self) -> str:

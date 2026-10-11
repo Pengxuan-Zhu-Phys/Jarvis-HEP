@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
@@ -614,6 +615,8 @@ class Collector:
 
         rows: list[dict[str, Any]] = []
         scan_cpu_seconds = 0.0
+        full_accounting = sys.platform not in {"darwin", "win32"}
+        scan_cpu_members = {}
         scan_rss = 0
         seen: set[int] = set()
         groups: list[tuple[Any, list[Any], bool]] = []
@@ -637,6 +640,7 @@ class Collector:
             row["role"] = self._role_for(row["pid"], row.get("cmdline", ""))
             row_seconds = 0.0
             row_rss = 0
+            row_cpu_members = {}
             for index, proc in enumerate([top, *descendants]):
                 if proc.pid in seen:
                     continue
@@ -645,18 +649,27 @@ class Collector:
                 # still part of the scan total below.
                 include_children = with_children or index > 0
                 own, reaped, rss = _cpu_and_rss(psutil, proc)
+                try:
+                    identity = (proc.pid, proc.create_time())
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    identity = None
+                if identity is not None:
+                    row_cpu_members[identity] = own
+                    scan_cpu_members[identity] = own
                 row_seconds += own + (reaped if include_children else 0.0)
                 scan_cpu_seconds += own + reaped
                 row_rss += rss
             scan_rss += row_rss
-            cores = self._cpu_meter.rate(
-                ("row", row["pid"], row.get("created_at")), row_seconds, now
-            )
+            row_key = ("row", row["pid"], row.get("created_at"))
+            cores = (self._cpu_meter.rate(row_key, row_seconds, now) if full_accounting
+                     else self._cpu_meter.tree_rate(row_key, row_cpu_members, now))
             row["cpu_percent"] = None if cores is None else 100.0 * cores
             row["rss"] = row_rss
             rows.append(row)
 
-        scan_cores = self._cpu_meter.rate(("scan", tuple(roots)), scan_cpu_seconds, now)
+        scan_key = ("scan", tuple(roots))
+        scan_cores = (self._cpu_meter.rate(scan_key, scan_cpu_seconds, now) if full_accounting
+                      else self._cpu_meter.tree_rate(scan_key, scan_cpu_members, now))
         self._cpu_meter.prune(now)
         cpu_percent = (
             None
@@ -669,6 +682,7 @@ class Collector:
             "cpu_percent": cpu_percent,
             "cpu_cores_used": scan_cores,
             "cpu_cores_available": cores_available,
+            "cpu_accounting": "full-accounted" if full_accounting else "live-tree-estimate",
             "memory_used": int(scan_rss),
             "memory_total": int(memory.total),
             "machine_cpu_percent": machine_cpu,
@@ -712,13 +726,29 @@ class _CpuMeter:
     def __init__(self) -> None:
         self._last: dict[Any, tuple[float, float]] = {}
         self._rates: dict[Any, float] = {}
+        self._tree_members: dict[Any, dict[Any, float]] = {}
+        self._tree_seconds: dict[Any, float] = {}
+
+    def tree_rate(self, key: Any, members: dict[Any, float], now: float) -> float | None:
+        """Accumulate observed CPU increments by PID + creation time.
+
+        Exited processes never subtract CPU. Work between the last observation
+        and exit (or wholly between observations) remains unmeasured.
+        """
+        previous = self._tree_members.get(key, {})
+        increment = sum(max(0.0, seconds - previous.get(pid, 0.0))
+                        for pid, seconds in members.items())
+        self._tree_seconds[key] = self._tree_seconds.get(key, 0.0) + increment
+        self._tree_members[key] = dict(members)
+        return self.rate(key, self._tree_seconds[key], now)
 
     def rate(self, key: Any, cpu_seconds: float, now: float) -> float | None:
         """Cores used since the last call for ``key``; ``None`` on the first call.
 
         When no fresh value can be measured, the previous one is repeated:
         after a refresh that came too soon, or when the total went down
-        because a process left the group (the baseline restarts there).
+        because the refresh interval was too short. A decreased counter resets
+        the baseline and returns unknown instead of repeating stale activity.
         """
         previous = self._last.get(key)
         if previous is None:
@@ -731,7 +761,8 @@ class _CpuMeter:
         self._last[key] = (float(cpu_seconds), float(now))
         delta = float(cpu_seconds) - last_seconds
         if delta < 0:
-            return self._rates.get(key)
+            self._rates.pop(key, None)
+            return None
         self._rates[key] = delta / wall
         return self._rates[key]
 
@@ -740,6 +771,8 @@ class _CpuMeter:
         for key in stale:
             del self._last[key]
             self._rates.pop(key, None)
+            self._tree_members.pop(key, None)
+            self._tree_seconds.pop(key, None)
 
 
 def _safe_children(psutil: Any, proc: Any, *, recursive: bool) -> list[Any]:

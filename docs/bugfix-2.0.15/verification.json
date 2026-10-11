@@ -1,0 +1,85 @@
+{
+  "date": "2026-10-12",
+  "timezone": "Australia/Adelaide",
+  "state": "verified candidate; final publication reserved for user",
+  "source_fast_gate": {
+    "passed": 1272,
+    "skipped": 3,
+    "deselected": 166,
+    "subtests_passed": 141,
+    "seconds": 262.27,
+    "scope": "independent release snapshot; excludes unreviewed Diver and sibling Examples"
+  },
+  "runtime_suite": {
+    "passed": 97,
+    "remaining_scaling_failure": "resolved by warmup and 16-point measurement with unchanged 1.25 gate"
+  },
+  "final_scaling_and_startup_failure": {
+    "passed": 2,
+    "seconds": 29.01
+  },
+  "controls": {
+    "passed": 140,
+    "subtests_passed": 30
+  },
+  "installed_regressions": {
+    "passed": 22,
+    "seconds": 6.12
+  },
+  "installed_smoke": [
+    "complete dependencies and pip check",
+    "package imports under clean venv",
+    "two real workers: 16 completed, 0 failed",
+    "ref and name monitor JSON, PID/count/timestamp",
+    "bad expression validation and run exit",
+    "plot task-card diagnostic",
+    "intent positions",
+    "Operas help",
+    "packaged sampler project reload: 16 completed, 0 failed"
+  ],
+  "operas_cli": {
+    "version": "1.4.2",
+    "passed": 43
+  },
+  "sdk_installed": {
+    "version": "0.1.0",
+    "passed": 146
+  },
+  "version_probe": {
+    "wheel_version": "2.0.15",
+    "Jarvis_v": "passed: 2.0.15",
+    "jopera_init_help": "passed: 1.4.2",
+    "independent_complete_venv": "passed"
+  },
+  "pypi_availability_at_check": {
+    "Jarvis-HEP": {
+      "version": "2.0.15",
+      "present": false,
+      "url": "https://pypi.org/pypi/Jarvis-HEP/2.0.15/json",
+      "http_status": 404
+    },
+    "Jarvis-Operas": {
+      "version": "1.4.2",
+      "present": false,
+      "url": "https://pypi.org/pypi/Jarvis-Operas/1.4.2/json",
+      "http_status": 404
+    },
+    "Jarvis-HEP-Sampler": {
+      "version": "0.1.0",
+      "present": false,
+      "url": "https://pypi.org/pypi/Jarvis-HEP-Sampler/0.1.0/json",
+      "http_status": 404
+    }
+  },
+  "limitations": [
+    "macOS/Windows CPU is live-tree estimate; transient work may be missed",
+    "nested API does not report actual termination criterion; no convergence claim",
+    "worker ready timeout defaults to 120 seconds",
+    "Linux and other Python versions not executed here",
+    "workspace external Examples ASCII corpus still reports one sibling card; not shipped"
+  ],
+  "artifacts": {
+    "jarvis_hep-2.0.15-py3-none-any.whl": "3024ba96a1c42bbf1f98e08a8e1ac704a45c2e424b623c47fb2a744dc70c4ce9",
+    "jarvis_hep-2.0.15.tar.gz": "e93986d6ab42313d4d437ecf5a8330daefe2be03b3720b03a1c72d0031b2fb5c"
+  }
+}
