@@ -73,3 +73,5 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
 
 新增 `scripts/smoke_agent_install.py` 随 `scripts/full-release.sh` 在已安装 HEP wheel 上运行，覆盖合同、离线资源、卡片解释、诊断导航与邮件草稿；SDK 分支记录 not included，不虚报 agent 验收。
+
+2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
