@@ -35,6 +35,7 @@ _SUBCOMMANDS = frozenset(
         "check",
         "validate",
         "man",
+        "agent",
         "convert",
         "monitor",
         "plot",
@@ -439,6 +440,9 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if intent == "monitor":
         return dispatch_monitor(args)
+    if intent == "agent":
+        from jarvishep2.cli.agent import dispatch_agent
+        return dispatch_agent([])
     if intent == "plot":
         return dispatch_plot([])
     if intent == "gen-plot-yaml":
@@ -522,6 +526,17 @@ def dispatch(args: argparse.Namespace) -> int:
     return EXIT_USAGE
 
 
+def _emit_json_usage(argv: list[str], message: str) -> None:
+    if argv[0] == "validate":
+        _emit_load_diagnostic(
+            task_yaml="", code="JV2-CLI-001", message=message,
+            suggestion="Use an explicit task path and the documented validate options.",
+            example="Jarvis validate path/to/task.yaml --json", as_json=True,
+        )
+    else:
+        print(json.dumps({"ok": False, "error": {"code": "usage_error", "message": message}}))
+
+
 def main(argv: list[str] | None = None) -> int:
     from jarvishep2.proc_title import control_title, set_process_title
 
@@ -534,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
         normalized = normalize_argv(raw)
         # Dependency CLI tails are opaque. For HEP commands detect legacy intent
         # conflicts before argparse rejects flags placed after the subcommand.
-        passthrough = {"plot", "portal", "operas", "project", "sampler", "man"}
+        passthrough = {"plot", "portal", "operas", "project", "sampler", "man", "agent"}
         if normalized and raw[0] not in passthrough:
             tokens = normalized[:normalized.index("--")] if "--" in normalized else normalized
             modes = {token[2:] for token in tokens if token in {"--monitor", "--plot", "--validate", "--convert"}}
@@ -542,8 +557,15 @@ def main(argv: list[str] | None = None) -> int:
             if command in _SUBCOMMANDS:
                 modes.add(command)
             if len(modes) > 1:
-                print(_mode_conflict_message(sorted(modes)), file=sys.stderr)
+                message = _mode_conflict_message(sorted(modes))
+                if any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor"}:
+                    _emit_json_usage(normalized, message)
+                else:
+                    print(message, file=sys.stderr)
                 return EXIT_USAGE
+        if normalized and normalized[0] == "agent":
+            from jarvishep2.cli.agent import dispatch_agent
+            return dispatch_agent(normalized[1:])
         # Manual center: own argparse (domains / --json / --code / --type).
         if normalized and normalized[0] == "man":
             from jarvishep2.man import dispatch_man
@@ -565,7 +587,14 @@ def main(argv: list[str] | None = None) -> int:
             from jarvishep2.cli.sampler import dispatch_sampler
 
             return dispatch_sampler(normalized[1:])
-        return dispatch(build_parser().parse_args(normalized))
+        try:
+            args = build_parser().parse_args(normalized)
+        except SystemExit as exc:
+            if exc.code and any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor"}:
+                _emit_json_usage(normalized, f"Invalid arguments; see Jarvis {normalized[0]} --help.")
+                return EXIT_USAGE
+            raise
+        return dispatch(args)
     finally:
         # Keep the onboarding hint after all normal command output. It is a
         # stderr diagnostic so commands such as ``Jarvis validate --json`` keep

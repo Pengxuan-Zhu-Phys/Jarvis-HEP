@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from difflib import get_close_matches
 from pathlib import Path
@@ -364,7 +365,13 @@ def _clean_man_prose(value: Any) -> str:
         text = text.replace(old, new)
     return text
 
-_DOMAINS = frozenset({"yaml", "sampler", "calculator", "operas", "tokens", "example"})
+_DOMAINS = frozenset({"yaml", "sampler", "calculator", "operas", "tokens", "example", "agent-readme"})
+
+
+class _ManTopicError(KeyError):
+    def __init__(self, message: str, parent: str):
+        self.parent_manual_argv = ["Jarvis", "man", parent, "--json"]
+        super().__init__(f"{message}; inspect the parent with Jarvis man {parent} --json")
 _ROOT_BLOCKS = ("Scan", "Sampling", "Calculators", "Operas", "EnvReqs", "LibDeps")
 _CALC_TOPICS = ("module", "execution", "modes", "pools")
 _EXAMPLE_CATALOG: dict[str, str] = {
@@ -1284,8 +1291,11 @@ def _example_topics_for_method(method: str) -> tuple[str, ...]:
     )
     if canonical is None:
         return ()
+    template_root = Path(__file__).resolve().parents[1] / "project_template"
     return tuple(
-        topic for topic in _METHOD_EXAMPLE_TOPICS[canonical] if topic in _EXAMPLE_CATALOG
+        topic for topic in _METHOD_EXAMPLE_TOPICS[canonical]
+        if topic in _EXAMPLE_CATALOG
+        and _example_kind(template_root / _EXAMPLE_CATALOG[topic]) == "complete_task_card"
     )
 
 
@@ -1296,7 +1306,7 @@ def _example_descriptor(topic: str) -> dict[str, str]:
         "topic": f"example.{topic}",
         "command": f"Jarvis man example.{topic} --json",
         "path": rel,
-        "kind": "complete_task_card",
+        "kind": _example_kind(Path(__file__).resolve().parents[1] / "project_template" / rel),
     }
 
 
@@ -1370,6 +1380,7 @@ def _plugin_method_page(method: str) -> dict[str, Any]:
         "status": "stable",
         "summary": summary,
         "keys": _annotate_nav(keys),
+        "options_schema": schema,
         "examples": [_plugin_example(method, schema)],
         "diagnostics": ["JV2-PLG-002", "JV2-PLG-003", "JV2-PLG-004"],
         "see_also": [
@@ -1411,7 +1422,62 @@ def _method_page(method: str) -> dict[str, Any]:
     root = schema_by_id(str(uri))
     status = _schema_status(root)
     bounds_schema, _ = _bounds_schema_for_method(canonical)
-    keys = _key_entries(bounds_schema) if status == "stable" else []
+    # Publish the structural fragment and its exact local source. A fragment
+    # copied out of common.json must retain that base for its own #/$defs refs.
+    bounds_schema_ref = None
+
+    def find_bounds_ref(node: Mapping[str, Any], pointer: str = "") -> str | None:
+        properties = node.get("properties") or {}
+        if "Bounds" in properties:
+            bounds = properties["Bounds"]
+            return str(bounds.get("$ref") or f"{uri}#{pointer}/properties/Bounds")
+        for index, child in enumerate(node.get("allOf") or []):
+            if isinstance(child, Mapping):
+                found = find_bounds_ref(child, f"{pointer}/allOf/{index}")
+                if found:
+                    return found
+        return None
+
+    bounds_schema_ref = find_bounds_ref(root)
+    options_schema = json.loads(json.dumps(bounds_schema))
+    bounds_base_id = (bounds_schema_ref or str(uri)).split("#", 1)[0]
+
+    def preserve_local_ref_base(node: Any) -> None:
+        if isinstance(node, dict):
+            if isinstance(node.get("$ref"), str) and node["$ref"].startswith("#"):
+                node["$ref"] = bounds_base_id + node["$ref"]
+            for child in node.values():
+                preserve_local_ref_base(child)
+        elif isinstance(node, list):
+            for child in node:
+                preserve_local_ref_base(child)
+
+    preserve_local_ref_base(options_schema)
+    if canonical in {"Dynesty", "MultiNest"}:
+        descriptions = {
+            "dlogz": (
+                "Convenience alias for dynamic initial-phase evidence tolerance. Used as "
+                "run_nested.dlogz_init when no explicit run_nested threshold or Bounds.dlogz_init is set."
+                if canonical == "Dynesty" else
+                "Static NestedSampler evidence tolerance; used as run_nested.dlogz unless explicitly set in run_nested."
+            ),
+            "dlogz_init": (
+                "Dynamic initial-phase evidence tolerance. Bounds.dlogz_init overrides Bounds.dlogz; "
+                "an explicit run_nested.dlogz_init (or its run_nested.dlogz alias) overrides both."
+                if canonical == "Dynesty" else
+                "Compatibility alias for the default static evidence tolerance when Bounds.dlogz is absent. "
+                "Prefer dlogz; run_nested.dlogz_init maps to run_nested.dlogz."
+            ),
+            "run_nested": (
+                "DynamicNestedSampler.run_nested kwargs. dlogz aliases to dlogz_init; explicit dlogz_init wins."
+                if canonical == "Dynesty" else
+                "Static NestedSampler.run_nested kwargs. dlogz_init aliases to dlogz; explicit dlogz wins."
+            ),
+        }
+        for key, description in descriptions.items():
+            if key in (options_schema.get("properties") or {}):
+                options_schema["properties"][key]["description"] = description
+    keys = _key_entries(options_schema) if status == "stable" else []
     spec = spec_for(canonical)
     resume = spec.resume if spec is not None else "unknown"
 
@@ -1443,6 +1509,12 @@ def _method_page(method: str) -> dict[str, Any]:
         "status": status,
         "summary": summary,
         "keys": keys,
+        "schema_id": str(uri),
+        "schema_argv": ["Jarvis", "agent", "schema", "--id", str(uri), "--json"],
+        "bounds_schema_ref": bounds_schema_ref,
+        "bounds_schema_argv": ["Jarvis", "agent", "schema", "--id", bounds_schema_ref, "--json"] if bounds_schema_ref else None,
+        "options_schema": options_schema,
+        "options_schema_scope": "Structural Bounds fragment with absolute local-bundle references. Delegated engine dictionaries still need runtime documentation; schema acceptance does not establish engine-key support.",
         "examples": [str(root.get("x-jarvis-example"))] if root.get("x-jarvis-example") else [],
         "diagnostics": list(_METHOD_DIAGNOSTICS.get(canonical, [])),
         "see_also": see_also,
@@ -1667,6 +1739,12 @@ def _envreqs_nested_page(
     for name, description in fields.items():
         field_type = _ENVREQS_FIELD_TYPES.get(name, "any")
         keys.append(_env_key(name, field_type, description))
+    if path == "$.EnvReqs.V2.checkpoint":
+        from jarvishep2.runtime_config import CHECKPOINT_DEFAULTS, CHECKPOINT_HEARTBEAT_MIN_SEC
+        for key in keys:
+            key["default"] = CHECKPOINT_DEFAULTS[key["name"]]
+            if key["name"] == "heartbeat":
+                key.update(minimum=CHECKPOINT_HEARTBEAT_MIN_SEC, unit="seconds")
     diagnostics = [diagnostic] if isinstance(diagnostic, str) else list(diagnostic)
     return {
         "path": path,
@@ -1915,9 +1993,20 @@ def _path_page(
     norm = normalize_yaml_path(path)
     parts = [p for p in norm[2:].split(".") if p] if norm.startswith("$.") else []
     if parts and parts[0].casefold() == "envreqs":
-        return _envreqs_page(parts[1:])
+        try:
+            return _envreqs_page(parts[1:])
+        except KeyError:
+            for end in range(len(parts) - 1, 0, -1):
+                try:
+                    _envreqs_page(parts[1:end])
+                except KeyError:
+                    continue
+                raise _ManTopicError(f"No exact manual topic for {norm}", "yaml." + ".".join(parts[:end])) from None
+            raise
     # Special case Sampling.Bounds without method context
     if len(parts) >= 2 and parts[0].casefold() == "sampling" and parts[1].casefold() == "bounds":
+        if len(parts) > 2:
+            raise _ManTopicError(f"Bounds fields need Sampling.Method context: {norm}", "yaml.Sampling.Bounds")
         return {
             "path": "$.Sampling.Bounds",
             "context": {},
@@ -1935,6 +2024,8 @@ def _path_page(
             "further_reading": None,
         }
     if len(parts) >= 2 and parts[0].casefold() == "sampling" and parts[1].casefold() == "variables":
+        if len(parts) > 2:
+            raise _ManTopicError(f"List-item fields are described on the Variables parent, not a separate topic: {norm}", "yaml.Sampling.Variables")
         from jarvishep2.contracts.variables import (
             DISTRIBUTION_TYPES,
             PARAMS_ALLOWED,
@@ -2083,6 +2174,8 @@ def _path_page(
         if len(parts) == 1:
             return _operas_page()
         if parts[1].casefold() == "modules":
+            if len(parts) > 2:
+                raise _ManTopicError(f"Operas module fields are described on the parent: {norm}", "operas")
             return _operas_page()
 
     # Walk root properties for first-level block
@@ -2245,27 +2338,38 @@ def _calculator_yaml_path_page(
         return _calculator_page(None)
     second = parts[1].casefold()
     if second == "pools":
+        if len(parts) > 2:
+            raise _ManTopicError(f"No exact Pools field topic for {'.'.join(parts)}", "calculator.pools")
         return _calculator_page("pools")
     if second == "modules":
         if len(parts) == 2:
             return _calculator_page("module")
         third = parts[2].casefold()
         if third == "execution":
+            if len(parts) > 5:
+                raise _ManTopicError(f"Unknown calculator execution topic: {'.'.join(parts)}", "calculator.execution")
             if len(parts) >= 4:
                 path_direction = parts[3].casefold()
                 if path_direction in {"input", "output"}:
+                    if direction and direction != path_direction:
+                        raise _ManTopicError("Conflicting direction in the topic and --direction", "calculator.execution")
                     path_type = io_type
-                    if len(parts) >= 5 and not path_type:
+                    if len(parts) >= 5:
+                        if path_type and path_type.casefold() != parts[4].casefold():
+                            raise _ManTopicError("Conflicting file type in the topic and --type", f"calculator.execution.{path_direction}")
                         path_type = parts[4]
                     return _calculator_page(
                         "execution",
                         io_type=path_type,
                         direction=direction or path_direction,
                     )
+                raise _ManTopicError(f"Unknown calculator execution field topic: {'.'.join(parts)}", "calculator.execution")
             return _calculator_page(
                 "execution", io_type=io_type, direction=direction
             )
         if third == "modes":
+            if len(parts) > 3:
+                raise _ManTopicError(f"No exact modes field topic for {'.'.join(parts)}", "calculator.modes")
             return _calculator_page("modes")
         if third in _CALC_MODULE_FIELD_HELP or third in {
             "name",
@@ -2278,7 +2382,7 @@ def _calculator_yaml_path_page(
                 f"Calculators.Modules.{third} is a leaf field; "
                 "use Jarvis man calculator.module to read its Description"
             )
-        return _calculator_page("module")
+        raise _ManTopicError(f"Unknown calculator module field: {'.'.join(parts)}", "calculator.module")
     # Unknown under Calculators: fall through via generic error
     raise KeyError(".".join(parts))
 
@@ -2846,7 +2950,7 @@ def _operas_page() -> dict[str, Any]:
 def _tokens_page() -> dict[str, Any]:
     keys = [
         {"name": "&J/...", "type": "token", "required": False, "default": None, "aliases": [], "description": "Project root (standalone project or cwd)."},
-        {"name": "@Sdir", "type": "token", "required": False, "default": None, "aliases": [], "description": "Per-sample working directory under SAMPLE/."},
+        {"name": "@Sdir", "type": "token", "required": False, "default": None, "aliases": [], "description": "Per-sample working directory: SAMPLE/ when stored, temporary scratch when store_samples is false."},
         {"name": "@PackID", "type": "token", "required": False, "default": None, "aliases": [], "description": "Physical calculator pack id for multimode affinity."},
         {"name": "@SampleID", "type": "token", "required": False, "default": None, "aliases": [], "description": "Current sample uuid."},
         {"name": "${LibDeps:NAME}", "type": "token", "required": False, "default": None, "aliases": [], "description": "Path from LibDeps-built shared libraries."},
@@ -2862,11 +2966,17 @@ def _tokens_page() -> dict[str, Any]:
         "list_title": "Tokens",
         "list_rows": keys,
         "keys": [],
-        "examples": ["path: &J/calculators/runtime\ncommand: ${LibDeps:flexiblesusy}/bin/Spectrum"],
+        "examples": ['path: "&J/calculators/runtime"\ncommand: "${LibDeps:flexiblesusy}/bin/Spectrum"'],
         "diagnostics": [],
         "see_also": ["Jarvis man calculator.execution", "Jarvis man yaml.LibDeps"],
         "further_reading": None,
     }
+
+
+def _example_kind(path: Path) -> str:
+    import yaml
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return "sampling_fragment" if isinstance(document, Mapping) and set(document) == {"Sampling"} else "complete_task_card"
 
 
 def _example_page(name: str | None) -> dict[str, Any]:
@@ -2877,7 +2987,7 @@ def _example_page(name: str | None) -> dict[str, Any]:
             "context": {"domain": "example"},
             "zone": "open",
             "status": "stable",
-            "summary": "Complete task cards shipped with the package (same files as project create).",
+            "summary": "Task cards and Sampling fragments shipped with the package (same files as project create). Check artifact kind before use.",
             "list_title": "Examples",
             "list_rows": _annotate_nav(
                 [
@@ -2887,9 +2997,9 @@ def _example_page(name: str | None) -> dict[str, Any]:
                         "required": False,
                         "default": None,
                         "aliases": [],
-                        "description": f"Complete task card: {rel}",
+                        "description": f"Bundled YAML: {rel}",
                         "path": rel,
-                        "kind": "complete_task_card",
+                        "kind": _example_kind(root / rel),
                     }
                     for key, rel in _EXAMPLE_CATALOG.items()
                 ],
@@ -2927,7 +3037,7 @@ def _example_page(name: str | None) -> dict[str, Any]:
         "further_reading": None,
         "body": text,
         "artifact": {
-            "kind": "complete_task_card",
+            "kind": _example_kind(path),
             "format": "yaml",
             "path": rel,
             "command": f"Jarvis man example.{key} --json",
@@ -2943,6 +3053,7 @@ def _center_page() -> dict[str, Any]:
         "status": "stable",
         "summary": (
             "• Purpose: write a correct task-card YAML.\n"
+            "• AI agents: start with Jarvis agent --brief --json; Jarvis man agent-readme --brief --json is the alias.\n"
             "• Portal runtime: use Jarvis portal.\n"
             "• Operator catalogs: use Jarvis operas.\n"
             f"• Keys: {_NAV_EXPAND} (cyan) means a deeper man page exists; "
@@ -2955,6 +3066,14 @@ def _center_page() -> dict[str, Any]:
         "list_title": "Domains",
         "list_rows": _annotate_nav(
             [
+                {
+                    "name": "agent-readme",
+                    "type": "domain",
+                    "required": False,
+                    "default": None,
+                    "aliases": ["Jarvis agent"],
+                    "description": "Agent workflows, behavior boundaries and email request protocol",
+                },
                 {
                     "name": "yaml",
                     "type": "domain",
@@ -3005,6 +3124,7 @@ def _center_page() -> dict[str, Any]:
                 },
             ],
             {
+                "agent-readme": "Jarvis man agent-readme",
                 "yaml": "Jarvis man yaml",
                 "sampler": "Jarvis man sampler",
                 "calculator": "Jarvis man calculator",
@@ -3129,6 +3249,12 @@ def resolve_man_request(
     head = segments[0].casefold()
     rest = segments[1:]
 
+    if head == "agent-readme":
+        if rest or io_type or direction or full:
+            raise KeyError("agent-readme accepts only --json; use Jarvis agent --help for helpers")
+        from jarvishep2.cli.agent import agent_contract
+        return agent_contract()
+
     # Optional redundant yaml. prefix before another domain (A4).
     if (
         head == "yaml"
@@ -3146,6 +3272,8 @@ def resolve_man_request(
                 ".".join(rest), io_type=io_type, direction=direction
             )
         except KeyError as exc:
+            if isinstance(exc, _ManTopicError):
+                raise
             if "is a leaf field" in str(exc):
                 raise
             choices = list(_ROOT_BLOCKS) + [
@@ -3165,11 +3293,21 @@ def resolve_man_request(
         if not rest:
             return _sampler_index(full=full)
         topic_name = rest[0]
+        if len(rest) > 1:
+            page = _mcmc_runtime_page() if topic_name.casefold() in _MCMC_RUNTIME_TOPICS else _method_page(topic_name)
+            is_leaf = len(rest) == 2 and rest[1] in {key["name"] for key in page.get("keys", [])}
+            label = f"{topic} is a leaf field" if is_leaf else f"Unknown sampler subtopic: {topic}"
+            raise _ManTopicError(label, f"sampler.{topic_name}")
         if topic_name.casefold() in _MCMC_RUNTIME_TOPICS:
             return _mcmc_runtime_page()
         return _method_page(topic_name)
     if head == "calculator":
         topic_name = rest[0] if rest else None
+        if topic_name and topic_name.casefold() in {"module", "pools", "modes"} and len(rest) > 1:
+            label = f"{topic} is a leaf field" if topic_name.casefold() == "module" and rest[1] in _CALC_MODULE_FIELD_HELP else f"No exact calculator field topic for {topic}"
+            raise _ManTopicError(label, f"calculator.{topic_name}")
+        if topic_name and topic_name.casefold() == "execution" and len(rest) > 3:
+            raise _ManTopicError(f"Unknown calculator execution topic: {topic}", "calculator.execution")
         if topic_name and topic_name.casefold() == "module" and len(rest) > 1:
             raise KeyError(
                 f"calculator.module.{rest[1]} is a leaf field; "
@@ -3180,26 +3318,42 @@ def resolve_man_request(
         # calculator.execution.input.<TYPE>
         if topic_name and topic_name.casefold() == "execution" and len(rest) >= 2:
             if rest[1].casefold() in {"input", "output"}:
+                if direction and direction != rest[1].casefold():
+                    raise _ManTopicError("Conflicting direction in the topic and --direction", "calculator.execution")
                 path_direction = path_direction or rest[1].casefold()
-                if len(rest) >= 3 and not path_type:
+                if len(rest) >= 3:
+                    if path_type and path_type.casefold() != rest[2].casefold():
+                        raise _ManTopicError("Conflicting file type in the topic and --type", f"calculator.execution.{path_direction}")
                     path_type = rest[2]
-            elif not path_type:
+            else:
+                if len(rest) > 2:
+                    raise _ManTopicError(f"Unknown calculator execution subtopic: {topic}", "calculator.execution")
+                if path_type and path_type.casefold() != rest[1].casefold():
+                    raise _ManTopicError("Conflicting file type in the topic and --type", "calculator.execution")
                 # calculator.execution.JSON → type only
                 path_type = rest[1]
         return _calculator_page(
             topic_name, io_type=path_type, direction=path_direction
         )
     if head == "operas":
+        if rest:
+            raise _ManTopicError(f"Operas fields are described on the parent: {topic}", "operas")
         return _operas_page()
     if head == "tokens":
+        if rest:
+            raise _ManTopicError(f"No exact token subtopic: {topic}", "tokens")
         return _tokens_page()
     if head == "example":
+        if len(rest) > 1:
+            raise _ManTopicError(f"Unknown example subtopic: {topic}", f"example.{rest[0]}")
         return _example_page(rest[0] if rest else None)
 
     # Bare card path (Sampling.Bounds, Calculators.Modules, …)
     try:
         return _path_page(topic, io_type=io_type, direction=direction)
-    except KeyError:
+    except KeyError as exc:
+        if isinstance(exc, _ManTopicError):
+            raise
         choices = (
             list(_DOMAINS)
             + list(_ROOT_BLOCKS)
@@ -3221,6 +3375,10 @@ def resolve_man_request(
 
 
 def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
+    if page.get("kind") == "agent.contract":
+        from jarvishep2.cli.agent import emit_contract
+        emit_contract(dict(page), as_json=as_json)
+        return
     if as_json:
         # ``diagnostics`` is reserved for command failures.  Page-level
         # validation codes are related context, not evidence that this man
@@ -3253,6 +3411,12 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
             "list_title",
             "list_rows",
             "item_schema",
+            "options_schema",
+            "schema_id",
+            "schema_argv",
+            "bounds_schema_ref",
+            "bounds_schema_argv",
+            "options_schema_scope",
             "action_help",
             "action_rows",
             "body",
@@ -3263,8 +3427,7 @@ def _print_page(page: Mapping[str, Any], *, as_json: bool) -> None:
         ):
             if extra in page:
                 payload[extra] = page[extra]
-        json.dump(payload, sys.stdout, indent=2, sort_keys=True)
-        sys.stdout.write("\n")
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return
 
     console = _console()
@@ -3540,8 +3703,9 @@ def _print_man_help() -> None:
             _bullet_panel_text(
                 "• Purpose: write a correct task-card YAML.\n"
                 "• Topic: use one dotted path; list fields use their field name alone.\n"
-                "• Domains: yaml, sampler, calculator, operas, tokens, and example.\n"
+                "• Domains: agent-readme, yaml, sampler, calculator, operas, tokens, and example.\n"
                 "• Coding agents: use --json for structured keys, requirements, examples, and actions.\n"
+                "• Agent contract: Jarvis man agent-readme --brief --json (or Jarvis agent --brief --json); omit --brief for the full contract.\n"
                 "• Runtime: use Jarvis portal for Portal adapter behaviour and Jarvis operas for operator catalogs."
             ),
             title="Jarvis man",
@@ -3603,8 +3767,17 @@ def _print_man_help() -> None:
     )
 
 
+class _ManUsageError(ValueError):
+    pass
+
+
+class _ManParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise _ManUsageError(message)
+
+
 def build_man_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = _ManParser(
         prog="Jarvis man",
         description=(
             "YAML writing manuals (English). Focus: correct task-card keys and examples. "
@@ -3627,6 +3800,7 @@ def build_man_parser() -> argparse.ArgumentParser:
             "Not: Jarvis man calculator execution input"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        allow_abbrev=False,
     )
     parser.add_argument(
         "tokens",
@@ -3634,6 +3808,7 @@ def build_man_parser() -> argparse.ArgumentParser:
         help="Single dotted topic path, e.g. calculator.execution.input (no spaces)",
     )
     parser.add_argument("--json", action="store_true", help="Machine-readable page")
+    parser.add_argument("--brief", action="store_true", help="For agent-readme, emit the short contract without duplicated prose/catalog")
     parser.add_argument("--code", metavar="JV2-XXX-NNN", help="Jump from a diagnostic code")
     parser.add_argument(
         "--type",
@@ -3661,7 +3836,10 @@ def dispatch_man(argv: list[str] | None = None) -> int:
         _print_man_help()
         return 0
     parser = build_man_parser()
-    args = parser.parse_args(raw_argv)
+    try:
+        args = parser.parse_args(raw_argv)
+    except _ManUsageError as exc:
+        return _man_failure(str(exc), as_json=any(t == "--json" or t.startswith("--json=") for t in raw_argv), code="JV2-CLI-001", exit_code=2)
     try:
         page = resolve_man_request(
             list(args.tokens or []),
@@ -3670,6 +3848,12 @@ def dispatch_man(argv: list[str] | None = None) -> int:
             code=getattr(args, "code", None),
             full=getattr(args, "full", False),
         )
+        if args.brief:
+            if page.get("kind") != "agent.contract":
+                raise KeyError("--brief is only supported for agent-readme")
+            from jarvishep2.cli.agent import contract_view
+            page = contract_view(page, brief=True)
+        _print_page(page, as_json=bool(args.json))
     except KeyError as exc:
         message = str(exc.args[0]) if exc.args else str(exc)
         if "unknown diagnostic code:" in message:
@@ -3700,6 +3884,8 @@ def dispatch_man(argv: list[str] | None = None) -> int:
                     "related_diagnostics": [],
                     "see_also": ["Jarvis man", "Jarvis man sampler.Bridson"],
                     "further_reading": None,
+                    **({"parent_manual_argv": exc.parent_manual_argv,
+                        "parent_manual_command": shlex.join(exc.parent_manual_argv)} if isinstance(exc, _ManTopicError) else {}),
                 },
                 sys.stdout,
                 indent=2,
@@ -3711,10 +3897,23 @@ def dispatch_man(argv: list[str] | None = None) -> int:
         print("Try: Jarvis man   or   Jarvis man sampler.Bridson", file=sys.stderr)
         return 2
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"Jarvis man failed: {exc}", file=sys.stderr)
-        return 1
-    _print_page(page, as_json=bool(args.json))
+        return _man_failure(f"Jarvis man failed: {exc}", as_json=bool(args.json), code="JV2-MAN-002", exit_code=1)
     return 0
+
+
+def _man_failure(message: str, *, as_json: bool, code: str, exit_code: int) -> int:
+    if as_json:
+        print(json.dumps({
+            "ok": False, "path": None, "context": {}, "zone": None,
+            "status": "error", "summary": message, "keys": [], "examples": [],
+            "diagnostics": [{"code": code, "level": "error", "message": message}],
+            "related_diagnostics": [], "see_also": ["Jarvis man --help", "Jarvis agent --json"],
+            "further_reading": None,
+        }, indent=2, sort_keys=True))
+    else:
+        print(message, file=sys.stderr)
+        print("Try: Jarvis man --help", file=sys.stderr)
+    return exit_code
 
 
 __all__ = [

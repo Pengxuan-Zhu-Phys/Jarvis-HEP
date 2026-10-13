@@ -76,6 +76,7 @@ if project.get('optional-dependencies'):
     raise SystemExit('Only the complete distribution is allowed; remove dependency extras')
 PY
 version="$("$build_python" -c 'import tomli as tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+package="$("$build_python" -c 'import tomli as tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])')"
 output="${output:-$root/dist/$version}"
 mkdir -p "$output"
 output="$(cd "$output" && pwd)"
@@ -109,13 +110,15 @@ fi
 mkdir "$work/verify"
 cd "$work/verify"
 "$install_python" -I "$work/source/scripts/smoke_install.py" "$version"
+if [[ "$package" == 'Jarvis-HEP' ]]; then
+  "$install_python" -I "$work/source/scripts/smoke_agent_install.py" "$version"
+fi
 if [[ -f "$work/source/tests/test_release_2015_regressions.py" ]]; then
   "$install_python" -m pip install --disable-pip-version-check pytest fakeredis colorlog
   JARVIS_OPERAS_CURVE_CACHE_ROOT="$work/verify/operas-cache" \
     "$install_python" -I -m pytest -q -o pythonpath= \
     "$work/source/tests/test_release_2015_regressions.py"
 fi
-package="$("$build_python" -c 'import sys,tomli as tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["name"])' "$root/pyproject.toml")"
 if [[ "$package" == 'Jarvis-HEP-Sampler' ]]; then
   "$install_python" -m pip install --disable-pip-version-check pytest
   "$install_python" -m pytest -q --import-mode=importlib -o pythonpath= "$work/source/tests"
@@ -137,6 +140,7 @@ if p['name'] == 'Jarvis-HEP':
 assert m.version(p['name']) == p['version']
 report = {'distribution': p['name'], 'version': p['version'], 'installation': 'complete wheel with all dependencies',
           'checks': {'twine': 'passed', 'pip_check': 'passed', 'installed_smoke': 'passed',
+                     'installed_agent_smoke': 'passed' if p['name'] == 'Jarvis-HEP' else 'not included',
                      'release_regressions': 'passed' if (source/'tests/test_release_2015_regressions.py').exists() else 'not included'},
           'artifacts': {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in wheels+sdists},
           'installed_dependencies': {d.metadata['Name']: d.version for d in m.distributions()}}

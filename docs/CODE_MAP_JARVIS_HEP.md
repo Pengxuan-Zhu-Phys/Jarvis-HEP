@@ -37,3 +37,39 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 所有台账修复与 QA 项完成。源码版本 2.0.15，完整 wheel/sdist 在干净 venv 安装所有依赖后通过 Twine、pip check、真实双 Worker/ref JSON/CLI/项目重载 smoke，以及 22 项安装包回归。最终源码 fast gate 1272 passed、3 skipped、141 subtests。依赖候选 SDK 0.1.0（146 tests）、Operas 1.4.2（43 CLI tests、安装包帮助验证）。
 
 交付位置 `dist/2.0.15/`，持久证据与发布顺序见开发台账、bugfix-2.0.15/verification.json 和 release-notes.md。仅候选准备完成，用户先发布依赖，再自行发布 HEP；代理未上传、推送或创建 tag。保留未验收 Diver 与其它用户改动，实际 wheel/sdist 检查确认未包含 Diver。
+
+## 2026-10-13 agent CLI 代码地图
+
+| 职责 | 实现 | 验证 |
+| --- | --- | --- |
+| 自举合同、命令效果、问题路由、授权约定 | `cli/agent.py`；入口 `cli/client.py`、`cli/help.py`、`cli/man.py` | `tests/test_agent_cli.py` |
+| 离线 schema bundle、准确 YAML 正文及前置条件 | `cli/agent_artifacts.py`，复用 `cardload/task_schema.py`/man 示例 | `tests/test_agent_artifacts.py` |
+| 邮件反馈合同和草稿 | `cli/agent_request.py` | `tests/test_agent_request.py` |
+| validate 机器导航、范围、JSON 异常 | `cli/run.py`、`man_codes.py`；参数失败入口 `cli/client.py` | `tests/test_agent_validation.py`、`test_agent_cli.py` |
+| fragment 元数据和插件 options_schema | `cli/man.py` | `test_agent_cli.py`、既有 `test_man.py`/`test_sampler_catalog.py` |
+
+审计、实施和限制见 [CLI agent 报告](cli-agent-integration-report.md)；验收证据为 `cli-agent-verification.json`。未新增数据资产或运行依赖。
+
+最终证据：定向 194 tests/316 subtests、13 安装包 CLI 检查通过；fast gate 1345 tests/437 subtests 通过及 1 项已知外部 Examples 编码失败。源码 hash、命令和实际失败来源均存于 verification。
+
+## 第二轮实际体验改进
+
+| 职责 | 实现与验收 |
+| --- | --- |
+| brief/section/command、关键词发现 | `cli/agent.py`、`cli/agent_search.py`；`tests/test_agent_experience.py` |
+| 生效配置、来源、路径及按 section 查询 | `cli/agent_inspect.py`；`tests/test_agent_inspect.py` |
+| 重复显式键与行列诊断 | `cardload/yaml_loader.py`、`cardload/task_config.py`、`cli/run.py`、`man_codes.py`；`test_agent_experience.py`、语料测试 |
+| schema index/fragment、模板组合与算子边界 | `cli/agent_artifacts.py`、`cli/man.py`；`test_agent_artifacts.py` |
+| 严格手册导航、IO selector、默认值和 token | `cli/man.py`；`test_man.py`、`test_agent_experience.py` |
+| 草稿分段输入与信息齐全检查 | `cli/agent_request.py`；`test_agent_request.py` |
+
+证据：`cli-agent-review2-verification.json`；332 定向/373 子测试、22 安装 CLI 检查通过；full gate 1416/478 通过，保留 1 个旧外部编码例外。未新增依赖。
+
+
+## 2026-10-13 2.0.16 提交与发行
+
+用户已授权 commit 与新版本发布，本阶段取代此前仅准备候选的权限边界。版本 2.0.16 包含两轮 CLI agent 改进及已提交的 2.0.15 可靠性/sampler integration 基线；保持原有 YAML 结构，显式重复键改为 JV2-YAML-003 错误。Diver 草稿、其 package-data 及未验收的 sampler 审阅文件保留且排除。
+
+从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
+
+新增 `scripts/smoke_agent_install.py` 随 `scripts/full-release.sh` 在已安装 HEP wheel 上运行，覆盖合同、离线资源、卡片解释、诊断导航与邮件草稿；SDK 分支记录 not included，不虚报 agent 验收。

@@ -197,9 +197,16 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     # Load / encoding / yaml parse
     "JV2-LOAD-001": {"kind": "center"},
     "JV2-LOAD-002": {"kind": "center"},
+    "JV2-LOAD-003": {"kind": "center"},
+    "JV2-LOAD-004": {"kind": "center"},
+    "JV2-VAL-001": {"kind": "center"},
+    "JV2-CLI-001": {"kind": "center"},
+    "JV2-MAN-002": {"kind": "center"},
+    "JV2-AGENT-001": {"kind": "center"},
     "JV2-ENC-001": {"kind": "center"},
     "JV2-YAML-001": {"kind": "center"},
     "JV2-YAML-002": {"kind": "center"},
+    "JV2-YAML-003": {"kind": "tokens"},
 }
 
 

@@ -39,6 +39,7 @@ _COMMAND_HELP_PANELS = {
     "check": "Scan workflow",
     "validate": "Scan workflow",
     "man": "YAML authoring",
+    "agent": "YAML authoring",
     "convert": "Data export",
     "gen-plot-yaml": "Plots",
     "plot": "Plots",
@@ -53,6 +54,7 @@ _COMMAND_HELP_PANELS = {
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
     "man": 5,
+    "agent": 4,
     "validate": 10,
     "check": 20,
     "run": 30,
@@ -413,7 +415,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Run and validate distributed HEP scans, prepare plot YAML, "
             "and manage their local runtime.\n\n"
             "Command help: Jarvis COMMAND -h\n"
-            "See each command's arguments and options, e.g. Jarvis run -h"
+            "See each command's arguments and options, e.g. Jarvis run -h\n"
+            "AI agents: start with Jarvis agent --brief --json\n"
+            "Full contract: Jarvis agent --json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -533,6 +537,12 @@ def build_parser() -> argparse.ArgumentParser:
             "YAML writing manuals; coding agents: use --json for structured keys, "
             "requirements, examples, and actions"
         ),
+        add_help=False,
+    )
+
+    sub.add_parser(
+        "agent",
+        help="AI agent contract, schema, YAML templates and request drafts; start with --json",
         add_help=False,
     )
 

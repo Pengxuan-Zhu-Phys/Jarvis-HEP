@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.15`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.16`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -50,13 +50,13 @@ From a source checkout, prepare the SDK first while its first public release is 
 ```bash
 ../Jarvis-HEP-Sampler/jhsrel
 ./jhrel --sampler-dist ../Jarvis-HEP-Sampler/dist/0.1.0
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.15/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.16/*.whl
 ```
 
 For development and tests, install the test tools separately:
 
 ```bash
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.15/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.16/*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
@@ -202,6 +202,82 @@ Jarvis plot path/to/plot.yaml      # Jarvis-PLOT is installed by default
 Use `Jarvis COMMAND -h` for command-specific options. Screen logging defaults
 to `WARNING`; use `--console-level INFO`, `--debug`, or `--silence` as needed.
 File logs remain available under `logs/<scan>/`.
+
+## AI agents and YAML assistance
+
+Codex, Claude and other agents should start with the installed CLI contract:
+
+```bash
+Jarvis agent --brief --json        # short contract retains all rules/workflows
+Jarvis man agent-readme --brief --json  # same contract, through the manual index
+Jarvis agent --section commands --command run --json
+Jarvis agent search "checkpoint heartbeat" --json
+Jarvis agent inspect bin/task.yaml --section runtime --json
+Jarvis agent schema --list --json  # small schema index
+Jarvis agent schema --json         # bundled schemas; all references resolve locally
+Jarvis agent template --json       # list task cards and Sampling fragments
+Jarvis agent template random-operas --json
+Jarvis validate bin/task.yaml --json
+```
+
+The contract includes the installed version, question routes, argument arrays,
+command effects, authorization boundaries and authoring workflows. Follow the
+installed `man` pages for field names and registered sampler options, and the
+owning Portal/Operas/PLOT CLI for runtime behavior. The schema bundle describes
+the bundled structural vocabulary; semantic checks still require `validate`.
+`Jarvis agent schema --id URI` prints one original schema document or local
+JSONPointer fragment from that bundle without fetching the URI. Sampler manual
+pages include `options_schema`, `schema_argv` and `bounds_schema_argv`. Omit
+`--brief` to read the full original contract; `--section` reads one section.
+Search performs keyword discovery and returns real manual/help `next_argv`;
+absence of a match is not proof that a feature is unsupported.
+
+`inspect` explains the selected card's loaded defaults, merged environment,
+normalized runtime, planned paths and validation, with field sources. Use
+`--section paths|runtime|sources|validation|card|policies` to limit output.
+Configured worker counts and Redis ports are distinct from runtime selection;
+this query does not import user operators, probe ports or create scan resources.
+
+Named templates print their exact YAML to stdout; `--json` adds artifact kind
+and prerequisites. Some examples depend on the files copied by `project create`;
+Sampling fragments provide a full base-template query and instructions to
+replace its `Sampling` block, then validate the composed card. A full card needs
+`Scan`, `EnvReqs` and at least one `Calculators` or `Operas` section. Agents should edit the user's
+file within the requested scope, use each validation issue's `manual_argv` to
+look up the correction, then validate again. Preserve scientific choices and
+existing files. Repeated explicit YAML keys in tasks and selected default files
+are rejected with the field and both source locations; legitimate YAML merge
+overrides remain allowed. Unrecognized manual subtopics fail with parent
+navigation instead of returning a misleading successful parent lookup.
+
+`validate` does not execute calculators or start Redis/Workers. A successful
+report does not prove runtime or physics correctness. `check` and `run` execute
+configured code and create runtime resources; bare `Jarvis TASK.yaml` also runs
+the task. Existing user authorization remains valid, but YAML assistance alone
+does not authorize execution, dependency installation or process termination.
+CLI onboarding and dependency imports may initialize user caches even during
+queries. JSON command output uses stdout; advisory diagnostics use stderr.
+
+For a missing capability, produce an email draft with:
+
+```bash
+Jarvis agent request --title "Required feature" --description "Goal and constraints" --json
+```
+
+The recipient is `Jarvis.HEP.AI@mail.grokbot.com`, with the exact marker
+`Resquest@Jarvis-HEP` (the spelling follows Jarvis-PLOT). Include installed version,
+OS/Python/installation method, minimal YAML, commands and diagnostics, actual and
+expected behavior, and scientific/compatibility constraints. Report directly in
+a maintainer conversation; otherwise provide the draft for the user to submit.
+The CLI does not send mail or write the draft to a file.
+Use `--yaml`, `--commands`, `--diagnostics`, `--actual`, `--expected`,
+`--constraints` and `--installation-method` to fill the matching draft sections.
+These inputs are literal text; paths are not read and commands are not executed.
+`missing_fields` identifies remaining blanks; `draft_ready` only means all required
+text sections are filled, not that their contents were verified or mail was sent.
+
+The implementation audit and validation record are in
+[the CLI agent integration report](docs/cli-agent-integration-report.md).
 
 ## Outputs
 

@@ -44,3 +44,28 @@ Archiver 负责结果持久化；scan driver 等待持久化与运行计数。�
 所有台账修复与 QA 项完成。源码版本 2.0.15，完整 wheel/sdist 在干净 venv 安装所有依赖后通过 Twine、pip check、真实双 Worker/ref JSON/CLI/项目重载 smoke，以及 22 项安装包回归。最终源码 fast gate 1272 passed、3 skipped、141 subtests。依赖候选 SDK 0.1.0（146 tests）、Operas 1.4.2（43 CLI tests、安装包帮助验证）。
 
 交付位置 `dist/2.0.15/`，持久证据与发布顺序见开发台账、bugfix-2.0.15/verification.json 和 release-notes.md。仅候选准备完成，用户先发布依赖，再自行发布 HEP；代理未上传、推送或创建 tag。保留未验收 Diver 与其它用户改动，实际 wheel/sdist 检查确认未包含 Diver。
+
+## 2026-10-13 agent 辅助层
+
+`cli/agent.py` 提供版本化自举合同和命令效果；命令参数来自当前 help parser，转发 CLI/项目兼容参数明确标记不完整。`cli/man.py` 的 agent-readme 返回同一合同，原有手册和 schema 继续作为字段事实源。插件 OPTIONS_SCHEMA 原样公开，metadata 查询不导入插件实现。
+
+`cli/agent_artifacts.py` 只输出本地 schema bundle 和模板/前置条件；$id URI 为本地 registry 标识，不触发网络。模板保持原文，fragment 必须组合为完整卡。`cli/agent_request.py` 只生成草稿和反馈协议，不实现 SMTP 或其它发送通道。
+
+`cli/run.py` 在原 validate 结构上增加导航和证据范围；loader/validator 内部错误与配置错误区分，JSON stdout 不混入诊断。validate 无扫描执行，但依赖导入缓存/CLI marker 并非绝对无写入。重复键兼容行为本阶段未改。边界和验证记录见 [报告](cli-agent-integration-report.md)。
+
+最终验收确认 authoring smoke 不实例化 Core/Redis；安装包从独立 venv 的 site-packages 导入，13 项 CLI 检查通过。最终定向 194/316 通过；运行回归通过，fast gate 唯一失败来自已知 sibling Examples 描述编码。完整例子引用按实际正文筛选，fragment 不再被 complete-card 导航误标。
+
+## 第二轮架构补充
+
+`cli/agent_search.py` 从安装手册/nav 和 help metadata 建立有界词汇索引，返回查询 argv，不将命中或无命中作为能力支持证明。`cli/agent_inspect.py` 复用 loader/validator/runtime policy 读模型，输出生效值、来源和计划路径；CLI section 投影和 preview 限制展示，不改变验证数据，不构造 Core/Redis 或导入用户算子。
+
+`cardload/yaml_loader.py` 在 SafeLoader flatten merges 前检查原始 mapping 显式键，捕获 silent overwrite，并保留合法继承覆盖、alias 和 quoted literal merge-like keys。task_config 将重复诊断转为 TaskCardLoadError 的 path/location/related_locations；run/inspect 输出实际位置。
+
+手册 exact lookup 不再丢弃后缀或覆盖冲突 context selector；schema fragment 查询只解析 manifest 的本地文档，不访问 URI。模板识别已知 import-path 边界，草稿输入保持数据。原完整 agent JSON 不改为短格式，新增投影避免破坏消费者。最终 332/373 定向、22 安装 CLI 检查通过；fast gate 1416/478 通过及已知外部编码失败。
+
+
+## 2026-10-13 2.0.16 提交与发行
+
+用户已授权 commit 与新版本发布，本阶段取代此前仅准备候选的权限边界。版本 2.0.16 包含两轮 CLI agent 改进及已提交的 2.0.15 可靠性/sampler integration 基线；保持原有 YAML 结构，显式重复键改为 JV2-YAML-003 错误。Diver 草稿、其 package-data 及未验收的 sampler 审阅文件保留且排除。
+
+从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。

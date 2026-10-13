@@ -40,3 +40,32 @@ VAL-01、RUN-01、MON-01、MON-02、PLOT-01、CLI-01、OPR-01 的具体验收以
 所有台账修复与 QA 项完成。源码版本 2.0.15，完整 wheel/sdist 在干净 venv 安装所有依赖后通过 Twine、pip check、真实双 Worker/ref JSON/CLI/项目重载 smoke，以及 22 项安装包回归。最终源码 fast gate 1272 passed、3 skipped、141 subtests。依赖候选 SDK 0.1.0（146 tests）、Operas 1.4.2（43 CLI tests、安装包帮助验证）。
 
 交付位置 `dist/2.0.15/`，持久证据与发布顺序见开发台账、bugfix-2.0.15/verification.json 和 release-notes.md。仅候选准备完成，用户先发布依赖，再自行发布 HEP；代理未上传、推送或创建 tag。保留未验收 Diver 与其它用户改动，实际 wheel/sdist 检查确认未包含 Diver。
+
+## 2026-10-13 AI agent CLI 要求
+
+- 顶层 help、man 索引及 README 必须可发现 `Jarvis agent --json`/`Jarvis man agent-readme --json`；合同包含安装版本、contract version、argv、查询路由、命令效果、授权边界和退出码。
+- agent 应能导出完整本地 bundled schema、读取准确示例正文/前置条件，区分完整 task card 和 Sampling fragment；插件字段 schema 由 sampler man 暴露，不声称 bundled schema 覆盖任意扩展运行语义。
+- 编写闭环为查询→编辑→validate JSON→manual_argv→修正→复验。不得因编写任务自动运行 check/run、安装/加载代码或改变物理假设；已获授权不反复确认。
+- JSON-capable 查询的参数、加载和内部失败给出单个可解析结果与非零退出码，保留既有成功字段；help 输出遵循各命令约定。
+- 邮件反馈收件人 `Jarvis.HEP.AI@mail.grokbot.com`、精确 marker `Resquest@Jarvis-HEP`。输出含版本、环境、最小 YAML、命令诊断和实际/期望/约束的草稿；不自动发送、不推断维护者身份。
+
+验收及已知重复键/缓存限制见 [报告](cli-agent-integration-report.md)。本阶段不改变版本、既有候选或公开发布状态。
+
+验收完成并记录外部例外：194 定向 tests/316 subtests、13 安装包 CLI 检查通过；full fast gate 1345 tests/437 subtests 通过，已知 sibling Examples 非 ASCII 描述导致 1 项失败。外部案例保持原文，不声称整个工作区 gate 全绿。
+
+## 第二轮新增要求与完成情况
+
+- 短合同保留全部规则与工作流，旧默认完整 JSON 继续可用；section/command/search/schema-index 让 agent 按需获取证据，search 只能返回查询/帮助 argv。
+- inspect 解释具体卡片的实际默认文件、任务覆盖、规范化值和来源；明确未做 runtime 资源选择或用户算子可用性检查，大输入截断显式可见。
+- fragment 的组合/验证目标、算子注册/导入边界及手册子路径必须准确。未知后缀和冲突 selector 返回失败及可用父页，不默默丢参数。
+- 重复显式 YAML 键必须在任务与默认环境加载时拒绝，并给字段和两处位置；合法 merge override 保持。此要求取代第一轮仅约定唯一键的限制。
+- request 可填写 YAML/命令/诊断/实际/期望/约束/安装方式；字面文本不执行/不隐含读文件，draft_ready 仅代表内容齐全。
+
+验收 332/373 定向、22 安装包检查通过；fast gate 1416/478 通过及 1 个已知外部编码例外。报告与第二轮 verification 已记录严格重复键对旧案例的兼容影响；无发布动作。
+
+
+## 2026-10-13 2.0.16 提交与发行
+
+用户已授权 commit 与新版本发布，本阶段取代此前仅准备候选的权限边界。版本 2.0.16 包含两轮 CLI agent 改进及已提交的 2.0.15 可靠性/sampler integration 基线；保持原有 YAML 结构，显式重复键改为 JV2-YAML-003 错误。Diver 草稿、其 package-data 及未验收的 sampler 审阅文件保留且排除。
+
+从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。

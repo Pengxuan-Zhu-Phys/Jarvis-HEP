@@ -36,7 +36,7 @@ the first release is published.
 ## Release procedure
 
 1. Complete the development ledger and run the fast gate plus relevant runtime tests. Add intended new files to Git; the helper snapshots tracked files and their current edits. Keep unfinished packages out of the release snapshot.
-2. Run `./jhrel <version> --output dist/<version>` to update both source version fields, build wheel and sdist, install the complete wheel with all dependencies in a clean venv, run `pip check`, installed CLI/runtime smoke and the 2.0.15 regression contracts. `--dry` is an alias for this default; neither uploads. The helper emits `release-verification.json` and `SHA256SUMS` only after verification. `--install` is not supported.
+2. Run `./jhrel <version> --output dist/<version>` to update both source version fields, build wheel and sdist, install the complete wheel with all dependencies in a clean venv, run `pip check`, installed CLI/runtime and agent-authoring smoke, and the 2.0.15 regression contracts. `--dry` is an alias for this default; neither uploads. The helper emits `release-verification.json` and `SHA256SUMS` only after verification. `--install` is not supported.
 
    For unpublished dependency candidates use `--sampler-dist DIR` and `--operas-dist DIR`. These install the dependency wheels with every declared dependency; publish dependencies before releasing HEP. Use a fresh output directory for each build. Build/test tools are separate from the complete distribution, with no editable install or dependency extras.
 
@@ -66,3 +66,7 @@ a major-version migration: the old `jarvishep` import package is replaced by
 ## 2.0.15 handoff
 
 See [the development ledger](docs/development-ledger-2.0.15.md) and [release notes](docs/bugfix-2.0.15/release-notes.md). The agent prepares verified candidates locally; the user creates the final release/tag and publishes. No upload, tag creation or push is performed during candidate preparation.
+
+## 2.0.16 publication authorization
+
+The user authorized committing and publishing the CLI agent improvements on 2026-10-13. This supersedes the earlier candidate-only handoff for this release. See [the 2.0.16 release record](docs/release-2.0.16.md). Build from a clean release commit checkout to exclude unrelated working-tree changes, and publish the required Sampler SDK before HEP.

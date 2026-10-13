@@ -537,6 +537,7 @@ class ManCliTests(unittest.TestCase):
                 linked = resolve_man_request([topic])
                 self.assertEqual(linked.get("status"), "stable", msg=link)
                 self.assertTrue(linked.get("body"), msg=link)
+                self.assertEqual(linked["artifact"]["kind"], "complete_task_card", msg=link)
 
         mcmc = resolve_man_request(["sampler.MCMC"])
         self.assertFalse(

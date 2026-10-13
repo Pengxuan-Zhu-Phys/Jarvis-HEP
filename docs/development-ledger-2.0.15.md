@@ -149,3 +149,18 @@ VAL-01 至 OPR-01、QA-02、SDK-01、QA-03、QA-01 完成。REL-01 的候选准�
 | OPR-01 | Operas `ec575f3`（1.4.2） | 43 CLI tests、完整 HEP 安装包 help smoke、独立最终 venv help |
 
 已核对本地 HEP 实现提交中的 Python/Shell/pyproject 源码与实际构建源码哈希一致。当前工作区剩余 Diver package-data 等原始改动保持未提交。
+
+## 2026-10-13 CLI agent 新阶段（不改旧发行候选）
+
+Roadmap phase：CLI agent 集成及第二轮实际体验 review。Affected modules：CLI/man/validation、task YAML loader 及维护文档。Public interfaces：新增 agent 查询/模板/解释/草稿接口，原完整 JSON 和 YAML 结构保留；重复显式键与未知手册后缀收紧为错误。Main risks：误拒绝合法 merge、把配置规范化视为实际执行、把草稿齐全视为可发信；均以明确范围和测试约束。
+
+第一轮先完成报告后实施：194 定向 tests/316 subtests、13 安装包 CLI 检查；full gate 1345/437 通过、1 个外部非 ASCII 卡片失败。第二轮再次先实测和追加报告：最终 332 定向/373 子测试、22 安装 CLI 检查；full gate 1416/478 通过、1 个同样外部编码失败。旧 MultiNest 案例重复 seed 被 JV2-YAML-003 准确拒绝，语料测试仅核验该已知诊断，不改外部文件；合法 merge/alias 通过。
+
+状态：实现、验证和文档同步完成，外部编码例外明确保留。报告与两轮 `cli-agent-*-verification.json` 保存证据。本阶段改动没有替换 `dist/2.0.15`、没有版本 bump/发布；Diver/pyproject 原始改动保持。
+
+
+## 2026-10-13 2.0.16 提交与发行
+
+用户已授权 commit 与新版本发布，本阶段取代此前仅准备候选的权限边界。版本 2.0.16 包含两轮 CLI agent 改进及已提交的 2.0.15 可靠性/sampler integration 基线；保持原有 YAML 结构，显式重复键改为 JV2-YAML-003 错误。Diver 草稿、其 package-data 及未验收的 sampler 审阅文件保留且排除。
+
+从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
