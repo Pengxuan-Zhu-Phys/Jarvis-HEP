@@ -93,3 +93,8 @@ release remains blocked while this required package is absent from PyPI.
 Prepare a draft and record the blocker; do not modify or publish the SDK under
 this Redis-only authorization. Follow the normal GitHub Release/Trusted
 Publishing path when the dependency requirement is resolved.
+
+Later in the same session, the user selected candidate preparation only and
+retained SDK publication as a follow-up. Complete the Redis-only commits,
+candidate verification and draft delivery; public HEP/SDK publication remains
+follow-up work.

@@ -10,6 +10,8 @@
 
 2026-10-15 用户明确授权提交 Redis 改进并发布 HEP 新版本，同时要求忽略当前 Sampler 改动。本版本为 2.0.17；既有 2.0.15/2.0.16 候选和历史记录保留。
 
+同一会话中用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次以提交、候选验收与 draft 交付收尾，正式 HEP/SDK 公开发行作为后续工作。
+
 本次提交/候选只纳入 Redis 环境引导、正式子命令及帮助/agent 发现、对应测试与文档、HEP 两处版本声明。已有 committed baseline 中的 sampler SDK 集成仍是依赖关系；本轮未提交的 sampler/runtime 修补、Diver 源码/测试、Diver package-data 与 sampler 审阅资料均排除并保留。`pyproject.toml` 只纳入本次版本变更，不带入其它未验收工作区差异。
 
 ## 用户可见变化
@@ -27,6 +29,12 @@
 验收状态：待本阶段测试结果补录。提交 SHA、push 状态、产物路径及 draft Release URL 均待实际操作结果补录；此处不声称已经提交、推送或创建 Release。
 
 开发阶段历史证据为 [Redis 环境引导验收](redis-environment-verification.json) 和 [标准命令组验收](redis-cli-help-verification.json)。后者 202 项定向、25 项安装检查通过；工作区 fast gate 为 1509 passed / 478 subtests，保留 1 项既有外部 iDM 描述编码失败。这些结果不证明新的版本源码或发行包已经通过。
+
+### 发行门禁的检出环境补正
+
+首次干净源码全量运行暴露了既有 `test_splash_lists_ps_rows_and_quit` 的环境依赖：测试无条件要求分支标志，但 detached HEAD 没有分支名，生产 topbar 按设计只显示路径。GitHub Release 标签检出同样是 detached HEAD；仅给本地验收创建临时分支不能解决发行 CI。
+
+本阶段将该 UI 测试自己的 `git_branch` 输入固定为测试分支，并断言显示该分支。此补正只让发行测试自包含，不改变 monitor 生产代码，也不纳入 Sampler 修补。最初失败与修正后的验收分别保留，不放宽或跳过断言。
 
 ## 公开依赖与发布状态
 

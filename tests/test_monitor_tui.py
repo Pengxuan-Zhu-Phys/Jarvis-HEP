@@ -879,12 +879,13 @@ class MonitorAppTests(unittest.TestCase):
                 self.assertNotIn("simu", hint_text.lower())
                 self.assertNotRegex(hint_text, r"\bS:")
                 top = str(app.screen.query_one("#topbar-left", Static).render())
-                self.assertIn("⎇", top)
+                self.assertIn("⎇ test-branch", top)
                 clock = str(app.screen.query_one("#topbar-clock", Static).render())
                 self.assertRegex(clock, r"· \d{1,2}:\d{2} (AM|PM)")
                 await pilot.press("q")
 
-        asyncio.run(_run())
+        with mock.patch("jarvishep2.monitor.topbar.git_branch", return_value="test-branch"):
+            asyncio.run(_run())
 
     def test_escape_does_not_quit_splash(self) -> None:
         try:
