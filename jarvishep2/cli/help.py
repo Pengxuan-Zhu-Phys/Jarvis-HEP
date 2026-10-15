@@ -679,7 +679,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ``sampler`` uses argv passthrough to its own sub-parser.
     sub.add_parser(
         "sampler",
-        help="Your own samplers (same as jsampler)",
+        help="Your own samplers (same as jsampler; list and info also show Jarvis-HEP methods)",
         add_help=False,
     )
 

@@ -44,8 +44,8 @@ _EFFECTS: dict[str, tuple[str, str, list[str]]] = {
     "sampler init": ("write", "Write a sampler Python source template.", ["text"]),
     "sampler check": ("execute", "Import and execute sampler code offline; no Redis does not mean no execution.", ["text"]),
     "sampler load": ("execute_write", "Import/check sampler code and persist a user registry snapshot; can replace an entry.", ["text"]),
-    "sampler list": ("query", "Read samplers loaded by jsampler. Shipped methods stay in Jarvis man sampler.", ["text"]),
-    "sampler info": ("query", "Read one registered sampler's metadata.", ["text"]),
+    "sampler list": ("query", "Read samplers loaded by jsampler, then the samplers shipped with Jarvis-HEP.", ["text"]),
+    "sampler info": ("query", "Read one loaded sampler, or one sampler shipped with Jarvis-HEP.", ["text"]),
     "sampler remove": ("write", "Remove a user registry entry; --yes skips the CLI prompt.", ["text"]),
 }
 

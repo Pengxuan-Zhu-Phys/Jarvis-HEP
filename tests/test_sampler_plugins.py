@@ -677,7 +677,11 @@ def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture
     assert dispatch_sampler(["check", "MyScan", "--points", "20"]) == 0
     assert dispatch_sampler(["list"]) == 0
     listing = capsys.readouterr().out
-    assert "MyScan" in listing and "LatinHypercube" not in listing
+    assert "MyScan" in listing and "LatinHypercube" in listing and "Grid" in listing
+    assert "Jarvis-HEP:" in listing
+    assert dispatch_sampler(["info", "Grid"]) == 0
+    assert "built-in" in capsys.readouterr().out
+    assert dispatch_sampler(["info", "NotLoaded"]) != 0
     assert dispatch_sampler(["remove", "MyScan", "--yes"]) == 0
     assert sampler_catalog.spec_for("MyScan") is None
     assert target.exists()
