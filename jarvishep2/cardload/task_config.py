@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from jarvishep2.cardload.yaml_loader import DuplicateYamlKeyError, UniqueKeySafeLoader
+
 from jarvishep2.base import decode_path, infer_project_root, scan_output_root
 from jarvishep2.runtime_config import (
     CHECK_MODULES_DEFAULTS,
@@ -42,7 +44,20 @@ def _load_yaml_document(path: str, *, label: str) -> Any:
     """Load one user-selected YAML file with a consistent syntax diagnostic."""
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            return yaml.safe_load(handle)
+            return yaml.load(handle, Loader=UniqueKeySafeLoader)
+    except DuplicateYamlKeyError as exc:
+        first, second = exc.first_mark, exc.problem_mark
+        error = TaskCardLoadError(
+            "JV2-YAML-003",
+            f"duplicate YAML key {exc.key!r} at {exc.path} in {label} {path}: "
+            f"line {second.line + 1}, column {second.column + 1}; "
+            f"first declared at line {first.line + 1}, column {first.column + 1}",
+            "Keep one explicit value for this key. A YAML merge override is allowed; repeated explicit keys are ambiguous and are rejected.",
+        )
+        error.path = exc.path
+        error.location = {"file": path, "line": second.line + 1, "column": second.column + 1}
+        error.related_locations = [{"file": path, "line": first.line + 1, "column": first.column + 1}]
+        raise error from exc
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None)
         location = ""

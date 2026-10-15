@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 
 from jarvishep2.logging import get_jarvis_logger
@@ -36,6 +37,38 @@ def _log_outcome(outcome: RunOutcome) -> None:
         )
 
 
+def _manual_navigation(code: str) -> dict[str, object]:
+    """Give agents a callable lookup without parsing prose or YAML paths.
+
+    Code lookups avoid leaf fields and indexed paths, which are deliberately
+    not accepted as man topics. Unknown/loading codes use the YAML overview.
+    """
+    from jarvishep2.man_codes import man_target_for_code
+
+    argv = ["Jarvis", "man"]
+    if man_target_for_code(code) is not None:
+        argv.extend(["--code", code])
+    else:
+        argv.append("yaml")
+    argv.append("--json")
+    return {"manual_command": shlex.join(argv), "manual_argv": argv}
+
+
+def _validation_metadata(*, completed: bool) -> dict[str, object]:
+    """Describe the evidence supplied by a validation response."""
+    return {
+        "scope": "Task-card structure and available configuration semantics",
+        "validation_completed": completed,
+        "execution_performed": False,
+        "runtime_success_verified": False,
+        "physics_correctness_verified": False,
+        "limitations": [
+            "A passing report does not establish calculator availability, numeric execution, or scan completion.",
+            "Dependency imports may initialize their own caches; no Redis, Workers, or task execution are started.",
+        ],
+    }
+
+
 def _emit_load_diagnostic(
     *,
     task_yaml: str,
@@ -44,6 +77,9 @@ def _emit_load_diagnostic(
     suggestion: str,
     example: str | None,
     as_json: bool,
+    field_path: str = "$",
+    location: dict | None = None,
+    related_locations: list | None = None,
 ) -> None:
     """Render pre-validation YAML/loading failures like normal diagnostics."""
     if as_json:
@@ -51,15 +87,19 @@ def _emit_load_diagnostic(
             "ok": False,
             "task_yaml": task_yaml,
             "scan_name": "",
+            "metadata": _validation_metadata(completed=False),
             "issues": [{
-                "level": "error", "code": code, "path": "$",
+                "level": "error", "code": code, "path": field_path,
                 "message": message, "hint": None,
                 "suggestion": suggestion, "example": example,
+                **_manual_navigation(code),
+                **({"location": location} if location else {}),
+                **({"related_locations": related_locations} if related_locations else {}),
             }],
         }, indent=2, sort_keys=True))
         return
     print(f"Config validation failed (1 error, 0 warnings):\n"
-          f"  [error] {code}  $\n"
+          f"  [error] {code}  {field_path}\n"
           f"          {message}\n"
           f"          suggestion: {suggestion}", file=sys.stderr)
     if example:
@@ -76,16 +116,16 @@ def dispatch_validate(
     check_modules: bool | None = None,
 ) -> int:
     """Load + validate a task card; never start Redis or workers."""
-    from jarvishep2.task_config import TaskCardLoadError
-    from jarvishep2.task_validation import (
-        ConfigValidationError,
-        format_report,
-        format_report_success,
-        validate_task_config,
-    )
-
     if not task_yaml:
-        print("Task YAML is required.", file=sys.stderr)
+        if as_json:
+            _emit_load_diagnostic(
+                task_yaml=task_yaml, code="JV2-CLI-001",
+                message="Task YAML is required.",
+                suggestion="Provide the task YAML path after Jarvis validate.",
+                example="Jarvis validate path/to/task.yaml --json", as_json=True,
+            )
+        else:
+            print("Task YAML is required.", file=sys.stderr)
         return EXIT_USAGE
 
     try:
@@ -107,17 +147,51 @@ def dispatch_validate(
             suggestion=getattr(exc, "suggestion", "Correct the task-card structure described in the error and validate again."),
             example=getattr(exc, "example", None),
             as_json=as_json,
+            field_path=getattr(exc, "path", "$"),
+            location=getattr(exc, "location", None),
+            related_locations=getattr(exc, "related_locations", None),
         )
         return EXIT_USAGE
+    except OSError as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code="JV2-LOAD-003", message=str(exc),
+            suggestion="Check that the task YAML and its referenced default files are readable regular files.",
+            example=None, as_json=as_json,
+        )
+        return EXIT_RUN_FAILED
+    except Exception as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code="JV2-LOAD-004",
+            message=f"Task loading could not complete ({type(exc).__name__}): {exc}",
+            suggestion="Inspect the loader or dependency failure; the task has not been validated. Correct the failure and validate again.",
+            example=None, as_json=as_json,
+        )
+        return EXIT_RUN_FAILED
 
-    report = validate_task_config(
-        config, strict=strict, check_modules=check_modules
-    )
+    try:
+        from jarvishep2.task_validation import (
+            format_report,
+            format_report_success,
+            validate_task_config,
+        )
+
+        report = validate_task_config(
+            config, strict=strict, check_modules=check_modules
+        )
+    except Exception as exc:
+        _emit_load_diagnostic(
+            task_yaml=task_yaml, code="JV2-VAL-001",
+            message=f"Validation could not complete ({type(exc).__name__}): {exc}",
+            suggestion="Inspect the validator or dependency failure; the task has not been validated. Correct the failure and validate again.",
+            example=None, as_json=as_json,
+        )
+        return EXIT_RUN_FAILED
     if as_json:
         payload = {
             "ok": report.ok,
             "task_yaml": str(config.get("task_yaml") or task_yaml),
             "scan_name": str(config.get("scan_name") or ""),
+            "metadata": _validation_metadata(completed=True),
             "issues": [
                 {
                     "level": i.level,
@@ -127,6 +201,7 @@ def dispatch_validate(
                     "hint": i.hint,
                     "suggestion": i.suggestion,
                     "example": i.example,
+                    **_manual_navigation(i.code),
                 }
                 for i in report.issues
             ],
@@ -140,7 +215,7 @@ def dispatch_validate(
             "Config validation successful. The task YAML meets the V2 contract.",
             file=sys.stderr,
         )
-        if report.warnings():
+        if report.warnings() or report.notes():
             print(format_report(report), file=sys.stderr)
         else:
             # Keep format_report_success available for tests / quieter tooling.

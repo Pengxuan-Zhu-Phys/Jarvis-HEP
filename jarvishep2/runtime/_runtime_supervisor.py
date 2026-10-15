@@ -141,6 +141,7 @@ class _RuntimeSupervisor:
                     exc,
                 )
         core.init_archiver(db_path)
+        core.factory.wait_for_worker_startup()
         core._load_persisted_database_state(os.path.dirname(db_path))
         if core.sampler is not None and hasattr(core.sampler, "set_persisted_uuids"):
             core.sampler.set_persisted_uuids(core._persisted_uuids)
@@ -985,6 +986,8 @@ class _RuntimeSupervisor:
         else:
             core.factory.init_redis()
         core.factory._core = core
+        # Control-only hook for adaptive waits and replacement Worker failures.
+        core.factory.redis._worker_startup_check = core.factory.raise_if_startup_failed
         core.factory._set_scan_mode = core._set_scan_mode
 
         workers = int(core.runtime.get("workers", 1) or 1)

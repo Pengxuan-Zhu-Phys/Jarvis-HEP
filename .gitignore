@@ -38,3 +38,13 @@ venv/
 
 # macOS
 .DS_Store
+
+!/docs/PROJECT_CONTEXT_FOR_CODEX.md
+!/docs/PRD_JARVIS_HEP_MASTER.md
+!/docs/ARCHITECTURE_REVIEW_JARVIS_HEP.md
+!/docs/CODE_MAP_JARVIS_HEP.md
+!/docs/IMPLEMENTATION_ROADMAP.md
+!/docs/development-ledger-2.0.15.md
+!/docs/release-2.0.17.md
+!/docs/release-2.0.17-verification.json
+!/docs/validation-diagnostics.md

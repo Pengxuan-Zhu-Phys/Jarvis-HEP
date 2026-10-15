@@ -35,30 +35,10 @@ the first release is published.
 
 ## Release procedure
 
-1. Run `./jhrel <version> --dry` to bump the version in both
-   `pyproject.toml` and `jarvishep2/__init__.py`, then build and check the
-   wheel (upload is skipped). Those two fields are the source of truth for the
-   PyPI version and for `Jarvis -v`. Choose a version that does not already
-   exist under `Jarvis-HEP`. Optionally pass `--install` to reinstall the
-   editable package and verify the CLI banner reports the new version.
-2. Run the local release checks:
+1. Complete the development ledger and run the fast gate plus relevant runtime tests. Add intended new files to Git; the helper snapshots tracked files and their current edits. Keep unfinished packages out of the release snapshot.
+2. Run `./jhrel <version> --output dist/<version>` to update both source version fields, build wheel and sdist, install the complete wheel with all dependencies in a clean venv, run `pip check`, installed CLI/runtime and agent-authoring smoke, and the 2.0.15 regression contracts. `--dry` is an alias for this default; neither uploads. The helper emits `release-verification.json` and `SHA256SUMS` only after verification. `--install` is not supported.
 
-   ```bash
-   python3 -m pip install --upgrade build twine
-   python3 -m pip install -e .
-   python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
-   python3 -m pytest -q
-   python3 -m build
-   python3 -m twine check dist/*
-   ```
-
-   The default test command intentionally skips the long-running
-   `tests/test_adaptive_bridson.py`, `tests/test_ensemble_samplers.py`,
-   `tests/test_distributed_acceptance.py`, `tests/test_distributed_resume.py`,
-   `tests/test_mcmc_sampler.py`, `tests/test_worker_pool.py`,
-   `tests/test_variable_distributions.py`, and `tests/test_worker_failure.py`;
-   run the relevant files separately before sampler- or distributed-runtime-
-   specific releases.
+   The public 2.0.17 build resolves every runtime dependency from public PyPI in a clean environment. It does not require or accept a local Sampler SDK wheel. Use a fresh output directory for each build. Build/test tools are separate from the complete distribution, with no editable install, dependency extras or system-site-packages.
 
 3. Merge the release commit into `master`.
 4. Create a GitHub Release whose tag is exactly `v<version>`, for example:
@@ -82,3 +62,32 @@ hiding a release mistake.
 Existing V1 users can upgrade directly from `Jarvis-HEP` 1.x to 2.x, but V2 is
 a major-version migration: the old `jarvishep` import package is replaced by
 `jarvishep2`.
+
+## 2.0.17 public release authorization
+
+The user's latest instruction is to publish HEP 2.0.17 while deferring all
+Sampler work. This supersedes the earlier candidate-only decision. Build from
+public `master` baseline `0bbcf675`, carrying the non-SDK reliability fixes,
+CLI agent/YAML assistance, Redis environment commands and their tests/docs.
+Both committed SDK integrations `0d859502` / `52876060` and dirty Sampler/Diver
+work remain outside this release. The public package has no
+`Jarvis-HEP-Sampler` requirement or external `Jarvis sampler` CLI.
+
+Build wheel/sdist from the isolated committed source. Confirm dependency
+metadata and package contents exclude the SDK/plugin integration, install all
+dependencies from public PyPI, run `pip check`, installed agent/Redis help and
+JSON gates, and real Redis/spawn/project-reload smoke. Record fresh source and
+installed-package results; the earlier SDK-dependent `1c8c82fc` candidate's
+results do not verify this source. Publish through the existing GitHub
+Release/Trusted Publishing workflow, then check PyPI and a clean public-index
+installation. See [the current release record](docs/release-2.0.17.md).
+
+Current verification and publication status: 待本阶段测试结果补录.
+
+## Earlier candidate provenance
+
+The earlier SDK-dependent candidate at `1c8c82fc` was verified with a local SDK
+and left as a draft. It is superseded for this publication. Its records remain
+on the integration branch; their dependency blocker and test counts do not
+apply to this master-based source. Current results belong in the
+[2.0.17 release record](docs/release-2.0.17.md).

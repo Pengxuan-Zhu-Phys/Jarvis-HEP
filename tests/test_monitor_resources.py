@@ -33,6 +33,14 @@ else:
 
 
 class CpuMeterTests(unittest.TestCase):
+    def test_live_tree_keeps_observed_work_after_exit_and_handles_pid_reuse(self) -> None:
+        meter = _CpuMeter()
+        self.assertIsNone(meter.tree_rate("scan", {(1, 100): 1.0, (2, 100): 2.0}, 10))
+        self.assertAlmostEqual(meter.tree_rate("scan", {(1, 100): 2.0, (2, 100): 4.0}, 11), 3.0)
+        self.assertAlmostEqual(meter.tree_rate("scan", {(1, 100): 3.0}, 12), 1.0)
+        self.assertAlmostEqual(meter.tree_rate("scan", {(1, 100): 3.0}, 13), 0.0)
+        self.assertAlmostEqual(meter.tree_rate("scan", {(1, 100): 4.0, (2, 200): 0.5}, 14), 1.5)
+
     def test_first_reading_is_unknown_then_cores_per_second(self) -> None:
         meter = _CpuMeter()
         self.assertIsNone(meter.rate("scan", 10.0, now=100.0))
@@ -45,7 +53,7 @@ class CpuMeterTests(unittest.TestCase):
         # Refresh that came too soon: keep the previous baseline and value.
         self.assertAlmostEqual(meter.rate("scan", 12.01, now=101.01), 2.0)
         # A process left the group, so the total went down.
-        self.assertAlmostEqual(meter.rate("scan", 5.0, now=102.0), 2.0)
+        self.assertIsNone(meter.rate("scan", 5.0, now=102.0))
         # Measuring resumes from the new baseline.
         self.assertAlmostEqual(meter.rate("scan", 6.0, now=103.0), 1.0)
 
@@ -79,7 +87,12 @@ class ScanTreeCpuTests(unittest.TestCase):
         cores = [reading["cpu_cores_used"] for reading in readings]
         # Each child lives 0.2 s, so sampling only live processes reads ~0.
         # Cumulative CPU time including reaped children sees about one core.
-        self.assertGreater(min(cores), 0.3, cores)
+        if sys.platform in {"darwin", "win32"}:
+            self.assertEqual(readings[-1]["cpu_accounting"], "live-tree-estimate")
+            self.assertTrue(all(value is not None and value >= 0 for value in cores), cores)
+        else:
+            self.assertEqual(readings[-1]["cpu_accounting"], "full-accounted")
+            self.assertGreater(min(cores), 0.3, cores)
         self.assertLess(max(cores), 1.6, cores)
         last = readings[-1]
         self.assertAlmostEqual(

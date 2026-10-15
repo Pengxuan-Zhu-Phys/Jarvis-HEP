@@ -620,6 +620,8 @@ class _ScanDriver:
         last_written = -1
         stall_since: float | None = None
         while time.monotonic() < deadline:
+            if core.factory is not None:
+                core.factory.raise_if_startup_failed()
             # Busy is sampled first. A flush holds the processor lock across the
             # HDF5 write, and records_written moves only after that write starts.
             busy = _archiver_persistence_busy(core.archiver)

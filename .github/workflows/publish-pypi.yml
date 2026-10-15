@@ -22,13 +22,20 @@ jobs:
           python-version: "3.10"
           cache: pip
 
+      - name: Install release test tools and Redis
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest fakeredis colorlog tomli
+          sudo apt-get update
+          sudo apt-get install -y redis-server
+
       - name: Verify release identity
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           python - <<'PY'
           import os
-          import tomllib
+          import tomli as tomllib
           from pathlib import Path
 
           project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
@@ -47,50 +54,21 @@ jobs:
               raise SystemExit("Refusing release: jarvishep2.__version__ does not match pyproject.toml")
           PY
 
-      - name: Install test and build tools
+      - name: Prepare and verify complete distributions
+        run: ./jhrel --output dist
+
+      - name: Install complete wheel and run fast gate
         run: |
-          python -m pip install --upgrade pip build twine
-          python -m pip install '.[distributed,dev]'
-
-      - name: Run test suite
-        run: python -m pytest -q
-
-      - name: Build wheel and source distribution
-        run: python -m build
-
-      - name: Check distribution metadata
-        run: |
-          python -m twine check dist/*
-          python - <<'PY'
-          import email
-          import zipfile
-          from pathlib import Path
-
-          wheels = list(Path("dist").glob("*.whl"))
-          sdists = list(Path("dist").glob("*.tar.gz"))
-          if len(wheels) != 1 or len(sdists) != 1:
-              raise SystemExit(f"Expected one wheel and one sdist, found {wheels!r} and {sdists!r}")
-
-          with zipfile.ZipFile(wheels[0]) as archive:
-              metadata_path = next(
-                  name for name in archive.namelist() if name.endswith(".dist-info/METADATA")
-              )
-              metadata = email.message_from_bytes(archive.read(metadata_path))
-              members = archive.namelist()
-
-          if metadata["Name"] != "Jarvis-HEP":
-              raise SystemExit(f"Wheel name is {metadata['Name']!r}, expected 'Jarvis-HEP'")
-          if not any(name.startswith("jarvishep2/") for name in members):
-              raise SystemExit("Wheel does not contain the jarvishep2 import package")
-          if any(name.startswith("jarvishep/") for name in members):
-              raise SystemExit("Wheel unexpectedly contains the retired jarvishep V1 package")
-          PY
+          python -m pip install dist/*.whl
+          python -m pytest -q
 
       - name: Store built distributions
         uses: actions/upload-artifact@v7
         with:
           name: python-distributions
-          path: dist/
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
           retention-days: 7
 

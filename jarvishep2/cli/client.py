@@ -35,6 +35,7 @@ _SUBCOMMANDS = frozenset(
         "check",
         "validate",
         "man",
+        "agent",
         "convert",
         "monitor",
         "plot",
@@ -44,6 +45,7 @@ _SUBCOMMANDS = frozenset(
         "project",
         "ps",
         "kill",
+        "redis",
     }
 )
 
@@ -200,6 +202,18 @@ def dispatch_monitor(args: argparse.Namespace) -> int:
 
 
 def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
+    from dataclasses import asdict
+    from jarvishep2.dashboard import attach_reader, format_monitor_view
+    from jarvishep2.monitor.scans import worker_inventory
+
+    def failure(message: str, code: int) -> int:
+        if as_json:
+            json.dump({"ok": False, "reference": scan_ref, "error": {"message": message}}, sys.stdout)
+            sys.stdout.write("\n")
+        else:
+            print(message, file=sys.stderr)
+        return code
+
     from jarvishep2.process_cleanup import (
         list_active_scans,
         print_scan_table,
@@ -230,55 +244,58 @@ def _dispatch_monitor_snapshot(scan_ref: str, *, as_json: bool = False) -> int:
     try:
         scan = resolve_scan_reference(scan_ref, scans)
     except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        print_scan_table(scans)
-        return EXIT_USAGE
-    print(f"{scan.reference}: {scan.name}")
+        return failure(str(exc), EXIT_USAGE)
     metadata = runtime_metadata_for_scan(scan)
     if metadata is None:
-        print("Unable to verify this scan's Redis runtime metadata.", file=sys.stderr)
-        return EXIT_RUN_FAILED
+        return failure("Unable to verify this scan's Redis runtime metadata.", EXIT_RUN_FAILED)
     if int(metadata.get("control_pid", -1)) not in {proc.pid for proc in scan.processes}:
-        print(
-            "Redis runtime metadata does not match the selected control process.",
-            file=sys.stderr,
-        )
-        return EXIT_RUN_FAILED
+        return failure("Redis runtime metadata does not match the selected control process.", EXIT_RUN_FAILED)
     redis_config = dict(metadata["redis"])
     names, slots = _calculator_pools_from_metadata(metadata)
-    from jarvishep2.factory import TaskFactory
     from jarvishep2.redis_queue import RedisQueue
-
-    factory = TaskFactory(redis_config)
-    try:
-        factory.init_redis()
-        if factory.get_monitor_snapshot():
-            return run_monitor(
-                factory=factory,
-                calculator_names=names,
-                calculator_slots=slots,
-            )
-    except Exception:
-        pass
-
     redis = RedisQueue(redis_config)
     try:
         redis.connect()
-    except Exception as exc:
-        print(f"Unable to connect to Redis for monitor attach: {exc}", file=sys.stderr)
-        return EXIT_RUN_FAILED
-    try:
-        return run_monitor(
+        workers = worker_inventory(scan)
+        view = attach_reader(
             redis=redis,
+            owner_ids=[row["worker_id"] for row in workers],
+            workers=workers,
             calculator_names=names,
             calculator_slots=slots,
-        )
+        ).read()
+        if as_json:
+            json.dump({"ok": True, "reference": scan.reference, "scan_name": scan.name, **asdict(view)}, sys.stdout)
+            sys.stdout.write("\n")
+        else:
+            print(f"{scan.reference}: {scan.name}")
+            sys.stdout.write(format_monitor_view(view))
+        return EXIT_OK
+    except Exception as exc:
+        return failure(f"Unable to read Redis monitor snapshot: {exc}", EXIT_RUN_FAILED)
     finally:
         redis.close()
 
 
 def dispatch_plot(plot_argv: list[str] | None = None) -> int:
     """Forward the complete Jarvis-PLOT CLI without duplicating its surface."""
+    argv = list(plot_argv or [])
+    if argv and not argv[0].startswith("-"):
+        import yaml
+        try:
+            with open(argv[0], encoding="utf-8") as stream:
+                card = yaml.safe_load(stream)
+        except (OSError, yaml.YAMLError):
+            card = None  # Preserve the downstream file/parse diagnostic.
+        if isinstance(card, dict) and "DataSet" not in card and "Scan" in card and "Sampling" in card:
+            import shlex
+            print(
+                "Jarvis plot needs a plotting YAML with a DataSet block; this file is a scan task card. "
+                f"First run: Jarvis gen-plot-yaml {shlex.quote(argv[0])}. "
+                "Then pass the generated plotting YAML to Jarvis plot.",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE
     try:
         from jarvisplot.client import main as plot_main
     except ImportError as exc:
@@ -290,7 +307,14 @@ def dispatch_plot(plot_argv: list[str] | None = None) -> int:
         )
         return EXIT_USAGE
     try:
-        return int(plot_main(list(plot_argv or [])))
+        return int(plot_main(argv))
+    except KeyError as exc:
+        if exc.args == ("DataSet",):
+            print("Jarvis plot needs a plotting YAML containing a DataSet block. "
+                  "For a scan task card, first run: Jarvis gen-plot-yaml TASK.yaml.", file=sys.stderr)
+        else:
+            print(f"Jarvis plot failed: {exc}", file=sys.stderr)
+        return EXIT_RUN_FAILED
     except Exception as exc:
         print(f"Jarvis plot failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
@@ -416,6 +440,16 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if intent == "monitor":
         return dispatch_monitor(args)
+    if intent == "redis":
+        from jarvishep2.cli.redis import dispatch_redis
+
+        return dispatch_redis(
+            topic=str(getattr(args, "redis_command", None) or "info"),
+            as_json=bool(getattr(args, "redis_json", False)),
+        )
+    if intent == "agent":
+        from jarvishep2.cli.agent import dispatch_agent
+        return dispatch_agent([])
     if intent == "plot":
         return dispatch_plot([])
     if intent == "gen-plot-yaml":
@@ -495,16 +529,47 @@ def dispatch(args: argparse.Namespace) -> int:
     return EXIT_USAGE
 
 
+def _emit_json_usage(argv: list[str], message: str) -> None:
+    if argv[0] == "validate":
+        _emit_load_diagnostic(
+            task_yaml="", code="JV2-CLI-001", message=message,
+            suggestion="Use an explicit task path and the documented validate options.",
+            example="Jarvis validate path/to/task.yaml --json", as_json=True,
+        )
+    else:
+        print(json.dumps({"ok": False, "error": {"code": "usage_error", "message": message}}))
+
+
 def main(argv: list[str] | None = None) -> int:
     from jarvishep2.proc_title import control_title, set_process_title
 
     set_process_title(control_title())
+    redis_reported = False
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         if raw[:1] == ["refs"]:
             print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
             return EXIT_USAGE
         normalized = normalize_argv(raw)
+        # Dependency CLI tails are opaque. For HEP commands detect legacy intent
+        # conflicts before argparse rejects flags placed after the subcommand.
+        passthrough = {"plot", "portal", "operas", "project", "man", "agent"}
+        if normalized and raw[0] not in passthrough:
+            tokens = normalized[:normalized.index("--")] if "--" in normalized else normalized
+            modes = {token[2:] for token in tokens if token in {"--monitor", "--plot", "--validate", "--convert"}}
+            command = next((token for token in tokens if not token.startswith("-")), None)
+            if command in _SUBCOMMANDS:
+                modes.add(command)
+            if len(modes) > 1:
+                message = _mode_conflict_message(sorted(modes))
+                if any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor", "redis"}:
+                    _emit_json_usage(normalized, message)
+                else:
+                    print(message, file=sys.stderr)
+                return EXIT_USAGE
+        if normalized and normalized[0] == "agent":
+            from jarvishep2.cli.agent import dispatch_agent
+            return dispatch_agent(normalized[1:])
         # Manual center: own argparse (domains / --json / --code / --type).
         if normalized and normalized[0] == "man":
             from jarvishep2.man import dispatch_man
@@ -522,7 +587,19 @@ def main(argv: list[str] | None = None) -> int:
         # Project pack flags are free-form; pass through like portal.
         if normalized and normalized[0] == "project":
             return dispatch_project(normalized[1:])
-        return dispatch(build_parser().parse_args(normalized))
+        try:
+            args = build_parser().parse_args(normalized)
+        except SystemExit as exc:
+            if exc.code and any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor", "redis"}:
+                _emit_json_usage(normalized, f"Invalid arguments; see Jarvis {normalized[0]} --help.")
+                return EXIT_USAGE
+            raise
+        status = dispatch(args)
+        redis_reported = (
+            getattr(args, "command", None) == "redis"
+            and not args.version and not args.refs
+        )
+        return status
     finally:
         # Keep the onboarding hint after all normal command output. It is a
         # stderr diagnostic so commands such as ``Jarvis validate --json`` keep
@@ -530,7 +607,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from jarvishep2.redis_notice import emit_first_run_redis_notice
 
-            emit_first_run_redis_notice()
+            if redis_reported:
+                emit_first_run_redis_notice(show_hint=False)
+            else:
+                emit_first_run_redis_notice()
         except Exception:
             # A best-effort environment hint must never change Jarvis's exit
             # status or mask the real command error.

@@ -39,12 +39,14 @@ _COMMAND_HELP_PANELS = {
     "check": "Scan workflow",
     "validate": "Scan workflow",
     "man": "YAML authoring",
+    "agent": "YAML authoring",
     "convert": "Data export",
     "gen-plot-yaml": "Plots",
     "plot": "Plots",
     "monitor": "Runtime control",
     "ps": "Runtime control",
     "kill": "Runtime control",
+    "redis": "Runtime control",
     "portal": "Extensions & projects",
     "operas": "Extensions & projects",
     "project": "Extensions & projects",
@@ -52,6 +54,7 @@ _COMMAND_HELP_PANELS = {
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
     "man": 5,
+    "agent": 4,
     "validate": 10,
     "check": 20,
     "run": 30,
@@ -63,6 +66,7 @@ _COMMAND_HELP_ORDER = {
     "monitor": 70,
     "ps": 80,
     "kill": 90,
+    "redis": 95,
     # Project / extension entry points
     "project": 100,
     "portal": 110,
@@ -75,6 +79,9 @@ _COMMAND_HELP_ORDER = {
     "fetch": 180,
     "info": 190,
 }
+_SUBCOMMAND_HELP_ORDER = {
+    "redis": {"info": 0, "check": 1, "install": 2, "start": 3},
+}
 
 
 _HELP_PRIMARY_COLUMN_WIDTH = 24
@@ -86,9 +93,10 @@ class JarvisHelpGroup(click.Group):
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         names = super().list_commands(ctx)
+        order = _SUBCOMMAND_HELP_ORDER.get(self.name, _COMMAND_HELP_ORDER)
         return sorted(
             names,
-            key=lambda name: (_COMMAND_HELP_ORDER.get(name, 1_000), name),
+            key=lambda name: (order.get(name, 1_000), name),
         )
 
 
@@ -296,6 +304,9 @@ class JarvisArgumentParser(argparse.ArgumentParser):
 
     @staticmethod
     def _metavar(action: argparse.Action) -> str:
+        if not action.option_strings and action.choices:
+            choices = "|".join(str(choice) for choice in action.choices)
+            return f"[{choices}]" if action.nargs == "?" else f"<{choices}>"
         if action.dest == "task_yaml":
             return "<task_yaml>"
         if action.type is int:
@@ -350,7 +361,7 @@ class JarvisArgumentParser(argparse.ArgumentParser):
             for command_name, command_parser in action.choices.items():
                 command = command_parser._click_command(command_name)
                 command.short_help = short_help.get(command_name)
-                panel = _COMMAND_HELP_PANELS.get(command_name)
+                panel = _COMMAND_HELP_PANELS.get(command_name) if self.prog == "Jarvis" else None
                 if panel:
                     setattr(command, typer.rich_utils._RICH_HELP_PANEL_NAME, panel)
                 commands[command_name] = command
@@ -411,7 +422,9 @@ def build_parser() -> argparse.ArgumentParser:
             "Run and validate distributed HEP scans, prepare plot YAML, "
             "and manage their local runtime.\n\n"
             "Command help: Jarvis COMMAND -h\n"
-            "See each command's arguments and options, e.g. Jarvis run -h"
+            "See each command's arguments and options, e.g. Jarvis run -h\n"
+            "AI agents: start with Jarvis agent --brief --json\n"
+            "Full contract: Jarvis agent --json"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -422,6 +435,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis man [yaml|sampler|calculator|…]  # YAML writing manuals\n"
             "  Jarvis convert TASK.yaml\n"
             "  Jarvis monitor\n"
+            "  Jarvis redis [info|check|install|start] [--json]\n"
             "  Jarvis plot …              # same CLI as jplot\n"
             "  Jarvis portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis operas …            # same CLI as jopera\n"
@@ -534,6 +548,12 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
+    sub.add_parser(
+        "agent",
+        help="AI agent contract, schema, YAML templates and request drafts; start with --json",
+        add_help=False,
+    )
+
     validate_p = sub.add_parser(
         "validate",
         help="Validate task YAML (no Redis / workers); D13.9 config gate",
@@ -577,6 +597,54 @@ def build_parser() -> argparse.ArgumentParser:
         dest="monitor_json",
         help="With --once, emit JSON instead of text",
     )
+
+    redis_p = sub.add_parser(
+        "redis",
+        help="Inspect Redis and show installation/startup instructions",
+        description=(
+            "Inspect the local Redis/Valkey executable and show OS-specific setup instructions. "
+            "Install and start only print commands; they do not install packages or start services. "
+            "Jarvis starts its own Redis process for each scan. "
+            "Without a subcommand, show info. Use Jarvis redis COMMAND --help for command details."
+        ),
+    )
+    redis_p.add_argument(
+        "--json", action="store_true", dest="redis_json", help="Emit the environment report as JSON",
+    )
+    redis_sub = redis_p.add_subparsers(
+        dest="redis_command", required=False, parser_class=JarvisArgumentParser,
+    )
+    redis_commands = (
+        (
+            "info", "Show the environment, server version and setup guidance",
+            "Show the OS/distribution, local Redis/Valkey executable, version and setup guidance. "
+            "Only the executable's bounded --version command is run; no server or port is contacted.",
+        ),
+        (
+            "check", "Check the local executable and version compatibility",
+            "Check PATH and run a bounded --version query. Redis >= 6.2 or compatible Valkey is required. "
+            "Exit 0 for a usable executable; exit 1 for a missing, unusable or incompatible executable "
+            "or native Windows. This check does not contact a running server, probe a port or start a scan.",
+        ),
+        (
+            "install", "Print installation commands for this OS/distribution",
+            "Print OS/distribution-specific Redis or Valkey installation instructions. "
+            "Commands are instructions for you to run; no packages are installed and the server "
+            "is not executed, even for a version query.",
+        ),
+        (
+            "start", "Explain automatic startup and optional manual debugging",
+            "Explain Jarvis's scan-managed Redis startup and print an optional localhost:6380 "
+            "foreground debugging command with persistence disabled. No server or service is started "
+            "and no version query is run. Stop a manual instance with Ctrl-C.",
+        ),
+    )
+    for name, summary, description in redis_commands:
+        child = redis_sub.add_parser(name, help=summary, description=description)
+        child.add_argument(
+            "--json", action="store_true", dest="redis_json", default=argparse.SUPPRESS,
+            help="Emit the environment report as JSON",
+        )
 
     # ``plot`` is handled by argv passthrough in main(), matching jplot.
     sub.add_parser("plot", help="Jarvis-PLOT CLI (same as jplot)", add_help=False)
@@ -719,6 +787,7 @@ def build_project_help_parser() -> JarvisArgumentParser:
     return parser
 
 
+
 def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:
     """Render contextual parser help while keeping dispatchers integer-returning."""
     try:
@@ -727,4 +796,3 @@ def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> i
         return int(exc.code)
     parser.print_help()
     return EXIT_OK
-

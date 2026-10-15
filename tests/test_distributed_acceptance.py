@@ -159,6 +159,18 @@ class DistributedAcceptanceTests(unittest.TestCase):
                 )
                 core.set_sampler(sampler)
 
+                # Throughput measures the running pipeline. A four-point cold
+                # batch was dominated by spawn/HDF5/FileOperation startup, which
+                # does not scale with worker count on macOS.
+                core.factory.wait_for_worker_startup()
+                warmup = []
+                for index in range(workers):
+                    sample = sampler._build_sample(np.array([0.1, 0.2], dtype=np.float64))
+                    sample.uuid = f"warmup-{workers}-{index}"
+                    warmup.append(sample)
+                core.submit_samples(warmup)
+                core.wait_for_results(len(warmup), timeout=120.0)
+
                 samples = []
                 for index in range(sample_count):
                     sample = sampler._build_sample(
@@ -169,7 +181,7 @@ class DistributedAcceptanceTests(unittest.TestCase):
 
                 started = time.monotonic()
                 core.submit_samples(samples)
-                core.wait_for_results(sample_count, timeout=120.0)
+                core.wait_for_results(len(warmup) + sample_count, timeout=120.0)
                 elapsed = max(1e-6, time.monotonic() - started)
                 core.shutdown(wait=True)
                 return {
@@ -183,7 +195,7 @@ class DistributedAcceptanceTests(unittest.TestCase):
             server.server_close()
 
     def test_gate_worker_scaling_near_linear(self) -> None:
-        sample_count = 4
+        sample_count = 16
         one = self._run_slow_calculator_batch(workers=1, sample_count=sample_count)
         two = self._run_slow_calculator_batch(workers=2, sample_count=sample_count)
         speedup = two["samples_per_sec"] / one["samples_per_sec"]

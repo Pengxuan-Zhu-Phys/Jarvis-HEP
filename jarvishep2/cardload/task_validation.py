@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from jarvishep2.cardload.contracts.common import sampling_block
+from jarvishep2.cardload.contracts.expressions import validate_expressions
 from jarvishep2.cardload.contracts.mapper import validate_mapper
 from jarvishep2.cardload.contracts.methods import validate_method_sampling
 from jarvishep2.cardload.contracts.operational import validate_operational_blocks
@@ -401,6 +402,7 @@ def validate_task_config(
     # ``task_result_dir`` that the user cannot edit in their YAML.
     raw_task_card = getattr(config, "raw_task_card", config)
     report.extend(validate_task_card_encoding(raw_task_card))
+    report.extend(validate_expressions(config))
     non_ascii_keys = _non_ascii_key_names(raw_task_card)
 
     # Structural validation must also see the user-authored document, rather

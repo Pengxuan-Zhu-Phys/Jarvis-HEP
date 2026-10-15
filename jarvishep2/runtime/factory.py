@@ -353,6 +353,8 @@ class _Watchdog:
         return dict(rows.get(str(worker_id)) or {})
 
     def inspect_workers(self) -> None:
+        if self._factory.poll_startup_failure():
+            return
         redis = self._factory.redis
         for worker in list(self._factory.workers):
             if not worker.is_alive():
@@ -611,6 +613,75 @@ class TaskFactory:
         self._logger = get_jarvis_logger("factory")
         self._monitor = _MonitorLoop(self)
         self._watchdog = _Watchdog(self)
+        self._startup_failure: str | None = None
+        self._startup_lock = threading.RLock()
+
+    @staticmethod
+    def _launch_worker(worker: Worker) -> None:
+        enable = getattr(worker, "enable_startup_report", None)
+        if callable(enable):
+            enable()
+        try:
+            worker.start()
+        except BaseException:
+            close = getattr(worker, "close_startup_report", None)
+            if callable(close):
+                close()
+            raise
+        worker._spawned_at = time.time()
+
+    def poll_startup_failure(self) -> str | None:
+        with self._startup_lock:
+            if self._startup_failure:
+                return self._startup_failure
+            for worker in list(self.workers):
+                read = getattr(worker, "startup_status", None)
+                status = read() if callable(read) else None
+                if status and status.get("error"):
+                    self._startup_failure = (
+                        f"Worker {worker.worker_id} initialization failed: {status['error']}"
+                    )
+                    self._scan_mode = "stopping"
+                    if callable(self._set_scan_mode):
+                        self._set_scan_mode("stopping", stop_reason=self._startup_failure)
+                    self.request_worker_shutdown()
+                    break
+            return self._startup_failure
+
+    def raise_if_startup_failed(self) -> None:
+        error = self.poll_startup_failure()
+        if error:
+            raise RuntimeError(error)
+
+    def _wait_for_worker_startup(self, workers: list[Worker], timeout: float) -> None:
+        pending = [worker for worker in workers if callable(getattr(worker, "startup_status", None))]
+        deadline = time.monotonic() + timeout
+        while pending:
+            self.raise_if_startup_failed()
+            for worker in list(pending):
+                with self._startup_lock:
+                    status = worker.startup_status()
+                if status and status.get("ready"):
+                    pending.remove(worker)
+                elif not worker.is_alive():
+                    # The pipe may become readable between the previous poll and exit.
+                    self.raise_if_startup_failed()
+                    raise RuntimeError(f"Worker {worker.worker_id} exited during initialization (exitcode={worker.exitcode})")
+            if pending and time.monotonic() >= deadline:
+                raise RuntimeError(f"Worker initialization timed out after {timeout:g}s")
+            if pending:
+                time.sleep(0.05)
+
+    def wait_for_worker_startup(self, *, timeout: float = 120.0) -> None:
+        """Wait after other services spawn, so startup can proceed concurrently."""
+        try:
+            self._wait_for_worker_startup(list(self.workers), timeout)
+        except Exception:
+            self._scan_mode = "stopping"
+            self.stop_all_workers(graceful=True, join_timeout=5.0)
+            for worker in self.workers:
+                worker.close_startup_report()
+            raise
 
     @classmethod
     def get_instance(cls, redis_config: dict[str, Any] | None = None) -> TaskFactory:
@@ -671,13 +742,22 @@ class TaskFactory:
         self._worker_spawn_template = copy.deepcopy(shared_config)
         register_calculator_pools(self.redis, shared_config)
         started: list[Worker] = []
-        for worker_id in range(n):
-            config = copy.deepcopy(shared_config)
-            worker = Worker(worker_id, redis_config, config)
-            worker.start()
-            worker._spawned_at = time.time()
-            started.append(worker)
-        self.workers.extend(started)
+        self._startup_failure = None
+        try:
+            for worker_id in range(n):
+                config = copy.deepcopy(shared_config)
+                worker = Worker(worker_id, redis_config, config)
+                self._launch_worker(worker)
+                started.append(worker)
+                self.workers.append(worker)
+        except BaseException:
+            self._scan_mode = "stopping"
+            self.stop_all_workers(graceful=True, join_timeout=5.0)
+            for worker in started:
+                close = getattr(worker, "close_startup_report", None)
+                if callable(close):
+                    close()
+            raise
         self._workers_total = max(int(getattr(self, "_workers_total", 0) or 0), n)
         if self._run_started_at is None:
             self._run_started_at = time.time()
@@ -981,8 +1061,7 @@ class TaskFactory:
                 self._redis_connection_config,
                 copy.deepcopy(self._worker_spawn_template),
             )
-            replacement.start()
-            replacement._spawned_at = time.time()
+            TaskFactory._launch_worker(replacement)
             self.workers.append(replacement)
             self._respawn_count += 1
             self._last_respawn_ts = time.time()
@@ -1218,8 +1297,7 @@ class TaskFactory:
                 getattr(self, "_redis_connection_config", {}) or {},
                 copy.deepcopy(getattr(self, "_worker_spawn_template", {}) or {}),
             )
-            replacement.start()
-            replacement._spawned_at = time.time()
+            TaskFactory._launch_worker(replacement)
             self.workers.append(replacement)
             present.add(worker_id)
             self._last_recovered_pid[worker_id] = replacement.pid
@@ -1250,6 +1328,10 @@ class TaskFactory:
         self._monitor.stop()
         self.request_worker_shutdown()
         self.stop_all_workers(graceful=wait)
+        for worker in self.workers:
+            close = getattr(worker, "close_startup_report", None)
+            if callable(close):
+                close()
         if self.redis is not None:
             self.redis.close()
             self.redis = None
@@ -1268,6 +1350,7 @@ class TaskFactory:
         self._fuse_low_since = None
         self._fuse_zero_alive_since = None
         self._last_respawn_ts = None
+        self._startup_failure = None
         self._logger.info("TaskFactory shutdown complete")
 
 

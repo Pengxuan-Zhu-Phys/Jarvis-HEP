@@ -136,6 +136,7 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     # Operas
     "JV2-OPR-001": {"kind": "operas"},
     "JV2-OPR-002": {"kind": "operas"},
+    "JV2-EXP-001": {"kind": "operas"},
     # Calculator modes / pools
     "JV2-MOD-001": {"kind": "calculator", "topic": "module"},
     "JV2-MOD-002": {"kind": "calculator", "topic": "execution"},
@@ -191,9 +192,16 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     # Load / encoding / yaml parse
     "JV2-LOAD-001": {"kind": "center"},
     "JV2-LOAD-002": {"kind": "center"},
+    "JV2-LOAD-003": {"kind": "center"},
+    "JV2-LOAD-004": {"kind": "center"},
+    "JV2-VAL-001": {"kind": "center"},
+    "JV2-CLI-001": {"kind": "center"},
+    "JV2-MAN-002": {"kind": "center"},
+    "JV2-AGENT-001": {"kind": "center"},
     "JV2-ENC-001": {"kind": "center"},
     "JV2-YAML-001": {"kind": "center"},
     "JV2-YAML-002": {"kind": "center"},
+    "JV2-YAML-003": {"kind": "tokens"},
 }
 
 

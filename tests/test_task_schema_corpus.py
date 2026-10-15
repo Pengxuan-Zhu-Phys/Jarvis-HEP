@@ -5,11 +5,16 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from jarvishep2.task_config import load_task_yaml
+from jarvishep2.task_config import TaskCardLoadError, load_task_yaml
 from jarvishep2.task_validation import validate_task_card_encoding, validate_task_config
 
 
 EXAMPLES_ROOT = Path(__file__).parents[2] / "Jarvis-Examples"
+
+# Existing external V1 card repeats Bounds.seed (lines 37/40 in the current
+# checkout). It must now fail loading rather than silently overwrite a value.
+# Do not waive duplicate-key diagnostics for any other corpus file.
+_KNOWN_DUPLICATE_EXAMPLE = "Eggbox-V1/bin/Example_MultiNest_Operas.yaml"
 
 _LEGACY_PTMCMC_BOUNDS_MARKERS = (
     "'proposal_scale' is a required property",
@@ -38,6 +43,19 @@ def _is_legacy_ptmcmc_bounds_error(item) -> bool:
 
 
 class TaskSchemaCorpusTests(unittest.TestCase):
+    def _load_external_card(self, card: Path):
+        try:
+            return load_task_yaml(str(card))
+        except TaskCardLoadError as exc:
+            if exc.code != "JV2-YAML-003" or card.relative_to(EXAMPLES_ROOT).as_posix() != _KNOWN_DUPLICATE_EXAMPLE:
+                raise
+            self.assertEqual(exc.path, "$.Sampling.Bounds.seed")
+            self.assertEqual(exc.location["file"], str(card))
+            self.assertEqual(exc.related_locations[0]["file"], str(card))
+            self.assertLess(exc.related_locations[0]["line"], exc.location["line"])
+            self.assertIn("duplicate YAML key 'seed'", str(exc))
+            return None
+
     @unittest.skipUnless(EXAMPLES_ROOT.is_dir(), "requires sibling Jarvis-Examples checkout")
     def test_example_cards_only_need_the_documented_utils_removal(self) -> None:
         cards = sorted(EXAMPLES_ROOT.glob("*/bin/*.yaml"))
@@ -45,7 +63,10 @@ class TaskSchemaCorpusTests(unittest.TestCase):
         bad: list[str] = []
         legacy_utils_cards: list[str] = []
         for card in cards:
-            report = validate_task_config(load_task_yaml(str(card)))
+            config = self._load_external_card(card)
+            if config is None:
+                continue  # Its structured loading failure was asserted above.
+            report = validate_task_config(config)
             schema_errors = [item for item in report.errors() if item.code.startswith("JV2-SCH")]
             if not schema_errors:
                 continue
@@ -71,10 +92,13 @@ class TaskSchemaCorpusTests(unittest.TestCase):
         expected = {"DNN", "DREAM", "ESS", "HMC", "MALA", "NUTS", "RLTPMCMC", "RobustAM", "SliceMCMC"}
         seen: set[str] = set()
         for card in cards:
-            report = validate_task_config(load_task_yaml(str(card)))
+            config = self._load_external_card(card)
+            if config is None:
+                continue
+            report = validate_task_config(config)
             for item in report.errors():
                 if item.code == "JV2-MTH-003":
-                    seen.add(str(load_task_yaml(str(card))["Sampling"]["Method"]))
+                    seen.add(str(config["Sampling"]["Method"]))
         self.assertEqual(seen, expected)
 
     @unittest.skipUnless(EXAMPLES_ROOT.is_dir(), "requires sibling Jarvis-Examples checkout")
@@ -83,7 +107,10 @@ class TaskSchemaCorpusTests(unittest.TestCase):
         self.assertGreaterEqual(len(cards), 65)
         bad: list[str] = []
         for card in cards:
-            report = validate_task_config(load_task_yaml(str(card)))
+            config = self._load_external_card(card)
+            if config is None:
+                continue
+            report = validate_task_config(config)
             mode_errors = [
                 item for item in report.errors() if item.code.startswith("JV2-MOD-")
             ]

@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.14`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.17`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -14,7 +14,7 @@ command: `Jarvis`.
 | Capability | V2 implementation |
 | --- | --- |
 | Distributed execution | Redis-backed queue with Python `spawn` Workers |
-| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `Dynesty`, and `MultiNest` |
+| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `LatinHypercube`, `Dynesty`, and `MultiNest` |
 | HEP calculator integration | [Jarvis-HEP-Portal](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Portal) for calculator file I/O |
 | Python operators | [Jarvis-Operas](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Operas) for registered operators and expressions |
 | Reliability | Checkpoints, resume, graceful shutdown, and per-sample failure artifacts |
@@ -35,8 +35,10 @@ Task YAML → sampler → Redis → Workers → Archiver
 Requirements:
 
 - Python 3.10 or newer
-- The Redis server program (`redis-server`, or the compatible `valkey-server`)
-  installed on the machine. You do not need to start it: see below.
+- A Redis-compatible server program (`redis-server`, `redis6-server`, or
+  `valkey-server`) installed on the machine; Redis must be 6.2 or newer.
+  You do not need to start a service: see below. On Windows, install and run
+  both Jarvis-HEP and Redis inside WSL.
 
 From PyPI:
 
@@ -71,15 +73,45 @@ load the project's default environment (the cards made by
 `deps/environment_default.yaml`. Other task cards stop with a "port is already
 used by another program" error instead.
 
-On the first `Jarvis` command after installation, Jarvis checks whether a
+After the first `Jarvis` command following installation, Jarvis checks whether a
 Redis-compatible server executable (`redis-server`, `redis6-server`, or
 `valkey-server`) is available. If it is missing, the command's normal output
 is followed by a one-time, OS-specific installation hint (written to stderr so
 JSON/stdout output remains usable). The hint is advisory only; Jarvis does not
-install operating-system packages automatically. Linux hints cover
-Debian/Ubuntu, Fedora/RHEL, Amazon Linux, Arch, openSUSE, Alpine, Gentoo, Void,
-NixOS and other package-manager families. The check marker is stored at
-`~/.jarvis/redis-install-check-v1`.
+install operating-system packages automatically. This is a PATH check on first
+CLI use, not a hook run by `pip install`; it does not verify the server version.
+The check marker is stored at `~/.jarvis/redis-install-check-v1`.
+
+You can inspect the environment and read setup instructions at any time:
+
+```bash
+Jarvis redis                       # system, executable/version, install/start guidance
+Jarvis redis check                 # repeat the PATH and bounded --version checks
+Jarvis redis install               # print the installation commands for this OS
+Jarvis redis start                 # explain automatic startup and optional manual debugging
+Jarvis redis info --json           # machine-readable report; --json works on every topic
+Jarvis redis --help                # list the info/check/install/start subcommands
+Jarvis redis check --help          # help and options for this subcommand
+```
+
+Redis follows the CLI's group/subcommand help layout: the parent lists the
+four commands, and each `Jarvis redis COMMAND --help` describes that command's
+purpose and options. `--json` works before or after the subcommand, for example
+`Jarvis redis --json check` and `Jarvis redis check --json`.
+
+`Jarvis redis` and `Jarvis redis --json` retain the `info` default. `check` exits 1 if the
+executable is absent, unusable, too old, or the runtime is native Windows.
+These commands do not contact a server, test ports, start a scan, install
+packages, or start services. `install` and `start` only print guidance; they do
+not invoke the server even to read its version. A successful environment check
+confirms the local executable, not a running service or scan readiness.
+
+Installation guidance accounts for repository versions: Ubuntu 20.04/22.04 and
+Debian 11 receive the official signed Redis APT repository steps; RHEL-family
+8 systems receive the `redis:6` module instructions with the updated AppStream
+requirement. Older releases without a verified recipe receive documentation
+and upgrade guidance. Use `Jarvis redis install` for the full commands for
+your detected system.
 
 The default install includes every Jarvis runtime dependency: the Redis Python
 client, `msgpack`, `aiofiles`, Textual Monitor, `Jarvis-HEP-Portal`,
@@ -198,6 +230,82 @@ Use `Jarvis COMMAND -h` for command-specific options. Screen logging defaults
 to `WARNING`; use `--console-level INFO`, `--debug`, or `--silence` as needed.
 File logs remain available under `logs/<scan>/`.
 
+## AI agents and YAML assistance
+
+Codex, Claude and other agents should start with the installed CLI contract:
+
+```bash
+Jarvis agent --brief --json        # short contract retains all rules/workflows
+Jarvis man agent-readme --brief --json  # same contract, through the manual index
+Jarvis agent --section commands --command run --json
+Jarvis agent search "checkpoint heartbeat" --json
+Jarvis agent inspect bin/task.yaml --section runtime --json
+Jarvis agent schema --list --json  # small schema index
+Jarvis agent schema --json         # bundled schemas; all references resolve locally
+Jarvis agent template --json       # list task cards and Sampling fragments
+Jarvis agent template random-operas --json
+Jarvis validate bin/task.yaml --json
+```
+
+The contract includes the installed version, question routes, argument arrays,
+command effects, authorization boundaries and authoring workflows. Follow the
+installed `man` pages for field names and built-in sampler Bounds, and the
+owning Portal/Operas/PLOT CLI for runtime behavior. The schema bundle describes
+the bundled structural vocabulary; semantic checks still require `validate`.
+`Jarvis agent schema --id URI` prints one original schema document or local
+JSONPointer fragment from that bundle without fetching the URI. Read
+`Jarvis man sampler.NAME` for the chosen built-in method's Bounds. Omit
+`--brief` to read the full original contract; `--section` reads one section.
+Search performs keyword discovery and returns real manual/help `next_argv`;
+absence of a match is not proof that a feature is unsupported.
+
+`inspect` explains the selected card's loaded defaults, merged environment,
+normalized runtime, planned paths and validation, with field sources. Use
+`--section paths|runtime|sources|validation|card|policies` to limit output.
+Configured worker counts and Redis ports are distinct from runtime selection;
+this query does not import user operators, probe ports or create scan resources.
+
+Named templates print their exact YAML to stdout; `--json` adds artifact kind
+and prerequisites. Some examples depend on the files copied by `project create`;
+Sampling fragments provide a full base-template query and instructions to
+replace its `Sampling` block, then validate the composed card. A full card needs
+`Scan`, `EnvReqs` and at least one `Calculators` or `Operas` section. Agents should edit the user's
+file within the requested scope, use each validation issue's `manual_argv` to
+look up the correction, then validate again. Preserve scientific choices and
+existing files. Repeated explicit YAML keys in tasks and selected default files
+are rejected with the field and both source locations; legitimate YAML merge
+overrides remain allowed. Unrecognized manual subtopics fail with parent
+navigation instead of returning a misleading successful parent lookup.
+
+`validate` does not execute calculators or start Redis/Workers. A successful
+report does not prove runtime or physics correctness. `check` and `run` execute
+configured code and create runtime resources; bare `Jarvis TASK.yaml` also runs
+the task. Existing user authorization remains valid, but YAML assistance alone
+does not authorize execution, dependency installation or process termination.
+CLI onboarding and dependency imports may initialize user caches even during
+queries. JSON command output uses stdout; advisory diagnostics use stderr.
+
+For a missing capability, produce an email draft with:
+
+```bash
+Jarvis agent request --title "Required feature" --description "Goal and constraints" --json
+```
+
+The recipient is `Jarvis.HEP.AI@mail.grokbot.com`, with the exact marker
+`Resquest@Jarvis-HEP` (the spelling follows Jarvis-PLOT). Include installed version,
+OS/Python/installation method, minimal YAML, commands and diagnostics, actual and
+expected behavior, and scientific/compatibility constraints. Report directly in
+a maintainer conversation; otherwise provide the draft for the user to submit.
+The CLI does not send mail or write the draft to a file.
+Use `--yaml`, `--commands`, `--diagnostics`, `--actual`, `--expected`,
+`--constraints` and `--installation-method` to fill the matching draft sections.
+These inputs are literal text; paths are not read and commands are not executed.
+`missing_fields` identifies remaining blanks; `draft_ready` only means all required
+text sections are filled, not that their contents were verified or mail was sent.
+
+The implementation audit and validation record are in
+[the CLI agent integration report](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/30f2467/docs/cli-agent-integration-report.md).
+
 ## Outputs
 
 For a scan named `my_scan`, the project folder typically contains:
@@ -278,8 +386,13 @@ references for Jarvis-HEP and for each built-in sampler.
 
 ## Development
 
+The fixes and release gates for 2.0.15 are tracked in the
+[development ledger](docs/development-ledger-2.0.15.md).
+
 ```bash
-python3 -m pip install -e .
+release_dir="$(mktemp -d)"
+./jhrel --output "$release_dir"
+python3 -m pip install --force-reinstall "$release_dir/"*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 python3 -m pytest -q
 ```
