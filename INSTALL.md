@@ -18,6 +18,10 @@ command. For the fields you can use in a task YAML, run `Jarvis man` or see the
 
 ## Install
 
+HEP 2.0.17's wheel is public and has passed a fresh complete installation from
+PyPI, `pip check`, SDK absence and installed agent/Redis checks. The source
+archive upload is still being verified; see the [release record](docs/release-2.0.17.md).
+
 From PyPI:
 
 ```bash

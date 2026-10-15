@@ -82,7 +82,21 @@ results do not verify this source. Publish through the existing GitHub
 Release/Trusted Publishing workflow, then check PyPI and a clean public-index
 installation. See [the current release record](docs/release-2.0.17.md).
 
-Current local verification passed: 1426 tests / 477 subtests; full public dependency installation, pip check, real runtime/project roundtrip, agent 24 / Redis 39 / release regressions 22. Formal publication is in progress; public success and index installation are recorded after execution.
+Current macOS and Linux gates passed: 1426 tests / 477 subtests, 3 skipped,
+164 deselected. Linux CI also passed complete installation, pip check, real
+runtime/project roundtrip, agent 24 / Redis 39 / release regressions 22.
+The [GitHub Release](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/releases/tag/v2.0.17)
+and PyPI wheel are public. A fresh complete public-index install passed pip
+check, SDK absence, 276 runtime-file identity checks, Redis 39 and agent 24.
+Source archive uploads to PyPI did not receive a response; the final bounded request timed out after 36.913 seconds (35-second read timeout). All upload attempts have stopped. The verified source archive is available on GitHub Release; the public wheel and complete public-index installation are verified.
+
+The OIDC publisher job failed with `invalid-publisher`: PyPI had no matching
+Trusted Publisher configuration. For this release only, the existing local
+PyPI credentials uploaded the exact successful CI artifacts without a rebuild.
+This is a documented publication exception; configure the matching Trusted
+Publisher before the next normal OIDC release. Public CI artifact hashes differ
+from the earlier local validation hashes and are recorded separately in the
+[release evidence](docs/release-2.0.17-verification.json).
 
 ## Earlier candidate provenance
 
