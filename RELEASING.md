@@ -82,7 +82,7 @@ results do not verify this source. Publish through the existing GitHub
 Release/Trusted Publishing workflow, then check PyPI and a clean public-index
 installation. See [the current release record](docs/release-2.0.17.md).
 
-Current verification and publication status: 待本阶段测试结果补录.
+Current local verification passed: 1426 tests / 477 subtests; full public dependency installation, pip check, real runtime/project roundtrip, agent 24 / Redis 39 / release regressions 22. Formal publication is in progress; public success and index installation are recorded after execution.
 
 ## Earlier candidate provenance
 

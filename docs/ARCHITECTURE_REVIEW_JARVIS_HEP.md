@@ -39,4 +39,10 @@ Archiver 负责结果持久化；scan driver 等待持久化与运行计数。�
 
 HEP 的 wheel/sdist 不应包含 SDK/plugin registry/CLI，不应有 `Jarvis-HEP-Sampler` Requires-Dist。构建后的完整依赖安装使用公共 PyPI，不接受本地 SDK 或 `--no-deps` 作为发行验收。实际 fast gate、installed CLI、pip check 和真实 Redis/spawn 重新执行，不能引用已被替代的 `1c8c82fc` SDK 候选作为当前证明。
 
-当前验证与公开发布状态：待本阶段测试结果补录；证据见 [2.0.17 发行记录](release-2.0.17.md)。原工作区/分支的 Sampler 开发继续独立保留。
+当前验证与公开发布状态：见下方已完成的源码/安装验收与发布状态；证据见 [2.0.17 发行记录](release-2.0.17.md)。原工作区/分支的 Sampler 开发继续独立保留。
+
+## 本次源码与安装验收状态
+
+干净源码 `e8af5221`：1426 passed、3 skipped（缺少 sibling Jarvis-Examples）、164 deselected、477 subtests；335 项代码/测试文件与提交逐字节一致。全新隔离环境从公共 PyPI 解析全部依赖，pip check 与 Twine 通过，SDK 模块/发行包均不存在；真实 Redis/spawn/双 Worker/monitor/项目打包重跑、installed agent 24 项、installed Redis 39 项、发行回归 22 项均通过。
+
+源码分离提交 `3b9d41d0`，基础 ValidationReport 兼容修正 `e8af5221`；修正只调用公开基线的 warnings 接口，新增正常文本验证和警告回归。wheel 的 276 个运行文件、sdist 的 401 项 tracked 文件与提交一致，无 SDK/plugin bridge、对应测试或 Diver。当前本地验收完成，正式发布执行中；实际 PyPI 成功与公开安装结果随后记录。见 [发行记录](release-2.0.17.md) 与 [验收证据](release-2.0.17-verification.json)。

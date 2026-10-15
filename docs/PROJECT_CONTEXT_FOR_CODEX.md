@@ -4,7 +4,7 @@
 
 ## 产品与执行模型
 
-发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，正在从公开 master 基线准备不依赖外部 Sampler SDK 的正式发行。公开发布结果待本阶段测试结果补录。Python 最低版本为 3.10。
+发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，正在从公开 master 基线准备不依赖外部 Sampler SDK 的正式发行。公开发布结果见下方已完成的源码/安装验收与发布状态。Python 最低版本为 3.10。
 
 每次扫描由控制进程管理独立 Redis、spawn Worker 和 Archiver。Worker 执行 Operas 或外部 calculator；Archiver 持久化样本结果，控制进程负责采样、等待、恢复和清理。监控按已知扫描与进程读取运行数据。
 
@@ -38,4 +38,10 @@ Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator 
 
 旧 `1c8c82fc` 候选及其 draft/本地 SDK 安装证据被此发行源替代；它们保留为历史，不能复用其 checksum 或测试计数。当前必须对隔离源码和完整 wheel/sdist 重新运行 fast gate、公共 PyPI 全依赖安装/pip check、installed agent/Redis、真实 Redis/spawn，再经正常 Trusted Publishing 发布并核验公共索引安装。
 
-当前结果：待本阶段测试结果补录。提交、产物和公开发布状态见 [2.0.17 发行记录](release-2.0.17.md)。原 Sampler 分支与用户工作区保持原样。
+当前结果：见下方已完成的源码/安装验收与发布状态。提交、产物和公开发布状态见 [2.0.17 发行记录](release-2.0.17.md)。原 Sampler 分支与用户工作区保持原样。
+
+## 本次源码与安装验收状态
+
+干净源码 `e8af5221`：1426 passed、3 skipped（缺少 sibling Jarvis-Examples）、164 deselected、477 subtests；335 项代码/测试文件与提交逐字节一致。全新隔离环境从公共 PyPI 解析全部依赖，pip check 与 Twine 通过，SDK 模块/发行包均不存在；真实 Redis/spawn/双 Worker/monitor/项目打包重跑、installed agent 24 项、installed Redis 39 项、发行回归 22 项均通过。
+
+源码分离提交 `3b9d41d0`，基础 ValidationReport 兼容修正 `e8af5221`；修正只调用公开基线的 warnings 接口，新增正常文本验证和警告回归。wheel 的 276 个运行文件、sdist 的 401 项 tracked 文件与提交一致，无 SDK/plugin bridge、对应测试或 Diver。当前本地验收完成，正式发布执行中；实际 PyPI 成功与公开安装结果随后记录。见 [发行记录](release-2.0.17.md) 与 [验收证据](release-2.0.17-verification.json)。

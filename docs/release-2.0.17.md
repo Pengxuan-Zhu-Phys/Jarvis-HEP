@@ -4,7 +4,7 @@
 2. **Affected modules**：不依赖 SDK 的 Worker/表达式/monitor/CLI 可靠性、YAML 诊断、agent 辅助、Redis 引导、对应测试文档、版本与发行流程。
 3. **Public interfaces**：CLI agent 合同/查询/schema/模板/inspect/草稿与 Redis 正式子命令/help/JSON；保留内置采样、YAML 结构和正常扫描恢复，不包含外部 SDK/plugin CLI。
 4. **Main risks**：误带入已提交或未提交的 Sampler 集成；沿用旧 SDK 候选证据；发行包依赖或 metadata 残留 SDK；公开安装未经核验。
-5. **Verification performed**：待本阶段测试结果补录；旧 `1c8c82fc` 的候选验收仅作历史，不验证本次 SDK-free 源码。
+5. **Verification performed**：干净源码 `e8af5221`：1426 passed、3 skipped（缺少 sibling Jarvis-Examples）、164 deselected、477 subtests；335 项代码/测试文件与提交逐字节一致。全新隔离环境从公共 PyPI 解析全部依赖，pip check 与 Twine 通过，SDK 模块/发行包均不存在；真实 Redis/spawn/双 Worker/monitor/项目打包重跑、installed agent 24 项、installed Redis 39 项、发行回归 22 项均通过。
 
 ## 当前授权与源码范围
 
@@ -21,7 +21,13 @@
 
 ## 当前验收与发布状态
 
-待本阶段测试结果补录。当前 commit/push、wheel/sdist/checksum、完整 fast gate、公共 PyPI 全依赖安装与 `pip check`、installed agent/Redis gate、真实 Redis/spawn/project reload、发行回归均待新源实际结果记录；本文件不提前声称发布完成。
+干净源码 `e8af5221`：1426 passed、3 skipped（缺少 sibling Jarvis-Examples）、164 deselected、477 subtests；335 项代码/测试文件与提交逐字节一致。全新隔离环境从公共 PyPI 解析全部依赖，pip check 与 Twine 通过，SDK 模块/发行包均不存在；真实 Redis/spawn/双 Worker/monitor/项目打包重跑、installed agent 24 项、installed Redis 39 项、发行回归 22 项均通过。
+
+源码：分离提交 `3b9d41d0dc2171bdaf79990a4e23faddd9ff6ce9`，验证接口兼容修正/最终打包源码 `e8af5221eb84b4c1feccf492b2676df764505b3f`。独立分支为 `codex/release-2.0.17`，Sampler 原分支和未提交修改保留。
+
+发行产物：`dist/2.0.17-sdk-free/`。wheel SHA256 `a823b9c71a7959fdb2ca5a45b4d03e9190058d0a47ed14f97fe4f76393c53c1b`；sdist SHA256 `91711348da271fe6356791c0c945033b1c8bae2f03de466599242418ff10a3a2`。完整命令、源码范围、初次移植发现的 notes 接口问题与最终验收见 [结构化证据](release-2.0.17-verification.json)。
+
+当前本地源码和安装包验收完成；正式 GitHub/PyPI 发布执行中，尚未在此预先标记成功。后续仅补录不参与打包的维护文档，不改变已验收的产品源码和产物。
 
 通过 GitHub Release/Trusted Publishing 公开后，继续核验工作流成功、PyPI 2.0.17 wheel/sdist 与发行元数据，并在全新环境从公共索引安装全部依赖和运行 smoke。当前没有 SDK 发布前置条件，也不能用本地 SDK、`--no-deps` 或 system-site-packages 替代此验收。
 

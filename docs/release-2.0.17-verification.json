@@ -1,0 +1,138 @@
+{
+  "all_declared_dependencies_from_public_index": true,
+  "artifacts": {
+    "jarvis_hep-2.0.17-py3-none-any.whl": {
+      "runtime_file_count": 276,
+      "sha256": "a823b9c71a7959fdb2ca5a45b4d03e9190058d0a47ed14f97fe4f76393c53c1b"
+    },
+    "jarvis_hep-2.0.17.tar.gz": {
+      "matching_tracked_file_count": 401,
+      "sha256": "91711348da271fe6356791c0c945033b1c8bae2f03de466599242418ff10a3a2"
+    }
+  },
+  "date": "2026-10-15",
+  "evidence": [
+    "candidate-verification.json",
+    "clean-fast-gate.json",
+    "source-manifest.json",
+    "preflight.json",
+    "installed-smokes.json",
+    "release-verification.json",
+    "full-release.log",
+    "fast-gate.log",
+    "SHA256SUMS"
+  ],
+  "fast_gate": {
+    "command": [
+      "/private/tmp/jarvis-2017-candidate-3dyrkv_s/gate-venv/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "--tb=short",
+      "--disable-warnings",
+      "--junitxml=/Users/p.zhu/Jarvis-Workshop/Jarvis-HEP/dist/2.0.17-sdk-free/fast-gate.xml"
+    ],
+    "counts": {
+      "deselected": 164,
+      "failed": 0,
+      "passed": 1426,
+      "skipped": 3,
+      "subtests_passed": 477
+    },
+    "exit_code": 0,
+    "pip_check": "No broken requirements found.",
+    "pytest_duration_seconds": 205.99,
+    "skipped_tests": [
+      {
+        "reason": "requires sibling Jarvis-Examples checkout",
+        "test": "tests.test_task_schema_corpus.TaskSchemaCorpusTests::test_example_cards_have_no_multimode_dependency_regressions"
+      },
+      {
+        "reason": "requires sibling Jarvis-Examples checkout",
+        "test": "tests.test_task_schema_corpus.TaskSchemaCorpusTests::test_example_cards_only_need_the_documented_utils_removal"
+      },
+      {
+        "reason": "requires sibling Jarvis-Examples checkout",
+        "test": "tests.test_task_schema_corpus.TaskSchemaCorpusTests::test_unmigrated_example_methods_are_runtime_errors_not_schema_errors"
+      }
+    ],
+    "source_unchanged_during_gate": true,
+    "summary": "1426 passed, 3 skipped, 164 deselected, 110 warnings, 477 subtests passed in 205.99s (0:03:25)",
+    "tested_code_matches_commit": true
+  },
+  "helper_checks": {
+    "installed_agent_smoke": "passed",
+    "installed_redis_smoke": "passed",
+    "installed_smoke": "passed",
+    "pip_check": "passed",
+    "release_regressions": "passed",
+    "twine": "passed"
+  },
+  "installed_smokes": {
+    "helper_checks": {
+      "installed_agent_smoke": "passed",
+      "installed_redis_smoke": "passed",
+      "installed_smoke": "passed",
+      "pip_check": "passed",
+      "release_regressions": "passed",
+      "twine": "passed"
+    },
+    "installation": "Fresh isolated venv: candidate HEP wheel plus every declared dependency from public PyPI.",
+    "installed_agent": {
+      "checks": 24,
+      "installed_version": "2.0.17",
+      "mail_sent": false,
+      "ok": true,
+      "package_path": "/private/var/folders/rz/jq3y3vy92s1b_6fsw7wvs6k40000gn/T/jarvis-full-release.XlYiibW4/install/lib/python3.13/site-packages/jarvishep2/__init__.py",
+      "scan_execution": false
+    },
+    "installed_redis": {
+      "checks": 39,
+      "installed_version": "2.0.17",
+      "ok": true,
+      "package_installation": false,
+      "package_path": "/private/var/folders/rz/jq3y3vy92s1b_6fsw7wvs6k40000gn/T/jarvis-full-release.XlYiibW4/install/lib/python3.13/site-packages/jarvishep2/__init__.py",
+      "process_policy": "server --version only",
+      "scan_execution": false,
+      "service_start": false
+    },
+    "local_sdk_candidate_used": false,
+    "log": "full-release.log",
+    "ok": true,
+    "release_regressions_passed": 22,
+    "runtime_real_redis_spawn_two_workers_monitor_project_roundtrip": "passed",
+    "sdk_dependency": false,
+    "sdk_find_spec": null,
+    "source_commit": "e8af5221eb84b4c1feccf492b2676df764505b3f"
+  },
+  "local_sdk_candidate_used": false,
+  "ok": true,
+  "publication": {
+    "public_release_published": false,
+    "repo": "Pengxuan-Zhu-Phys/Jarvis-HEP",
+    "state": "ready_for_publication",
+    "tag": "v2.0.17",
+    "user_authorization": "公开 HEP 2.0.17，将全部 Jarvis-HEP-Sampler 工作留到下一次发行"
+  },
+  "release_scope": "Formal SDK-free HEP release; external Jarvis-HEP-Sampler integration and publication deferred.",
+  "sampler_sdk_dependency": false,
+  "sampler_sdk_import_spec": null,
+  "sdk_free_baseline": "0bbcf675",
+  "source_code_matches_committed_tree": true,
+  "source_commit": "e8af5221eb84b4c1feccf492b2676df764505b3f",
+  "source_proof": {
+    "baseline_builtin_catalog_distributor_contracts_core_resume_preserved": true,
+    "diver_absent": true,
+    "external_sdk_bridge_files_and_tests_absent": true,
+    "manifest": "source-manifest.json",
+    "preflight": "preflight.json",
+    "runtime_files_match_commit": true,
+    "sdist_matching_tracked_files": 401,
+    "wheel_runtime_files": 276
+  },
+  "tested_code_files": 335,
+  "verification_history": {
+    "earlier_sdk_free_gate": "Interrupted after installed smoke exposed the copied human CLI notes() assumption. The SDK-free CLI now uses warnings(), with valid-card success/warning regressions. This final full run and fresh installed helper passed on committed e8af5221."
+  },
+  "version": "2.0.17"
+}

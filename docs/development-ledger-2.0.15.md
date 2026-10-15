@@ -9,8 +9,14 @@
 2. **Affected modules**：从公开 master `0bbcf675` 移植不依赖 SDK 的可靠性、CLI agent/YAML、Redis 及测试文档、发行版本/工作流。
 3. **Public interfaces**：发布 agent/YAML 与 Redis 增量能力，保留内置采样；不声明外部 SDK/plugin 依赖或 CLI。
 4. **Main risks**：误带入已提交 SDK integration `0d859502` / `52876060` 或 dirty Sampler/runtime/Diver；复用旧 SDK 候选验收；未核验公共 PyPI 全依赖安装即发布。
-5. **Verification performed**：待本阶段测试结果补录；必须对当前隔离源码/wheel/sdist重新执行门禁与公开发布后安装验证。
+5. **Verification performed**：见下方已完成的源码/安装验收与发布状态；必须对当前隔离源码/wheel/sdist重新执行门禁与公开发布后安装验证。
 
 旧 `1c8c82fc` 候选曾在本地 SDK 安装安排下完成测试与 draft，但因其 SDK 依赖不适合本次公开发行，现已被 SDK-free master 派生源替代。旧证据/产物作为历史保留；不能沿用其 checksum、1489 计数或当时的 SDK 阻断结论判断新版本状态。
 
 当前隔离源保留 HEP 内置采样和公共依赖，移植可靠性/CLI agent/Redis 独立功能，不合并 Sampler 分支、不改动或代发布 SDK。完整验收应包括 clean source fast gate、公共 PyPI 全依赖安装/pip check、installed agent/Redis/help/JSON、真实 Redis/spawn/project reload 与相关发行回归；通过正常 OIDC 工作流公开后，还需核验 PyPI 2.0.17 和全新安装。当前事实见 [2.0.17 发行记录](release-2.0.17.md)。
+
+## 本次源码与安装验收状态
+
+干净源码 `e8af5221`：1426 passed、3 skipped（缺少 sibling Jarvis-Examples）、164 deselected、477 subtests；335 项代码/测试文件与提交逐字节一致。全新隔离环境从公共 PyPI 解析全部依赖，pip check 与 Twine 通过，SDK 模块/发行包均不存在；真实 Redis/spawn/双 Worker/monitor/项目打包重跑、installed agent 24 项、installed Redis 39 项、发行回归 22 项均通过。
+
+源码分离提交 `3b9d41d0`，基础 ValidationReport 兼容修正 `e8af5221`；修正只调用公开基线的 warnings 接口，新增正常文本验证和警告回归。wheel 的 276 个运行文件、sdist 的 401 项 tracked 文件与提交一致，无 SDK/plugin bridge、对应测试或 Diver。当前本地验收完成，正式发布执行中；实际 PyPI 成功与公开安装结果随后记录。见 [发行记录](release-2.0.17.md) 与 [验收证据](release-2.0.17-verification.json)。
