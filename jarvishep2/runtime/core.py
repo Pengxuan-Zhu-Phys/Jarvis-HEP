@@ -144,6 +144,7 @@ class Jarvis2Core:
         self._control_lease_thread: threading.Thread | None = None
         self._persisted_uuids: set[str] = set()
         self._persisted_index_prefix = 0
+        self._persisted_pending_indices: set[int] = set()
         self._persisted_records_count = 0
         # D21.13: durable Failed rows must seed SAMPLE_STATS.failed on resume.
         self._persisted_failed_count = 0

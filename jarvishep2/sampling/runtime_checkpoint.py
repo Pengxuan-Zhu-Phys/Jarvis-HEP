@@ -125,13 +125,17 @@ def checkpoint_path(
     task_root: str,
     scan_name: str,
     sampler_name: str,
+    check: bool = False,
 ) -> str:
+    """Keep calculator-smoke checkpoints separate from the formal scan."""
     root = os.path.join(
         os.path.abspath(str(task_root)),
         "checkpoints",
         str(scan_name),
         str(sampler_name),
     )
+    if check:
+        root = os.path.join(root, "check")
     return os.path.join(root, "state.pkl")
 
 

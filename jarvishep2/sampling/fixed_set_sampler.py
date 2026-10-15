@@ -41,6 +41,7 @@ class FixedSetSampler(CheckpointedSampler):
             "_backpressure_last_log", "_checkpoint_heartbeat_sec",
             "_mapper_pipeline",
             "_interrupt_check", "_control_next_check",
+            "_persisted_pending_indices",
         }
     )
 
@@ -50,6 +51,9 @@ class FixedSetSampler(CheckpointedSampler):
         self._mapper_pipeline = None
         self._index = 0
         self._accepted_index = 0
+        # DATABASE-derived out-of-order terminal rows. Bounded by the former
+        # in-flight window and reconstructed on resume, never checkpointed.
+        self._persisted_pending_indices: set[int] = set()
         self._selectionexp: str | None = None
         self._seed = 0
         self._batch_size = 16
@@ -121,13 +125,27 @@ class FixedSetSampler(CheckpointedSampler):
             sample_index=accepted_index,
         )
 
+    def set_persisted_pending_indices(self, indices: set[int] | frozenset[int]) -> None:
+        """Install DATABASE-proven terminal rows beyond the contiguous prefix."""
+        self._persisted_pending_indices = set(indices)
+
     def flush_batch(self, batch: list[Sample]) -> int:
         if not batch:
             return 0
         self.check_runtime_control()
+        if self.uses_indexed_resume:
+            # Replay still advances candidate/accepted cursors through holes.
+            # A durable Failed row is terminal just like a Completed row.
+            batch = [
+                sample for sample in batch
+                if sample.sample_index is None or (
+                    sample.sample_index >= self._persisted_index_prefix
+                    and sample.sample_index not in self._persisted_pending_indices
+                )
+            ]
         if len(batch) == 1:
             self._submit(batch[0])
-        else:
+        elif batch:
             self._submit_group(batch)
         # At most one boolean check per batch in the normal submission path.
         self.capture_checkpoint_at_batch_boundary()

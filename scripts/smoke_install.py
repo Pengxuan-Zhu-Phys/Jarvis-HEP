@@ -17,9 +17,11 @@ import jarvis_hep_sampler
 import jarvis_operas
 from jarvishep2.project_packager import create_project_package
 from jarvishep2.project_samplers import INDEX, inspect_packaged_samplers
+from jarvishep2.sampler_sdk import require_sampler_sdk
 
 expected = sys.argv[1]
 assert metadata.version("Jarvis-HEP") == jarvishep2.__version__ == expected
+assert require_sampler_sdk() == jarvis_hep_sampler.__version__ == metadata.version("Jarvis-HEP-Sampler")
 for module in (jarvishep2, jarvis_hep_sampler, jarvis_operas):
     assert Path(module.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), (
         module.__file__

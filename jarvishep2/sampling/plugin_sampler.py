@@ -110,11 +110,14 @@ def plugin_identity(
     return canonical_hash(fields), fields
 
 
-def plugin_source_dir(task_root: str, scan_name: str, method: str) -> Path:
-    """``<task_root>/checkpoints/<scan>/<Method>/plugin`` (next to ``state.pkl``)."""
+def plugin_source_dir(
+    task_root: str, scan_name: str, method: str, *, check: bool = False,
+) -> Path:
+    """Source beside this run's checkpoint, with a separate ``check`` directory."""
     from jarvishep2.sampling.runtime_checkpoint import checkpoint_path
 
-    state = checkpoint_path(task_root=task_root, scan_name=scan_name, sampler_name=method)
+    state = checkpoint_path(task_root=task_root, scan_name=scan_name,
+                            sampler_name=method, check=check)
     return Path(state).parent / "plugin"
 
 
@@ -193,7 +196,10 @@ def preflight_plugin(
     if scan_name:
         cfg["scan_name"] = scan_name
     method = sampling_method(cfg)
-    binding = read_binding(cfg) if resume else None
+    check = bool(cfg.get("_check_modules_sample_layout"))
+    # Calculator smoke is a new session on every invocation, even when its
+    # DATABASE/test rows remain. It never resumes or rebinds the formal scan.
+    binding = read_binding(cfg) if resume and not check else None
     record = binding_record(cfg) if binding else plugin_record(method)
     spec = (SamplerSpec(name=method, source=record.source, family="plugin",
                         stateless=record.profile == "independent", statistical=record.statistical)
@@ -203,9 +209,10 @@ def preflight_plugin(
     if record is None or not spec.stateless:
         raise PluginLoadError(f"{method} is not a loaded independent sampler", method=method)
     path = identity_path(cfg)
-    source_dir = plugin_source_dir(task_root, scan_name, method) if task_root and scan_name else None
+    source_dir = (plugin_source_dir(task_root, scan_name, method, check=check)
+                  if task_root and scan_name else None)
     database = path.parent
-    if source_dir is not None:
+    if source_dir is not None and not check:
         has_data = any(p.is_file() and p.stat().st_size for pattern in ("*.hdf5", "*.h5", "*.csv")
                        for p in database.glob(pattern))
         checkpoint = source_dir.parent / "state.pkl"

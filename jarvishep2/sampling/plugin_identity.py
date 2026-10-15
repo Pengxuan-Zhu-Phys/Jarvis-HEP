@@ -16,6 +16,7 @@ from jarvis_hep_sampler.errors import PluginError, PluginResumeMismatch
 from jarvis_hep_sampler.metadata import parse_metadata
 
 from jarvishep2.sampler_catalog import PluginRecord, SOURCE_SCAN, builtin_specs
+from jarvishep2.sampler_sdk import require_sampler_sdk
 
 BINDING_VERSION = 1
 
@@ -26,7 +27,10 @@ def identity_path(config: Mapping[str, Any]) -> Path:
         config.get("scan_name") or (config.get("Scan") or {}).get("name") or "scan"
     )
     result = Path(str(config.get("task_result_dir") or root / "outputs" / scan))
-    return result / "DATABASE" / "sampler_identity.json"
+    database = result / "DATABASE"
+    if config.get("_check_modules_sample_layout"):
+        database /= "test"
+    return database / "sampler_identity.json"
 
 
 def canonical_hash(fields: Mapping[str, Any]) -> str:
@@ -117,7 +121,7 @@ def binding_record(config: Mapping[str, Any]) -> PluginRecord | None:
 
 def environment_versions() -> dict[str, str]:
     return {
-        "sdk": version("Jarvis-HEP-Sampler"),
+        "sdk": require_sampler_sdk(),
         "python": platform.python_version(),
         "numpy": version("numpy"),
     }

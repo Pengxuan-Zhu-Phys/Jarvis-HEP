@@ -269,7 +269,19 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
         from jarvis_hep_sampler.errors import RegistryError
         from jarvis_hep_sampler.registry import SamplerRegistry
     except ImportError as exc:  # pragma: no cover - hard dependency
-        return {}, {}, f"Jarvis-HEP-Sampler is not installed ({exc})"
+        from jarvishep2.sampler_sdk import SDK_DISTRIBUTION, SDK_SPECIFIER
+
+        return {}, {}, (
+            f"{SDK_DISTRIBUTION}{SDK_SPECIFIER} is not installed "
+            f"({exc}). Install it with: python3 -m pip install "
+            f'"{SDK_DISTRIBUTION}{SDK_SPECIFIER}"'
+        )
+    from jarvishep2.sampler_sdk import SamplerSDKError, require_sampler_sdk
+
+    try:
+        require_sampler_sdk()
+    except SamplerSDKError as exc:
+        return {}, {}, str(exc)
     registry = SamplerRegistry()
     key = (str(registry.home), registry.signature())
     if _USER_CACHE["key"] == key:
@@ -284,7 +296,7 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
     reserved = {name.casefold() for name in reserved_method_names()}
     for method, entry in entries.items():
         if method.casefold() in reserved:
-            continue  # a built-in always wins; `Jarvis sampler list` reports it
+            continue  # a built-in always wins; jsampler still lists its own entry
         specs[method] = SamplerSpec(
             name=method,
             stateless=entry.profile == "independent",

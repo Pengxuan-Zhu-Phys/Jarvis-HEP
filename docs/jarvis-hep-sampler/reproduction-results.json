@@ -1,0 +1,31 @@
+{
+  "diver_zero_mean": {
+    "error": "ZeroDivisionError",
+    "message": "float division by zero"
+  },
+  "diver_completed_resume": {
+    "first": {
+      "generation": 2,
+      "calls": 17,
+      "converged": true
+    },
+    "resumed": {
+      "generation": 3,
+      "calls": 27,
+      "converged": true
+    }
+  },
+  "diver_nonatomic_save": {
+    "before_bytes": 2813,
+    "after_bytes": 136,
+    "previous_checkpoint_preserved": false,
+    "recovery_error": "AttributeError"
+  },
+  "nested_budget_stop": {
+    "engine_budget_warning": [
+      "The sampling was stopped short due to maxiter/maxcall limit the delta(log(z)) criterion is not achieved; posterior may be poorly sampled"
+    ],
+    "finished": true,
+    "reported_reason": "converged (dlogz < 1e-08)"
+  }
+}

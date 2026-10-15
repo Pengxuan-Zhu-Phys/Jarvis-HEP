@@ -121,6 +121,10 @@ class _RuntimeSupervisor:
             core.sampler.set_persisted_uuids(core._persisted_uuids)
         if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
             core.sampler.set_persisted_prefix(core._persisted_index_prefix)
+        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
+            core.sampler.set_persisted_pending_indices(
+                getattr(core, "_persisted_pending_indices", set())
+            )
         if (
             core._resume_policy == "resume"
             and core.sampler is not None
@@ -152,6 +156,10 @@ class _RuntimeSupervisor:
             core.sampler.set_persisted_uuids(core._persisted_uuids)
         if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
             core.sampler.set_persisted_prefix(core._persisted_index_prefix)
+        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
+            core.sampler.set_persisted_pending_indices(
+                getattr(core, "_persisted_pending_indices", set())
+            )
         if (
             core._resume_policy == "resume"
             and core.sampler is not None
@@ -169,7 +177,10 @@ class _RuntimeSupervisor:
             )
             # Nested / feedback engines: ensure runtime state was applied once Redis
             # and DATABASE facts exist (idempotent if set_sampler already imported).
-            core._import_sampler_checkpoint_state(core.sampler)
+            # Indexed samplers have already advanced from their safe checkpoint
+            # to the durable prefix above; importing it again would rewind them.
+            if not bool(getattr(core.sampler, "uses_indexed_resume", False)):
+                core._import_sampler_checkpoint_state(core.sampler)
             # Always arm nested engine resume under --resume, even if state.pkl
             # is missing: nested_engine.pkl alone is enough to continue.
             if core.sampler is not None and hasattr(core.sampler, "arm_engine_resume"):

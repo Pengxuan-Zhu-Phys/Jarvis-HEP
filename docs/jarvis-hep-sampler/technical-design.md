@@ -1,22 +1,16 @@
 # Jarvis-HEP-Sampler — Technical Design
 
-版本：**2.3**（2026-10-09，Australia/Adelaide）。产品方向保持定型；本次落实默认严格恢复、项目源码打包与全量构件发布准备，证据与剩余范围见 §10.7。
-实施状态：
+版本：**2.5**（2026-10-16，Australia/Adelaide）。用户合约是 `Jarvis sampler load <file>` 后按内置方法使用，外部方法统一由 `Jarvis sampler` 管理。
 
-- **S0/S1 已提交**：SDK 功能补齐 `79972c7`；HEP 接入 `0d85950`。SDK 完整构件发布准备已提交 `cf924cb`；均未推送/上传。
-- **S2a 默认严格恢复已实现并验收**：scan 绑定完整源码 hash；删除/覆盖登记不影响恢复；科学配置、checkpoint 与源码错误在导入旧状态或启动资源前拒绝。真实 SIGINT 后的 checkpoint / DATABASE-only 两条恢复路径通过，其他 P7 特殊故障仍单列待办。
-- **S2b 项目源码打包与本机完整构件验收已完成**：share/repro/full 和 manifest 导出完整 hash 清单，fetch 不导入或自动登记；SDK 已安装 wheel 146 项通过；HEP 完整依赖安装、真实采样与打包重载通过。未公开发布，远程矩阵待执行。
-- **后续范围**：显式更换既有 scan 源码、P7 的空洞/失败 batch/拒绝尾段组合、远程兼容矩阵与性能测量继续跟踪；S2c 内置方法推广、S3 generational 尚未开始。本次不修改或编译 TeX。
+1. **Roadmap phase**：M1 可靠性修复与 M2 本机联合故障验收完成；执行台账位于 SDK `docs/development/DEVELOPMENT_LEDGER.md`。
+2. **Affected modules**：SDK registry/metadata/session/output，HEP plugin identity/preflight/checkpoint、ResumeService、supervisor、core 与 FixedSet 提交去重，以及定向和独立 CLI 回归。
+3. **Public interfaces**：CLI/YAML、插件 API v1、STREAM_PROTOCOL=1、registry format=1 不变；checkpoint/source 路径 helper 增加兼容的可选 `check=False`，SDK 私有待清理文件不进入插件合约。
+4. **Main risks**：单入口不含第三方依赖/资源，用户函数无强制超时；远程 OS/Python、最低依赖组合和性能目标仍开放。check 的通用 runtime/log/summary 仍遵循原生共享布局。
+5. **Verification performed**：SDK 全测试/完整构件，HEP 确定性回归、独立 CLI 管理/迁移、真实 SIGINT、联合故障、运行中登记和启动失败恢复及完整依赖安装；命令、结果、源码 hash 与例外见 [M1 验收](native-parity-m1-verification.json)和[M2 验收](native-parity-m2-verification.json)。
 
-实施基线：HEP `0d85950` / 2.0.14 加本次 S2 变更；SDK `cf924cb` / 0.1.0。软件版本未因发布准备自动增加；准备构件不等于 PyPI 发布。
+当前 M2 验收基线为 SDK `cf924cb` / 当时的包版本 0.1.0 与 HEP `569d3865` / 2.0.17 加 sampler 工作区修改；M1 的 `ef6c223a` / 2.0.16 结果保留为历史。SDK 1.0.1 起提供 `jsampler`。HEP 只要求 `Jarvis-HEP-Sampler>1`；API、STREAM_PROTOCOL 与 registry 仍是 1。PyPI 上传是单独的一步。S0/S1、S2a 默认严格恢复与 S2b 源码打包已有实现；本轮修复 check 污染正式绑定、indexed 中断保存超前游标、恢复后重置游标，以及 prefix 外已落盘行重复计算和归档目标超计。S2c 内置推广、S3 generational 尚未交付。
 
-1. **Roadmap phase**：S1 提交收尾，S2a 默认恢复安全与 S2b 项目打包/构件安装。本文仍是唯一设计台账。
-2. **Affected modules**：catalog、plugin_identity / plugin_sampler、core / resume / supervisor、CLI run、project_packager / project_samplers / fetch；两仓 pyproject、shell 发布入口、CI 和非 TeX 文档。
-3. **Public interfaces**：插件 API v1 和 `Jarvis sampler` 命令不变；新增持久 scan 身份记录和恢复校验。`jhsrel` / `jhrel` 默认准备完整 wheel/sdist，`--upload` 显式发布；无 extras 或 editable 安装分支。`--accept-plugin-change` 未开放。
-4. **Main risks**：用户函数仍无强制超时；单入口快照不含第三方依赖/资源；跨 Python/NumPy 版本不承诺逐位一致。最终全仓 fast 有 4 项失败：CPU 采样、外部 Examples 非 ASCII，以及两项单独重跑通过的计时/monitor 就绪用例；不能写成全仓全绿。
-5. **Verification performed**：最终定向 158 passed / 24 subtests；真实中断恢复 2 passed，含拒绝时无源码导入、无 Redis、DATABASE/checkpoint 不变；SDK 已安装 wheel 146 passed。完整构件、全仓 gate 与环境证据归档在 §10.7。
-
-AGENTS.md 指定的五份 canonical 文档在当前仓库不存在。本文是 Jarvis-HEP-Sampler 唯一的权威设计记录。
+**更正旧维护描述**：AGENTS 指定的五份 canonical 文档现已重建并维护 HEP 总体上下文、PRD、架构、代码地图和路线。本文维护 sampler 技术决定，SDK 开发台账维护本轮任务与验收；历史章节的旧版本/推送/发行状态以其记录日期理解，不作为当前公开发行事实。
 
 ---
 
@@ -31,6 +25,8 @@ AGENTS.md 指定的五份 canonical 文档在当前仓库不存在。本文是 J
 这是发布目标，不是当前 0.1.0 / S1 工作区已经全部具备的能力。首个对外版本支持 independent profile；恢复与打包必须分别通过 S2a、S2b。重新 load 影响后续新 scan，不能改变已经启动或待续跑 scan 的绑定源码。
 
 责任边界：用户负责算法、依赖、初始化及科学正确性，可以不写 schema、`validate_options` 或观测 hook。HEP/SDK 仍负责选对源码、校验恢复身份、如实记录来源、正确发布和归档点、报告失败与清理运行资源。不能把这些接入层责任归入“用户插件有 bug”。
+
+2026-10-16：首发只交付上述使用体验。内置 Sampler 没有的行为，外部 Sampler 也不要有。`Jarvis sampler load` 之后，validate、check、run、resume、man 与内置方法使用同一套命令和参数，不再新增任何 CLI。已有的 `Jarvis sampler init|check|load|list|info|remove` 只负责把文件登记成 Method，不再扩展。`--accept-plugin-change` 不进入首发，不实现；续跑使用该 scan 已绑定的源码。已绑定 scan 上更换 NumPy、Python 或 SDK 后继续运行，只警告并按用户当前环境接着跑，与内置 Sampler 相同。
 
 ### 1.2 对等契约
 
@@ -235,7 +231,7 @@ SDK 只依赖 Python 标准库、NumPy、jsonschema，不导入 HEP、Redis、Po
 
 **插件只负责生成单位立方体里的坐标**，不接触 Sample、UUID、Redis、Worker 或 DATABASE。
 
-**依赖方向：** HEP 硬依赖 SDK（`Jarvis-HEP-Sampler>=0.1`），与 Portal 的处理方式一致；SDK 绝不导入 HEP。SDK 是单独的仓库，放在 `Jarvis-Workshop/Jarvis-HEP-Sampler/`，PyPI 名为 `Jarvis-HEP-Sampler`。
+**依赖方向：** HEP 硬依赖已发布的 SDK（`Jarvis-HEP-Sampler>1`），与 Portal 的处理方式一致；SDK 绝不导入 HEP。SDK 是单独的仓库，放在 `Jarvis-Workshop/Jarvis-HEP-Sampler/`，PyPI 名为 `Jarvis-HEP-Sampler`。`Jarvis sampler` 与 `jsampler` 是同一个命令。
 
 **命令行入口：** 只有一个，即 `Jarvis sampler ...`。模板、检查、加载的实现都在 SDK 里，SDK 不再单独提供命令行。
 
@@ -439,7 +435,7 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 - 写之前用 `.lock` 加文件锁（`fcntl.flock`），把多个终端同时 load 串行化。
 - 先写同目录的临时文件，再 `os.replace` 替换。
-- 覆盖同名插件时，删除旧快照。与 Operas 不同，旧快照不会越积越多。
+- 覆盖同名插件时，只清理明确退役且不再引用的旧快照，保护工作源文件。提交后清理失败不回报登记失败；私有 `.pending_cleanup.json` 记录快照相对路径和完整 hash，后续成功 load/remove 在同一锁内重试。内容变更者保留，不扫描目录删除未知文件。提交前失败遗留的无登记文件也保守保留。
 
 **快照语义。** HEP 运行时只用快照，不用用户正在改的工作文件。改了文件但没有重新 load，修改不会生效；`Jarvis sampler list` 会把这种情况标成 `source changed since load`。
 
@@ -637,7 +633,7 @@ generational profile 的 adapter 放在同一个文件里，在 S3 实现（§4.
   - 相关诊断 JV2-PLG-002/003/004。
 
   `Jarvis man sampler` 的索引按 (type, method) 排序，插件标为 plugin 族；插件 description 超过 50 字符时截断，保持索引一行一项。
-- **`--accept-plugin-change`**（S2a 待实现）：加入 run 参数，只能与 `--resume` 一起使用，并须通过 §7.3–7.4 的一致性核对。
+- **`--accept-plugin-change`**：2026-10-16 决定不进入首发，不实现。续跑使用该 scan 已绑定的源码。
 
 ### 6.6 Dogfooding：官方的 `LatinHypercube`
 
@@ -706,11 +702,13 @@ def stream(seed: int, *key: int) -> np.random.Generator:
 
 **软身份** 是源码 hash（插件 `version` 不变的情况下）、SDK 版本、Python 版本、NumPy 版本。
 
-UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证明切换源码后的坐标相同。`--accept-plugin-change` 不得绕过硬身份检查；启用前还必须定义并实现对已持久化点（包括 prefix 之外的点）的重放一致性核对，无法核对或坐标/accepted 对应改变时应要求新 scan。源文件字节改变后不能继续宣称原源码的逐位复现保证。
+UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证明换过源码字节后的坐标相同。2026-10-16 起首发不提供 `--accept-plugin-change`。若以后另做源码切换，仍不得绕过硬身份，并须先核对全部已持久化点（包括 prefix 之外的点）的坐标与 accepted 对应；对不上就要求新 scan。源文件字节改变后不能继续宣称原源码的逐位复现保证。
 
 ### 7.4 续跑规则
 
-每个新 scan 初始化全部成功后，preflight 将源码原子复制到 `<task_root>/checkpoints/<scan>/<Method>/plugin/<Method>-<完整 SHA-256>.py`，随后原子发布 `<task_result_dir>/DATABASE/sampler_identity.json`（binding_version=1）。记录绑定确切路径、完整 hash、完整硬身份字段、元数据、schema/hooks 和 SDK/Python/NumPy 版本。初始化失败不留下可恢复绑定；多份副本或 mtime 变化不影响来源选择。
+每个新 formal scan 在插件参数检查和 prepare 成功后，preflight 将源码原子复制到 `<task_root>/checkpoints/<scan>/<Method>/plugin/<Method>-<完整 SHA-256>.py`，随后原子发布 `<task_result_dir>/DATABASE/sampler_identity.json`（binding_version=1）。记录绑定确切路径、完整 hash、完整硬身份字段、元数据、schema/hooks 和 SDK/Python/NumPy 版本。插件 prepare 失败不发布绑定；后续 Redis/Worker 等资源启动失败可能保留已经发布的绑定，不能笼统声称所有初始化失败均不留绑定。此时仍按绑定和严格 resume 规则处理，M2 已通过真实 Redis/Worker 启动失败后的清理与 `--resume` 重试，fresh 重跑明确提示使用 `--resume`；多份副本或 mtime 变化不影响来源选择。
+
+**check 隔离（SAM-HEP-01）**：`Jarvis check` 的身份写入 `<result>/DATABASE/test/sampler_identity.json`，源码和 checkpoint 写入 `checkpoints/<scan>/<Method>/check/{plugin/,state.pkl}`。它是每次独立的 calculator smoke，允许重跑，不读取 formal binding/checkpoint，也不改变正式科学 DATABASE、源码和恢复 checkpoint。通用 runtime.json、日志、run_summary 沿用现有原生共享布局。
 
 `--resume` 先只读绑定，使用该 scan 元数据校验 card，不依赖实时登记。随后执行：
 
@@ -718,16 +716,17 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 2. **身份缺失或损坏。** 已有插件 DATABASE/checkpoint 不得从当前登记猜测来源。旧 S1 格式不能自动“升级”成已验证身份；使用新 scan，或另行设计可验证的迁移。
 3. **选择源码。** 依据绑定路径核对完整 hash 后，从同一字节导入。缺失时只可用 byte-identical 登记/内置快照修复，并在初始化成功后补回；不同 hash 或损坏副本拒绝。删除登记、覆盖版本和较新的孤立副本均不影响原 scan。
 4. **环境变化。** SDK/Python/NumPy 差异写 WARNING，绑定不变；不承诺跨环境逐位相同。
-5. **prefix 重放。** 重放不足或旧游标超过 durable prefix 不得静默继续；adapter 抛 PluginResumeMismatch。DATABASE 空洞/部分 batch 失败/拒绝尾段的完整联合故障矩阵仍需后续验收，不能用两条成功恢复路径冒充已覆盖。
+5. **prefix 重放。** 重放不足或旧游标超过 durable prefix 不得静默继续；adapter 抛 PluginResumeMismatch。M2 四组真实联合故障矩阵和两组全 durable 拒绝尾段已验收，见 §10.9；科学配置、源码或 checkpoint 损坏仍严格拒绝。
 
-**未开放：** `--accept-plugin-change`。切换源码必须先实现 §7.3 对所有已持久化点的坐标/accepted 对应一致性核对；不能仅凭相同 UUID 放行。当前默认恢复始终使用绑定源码。
+**首发不做：** `--accept-plugin-change`（2026-10-16）。续跑始终使用绑定源码。SDK、Python、NumPy 变化只警告并继续，与内置 Sampler 相同。
 
 续跑的机制本身沿用现有实现：
 
 - 只从 `accepted ≤ DATABASE 连续 prefix` 的安全快照恢复；
 - 从快照出发，重放候选点和 selection，直到 accepted 等于 prefix，这样就能对齐候选游标；
-- 已经持久化的 UUID 不再提交；
-- prefix 之外已经持久化的行，按现有的去重机制处理；
+- 外部 PluginSampler 及 FixedSetSampler 在提交边界跳过 prefix 与 pending sample_index 中已 durable 的终态行，Failed 与 Completed 相同；
+- pending 索引由 DATABASE 重建为内存副本，不写 checkpoint，也不累计全历史 UUID；legacy UUID 与其它 sampler 路径保持各自现有实现；
+- candidate/accepted 和 selection 仍照常推进，flush 返回实际新提交数，backpressure 与归档目标据此计算；
 - 重放过程中不输出进度刷屏。
 
 续跑是 at-least-once 语义：物理计算可能重复执行，但归档按 UUID 去重。
@@ -779,7 +778,7 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 | P4 | 现有 `tests/test_sampler_logging_contract.py` 遍历 catalog，覆盖 builtin-plugin 的 LatinHypercube 和一个 user 插件 | S1/S2/S3/S6/S9/S10 全部通过，设置表包含插件参数 |
 | P5/P6 | telemetry payload 快照；monitor 渲染快照 | 出现 plugin 布局和指标，没有 `CUSTOM METHOD` |
 | P7 | 中断后续跑 vs 不中断；DATABASE 有空洞；部分 batch 失败；checkpoint 之后只剩 selection 拒绝的尾巴 | 坐标和 UUID 逐位一致；prefix 不越过空洞；每个点只归档一行；尾部不重跑物理计算 |
-| P7 | 两次运行之间重新 load/remove 插件；副本缺失、损坏或有多个副本 | 根据身份绑定恢复，完整 hash 不符则拒绝；登记更新不影响旧 scan；改 options、Variables、生成模式或 block_size 时拒绝。源码显式切换另按 §7.3 验收 |
+| P7 | 两次运行之间重新 load/remove 插件；副本缺失、损坏或有多个副本 | 根据身份绑定恢复，完整 hash 不符则拒绝；登记更新不影响旧 scan；改 options、Variables、生成模式或 block_size 时拒绝。首发不提供源码显式切换 |
 | P8 | 打包一个使用 user 插件的项目 | 包里有快照；fetch 之后打印 load 提示 |
 | P9 | `prepare` 抛异常；`draw` 返回 NaN 或越界 | 在 Redis 启动前，或在第一个违规点处停止；日志有插件 traceback 和定位信息 |
 | Worker | 真实 spawn 的 Worker | Worker 进程不导入插件模块，物理结果正常 |
@@ -787,7 +786,7 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 ### 9.3 运行环境与性能
 
 - **CI 矩阵**：Python 3.10–3.13，Linux 和 macOS；NumPy 1.24 与 2.x 的合法组合。逐位比较只在同一环境内进行。真实 Redis 和 spawn 的测试标记为 `slow`，不能用 fakeredis 单测代替。
-- **性能 gate（尚无测量证据）**：分别测 2、20、200 维，各 10⁵ 次 draw。adapter 的额外开销（随机流、检查、映射，不含插件自己的 `draw`）中位数 20 μs/点是待校准目标，须同时记录硬件、软件版本、基线和 p95，不能先作为已达标指标。另外报告物理计算耗时为 1 ms、100 ms、1 s 三档时的吞吐，以及有重复 hook 错误时的 RSS/日志增长。
+- **性能 gate（本机证据已记录，20 μs 不是通过门槛）**：分别测 2、20、200 维，各 10⁵ 次 draw。adapter 的额外开销（随机流、检查、映射，不含插件自己的 `draw`）中位数 20 μs/点是待校准目标。2026-10-15 的 pyenv 3.13.13 / NumPy 2.5.4 / Apple M4 Pro 样本、1 ms / 100 ms / 1 s 物理吞吐，以及 4000 次 hook 报错后日志仍为 4 行，写在 SDK 台账「性能证据」。2 维和 20 维低于 20 μs，200 维高于它。远程矩阵不在这组证据里。
 
 ---
 
@@ -801,16 +800,16 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 | --- | --- | --- |
 | **S0 SDK 初版** | 初版 `0e841bd` / `78a2cd2`，S1 补齐 `79972c7` 已提交；发布准备 `cf924cb`；未发布 | 146 项 SDK 测试通过；最终构件安装与 smoke 再次通过。远程矩阵仍未执行 |
 | **S1 HEP 接入** | 收尾验收完成并提交 `0d85950`；未发布 | R03–R10 已关闭；TeX 第 38 章已接入。本次不修改/编译 TeX；全仓已有失败单列记录 |
-| **S2a 外部插件恢复安全** | 默认严格身份/源码恢复已验收，R01/R02 关闭；完整扩展故障矩阵和显式源码切换仍待办 | 两条真实 SIGINT 恢复及配置/来源/checkpoint 拒绝通过；空洞/失败 batch/selection 拒绝尾段联合验收和 §7.3 显式切换后续补齐 |
-| **S2b 可移植性与发布** | 项目来源打包/fetch 已验收；完整构件验证见 §10.7；未公开发布 | P8、无 sibling/PYTHONPATH 的完整 wheel 安装与空/冲突登记运行；远程兼容矩阵、性能数据仍待办。SDK 先发布，再发布依赖它的 HEP |
+| **S2a 外部插件恢复安全** | 默认严格恢复及本机联合故障验收完成，R01/R02及R13本机P7部分关闭；2026-10-16 起 `--accept-plugin-change` 不进入首发 | 真实SIGINT、配置/来源/checkpoint拒绝、空洞/混合失败/拒绝尾段、运行中登记管理与资源启动重试均有本机证据。续跑使用绑定源码 |
+| **S2b 可移植性与发布** | 项目来源打包/fetch 已验收；完整构件验证见 §10.7；pyenv 3.13 性能证据已写入 SDK 台账；未公开发布 | P8、无 sibling/PYTHONPATH 的完整 wheel 安装与空/冲突登记运行；远程兼容矩阵留到开发结束后。20 μs 仍不是通过门槛。SDK 先发布，再发布依赖它的 HEP |
 | **S2c 内置方法推广** | 未开始，后续独立范围 | 逐方法验收身份与历史 DATABASE 兼容；不把所有内置方法改造混入 SDK 首发关键路径 |
 | **S3 generational** | 仅有名称/元数据预留，SDK 明确拒绝运行 | 先关闭 R11 的状态与反馈语义缺口，再交付 adapter、模板、离线驱动和 barrier 故障恢复测试 |
 
-下一阶段补齐 P7 特殊故障、远程兼容矩阵和性能证据，再决定源码显式切换是否进入首发。默认严格绑定、项目来源打包和本机完整构件验收是本次落实范围。S2c、S3 后置。当前不宜优先增加更多算法模板。
+本机 P7 故障矩阵已补齐。pyenv 3.13.13 的性能证据已写入 SDK 台账，20 μs 仍是待校准目标；远程兼容矩阵留到开发结束后。2026-10-16 决定 `--accept-plugin-change` 不进入首发。默认严格绑定、项目来源打包和本机完整构件验收是本次落实范围。S2c、S3 后置。当前不宜优先增加更多算法模板。
 
 ### 10.2 审阅发现与待办（2026-10-08）
 
-严重性用“高/中”表示，与对等契约 P1–P9 的编号无关。第二列保留 2026-10-08 审阅时的事实，第三列记录当前状态：R01–R10 的默认 independent 路径已关闭；R11、R12 的发布/跨平台部分以及 R13 的扩展 P7 矩阵仍开放。不得承诺未经联合故障验收的完整恢复对等。
+严重性用“高/中”表示，与对等契约 P1–P9 的编号无关。第二列保留 2026-10-08 审阅时的事实，第三列记录当前状态：R01–R10 的默认 independent 路径已关闭；R11、R12 的发布/跨平台部分仍开放；R13 本机 P7 联合故障部分已在 M2 补齐，不能据此推断跨环境恢复一致性。
 
 | ID / 严重性 / 阶段 | 审阅时的事实与影响 | 当前状态、责任模块与验收 |
 | --- | --- | --- |
@@ -825,8 +824,8 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 | **R09 中 · S1 + SDK 补齐** schema 的展示与校验不一致 | 合法的局部 `$defs/$ref` 在 check 中通过；`cli.man._plugin_method_page` 调 `_key_entries` 未传 schema 根，手册中的 number/说明变成 any/空白。外部引用的离线策略未定 | **已关闭**。HEP man/example 传入 schema 根；SDK 引用解析不自动联网。回归覆盖本地引用的类型/说明/default、无 schema、无效本地与外部引用的离线诊断；schema 仍可省略 |
 | **R10 中 · S1** 协作停止承诺没有实现证据 | `PluginSampler.propose_next` 在 selection 持续拒绝时一直循环；`FixedSetSampler._wait_for_inflight_room` 只 sleep/poll；都没有 §7.6 宣称的中断/scan-mode 检查 | **已关闭（协作停止）**。HEP 回归覆盖全拒绝候选、prefix 重放、inflight 无空位时的 interrupt/paused 状态；真实 Redis/spawn 的运行收到 SIGINT 后 exit 130、保存 checkpoint、清理子进程和 Redis 端口，见 §10.6。无强制用户函数超时；中断后的严格恢复仍属 S2a |
 | **R11 中 · S3 前置** generational 过早声称接口冻结 | `ask(state, context, rng)` 只返回 proposals，随机 proposal 之后的状态归属不清；result 没有 selection 拒绝状态；空代上限、score 缺失、pending 状态恢复未定义。SDK 当前只校验元数据，拒绝载入执行 | **SDK 契约 + HEP FeedbackSampler adapter**：先完成 §4.6 列出的状态机与逐 proposal 终态；toy 优化/反馈算法跑乱序、失败、全拒绝、空代和 barrier 前后中断。通过后再冻结可运行接口，不在首发说明中声称已支持任意 MCMC |
-| **R12 中 · S2b** 可分发性需要构件证据 | 历史 editable/sibling 安装不能证明用户安装；单入口不含其依赖环境 | **源码打包/fetch 已验收，构件结果见 §10.7；公开发布/远程矩阵仍开放**。清单保存 full hash 和环境，同名多版本保留；fetch 拒绝损坏来源而不导入源码。两仓统一完整 wheel/sdist 安装和可选显式上传；HEP API 依赖范围 `>=0.1.0,<0.2`。用户依赖仍由用户安装 |
-| **R13 中 · S1/S2a gate** 测试措辞失真 | 历史完成后 resume 冒充中断验收，slow 参数解析会改变 gate 范围 | **S1 和本次默认严格恢复证据已完成；其余 P7 矩阵仍开放**。真实 SIGINT→覆盖/移除→恢复逐坐标/UUID 核对；full gate 初跑 CLI 两个新增失败已修复并定向回归，最终结果如实见 §10.7 |
+| **R12 中 · S2b** 可分发性需要构件证据 | 历史 editable/sibling 安装不能证明用户安装；单入口不含其依赖环境 | **源码打包/fetch 已验收，构件结果见 §10.7；公开发布/远程矩阵仍开放**。清单保存 full hash 和环境，同名多版本保留；fetch 拒绝损坏来源而不导入源码。两仓统一完整 wheel/sdist 安装和可选显式上传；HEP API 依赖范围 `>1`。用户依赖仍由用户安装 |
+| **R13 中 · S1/S2a gate** 测试措辞失真 | 历史完成后 resume 冒充中断验收，slow 参数解析会改变 gate 范围 | **默认严格恢复与本机 P7 联合故障证据已完成，远程矩阵仍开放**。真实 SIGINT→覆盖/移除→恢复逐坐标/UUID 核对；full gate 初跑 CLI 两个新增失败已修复并定向回归，最终结果如实见 §10.7 |
 
 ### 10.3 历史验证记录与边界
 
@@ -932,11 +931,11 @@ python -m pytest -q -m 'not slow' \
 
 本机 runtime 测试仍为 macOS arm64 / Python 3.13.13 / NumPy 2.5.0。全新完整安装使用 SDK 0.1.0 与 HEP 2.0.14，NumPy 2.5.3，jsonschema 4.26.0；完整依赖版本由构件目录的验证 JSON 记录。运行流程从安装 venv 取 HEP/SDK，清除 PYTHONPATH，隔离 HOME/登记，运行目录没有 sibling 源码。
 
-**发布入口。** SDK `./jhsrel`，HEP `./jhrel --sampler-dist <SDK 构件目录>`；两者支持 `--output`、`--python`、可选 X.Y.Z 和显式 `--upload`。默认只准备，`--dry` 是同义兼容参数且不能与 upload 合用。只有完整 wheel/sdist，禁止 extras/editable/跳过依赖安装。工具和完整安装分别使用临时 venv；SDK 跑已安装 wheel 的完整测试，HEP 跑真实 Redis/spawn 用户工作流与项目包重载。验证成功才导出构件、SHA256SUMS 和依赖版本 JSON；不覆盖已有构件。
+**发布入口。** `./jhrel [X.Y.Z] [--dry]`。它把构件写到 `dist/<version>`，在本地装好并检查，然后发布到 PyPI。`--dry` 停在发布之前。只有完整 wheel/sdist，禁止 extras/editable/跳过依赖安装。工具和完整安装分别使用临时 venv；HEP 跑真实 Redis/spawn 用户工作流与项目包重载。验证成功才导出构件、SHA256SUMS 和依赖版本 JSON；不覆盖已有构件。
 
-源码快照取 Git 跟踪文件的当前内容（包括已暂存新文件），不收集无关未跟踪实验。需先把拟发布文件加入 Git；指定版本时同时更新 pyproject 和 runtime 版本。`--sampler-dist` 显式安装该目录唯一 SDK wheel，避免从索引选到别的构件。上传使用 Twine 非交互流程；CI Trusted Publishing 只接收 wheel/sdist。正式发布前选尚未使用的版本，确认远程 gate、发布 SDK，再发布 HEP；当前验证版本不自动成为正式发布号。
+源码快照取 Git 跟踪文件的当前内容（包括已暂存新文件），不收集无关未跟踪实验。需先把拟发布文件加入 Git；指定版本时同时更新 pyproject 和 runtime 版本。HEP 的 `--sampler-dist` 显式安装该目录唯一 SDK wheel，避免从索引选到别的构件。上传使用 Twine 非交互流程；CI Trusted Publishing 只接收 wheel/sdist。正式发布前选尚未使用的版本，确认远程 gate、发布 SDK，再发布 HEP；当前验证版本不自动成为正式发布号。
 
-**仍未验收的范围。** 远程 Linux/macOS×Python 3.10–3.13 矩阵、最低依赖组合、§9.3 性能测量，以及 P7 的 DATABASE 空洞/部分 batch 失败/拒绝尾段联合故障。显式源码切换、S2c、S3 尚未实现。这些不以本机 smoke 或 146/158 条测试概括为已完成。
+**本节 S2 基线当时未验收的范围（本机 P7 后续见 §10.9）。** 远程 Linux/macOS×Python 3.10–3.13 矩阵、最低依赖组合、§9.3 性能测量，以及 P7 的 DATABASE 空洞/部分 batch 失败/拒绝尾段联合故障。显式源码切换、S2c、S3 尚未实现。这些不以本机 smoke 或 146/158 条测试概括为已完成。
 
 ---
 
@@ -972,6 +971,29 @@ v1.0 中仍然保留的设计：
 - D4 的“冻结”限于预留 profile 名称和已有元数据；运行中的 generational 状态/反馈语义尚需 R11 验收。独立于 S1/S2 首发。
 - D6 的 optional hooks 必须真的可选：基础参数日志、宿主计数和租约维护不能依赖它们。实现修正见 R03/R05。
 - D7 保留硬/软身份与默认 scan 副本的方向，补上确切 hash 绑定、切换源码前的已持久化点一致性检查；相同 UUID 不构成科学一致性证明。内置方法推广调整到 S2c，不抢占外部插件闭环。
+- 2026-10-16：`--accept-plugin-change` 不进入首发，不实现。首发只提供与内置 Sampler 相同的使用体验。已绑定 scan 上 NumPy、Python 或 SDK 变化维持警告后继续。
 - 台账不再把测试条数、源码文件存在、发布 workflow 存在等同于全契约验收或公开发布；今后按 §10.1 的退出条件更新同一份文档。
 
 `recent-code-review.md` 的 F1–F5 属于更早的 HEP bug 审阅，与本台账 R01–R13 分开跟踪；本次未重新核验其修复状态。
+
+
+### 10.8 原生使用 M1 修复与验收
+
+用户再次确认 load 后原生使用与 sampler 统一管理。SDK 在共享锁内取得 entry 和源码并核对 hash，锁外执行同一 bytes；受管快照拒绝绝对路径、越界和 symlink；sources.json 替换是提交点，退役清理失败只告警并保守重试。报告 hook 调用/迭代/转换统一隔离，控制流异常仍传播；NumPy 常见标量正常归一，float64 溢出转为带 cause 和候选位置的 PluginOutputError。五组固定 PCG64 raw 向量补充协议回归，不修改随机流。
+
+SAM-HEP-02 的真实中断先暴露 live cursor 超出 durable prefix，修复为 indexed 只保存已认可的批次安全快照；随后发现 supervisor 在 prefix 重放后再次导入旧 payload，造成重复提交和归档等待，现只给非 indexed 保留晚导入。三组确定性失败回归（check 隔离、安全保存、恢复顺序）已转为通过，正式身份和 prefix 严格拒绝保持，feedback/nested 兼容行为有回归。
+
+本机独立 CLI 跑通 load→query→check×2→run→reload→新 scan→remove→旧绑定 resume，以及空 registry 的 pack/fetch→显式 load→原生运行。真实 SIGINT 的 checkpoint 和 DATABASE-only 两条恢复核对169个 accepted 点的坐标、UUID和来源。完整安装包还复核主/子进程同一 venv、包从 site-packages 导入、五个 HEP 实现文件与工作源码 hash 一致。SDK 新增完整 `examples/MyLatinHypercube.task.yaml`，使用原生命令验证32点LHS设计。
+
+有效测试命令、实际数量、环境、构件与文件 hash 见 [验收记录](native-parity-m1-verification.json)。M1 结束时联合矩阵、并发移除和资源启动重试仍开放，后续本机结果见 §10.9；远程 Linux/macOS/Python、Books 最终教程、显式改源恢复和 generational 保持各自后续范围。
+
+
+### 10.9 本机 M2 联合故障验收
+
+新增 SAM-HEP-03 来自真实稀疏 DATABASE：prefix=2，保留索引0/1/3/6/8（其中1/6为 Failed）。原恢复重复计算3/6/8，最终科学行22却等待25，报归档停滞。现保留 pending={3,6,8} 并在 FixedSet 提交时去重，只新计算17个缺失点；5个 Failed 保持终态。候选37/accepted22、坐标/UUID与不中断参考逐行一致。checkpoint/DB-only × workers/batch=(1,3)/(2,5) 四组真实 Redis/spawn 均通过；稀疏 crash-state 是明确构造的故障夹具，真实 SIGINT 证据独立保留。
+
+补齐两条“22 accepted 已全部 durable，只剩末11候选全拒绝”的恢复：新增提交与 Worker 计算均0，DATABASE不增行，无超时；checkpoint只draw块3/4，DB-only在控制端重放0..4。既有 RunOutcome 在零新任务时 submitted 回退22个历史终态，未改其公共语义；以实际提交返回值和 Worker 调用记录证明零物理计算。
+
+运行中 v1 经 reload v2/remove 后继续完成或 SIGINT→无登记resume，两组各37点全量坐标/UUID一致。资源故障测试记录实际启动的 managed Redis/两个 Worker，失败后全部清理、0科学行；fresh提示 `--resume`，reload/remove与配置/源码拒绝后仍按v1成功重试8点。
+
+最终 fast gate：1519 passed、478 subtests passed、3 skipped、179 slow deselected。安装包23个不同定向用例通过（19项M2新增及4项既有真实check/SIGINT回归，重复复验单列），SDK193项及Ruff通过，wheel/sdist与依赖检查通过。7个 HEP 实现文件与工作源码一致，SDK仍0.1.0/API1/STREAM1/registry1。原始产品失败、夹具隔离修正、实际命令、构件/hash及范围见 [M2验收](native-parity-m2-verification.json)。M2只关闭本机 independent 范围，不宣称CSV/所有内置方法、远程兼容、性能、Books、显式改源或generational已交付。

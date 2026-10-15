@@ -120,6 +120,7 @@ class _ResumeService:
             task_root=task_root,
             scan_name=scan_name,
             sampler_name=sampler_name,
+            check=bool(core.config.get("_check_modules_sample_layout")),
         )
 
     @staticmethod
@@ -229,7 +230,7 @@ class _ResumeService:
 
         (
             core._persisted_index_prefix,
-            pending_indices,
+            core._persisted_pending_indices,
             core._persisted_uuids,
         ) = read_persisted_sample_index_state(database_dir)
         completed, failed = read_persisted_outcome_counts(database_dir)
@@ -242,7 +243,7 @@ class _ResumeService:
         else:
             core._persisted_records_count = (
                 core._persisted_index_prefix
-                + len(pending_indices)
+                + len(core._persisted_pending_indices)
                 + len(core._persisted_uuids)
             )
             core._persisted_failed_count = 0
@@ -265,6 +266,10 @@ class _ResumeService:
             core.sampler.set_persisted_uuids(core._persisted_uuids)
         if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
             core.sampler.set_persisted_prefix(core._persisted_index_prefix)
+        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
+            core.sampler.set_persisted_pending_indices(
+                getattr(core, "_persisted_pending_indices", set())
+            )
         if (
             bool(getattr(core.sampler, "uses_indexed_resume", False))
             and hasattr(core.sampler, "advance_to_persisted_prefix")
@@ -335,13 +340,17 @@ class _ResumeService:
         # Nested samplers override checkpoint_runtime_state to always re-export
         # the live dynesty engine (ignore stale FeedbackSampler barrier copies).
         if hasattr(core.sampler, "checkpoint_runtime_state"):
-            # Interrupt / dynesty_engine_checkpoint: always force a live export
-            # for methods that do not use generation barriers.
-            force_live = str(reason or "") in {
-                "interrupt",
-                "dynesty_engine_checkpoint",
-                "dynesty_finished",
-            } or bool(getattr(core.sampler, "method", "") in {"Dynesty", "MultiNest"})
+            # Feedback/nested engines need their live state on interrupt.
+            # Indexed samplers must retain the newest batch snapshot proven
+            # durable; their live cursor can include unarchived proposals.
+            force_live = not indexed and (
+                str(reason or "") in {
+                    "interrupt",
+                    "dynesty_engine_checkpoint",
+                    "dynesty_finished",
+                }
+                or getattr(core.sampler, "method", "") in {"Dynesty", "MultiNest"}
+            )
             sampler_state = core.sampler.checkpoint_runtime_state(
                 safe=True if force_live else safe
             )

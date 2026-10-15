@@ -21,15 +21,33 @@ def _version_tuple(value: Any) -> tuple[int, ...]:
 
 
 def _meets_minimum(installed: Any, minimum: Any) -> bool:
-    left = _version_tuple(installed)
-    right = _version_tuple(minimum)
-    width = max(len(left), len(right))
-    return left + (0,) * (width - len(left)) >= right + (0,) * (width - len(right))
+    return _meets_operator(installed, ">=", minimum)
 
 
 def _minimum_version(specification: Any) -> str | None:
-    match = re.fullmatch(r"\s*>=\s*(\d+(?:\.\d+)*)\s*", str(specification or ""))
-    return match.group(1) if match else None
+    parsed = _version_operator(specification)
+    if parsed is None or parsed[0] != ">=":
+        return None
+    return parsed[1]
+
+
+def _version_operator(specification: Any) -> tuple[str, str] | None:
+    """Accept ``>=`` and ``>`` floors used by EnvReqs."""
+    match = re.fullmatch(r"\s*(>=|>)\s*(\d+(?:\.\d+)*)\s*", str(specification or ""))
+    if match is None:
+        return None
+    return match.group(1), match.group(2)
+
+
+def _meets_operator(installed: Any, operator: str, bound: Any) -> bool:
+    left = _version_tuple(installed)
+    right = _version_tuple(bound)
+    width = max(len(left), len(right))
+    left = left + (0,) * (width - len(left))
+    right = right + (0,) * (width - len(right))
+    if operator == ">":
+        return left > right
+    return left >= right
 
 
 @dataclass
@@ -87,22 +105,27 @@ def _check_python(requirement: Mapping[str, Any], report: EnvironmentRequirement
             report.warnings.append("Python dependency entry without name; skipping it")
             continue
         required = bool(item.get("required", False))
-        minimum = _minimum_version(item.get("version"))
-        if item.get("version") is not None and minimum is None:
+        spec = _version_operator(item.get("version"))
+        if item.get("version") is not None and spec is None:
             report.warnings.append(
                 f"Python dependency {name} has unsupported version requirement {item['version']!r}; skipping it"
             )
             continue
+        operator, bound = spec if spec is not None else ("", "")
         try:
             version = importlib_metadata.version(name)
         except importlib_metadata.PackageNotFoundError:
             report.summary[name] = None
-            message = f"Python package {name}{'>=' + minimum if minimum else ''} is not installed"
+            suffix = f"{operator}{bound}" if spec is not None else ""
+            message = f"Python package {name}{suffix} is not installed"
             (report.errors if required else report.warnings).append(message)
             continue
         report.summary[name] = version
-        if minimum and not _meets_minimum(version, minimum):
-            message = f"Python package {name}=={version} does not meet the requirement >= {minimum}"
+        if spec is not None and not _meets_operator(version, operator, bound):
+            message = (
+                f"Python package {name}=={version} does not meet the requirement "
+                f"{operator} {bound}"
+            )
             (report.errors if required else report.warnings).append(message)
 
 

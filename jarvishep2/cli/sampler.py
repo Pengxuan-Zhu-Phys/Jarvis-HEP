@@ -14,12 +14,19 @@ from jarvishep2.run_outcome import EXIT_USAGE
 
 def dispatch_sampler(argv: list[str] | None = None) -> int:
     """Handle ``Jarvis sampler``, which is ``jsampler`` with a Jarvis program name."""
+    from jarvishep2.sampler_sdk import SDK_DISTRIBUTION, SDK_SPECIFIER, SamplerSDKError, require_sampler_sdk
+
+    try:
+        require_sampler_sdk()
+    except SamplerSDKError as exc:
+        print(f"[Jarvis] {exc}", file=sys.stderr)
+        return EXIT_USAGE
     try:
         from jarvis_hep_sampler.cli import main as sampler_main
     except ImportError as exc:
         print(
-            "Jarvis-HEP-Sampler is required for `Jarvis sampler`. "
-            "Install it with `pip install -U Jarvis-HEP-Sampler`. "
+            f"{SDK_DISTRIBUTION}{SDK_SPECIFIER} is required for `Jarvis sampler`. "
+            f"Install it with `pip install -U \"{SDK_DISTRIBUTION}{SDK_SPECIFIER}\"`. "
             f"Detail: {exc}",
             file=sys.stderr,
         )

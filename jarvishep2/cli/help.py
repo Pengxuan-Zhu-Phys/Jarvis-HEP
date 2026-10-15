@@ -799,6 +799,9 @@ def build_project_help_parser() -> JarvisArgumentParser:
 
 def build_sampler_help_parser() -> argparse.ArgumentParser:
     """``Jarvis sampler`` uses the same parser as the ``jsampler`` command."""
+    from jarvishep2.sampler_sdk import require_sampler_sdk
+
+    require_sampler_sdk()
     from jarvis_hep_sampler.cli import build_parser
 
     return build_parser("Jarvis sampler")

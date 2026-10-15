@@ -83,6 +83,9 @@ EnvReqs:
       - name: Jarvis-HEP-Portal
         required: true
         version: ">=1.5.1"
+      - name: Jarvis-HEP-Sampler
+        required: true
+        version: ">1"
       - name: Jarvis-Operas
         required: true
         version: ">=1.4.1"
