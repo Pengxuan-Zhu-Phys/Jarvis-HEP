@@ -678,13 +678,62 @@ def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture
     assert dispatch_sampler(["list"]) == 0
     listing = capsys.readouterr().out
     assert "MyScan" in listing and "LatinHypercube" in listing and "Grid" in listing
-    assert "Jarvis-HEP:" in listing
+    assert "Jarvis-HEP" in listing
     assert dispatch_sampler(["info", "Grid"]) == 0
     assert "built-in" in capsys.readouterr().out
     assert dispatch_sampler(["info", "NotLoaded"]) != 0
     assert dispatch_sampler(["remove", "MyScan", "--yes"]) == 0
     assert sampler_catalog.spec_for("MyScan") is None
     assert target.exists()
+
+
+def test_cli_json_list_and_info_include_builtins(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    from jarvishep2 import __version__
+    from jarvishep2.cli.sampler import dispatch_sampler
+
+    assert dispatch_sampler(["list", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed["ok"] is True and listed["command"] == "list" and listed["samplers"] == []
+    shipped = {row["method"]: row for row in listed["jarvis_hep"]}
+    assert shipped["Grid"] == {
+        "method": "Grid",
+        "version": __version__,
+        "profile": "independent",
+        "source": "Jarvis-HEP",
+        "status": "built-in",
+    }
+    assert shipped["LatinHypercube"]["source"] == "Jarvis-HEP"
+    assert shipped["LatinHypercube"]["status"] == "built-in"
+
+    assert dispatch_sampler(["--json", "info", "grid"]) == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["ok"] is True and info["method"] == "Grid" and info["status"] == "built-in"
+    assert info["family"] == "simple" and info["statistical"] is False
+    assert info["options_schema"] is False and info["functions"] == []
+    assert info["source"] == "Jarvis-HEP"
+    assert info["manual"] == "Jarvis man sampler.Grid"
+
+    assert dispatch_sampler(["info", "LatinHypercube", "--json"]) == 0
+    latin = json.loads(capsys.readouterr().out)
+    assert latin["ok"] is True and latin["method"] == "LatinHypercube"
+    assert latin["options_schema"] is True and "draw" in latin["functions"]
+    assert latin["source"] == "sampling/plugins/latin_hypercube.py"
+    assert latin["description"] and latin["status"] == "built-in"
+
+    assert dispatch_sampler(["info", "NotLoaded", "--json"]) != 0
+    assert json.loads(capsys.readouterr().out)["ok"] is False
+
+    assert dispatch_sampler(["-h"]) == 0
+    root_help = capsys.readouterr().out
+    assert "--json" in root_help
+    assert "samplers shipped with Jarvis-HEP" in root_help
+    commands = root_help.split("Commands", 1)[1]
+    order = ("init", "check", "load", "list", "info", "remove")
+    assert [commands.index(name) for name in order] == sorted(commands.index(name) for name in order)
+    assert dispatch_sampler(["check", "-h"]) == 0
+    check_help = capsys.readouterr().out
+    assert "--json" in check_help and "--dimension" in check_help
+    assert "Check a sampler offline" in check_help
 
 
 def test_cli_check_reports_a_broken_plugin(tmp_path: Path, home: Path) -> None:

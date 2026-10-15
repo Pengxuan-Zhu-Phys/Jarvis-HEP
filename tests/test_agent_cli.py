@@ -47,6 +47,12 @@ def test_catalog_covers_actual_cli_and_describes_execution_boundaries():
     assert entries["check"]["effect"] == entries["run"]["effect"] == "execute"
     assert entries["sampler check"]["effect"] == "execute"
     assert entries["sampler load"]["effect"] == "execute_write"
+    for command in (
+        "sampler init", "sampler check", "sampler load",
+        "sampler list", "sampler info", "sampler remove",
+    ):
+        assert entries[command]["output_formats"] == ["text", "json"]
+        assert any("--json" in row["flags"] for row in entries[command]["arguments"])
     assert entries["validate"]["effect"] == "validate"
     assert entries["kill"]["effect"] == "terminate"
     for command in ("man", "plot", "portal", "operas"):

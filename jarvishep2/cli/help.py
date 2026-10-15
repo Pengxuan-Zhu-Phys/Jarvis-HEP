@@ -83,6 +83,9 @@ _COMMAND_HELP_ORDER = {
 }
 _SUBCOMMAND_HELP_ORDER = {
     "redis": {"info": 0, "check": 1, "install": 2, "start": 3},
+    # init -> check -> load -> list -> info -> remove. Without this, check and
+    # info jump ahead because those names also exist on the top-level CLI.
+    "sampler": {"init": 0, "check": 1, "load": 2, "list": 3, "info": 4, "remove": 5},
 }
 
 
@@ -679,7 +682,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ``sampler`` uses argv passthrough to its own sub-parser.
     sub.add_parser(
         "sampler",
-        help="Your own samplers (same as jsampler; list and info also show Jarvis-HEP methods)",
+        help="Your own samplers (same as jsampler)",
         add_help=False,
     )
 
@@ -797,14 +800,91 @@ def build_project_help_parser() -> JarvisArgumentParser:
     return parser
 
 
-def build_sampler_help_parser() -> argparse.ArgumentParser:
-    """``Jarvis sampler`` uses the same parser as the ``jsampler`` command."""
-    from jarvishep2.sampler_sdk import require_sampler_sdk
+def build_sampler_help_parser() -> JarvisArgumentParser:
+    """Document ``Jarvis sampler`` in the same panels as the other Jarvis commands.
 
-    require_sampler_sdk()
-    from jarvis_hep_sampler.cli import build_parser
+    Execution still forwards to ``jsampler``. ``list`` and ``info`` also show
+    the samplers shipped with Jarvis-HEP.
+    """
+    json_flag = argparse.ArgumentParser(add_help=False)
+    json_flag.add_argument(
+        "--json",
+        action="store_true",
+        help="Print one plain JSON object instead of the formatted view",
+    )
+    parser = JarvisArgumentParser(
+        prog="Jarvis sampler",
+        description=(
+            "Write your own sampler as one Python file, load it once, then use it as "
+            "Sampling.Method. list and info also show the samplers shipped with Jarvis-HEP."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[json_flag],
+    )
+    parser.add_argument(
+        "-v", "--version", action="store_true", help="Print the Jarvis-HEP-Sampler version",
+    )
+    sub = parser.add_subparsers(
+        dest="sampler_command", required=False, parser_class=JarvisArgumentParser,
+    )
 
-    return build_parser("Jarvis sampler")
+    init = sub.add_parser(
+        "init",
+        parents=[json_flag],
+        help="Create a sampler file from the template",
+        description="Create a sampler file from the template",
+    )
+    init.add_argument("method", help="Sampling.Method name, for example MyLatinHypercube")
+    init.add_argument("--output", help="File or directory to write (default ./<Method>.py)")
+
+    check = sub.add_parser(
+        "check",
+        parents=[json_flag],
+        help="Check a sampler offline (no Redis)",
+        description="Check a sampler offline (no Redis)",
+    )
+    check.add_argument("target", help="Sampler file, or the name of a loaded sampler")
+    context = check.add_mutually_exclusive_group()
+    context.add_argument("--dimension", type=int, help="Number of variables (default 2)")
+    context.add_argument("--card", help="Task YAML to take Variables and Bounds from")
+    check.add_argument("--options", help="YAML file with the sampler's Bounds options")
+    check.add_argument(
+        "--points", type=int, help="Total candidate budget (default: the card's, else 100)",
+    )
+    check.add_argument("--seed", type=int, help="Seed (default: the card's, else 0)")
+
+    load = sub.add_parser(
+        "load",
+        parents=[json_flag],
+        help="Load or replace a sampler for every new run",
+        description="Load or replace a sampler for every new run",
+    )
+    load.add_argument("file", help="Sampler .py file")
+
+    sub.add_parser(
+        "list",
+        parents=[json_flag],
+        help="List loaded samplers, then the samplers shipped with Jarvis-HEP",
+        description="List loaded samplers, then the samplers shipped with Jarvis-HEP",
+    )
+
+    info = sub.add_parser(
+        "info",
+        parents=[json_flag],
+        help="Show one loaded sampler, or one sampler shipped with Jarvis-HEP",
+        description="Show one loaded sampler, or one sampler shipped with Jarvis-HEP",
+    )
+    info.add_argument("method", help="Sampling.Method name")
+
+    remove = sub.add_parser(
+        "remove",
+        parents=[json_flag],
+        help="Unload a sampler (your file is kept)",
+        description="Unload a sampler (your file is kept)",
+    )
+    remove.add_argument("method", help="Sampling.Method name")
+    remove.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
+    return parser
 
 
 def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:

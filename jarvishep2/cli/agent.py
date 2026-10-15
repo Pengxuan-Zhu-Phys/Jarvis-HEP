@@ -41,12 +41,12 @@ _EFFECTS: dict[str, tuple[str, str, list[str]]] = {
     "project browse": ("network", "Fetch the official project library index.", ["text"]),
     "project info": ("network", "Fetch official project metadata.", ["text"]),
     "project fetch": ("network_write", "Download and extract an official project locally.", ["text"]),
-    "sampler init": ("write", "Write a sampler Python source template.", ["text"]),
-    "sampler check": ("execute", "Import and execute sampler code offline; no Redis does not mean no execution.", ["text"]),
-    "sampler load": ("execute_write", "Import/check sampler code and persist a user registry snapshot; can replace an entry.", ["text"]),
-    "sampler list": ("query", "Read samplers loaded by jsampler, then the samplers shipped with Jarvis-HEP.", ["text"]),
-    "sampler info": ("query", "Read one loaded sampler, or one sampler shipped with Jarvis-HEP.", ["text"]),
-    "sampler remove": ("write", "Remove a user registry entry; --yes skips the CLI prompt.", ["text"]),
+    "sampler init": ("write", "Write a sampler Python source template.", ["text", "json"]),
+    "sampler check": ("execute", "Import and execute sampler code offline; no Redis does not mean no execution.", ["text", "json"]),
+    "sampler load": ("execute_write", "Import/check sampler code and persist a user registry snapshot; can replace an entry.", ["text", "json"]),
+    "sampler list": ("query", "Read samplers loaded by jsampler, then the samplers shipped with Jarvis-HEP.", ["text", "json"]),
+    "sampler info": ("query", "Read one loaded sampler, or one sampler shipped with Jarvis-HEP.", ["text", "json"]),
+    "sampler remove": ("write", "Remove a user registry entry; --yes skips the CLI prompt.", ["text", "json"]),
 }
 
 
