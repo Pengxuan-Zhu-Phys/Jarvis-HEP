@@ -101,4 +101,4 @@ VAL-01、RUN-01、MON-01、MON-02、PLOT-01、CLI-01、OPR-01 的具体验收以
 
 验收必须针对干净 committed source 的完整 wheel/sdist，覆盖安装包 Redis 帮助/JSON/agent、pip check、真实 Redis/spawn 运行和相关回归。允许以保持原样的本地已验收 SDK 0.1.0 wheel 验证候选，明确区别于公开索引完整安装；Sampler 仍返回 PyPI 404 时，只能准备候选/draft，正式发布等待依赖可用。本次不改动或发布 SDK。
 
-本阶段验收：待本阶段测试结果补录；此前 Redis 202/25 等结果保留为开发历史。授权、提交与发布实际状态见 [2.0.17 发行记录](release-2.0.17.md)，不得提前记为完成。
+本阶段验收：干净 detached 源码 `1c8c82fc` 全量 fast gate：1489 passed、3 skipped（缺少 sibling Jarvis-Examples）、166 deselected、478 subtests；完整隔离安装与 pip check、真实 Redis/spawn/project reload、24 项 installed agent、39 项 installed Redis 和 22 项发行回归全部通过。代码提交 `569d3865` 与发行测试环境补正 `1c8c82fc` 均已 push；用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次完成候选和 draft，不公开发布 HEP/SDK。详见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。

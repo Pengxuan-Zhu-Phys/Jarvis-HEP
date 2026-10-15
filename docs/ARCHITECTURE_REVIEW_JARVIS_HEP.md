@@ -101,4 +101,4 @@ Redis-only 授权包含环境/CLI 层及对应测试文档、HEP 版本声明，
 
 现有 committed baseline 仍需要 SDK >=0.1.0,<0.2；使用不变的本地已验收 SDK 0.1.0 wheel 完整安装候选是测试安排，不改变依赖声明也不证明公共索引解析可用。2026-10-15 Sampler PyPI 404 阻断正式 HEP 发布，本次不修改/代发布 SDK；依赖解决前保留候选/draft 状态。
 
-本阶段干净源码/安装包 Redis gate、pip check、真实 Redis/spawn 与发行回归结果：待本阶段测试结果补录。此前 Redis 202 项定向/25 项安装检查为历史，不替代当前源码验收。状态详见 [2.0.17 发行记录](release-2.0.17.md)。
+本阶段结果：干净 detached 源码 `1c8c82fc` 全量 fast gate：1489 passed、3 skipped（缺少 sibling Jarvis-Examples）、166 deselected、478 subtests；完整隔离安装与 pip check、真实 Redis/spawn/project reload、24 项 installed agent、39 项 installed Redis 和 22 项发行回归全部通过。发行测试为 detached HEAD 固定自身分支输入，只修改测试 fixture，未改变 monitor 生产代码。完整 wheel 289 个文件内容与已完整安装验收的初版逐字节一致；sdist 412 项 tracked 文件与最终源码相符。代码提交 `569d3865` 与发行测试环境补正 `1c8c82fc` 均已 push；用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次完成候选和 draft，不公开发布 HEP/SDK。详见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。

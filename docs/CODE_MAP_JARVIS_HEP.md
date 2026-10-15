@@ -106,7 +106,7 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 | --- | --- | --- |
 | 发行版本 | `pyproject.toml`、`jarvishep2/__init__.py` | 2.0.17 一致；pyproject 不带入现有 Diver package-data 编辑 |
 | Redis 用户接口 | Redis notice/server 诊断、CLI redis/client/help、agent 发现及对应测试 | 干净 committed source 构建后的 installed Redis help/JSON/agent gate |
-| 完整发行包 | 既有 `scripts/full-release.sh` / `jhrel` 与安装 smoke | wheel/sdist 范围、完整安装、pip check、真实 Redis/spawn 与发行回归 |
+| 完整发行包 | `scripts/full-release.sh` / `jhrel`、`scripts/smoke_redis_install.py` 与安装 smoke | wheel/sdist 范围、完整安装、pip check、真实 Redis/spawn 与发行回归 |
 | 发布状态与范围 | `docs/release-2.0.17.md`、`RELEASING.md` | 区分 commit/push/候选/draft/公开发布，记录 SDK 公共依赖阻断 |
 
-工作区未提交 Sampler/runtime/Diver/审阅文件排除；既有已提交 SDK 集成和依赖声明保持。本阶段结果：待本阶段测试结果补录。开发阶段 Redis 202/25 为历史；不可用本地 SDK 验收代替公共索引可安装证明。具体见 [2.0.17 发行记录](release-2.0.17.md)。
+工作区未提交 Sampler/runtime/Diver/审阅文件排除；既有已提交 SDK 集成和依赖声明保持。`tests/test_monitor_tui.py` 的既有 splash 测试固定分支输入，支持发行标签的 detached 检出；没有修改生产 monitor。干净 detached 源码 `1c8c82fc` 全量 fast gate：1489 passed、3 skipped（缺少 sibling Jarvis-Examples）、166 deselected、478 subtests；完整隔离安装与 pip check、真实 Redis/spawn/project reload、24 项 installed agent、39 项 installed Redis 和 22 项发行回归全部通过。代码提交 `569d3865` 与发行测试环境补正 `1c8c82fc` 均已 push；用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次完成候选和 draft，不公开发布 HEP/SDK。详见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。

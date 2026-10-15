@@ -98,9 +98,9 @@
 
 | 阶段 | 范围 | 状态/结束门槛 |
 | --- | --- | --- |
-| 范围与版本 | 只提交 Redis 两阶段改进、对应测试文档、HEP 2.0.17 声明 | 已获授权；排除本轮 Sampler/runtime/Diver，实际 commit/push 结果待记录 |
-| 干净源码候选 | 从 committed source 构建完整 wheel/sdist 并核对文件 | 待本阶段测试结果补录；不沿用 dirty checkout 或开发阶段计数 |
-| 安装包验收 | 完整依赖、pip check、installed Redis gate、真实 Redis/spawn、发行回归 | 可用保持原样的本地已验收 SDK 0.1.0 wheel，仅证明候选；结果待补录 |
-| draft/公开发布 | 正常 GitHub Release/Trusted Publishing | 2026-10-15 Sampler PyPI 404 阻断正式 HEP 发布；可先准备 draft，不修改或发布 SDK |
+| 范围与版本 | 只提交 Redis 两阶段改进、对应测试文档、HEP 2.0.17 声明 | 已提交并 push：`569d3865`；detached 测试补正 `1c8c82fc`；排除本轮 Sampler/runtime/Diver |
+| 干净源码候选 | 从 committed source 构建完整 wheel/sdist 并核对文件 | 已完成：干净 detached `1c8c82fc`；wheel 283 个运行文件、sdist 412 项 tracked 文件核对相符 |
+| 安装包验收 | 完整依赖、pip check、installed Redis gate、真实 Redis/spawn、发行回归 | 已通过：完整隔离安装/pip check、真实运行、agent 24/Redis 39/回归 22；全量 1489 passed、478 subtests；使用未改动 SDK 0.1.0 候选 |
+| draft/公开发布 | 正常 GitHub Release/Trusted Publishing | draft 已创建；用户选择仅完成 HEP 候选，SDK 发布保留待办；Sampler PyPI 404，HEP/SDK 均未公开发布 |
 
-本次用户授权取代此前 Redis 阶段“不 bump/不发布”范围，但没有扩大到当前 Sampler 工作。以前的 Redis 202/25 与 fast gate 为历史；完整状态和证据随实际操作更新于 [2.0.17 发行记录](release-2.0.17.md)。不将准备完成误记为公开发布成功。
+本次用户授权取代此前 Redis 阶段“不 bump/不发布”范围，但没有扩大到当前 Sampler 工作。以前的 Redis 202/25 与 fast gate 为历史；本次状态和证据见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。不将准备完成误记为公开发布成功。

@@ -4,7 +4,7 @@
 
 ## 产品与执行模型
 
-发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，Redis CLI 发行候选准备中，尚未公开发布。Python 最低版本为 3.10。
+发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，Redis CLI 发行候选已验收，尚未公开发布。Python 最低版本为 3.10。
 
 每次扫描由控制进程管理独立 Redis、spawn Worker 和 Archiver。Worker 执行 Operas 或外部 calculator；Archiver 持久化样本结果，控制进程负责采样、等待、恢复和清理。监控按已知扫描与进程读取运行数据。
 
@@ -106,4 +106,4 @@ Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator 
 
 从干净 Redis-only committed source 构建完整 wheel/sdist并执行安装包 Redis gate、pip check、真实 Redis/spawn smoke 与相关发行回归。可以使用保持原样的已验收本地 SDK 0.1.0 wheel 验证候选；不能据此声称公开索引安装已成立。2026-10-15 PyPI 快照为 HEP 2.0.14、Operas 1.5.0、Sampler HTTP 404，既有 SDK 依赖尚阻断正式 HEP 发布；本次不修改或发布 SDK。
 
-本阶段验收：待本阶段测试结果补录。此前 Redis 202/25 和 fast gate 只属开发阶段历史；commit/push/draft 状态以实际结果为准，不提前声称完成。具体范围、依赖阻断与状态见 [2.0.17 发行记录](release-2.0.17.md)。
+本阶段验收：干净 detached 源码 `1c8c82fc` 全量 fast gate：1489 passed、3 skipped（缺少 sibling Jarvis-Examples）、166 deselected、478 subtests；完整隔离安装与 pip check、真实 Redis/spawn/project reload、24 项 installed agent、39 项 installed Redis 和 22 项发行回归全部通过。代码提交 `569d3865` 与发行测试环境补正 `1c8c82fc` 均已 push；用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次完成候选和 draft，不公开发布 HEP/SDK。详见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。

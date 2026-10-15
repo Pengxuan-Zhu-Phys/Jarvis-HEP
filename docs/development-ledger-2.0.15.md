@@ -204,7 +204,7 @@ agent command catalog、exact `--command` 与 search 同步公开四个 child co
 2. **Affected modules**：Redis 环境/缺失程序诊断、CLI/help/agent 发现、对应测试文档与两处版本声明；未提交 Sampler/runtime/Diver/package-data/审阅资料排除。
 3. **Public interfaces**：发布开发阶段已实现的 Redis 正式子命令、独立 help、JSON/agent 发现；不改 YAML 结构、扫描算法或既有 SDK 依赖。
 4. **Main risks**：dirty workspace 被误打包；以历史 202/25 测试或本地 SDK 安装等同本次发行验收/公开索引可安装；依赖缺失时误公开 HEP。
-5. **Verification performed**：待本阶段测试结果补录；commit、push、wheel/sdist、installed gate 与 draft 状态待实际结果记录，不提前声称完成。
+5. **Verification performed**：干净 detached 源码 `1c8c82fc` 全量 fast gate：1489 passed、3 skipped（缺少 sibling Jarvis-Examples）、166 deselected、478 subtests；完整隔离安装与 pip check、真实 Redis/spawn/project reload、24 项 installed agent、39 项 installed Redis 和 22 项发行回归全部通过。代码提交 `569d3865` 与发行测试环境补正 `1c8c82fc` 均已 push；用户随后选择“暂只完成 HEP 候选，保留 SDK 发布待办”。本次完成候选和 draft，不公开发布 HEP/SDK。详见 [2.0.17 发行记录](release-2.0.17.md) 与 [发行验收证据](release-2.0.17-verification.json)。
 
 本次授权取代前两阶段“不 bump/不发布”的范围约束，仅纳入 Redis 实现/测试/文档及 HEP 2.0.17 声明，保留其它工作区编辑。发行必须从 Redis-only 干净 committed source 构建，核对 wheel/sdist 范围，再完整安装执行 pip check、Redis parent/child help/JSON/agent gate、真实 Redis/spawn 和相关回归；开发阶段 202/25 与 full gate 只属历史证据。
 
