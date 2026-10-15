@@ -87,6 +87,37 @@ class AgentValidationTests(unittest.TestCase):
         self.assertEqual(payload["scan_name"], "agent_validation")
         self.assertEqual(payload["issues"], [])
 
+    def test_human_success_accepts_the_base_report_without_a_notes_api(self) -> None:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
+            mock.patch("jarvishep2.core.Jarvis2Core") as core,
+            mock.patch("jarvishep2.redis_queue.RedisQueue") as redis,
+        ):
+            code = dispatch_validate(str(self.card))
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("Config validation successful", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+        core.assert_not_called()
+        redis.assert_not_called()
+
+    def test_human_success_preserves_base_report_warnings(self) -> None:
+        report = ValidationReport([
+            issue("warning", "JV2-FUTURE-001", "$.Sampling.Bounds", "Review the proposed budget")
+        ])
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
+            mock.patch("jarvishep2.task_validation.validate_task_config", return_value=report),
+        ):
+            code = dispatch_validate(str(self.card))
+        self.assertEqual(code, EXIT_OK)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("Config validation successful", stderr.getvalue())
+        self.assertIn("Config validation warnings", stderr.getvalue())
+        self.assertIn("Review the proposed budget", stderr.getvalue())
+
     def test_known_schema_and_semantic_issues_have_callable_manual_commands(self) -> None:
         self.card.write_text(
             _VALID_CARD.replace("point_number: 10", "point_number: 0")
