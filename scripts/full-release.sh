@@ -112,6 +112,7 @@ cd "$work/verify"
 "$install_python" -I "$work/source/scripts/smoke_install.py" "$version"
 if [[ "$package" == 'Jarvis-HEP' ]]; then
   "$install_python" -I "$work/source/scripts/smoke_agent_install.py" "$version"
+  "$install_python" -I "$work/source/scripts/smoke_redis_install.py" "$version"
 fi
 if [[ -f "$work/source/tests/test_release_2015_regressions.py" ]]; then
   "$install_python" -m pip install --disable-pip-version-check pytest fakeredis colorlog
@@ -141,6 +142,7 @@ assert m.version(p['name']) == p['version']
 report = {'distribution': p['name'], 'version': p['version'], 'installation': 'complete wheel with all dependencies',
           'checks': {'twine': 'passed', 'pip_check': 'passed', 'installed_smoke': 'passed',
                      'installed_agent_smoke': 'passed' if p['name'] == 'Jarvis-HEP' else 'not included',
+                     'installed_redis_smoke': 'passed' if p['name'] == 'Jarvis-HEP' else 'not included',
                      'release_regressions': 'passed' if (source/'tests/test_release_2015_regressions.py').exists() else 'not included'},
           'artifacts': {f.name: hashlib.sha256(f.read_bytes()).hexdigest() for f in wheels+sdists},
           'installed_dependencies': {d.metadata['Name']: d.version for d in m.distributions()}}

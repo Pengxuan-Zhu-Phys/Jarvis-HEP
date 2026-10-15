@@ -9,9 +9,12 @@ command. For the fields you can use in a task YAML, run `Jarvis man` or see the
 
 - **Python ≥ 3.10** (Workers use the `spawn` multiprocessing context; macOS and Linux supported)
 - **Redis server program** (`redis-server`, `redis6-server`, or the compatible
-  `valkey-server`) installed on the machine. Jarvis starts and stops its own Redis
-  for each scan, so you do not run a Redis service yourself. Tests do *not* need
-  one — the suite runs on `fakeredis`.
+  `valkey-server`) installed on the machine; Redis must be 6.2 or newer. Jarvis
+  starts and stops its own Redis for each scan, so you do not run a Redis service
+  yourself. Many unit tests use `fakeredis`; real runtime/integration tests need
+  a Redis-compatible server program.
+- **Windows:** use WSL, and install and run both Jarvis-HEP and Redis inside the
+  Linux environment. The scan runtime is not supported on native Windows.
 
 ## Install
 
@@ -91,12 +94,13 @@ running it.
 ## Redis
 
 Jarvis uses Redis to pass work between its processes. You only need to
-**install** the Redis server program; do **not** start it as a service:
+**install** the Redis server program; a global Redis service is not required:
 
 ```bash
 # macOS
 brew install redis            # no `brew services start redis`
-# Ubuntu / Debian
+# Ubuntu 24.04 / Debian 12 (older releases: use `Jarvis redis install`)
+sudo apt update
 sudo apt install -y redis-server
 ```
 
@@ -104,9 +108,12 @@ For every scan, Jarvis starts its own Redis server on the local machine (it
 shows up as `Jarvis-Redis:<scan>` in `Jarvis ps`) and stops it when the scan
 ends or you press Ctrl+C.
 
-The port comes from `EnvReqs.V2.redis.port` in the project's
-`deps/environment_default.yaml` (default 6379). If something else already uses
-that port, for example a Redis service you started yourself:
+Redis settings are configured in YAML under `EnvReqs.V2.redis` (`host`, `port`,
+and `db`; defaults `127.0.0.1`, `6379`, and `0`). For project cards, the port
+usually comes from the project's `deps/environment_default.yaml`. This corrects
+the older installation guide's statement that Redis was not configured in task
+YAML. If something else already uses that port, for example a Redis service you
+started yourself:
 
 - for task cards that load the project's default environment
   (`EnvReqs.Check_default_dependencies.default_yaml_path`, as in the cards made
@@ -120,54 +127,141 @@ that port, for example a Redis service you started yourself:
 Some Linux packages start a Redis service automatically when installed; stop and
 disable it the same way if you see that error.
 
+### Redis environment commands
+
+```bash
+Jarvis redis                    # same as `Jarvis redis info`
+Jarvis redis info               # OS/distro, executable, version and setup instructions
+Jarvis redis check              # fresh PATH lookup and bounded --version check
+Jarvis redis install            # installation instructions only
+Jarvis redis start              # startup instructions only
+Jarvis redis check --json        # --json is available for every topic
+```
+
+Use the same command-group help layout as the rest of the CLI:
+
+```bash
+Jarvis redis --help              # list the four commands and shared options
+Jarvis redis info --help         # overview help
+Jarvis redis check --help        # environment-check help and exit behavior
+Jarvis redis install --help      # installation-guidance help
+Jarvis redis start --help        # startup-guidance help
+```
+
+Each command has its own description and options, including `--json`. The JSON
+flag works before or after the command: `Jarvis redis --json check` and
+`Jarvis redis check --json` are equivalent. Bare `Jarvis redis` and
+`Jarvis redis --json` still select `info`. Agents can discover the same exact
+child commands through `Jarvis agent --command "redis check" --json` or
+`Jarvis agent search "redis check" --json`.
+
+`info` and `check` inspect the executable with a bounded `--version` subprocess.
+`check` returns 0 for a usable compatible executable and 1 when it is absent,
+cannot execute, reports an unknown/old version (Redis < 6.2), or runs on native
+Windows. An environment check does not contact Redis, test a port, verify a
+running service, or start a scan. `install` and `start` only print instructions,
+and do not execute the server or package manager. All topics support one JSON
+report on stdout with `--json`.
+
+For normal scans, use `Jarvis run TASK.yaml`: Jarvis handles startup and cleanup.
+`Jarvis redis start` explains this and prints an optional foreground debugging
+command, using the detected server binary, equivalent to:
+
+```bash
+redis-server --bind 127.0.0.1 --port 6380 --save "" --appendonly no
+```
+
+This manual instance binds only to loopback, uses a separate example port, and
+disables persistence. It is optional; stop it with Ctrl+C. The guide does not
+check whether port 6380 is free. The printed command uses `valkey-server` or
+`redis6-server` where appropriate.
+
 ### First-command Redis check
 
-After the first `Jarvis` command, V2 checks for a Redis-compatible server
+After the first `Jarvis` command following installation, V2 checks for a Redis-compatible server
 executable (`redis-server`, `redis6-server`, or `valkey-server`). If none is
-installed, Jarvis prints an OS-specific command after the normal command
-output. For example:
+installed, Jarvis prints OS-specific installation and startup guidance to
+stderr after the normal command output, keeping JSON stdout parseable. This
+PATH-only check does not run a version subprocess. It runs on first CLI use,
+not during `pip install`. Use `Jarvis redis check` to recheck at any time.
+For example:
 
 ```bash
 # macOS (Homebrew's `redis` formula provides `redis-server`)
 brew install redis
 
-# Ubuntu / Debian
+# Ubuntu 24.04 / Debian 12 (older releases: use `Jarvis redis install`)
+sudo apt update
 sudo apt install -y redis-server
 ```
 
-Linux hints also cover the common package families below; unknown Linux
-distributions fall back to whichever package manager is detected on `PATH`:
+Linux hints use the concrete distribution ID first, then its ID_LIKE family;
+unknown distributions fall back to the package manager detected on `PATH`.
+The installation guidance includes `apt update`/`apt-get update` or `apk update`
+where appropriate, followed by the package command below:
 
-| Distribution family | Suggested command |
+| Distribution family | Installation guidance |
 | --- | --- |
+| Ubuntu 20.04 / 22.04, Debian 11 | `Jarvis redis install` prints the signed Redis APT repository steps, then `sudo apt-get install -y redis` |
+| Older Ubuntu / Debian releases without a verified recipe | Documentation and upgrade guidance; no unverified package command |
+| Modern Debian / Ubuntu, e.g. Debian 12 / Ubuntu 24.04, and derivatives | `sudo apt install -y redis-server`; verify the installed version |
 | Fedora | `sudo dnf install -y valkey` |
-| RHEL / CentOS / Rocky / Alma | `sudo dnf install -y redis` |
+| RHEL / CentOS / Rocky / Alma family, version 10+ | `sudo dnf install -y valkey` |
+| RHEL family, version 8 | `sudo dnf module install -y redis:6` with updated AppStream repositories |
+| RHEL family, earlier or unknown version | `sudo dnf install -y redis` (or `yum` if `dnf` is absent) |
 | Amazon Linux 2023 | `sudo dnf install -y valkey` |
 | Amazon Linux 2 | `sudo amazon-linux-extras install redis6 -y` |
 | Arch / Manjaro / Artix | `sudo pacman -S valkey` |
 | openSUSE / SLES | `sudo zypper install -y redis` |
-| Alpine | `sudo apk add redis` |
+| Alpine 3.20+ or unknown version | `sudo apk add valkey` |
+| Alpine before 3.20 or edge | `sudo apk add redis` |
 | Gentoo | `sudo emerge --ask dev-db/redis` |
 | Void | `sudo xbps-install -S redis` |
 | NixOS | `nix profile install nixpkgs#redis` |
 | Solus / Mageia | `sudo eopkg install redis` / `sudo urpmi redis` |
 
-Package names and service commands can vary by release. Fedora and Arch now
-ship Valkey in their maintained repositories; Valkey is Redis-protocol
-compatible and Jarvis recognizes its `valkey-server` binary. Jarvis only
-prints the suggestion and never executes it.
+Ubuntu 20.04/22.04 and Debian 11 have default Redis packages below Jarvis's
+minimum. Their printed recipe installs prerequisites, writes the official Redis
+signing key and signed APT source for the known distribution codename, refreshes
+APT, and installs `redis`. It changes system key/source files only when you run
+the commands yourself. See the [official Redis APT installation guide](https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/apt/).
+Other older Ubuntu/Debian releases without a verified repository recipe receive
+documentation and upgrade guidance instead of an ordinary package command that
+would install an incompatible version. A derivative's VERSION_ID is not used
+as the parent distribution's repository release.
+
+RHEL 8 requires the `redis:6` stream and current AppStream repositories:
+[RHEL 8.7 rebased that stream to Redis 6.2.7](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/8.7_release_notes/new-features).
+Repositories pinned to earlier releases can still provide Redis 6.0. Update the
+enabled repositories and rerun `Jarvis redis check`; if `redis:5` is already
+enabled or installed, follow the distribution's stream-switching instructions
+first. Older or unknown RHEL-family versions retain a package-manager hint,
+with no promise that the available package meets the minimum.
+
+Package availability and versions vary by OS release and enabled repositories;
+run `Jarvis redis check` after installation to verify the local executable.
+Valkey is Redis-protocol compatible and Jarvis recognizes `valkey-server`.
+The version-specific changes are documented by [RHEL 10](https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/considerations_in_adopting_rhel_10/infrastructure-services),
+[Alpine 3.20](https://pkgs.alpinelinux.org/package/v3.20/main/x86_64/valkey),
+[Amazon Linux 2023](https://docs.aws.amazon.com/linux/al2023/ug/redis6-to-valkey-al2023.html),
+and [Arch Linux](https://archlinux.org/news/valkey-to-replace-redis-in-the-extra-repository/).
+Jarvis only prints these suggestions and never executes them.
 
 This is a one-time advisory and never runs the package manager automatically.
 The completion marker is `~/.jarvis/redis-install-check-v1`; remove that marker
 if you intentionally want Jarvis to show the onboarding check again.
 
-> Redis is managed by Jarvis and is not configured in task YAML. If no Redis server
-> program is installed, `Jarvis run` fails early with a message saying so.
+If no Redis-compatible server program is installed, `Jarvis run` fails early
+with an installation hint. These instructions only print commands; users run
+them themselves. On native Windows, the guide recommends
+`wsl --install -d Ubuntu` in Administrator PowerShell, restarting when requested,
+then installing and running Jarvis-HEP and Redis inside Ubuntu. See the
+[Microsoft WSL installation guide](https://learn.microsoft.com/en-us/windows/wsl/install).
 
 ## Verify
 
 ```bash
-python3 -m pytest -q          # full suite; fakeredis opens a local test socket
+python3 -m pytest -q          # many tests use fakeredis; runtime/integration tests need Redis
 python3 -m pytest -q tests/test_d0_integration.py tests/test_worker_mvp.py   # quick subset
 ```
 

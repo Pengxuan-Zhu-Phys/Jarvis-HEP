@@ -71,3 +71,34 @@ Archiver 负责结果持久化；scan driver 等待持久化与运行计数。�
 从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
 
 2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
+
+
+## 2026-10-15 Redis 环境查询与引导
+
+`queue/redis_notice.py` 是平台识别、安装建议和环境报告的共同事实源；顶层 `redis_notice.py` 保持兼容导出。首次 CLI 退出提示沿用 marker 和 stderr，只查 PATH，不执行 server。独立的 `cli/redis.py` 渲染文本或一个 JSON 报告，`cli/client.py` / `cli/help.py` 提供 topic 路由，agent 合同公开查询范围。
+
+`info` / `check` 以有界 `--version` subprocess 查询本地 executable；`check` 将不存在、不可用、版本无法确认/低于要求和原生 Windows 判为退出 1。`install` / `start` 不执行该 subprocess，只形成安装或启动指引。所有查询与 runtime/Redis 网络连接、端口探测、服务管理和扫描创建分离；显式查询每次重新检查，不使用首次提示 marker 作为环境事实。
+
+平台识别先用具体发行版 ID，再用 ID_LIKE，再退回可用包管理器；按已知发行版版本选 Redis/Valkey，避免衍生系统被其它 family 提前吞掉。原生 Windows 给 WSL 安装说明，不能虚构原生 Windows Redis 包。正常扫描继续复用现有 managed Redis 生命周期；可选手动调试只打印 loopback/6380/无持久化的前台命令。
+
+`_legacy_apt_release` 只为明确的 Ubuntu 20.04/22.04 与 Debian 11 选择已核验的官方签名 APT recipe，不拿衍生系统 VERSION_ID 推断上游仓库；更老未核验版本不输出不合格的默认包命令。RHEL 8 选择 `redis:6` module 并说明 AppStream 更新/已有旧 stream 切换，版本仍由显式 check 复验。
+
+验收状态：最终定向 177 项通过（含真实 Redis 生命周期）；临时 wheel 安装 9 项 CLI 检查通过。完整 fast gate 为 1464 passed / 478 subtests、1 项已知 sibling iDM 非 ASCII 描述失败；最终增补平台用例由定向复验覆盖。详见 [验收记录](redis-environment-verification.json)。未更改队列协议、运行资源选择或公开发行状态。
+
+
+## 2026-10-15 Redis 正式子命令架构补正
+
+更正第一阶段 `topic` 路由的理解：当时 help parser 使用 positional choices，并非 argparse 的正式命令组，因此不同 `redis COMMAND --help` 无独立子级帮助。现由 `cli/help.py:build_parser` 为 Redis 创建 info/check/install/start subparsers；parent 和 child 共同接受 `--json`，子级缺省不得覆盖父级已设的 JSON 状态，裸 Redis 继续落到 info。
+
+`cli/client.py` 从正式子命令选择分派给既有报告/render 层；`cli/agent.py` 命令 catalog 与 `cli/agent_search.py` 搜索发现公开 exact child commands，并复用子 parser metadata，使帮助、参数和 agent 查询一致。帮助解析不调用 server；既有平台安装建议、版本检查和 managed Redis 生命周期不受此结构调整影响。
+
+第一阶段 [验收记录](redis-environment-verification.json) 中 177 项定向、9 项安装 smoke 及 fast gate 是历史证据。本次正式命令组验收：202 项定向通过，临时 wheel 安装 25 项检查通过；完整 fast gate 为 1509 passed / 478 subtests、1 项既有外部 iDM 描述编码失败。详见 [本次验收](redis-cli-help-verification.json)；不以历史结果代替。
+
+
+## 2026-10-15 2.0.17 发行源码隔离
+
+Redis-only 授权包含环境/CLI 层及对应测试文档、HEP 版本声明，不包括当前工作区 Sampler/runtime/Diver 修补。发行由明确提交的干净源码构建，`pyproject.toml` 只纳入版本变更；wheel/sdist 逐项核对范围，不能由 dirty checkout 隐式收集其它源码或 package-data。
+
+现有 committed baseline 仍需要 SDK >=0.1.0,<0.2；使用不变的本地已验收 SDK 0.1.0 wheel 完整安装候选是测试安排，不改变依赖声明也不证明公共索引解析可用。2026-10-15 Sampler PyPI 404 阻断正式 HEP 发布，本次不修改/代发布 SDK；依赖解决前保留候选/draft 状态。
+
+本阶段干净源码/安装包 Redis gate、pip check、真实 Redis/spawn 与发行回归结果：待本阶段测试结果补录。此前 Redis 202 项定向/25 项安装检查为历史，不替代当前源码验收。状态详见 [2.0.17 发行记录](release-2.0.17.md)。

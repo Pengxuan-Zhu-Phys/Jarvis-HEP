@@ -166,3 +166,46 @@ Roadmap phase：CLI agent 集成及第二轮实际体验 review。Affected modul
 从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
 
 2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
+
+
+## 2026-10-15 Redis 环境引导（独立新增阶段）
+
+1. **Roadmap phase**：Redis 环境检测与 CLI 安装/启动指引；独立于既有发行阶段。
+2. **Affected modules**：`queue/redis_notice.py` 及兼容 shim、`queue/redis_server.py` 缺失程序诊断、`cli/redis.py`、CLI 路由/help、agent 合同；README/INSTALL、五份 canonical 与本台账。
+3. **Public interfaces**：新增 `Jarvis redis [info|check|install|start] [--json]`；不修改既有 YAML 结构或扫描生命周期。
+4. **Main risks**：将 PATH 存在误认作服务运行；错误发行版/版本安装建议；在查询中意外启动 server、探测端口、污染 JSON stdout；把 native Windows 误报为支持。
+5. **Verification performed**：最终定向 177 项通过（含真实 Redis 生命周期）；临时 wheel 安装 9 项 CLI 检查通过。完整 fast gate 为 1464 passed / 478 subtests、1 项已知 sibling iDM 非 ASCII 描述失败；最终增补平台用例由定向复验覆盖。详见 [验收记录](redis-environment-verification.json)；历史 2.0.15/2.0.16 发行验收不作为本阶段通过证据。
+
+现状已有的是首次 `Jarvis` 命令完成后的 PATH-only 提示（marker `~/.jarvis/redis-install-check-v1`），不是 pip post-install hook。新增显式命令可随时复查；`info` / `check` 有界执行 `--version`，`check` 对不存在/不可用/未知或过旧版本（Redis < 6.2）及原生 Windows 返回 1。`install` / `start` 只打印说明，甚至不调用 server 查询版本；所有 topic 支持 JSON。首次提示继续写 stderr，不破坏正常 stdout。
+
+平台指引依据 OS、具体 distro ID、版本与 ID_LIKE/包管理器 fallback，具体 ID 优先。Windows 指引为 WSL，HEP 和 Redis 都须装在 WSL 中。正常扫描无需全局服务，Jarvis 自动管理本次 Redis；可选手动调试为 loopback、6380、关闭持久化的前台命令，Ctrl+C 停止。所有环境查询均不连接服务/网络、不探测端口、不启动扫描。
+
+避免给过旧系统安装不合格默认包：Ubuntu 20.04/22.04、Debian 11 改为打印官方签名 Redis APT 仓库完整步骤（用户执行时才写入系统 key/source 文件）；更老未核验版本不输出猜测命令，只给文档/升级建议。具体发行版 ID 才能触发 repository recipe，不以衍生系统版本猜上游版本。RHEL 8 指引 `sudo dnf module install -y redis:6`，要求更新 AppStream（RHEL 8.7 rebased Redis 6.2.7），固定旧仓库仍可能为 6.0，已有 redis:5 stream 先按发行版步骤处理。
+
+显式更正 INSTALL 两处旧认知：Redis 的 host/port/db 可配置于 `EnvReqs.V2.redis`；只有许多单元测试使用 fakeredis，真实运行/集成测试仍需兼容 server executable。本阶段保留历史记录、现有 Diver/pyproject/sampler 审阅改动及发行状态，不 bump 版本、不调整既有发行候选、不公开发布；仅在临时目录构建安装测试 wheel，并排除已有未验收改动。
+
+
+## 2026-10-15 Redis CLI 标准命令组补正（后续阶段）
+
+1. **Roadmap phase**：按用户后续要求统一 Redis 与现有 CLI 的命令组/子命令帮助布局。
+2. **Affected modules**：`cli/help.py`、`cli/client.py`、Redis dispatch、agent catalog/search；README/INSTALL、五份 canonical 与本台账。
+3. **Public interfaces**：四个正式子命令 info/check/install/start 与独立 child help；保留裸 info 默认及子命令前后 `--json`，不变更报告内容和运行边界。
+4. **Main risks**：child parser 缺省覆盖 parent JSON、help 仍显示父页、agent 仅索引父级或遗漏子级参数、误将旧验证计数作为本次通过证据。
+5. **Verification performed**：202 项定向通过，临时 wheel 安装 25 项检查通过；完整 fast gate 为 1509 passed / 478 subtests、1 项既有外部 iDM 描述编码失败。详见 [本次验收](redis-cli-help-verification.json)；第一阶段 177 项定向、9 项安装 smoke 与 fast gate 是历史结果，见 [原验收记录](redis-environment-verification.json)。
+
+**显式更正第一阶段接口理解**：原 `topic` 只是 positional argument，接受四种行为不等于已形成标准命令组；`Jarvis redis check --help` 无独立子级页面。现注册四个正式 subparsers，父级帮助显示 Commands，子级帮助分别说明用途、参数和 `--json`。`Jarvis redis` 与 `Jarvis redis --json` 仍默认 info，JSON 标志在子命令前后均可用。
+
+agent command catalog、exact `--command` 与 search 同步公开四个 child commands，并以各子 parser 为参数事实源。本次只补正接口组织、帮助与发现，保持原平台建议、install/start 只打印指导、版本检查及 managed Redis 生命周期；不 bump 版本、不调整既有候选、不公开发布。
+
+
+## 2026-10-15 HEP 2.0.17 Redis-only 提交与发行准备
+
+1. **Roadmap phase**：按用户新授权提交 Redis 改进并发布 HEP 2.0.17；不处理当前 Sampler 改动。
+2. **Affected modules**：Redis 环境/缺失程序诊断、CLI/help/agent 发现、对应测试文档与两处版本声明；未提交 Sampler/runtime/Diver/package-data/审阅资料排除。
+3. **Public interfaces**：发布开发阶段已实现的 Redis 正式子命令、独立 help、JSON/agent 发现；不改 YAML 结构、扫描算法或既有 SDK 依赖。
+4. **Main risks**：dirty workspace 被误打包；以历史 202/25 测试或本地 SDK 安装等同本次发行验收/公开索引可安装；依赖缺失时误公开 HEP。
+5. **Verification performed**：待本阶段测试结果补录；commit、push、wheel/sdist、installed gate 与 draft 状态待实际结果记录，不提前声称完成。
+
+本次授权取代前两阶段“不 bump/不发布”的范围约束，仅纳入 Redis 实现/测试/文档及 HEP 2.0.17 声明，保留其它工作区编辑。发行必须从 Redis-only 干净 committed source 构建，核对 wheel/sdist 范围，再完整安装执行 pip check、Redis parent/child help/JSON/agent gate、真实 Redis/spawn 和相关回归；开发阶段 202/25 与 full gate 只属历史证据。
+
+2026-10-15 公共 PyPI 快照：HEP 2.0.14、Operas 1.5.0、Sampler HTTP 404。现有 committed baseline 的 `Jarvis-HEP-Sampler>=0.1.0,<0.2` 依赖保持；可以使用未改动的已验收本地 SDK 0.1.0 wheel 验证候选，不能作为仅公开索引安装的证明。正式 HEP 发布等待依赖可用，本次不修改、提交或发布 SDK；依赖阻断期间准备 draft 而不声称已发布。详细状态见 [2.0.17 发行记录](release-2.0.17.md)。

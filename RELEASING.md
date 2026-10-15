@@ -70,3 +70,26 @@ See [the development ledger](docs/development-ledger-2.0.15.md) and [release not
 ## 2.0.16 publication authorization
 
 The user authorized committing and publishing the CLI agent improvements on 2026-10-13. This supersedes the earlier candidate-only handoff for this release. See [the 2.0.16 release record](docs/release-2.0.16.md). Build from a clean release commit checkout to exclude unrelated working-tree changes, and publish the required Sampler SDK before HEP.
+
+## 2.0.17 Redis publication authorization
+
+On 2026-10-15 the user authorized committing the Redis improvements and
+publishing a new HEP version, while explicitly excluding the current Sampler
+changes. See [the 2.0.17 release record](docs/release-2.0.17.md). Include the
+Redis environment/command-group implementation, its tests and documentation,
+and the two HEP version declarations. Preserve unrelated Sampler/runtime,
+Diver, package-data and review-file edits outside the commit and candidate.
+
+Build wheel and sdist from the clean committed source, not the dirty working
+tree. Verify their contents, clean complete installation, `pip check`, the
+installed Redis parent/child help and JSON/agent behavior, and real Redis/spawn
+runtime smoke. Earlier Redis test results are historical evidence until this
+release snapshot passes its own checks.
+
+The existing committed baseline still requires `Jarvis-HEP-Sampler>=0.1.0,<0.2`.
+An already verified local SDK 0.1.0 wheel may be used unchanged for candidate
+validation; that does not prove installation from public indexes. Public HEP
+release remains blocked while this required package is absent from PyPI.
+Prepare a draft and record the blocker; do not modify or publish the SDK under
+this Redis-only authorization. Follow the normal GitHub Release/Trusted
+Publishing path when the dependency requirement is resolved.

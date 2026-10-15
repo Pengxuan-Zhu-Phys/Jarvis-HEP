@@ -46,6 +46,7 @@ _SUBCOMMANDS = frozenset(
         "sampler",
         "ps",
         "kill",
+        "redis",
     }
 )
 
@@ -440,6 +441,13 @@ def dispatch(args: argparse.Namespace) -> int:
 
     if intent == "monitor":
         return dispatch_monitor(args)
+    if intent == "redis":
+        from jarvishep2.cli.redis import dispatch_redis
+
+        return dispatch_redis(
+            topic=str(getattr(args, "redis_command", None) or "info"),
+            as_json=bool(getattr(args, "redis_json", False)),
+        )
     if intent == "agent":
         from jarvishep2.cli.agent import dispatch_agent
         return dispatch_agent([])
@@ -541,6 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     from jarvishep2.proc_title import control_title, set_process_title
 
     set_process_title(control_title())
+    redis_reported = False
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         if raw[:1] == ["refs"]:
@@ -558,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
                 modes.add(command)
             if len(modes) > 1:
                 message = _mode_conflict_message(sorted(modes))
-                if any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor"}:
+                if any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor", "redis"}:
                     _emit_json_usage(normalized, message)
                 else:
                     print(message, file=sys.stderr)
@@ -590,11 +599,16 @@ def main(argv: list[str] | None = None) -> int:
         try:
             args = build_parser().parse_args(normalized)
         except SystemExit as exc:
-            if exc.code and any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor"}:
+            if exc.code and any(t == "--json" or t.startswith("--json=") for t in normalized) and normalized[0] in {"validate", "monitor", "redis"}:
                 _emit_json_usage(normalized, f"Invalid arguments; see Jarvis {normalized[0]} --help.")
                 return EXIT_USAGE
             raise
-        return dispatch(args)
+        status = dispatch(args)
+        redis_reported = (
+            getattr(args, "command", None) == "redis"
+            and not args.version and not args.refs
+        )
+        return status
     finally:
         # Keep the onboarding hint after all normal command output. It is a
         # stderr diagnostic so commands such as ``Jarvis validate --json`` keep
@@ -602,7 +616,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             from jarvishep2.redis_notice import emit_first_run_redis_notice
 
-            emit_first_run_redis_notice()
+            if redis_reported:
+                emit_first_run_redis_notice(show_hint=False)
+            else:
+                emit_first_run_redis_notice()
         except Exception:
             # A best-effort environment hint must never change Jarvis's exit
             # status or mask the real command error.

@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.16`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.0.17`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -36,8 +36,10 @@ Task YAML → sampler → Redis → Workers → Archiver
 Requirements:
 
 - Python 3.10 or newer
-- The Redis server program (`redis-server`, or the compatible `valkey-server`)
-  installed on the machine. You do not need to start it: see below.
+- A Redis-compatible server program (`redis-server`, `redis6-server`, or
+  `valkey-server`) installed on the machine; Redis must be 6.2 or newer.
+  You do not need to start a service: see below. On Windows, install and run
+  both Jarvis-HEP and Redis inside WSL.
 
 From PyPI:
 
@@ -50,13 +52,13 @@ From a source checkout, prepare the SDK first while its first public release is 
 ```bash
 ../Jarvis-HEP-Sampler/jhsrel
 ./jhrel --sampler-dist ../Jarvis-HEP-Sampler/dist/0.1.0
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.16/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.17/*.whl
 ```
 
 For development and tests, install the test tools separately:
 
 ```bash
-python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.16/*.whl
+python3 -m pip install ../Jarvis-HEP-Sampler/dist/0.1.0/*.whl dist/2.0.17/*.whl
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
 
@@ -74,15 +76,45 @@ load the project's default environment (the cards made by
 `deps/environment_default.yaml`. Other task cards stop with a "port is already
 used by another program" error instead.
 
-On the first `Jarvis` command after installation, Jarvis checks whether a
+After the first `Jarvis` command following installation, Jarvis checks whether a
 Redis-compatible server executable (`redis-server`, `redis6-server`, or
 `valkey-server`) is available. If it is missing, the command's normal output
 is followed by a one-time, OS-specific installation hint (written to stderr so
 JSON/stdout output remains usable). The hint is advisory only; Jarvis does not
-install operating-system packages automatically. Linux hints cover
-Debian/Ubuntu, Fedora/RHEL, Amazon Linux, Arch, openSUSE, Alpine, Gentoo, Void,
-NixOS and other package-manager families. The check marker is stored at
-`~/.jarvis/redis-install-check-v1`.
+install operating-system packages automatically. This is a PATH check on first
+CLI use, not a hook run by `pip install`; it does not verify the server version.
+The check marker is stored at `~/.jarvis/redis-install-check-v1`.
+
+You can inspect the environment and read setup instructions at any time:
+
+```bash
+Jarvis redis                       # system, executable/version, install/start guidance
+Jarvis redis check                 # repeat the PATH and bounded --version checks
+Jarvis redis install               # print the installation commands for this OS
+Jarvis redis start                 # explain automatic startup and optional manual debugging
+Jarvis redis info --json           # machine-readable report; --json works on every topic
+Jarvis redis --help                # list the info/check/install/start subcommands
+Jarvis redis check --help          # help and options for this subcommand
+```
+
+Redis follows the CLI's group/subcommand help layout: the parent lists the
+four commands, and each `Jarvis redis COMMAND --help` describes that command's
+purpose and options. `--json` works before or after the subcommand, for example
+`Jarvis redis --json check` and `Jarvis redis check --json`.
+
+`Jarvis redis` and `Jarvis redis --json` retain the `info` default. `check` exits 1 if the
+executable is absent, unusable, too old, or the runtime is native Windows.
+These commands do not contact a server, test ports, start a scan, install
+packages, or start services. `install` and `start` only print guidance; they do
+not invoke the server even to read its version. A successful environment check
+confirms the local executable, not a running service or scan readiness.
+
+Installation guidance accounts for repository versions: Ubuntu 20.04/22.04 and
+Debian 11 receive the official signed Redis APT repository steps; RHEL-family
+8 systems receive the `redis:6` module instructions with the updated AppStream
+requirement. Older releases without a verified recipe receive documentation
+and upgrade guidance. Use `Jarvis redis install` for the full commands for
+your detected system.
 
 The default install includes every Jarvis runtime dependency: the Redis Python
 client, `msgpack`, `aiofiles`, Textual Monitor, `Jarvis-HEP-Portal`,

@@ -71,3 +71,34 @@ VAL-01、RUN-01、MON-01、MON-02、PLOT-01、CLI-01、OPR-01 的具体验收以
 从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
 
 2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
+
+
+## 2026-10-15 Redis 环境引导要求
+
+- 安装后的首次 CLI 调用完成时，复用一次 PATH-only 提示；不声称 `pip install` 执行 post-install 检测。缺失时将系统适用的安装/启动说明写入 stderr，保持 JSON stdout 可解析，marker 兼容既有路径。
+- `Jarvis redis` 默认 `info`；`info` 展示系统/发行版、兼容 executable 和版本及安装/启动说明。`check` 每次重新查 PATH，以有超时的 `--version` 查询验证本地 executable；缺失、执行失败、未知/过旧版本（Redis < 6.2）或原生 Windows 退出 1。
+- `install` / `start` 仅打印可复制指引，不运行包管理器、不启动服务、不执行版本查询；所有 topic 支持 `--json`。环境查询不连接 Redis、不检查服务或端口、不启动 Worker/扫描，成功不代表真实扫描已验收。
+- 平台说明按 `/etc/os-release` 的实际 ID 优先于 ID_LIKE 选择，再按发行版版本和可用包管理器处理；原生 Windows 使用 WSL，HEP 与 Redis 都在 WSL 中运行。Redis/Valkey 选择必须匹配发行版维护的软件包。
+- 默认 Redis 过旧的 Ubuntu 20.04/22.04、Debian 11 应打印官方签名 APT 仓库步骤，未核验的更早版本只给文档/升级建议；RHEL 8 选择 `redis:6` 并解释 updated AppStream / 旧 stream 切换要求，不能把仍为 Redis 6.0 的固定旧仓库当作合格。
+- 正常扫描由 Jarvis 自动启动/清理本次 Redis，不要求全局服务。可选手动调试命令仅绑定 127.0.0.1、示例端口 6380、关闭持久化，并说明 Ctrl+C 停止。
+
+验收状态：最终定向 177 项通过（含真实 Redis 生命周期）；临时 wheel 安装 9 项 CLI 检查通过。完整 fast gate 为 1464 passed / 478 subtests、1 项已知 sibling iDM 非 ASCII 描述失败；最终增补平台用例由定向复验覆盖。详见 [验收记录](redis-environment-verification.json)。此阶段仅增量 CLI/引导与文档修正，YAML 结构、扫描生命周期及发行状态不变。
+
+
+## 2026-10-15 Redis 命令组一致性要求
+
+- 更正第一阶段 positional `topic` 仅能选择行为、未形成真正子命令的接口理解。Redis 必须使用与现有 CLI 一致的命令组结构，`Jarvis redis --help` 显示 info/check/install/start 四个 Commands。
+- `Jarvis redis COMMAND --help` 必须展示该子命令自己的说明和参数（包括 `--json`），不再返回同一父级帮助页；帮助发现不执行环境检查。
+- 保留裸命令与 `--json` 的 info 默认；`--json` 在子命令前后均有效。agent catalog/search/`--command` 应提供四个 exact child command，而非只有父级。
+- 本次只修正命令组织、帮助和发现；安装平台逻辑、报告含义、退出码、仅打印 install/start 指导及扫描边界不变。
+
+第一阶段的 177 项定向、9 项安装 smoke 与 fast gate 仅为历史验收，记录见 [Redis 环境验收记录](redis-environment-verification.json)。命令组补正验收：202 项定向通过，临时 wheel 安装 25 项检查通过；完整 fast gate 为 1509 passed / 478 subtests、1 项既有外部 iDM 描述编码失败。详见 [本次验收](redis-cli-help-verification.json)；版本和公开发行状态不变。
+
+
+## 2026-10-15 HEP 2.0.17 Redis-only 发行要求
+
+用户授权只提交 Redis 改进并发布新的 HEP，明确忽略本轮 Sampler 改动。发行包含 Redis 环境引导、正式子命令/help/JSON/agent 发现及对应测试/文档，版本更新为 2.0.17；工作区 Sampler/runtime/Diver 改动不得混入，baseline 已有的 SDK 集成不因本次授权移除。
+
+验收必须针对干净 committed source 的完整 wheel/sdist，覆盖安装包 Redis 帮助/JSON/agent、pip check、真实 Redis/spawn 运行和相关回归。允许以保持原样的本地已验收 SDK 0.1.0 wheel 验证候选，明确区别于公开索引完整安装；Sampler 仍返回 PyPI 404 时，只能准备候选/draft，正式发布等待依赖可用。本次不改动或发布 SDK。
+
+本阶段验收：待本阶段测试结果补录；此前 Redis 202/25 等结果保留为开发历史。授权、提交与发布实际状态见 [2.0.17 发行记录](release-2.0.17.md)，不得提前记为完成。

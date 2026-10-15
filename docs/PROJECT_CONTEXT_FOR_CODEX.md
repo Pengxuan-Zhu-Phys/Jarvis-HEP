@@ -4,7 +4,7 @@
 
 ## 产品与执行模型
 
-发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.16，发行候选准备中，尚未公开发布。Python 最低版本为 3.10。
+发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，Redis CLI 发行候选准备中，尚未公开发布。Python 最低版本为 3.10。
 
 每次扫描由控制进程管理独立 Redis、spawn Worker 和 Archiver。Worker 执行 Operas 或外部 calculator；Archiver 持久化样本结果，控制进程负责采样、等待、恢复和清理。监控按已知扫描与进程读取运行数据。
 
@@ -12,7 +12,7 @@ Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator 
 
 ## 本轮授权与范围
 
-2.0.15 阶段只授权准备候选，由用户最终发布。2026-10-13 用户新增授权：提交两轮 CLI agent 改进并发布新版本。当前 2.0.16 可执行 commit、push 和正式发行；必须先通过发行验收、确认依赖已公开。历史候选准备记录保留。
+2.0.15 阶段只授权准备候选，由用户最终发布；2026-10-13 已新增 2.0.16 提交/发行授权。2026-10-15 用户最新授权：只提交 Redis 改进并发布 HEP 新版本 2.0.17，明确忽略本轮 Sampler 改动。可以 commit、push 和准备发行，但正式发布必须先通过发行验收、确认已有运行依赖可公开安装；不修改或代为发布 Sampler。历史候选准备记录保留。
 
 工作区开始时已有 Diver 源码、测试、package-data 改动及 sampler 审阅资料。保留这些改动；发行候选明确记录其是否纳入，并以干净源码与完整发行包验证，不能误把未验收内容包含进本轮发行。
 
@@ -76,3 +76,34 @@ Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator 
 从干净 commit 副本构建完整 wheel/sdist，执行源码 fast gate、全依赖安装、pip check、真实 Redis/spawn smoke、旧可靠性回归和新增 installed agent CLI smoke。发布正常使用 GitHub Release/Trusted Publishing，不使用本地 token 上传。当前依赖检查：Operas 1.4.2 已公开；Jarvis-HEP-Sampler 0.1.0 在 PyPI 缺失，须先解决才能正式发布 HEP。具体状态与证据见 [2.0.16 发行记录](release-2.0.16.md)。
 
 2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
+
+
+## 2026-10-15 Redis 环境引导（独立新增阶段）
+
+现有功能是首次 `Jarvis` 命令完成后的一次 PATH 检查；它不是 `pip install` 后的安装钩子，也不检查服务或版本。缺少兼容 executable 时，stderr 给出按系统选择的安装和启动说明；marker 仍为 `~/.jarvis/redis-install-check-v1`。显式 `Jarvis redis` 命令不受 marker 限制。
+
+新增 `Jarvis redis` / `Jarvis redis info`（系统、executable/version、安装/启动说明）、`check`（每次重新查 PATH 并有界执行 `--version`）、`install` / `start`（只打印说明，不执行安装、启动或版本查询）；所有 topic 支持 `--json`。`check` 对缺失、不可执行、无法识别/过旧版本（Redis < 6.2）或原生 Windows 返回 1。Windows 指引为 WSL，HEP 和 Redis 均须装在 WSL 内。
+
+每次扫描仍由 Jarvis 自动管理本次 Redis，无需先启动全局服务。可选手动前台调试使用 loopback、示例端口 6380、关闭持久化，并以 Ctrl+C 停止；环境查询不探测网络/端口、不构造扫描。更正安装文档的旧理解：`EnvReqs.V2.redis` 可配置 host/port/db；许多单元测试用 fakeredis，真实运行/集成测试仍需 server executable。
+
+安装说明按版本避开过旧默认包：Ubuntu 20.04/22.04、Debian 11 打印官方 signed APT repository 完整步骤；未核验的更老版本只给文档/升级建议。RHEL 8 打印 `redis:6` module，并要求更新至提供 Redis 6.2.7 的 AppStream（RHEL 8.7+），已有旧 stream 先按发行版步骤切换。
+
+本阶段不调整版本、不调整既有发行候选、不公开发布；仅在临时目录构建安装测试 wheel，并排除原有 Diver/pyproject 和 sampler 审阅改动。验收状态：最终定向 177 项通过（含真实 Redis 生命周期）；临时 wheel 安装 9 项 CLI 检查通过。完整 fast gate 为 1464 passed / 478 subtests、1 项已知 sibling iDM 非 ASCII 描述失败；最终增补平台用例由定向复验覆盖。详见 [验收记录](redis-environment-verification.json)；不引用历史发行验收作为当前通过证据。
+
+
+## 2026-10-15 Redis CLI 标准命令组补正
+
+按用户后续要求将 Redis 接入现有 CLI 的命令组/子命令帮助布局。显式更正第一阶段的接口理解：原 `topic` 是一个 positional argument，虽然能接受 info/check/install/start，但未建立真正的子命令，`Jarvis redis check --help` 仍只能看到父级页面。现改为四个正式子命令；父级 `--help` 列出 Commands，各子级 `--help` 有独立说明及 `--json` 选项。
+
+保留裸 `Jarvis redis` / `Jarvis redis --json` 的 info 默认；`--json` 可置于子命令前后。agent command catalog、按 exact command 查询与 search 公开 `redis info`、`redis check`、`redis install`、`redis start`，帮助发现与执行语义一致。平台建议、只打印安装/启动指导及 runtime 边界不变。
+
+上节 177 项定向、9 项安装 smoke 和 fast gate 计数属于第一阶段历史证据，不能视为本次命令组补正的通过结果。本次验收：202 项定向通过，临时 wheel 安装 25 项检查通过；完整 fast gate 为 1509 passed / 478 subtests、1 项既有外部 iDM 描述编码失败。详见 [本次验收](redis-cli-help-verification.json)；历史证据见 [Redis 环境验收记录](redis-environment-verification.json)。不调整版本、既有发行候选或公开发布状态。
+
+
+## 2026-10-15 2.0.17 Redis-only 提交与发行准备
+
+用户新授权将 Redis 两阶段改进提交并发布 HEP，明确忽略当前 Sampler 改动，取代此前 Redis 阶段“不调整版本/不公开发布”的范围限制。当前源码目标/版本为 2.0.17；只纳入 Redis 实现、测试、文档和版本声明，排除工作区 Sampler/runtime/Diver/package-data/审阅资料改动，既有 committed baseline 的 SDK 依赖保持。
+
+从干净 Redis-only committed source 构建完整 wheel/sdist并执行安装包 Redis gate、pip check、真实 Redis/spawn smoke 与相关发行回归。可以使用保持原样的已验收本地 SDK 0.1.0 wheel 验证候选；不能据此声称公开索引安装已成立。2026-10-15 PyPI 快照为 HEP 2.0.14、Operas 1.5.0、Sampler HTTP 404，既有 SDK 依赖尚阻断正式 HEP 发布；本次不修改或发布 SDK。
+
+本阶段验收：待本阶段测试结果补录。此前 Redis 202/25 和 fast gate 只属开发阶段历史；commit/push/draft 状态以实际结果为准，不提前声称完成。具体范围、依赖阻断与状态见 [2.0.17 发行记录](release-2.0.17.md)。

@@ -47,7 +47,7 @@ def test_install_commands_cover_common_linux_families() -> None:
         "arch": "sudo pacman -S valkey",
         "manjaro": "sudo pacman -S valkey",
         "opensuse-tumbleweed": "sudo zypper install -y redis",
-        "alpine": "sudo apk add redis",
+        "alpine": "sudo apk add valkey",
         "gentoo": "sudo emerge --ask dev-db/redis",
         "void": "sudo xbps-install -S redis",
         "nixos": "nix profile install nixpkgs#redis",
@@ -83,7 +83,7 @@ def test_linux_fallback_uses_available_package_manager() -> None:
         system="Linux",
         distro={"ID": "unknown", "ID_LIKE": ""},
         which=lambda name: "/usr/bin/apk" if name == "apk" else None,
-    ) == "sudo apk add redis"
+    ) == "sudo apk add valkey"
 
 
 def test_notice_is_emitted_once_and_keeps_normal_output_stream_clean() -> None:

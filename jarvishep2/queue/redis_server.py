@@ -177,8 +177,8 @@ class ManagedRedisServer:
             raise RedisServerNotFoundError(
                 "no Redis server program found on PATH (looked for "
                 + ", ".join(_REDIS_SERVER_BINARIES)
-                + "). Install one, e.g. `brew install redis` or "
-                "`sudo apt install redis-server`. Jarvis starts and stops it for each "
+                + "). Run `Jarvis redis install` for OS-specific installation "
+                "instructions. Jarvis starts and stops it for each "
                 "scan; you do not need to run it as a service."
             )
         self.binary = binary

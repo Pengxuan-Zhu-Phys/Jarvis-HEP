@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterator
 from typing import Any
 
 from jarvishep2.versioning import get_runtime_version
@@ -23,6 +24,11 @@ _EFFECTS: dict[str, tuple[str, str, list[str]]] = {
     "gen-plot-yaml": ("write", "Write images/<scan>/plot.yaml from scan results.", ["text"]),
     "monitor": ("query", "Inspect selected OS/Redis runtime; use --json for one bounded snapshot, avoiding TUI.", ["text", "json"]),
     "ps": ("query", "Inspect process groups; runtime discovery may persist sticky references.", ["text"]),
+    "redis": ("query", "Inspect the local Redis/Valkey executable with a bounded --version call. Install/start topics only print OS setup commands; no services or network probes. Check exits 1 when unavailable/incompatible.", ["text", "json"]),
+    "redis info": ("query", "Read OS/distribution, local Redis/Valkey executable/version and setup instructions; only a bounded --version command is run, with no endpoint or port probe.", ["text", "json"]),
+    "redis check": ("query", "Check PATH and executable/version compatibility with a bounded --version command; exit 1 if missing, unusable, too old or native Windows. No endpoint/port probe or scan execution.", ["text", "json"]),
+    "redis install": ("query", "Print OS-specific installation commands only; do not execute package managers or the server.", ["text", "json"]),
+    "redis start": ("query", "Explain scan-managed startup and print optional manual debugging commands only; do not start a server/service or run a version query.", ["text", "json"]),
     "kill": ("terminate", "Terminate the selected process group; --yes skips the CLI prompt.", ["text"]),
     "plot": ("delegated", "Jarvis-PLOT owns this CLI; rendering writes files, other subcommands vary.", ["delegated"]),
     "portal": ("delegated", "Jarvis-Portal owns this CLI; file operations can read/write user data.", ["delegated"]),
@@ -62,6 +68,19 @@ def _arguments(parser: argparse.ArgumentParser) -> list[dict[str, Any]]:
     ]
 
 
+def _subcommand_parsers(
+    parser: argparse.ArgumentParser, prefix: list[str],
+) -> Iterator[tuple[list[str], argparse.ArgumentParser]]:
+    """Walk real nested subcommands so help and agent discovery share one tree."""
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for name, child in action.choices.items():
+            path = [*prefix, name]
+            yield path, child
+            yield from _subcommand_parsers(child, path)
+
+
 def command_catalog() -> list[dict[str, Any]]:
     from jarvishep2.cli.help import (
         build_parser, build_project_help_parser, build_sampler_help_parser,
@@ -73,28 +92,27 @@ def command_catalog() -> list[dict[str, Any]]:
         (["project"], build_project_help_parser()),
         (["sampler"], build_sampler_help_parser()),
     ):
-        actions = [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
-        for action in actions:
-            for name, child in action.choices.items():
-                path = [*prefix, name]
-                key = " ".join(path)
-                effect, detail, formats = _EFFECTS[key]
-                catalog.append({
-                    "command": key,
-                    "argv_prefix": ["Jarvis", *path],
-                    "help_argv": ["Jarvis", *path, "--help"],
-                    "effect": effect,
-                    "effects_detail": detail,
-                    "authorization": (
-                        "Within the user's requested query/authoring scope."
-                        if effect in {"query", "validate"}
-                        else "User authorization must cover this action; existing authorization persists."
-                    ),
-                    "output_formats": formats,
-                    "arguments": _arguments(child),
-                    "arguments_complete": (name not in {"agent", "man", "plot", "portal", "operas", "project", "sampler"} or prefix == ["sampler"]) and prefix != ["project"],
-                    "arguments_source": "CLI help parser; forwarded/legacy aliases and environment fallbacks may require the owning command's documentation.",
-                })
+        for path, child in _subcommand_parsers(parser, prefix):
+            name = path[-1]
+            parent = path[:-1]
+            key = " ".join(path)
+            effect, detail, formats = _EFFECTS[key]
+            catalog.append({
+                "command": key,
+                "argv_prefix": ["Jarvis", *path],
+                "help_argv": ["Jarvis", *path, "--help"],
+                "effect": effect,
+                "effects_detail": detail,
+                "authorization": (
+                    "Within the user's requested query/authoring scope."
+                    if effect in {"query", "validate"}
+                    else "User authorization must cover this action; existing authorization persists."
+                ),
+                "output_formats": formats,
+                "arguments": _arguments(child),
+                "arguments_complete": (name not in {"agent", "man", "plot", "portal", "operas", "project", "sampler"} or parent == ["sampler"]) and parent != ["project"],
+                "arguments_source": "CLI help parser; forwarded/legacy aliases and environment fallbacks may require the owning command's documentation.",
+            })
     return catalog
 
 
@@ -143,6 +161,7 @@ def agent_contract() -> dict[str, Any]:
         ("Operator signature and return mapping", ["operas", "info", "<Name>"]),
         ("Path tokens/project roots", ["man", "tokens", "--json"]),
         ("Runtime defaults/worker/checkpoint/archive", ["man", "yaml.EnvReqs.V2", "--json"]),
+        ("Redis environment, installation and startup", ["redis", "--json"]),
         ("Libraries/install configuration", ["man", "yaml.LibDeps", "--json"]),
         ("Diagnostic code", ["man", "--code", "<JV2-Code>", "--json"]),
         ("Live scan snapshot", ["monitor", "<ScanRef>", "--json"]),

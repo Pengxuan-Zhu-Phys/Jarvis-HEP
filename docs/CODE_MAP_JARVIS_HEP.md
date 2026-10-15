@@ -75,3 +75,38 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 新增 `scripts/smoke_agent_install.py` 随 `scripts/full-release.sh` 在已安装 HEP wheel 上运行，覆盖合同、离线资源、卡片解释、诊断导航与邮件草稿；SDK 分支记录 not included，不虚报 agent 验收。
 
 2.0.16 发行候选验收完成（源码 commit `50631bae` 已推送到 `feat/sampler-plugins-s1`）：带 Git 元数据的干净 checkout fast gate 1396 tests/478 subtests、3 skipped、166 slow deselected；完整包全依赖干净安装、pip check、真实 Redis/spawn/项目重载 smoke、24 项 agent CLI 和 22 项安装包回归均通过。wheel/sdist 与已提交源码逐文件一致并排除 Diver。SDK 使用本地已验收候选，其余依赖来自官方 PyPI，因此仍不能声称仅用公开索引安装成功。SDK 0.1.0 尚未公开，正式 HEP 发布等待依赖；准备 draft Release。详见 `release-2.0.16.md` 与 `release-2.0.16-verification.json`。
+
+
+## 2026-10-15 Redis 环境引导代码地图
+
+| 职责 | 实现 | 主要验证 |
+| --- | --- | --- |
+| 系统/发行版识别、安装/启动指引、PATH 和有界版本报告、首次提示 | `jarvishep2/queue/redis_notice.py`；兼容导出 `jarvishep2/redis_notice.py` | `tests/test_redis_notice.py`；新增 Redis CLI 定向回归 |
+| `redis [info/check/install/start]` 文本/JSON 与退出码 | `jarvishep2/cli/redis.py`、`cli/client.py`、`cli/help.py` | Redis CLI 定向回归、既有 CLI/agent 回归 |
+| agent 命令效果与查询发现 | `jarvishep2/cli/agent.py`，复用 help metadata | agent 合同/查询回归 |
+| 用户安装、环境检测和自动/手动启动说明 | `README.md`、`INSTALL.md` | 对照 CLI 文本/JSON 和平台矩阵人工核对 |
+
+环境查询不连接服务、不查端口、不构造扫描；`install` / `start` 不执行 server。首次提示 marker 保持原路径；显式 `check` 重新检查 PATH 和版本。平台 helper `_legacy_apt_release` / `_vendor_apt_commands` 为明确的 Ubuntu 20.04/22.04、Debian 11 输出官方签名仓库步骤；RHEL 8 的 `redis:6` module/updated AppStream 说明也由该公共报告源提供。验收状态：最终定向 177 项通过（含真实 Redis 生命周期）；临时 wheel 安装 9 项 CLI 检查通过。完整 fast gate 为 1464 passed / 478 subtests、1 项已知 sibling iDM 非 ASCII 描述失败；最终增补平台用例由定向复验覆盖。详见 [验收记录](redis-environment-verification.json)。
+
+
+## 2026-10-15 Redis 子命令与帮助补正代码地图
+
+| 职责 | 实现 | 主要验证 |
+| --- | --- | --- |
+| Redis 正式父级 Commands、四个子 parser 的独立说明/选项 | `jarvishep2/cli/help.py:build_parser` | `tests/test_redis_environment.py`、CLI help 回归 |
+| 裸命令 info 默认、JSON 前后位置与子命令分派 | `jarvishep2/cli/client.py`、`cli/redis.py` | Redis CLI parser/文本/JSON 回归 |
+| exact child command catalog / search / 定向合同 | `jarvishep2/cli/agent.py`、`cli/agent_search.py` | Redis agent 发现及既有 agent 回归 |
+
+显式更正第一阶段的 positional `topic` 只是行为参数，并不产生正式子命令帮助；本次将四个行为注册为真实子命令。此前 177 项定向、9 项安装 smoke 及 fast gate 属于 [第一阶段历史验收](redis-environment-verification.json)。本次验收：202 项定向通过，临时 wheel 安装 25 项检查通过；完整 fast gate 为 1509 passed / 478 subtests、1 项既有外部 iDM 描述编码失败。详见 [本次验收](redis-cli-help-verification.json)；未修改平台建议或服务执行边界。
+
+
+## 2026-10-15 2.0.17 Redis-only 发行地图
+
+| 职责 | 文件/范围 | 验证要求 |
+| --- | --- | --- |
+| 发行版本 | `pyproject.toml`、`jarvishep2/__init__.py` | 2.0.17 一致；pyproject 不带入现有 Diver package-data 编辑 |
+| Redis 用户接口 | Redis notice/server 诊断、CLI redis/client/help、agent 发现及对应测试 | 干净 committed source 构建后的 installed Redis help/JSON/agent gate |
+| 完整发行包 | 既有 `scripts/full-release.sh` / `jhrel` 与安装 smoke | wheel/sdist 范围、完整安装、pip check、真实 Redis/spawn 与发行回归 |
+| 发布状态与范围 | `docs/release-2.0.17.md`、`RELEASING.md` | 区分 commit/push/候选/draft/公开发布，记录 SDK 公共依赖阻断 |
+
+工作区未提交 Sampler/runtime/Diver/审阅文件排除；既有已提交 SDK 集成和依赖声明保持。本阶段结果：待本阶段测试结果补录。开发阶段 Redis 202/25 为历史；不可用本地 SDK 验收代替公共索引可安装证明。具体见 [2.0.17 发行记录](release-2.0.17.md)。
