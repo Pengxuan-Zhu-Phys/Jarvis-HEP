@@ -1,0 +1,131 @@
+{
+  "date": "2026-10-15",
+  "timezone": "Australia/Adelaide",
+  "phase": "Redis environment inspection and CLI installation/startup guidance",
+  "python": "3.13.13",
+  "source_sha256": {
+    "jarvishep2/cli/agent.py": "a66a52a507b12c759e8ea75484e869686e7f10f7326788525fe8fa331e500671",
+    "jarvishep2/cli/client.py": "f139fda23689936f9392cea37887f8b9cc7f44c521a31573afe3512c0731952c",
+    "jarvishep2/cli/help.py": "807d5176c0abfad384764993613ebffda60228c8c2dc55ca815c0fb4e8483746",
+    "jarvishep2/cli/redis.py": "4f2dcfa0c82899814bae375dba1c713bee8c6b0320cd24809f757a1e9bb3e633",
+    "jarvishep2/queue/redis_notice.py": "32f89c711c9bc9780c80e7a13e2eddb84887124a60082d82b7118cbcdb9a3031",
+    "jarvishep2/queue/redis_server.py": "6c330af6497f2b52556e22f7b9c1a9ffa1d9e919d815e9f3be03b96d4edd3a2d",
+    "tests/test_redis_environment.py": "742c47916c10153368d0897b73cf18bccc857911022d24b249a67dac07df3825",
+    "tests/test_redis_notice.py": "5f72cf04d2b4013500fa7f8394927f4181c536ed34773a81f2cbf9c25772e716"
+  },
+  "targeted": {
+    "command": "python3 -m pytest -q tests/test_cli.py tests/test_agent_cli.py tests/test_agent_experience.py tests/test_redis_notice.py tests/test_redis_environment.py tests/test_redis_server.py --tb=short",
+    "exit_code": 0,
+    "passed": 177,
+    "scope": "Final code and platform guidance; actual local Redis lifecycle tests included."
+  },
+  "redis_focused": {
+    "command": "python3 -m pytest -q tests/test_redis_environment.py tests/test_redis_notice.py",
+    "passed": 73,
+    "exit_code": 0
+  },
+  "full_fast_gate": {
+    "command": "python3 -m pytest -q --tb=short",
+    "exit_code": 1,
+    "passed": 1464,
+    "failed": 1,
+    "subtests_passed": 478,
+    "deselected": 166,
+    "duration_seconds": 270.33,
+    "failure": {
+      "test": "tests/test_task_schema_corpus.py::TaskSchemaCorpusTests::test_shipped_yaml_corpus_is_ascii_only",
+      "source": "/Users/p.zhu/Jarvis-Workshop/Jarvis-Examples/iDM/bin/iDM_Vector_LZ2026_HighER.yaml",
+      "path": "$.Sampling.Variables[1].description",
+      "reason": "Previously documented sibling Examples file contains non-ASCII text; external source left unchanged."
+    },
+    "scope": "Full gate started before the final 17 platform/CLI test cases and help refinement were added. The final targeted 177-test run covers those changes; the full gate was not repeated."
+  },
+  "wheel_smoke": {
+    "ok": true,
+    "temporary_build": "/private/tmp/jarvis-redis-wheel-x3kcl5fj",
+    "wheel": "/private/tmp/jarvis-redis-wheel-x3kcl5fj/dist/jarvis_hep-2.0.16-py3-none-any.whl",
+    "installed_package": "/private/tmp/jarvis-redis-wheel-x3kcl5fj/install/lib/python3.13/site-packages/jarvishep2/__init__.py",
+    "checks": [
+      [
+        "redis",
+        "--json"
+      ],
+      [
+        "redis",
+        "install",
+        "--json"
+      ],
+      [
+        "redis",
+        "start",
+        "--json"
+      ],
+      [
+        "agent",
+        "--section",
+        "commands",
+        "--command",
+        "redis",
+        "--json"
+      ],
+      [
+        "redis",
+        "check",
+        "--json"
+      ],
+      [
+        "--version",
+        "missing-redis-first-run"
+      ],
+      [
+        "--version",
+        "one-time-notice"
+      ],
+      [
+        "redis",
+        "check",
+        "--json",
+        "missing-redis"
+      ],
+      [
+        "redis",
+        "unknown",
+        "--json"
+      ]
+    ],
+    "redis_version": "8.8.0",
+    "dependencies": "existing environment via --system-site-packages; wheel installed --no-deps",
+    "excluded": [
+      "pre-existing pyproject.toml changes",
+      "untracked Diver",
+      "unrelated draft files"
+    ],
+    "release_candidate_modified": false
+  },
+  "static": {
+    "python_310_syntax": "6 changed runtime modules passed ast.parse(feature_version=(3,10))",
+    "wheel_code_matches_final_source": true,
+    "git_diff_check": "passed"
+  },
+  "behavior": {
+    "onboarding": "One-time PATH-only hint after first CLI invocation, stderr; not a pip post-install hook.",
+    "info_check": "Fresh PATH and bounded 2-second --version only; no endpoint or port probe.",
+    "install_start": "Print instructions only; do not execute installation or server commands.",
+    "scan_startup": "Jarvis manages its own Redis; a global service is not required.",
+    "platforms": "macOS, distro-aware Linux/Valkey, Windows WSL; verified legacy APT recipes and RHEL8 redis:6 guidance."
+  },
+  "release": {
+    "version_changed": false,
+    "published": false,
+    "existing_candidates_modified": false
+  },
+  "sources": [
+    "https://formulae.brew.sh/formula/redis",
+    "https://valkey.io/topics/installation/",
+    "https://redis.io/docs/latest/operate/oss_and_stack/install/install-stack/apt/",
+    "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html/considerations_in_adopting_rhel_10/infrastructure-services",
+    "https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/8/html/8.7_release_notes/new-features",
+    "https://docs.aws.amazon.com/linux/al2023/ug/redis6-to-valkey-al2023.html",
+    "https://learn.microsoft.com/en-us/windows/wsl/install"
+  ]
+}

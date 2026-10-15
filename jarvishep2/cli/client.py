@@ -43,6 +43,7 @@ _SUBCOMMANDS = frozenset(
         "portal",
         "operas",
         "project",
+        "sampler",
         "ps",
         "kill",
         "redis",
@@ -461,6 +462,10 @@ def dispatch(args: argparse.Namespace) -> int:
         return dispatch_operas([])
     if intent == "project":
         return dispatch_project([])
+    if intent == "sampler":
+        from jarvishep2.cli.sampler import dispatch_sampler
+
+        return dispatch_sampler([])
     if intent == "ps":
         from jarvishep2.process_cleanup import list_running_jarvis_cli
 
@@ -553,7 +558,7 @@ def main(argv: list[str] | None = None) -> int:
         normalized = normalize_argv(raw)
         # Dependency CLI tails are opaque. For HEP commands detect legacy intent
         # conflicts before argparse rejects flags placed after the subcommand.
-        passthrough = {"plot", "portal", "operas", "project", "man", "agent"}
+        passthrough = {"plot", "portal", "operas", "project", "sampler", "man", "agent"}
         if normalized and raw[0] not in passthrough:
             tokens = normalized[:normalized.index("--")] if "--" in normalized else normalized
             modes = {token[2:] for token in tokens if token in {"--monitor", "--plot", "--validate", "--convert"}}
@@ -587,6 +592,10 @@ def main(argv: list[str] | None = None) -> int:
         # Project pack flags are free-form; pass through like portal.
         if normalized and normalized[0] == "project":
             return dispatch_project(normalized[1:])
+        if normalized and normalized[0] == "sampler":
+            from jarvishep2.cli.sampler import dispatch_sampler
+
+            return dispatch_sampler(normalized[1:])
         try:
             args = build_parser().parse_args(normalized)
         except SystemExit as exc:

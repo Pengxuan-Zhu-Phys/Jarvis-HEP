@@ -1,6 +1,6 @@
 # Jarvis-HEP 代码地图
 
-2026-10-11 重建；本次 2.0.17 当前范围为公开 master 0bbcf675 + 不依赖 SDK 的可靠性/CLI agent/Redis 移植。顶层若干模块为兼容导入 shim，编辑时定位实际实现。外部 SDK/plugin 模块不在本次发行范围；旧 SDK 候选记录在原集成分支归档。
+2026-10-11 重建。2.0.17 公开发行范围是公开 master 0bbcf675 加上不依赖 SDK 的可靠性、CLI agent 和 Redis 移植。当前 master 另含 Jarvis-HEP-Sampler 插件运行时：依赖 `Jarvis-HEP-Sampler>1`，命令入口是 `cli/sampler.py`。顶层若干模块为兼容导入 shim，编辑时定位实际实现。
 
 | 职责 | 实现 | 主要验证 |
 | --- | --- | --- |

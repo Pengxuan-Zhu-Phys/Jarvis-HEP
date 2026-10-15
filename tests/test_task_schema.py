@@ -15,7 +15,12 @@ from jarvishep2.task_schema import (
 from jarvishep2.task_validation import validate_task_config
 from jarvishep2.io_portal import available_io_formats
 from jarvishep2.distributor import Distributor
-from jarvishep2.sampler_catalog import names as catalog_names, schema_ids
+from jarvishep2.sampler_catalog import builtin_specs, names as catalog_names, schema_ids
+from jarvishep2.sampler_catalog import iter_specs
+
+
+def plugin_names() -> set[str]:
+    return {spec.name for spec in iter_specs() if spec.is_plugin}
 
 
 def _card() -> dict:
@@ -323,8 +328,11 @@ class TaskCardSchemaTests(unittest.TestCase):
             manifest = json.load(handle)
         method_schemas = manifest["sampling_methods"]
         self.assertEqual(len(method_schemas), len(set(method_schemas.values())))
-        self.assertEqual(set(method_schemas), set(Distributor.available_methods()))
-        self.assertEqual(set(method_schemas), set(catalog_names()))
+        # Built-ins have bundled schemas; plug-in methods bring OPTIONS_SCHEMA instead.
+        builtins = {spec.name for spec in builtin_specs()}
+        self.assertEqual(set(method_schemas), builtins)
+        self.assertEqual(builtins, set(catalog_names()) - set(plugin_names()))
+        self.assertTrue(builtins <= set(Distributor.available_methods()))
         self.assertEqual(dict(method_schemas), schema_ids())
 
     def test_toymcmc_schema_and_per_chain_scale_contract(self) -> None:

@@ -23,7 +23,8 @@ from jarvishep2.sampler_catalog import available_methods
 from jarvishep2.task_schema import validate_task_card_schema
 from jarvishep2.task_config import get_check_modules_settings
 
-Level = Literal["error", "warning"]
+# "info" notes never fail validation, not even with --strict.
+Level = Literal["error", "warning", "info"]
 
 
 def _ascii_diagnostic(value: str | None) -> str | None:
@@ -82,6 +83,9 @@ class ValidationReport:
 
     def warnings(self) -> list[ValidationIssue]:
         return [i for i in self.issues if i.level == "warning"]
+
+    def notes(self) -> list[ValidationIssue]:
+        return [i for i in self.issues if i.level == "info"]
 
     @property
     def ok(self) -> bool:
@@ -197,7 +201,10 @@ def format_report(report: ValidationReport) -> str:
     if report.ok and n_warn:
         header = f"Config validation warnings ({n_warn}):"
     elif report.ok:
-        return "Config validation successful."
+        notes = report.notes()
+        if not notes:
+            return "Config validation successful."
+        header = f"Config validation successful ({len(notes)} note(s)):"
     lines = [header]
     errors = report.errors()
     if len(errors) >= 2:
@@ -217,6 +224,23 @@ def format_report_success(report: ValidationReport) -> str:
 def raise_if_errors(report: ValidationReport) -> None:
     if not report.ok:
         raise ConfigValidationError(report)
+
+
+def _unknown_method_suggestion(method: str) -> str:
+    """Point an unknown ``Sampling.Method`` at a case fix or ``Jarvis sampler load``."""
+    from jarvishep2.sampler_catalog import canonical_name, user_registry_error
+
+    canonical = canonical_name(method)
+    if canonical is not None:
+        return f"Method names are case-sensitive; write {canonical}."
+    text = (
+        "Use a built-in method, or load your own sampler first: "
+        "Jarvis sampler load <file> (Jarvis sampler list shows loaded samplers)."
+    )
+    problem = user_registry_error()
+    if problem:
+        text += f" The sampler registry could not be read: {problem}"
+    return text
 
 
 def _yaml_path_part(path: str, part: Any) -> str:
@@ -528,6 +552,7 @@ def validate_task_config(
                         "Sampling.Method",
                         f"{method!r} is not implemented in Jarvis-HEP V2. "
                         f"Available: {', '.join(available_list) or 'none'}",
+                        suggestion=_unknown_method_suggestion(method),
                     )
                 )
             else:

@@ -45,11 +45,13 @@ Core runtime depends on:
 
 - **`Jarvis-HEP-Portal`** — calculator I/O formats (JSON, CSV, TSV, DAT, Wolfram, …)
 - **`Jarvis-Operas`** — operator registry and qualified expression functions (e.g. `helper.eggbox2d`)
+- **`Jarvis-HEP-Sampler`** — plug-in samplers for `Jarvis sampler` and `Sampling.Method` (any release newer than 1)
 - **`JarvisPLOT`** (product name: **Jarvis-PLOT**) — YAML-driven plotting and flowchart rendering
 
-These three packages are core dependencies. Their minimum versions track the
+These packages are core dependencies. Their minimum versions track the
 current PyPI releases so a fresh `pip install Jarvis-HEP` resolves the latest
-compatible release available from the index.
+compatible release available from the index. Jarvis-HEP-Sampler must be
+newer than 1. `Jarvis sampler` is the same command as `jsampler`.
 
 If you are developing those packages too, clone them next to `Jarvis-HEP` and
 install all of them from source:
@@ -57,6 +59,7 @@ install all of them from source:
 ```bash
 python3 -m pip install -e ../Jarvis-Portal
 python3 -m pip install -e ../Jarvis-Operas
+python3 -m pip install -e ../Jarvis-HEP-Sampler
 python3 -m pip install -e .
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```

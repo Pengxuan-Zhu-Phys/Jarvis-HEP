@@ -30,7 +30,9 @@ def _short_scalar(value: Any) -> Any | None:
     return None
 
 
-def sampler_metadata_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
+def sampler_metadata_from_config(
+    config: Mapping[str, Any], *, plugin: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Return a non-secret, allowlisted description of ``Sampling``."""
     raw_sampling = config.get("Sampling")
     sampling = dict(raw_sampling) if isinstance(raw_sampling, Mapping) else {}
@@ -127,12 +129,53 @@ def sampler_metadata_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
                 total *= count
             knobs["total"] = total
 
+    family = family_of(method)
+    if plugin is not None and plugin.get("method") == method:
+        family = "plugin"
+    if family == "plugin":
+        knobs.update(_plugin_knobs(method, bounds, plugin=plugin))
+
     return {
         "method": method,
-        "family": family_of(method),
+        "family": family,
         "dimensions": dimensions,
         "config": knobs,
     }
+
+
+def _plugin_knobs(
+    method: str, bounds: Mapping[str, Any], *, plugin: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Plug-in samplers: reserved Bounds keys plus version and source hash.
+
+    Plug-in options are not copied: the metadata stays an allowlist.
+    """
+    from jarvishep2.sampler_catalog import plugin_record
+
+    knobs: dict[str, Any] = {}
+    if plugin is not None and plugin.get("method") == method:
+        for key in ("point_number", "seed", "version"):
+            if key in plugin:
+                value = _short_scalar(plugin[key])
+                if value is not None:
+                    knobs[key] = value
+        source = str(plugin.get("source_sha256") or "")
+        knobs["source"] = source[:12]
+        knobs["source_sha256"] = source[:64]
+        return knobs
+    for key in ("point_number", "seed"):
+        if key in bounds:
+            projected = _short_scalar(bounds[key])
+            if projected is not None:
+                knobs[key] = projected
+    try:
+        record = plugin_record(method)
+    except Exception:
+        record = None
+    if record is not None:
+        knobs["version"] = str(record.version)[:64]
+        knobs["source"] = str(record.source_sha256)[:12]
+    return knobs
 
 
 def _calculator_pool_catalog(
@@ -221,7 +264,10 @@ def calculator_pools_from_metadata(
     return (names, slots) if names else (None, None)
 
 
-def write_scan_metadata(*, config: Mapping[str, Any], info: Mapping[str, Any], redis: Mapping[str, Any]) -> str:
+def write_scan_metadata(
+    *, config: Mapping[str, Any], info: Mapping[str, Any], redis: Mapping[str, Any],
+    plugin: Mapping[str, Any] | None = None,
+) -> str:
     """Write the non-secret scan identity record and return its absolute path."""
     task_result_dir = os.path.abspath(str(info.get("task_result_dir") or config.get("task_result_dir") or os.getcwd()))
     directory = os.path.join(task_result_dir, ".jarvis2")
@@ -239,7 +285,7 @@ def write_scan_metadata(*, config: Mapping[str, Any], info: Mapping[str, Any], r
         "control_pid": os.getpid(),
         "calculator_pools": calculator_pools,
         "calculator_shared": calculator_shared,
-        "sampler": sampler_metadata_from_config(config),
+        "sampler": sampler_metadata_from_config(config, plugin=plugin),
     }
     fd, temporary = tempfile.mkstemp(prefix=".runtime.", suffix=".json", dir=directory)
     try:

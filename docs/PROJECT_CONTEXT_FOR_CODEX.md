@@ -4,11 +4,11 @@
 
 ## 产品与执行模型
 
-发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。当前源码版本为 2.0.17，已公开不依赖外部 Sampler SDK 的 GitHub Release 与 PyPI wheel；完整公共索引安装已核验，PyPI 源码包上传超时，源码包由 GitHub Release 提供。Python 最低版本为 3.10。
+发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。源码版本为 2.0.17。2.0.17 已公开不依赖外部 Sampler SDK 的 GitHub Release 与 PyPI wheel；完整公共索引安装已核验，PyPI 源码包上传超时，源码包由 GitHub Release 提供。当前 master 在该发行之后要求 `Jarvis-HEP-Sampler>1`。Python 最低版本为 3.10。
 
 每次扫描由控制进程管理独立 Redis、spawn Worker 和 Archiver。Worker 执行 Operas 或外部 calculator；Archiver 持久化样本结果，控制进程负责采样、等待、恢复和清理。监控按已知扫描与进程读取运行数据。
 
-Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator I/O，JarvisPLOT 提供绘图，均为完整发行包依赖。采样使用 HEP 内置实现；本次公开发行不依赖 Jarvis-HEP-Sampler，不提供外部 SDK 插件注册/加载 CLI。
+Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator I/O，JarvisPLOT 提供绘图，Jarvis-HEP-Sampler 提供插件采样器，均为完整发行包依赖。`Jarvis sampler` 与 `jsampler` 是同一条命令。2.0.17 那次公开发行不依赖 Jarvis-HEP-Sampler。
 
 ## 本轮授权与范围
 

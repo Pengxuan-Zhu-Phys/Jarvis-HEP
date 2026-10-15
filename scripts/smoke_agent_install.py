@@ -2,7 +2,7 @@
 
 Run with the release venv's Python and ``-I`` outside the source checkout. All
 fixtures and dependency caches are temporary; this script does not run scans,
-install packages or send mail.
+install packages, load plugins, or send mail.
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ def main(expected: str) -> None:
             env.pop(name, None)
         env.update({
             "HOME": str(base / "home"),
+            "JARVIS_SAMPLERS_HOME": str(base / "sampler-registry"),
             "JARVIS_SCAN_REF_REGISTRY": str(base / "scan-refs.json"),
             "JARVIS_OPERAS_CURVE_CACHE_ROOT": str(base / "operas-cache"),
             "MPLCONFIGDIR": str(base / "matplotlib"),

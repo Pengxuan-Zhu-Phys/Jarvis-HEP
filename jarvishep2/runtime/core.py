@@ -155,6 +155,8 @@ class Jarvis2Core:
         self._interrupt_requested = False
         # Required sampler lifecycle records (docs/logging-spec.md §2).
         self._sampler_log: Any = None
+        # Plug-in sampler loaded and prepared before Redis starts (external sampler S1).
+        self._plugin_preflight: Any = None
         self._signal_handlers_installed = False
         self._previous_signal_handlers: dict[int, Any] = {}
         self._logger = get_jarvis_logger("core")
@@ -253,6 +255,46 @@ class Jarvis2Core:
         except Exception:
             # Logging must never block bootstrap; banner is best-effort.
             pass
+
+    def preflight_sampler_plugin(self) -> None:
+        """Load and prepare a plug-in sampler before Redis, Workers or the Archiver start.
+
+        No-op for built-in methods. A failing plug-in stops the run here, with
+        its traceback in ``sampler.log`` (technical design §5.4).
+        """
+        from jarvishep2.sampler_catalog import is_plugin
+        from jarvishep2.sampling.plugin_sampler import plugin_logger, preflight_plugin
+
+        self._plugin_preflight = None
+        method = sampling_method(self.config)
+        if not method or not is_plugin(method):
+            return
+        try:
+            preflight = preflight_plugin(
+                self.config,
+                task_root=str(self.info.get("task_root") or ""),
+                scan_name=str(self.info.get("scan_name") or ""),
+                resume=self._resume_policy == "resume",
+                checkpoint_state=(getattr(self, "_resume_checkpoint_payload", None) or {}).get("sampler_state"),
+            )
+        except Exception as exc:
+            plugin_logger(method).error(
+                "%s Sampler meets error when preparing the plug-in -> %s",
+                method,
+                exc,
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+            _mark_logged(exc)
+            raise
+        self._plugin_preflight = preflight
+        if preflight is not None:
+            self._logger.info(
+                "Plug-in sampler %s %s prepared (source %s, identity %s)",
+                method,
+                preflight.plugin.metadata.version,
+                preflight.source_copy or preflight.record.snapshot_path,
+                preflight.identity[:16],
+            )
 
     def check_environment_requirements(self) -> None:
         """Log and enforce V1-compatible OS, Python, and CERN ROOT requirements."""
@@ -380,6 +422,7 @@ class Jarvis2Core:
         validate: bool = True,
         strict: bool = False,
         check_modules: bool | None = None,
+        resume: bool = False,
     ) -> dict[str, Any]:
         """Load task YAML and merge normalized layout into ``self.config``.
 
@@ -391,7 +434,10 @@ class Jarvis2Core:
         self.runtime = get_runtime_block(self.config)
         self._populate_info_from_config()
         if validate:
-            self.validate_loaded_config(strict=strict, check_modules=check_modules)
+            from jarvishep2.sampler_catalog import scan_plugin_context
+            from jarvishep2.sampling.plugin_identity import binding_record
+            with scan_plugin_context(binding_record(self.config) if resume else None):
+                self.validate_loaded_config(strict=strict, check_modules=check_modules)
         return self.config
 
     def validate_loaded_config(
@@ -461,6 +507,8 @@ class Jarvis2Core:
         logger.warning(
             "Config validation successful. The task YAML meets the V2 contract."
         )
+        for item in report.notes():
+            logger.info("  [%s] %s: %s", item.code, item.path, item.message)
 
     def _populate_info_from_config(self) -> None:
         from jarvishep2.logging import component_log_path, scan_logs_dir
@@ -497,6 +545,9 @@ class Jarvis2Core:
             sampler = Distributor.set_method(method)
         else:
             sampler = SamplingVirtial()
+        preflight = getattr(self, "_plugin_preflight", None)
+        if preflight is not None and hasattr(sampler, "attach_preflight"):
+            sampler.attach_preflight(preflight)
         sampler.set_config(self.config)
         calc_modules = list(
             (self.config.get("Calculators") or {}).get("Modules") or []
@@ -843,6 +894,19 @@ class Jarvis2Core:
         )
 
     def run(
+        self, *, resume: bool = False, check_modules: bool = False,
+        verify_golden: Mapping[str, Any] | None = None, write_run_summary: bool = True,
+        check_timeout: float | None = None,
+    ) -> RunOutcome:
+        from jarvishep2.sampler_catalog import scan_plugin_context
+        from jarvishep2.sampling.plugin_identity import binding_record
+        use_binding = not check_modules and (resume or os.path.isfile(self.checkpoint_file()))
+        with scan_plugin_context(binding_record(self.config) if use_binding else None):
+            return self._run_configured(resume=resume, check_modules=check_modules,
+                                        verify_golden=verify_golden, write_run_summary=write_run_summary,
+                                        check_timeout=check_timeout)
+
+    def _run_configured(
         self,
         *,
         resume: bool = False,
@@ -1245,6 +1309,8 @@ class Jarvis2Core:
 
     def set_sampler(self, sampler: Any) -> None:
         self.sampler = sampler
+        if hasattr(sampler, "set_interrupt_check"):
+            sampler.set_interrupt_check(lambda: self._interrupt_requested)
         if self._resume_policy == "auto" and not getattr(self, "_resume_checkpoint_preloaded", False):
             self._preload_resume_checkpoint()
             self._resume_checkpoint_preloaded = True
@@ -1305,6 +1371,11 @@ class Jarvis2Core:
         scan = self.config.get("Scan") or {}
         scan_name = scan.get("name") if isinstance(scan, Mapping) else None
         sampler_name = type(self.sampler).__name__ if self.sampler is not None else None
+        from jarvishep2.sampling.plugin_sampler import PluginSampler
+
+        if isinstance(self.sampler, PluginSampler):
+            # Every plug-in runs through one adapter class; name it by its method.
+            sampler_name = self.sampler.method
         summary = build_run_summary(
             factory_metrics=metrics,
             project_name=str(self.config.get("project_name") or scan_name or ""),

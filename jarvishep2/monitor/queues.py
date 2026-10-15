@@ -142,6 +142,13 @@ def feedback_queue_plan(
         return "shared", ()
     if name in _NON_FEEDBACK_SAMPLERS:
         return "inactive", ()
+    # Plug-in samplers: independent ones send no feedback; generational ones
+    # use the shared barrier channel.
+    from jarvishep2.sampler_catalog import spec_for
+
+    spec = spec_for(name)
+    if spec is not None and spec.is_plugin:
+        return ("inactive", ()) if spec.stateless else ("shared", ())
     return "unknown", ()
 
 

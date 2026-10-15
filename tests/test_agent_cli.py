@@ -45,7 +45,8 @@ def test_catalog_covers_actual_cli_and_describes_execution_boundaries():
     actual = next(a for a in build_parser()._actions if isinstance(a, argparse._SubParsersAction)).choices
     assert set(actual) == {name for name in entries if " " not in name}
     assert entries["check"]["effect"] == entries["run"]["effect"] == "execute"
-    assert not any(name == "sampler" or name.startswith("sampler ") for name in entries)
+    assert entries["sampler check"]["effect"] == "execute"
+    assert entries["sampler load"]["effect"] == "execute_write"
     assert entries["validate"]["effect"] == "validate"
     assert entries["kill"]["effect"] == "terminate"
     for command in ("man", "plot", "portal", "operas"):
@@ -136,3 +137,18 @@ def test_fragment_identity_is_consistent_in_man_and_template():
     assert resolve_man_request(["example.dynesty"])["artifact"]["kind"] == "sampling_fragment"
     row = next(r for r in resolve_man_request(["example"])["list_rows"] if r["name"] == "dynesty")
     assert row["kind"] == "sampling_fragment"
+
+
+def test_registered_plugin_schema_is_exposed_without_importing_plugin(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    schema = {"type": "object", "properties": {"step": {"type": "number", "minimum": 0, "maximum": 1}}, "additionalProperties": False}
+    record = SimpleNamespace(options_schema=schema, description="Test metadata", profile="independent",
+                             version="1.0", source="user", source_path=str(tmp_path / "unimportable.py"))
+    monkeypatch.setattr("jarvishep2.sampler_catalog.plugin_record", lambda name: record)
+    from jarvishep2.cli.man import _plugin_method_page, _print_page
+    page = _plugin_method_page("MetadataOnly")
+    assert page["options_schema"] == schema
+    out = io.StringIO()
+    with redirect_stdout(out):
+        _print_page(page, as_json=True)
+    assert json.loads(out.getvalue())["options_schema"]["properties"]["step"]["maximum"] == 1

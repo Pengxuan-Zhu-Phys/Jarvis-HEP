@@ -4,7 +4,11 @@
 
 ## 当前发行架构
 
-2.0.17 使用 master 0bbcf675 的内置采样器与依赖边界，移植不依赖 SDK 的可靠性、CLI agent/YAML 和 Redis 功能。当前没有外部 Sampler SDK 依赖、插件注册表或插件 CLI。0d859502 / 52876060 的 SDK 集成与其它工作区改动留在原分支；下方保留的旧候选说明仅作历史记录。
+2.0.17 的公开发行不带外部 Sampler SDK，记录见 [2.0.17 发行记录](release-2.0.17.md)。当前 master 在该发行之后接入 Jarvis-HEP-Sampler：依赖为 `Jarvis-HEP-Sampler>1`，`Jarvis sampler` 与 `jsampler` 是同一条命令。插件格式在 SDK，运行时、检查点和项目包在 HEP。
+
+## 2.0.17 发行架构
+
+2.0.17 使用 master 0bbcf675 的内置采样器与依赖边界，移植不依赖 SDK 的可靠性、CLI agent/YAML 和 Redis 功能。该次发行没有外部 Sampler SDK 依赖、插件注册表或插件 CLI。0d859502 / 52876060 的 SDK 集成与其它工作区改动当时留在原分支；下方保留的旧候选说明仅作历史记录。
 
 ## 当前职责
 

@@ -1310,8 +1310,104 @@ def _example_descriptor(topic: str) -> dict[str, str]:
     }
 
 
+_PLUGIN_RESERVED_KEYS: tuple[dict[str, Any], ...] = (
+    {
+        "name": "seed",
+        "type": "integer",
+        "required": False,
+        "default": 0,
+        "description": "RNG seed. Every point depends only on seed and its index.",
+        "minimum": 0,
+    },
+    {
+        "name": "point_number",
+        "type": "integer",
+        "required": True,
+        "default": None,
+        "description": "Candidate budget. Points rejected by selection count.",
+        "minimum": 1,
+    },
+)
+
+
+def _plugin_example(method: str, schema: Mapping[str, Any] | None) -> str:
+    lines = [
+        f"Method: {method}",
+        "Variables:",
+        "  - name: x",
+        "    distribution:",
+        "      type: Flat",
+        "      parameters: {min: 0.0, max: 1.0}",
+        "Bounds:",
+        "  seed: 0",
+        "  point_number: 1000",
+    ]
+    props = _collect_properties(schema, base=schema) if isinstance(schema, Mapping) else None
+    if isinstance(props, Mapping):
+        for name, node in props.items():
+            if isinstance(node, Mapping):
+                resolved = _expand_schema(node, base=schema)
+                if "default" in resolved:
+                    lines.append(f"  {name}: {json.dumps(resolved['default'])}")
+    return "\n".join(lines)
+
+
+def _plugin_method_page(method: str) -> dict[str, Any]:
+    """``Jarvis man sampler.<Plugin>`` from the registry entry; no plug-in code runs."""
+    from jarvishep2.sampler_catalog import SOURCE_USER, plugin_record
+
+    record = plugin_record(method)
+    if record is None:
+        raise KeyError(method)
+    schema = record.options_schema
+    keys: list[dict[str, Any]] = [
+        {**key, "aliases": [], "exclusive": False, "nav": False}
+        for key in _PLUGIN_RESERVED_KEYS
+    ]
+    if schema:
+        keys.extend(_key_entries(schema, base=schema))
+    summary = _clean_man_prose(record.description or f"Plug-in sampler {method}.")
+    if not schema:
+        summary += (
+            " This sampler has no OPTIONS_SCHEMA: Jarvis validate passes its own "
+            "Bounds options through unchecked."
+        )
+    closed = bool(schema) and schema.get("additionalProperties") is False
+    return {
+        "path": "$.Sampling.Bounds",
+        "context": {"method": method},
+        "zone": "closed" if closed else "delegated",
+        "status": "stable",
+        "summary": summary,
+        "keys": _annotate_nav(keys),
+        "options_schema": schema,
+        "examples": [_plugin_example(method, schema)],
+        "diagnostics": ["JV2-PLG-002", "JV2-PLG-003", "JV2-PLG-004"],
+        "see_also": [
+            "Jarvis man sampler",
+            f"Jarvis sampler info {method}",
+            "Jarvis man yaml.Sampling.Variables",
+        ],
+        "further_reading": None,
+        "capabilities": {
+            "type": "plugin",
+            "resume": "implemented",
+            "profile": record.profile,
+            "version": record.version,
+            "source": record.source_path
+            if record.source == SOURCE_USER
+            else "shipped with Jarvis-HEP",
+        },
+    }
+
 
 def _method_page(method: str) -> dict[str, Any]:
+    from jarvishep2.sampler_catalog import canonical_name
+
+    plugin_name = canonical_name(method)
+    plugin_spec = spec_for(plugin_name) if plugin_name else None
+    if plugin_spec is not None and plugin_spec.is_plugin:
+        return _plugin_method_page(plugin_spec.name)
     manifest = schema_manifest()
     methods = dict(manifest.get("sampling_methods") or {})
     uri = None
@@ -1437,6 +1533,31 @@ def _method_page(method: str) -> dict[str, Any]:
     return page
 
 
+def _plugin_index_rows(*, full: bool) -> list[dict[str, Any]]:
+    """Shipped and loaded plug-in samplers, after the built-in rows."""
+    from jarvishep2.sampler_catalog import iter_specs, plugin_record
+
+    rows: list[dict[str, Any]] = []
+    for spec in iter_specs():
+        if not spec.is_plugin:
+            continue
+        try:
+            record = plugin_record(spec.name)
+        except Exception:
+            record = None
+        summary = _sampler_index_summary(record.description if record else "")
+        if len(summary) > 50:  # the index table stays one row tall
+            summary = summary[:49].rstrip() + "…"
+        row = {
+            "method": spec.name,
+            "type": spec.family,
+            "summary": summary or "Plug-in sampler.",
+        }
+        if full:
+            row["status"] = "stable"
+        rows.append(row)
+    return rows
+
 
 def _sampler_index(*, full: bool = False) -> dict[str, Any]:
     manifest = schema_manifest()
@@ -1457,6 +1578,7 @@ def _sampler_index(*, full: bool = False) -> dict[str, Any]:
         if full:
             row["status"] = status
         rows.append(row)
+    rows.extend(_plugin_index_rows(full=full))
     rows.sort(key=lambda row: (str(row["type"]).casefold(), str(row["method"]).casefold()))
     see_also = [
         "Jarvis man sampler.Bridson",

@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import importlib.metadata as metadata
-import importlib.util
 import json
 import os
 import socket
@@ -14,14 +13,14 @@ import time
 
 import yaml
 import jarvishep2
+import jarvis_hep_sampler
 import jarvis_operas
 from jarvishep2.project_packager import create_project_package
+from jarvishep2.project_samplers import INDEX, inspect_packaged_samplers
 
 expected = sys.argv[1]
-assert importlib.util.find_spec("jarvis_hep_sampler") is None, "Sampler SDK must not be installed"
-assert not any("jarvis-hep-sampler" in requirement.lower() for requirement in metadata.requires("Jarvis-HEP") or [])
 assert metadata.version("Jarvis-HEP") == jarvishep2.__version__ == expected
-for module in (jarvishep2, jarvis_operas):
+for module in (jarvishep2, jarvis_hep_sampler, jarvis_operas):
     assert Path(module.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), (
         module.__file__
     )
@@ -32,13 +31,15 @@ with tempfile.TemporaryDirectory() as tmp:
     (root / ".jarvis-project.json").write_text("{}")
     (base / "home").mkdir()
     env = dict(
-        os.environ, HOME=str(base / "home")
+        os.environ, HOME=str(base / "home"), JARVIS_SAMPLERS_HOME=str(base / "registry")
     )
     for key, directory in (("JARVIS_SCAN_REF_REGISTRY", "scan-refs.json"),
                            ("JARVIS_OPERAS_CURVE_CACHE_ROOT", "operas-cache"),
                            ("MPLCONFIGDIR", "matplotlib")):
         env[key] = str(base / directory)
         os.environ[key] = env[key]
+    # Project packaging reads the same isolated registry as the CLI subprocesses.
+    os.environ["JARVIS_SAMPLERS_HOME"] = env["JARVIS_SAMPLERS_HOME"]
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -52,7 +53,7 @@ with tempfile.TemporaryDirectory() as tmp:
             }
         },
         "Sampling": {
-            "Method": "Random",
+            "Method": "ReleaseSmoke",
             "Variables": [
                 {
                     "name": n,
@@ -94,8 +95,11 @@ with tempfile.TemporaryDirectory() as tmp:
             )
 
     for args in (
+        ["sampler", "init", "ReleaseSmoke"],
+        ["sampler", "check", "ReleaseSmoke.py", "--card", str(task)],
+        ["sampler", "load", "ReleaseSmoke.py"],
         ["validate", str(task)],
-        ["man", "sampler.Random"],
+        ["man", "sampler.ReleaseSmoke"],
     ):
         run(args)
 
@@ -156,12 +160,24 @@ with tempfile.TemporaryDirectory() as tmp:
     assert (
         summary["total_points_finished"] == 16 and summary["total_points_failed"] == 0
     ), summary
+    assert (root / "outputs/release-smoke/DATABASE/sampler_identity.json").is_file()
 
     archive_path = create_project_package(str(root), "share").archive_path
     unpacked = base / "unpacked"
     with tarfile.open(archive_path) as archive:
         archive.extractall(unpacked, filter="data")
     fetched = unpacked / "project"
+    asset = fetched / json.loads((fetched / INDEX).read_text())["entries"][0]["file"]
+    # A conflict is visible; loading the packaged source is an explicit user step.
+    source = root / "ReleaseSmoke.py"
+    source.write_text(
+        source.read_text().replace('"version": "0.1.0"', '"version": "9.0.0"')
+    )
+    run(["sampler", "load", str(source)])
+    assert "different source" in inspect_packaged_samplers(str(fetched))[0]
+    run(["sampler", "remove", "ReleaseSmoke", "--yes"])
+    assert "not loaded" in inspect_packaged_samplers(str(fetched))[0]
+    run(["sampler", "load", str(asset)])
     card["Scan"]["name"] = "fetched-smoke"
     card["Operas"]["Modules"][0]["operator"] = "jarvishep2.testing.eggbox.eggbox2d_numpy"
     card["Operas"]["Modules"][0]["input"].pop()
@@ -175,5 +191,5 @@ with tempfile.TemporaryDirectory() as tmp:
         summary["total_points_finished"] == 16 and summary["total_points_failed"] == 0
     ), summary
 print(
-    "Complete SDK-free HEP installed CLI, project reload and real Redis/spawn smoke passed."
+    "Complete HEP/SDK installed CLI, project reload and real Redis/spawn smoke passed."
 )

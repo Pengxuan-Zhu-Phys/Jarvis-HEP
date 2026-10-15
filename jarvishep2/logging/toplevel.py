@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import atexit
 import copy
+import functools
 import logging
 import os
 import queue
@@ -152,6 +153,23 @@ def _sampler_method_canon() -> dict[str, str]:
 _LABEL_SEGMENT_CANON.update(_sampler_method_canon())
 
 
+@functools.lru_cache(maxsize=512)
+def _plugin_method_canon(key: str) -> str | None:
+    """Exact spelling of a plug-in method (loaded after import), e.g. ``LatinHypercube``.
+
+    Cached: labels are normalised on every record, and plug-in names normally
+    arrive with their exact spelling anyway (``module="Sampler.<Method>"``).
+    """
+    try:
+        from jarvishep2.sampler_catalog import canonical_name
+    except Exception:  # pragma: no cover - catalog is import-safe
+        return None
+    try:
+        return canonical_name(key)
+    except Exception:
+        return None
+
+
 def _canon_label_segment(seg: str) -> str:
     key = str(seg or "").strip()
     if not key:
@@ -159,6 +177,11 @@ def _canon_label_segment(seg: str) -> str:
     mapped = _LABEL_SEGMENT_CANON.get(key.lower())
     if mapped:
         return mapped
+    if key.islower() or key.isupper():
+        # Plug-in methods are not in the import-time table above.
+        mapped = _plugin_method_canon(key)
+        if mapped:
+            return mapped
     # Digit worker ids stay zero-padded as given.
     if key.isdigit():
         return key

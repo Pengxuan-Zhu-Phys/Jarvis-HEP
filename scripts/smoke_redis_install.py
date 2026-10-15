@@ -60,6 +60,7 @@ def main(expected: str) -> None:
         env.update({
             "HOME": str(base / "home"),
             "JARVIS_REDIS_NOTICE_STATE": str(base / "redis-notice.marker"),
+            "JARVIS_SAMPLERS_HOME": str(base / "sampler-registry"),
             "JARVIS_SCAN_REF_REGISTRY": str(base / "scan-refs.json"),
             "JARVIS_OPERAS_CURVE_CACHE_ROOT": str(base / "operas-cache"),
             "MPLCONFIGDIR": str(base / "matplotlib"),

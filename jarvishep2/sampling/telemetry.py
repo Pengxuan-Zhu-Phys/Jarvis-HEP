@@ -128,7 +128,19 @@ def sampler_status_snapshot(sampler: Any) -> dict[str, Any]:
     method = str(getattr(sampler, "method", None) or type(sampler).__name__)
     state = _state(sampler)
     metrics: dict[str, Any] = {}
-    if method == "Random":
+    plugin_status = getattr(sampler, "plugin_status", None)
+    if callable(plugin_status):
+        # Plug-in samplers (Jarvis-HEP-Sampler): finite candidate budget plus
+        # the plug-in's own bounded `status` metrics, shown by the monitor.
+        progress = _progress("finite", getattr(sampler, "_index", None), getattr(sampler, "_maxp", None))
+        metrics.update(
+            accepted=_integer(getattr(sampler, "_accepted_index", None)),
+            seed=_integer(getattr(sampler, "_seed", None)),
+        )
+        reported = plugin_status()
+        if isinstance(reported, Mapping) and reported:
+            metrics["plugin_status"] = dict(reported)
+    elif method == "Random":
         progress = _progress("finite", getattr(sampler, "_index", None), getattr(sampler, "_maxp", None))
         metrics.update(
             accepted=_integer(getattr(sampler, "_accepted_index", None)),

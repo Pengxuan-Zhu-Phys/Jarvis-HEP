@@ -34,12 +34,19 @@ _EFFECTS: dict[str, tuple[str, str, list[str]]] = {
     "portal": ("delegated", "Jarvis-Portal owns this CLI; file operations can read/write user data.", ["delegated"]),
     "operas": ("delegated", "Jarvis-Operas owns this CLI; catalogs are queries, evaluation/load operations may execute Python.", ["delegated"]),
     "project": ("delegated", "Inspect individual project subcommand effects below.", ["text"]),
+    "sampler": ("delegated", "Inspect individual sampler subcommand effects below.", ["text"]),
     "project create": ("write", "Create a project directory with bundled defaults/examples/calculator sources.", ["text"]),
     "project pack": ("write", "Write an archive or manifest; --encrypt also encrypts it.", ["text"]),
     "project encrypt": ("write", "Write an encrypted archive; key may come from --key or JARVIS_PROJECT_FETCH_KEY.", ["text"]),
     "project browse": ("network", "Fetch the official project library index.", ["text"]),
     "project info": ("network", "Fetch official project metadata.", ["text"]),
     "project fetch": ("network_write", "Download and extract an official project locally.", ["text"]),
+    "sampler init": ("write", "Write a sampler Python source template.", ["text"]),
+    "sampler check": ("execute", "Import and execute sampler code offline; no Redis does not mean no execution.", ["text"]),
+    "sampler load": ("execute_write", "Import/check sampler code and persist a user registry snapshot; can replace an entry.", ["text"]),
+    "sampler list": ("query", "Read registered/shipped sampler metadata.", ["text"]),
+    "sampler info": ("query", "Read one registered sampler's metadata.", ["text"]),
+    "sampler remove": ("write", "Remove a user registry entry; --yes skips the CLI prompt.", ["text"]),
 }
 
 
@@ -76,13 +83,14 @@ def _subcommand_parsers(
 
 def command_catalog() -> list[dict[str, Any]]:
     from jarvishep2.cli.help import (
-        build_parser, build_project_help_parser,
+        build_parser, build_project_help_parser, build_sampler_help_parser,
     )
 
     catalog: list[dict[str, Any]] = []
     for prefix, parser in (
         ([], build_parser()),
         (["project"], build_project_help_parser()),
+        (["sampler"], build_sampler_help_parser()),
     ):
         for path, child in _subcommand_parsers(parser, prefix):
             name = path[-1]
@@ -102,7 +110,7 @@ def command_catalog() -> list[dict[str, Any]]:
                 ),
                 "output_formats": formats,
                 "arguments": _arguments(child),
-                "arguments_complete": (name not in {"agent", "man", "plot", "portal", "operas", "project"}) and parent != ["project"],
+                "arguments_complete": (name not in {"agent", "man", "plot", "portal", "operas", "project", "sampler"} or parent == ["sampler"]) and parent != ["project"],
                 "arguments_source": "CLI help parser; forwarded/legacy aliases and environment fallbacks may require the owning command's documentation.",
             })
     return catalog
@@ -140,7 +148,7 @@ def agent_contract() -> dict[str, Any]:
         ("Task sections and required fields", ["man", "yaml", "--json"]),
         ("A YAML block or field", ["man", "yaml.<Path>", "--json"]),
         ("Sampling methods/capabilities", ["man", "sampler", "--json"]),
-        ("Built-in sampler options", ["man", "sampler.<Method>", "--json"]),
+        ("Sampler options, including registered plugins", ["man", "sampler.<Method>", "--json"]),
         ("Complete bundled examples", ["agent", "template", "--json"]),
         ("Exact schema constraints/enum/range/pattern", ["agent", "schema", "--list", "--json"]),
         ("Effective configuration, defaults and paths for a user card", ["agent", "inspect", "<Task.yaml>", "--json"]),
@@ -158,16 +166,16 @@ def agent_contract() -> dict[str, Any]:
         ("Diagnostic code", ["man", "--code", "<JV2-Code>", "--json"]),
         ("Live scan snapshot", ["monitor", "<ScanRef>", "--json"]),
         ("Plot YAML and capabilities", ["plot", "--help"]),
-        ("Project commands", ["project", "--help"]),
+        ("Project and sampler commands", ["<project|sampler>", "--help"]),
     ]
     rules = [
         "Use this installed package's contract, man, schema and --help as evidence. Do not invent YAML keys, operators, sampler options or support claims.",
         "Use explicit subcommands. Bare Jarvis TASK.yaml executes run; check also executes code and creates runtime resources.",
-        "Query/authoring authorization does not automatically cover scans, code execution, library installation, downloads, process termination or sending email. Continue actions already authorized; do not ask again merely because an action has effects.",
+        "Query/authoring authorization does not automatically cover scans, code execution, library installation, plugin loading, downloads, process termination or sending email. Continue actions already authorized; do not ask again merely because an action has effects.",
         "Template and request commands emit stdout only. Creating/editing project files must stay within the user's authorized scope and preserve existing work; inspect before replacing.",
         "Schema zones: closed accepts documented keys only; delegated belongs to the named subsystem/schema; open is extensible only for its stated purpose. Open does not promise arbitrary runtime support.",
         "Stable and unstable are different. Use Jarvis man sampler --full only to inspect unfinished vocabulary; do not present unstable/reserved fields as active supported behavior.",
-        "Man keys are summaries. Built-in sampler pages expose options_schema and its validation scope, with schema/Bounds query argv. Use schema --list and --id with local JSONPointer fragments for precise constraints, or the full bundle when needed. Missing schema means options are not fully checked.",
+        "Man keys are summaries. Built-in and registered plugin sampler pages expose options_schema and its validation scope; built-ins also provide schema/Bounds query argv. Use schema --list and --id with local JSONPointer fragments for precise constraints, or the full bundle when needed. Missing schema means options are not fully checked.",
         "A schema pass alone is insufficient: validate also checks semantic contracts. Validate success proves no calculator execution, scan completion, numerical convergence or physics correctness.",
         "Default YAML, &J tokens, CSV paths, calculator packs, registered operators and external libraries are project prerequisites. Read template prerequisites and tokens before saving a card outside a scaffold.",
         "Sampling fragments must be composed into a complete card with Scan, EnvReqs and at least one Calculators/Operas section; never run them alone. Task and default YAML reject repeated explicit keys, with field and both source locations. Legitimate YAML merge overrides remain supported.",
@@ -205,7 +213,7 @@ def agent_contract() -> dict[str, Any]:
         "auxiliary_commands": [
             {"argv": ["Jarvis", "agent", "search", "<Keywords>", "--json"], "effect": "query", "output": "Bounded keyword matches pointing to installed manual/help. No match is not proof of unsupported behavior."},
             {"argv": ["Jarvis", "agent", "inspect", "<Task.yaml>", "--json"], "effect": "query", "output": "Actual task/default paths, merged environment, normalized policy and validation. --section paths|runtime|sources|validation|card|policies reduces output while retaining validation evidence. Does not import task operators or start a scan."},
-            {"argv": ["Jarvis", "agent", "schema", "--json"], "effect": "query", "output": "Local schema bundle; refs resolved by $id in schemas, without fetching URLs. Excludes delegated runtime behavior."},
+            {"argv": ["Jarvis", "agent", "schema", "--json"], "effect": "query", "output": "Local schema bundle; refs resolved by $id in schemas, without fetching URLs. Excludes dynamic plugin/delegated runtime behavior."},
             {"argv": ["Jarvis", "agent", "schema", "--list", "--json"], "effect": "query", "output": "Small installed schema index; --id accepts exact bundled $id plus a local JSONPointer fragment, never fetching the URL."},
             {"argv": ["Jarvis", "agent", "template", "<Name>", "--json"], "effect": "query", "output": "Bundled YAML body, artifact kind and prerequisites; omit Name to list. Compose sampling fragments into a complete card. Without --json, a named template emits raw YAML."},
             {"argv": ["Jarvis", "agent", "request", "--json"], "effect": "draft", "output": "Email draft with inline evidence fields, missing_fields and draft_ready. Read --help; input paths are text, never implicitly read. Information completeness is not verification or permission to send."},

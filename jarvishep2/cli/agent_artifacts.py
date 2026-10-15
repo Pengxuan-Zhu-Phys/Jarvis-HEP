@@ -25,7 +25,7 @@ from jarvishep2.cli.man import resolve_man_request
 
 CONTRACT_VERSION = 1
 SCHEMA_SCOPE = (
-    "bundled task-card schemas; runtime/delegated metadata require man and validate"
+    "bundled task-card schemas; runtime/delegated/plugin metadata require man and validate"
 )
 _TEMPLATE_ROOT = Path(__file__).resolve().parents[1] / "project_template"
 # Facts about shipped examples, not a classifier for arbitrary dotted names.

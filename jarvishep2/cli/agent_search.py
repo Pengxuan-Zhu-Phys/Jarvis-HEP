@@ -71,7 +71,7 @@ def search_index() -> tuple[list[dict[str, Any]], list[str]]:
             if target is not None:
                 pending.append(target)
     if pending:
-        notes.append("The installed manual traversal reached 160 pages; inspect additional delegated help directly.")
+        notes.append("The installed manual traversal reached 160 pages; inspect additional plugin or delegated help directly.")
     for row in command_catalog():
         entries.append({"name": row["command"], "kind": "command", "path": None,
                         "context": {}, "description": row["effects_detail"],

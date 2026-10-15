@@ -70,6 +70,11 @@ class _RuntimeSupervisor:
         from jarvishep2.process_cleanup import ensure_scan_name_available
 
         scan_name = str(core.info.get("scan_name") or core.config.get("scan_name") or "scan")
+        if core._plugin_preflight is None:
+            core.init_logger()
+        core.check_environment_requirements()
+        if core._plugin_preflight is None:
+            core.preflight_sampler_plugin()
         ensure_scan_name_available(scan_name, cleanup_stale=core._resume_policy == "resume")
         db_path = os.path.join(core._resolve_database_dir(), "samples.hdf5")
         if core._resume_policy == "resume":
@@ -91,10 +96,10 @@ class _RuntimeSupervisor:
                 )
         if core._resume_policy == "resume":
             core._load_persisted_database_state(os.path.dirname(db_path))
-        core.init_logger()
         # Preflight remains before command setup, Redis, Workers, and Archiver,
         # while init_logger above ensures all outcomes reach core.log.
-        core.check_environment_requirements()
+        # A plug-in sampler is imported and prepared here, so its errors stop
+        # the run before Redis, Workers or the Archiver start.
         # LibDeps is globally shared.  Resolve its V1 tokens with no registered
         # executable side effects, install/reuse it once, then register tools.
         root_path = core._environment_summary.get("ROOT path")
@@ -856,7 +861,11 @@ class _RuntimeSupervisor:
         if core.redis is None:
             return
         redis_config = core.redis.connection_config()
-        path = write_scan_metadata(config=core.config, info=core.info, redis=redis_config)
+        preflight = getattr(core, "_plugin_preflight", None)
+        plugin = preflight.runtime_metadata() if preflight is not None else None
+        path = write_scan_metadata(
+            config=core.config, info=core.info, redis=redis_config, plugin=plugin,
+        )
         core.redis.set_runtime_metadata_path(path)
         core.info["runtime_metadata_path"] = path
 

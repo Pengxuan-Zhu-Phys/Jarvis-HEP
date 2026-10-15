@@ -15,6 +15,7 @@ command: `Jarvis`.
 | --- | --- |
 | Distributed execution | Redis-backed queue with Python `spawn` Workers |
 | Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `LatinHypercube`, `Dynesty`, and `MultiNest` |
+| Your own samplers | [Jarvis-HEP-Sampler](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler) plug-ins: write one Python file, `Jarvis sampler load` it, use it as `Sampling.Method` |
 | HEP calculator integration | [Jarvis-HEP-Portal](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Portal) for calculator file I/O |
 | Python operators | [Jarvis-Operas](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Operas) for registered operators and expressions |
 | Reliability | Checkpoints, resume, graceful shutdown, and per-sample failure artifacts |
@@ -52,9 +53,10 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-For development and tests, install the test tools separately:
+That install resolves `Jarvis-HEP-Sampler` newer than 1 from PyPI. For development and tests, install the sibling sampler tree and the test tools:
 
 ```bash
+python3 -m pip install -e ../Jarvis-HEP-Sampler
 python3 -m pip install -e .
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 ```
@@ -115,7 +117,7 @@ your detected system.
 
 The default install includes every Jarvis runtime dependency: the Redis Python
 client, `msgpack`, `aiofiles`, Textual Monitor, `Jarvis-HEP-Portal`,
-`Jarvis-Operas`, and [JarvisPLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT).
+`Jarvis-HEP-Sampler`, `Jarvis-Operas`, and [JarvisPLOT](https://github.com/Pengxuan-Zhu-Phys/JarvisPLOT).
 Jarvis does not publish optional dependency groups.
 
 For the complete installation guide, Redis options, and project-packaging
@@ -220,6 +222,8 @@ Additional integrations are available through native subcommands:
 Jarvis project create MyScan
 Jarvis project browse
 Jarvis project fetch Eggbox
+Jarvis sampler init MySampler      # write your own sampler from a template
+Jarvis sampler load MySampler.py   # then use Sampling.Method: MySampler
 Jarvis portal man
 Jarvis operas list
 Jarvis gen-plot-yaml TASK.yaml
@@ -249,12 +253,12 @@ Jarvis validate bin/task.yaml --json
 
 The contract includes the installed version, question routes, argument arrays,
 command effects, authorization boundaries and authoring workflows. Follow the
-installed `man` pages for field names and built-in sampler Bounds, and the
+installed `man` pages for field names and registered sampler options, and the
 owning Portal/Operas/PLOT CLI for runtime behavior. The schema bundle describes
 the bundled structural vocabulary; semantic checks still require `validate`.
 `Jarvis agent schema --id URI` prints one original schema document or local
-JSONPointer fragment from that bundle without fetching the URI. Read
-`Jarvis man sampler.NAME` for the chosen built-in method's Bounds. Omit
+JSONPointer fragment from that bundle without fetching the URI. Sampler manual
+pages include `options_schema`, `schema_argv` and `bounds_schema_argv`. Omit
 `--brief` to read the full original contract; `--section` reads one section.
 Search performs keyword discovery and returns real manual/help `next_argv`;
 absence of a match is not proof that a feature is unsupported.
@@ -304,7 +308,7 @@ These inputs are literal text; paths are not read and commands are not executed.
 text sections are filled, not that their contents were verified or mail was sent.
 
 The implementation audit and validation record are in
-[the CLI agent integration report](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/30f2467/docs/cli-agent-integration-report.md).
+[the CLI agent integration report](docs/cli-agent-integration-report.md).
 
 ## Outputs
 

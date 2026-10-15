@@ -50,6 +50,7 @@ _COMMAND_HELP_PANELS = {
     "portal": "Extensions & projects",
     "operas": "Extensions & projects",
     "project": "Extensions & projects",
+    "sampler": "Extensions & projects",
 }
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
@@ -69,6 +70,7 @@ _COMMAND_HELP_ORDER = {
     "redis": 95,
     # Project / extension entry points
     "project": 100,
+    "sampler": 105,
     "portal": 110,
     "operas": 120,
     # Nested helper workflows
@@ -437,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis monitor\n"
             "  Jarvis redis [info|check|install|start] [--json]\n"
             "  Jarvis plot …              # same CLI as jplot\n"
+            "  Jarvis sampler …           # same CLI as jsampler\n"
             "  Jarvis portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis operas …            # same CLI as jopera\n"
             "  Jarvis project create|pack|browse|fetch|info …\n"
@@ -673,6 +676,13 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
     )
 
+    # ``sampler`` uses argv passthrough to its own sub-parser.
+    sub.add_parser(
+        "sampler",
+        help="Your own samplers (same as jsampler)",
+        add_help=False,
+    )
+
     ps_p = sub.add_parser(
         "ps",
         help="List process groups, or show one scan / ZP group",
@@ -786,6 +796,12 @@ def build_project_help_parser() -> JarvisArgumentParser:
     encrypt.add_argument("--key", required=True, help="Encryption key")
     return parser
 
+
+def build_sampler_help_parser() -> argparse.ArgumentParser:
+    """``Jarvis sampler`` uses the same parser as the ``jsampler`` command."""
+    from jarvis_hep_sampler.cli import build_parser
+
+    return build_parser("Jarvis sampler")
 
 
 def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:

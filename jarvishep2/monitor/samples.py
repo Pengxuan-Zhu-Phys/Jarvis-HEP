@@ -285,7 +285,26 @@ def _subtitle(display: SamplerDisplay) -> str:
     if method in {"Dynesty", "MultiNest"}:
         family = "DYNAMIC" if method == "Dynesty" else "STATIC"
         return f"{family} · NLIVE {_integer(_metric(display, 'nlive'))} · SAVED {saved}"
+    if display.family == "plugin":
+        return _plugin_subtitle(display, saved)
     return f"CUSTOM METHOD · SAVED {saved}"
+
+
+def _plugin_subtitle(display: SamplerDisplay, saved: str) -> str:
+    """Plug-in samplers: version, accepted, seed and up to two plug-in metrics."""
+    parts = [
+        f"PLUGIN {_metric(display, 'version', '—')}",
+        f"ACCEPTED {_integer(_metric(display, 'accepted'))}",
+        f"SEED {_integer(_metric(display, 'seed'))}",
+    ]
+    reported = _metric(display, "plugin_status", {})
+    if isinstance(reported, Mapping):
+        for key, value in list(reported.items())[:2]:
+            if isinstance(value, float):
+                value = _number(value)
+            parts.append(f"{str(key).upper()} {value}")
+    parts.append(f"SAVED {saved}")
+    return " · ".join(parts)
 
 
 def render_samples_block(width: int, data: SamplesBlockData) -> SamplesBlockRender:
@@ -328,6 +347,8 @@ def render_samples_block(width: int, data: SamplesBlockData) -> SamplesBlockRend
         rows = _mcmc_rows(width, display, role="REPLICAS", unit="GEN")
     elif method in {"Dynesty", "MultiNest"}:
         rows = _nested_rows(width, display)
+    elif display.family == "plugin":
+        rows = _finite_rows(width, display, label="CANDIDATES")
     else:
         state = str(display.state or "running").upper()
         rows = (
@@ -391,7 +412,7 @@ def sampler_display_from_sources(
 
     target = progress_map.get("target")
     if target is None:
-        if method == "Random":
+        if method == "Random" or family == "plugin":
             target = metrics.get("point_number")
         elif method == "Grid":
             target = metrics.get("total")

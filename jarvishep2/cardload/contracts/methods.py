@@ -15,22 +15,25 @@ from jarvishep2.cardload.contracts.common import (
 from jarvishep2.cardload.contracts.nested import validate_nested_bounds
 from jarvishep2.cardload.contracts.variables import validate_variables
 from jarvishep2.sampler_catalog import (
+    is_plugin,
     mcmc_names,
-    methods_need_variables,
     nested_names,
+    spec_for,
 )
 
 if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
-# Views of ``sampler_catalog`` (D25.1). CSV is the only method without Variables.
-_METHODS_NEED_VARIABLES: frozenset[str] = methods_need_variables()
+# Views of ``sampler_catalog`` (D25.1). Nested and MCMC methods are built-ins
+# only; plug-ins are looked up at call time. CSV is the only method without
+# Variables.
 _NESTED_METHODS: frozenset[str] = nested_names()
 _MCMC_METHODS: frozenset[str] = mcmc_names()
 
 
 def method_needs_variables(method: str) -> bool:
-    return str(method).strip() in _METHODS_NEED_VARIABLES
+    spec = spec_for(str(method).strip())
+    return bool(spec is not None and spec.needs_variables)
 
 
 def _reject_retired_sampling_top_level(
@@ -99,6 +102,12 @@ def validate_method_sampling(
                 f"expected a mapping, got {type(bounds).__name__}",
             )
         )
+        return issues
+
+    if is_plugin(method):
+        from jarvishep2.cardload.contracts.plugin import validate_plugin_sampling
+
+        issues.extend(validate_plugin_sampling(sampling, method=method))
         return issues
 
     if method == "Bridson":
