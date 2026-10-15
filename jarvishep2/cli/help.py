@@ -439,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis monitor\n"
             "  Jarvis redis [info|check|install|start] [--json]\n"
             "  Jarvis plot …              # same CLI as jplot\n"
+            "  Jarvis sampler …           # same CLI as jsampler\n"
             "  Jarvis portal …            # same CLI as jportal (V2 registry)\n"
             "  Jarvis operas …            # same CLI as jopera\n"
             "  Jarvis project create|pack|browse|fetch|info …\n"
@@ -678,7 +679,7 @@ def build_parser() -> argparse.ArgumentParser:
     # ``sampler`` uses argv passthrough to its own sub-parser.
     sub.add_parser(
         "sampler",
-        help="Your own samplers (init/check/load/list/info/remove)",
+        help="Your own samplers (same as jsampler)",
         add_help=False,
     )
 
@@ -796,45 +797,11 @@ def build_project_help_parser() -> JarvisArgumentParser:
     return parser
 
 
-def build_sampler_help_parser() -> JarvisArgumentParser:
-    """``Jarvis sampler``: create, check, load and manage your own samplers."""
-    parser = JarvisArgumentParser(
-        prog="Jarvis sampler",
-        description=(
-            "Write your own sampler as one Python file, load it once, then use it as "
-            "Sampling.Method like a built-in method."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    sub = parser.add_subparsers(
-        dest="sampler_command", required=False, parser_class=JarvisArgumentParser
-    )
+def build_sampler_help_parser() -> argparse.ArgumentParser:
+    """``Jarvis sampler`` uses the same parser as the ``jsampler`` command."""
+    from jarvis_hep_sampler.cli import build_parser
 
-    init = sub.add_parser("init", help="Create a sampler file from the template")
-    init.add_argument("method", help="Sampling.Method name, e.g. MyLatinHypercube")
-    init.add_argument("--output", help="File or directory to write (default ./<Method>.py)")
-
-    check = sub.add_parser("check", help="Check a sampler offline (no Redis)")
-    check.add_argument("target", help="Sampler file, or the name of a loaded sampler")
-    context = check.add_mutually_exclusive_group()
-    context.add_argument("--dimension", type=int, help="Number of variables (default 2)")
-    context.add_argument("--card", help="Task YAML to take Variables and Bounds from")
-    check.add_argument("--options", help="YAML file with the sampler's Bounds options")
-    check.add_argument("--points", type=int, help="Total candidate budget (default: the card's, else 100)")
-    check.add_argument("--seed", type=int, help="Seed (default: the card's, else 0)")
-
-    load = sub.add_parser("load", help="Load or replace a sampler for every new run")
-    load.add_argument("file", help="Sampler .py file")
-
-    sub.add_parser("list", help="List loaded and shipped plug-in samplers")
-
-    info = sub.add_parser("info", help="Show one loaded sampler")
-    info.add_argument("method", help="Sampling.Method name")
-
-    remove = sub.add_parser("remove", help="Unload a sampler (your file is kept)")
-    remove.add_argument("method", help="Sampling.Method name")
-    remove.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
-    return parser
+    return build_parser("Jarvis sampler")
 
 
 def _render_help_for_args(parser: argparse.ArgumentParser, args: list[str]) -> int:

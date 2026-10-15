@@ -655,6 +655,16 @@ def test_local_schema_refs_retain_type_description_and_default(tmp_path: Path, h
 
 
 # --------------------------------------------------------------------- CLI
+def test_cli_version_prints_sdk_version(capsys: pytest.CaptureFixture[str]) -> None:
+    from jarvis_hep_sampler import __version__
+    from jarvishep2.cli.sampler import dispatch_sampler
+
+    assert dispatch_sampler(["-v"]) == 0
+    assert capsys.readouterr().out.strip() == f"Jarvis-HEP-Sampler {__version__}"
+    assert dispatch_sampler(["--version"]) == 0
+    assert capsys.readouterr().out.strip() == f"Jarvis-HEP-Sampler {__version__}"
+
+
 def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     from jarvishep2.cli.sampler import dispatch_sampler
 
