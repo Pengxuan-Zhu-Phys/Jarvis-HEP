@@ -129,11 +129,15 @@ class FixedSetSampler(CheckpointedSampler):
         """Install DATABASE-proven terminal rows beyond the contiguous prefix."""
         self._persisted_pending_indices = set(indices)
 
+    def record_submitted_batch(self, uuids: list[str]) -> None:
+        """Indexed cursors need no per-sample UUID history."""
+        return
+
     def flush_batch(self, batch: list[Sample]) -> int:
         if not batch:
             return 0
         self.check_runtime_control()
-        if self.uses_indexed_resume:
+        if self.uses_indexed_resume and self._resume_mode:
             # Replay still advances candidate/accepted cursors through holes.
             # A durable Failed row is terminal just like a Completed row.
             batch = [

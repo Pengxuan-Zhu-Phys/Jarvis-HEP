@@ -487,9 +487,11 @@ class SimpleArchiver:
             recover_stale=True,
         )
         database_dir = os.path.dirname(os.path.abspath(db_path))
-        prefix, persisted_indices, legacy_uuids = read_persisted_sample_index_state(
-            database_dir
-        )
+        initial_prefix = cfg.get("initial_persisted_prefix")
+        if initial_prefix is None:
+            prefix, persisted_indices, legacy_uuids = read_persisted_sample_index_state(database_dir)
+        else:
+            prefix, persisted_indices, legacy_uuids = max(0, int(initial_prefix)), set(), set()
         self.processor = ArchiveProcessor.from_config(
             writer,
             sample_root=sample_root,

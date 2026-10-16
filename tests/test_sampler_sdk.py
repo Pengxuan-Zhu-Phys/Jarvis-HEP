@@ -1,4 +1,4 @@
-"""Jarvis-HEP requires a Jarvis-HEP-Sampler release newer than 1."""
+"""Jarvis-HEP requires the first SDK release with N1/N2 behavior."""
 
 from __future__ import annotations
 
@@ -10,24 +10,24 @@ import yaml
 from jarvishep2.sampler_sdk import SDK_SPECIFIER, SamplerSDKError, require_sampler_sdk
 
 
-def test_installed_sdk_is_newer_than_v1() -> None:
+def test_installed_sdk_meets_minimum() -> None:
     import jarvis_hep_sampler
     from importlib.metadata import version
 
     installed = require_sampler_sdk()
     assert installed == version("Jarvis-HEP-Sampler") == jarvis_hep_sampler.__version__
-    assert SDK_SPECIFIER == ">1"
+    assert SDK_SPECIFIER == ">=1.0.3"
 
 
-@pytest.mark.parametrize("installed", ["0.1.0", "1.0.0", "1"])
-def test_sdk_requirement_rejects_v1_and_older(monkeypatch: pytest.MonkeyPatch, installed: str) -> None:
+@pytest.mark.parametrize("installed", ["0.1.0", "1.0.0", "1", "1.0.1", "1.0.2", "1.0.3rc1"])
+def test_sdk_requirement_rejects_older_releases(monkeypatch: pytest.MonkeyPatch, installed: str) -> None:
     monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
     with pytest.raises(SamplerSDKError, match=SDK_SPECIFIER):
         require_sampler_sdk()
 
 
-@pytest.mark.parametrize("installed", ["1.0.1", "1.2.0", "2.0.0"])
-def test_sdk_requirement_accepts_anything_newer_than_v1(
+@pytest.mark.parametrize("installed", ["1.0.3", "1.2.0", "2.0.0"])
+def test_sdk_requirement_accepts_minimum_and_newer(
     monkeypatch: pytest.MonkeyPatch, installed: str
 ) -> None:
     monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
@@ -43,7 +43,7 @@ def test_user_registry_reports_an_unsupported_sdk(monkeypatch: pytest.MonkeyPatc
     assert "0.1.0" in problem and SDK_SPECIFIER in problem
 
 
-def test_default_environments_require_sampler_newer_than_v1() -> None:
+def test_default_environments_require_sampler_minimum() -> None:
     root = Path(__file__).resolve().parents[1] / "jarvishep2"
     paths = (
         root / "card" / "environment_default.yaml",
@@ -54,4 +54,7 @@ def test_default_environments_require_sampler_newer_than_v1() -> None:
         dependencies = document["EnvReqs"]["Python"]["Dependencies"]
         match = next(item for item in dependencies if item["name"] == "Jarvis-HEP-Sampler")
         assert match["required"] is True
-        assert match["version"] == ">1"
+        assert match["version"] == SDK_SPECIFIER
+        packaging = next(item for item in dependencies if item["name"] == "packaging")
+        assert packaging["required"] is True
+        assert packaging["version"] == ">=23.0"

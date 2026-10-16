@@ -186,8 +186,10 @@ def preflight_plugin(
     from jarvishep2.cardload.task_config import sampling_method
     from jarvishep2.sampling.plugin_identity import (
         BINDING_VERSION, binding_record, check_identity, environment_versions,
-        identity_path, read_binding, source_path, validate_checkpoint, write_binding,
+        identity_path, read_binding, source_path, trusted_builtin_binding_method,
+        validate_checkpoint, write_binding,
     )
+    from jarvishep2.sampler_catalog import SOURCE_BUILTIN_PLUGIN
 
     # Programmatic callers may provide the layout separately.
     cfg = dict(config)
@@ -208,6 +210,13 @@ def preflight_plugin(
         return None
     if record is None or not spec.stateless:
         raise PluginLoadError(f"{method} is not a loaded independent sampler", method=method)
+    trusted_builtin = trusted_builtin_binding_method(
+        method,
+        binding.get("original_source") if binding else (
+            record.source_path if record.source == SOURCE_BUILTIN_PLUGIN else None
+        ),
+        binding.get("source_sha256") if binding else record.source_sha256,
+    )
     path = identity_path(cfg)
     source_dir = (plugin_source_dir(task_root, scan_name, method, check=check)
                   if task_root and scan_name else None)
@@ -222,7 +231,7 @@ def preflight_plugin(
     if binding:
         from jarvis_hep_sampler.metadata import parse_metadata
         from jarvis_hep_sampler.options import freeze_options, parse_reserved, split_bounds
-        meta = parse_metadata(binding["metadata"])
+        meta = parse_metadata(binding["metadata"], trusted_builtin_method=trusted_builtin)
         reserved, options = split_bounds(_sampling(cfg).get("Bounds") or {}, meta.profile)
         settings = parse_reserved(reserved, meta.profile)
         identity, fields = plugin_identity(
@@ -256,7 +265,8 @@ def preflight_plugin(
         payload = origin.read_bytes()
         if hashlib.sha256(payload).hexdigest() != record.source_sha256:
             raise PluginLoadError("registered source SHA-256 mismatch", method=method, source=str(origin))
-    plugin = load_plugin_source(payload, origin=origin)
+    plugin = load_plugin_source(payload, origin=origin,
+                                trusted_builtin_method=trusted_builtin)
     session = IndependentSession.from_bounds(
         plugin, _sampling(cfg).get("Bounds") or {}, variable_names=_variable_names(cfg),
         log=SamplerLog(method, JarvisLogBackend(method)),

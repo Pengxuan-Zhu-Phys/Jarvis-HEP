@@ -108,8 +108,9 @@ apply to this master-based source. Current results belong in the
 
 ## Sampler requirement
 
-Releases after the SDK-free 2.0.17 package require `Jarvis-HEP-Sampler>1`.
-`Jarvis sampler` is the same command as `jsampler`. The default environment
-cards use the same bound. A normal `pip install Jarvis-HEP` resolves a matching
-sampler release from PyPI. The 2.0.17 publication record above stays the
-historical account of the release that shipped without this dependency.
+The current source checkout after the SDK-free 2.0.17 package requires
+`Jarvis-HEP-Sampler>=1.0.3` without an upper bound. The default environment
+cards use the same bound. `Jarvis sampler` forwards the SDK `jsampler` commands
+and adds HEP's built-in method display. When this HEP source is packaged and
+installed, pip resolves a matching sampler release from PyPI. The published
+2.0.17 package remains the historical release without this dependency.

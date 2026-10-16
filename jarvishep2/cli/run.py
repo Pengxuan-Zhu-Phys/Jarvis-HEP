@@ -280,6 +280,7 @@ def dispatch_run(
 
     from jarvis_hep_sampler.errors import PluginError
     from jarvishep2.core import Jarvis2Core
+    from jarvishep2.sampler_catalog import SamplerRegistryPreflightError
     from jarvishep2.task_config import TaskCardLoadError
 
     try:
@@ -305,6 +306,9 @@ def dispatch_run(
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
 
+    except SamplerRegistryPreflightError as exc:
+        print(f"Run failed: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     except PluginError as exc:
         print(f"Run failed: {exc}", file=sys.stderr)
         return EXIT_RUN_FAILED
@@ -329,6 +333,9 @@ def dispatch_run(
             outcome = core.run(resume=resume)
     except NotImplementedError as exc:
         print(str(exc), file=sys.stderr)
+        return EXIT_USAGE
+    except SamplerRegistryPreflightError as exc:
+        print(f"Run failed: {exc}", file=sys.stderr)
         return EXIT_USAGE
     except (RuntimeError, TimeoutError, OSError, PluginError) as exc:
         print(f"Run failed: {exc}", file=sys.stderr)

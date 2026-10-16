@@ -8,7 +8,7 @@
 4. **Main risks**：单入口不含第三方依赖/资源，用户函数无强制超时；远程 OS/Python、最低依赖组合和性能目标仍开放。check 的通用 runtime/log/summary 仍遵循原生共享布局。
 5. **Verification performed**：SDK 全测试/完整构件，HEP 确定性回归、独立 CLI 管理/迁移、真实 SIGINT、联合故障、运行中登记和启动失败恢复及完整依赖安装；命令、结果、源码 hash 与例外见 [M1 验收](native-parity-m1-verification.json)和[M2 验收](native-parity-m2-verification.json)。
 
-当前 M2 验收基线为 SDK `cf924cb` / 当时的包版本 0.1.0 与 HEP `569d3865` / 2.0.17 加 sampler 工作区修改；M1 的 `ef6c223a` / 2.0.16 结果保留为历史。SDK 1.0.1 起提供 `jsampler`。HEP 只要求 `Jarvis-HEP-Sampler>1`；API、STREAM_PROTOCOL 与 registry 仍是 1。PyPI 上传是单独的一步。S0/S1、S2a 默认严格恢复与 S2b 源码打包已有实现；本轮修复 check 污染正式绑定、indexed 中断保存超前游标、恢复后重置游标，以及 prefix 外已落盘行重复计算和归档目标超计。S2c 内置推广、S3 generational 尚未交付。
+当前 M2 验收基线为 SDK `cf924cb` / 当时的包版本 0.1.0 与 HEP `569d3865` / 2.0.17 加 sampler 工作区修改；M1 的 `ef6c223a` / 2.0.16 结果保留为历史。SDK 1.0.1 起提供 `jsampler`。当前 HEP 源码要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限；API、STREAM_PROTOCOL 与 registry 仍是 1。SDK 1.0.3 已由维护者发布，当前依赖下限对应其 N1/N2 行为。S0/S1、S2a 默认严格恢复与 S2b 源码打包已有实现；本轮修复 check 污染正式绑定、indexed 中断保存超前游标、恢复后重置游标，以及 prefix 外已落盘行重复计算和归档目标超计。S2c 内置推广、S3 generational 尚未交付。
 
 **更正旧维护描述**：AGENTS 指定的五份 canonical 文档现已重建并维护 HEP 总体上下文、PRD、架构、代码地图和路线。本文维护 sampler 技术决定，SDK 开发台账维护本轮任务与验收；历史章节的旧版本/推送/发行状态以其记录日期理解，不作为当前公开发行事实。
 
@@ -231,9 +231,9 @@ SDK 只依赖 Python 标准库、NumPy、jsonschema，不导入 HEP、Redis、Po
 
 **插件只负责生成单位立方体里的坐标**，不接触 Sample、UUID、Redis、Worker 或 DATABASE。
 
-**依赖方向：** HEP 硬依赖已发布的 SDK（`Jarvis-HEP-Sampler>1`），与 Portal 的处理方式一致；SDK 绝不导入 HEP。SDK 是单独的仓库，放在 `Jarvis-Workshop/Jarvis-HEP-Sampler/`，PyPI 名为 `Jarvis-HEP-Sampler`。`Jarvis sampler` 与 `jsampler` 是同一个命令。
+**依赖方向：** 当前 HEP 源码硬依赖已发布的 SDK（`Jarvis-HEP-Sampler>=1.0.3`，无上限），与 Portal 的处理方式一致；SDK 绝不导入 HEP。SDK 是单独的仓库，放在 `Jarvis-Workshop/Jarvis-HEP-Sampler/`，PyPI 名为 `Jarvis-HEP-Sampler`。
 
-**命令行入口：** 只有一个，即 `Jarvis sampler ...`。模板、检查、加载的实现都在 SDK 里，SDK 不再单独提供命令行。
+**命令行入口（更正）：** SDK 自带 `jsampler`，HEP 的 `Jarvis sampler ...` 转发其模板、检查、加载等命令，并扩展内置方法的 list/info 展示。旧文中“只有一个入口、SDK 不提供命令行”的说法不再符合已发布的 1.0.3。
 
 ---
 
@@ -391,14 +391,18 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 | 命令 | 行为 |
 | --- | --- |
-| `init <Method> [--output PATH] [--profile independent]` | 用 SDK 的固定模板生成 `<Method>.py`。检查方法名格式，检查是否与内置方法同名；目标文件已存在时拒绝。模板见 §5.5 |
-| `check <file\|Method> [--dimension D \| --card TASK.yaml] [--options OPTIONS.yaml] [--points N] [--seed S]` | 离线执行参数/输出检查，重新导入后比较同 seed 流，并在新 Python 进程从中间候选重放尾段；覆盖 draw_block 的块边界。不需要 load；不能证明任意算法的科学正确性 |
-| `load <file>` | 导入一次，按 §4.1–§4.2 检查结构；有 `OPTIONS_SCHEMA` 时运行 `check_schema`；然后写快照和登记。**不调用** `prepare` / `draw` |
-| `list` | 表格列出方法、版本、profile、载入时间、源文件路径、状态（`ok` / `source changed since load` / `source missing`） |
-| `info <Method>` | 显示登记的全部字段和插件提供了哪些 hook |
-| `remove <Method> [--yes]` | 删除登记和快照。用户的源文件不受影响 |
+| `init <Method> [--output PATH]` | 用 SDK 的 independent 固定模板生成 `<Method>.py`。检查方法名格式，检查是否与内置方法同名；目标文件已存在时拒绝。模板见 §5.5 |
+| `check <file> [--dimension D \| --card TASK.yaml] [--options OPTIONS.yaml] [--points N] [--seed S]` | 只接受文件路径。第一项检查方法名不与内置方法重名（§5.2 保留名），重名即失败，后续项不执行。然后离线执行参数/输出检查，重新导入后比较同 seed 流，并在新 Python 进程从中间候选重放尾段；覆盖 draw_block 的块边界。不需要 load；不能证明任意算法的科学正确性 |
+| `load <file>` | 导入一次，先比对保留名，再按 §4.1–§4.2 检查结构；有 `OPTIONS_SCHEMA` 时运行 `check_schema`；然后写快照和登记。**不调用** `prepare` / `draw`。与 `jsampler load` 完全相同 |
+| `list` | 内置方法与用户登记合并列出（§5.4 注册表报告）：方法、来源、版本、profile、源文件路径、状态（`ok` / `source changed since load` / `source missing` / `name-conflict` / `snapshot-broken`）。载入时间可由 `info` 查询；重名条目照常列出，不隐藏 |
+| `info <Method>` | 显示登记的全部字段和插件提供了哪些 hook；重名或快照有问题时给出原因和修复命令 |
+| `remove <Method> [--yes]` | 删除外部登记并清理其不再引用的托管快照；用户的源文件与 HEP 内置方法不受影响；按登记中的确切名字匹配，不做保留名检查，与内置方法重名的外部条目可以正常删除 |
 
 **`check` 的 S1 语义（R06/R07 已验收）**：`--card` 与 `--dimension` 互斥；提供 card 时沿用变量顺序、seed、options 和 `point_number`，没有 card 时默认预算为 100。显式 `--points` 改变本次检查的总预算，输出显示有效配置与覆盖项；`--options` 替换插件 options。可重复性检查重新导入同一源码字节，并由 SDK 私有 worker 在新 Python 进程重放中间尾段。此处重启的是离线 session，不是 HEP 的 DATABASE/checkpoint 恢复验收；将来若增加部分检查上限，须另设参数并保留 context 原预算。
+
+**CLI 风格。** 两个入口的帮助、错误面板、退出码与 JSON 遵循 [Jarvis 生态 CLI 设计规范](../JARVIS_CLI_DESIGN.md)；`Jarvis sampler` 直接使用 SDK 的解析器与渲染，通过 SDK 扩展点为 `list`/`info` 补充 HEP 内置方法说明及结果。
+
+**`check` 只接受文件（2026-10-17 已在本地源码实现）。** check 用于用户写完 sampler 之后、load 之前，确认它能被 Jarvis 原生调用。已登记方法的快照就是 load 时那份源文件的字节，按名字 check 不提供新信息，还要求先校验快照 hash，因此删除按名字 check：参数不是文件时 exit 2，提示用 `Jarvis sampler info <Method>` 找到源文件路径再 check。`jsampler check` 与 `Jarvis sampler check` 行为相同。报告的第一项是方法名，单独列出；重名时后续项标为未执行。
 
 ### 5.2 用户登记 `~/.jarvis/samplers/`
 
@@ -441,7 +445,11 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 **一致性检查。** 读取登记时，如果快照文件不存在，或快照的 hash 与 `source_sha256` 不符，就报 JV2-PLG-002，提示重新 load。
 
+**保留名（硬约束，已随 SDK 1.0.3 发布）。** 外部 sampler 不能与内置方法重名，大小写不敏感，没有绕过选项。保留名单只有一份，由 SDK 定义为 `RESERVED_METHOD_NAMES`（当前 16 个：AMMCMC、AdaptiveBridson、Bridson、CSV、DEMCMC、DRAM、Dynesty、EnsembleMCMC、Grid、LatinHypercube、MCMC、MultiNest、PTEnsemble、PTMCMC、Random、ToyMCMC），`check_method_name` 默认使用它，调用方不再传入名单。因此 `init`、`load`、`check` 在 `jsampler` 和 `Jarvis sampler` 两个入口下拒绝同样的名字。HEP 的 `reserved_method_names()` 为 SDK 名单与 HEP catalog 的并集，并由 HEP 测试断言 HEP 内置方法都在 SDK 名单内。新增内置方法时先更新 SDK 名单并发布，HEP 再提高 SDK 版本下限（不加上限）。旧版 SDK 或手工编辑仍可能在登记中留下重名条目，由 §5.4 的注册表报告在运行时拦截。
+
 **可移植性。** 登记是"每个用户、每台机器"一份。在另一台机器上运行同一张 card，需要先 load，或者从打包的项目里拿到插件（§6.7）。
+
+SDK 的 `RESERVED_METHOD_NAMES` 对外部 `init`、`load`、`check` 始终生效。HEP 加载官方内置插件和识别已有内置插件 scan binding 时，才使用低层 `trusted_builtin_method` 精确豁免该官方方法名；用户登记 API 不传此参数。
 
 ### 5.3 Bounds：保留键与插件参数
 
@@ -468,8 +476,22 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 schema 仍然完全可选。S1 已修正 man 的解析根，本地 `$defs` / `$ref` 的类型、说明和默认值与校验一致。SDK 禁止引用解析时自动访问网络：无法解析的本地引用或外部资源引用返回定位明确的离线诊断。需要复用 schema 时把定义放进同一文档；schema 默认值只供展示，不自动写入 options，插件自行应用默认值（R09 已验收）。
 
+**注册表报告（2026-10-17 已在本地源码实现）。** `sampler_catalog.registry_report()` 在内存里合并 builtin、builtin-plugin 与 user 三层，不把内置方法写进 `sources.json`。每个 user 条目带一个状态：`ok`、与内置方法重名、快照缺失或被改（复用 SDK `SamplerRegistry.problems`）；`sources.json` 整体无法读取时报告记一个全局错误。报告只读文件，不导入插件代码。登记部分沿用 `_user_layer` 的路径与签名缓存；快照校验每次都做，因为快照被改不会改变 `sources.json` 的签名。
+
+`Jarvis run` 与 `Jarvis check` 每次启动都生成这份报告，位置在 preflight 第 1 步之前，先于 Redis、Worker、Archiver 和 DATABASE 整理。按报告处理：
+
+| 报告内容 | 处理 |
+| --- | --- |
+| 任一 user 条目与内置方法重名 | 退出（配置错误，exit 2），不论卡片用的是哪个方法。列出全部重名条目，提示 `Jarvis sampler remove <X> --yes` 后改名重新 load，`<X>` 为登记中的确切名字（如 `grid`） |
+| 卡片所用插件的快照缺失或被改 | 退出，不导入快照 |
+| 其他条目的快照问题 | 警告，写入日志，运行继续 |
+| 登记整体无法读取 | 卡片用内置方法时警告并继续；用插件时退出 |
+
+续跑使用 scan 绑定的源码（§7.4），重名检查照样执行。`Jarvis sampler list` / `info` 读取同一份报告。原先分散在 Core preflight、Distributor 和 `info` 的 `assert_no_reserved_name_collision` 拦截由这份报告取代。
+
 **`Jarvis run` 的 preflight** 在恢复服务中先于 DATABASE 整理/恢复和旧游标导入；fresh 路径在 supervisor 中先于 scan 清理、HDF5 写入准备和运行资源启动。导入、参数及初始化阶段的问题会在 Redis、Worker、Archiver 启动之前暴露；draw 的错误在执行时报告。目标顺序为：
 
+0. 生成注册表报告，按上表处理；
 1. 确定这次用哪份源码（§7.4）；
 2. 核对将执行的源码字节与绑定 hash，恢复时先完成身份与 checkpoint 检查；
 3. 从同一份字节导入；
@@ -557,9 +579,9 @@ def draw(context: DrawContext, rng: np.random.Generator, plan) -> np.ndarray:
 - `nested = mcmc = False`。插件不会触发 nested 结果 CSV 导出，也不会触发 MCMC 诊断；
 - `family = "plugin"`。
 
-**user 层的读取。** 按 `sources.json` 的 mtime 和 size 缓存，只读 JSON，因此 catalog 仍然可以在 validate/man 阶段安全导入。
+**user 层的读取。** 按 `sources.json` 的 mtime 和 size 缓存，只读 JSON，因此 catalog 仍然可以在 validate/man 阶段安全导入。与内置方法重名的条目不进入 catalog 的方法解析，记入注册表报告（§5.4），由 run/check 启动时退出、由 `list` 显示。
 
-**查询函数。** `spec_for`、`names`、`available_methods`、`is_stateless`、`statistical_names`、`family_of` 等都改成在调用时合并三层；新增 `canonical_name`（大小写不敏感）、`is_plugin`、`is_statistical`、`plugin_record`、`reserved_method_names`、`user_registry_error`。`builtin_specs()` 和 `schema_ids()` 仍只覆盖 builtin 层：只有内置方法有 bundled schema 和 Distributor factory。
+**查询函数。** `spec_for`、`names`、`available_methods`、`is_stateless`、`statistical_names`、`family_of` 等都改成在调用时合并三层；新增 `canonical_name`（大小写不敏感）、`is_plugin`、`is_statistical`、`plugin_record`、`reserved_method_names`、`user_registry_error`、`registry_report`（本地已实现）。`builtin_specs()` 和 `schema_ids()` 仍只覆盖 builtin 层：只有内置方法有 bundled schema 和 Distributor factory。
 
 **去掉 import 期冻结的名字集合（实际改法）：**
 
@@ -719,6 +741,8 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 5. **prefix 重放。** 重放不足或旧游标超过 durable prefix 不得静默继续；adapter 抛 PluginResumeMismatch。M2 四组真实联合故障矩阵和两组全 durable 拒绝尾段已验收，见 §10.9；科学配置、源码或 checkpoint 损坏仍严格拒绝。
 
 **首发不做：** `--accept-plugin-change`（2026-10-16）。续跑始终使用绑定源码。SDK、Python、NumPy 变化只警告并继续，与内置 Sampler 相同。
+
+官方 `LatinHypercube` 的历史 binding 以包内相对文件名识别来源，续跑仍以 scan 自己保存的源码副本与完整 SHA-256 为准；当前安装包的绝对路径或字节变化不会令完好的副本失效。`sampler_identity.json` 与副本都是本地可编辑的项目状态，包相对路径只用于兼容识别，不能认证蓄意同时篡改 binding 与副本的行为。
 
 续跑的机制本身沿用现有实现：
 
@@ -931,9 +955,9 @@ python -m pytest -q -m 'not slow' \
 
 本机 runtime 测试仍为 macOS arm64 / Python 3.13.13 / NumPy 2.5.0。全新完整安装使用 SDK 0.1.0 与 HEP 2.0.14，NumPy 2.5.3，jsonschema 4.26.0；完整依赖版本由构件目录的验证 JSON 记录。运行流程从安装 venv 取 HEP/SDK，清除 PYTHONPATH，隔离 HOME/登记，运行目录没有 sibling 源码。
 
-**发布入口。** `./jhrel [X.Y.Z] [--dry]`。它把构件写到 `dist/<version>`，在本地装好并检查，然后发布到 PyPI。`--dry` 停在发布之前。只有完整 wheel/sdist，禁止 extras/editable/跳过依赖安装。工具和完整安装分别使用临时 venv；HEP 跑真实 Redis/spawn 用户工作流与项目包重载。验证成功才导出构件、SHA256SUMS 和依赖版本 JSON；不覆盖已有构件。
+**发布入口。** 每个项目各有一个独立发布脚本：HEP 是 `./jhrel <version> [--dry]`，SDK 是 `jhsrel <version> [--dry]`（先 `source ./jhsrel`）。脚本更新 pyproject 和 runtime 版本，清理旧构件，构建 wheel/sdist 并 `twine check`；不带 `--dry` 直接上传 PyPI，`--dry` 停在上传之前。`--dry` 是唯一选项。
 
-源码快照取 Git 跟踪文件的当前内容（包括已暂存新文件），不收集无关未跟踪实验。需先把拟发布文件加入 Git；指定版本时同时更新 pyproject 和 runtime 版本。HEP 的 `--sampler-dist` 显式安装该目录唯一 SDK wheel，避免从索引选到别的构件。上传使用 Twine 非交互流程；CI Trusted Publishing 只接收 wheel/sdist。正式发布前选尚未使用的版本，确认远程 gate、发布 SDK，再发布 HEP；当前验证版本不自动成为正式发布号。
+正式发布前选尚未使用的版本，确认远程 gate，先发布 SDK，再发布 HEP。
 
 **本节 S2 基线当时未验收的范围（本机 P7 后续见 §10.9）。** 远程 Linux/macOS×Python 3.10–3.13 矩阵、最低依赖组合、§9.3 性能测量，以及 P7 的 DATABASE 空洞/部分 batch 失败/拒绝尾段联合故障。显式源码切换、S2c、S3 尚未实现。这些不以本机 smoke 或 146/158 条测试概括为已完成。
 

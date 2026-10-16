@@ -14,6 +14,7 @@ from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from
 from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
+from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
 
 
 def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
@@ -32,12 +33,13 @@ def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
 class Grid(FixedSetSampler):
     method = "Grid"
     uuid_prefix = "grid"
-    _checkpoint_excluded_attributes = frozenset({"_logger", "_P", "_submit_progress"})
+    _checkpoint_excluded_attributes = frozenset({"_logger", "_P", "_submit_progress", "_points_sha256"})
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.grid")
         self._P: np.ndarray | None = None
+        self._points_sha256: str | None = None
         self._submit_progress: PermilleProgress | None = None
 
     def initialize(self, *, reset: bool = True) -> None:
@@ -51,6 +53,7 @@ class Grid(FixedSetSampler):
             dims.append(int(var.parameters["num"]))
         dims_arr = np.array(dims, dtype=np.int64)
         self._P = grid_sampling(dims_arr)
+        self._points_sha256 = array_fingerprint(self._P)
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
         if reset:
@@ -126,11 +129,15 @@ class Grid(FixedSetSampler):
         self._submit_progress.update(self._index)
 
     def export_runtime_state(self) -> dict[str, Any]:
+        self._ensure_grid()
         payload = self._common_export_fields()
-        payload.update({"numpy_random_state": None})
+        payload.update({"numpy_random_state": None, "points_sha256": self._points_sha256})
         return payload
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
+        self._ensure_grid()
+        if state.get("points_sha256") != self._points_sha256:
+            raise ValueError("Grid point set changed or checkpoint lacks point fingerprint")
         self._import_common_fields(state)
         self._submit_progress = None
 

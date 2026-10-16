@@ -21,6 +21,7 @@ from jarvishep2.redis_queue import RedisQueue
 
 CHECKPOINT_FORMAT = "jarvis-hep.v2-distributed"
 CHECKPOINT_VERSION = 1
+CHECKPOINT_RESUME_METHODS = frozenset({"grid", "random", "bridson", "csv"})
 
 V1_CHECKPOINT_FORMAT = "jarvis-hep.statesaver"
 V1_MCMc_FORMAT = "jarvis-hep.mcmc-runtime"
@@ -88,6 +89,50 @@ def _json_safe(value: Any) -> Any:
 def stable_json_hash(payload: Any) -> str:
     blob = json.dumps(_json_safe(payload), sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
+
+
+def sampling_fingerprint(config: Mapping[str, Any] | None) -> str:
+    """Bind a cursor to sampling inputs, excluding runtime worker settings."""
+    sampling = (config or {}).get("Sampling") or {}
+    return stable_json_hash(sampling)
+
+
+def uses_checkpoint_resume_protocol(config: Mapping[str, Any] | None) -> bool:
+    sampling = (config or {}).get("Sampling") or {}
+    method = sampling.get("Method") if isinstance(sampling, Mapping) else None
+    return str(method or "").strip().lower() in CHECKPOINT_RESUME_METHODS
+
+
+def check_sampling_fingerprint(payload: Mapping[str, Any], config: Mapping[str, Any] | None) -> tuple[bool, str]:
+    integrity = payload.get("integrity") or {}
+    stored = integrity.get("sampling_hash") if isinstance(integrity, Mapping) else None
+    if stored != sampling_fingerprint(config):
+        return False, "Sampling card (Bounds, Variables or selection) changed or checkpoint lacks its fingerprint"
+    return True, "ok"
+
+
+def checkpoint_replacing_existing(payload: Any) -> bool:
+    if not isinstance(payload, Mapping):
+        return False
+    persistence = payload.get("persistence")
+    return bool(persistence.get("replacing_existing")) if isinstance(persistence, Mapping) else False
+
+
+def array_fingerprint(points: np.ndarray) -> str:
+    """Hash shape, dtype and bytes without allocating another large array."""
+    digest = hashlib.sha256()
+    digest.update(stable_json_hash({"shape": list(points.shape), "dtype": str(points.dtype)}).encode())
+    for start in range(0, len(points), 8192):
+        digest.update(np.ascontiguousarray(points[start:start + 8192]).tobytes())
+    return digest.hexdigest()
+
+
+def file_fingerprint(path: str) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        while chunk := handle.read(4 * 1024 * 1024):
+            digest.update(chunk)
+    return {"size": os.path.getsize(path), "sha256": digest.hexdigest()}
 
 
 def serialize_seed_sequence(seq: np.random.SeedSequence) -> dict[str, Any]:
@@ -191,7 +236,7 @@ def build_payload(
     normalized = run_spec.get("normalized_config") or {}
     constants_fp = operas_constants_fingerprint()
     integrity = {
-        "config_hash": stable_json_hash(normalized),
+        "sampling_hash": sampling_fingerprint(normalized),
         "variable_signature": list(
             (normalized.get("Sampling") or {}).get("Variables", []) or []
         ),
@@ -449,6 +494,12 @@ __all__ = [
     "build_payload",
     "build_run_spec",
     "check_mapper_fingerprint",
+    "check_sampling_fingerprint",
+    "uses_checkpoint_resume_protocol",
+    "checkpoint_replacing_existing",
+    "sampling_fingerprint",
+    "array_fingerprint",
+    "file_fingerprint",
     "check_operas_constants_fingerprint",
     "operas_constants_fingerprint",
     "checkpoint_path",

@@ -2,6 +2,7 @@
 /docs/*
 !/docs/sample-storage.md
 !/docs/logging-spec.md
+!/docs/JARVIS_CLI_DESIGN.md
 !/docs/jarvis-hep-sampler/
 !/docs/development-ledger-2.0.15.md
 !/docs/validation-diagnostics.md
@@ -10,6 +11,7 @@
 !/docs/cli-agent-review2-verification.json
 !/docs/redis-environment-verification.json
 !/docs/redis-cli-help-verification.json
+!/docs/hep-review-2026-10-16-verification.json
 !/docs/release-2.0.16.md
 !/docs/release-2.0.16-verification.json
 !/docs/release-2.0.17.md

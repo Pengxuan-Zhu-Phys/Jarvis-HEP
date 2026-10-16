@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-当前 master 要求 `Jarvis-HEP-Sampler>1`。`Jarvis sampler` 与 `jsampler` 是同一条命令。插件由 SDK 定义，HEP 负责运行、检查点和项目包。
+当前 master 要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限。`Jarvis sampler` 复用 `jsampler` 命令面，并增加 HEP 的内置方法和边界检查。插件由 SDK 定义，HEP 负责运行、检查点和项目包。
 
 ## 2.0.17 公开发行范围
 
@@ -27,7 +27,7 @@ Redis 父级列出 info/check/install/start，各子级有独立 help/JSON；裸
 
 
 
-## 2026-10-15 2.0.17 SDK-free 公开发行要求（最新）
+## 2026-10-15 2.0.17 SDK-free 公开发行要求（历史发布要求）
 
 - 从公开 master `0bbcf675` 保留内置采样，移植不依赖 SDK 的可靠性、CLI agent/YAML 与 Redis 改进；本次没有外部 SDK/plugin 能力或依赖。
 - 用户授权公开 HEP，推迟已提交 SDK 集成 `0d859502` / `52876060` 及未提交 Sampler/runtime/Diver 工作；不为发布 HEP 修改或发布 SDK。
@@ -43,3 +43,58 @@ Redis 父级列出 info/check/install/start，各子级有独立 help/JSON；裸
 [GitHub Release](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/releases/tag/v2.0.17) 已公开。OIDC publisher 因 PyPI 未匹配 Trusted Publisher 配置而报 `invalid-publisher`；本次使用既有本地 PyPI 凭证上传成功 CI 的原样产物，没有重建。PyPI wheel 已公开，全新环境仅从公共索引安装完整依赖，pip check、无 SDK、276 个运行文件身份比对、Redis 39 / agent 24 均通过。PyPI 源码包上传未获服务器响应；最后一次有界请求在 36.913 秒后 ReadTimeout，全部上传进程已停止。PyPI wheel 与公开安装已完成，已验收源码包可从 GitHub Release 下载。
 
 发布 wheel SHA256 为 `25257b646c1a7ce828dae136e1e111de7c70d749d7b5b6857b7c687f227fb3ae`；CI sdist 的预期 SHA256 为 `1843e006921161dd6a46507b7b7c12b52b48990b9e3af1c76541788dafbe9915`，未在 PyPI 公开；GitHub Release 另提供通过本地完整验收的源码包。发布前本地产物的 a823… / 9171… hash 仅作本地验收记录，不能当成公开 CI 产物 hash。完整状态见 [发行记录](release-2.0.17.md) 与 [验收证据](release-2.0.17-verification.json)。
+
+## 2026-10-16 HEP 修复验收约束（历史阶段；CLI 边界已由 N1–N6 更新）
+
+- 正式 fresh 不得因旧 DATABASE 的 index/UUID 而跳过重新求值，包括 checkpoint 拒绝后的 fresh 回退；resume 保留对连续 prefix、稀疏终态行和 Failed 行的去重。check 保持独立 DATABASE/test 的追加烟测，不开启 resume 批次过滤。fresh 中断后的续跑规则见下节。
+- 当时要求 `Jarvis sampler load` 拒绝内置方法及内置插件名，大小写不敏感；旧冲突在运行前报错。现由 SDK 默认保留名单与统一注册表报告实现，见下文。
+- 当时由 HEP 校验 `check --dimension`、损坏注册表以及按名字 check 的快照 SHA-256。现 check 只接受文件，维度和 CLI 错误均由 SDK 处理；按名字 check 已删除，见下文。
+- `check --card` 保留卡片预算、seed、Variables 与选项；显式 `--points` 改变总候选预算，文本模式说明这一点，JSON 模式保持可解析。
+- 不改 SDK 项目和发布脚本，不提升版本或发布。原有 Diver 移植暂留，见 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md)"Diver 移植"。本轮门禁见 [验证证据](hep-review-2026-10-16-verification.json)。
+
+## 2026-10-16 续跑协议验收要求（已实现）
+
+设计见 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md)"续跑以 checkpoint 为准"。对 Grid/Random/Bridson/CSV，没有 checkpoint 就没有 resume；进度只以 checkpoint 为准。Dynesty 独立引擎文件与插件续跑边界保持原状。
+
+- **fresh 中断后续跑。** Grid/Random/Bridson/CSV 在旧 DATABASE 上重新开始、中途中断、再 `--resume`，最终库中只有当前卡片的结果，旧行一条不剩（真实 Redis/spawn/HDF5）。第一次心跳前中断也一样。
+- **清尾。** 新扫描点数少于旧扫描时，结束后不留 sample_index ≥ 新总数的旧行。
+- **没有 checkpoint。** `checkpoint.enabled: false` 加 `--resume`、或删除 state.pkl 后 `--resume`，都给出警告并从头扫描，不读取 DATABASE 推进进度。
+- **check 模式。** 不写 state.pkl 和 points.npy；DATABASE/test 追加行为不变。
+- **核对卡片。** 改动 Bounds（seed、point_number、radius、max_attempt）或 selection 后续跑，拒绝 checkpoint 并从头扫描，日志说明原因；只改 workers 时正常续跑。
+- **核对点集。** Grid 点集或 CSV 文件内容与 checkpoint 指纹不符时拒绝续跑。
+- **Bridson。**
+  - fresh 写一次 points.npy，扫描期间不重写；
+  - resume 读取 points.npy，不调用点集生成；
+  - points.npy 缺失、损坏或哈希不符时从头扫描；
+  - 用大点集（≥10⁶ 点）验证 resume 不重新生成，并记录读取与校验耗时。
+- **checkpoint 大小。** 同一 sampler 在 10 点与 10⁵ 点下 state.pkl 大小基本相同。indexed sampler 不再累积提交 UUID。
+- **插件。** 不变：在已有数据的 scan 上重新开始仍被 preflight 拒绝。
+
+续跑协议验收结果：4 种内置方法各在首次心跳前、后中断，再经真实 Redis/spawn/HDF5 续跑，8 项通过；实际长 Grid 扫描由短 Grid 扫描覆盖并清尾通过；Bridson check 不生成 checkpoint/points.npy 通过；无 state.pkl 与关闭 checkpoint 的真实续跑各通过 1 项。无 checkpoint、关闭 checkpoint、Sampling/CSV/Grid 指纹、Bridson 点集缺失/损坏/哈希不符及 10/10⁵ 点 state.pkl 大小均有定向回归。完整数值见 [验证证据](hep-review-2026-10-16-verification.json)。
+
+## 2026-10-17 注册表与命名验收要求（N1–N6 已完成）
+
+设计见 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md)"采样器注册表与命名"。外部 sampler 不能与内置方法重名，这是硬约束。
+
+- **保留名单。** SDK `RESERVED_METHOD_NAMES` 包含 HEP 全部内置方法；HEP 测试断言 builtin 与 builtin-plugin 都在名单内。
+- **官方 builtin-plugin。** 低层 `trusted_builtin_method` 仅对核对过的官方 `LatinHypercube` 精确豁免；普通 SDK init/load/check 不能豁免。已绑定扫描从原扫描副本和保存的 SHA-256 续跑，即使当前安装包路径或源码字节变化。项目内绑定及扫描副本可由用户编辑，不能将这项校验当作防止有意伪造的安全边界。
+- **load。** `jsampler load` 与 `Jarvis sampler load` 对 `Grid`、`grid`、`LATINHYPERCUBE` 都拒绝，退出码和信息相同，不写登记和快照。
+- **check。**
+  - 只接受文件；传方法名时 exit 2，提示 `Jarvis sampler info <Method>`。
+  - 方法名是报告第一项；重名文件在 options/prepare/draw 之前失败，后续项标为未执行。
+  - `jsampler check` 与 `Jarvis sampler check` 结果相同。
+  - `--dimension` 为 0 或负数时 exit 2，不再回落为 2。
+  - `--seed` 为负数时在载入插件前 exit 2，不进入检查报告。
+- **info。** 登记损坏时 `jsampler info` 和 `Jarvis sampler info`（包括查询内置 Grid）给出可读错误，JSON 模式输出单个 JSON 错误，没有 traceback。
+- **run/check 启动。**
+  - 用旧版 SDK 或手写 `sources.json` 造出 `Grid` 登记后，`Jarvis run` 和 `Jarvis check` 对任何卡片（包括用 Random 的卡片）都在启动 Redis 之前退出，列出重名条目与修复命令（登记中的确切名字）；按提示 `Jarvis sampler remove` 只删除该外部登记及其托管快照，不动内置方法或用户源文件，之后恢复正常。登记中的 `grid` 用 `remove grid` 可删除。
+  - 卡片所用插件的快照被改：启动前退出，不导入快照。
+  - 无关条目快照缺失：警告并继续。
+  - 登记无法读取：用内置方法的卡片警告并继续；用插件的卡片退出。
+- **展示。** `Jarvis sampler list` 列出重名条目并标明状态，不再隐藏。
+- **CLI 风格。** `jsampler` 与 `Jarvis sampler` 都用 Jarvis CLI 风格，load/check 等无扩展命令在替换程序名后帮助与错误一致，退出码一致；list/info 额外呈现 HEP 内置方法与注册表报告。登记损坏时 list/info/remove 都 exit 2；SDK 不可用时 HEP 仍输出统一错误面板或单个 JSON 错误对象。全生态规则见 [CLI 规范](JARVIS_CLI_DESIGN.md)。
+- **不变。** 没有重名且登记正常时，run/check 的行为与输出不变；生成报告不导入插件代码。
+
+本地验收：SDK N1/N2 源码测试 234 passed、Ruff 通过；HEP 最终定向集成 169 passed、4 deselected，快速全套门禁 1597 passed、196 deselected，续跑真实 Redis 慢测 20 passed、54 deselected。HEP N5 非 CLI 专测 5 passed，旧 `Grid`/`grid` 登记的真实 `Jarvis run`/`Jarvis check`、list/info/remove 入口回归 4 passed，均覆盖精确修复命令与移除后内置方法恢复。HEP 官方 `LatinHypercube` 扫描副本在包路径和字节变化后仍可读取绑定并按旧 hash 续跑。N4 的转发与 CLI 一致性已在本地实现。快速全套门禁先于最后三项 CLI 边界修复完成，定向集成在修复后复跑。N3 的 SDK 1.0.3 已公开并包含 N1/N2；HEP 最低依赖及运行时门禁为 `>=1.0.3`，不设上限。全新 Python 3.11 环境从本地 HEP 源码完成全依赖实际安装（66 个包），依赖从公共 PyPI 解析并选中 SDK 1.0.3；`pip check`、已安装模块与两个 sampler 入口的 JSON 版本输出通过。HEP 包来自本地源码，未公开发布新版本。完整结果见 [验证证据](hep-review-2026-10-16-verification.json)。
+
+2026-10-17 C1 持久化绑定收拢已实现，行为保持不变；指定三组续跑测试的非 slow 部分 58 passed，Core collaborator 17 passed；真实 Redis 慢测 20 passed、54 deselected，用时 278.16 秒。

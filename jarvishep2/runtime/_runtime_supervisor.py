@@ -34,7 +34,11 @@ from jarvishep2.Module.runtime_preparer import (
     refresh_install_control_summaries,
 )
 from jarvishep2.database import prepare_hdf5_database_for_writer
-from jarvishep2.Sampling.runtime_checkpoint import prepare_resume
+from jarvishep2.Sampling.runtime_checkpoint import (
+    prepare_resume,
+    checkpoint_replacing_existing,
+    uses_checkpoint_resume_protocol,
+)
 
 # 1s supervise tick; lock refresh stays TTL/3. Ping failures get this grace
 # before interrupt; a dead managed redis-server interrupts immediately.
@@ -77,6 +81,11 @@ class _RuntimeSupervisor:
             core.preflight_sampler_plugin()
         ensure_scan_name_available(scan_name, cleanup_stale=core._resume_policy == "resume")
         db_path = os.path.join(core._resolve_database_dir(), "samples.hdf5")
+        if (core._resume_policy == "fresh" and not core.config.get("_check_modules_sample_layout")
+                and uses_checkpoint_resume_protocol(core.config)):
+            from jarvishep2.io.database import discover_samples_hdf5_shards
+
+            core._replacing_existing = bool(discover_samples_hdf5_shards(os.path.dirname(db_path)))
         if core._resume_policy == "resume":
             try:
                 # Control must not open samples.hdf5 for append (write lock would
@@ -117,20 +126,9 @@ class _RuntimeSupervisor:
             core._reset_redis_for_fresh_run()
         self._publish_core_proc_board()
         core.init_sampler_from_config()
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_uuids"):
-            core.sampler.set_persisted_uuids(core._persisted_uuids)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
-            core.sampler.set_persisted_prefix(core._persisted_index_prefix)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
-            core.sampler.set_persisted_pending_indices(
-                getattr(core, "_persisted_pending_indices", set())
-            )
-        if (
-            core._resume_policy == "resume"
-            and core.sampler is not None
-            and hasattr(core.sampler, "advance_to_persisted_prefix")
-        ):
-            core.sampler.advance_to_persisted_prefix(core._persisted_index_prefix)
+        from jarvishep2.runtime.core import Jarvis2Core
+
+        Jarvis2Core._bind_sampler_persistence(core)
         core._init_sample_buckets()
         core.init_factory()
         # Immediately before Archiver spawn: reclaim orphan Archivers only —
@@ -151,21 +149,10 @@ class _RuntimeSupervisor:
                 )
         core.init_archiver(db_path)
         core.factory.wait_for_worker_startup()
-        core._load_persisted_database_state(os.path.dirname(db_path))
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_uuids"):
-            core.sampler.set_persisted_uuids(core._persisted_uuids)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
-            core.sampler.set_persisted_prefix(core._persisted_index_prefix)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
-            core.sampler.set_persisted_pending_indices(
-                getattr(core, "_persisted_pending_indices", set())
-            )
-        if (
-            core._resume_policy == "resume"
-            and core.sampler is not None
-            and hasattr(core.sampler, "advance_to_persisted_prefix")
-        ):
-            core.sampler.advance_to_persisted_prefix(core._persisted_index_prefix)
+        if (core._resume_policy == "resume" or core.config.get("_check_modules_sample_layout")
+                or not uses_checkpoint_resume_protocol(core.config)):
+            core._load_persisted_database_state(os.path.dirname(db_path))
+        Jarvis2Core._bind_sampler_persistence(core)
         if core._resume_policy == "resume":
             core._logger.warning(
                 "Resume DATABASE reconciliation found prefix=%d, "
@@ -1063,12 +1050,19 @@ class _RuntimeSupervisor:
             os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = dict(get_archiver_config(core.config))
+        replacing_resume = checkpoint_replacing_existing(core._resume_checkpoint_payload)
+        if not core.config.get("_check_modules_sample_layout") and uses_checkpoint_resume_protocol(core.config):
+            if core._resume_policy == "fresh":
+                archiver_config["initial_persisted_prefix"] = 0
+            elif replacing_resume:
+                state = (core._resume_checkpoint_payload or {}).get("sampler_state") or {}
+                archiver_config["initial_persisted_prefix"] = int(state.get("checkpoint_index", state.get("accepted_index", 0)) or 0)
         if bool(core.config.get("_check_modules_sample_layout")):
             # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
             archiver_config["pack_buckets"] = False
         # Fresh full scans rewrite colliding identities. Check continues from
         # the existing DATABASE prefix and appends a new batch instead.
-        if str(getattr(core, "_resume_policy", "") or "") == "fresh" and not bool(
+        if (str(getattr(core, "_resume_policy", "") or "") == "fresh" or replacing_resume) and not bool(
             core.config.get("_check_modules_sample_layout")
         ):
             archiver_config["replace_duplicates"] = True
@@ -1129,8 +1123,6 @@ class _RuntimeSupervisor:
         Never promote checkpoint/Redis acknowledgements into completion truth:
         only UUIDs actually read from HDF5 may seed the deduplication set.
         """
-        core = self._core
-
         return
 
     def _archiver_records_written(self) -> int:
@@ -1314,6 +1306,18 @@ class _RuntimeSupervisor:
                 except Exception:
                     core._final_archived_records = None
                 core.archiver = None
+            if (
+                bool(getattr(core, "_scan_completed", False))
+                and not core._interrupt_requested
+                and bool(getattr(core, "_replacing_existing", False))
+                and uses_checkpoint_resume_protocol(core.config)
+                and bool(getattr(core.sampler, "uses_indexed_resume", False))
+            ):
+                from jarvishep2.io.database import trim_scan_records
+
+                total = max(0, int(getattr(core.sampler, "_accepted_index", 0) or 0))
+                dropped = trim_scan_records(core._resolve_database_dir(), total)
+                core._logger.info("Final DATABASE cleanup: total=%d removed=%d stale row(s)", total, dropped)
             if write_run_summary and core.factory is not None:
                 try:
                     core.write_run_summary()

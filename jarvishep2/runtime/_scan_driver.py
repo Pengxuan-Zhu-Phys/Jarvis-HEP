@@ -438,6 +438,7 @@ class _ScanDriver:
         v2 = envreqs.get("V2")
         v2 = dict(v2) if isinstance(v2, Mapping) else {}
         v2["workers"] = 1
+        v2["checkpoint"] = {"enabled": False}
         # SAMPLE/test layout: no numbered buckets (flat uuid dirs), no tar pack.
         sample_dir = dict(get_sample_directory_config(core.config))
         sample_dir["pack"] = False

@@ -83,14 +83,19 @@ def _subcommand_parsers(
 
 def command_catalog() -> list[dict[str, Any]]:
     from jarvishep2.cli.help import (
-        build_parser, build_project_help_parser, build_sampler_help_parser,
+        build_parser, build_project_help_parser,
     )
+    from jarvis_hep_sampler.cli import build_parser as build_sampler_parser
+    from jarvishep2.cli.sampler import SAMPLER_COMMAND_HELP
 
     catalog: list[dict[str, Any]] = []
     for prefix, parser in (
         ([], build_parser()),
         (["project"], build_project_help_parser()),
-        (["sampler"], build_sampler_help_parser()),
+        (["sampler"], build_sampler_parser(
+            "Jarvis sampler", command_help=SAMPLER_COMMAND_HELP,
+            command_description=SAMPLER_COMMAND_HELP,
+        )),
     ):
         for path, child in _subcommand_parsers(parser, prefix):
             name = path[-1]

@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -371,6 +372,98 @@ def read_persisted_sample_index_state(
         indices.remove(prefix)
         prefix += 1
     return prefix, indices, legacy_uuids
+
+
+def read_checkpoint_prefix_status(database_dir: str, cursor: int) -> tuple[bool, int]:
+    """Validate only checkpoint-confirmed indices with bounded memory."""
+    limit = max(0, int(cursor))
+    if limit == 0:
+        return True, 0
+    statuses = bytearray(limit)
+    for path in discover_samples_hdf5_shards(database_dir):
+        with _open_hdf5_readonly(path) as handle:
+            if "records" not in handle:
+                continue
+            for item in handle["records"]:
+                if isinstance(item, bytes):
+                    item = item.decode("utf-8")
+                try:
+                    row = json.loads(item)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(row, Mapping):
+                    continue
+                index = SimpleHDF5Writer._record_sample_index(row)
+                if index is not None and index < limit:
+                    statuses[index] = 2 if _record_is_failed(row) else 1
+    return all(statuses), statuses.count(2)
+
+
+def trim_scan_records(database_dir: str, total: int) -> int:
+    """Keep the final row for each index in the completed indexed scan.
+
+    Run only after the Archiver has closed its writer. Rebuilding the live shard
+    also removes stale rows from older sealed shards and refreshes its CSV.
+    """
+    paths = discover_samples_hdf5_shards(database_dir)
+    if not paths:
+        return 0
+    seen = 0
+    root = os.path.abspath(database_dir)
+    live = os.path.join(root, "samples.hdf5")
+    with tempfile.TemporaryDirectory(prefix="scan-trim-", dir=root) as scratch:
+        conn = sqlite3.connect(os.path.join(scratch, "rows.sqlite"))
+        try:
+            conn.execute("CREATE TABLE rows (sample_index INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
+            for path in paths:
+                with _open_hdf5_readonly(path) as handle:
+                    if "records" not in handle:
+                        continue
+                    for item in handle["records"]:
+                        seen += 1
+                        if isinstance(item, bytes):
+                            item = item.decode("utf-8")
+                        try:
+                            row = json.loads(item)
+                        except (TypeError, ValueError):
+                            continue
+                        if not isinstance(row, Mapping):
+                            continue
+                        index = SimpleHDF5Writer._record_sample_index(row)
+                        if index is not None and index < max(0, int(total)):
+                            conn.execute("INSERT OR REPLACE INTO rows VALUES (?, ?)", (index, item))
+                conn.commit()
+            tmp_hdf5 = os.path.join(scratch, "samples.hdf5")
+            with h5py.File(tmp_hdf5, "w", libver="latest") as handle:
+                handle.attrs["schema_version"] = 1
+                dataset = SimpleHDF5Writer._ensure_records_dataset(handle)
+                batch: list[str] = []
+                for (payload,) in conn.execute("SELECT payload FROM rows ORDER BY sample_index"):
+                    batch.append(payload)
+                    if len(batch) >= 4096:
+                        start = len(dataset)
+                        dataset.resize((start + len(batch),))
+                        dataset[start:] = batch
+                        batch.clear()
+                if batch:
+                    start = len(dataset)
+                    dataset.resize((start + len(batch),))
+                    dataset[start:] = batch
+                kept = len(dataset)
+                handle.flush()
+            with open(tmp_hdf5, "rb") as handle:
+                os.fsync(handle.fileno())
+            os.replace(tmp_hdf5, live)
+        finally:
+            conn.close()
+    for path in paths:
+        if os.path.abspath(path) != live:
+            os.unlink(path)
+            csv_path = os.path.splitext(path)[0] + ".csv"
+            if os.path.isfile(csv_path):
+                os.unlink(csv_path)
+    convert_hdf5_to_csv(live)
+    return seen - kept
 
 
 def ensure_samples_csv_shards(

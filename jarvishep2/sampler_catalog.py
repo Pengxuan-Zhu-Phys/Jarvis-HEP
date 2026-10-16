@@ -31,6 +31,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterator
 
+from jarvis_hep_sampler.errors import PluginConfigError, RegistryError
+
 SOURCE_BUILTIN = "builtin"
 SOURCE_BUILTIN_PLUGIN = "builtin-plugin"
 SOURCE_USER = "user"
@@ -81,6 +83,43 @@ class PluginRecord:
     snapshot_path: str
     source_sha256: str
     loaded_at: str = ""
+
+
+class SamplerRegistryPreflightError(PluginConfigError):
+    """A registry problem that must stop a run before runtime work begins."""
+
+
+@dataclass(frozen=True)
+class RegistryReportEntry:
+    """One method in the merged, read-only sampler registry report."""
+
+    method: str
+    source: str
+    status: str
+    problems: tuple[str, ...] = ()
+    repair_command: str | None = None
+
+
+@dataclass(frozen=True)
+class RegistryReport:
+    """Built-in and external names, with an optional registry-wide read error."""
+
+    entries: tuple[RegistryReportEntry, ...]
+    error: str | None = None
+
+    @property
+    def conflicts(self) -> tuple[RegistryReportEntry, ...]:
+        return tuple(entry for entry in self.entries if entry.status == "name-conflict")
+
+    def matching(self, method: str) -> tuple[RegistryReportEntry, ...]:
+        folded = str(method).strip().casefold()
+        return tuple(entry for entry in self.entries if entry.method.casefold() == folded)
+
+    def for_method(self, method: str, *, source: str | None = None) -> RegistryReportEntry | None:
+        for entry in self.matching(method):
+            if source is None or entry.source == source:
+                return entry
+        return None
 
 
 _SCAN_RECORD: ContextVar[PluginRecord | None] = ContextVar("sampler_scan_record", default=None)
@@ -256,17 +295,22 @@ def builtin_plugin_specs() -> tuple[SamplerSpec, ...]:
 
 def reserved_method_names() -> frozenset[str]:
     """Names a user plug-in may not take (compared case-insensitively)."""
-    return frozenset(_BY_NAME) | frozenset(_BUILTIN_PLUGIN_BY_NAME)
+    from jarvis_hep_sampler import metadata
+
+    # The SDK is the sole maintained reserved list. Include the HEP catalog
+    # defensively while old SDK installations are still in use.
+    sdk_names = getattr(metadata, "RESERVED_METHOD_NAMES", ())
+    return frozenset(sdk_names) | frozenset(_BY_NAME) | frozenset(_BUILTIN_PLUGIN_BY_NAME)
 
 
 # --------------------------------------------------------------- user layer
-_USER_CACHE: dict[str, Any] = {"key": None, "specs": {}, "records": {}, "error": None}
+_USER_CACHE: dict[str, Any] = {"key": None, "specs": {}, "records": {}, "entries": {},
+                               "error": None}
 
 
 def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str | None]:
     """Read the Jarvis-HEP-Sampler registry, cached on its path and file signature."""
     try:
-        from jarvis_hep_sampler.errors import RegistryError
         from jarvis_hep_sampler.registry import SamplerRegistry
     except ImportError as exc:  # pragma: no cover - hard dependency
         from jarvishep2.sampler_sdk import SDK_DISTRIBUTION, SDK_SPECIFIER
@@ -283,7 +327,10 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
     except SamplerSDKError as exc:
         return {}, {}, str(exc)
     registry = SamplerRegistry()
-    key = (str(registry.home), registry.signature())
+    try:
+        key = (str(registry.home), registry.signature())
+    except RegistryError as exc:
+        return {}, {}, str(exc)
     if _USER_CACHE["key"] == key:
         return _USER_CACHE["specs"], _USER_CACHE["records"], _USER_CACHE["error"]
     specs: dict[str, SamplerSpec] = {}
@@ -296,7 +343,7 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
     reserved = {name.casefold() for name in reserved_method_names()}
     for method, entry in entries.items():
         if method.casefold() in reserved:
-            continue  # a built-in always wins; jsampler still lists its own entry
+            continue
         specs[method] = SamplerSpec(
             name=method,
             stateless=entry.profile == "independent",
@@ -304,6 +351,12 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
             family=PLUGIN_FAMILY,
             source=SOURCE_USER,
         )
+        try:
+            snapshot_path = str(registry.snapshot_path(entry))
+        except RegistryError:
+            # Keep the registration visible. The report will identify the bad
+            # snapshot and preflight will reject it if this method is selected.
+            snapshot_path = ""
         records[method] = PluginRecord(
             method=method,
             source=SOURCE_USER,
@@ -314,12 +367,42 @@ def _user_layer() -> tuple[dict[str, SamplerSpec], dict[str, PluginRecord], str 
             options_schema=entry.options_schema,
             hooks=entry.hooks,
             source_path=entry.source_path,
-            snapshot_path=str(registry.snapshot_path(entry)),
+            snapshot_path=snapshot_path,
             source_sha256=entry.source_sha256,
             loaded_at=entry.loaded_at,
         )
-    _USER_CACHE.update(key=key, specs=specs, records=records, error=error)
+    _USER_CACHE.update(key=key, specs=specs, records=records, entries=entries, error=error)
     return specs, records, error
+
+
+def registry_report() -> RegistryReport:
+    """Read all names and recheck every external snapshot without importing it."""
+    from jarvis_hep_sampler.registry import SamplerRegistry
+
+    _, _, error = _user_layer()
+    builtins = (*builtin_specs(), *builtin_plugin_specs())
+    rows = [
+        RegistryReportEntry(spec.name, spec.source, "built-in")
+        for spec in builtins
+    ]
+    if error is not None:
+        return RegistryReport(tuple(rows), error)
+    registry = SamplerRegistry()
+    reserved = {spec.name.casefold(): spec.name for spec in builtins}
+    for method, entry in _USER_CACHE["entries"].items():
+        problems = tuple(registry.problems(entry))
+        builtin = reserved.get(method.casefold())
+        if builtin is not None:
+            rows.append(RegistryReportEntry(
+                method, SOURCE_USER, "name-conflict",
+                (f"conflicts with Jarvis-HEP built-in {builtin!r}", *problems),
+                f"Jarvis sampler remove {method} --yes",
+            ))
+        elif problems:
+            rows.append(RegistryReportEntry(method, SOURCE_USER, "snapshot-broken", problems))
+        else:
+            rows.append(RegistryReportEntry(method, SOURCE_USER, "ok"))
+    return RegistryReport(tuple(rows))
 
 
 def user_specs() -> tuple[SamplerSpec, ...]:
@@ -344,7 +427,8 @@ def _builtin_plugin_record(name: str) -> PluginRecord:
     from jarvis_hep_sampler.loader import load_plugin_file
 
     path = builtin_plugin_path(name)
-    plugin = load_plugin_file(path)
+    # The path is selected from HEP's shipped file map, never a user registry.
+    plugin = load_plugin_file(path, trusted_builtin_method=name)
     meta = plugin.metadata
     return PluginRecord(
         method=meta.method,
@@ -486,6 +570,9 @@ def family_of(name: str) -> str:
 __all__ = [
     "PLUGIN_FAMILY",
     "PluginRecord",
+    "RegistryReport",
+    "RegistryReportEntry",
+    "SamplerRegistryPreflightError",
     "SOURCE_BUILTIN",
     "SOURCE_BUILTIN_PLUGIN",
     "SOURCE_SCAN",
@@ -510,6 +597,7 @@ __all__ = [
     "nested_names",
     "plugin_record",
     "registered_plugin_record",
+    "registry_report",
     "reserved_method_names",
     "schema_ids",
     "scan_plugin_context",

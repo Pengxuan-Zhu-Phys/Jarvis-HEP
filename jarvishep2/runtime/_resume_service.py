@@ -19,13 +19,16 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_payload,
     build_run_spec,
     check_mapper_fingerprint,
+    check_sampling_fingerprint,
+    checkpoint_replacing_existing,
+    uses_checkpoint_resume_protocol,
     check_operas_constants_fingerprint,
     checkpoint_path,
     load_checkpoint,
-    prepare_resume,
     save_checkpoint,
 )
 from jarvishep2.task_config import sampling_method
+from jarvishep2.runtime_config import get_checkpoint_config
 
 
 class _ResumeService:
@@ -161,11 +164,19 @@ class _ResumeService:
             core._resume_checkpoint_payload = None
             return
 
+        protocol = uses_checkpoint_resume_protocol(core.config)
+        if protocol and not get_checkpoint_config(core.config)["enabled"]:
+            if resume:
+                core._logger.warning("Resume requested with checkpoint.enabled: false; starting fresh")
+            core._resume_policy = "fresh"
+            core._resume_checkpoint_payload = None
+            return
+
         path = core.checkpoint_file()
         if not os.path.exists(path):
-            # Explicit --resume also supports DATABASE-only recovery when the
-            # checkpoint is missing or deliberately removed.
-            core._resume_policy = "resume" if resume else "fresh"
+            if resume and protocol:
+                core._logger.warning("Resume requested without state.pkl; starting fresh")
+            core._resume_policy = "fresh" if protocol else ("resume" if resume else "fresh")
             core._resume_checkpoint_payload = None
             return
 
@@ -184,7 +195,7 @@ class _ResumeService:
         core._resume_policy = "resume"
         try:
             payload = load_checkpoint(path)
-        except ValueError as exc:
+        except (ValueError, OSError, EOFError, pickle.UnpicklingError) as exc:
             core._logger.warning("Checkpoint rejected -> %s", exc)
             core._resume_checkpoint_payload = None
             core._resume_policy = "fresh"
@@ -202,6 +213,12 @@ class _ResumeService:
             except OSError:
                 pass
             return
+        ok_sampling, sampling_reason = check_sampling_fingerprint(payload, core.config)
+        if protocol and not ok_sampling:
+            core._logger.error("Checkpoint rejected (starting fresh) -> %s", sampling_reason)
+            core._resume_checkpoint_payload = None
+            core._resume_policy = "fresh"
+            return
         # D23.8: refuse when Operas constant values drifted (outside the card).
         # D23.13: if Operas is merely unavailable, skip with WARNING — never treat
         # that as drift (would delete a good checkpoint and re-run from index 0).
@@ -218,6 +235,7 @@ class _ResumeService:
         if str(consts_reason).startswith("skip:"):
             core._logger.warning("%s", consts_reason)
         core._resume_checkpoint_payload = payload
+        core._replacing_existing = bool((payload.get("persistence") or {}).get("replacing_existing"))
 
     def _load_persisted_database_state(self, database_dir: str) -> None:
         """Refresh index prefix, UUID set, and completed/failed counts from DATABASE.
@@ -227,6 +245,24 @@ class _ResumeService:
         successful (D21.13).
         """
         core = self._core
+
+        if checkpoint_replacing_existing(core._resume_checkpoint_payload):
+            from jarvishep2.io.database import read_checkpoint_prefix_status
+
+            state = (core._resume_checkpoint_payload or {}).get("sampler_state") or {}
+            cursor = max(0, int(state.get("checkpoint_index", state.get("accepted_index", 0)) or 0))
+            present, failed = read_checkpoint_prefix_status(database_dir, cursor)
+            if not present:
+                core._discard_resume_checkpoint(
+                    reason=f"DATABASE lacks checkpoint-confirmed prefix [0,{cursor}); starting fresh"
+                )
+                return
+            core._persisted_index_prefix = cursor
+            core._persisted_pending_indices = set()
+            core._persisted_uuids = set()
+            core._persisted_records_count = cursor
+            core._persisted_failed_count = failed
+            return
 
         (
             core._persisted_index_prefix,
@@ -247,46 +283,6 @@ class _ResumeService:
                 + len(core._persisted_uuids)
             )
             core._persisted_failed_count = 0
-
-    def apply_resume_checkpoint(self, worker_config: Mapping[str, Any] | None = None) -> int:
-        core = self._core
-
-        if core._resume_policy != "resume":
-            return 0
-        if core.redis is None:
-            raise RuntimeError("init_redis() must run before apply_resume_checkpoint()")
-        drained = prepare_resume(
-            core.redis,
-            worker_config=worker_config,
-            persisted_count=core._persisted_records_count,
-            persisted_failed=core._persisted_failed_count,
-        )
-        imported = core._import_sampler_checkpoint_state(core.sampler)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_uuids"):
-            core.sampler.set_persisted_uuids(core._persisted_uuids)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_prefix"):
-            core.sampler.set_persisted_prefix(core._persisted_index_prefix)
-        if core.sampler is not None and hasattr(core.sampler, "set_persisted_pending_indices"):
-            core.sampler.set_persisted_pending_indices(
-                getattr(core, "_persisted_pending_indices", set())
-            )
-        if (
-            bool(getattr(core.sampler, "uses_indexed_resume", False))
-            and hasattr(core.sampler, "advance_to_persisted_prefix")
-        ):
-            core.sampler.advance_to_persisted_prefix(core._persisted_index_prefix)
-        if (
-            imported
-            and core.sampler is not None
-            and not bool(getattr(core.sampler, "uses_indexed_resume", False))
-            and hasattr(core.sampler, "set_resume_repropose_hint")
-        ):
-            core.sampler.set_resume_repropose_hint(True)
-        core._logger.info(
-            "Resumed from checkpoint; drained %d stale task(s) from hep:task_queue",
-            drained,
-        )
-        return drained
 
     def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
         core = self._core
@@ -361,6 +357,8 @@ class _ResumeService:
                 sampler_state.get("checkpoint_index", sampler_state.get("accepted_index", 0)) or 0
             )
             safe = checkpoint_index <= prefix
+        if getattr(core, "_replacing_existing", False) and uses_checkpoint_resume_protocol(core.config):
+            persistence["replacing_existing"] = True
         payload = build_payload(
             run_spec=run_spec,
             sampler_state=sampler_state,
@@ -415,6 +413,14 @@ class _ResumeService:
         log("Checkpoint sampler state rejected (starting fresh) -> %s", reason)
         core._resume_policy = "fresh"
         core._resume_checkpoint_payload = None
+        core._replacing_existing = True
+        core._persisted_index_prefix = 0
+        core._persisted_pending_indices = set()
+        core._persisted_uuids = set()
+        core._persisted_records_count = 0
+        core._persisted_failed_count = 0
+        if core.sampler is not None and hasattr(core.sampler, "set_resume_mode"):
+            core.sampler.set_resume_mode(False)
         path = core.checkpoint_file()
         try:
             if os.path.isfile(path):
@@ -425,8 +431,8 @@ class _ResumeService:
     def _import_sampler_checkpoint_state(self, sampler: Any | None = None) -> bool:
         """Import sampler_state from the preloaded checkpoint, or start fresh.
 
-        Shared by ``set_sampler``, late Method resolution, bootstrap, and
-        ``apply_resume_checkpoint``. On Bounds/shape mismatch (``ValueError``)
+        Shared by ``set_sampler``, late Method resolution, and bootstrap.
+        On Bounds/shape mismatch (``ValueError``)
         the stale checkpoint is discarded so a finished or drifted snapshot
         cannot silently yield ``submitted=0`` under a new card.
 
@@ -445,8 +451,11 @@ class _ResumeService:
         if not isinstance(sampler_state, Mapping):
             sampler_state = {}
         try:
+            prepare_points = getattr(target, "prepare_resume_points", None)
+            if callable(prepare_points):
+                prepare_points(core.checkpoint_file(), sampler_state)
             target.import_runtime_state(sampler_state)
-        except ValueError as exc:
+        except (ValueError, OSError) as exc:
             # MCMC Bounds drift (num_chains / num_iters / scale / seed) and
             # similar sampler-shape mismatches: refuse the stale snapshot.
             core._discard_resume_checkpoint(reason=str(exc), level="error")
@@ -468,3 +477,10 @@ class _ResumeService:
             checkpoint_file=core.checkpoint_file(),
             save_callback=lambda reason="": core.save_runtime_checkpoint(reason=reason),
         )
+        if (core._resume_policy == "fresh" and get_checkpoint_config(core.config)["enabled"]
+                and not core.config.get("_check_modules_sample_layout")
+                and uses_checkpoint_resume_protocol(core.config)):
+            prepare_points = getattr(core.sampler, "prepare_fresh_points", None)
+            if callable(prepare_points):
+                prepare_points(core.checkpoint_file())
+            core.save_runtime_checkpoint(reason="initial")

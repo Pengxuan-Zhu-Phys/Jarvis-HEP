@@ -2,6 +2,8 @@
 """Bridson (Poisson-disk / blue-noise) sampler for Jarvis-HEP V2."""
 
 from __future__ import annotations
+import os
+import tempfile
 
 import hashlib
 import time
@@ -21,6 +23,7 @@ from jarvishep2.log_kv import format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
+from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
 
 
 def hypersphere_volume_sample(center: np.ndarray, radius: float, k: int = 1) -> np.ndarray:
@@ -112,13 +115,14 @@ class Bridson(FixedSetSampler):
     uuid_prefix = "bridson"
     _checkpoint_saved_attributes = frozenset({"barinfo"})
     _checkpoint_excluded_attributes = frozenset(
-        {"_logger", "_P", "_radius", "_k", "_max_inflight"}
+        {"_logger", "_P", "_radius", "_k", "_max_inflight", "_points_sha256"}
     )
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.bridson")
         self._P: np.ndarray | None = None
+        self._points_sha256: str | None = None
         self._radius = 0.0
         self._k = 30
         self._max_inflight = 1
@@ -162,6 +166,7 @@ class Bridson(FixedSetSampler):
             k=self._k,
             hypersphere_sample=hypersphere_surface_sample,
         )
+        self._points_sha256 = array_fingerprint(self._P)
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
         if reset:
@@ -193,6 +198,39 @@ class Bridson(FixedSetSampler):
     def _ensure_grid(self) -> None:
         if self._P is None:
             self.initialize(reset=False)
+
+    @staticmethod
+    def _points_path(checkpoint_file: str) -> str:
+        return os.path.join(os.path.dirname(checkpoint_file), "points.npy")
+
+    def prepare_fresh_points(self, checkpoint_file: str) -> None:
+        self._ensure_grid()
+        path = self._points_path(checkpoint_file)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix="points.", suffix=".tmp", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                np.save(handle, self._P, allow_pickle=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp, path)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+
+    def prepare_resume_points(self, checkpoint_file: str, state: Mapping[str, Any]) -> None:
+        path = self._points_path(checkpoint_file)
+        try:
+            points = np.load(path, mmap_mode="r", allow_pickle=False)
+            if points.ndim != 2 or points.shape[1] != len(self.vars):
+                raise ValueError("Bridson points.npy shape mismatch")
+            if state.get("points_sha256") != array_fingerprint(points):
+                raise ValueError("Bridson points.npy hash mismatch")
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"Bridson points.npy missing, damaged or mismatched: {exc}") from exc
+        self._P = points
+        self._points_sha256 = str(state["points_sha256"])
+        self.info["NSamples"] = int(points.shape[0])
 
     def _uuid_for_accepted_index(self, accepted_index: int) -> str:
         # Keep historical Bridson UUID formula (prefix "bridson:").
@@ -267,11 +305,15 @@ class Bridson(FixedSetSampler):
             _log_progress(permille)
 
     def export_runtime_state(self) -> dict[str, Any]:
+        self._ensure_grid()
         payload = self._common_export_fields()
         payload.update(
             {
                 "barinfo": deepcopy(self.barinfo),
                 "numpy_random_state": None,
+                "points_sha256": self._points_sha256,
+                "points_count": int(len(self._P)),
+                "points_dimension": int(self._P.shape[1]),
             }
         )
         return payload

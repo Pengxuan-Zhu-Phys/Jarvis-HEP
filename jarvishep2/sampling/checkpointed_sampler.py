@@ -35,6 +35,7 @@ class CheckpointedSampler(SamplingVirtial, ABC):
             "_persisted_uuids", "_persisted_index_prefix", "_last_safe_state",
             "_checkpoint_snapshots", "_checkpoint_requested", "_checkpoint_file",
             "_checkpoint_heartbeat", "_save_checkpoint_callback", "_repropose_after_resume",
+            "_resume_mode",
             # D22: rebuilt from task card on every process start (not checkpointed).
             "_mapper_pipeline",
         }
@@ -56,6 +57,13 @@ class CheckpointedSampler(SamplingVirtial, ABC):
         self._checkpoint_heartbeat: CheckpointHeartbeat | None = None
         self._save_checkpoint_callback = None
         self._repropose_after_resume = False
+        # DATABASE acknowledgements also advance during fresh/check runs.
+        # Their presence alone does not authorize skipping evaluations.
+        self._resume_mode = False
+
+    def set_resume_mode(self, enabled: bool) -> None:
+        """Bind the current run policy; never restore it from a checkpoint."""
+        self._resume_mode = bool(enabled)
 
     def configure_checkpoint(
         self,

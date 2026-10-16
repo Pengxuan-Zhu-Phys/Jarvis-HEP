@@ -37,6 +37,9 @@ EnvReqs:
       - name: numpy
         required: true
         version: ">=1.24"
+      - name: packaging
+        required: true
+        version: ">=23.0"
       - name: pandas
         required: true
         version: ">=2.1.0"
@@ -85,7 +88,7 @@ EnvReqs:
         version: ">=1.5.1"
       - name: Jarvis-HEP-Sampler
         required: true
-        version: ">1"
+        version: ">=1.0.3"
       - name: Jarvis-Operas
         required: true
         version: ">=1.4.1"

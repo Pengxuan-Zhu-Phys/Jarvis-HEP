@@ -1,43 +1,36 @@
 """Installed Jarvis-HEP-Sampler release required by this Jarvis-HEP.
 
-The plug-in CLI, registry, and scan identity all use this package. Any release
-newer than 1.0.0 is accepted.
+The plug-in CLI, registry, and scan identity all use this package. Version
+1.0.3 is the first published release with reserved names and the shared CLI.
 """
 
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
+from packaging.version import InvalidVersion, Version
+
 SDK_DISTRIBUTION = "Jarvis-HEP-Sampler"
-SDK_SPECIFIER = ">1"
-_V1 = (1, 0, 0)
+SDK_SPECIFIER = ">=1.0.3"
+_MIN_VERSION = Version("1.0.3")
 
 
 class SamplerSDKError(RuntimeError):
-    """The installed sampler SDK is missing or not newer than 1.0.0."""
+    """The installed sampler SDK is missing or below the required release."""
 
 
-def _release(value: str) -> tuple[int, int, int]:
-    numbers: list[int] = []
-    for part in str(value).split("."):
-        digits = ""
-        for char in part:
-            if not char.isdigit():
-                break
-            digits += char
-        if not digits:
-            break
-        numbers.append(int(digits))
-    if not numbers:
+def _release(value: str) -> Version:
+    try:
+        return Version(value)
+    except InvalidVersion as exc:
         raise SamplerSDKError(
             f"{SDK_DISTRIBUTION} version {value!r} is not a release number. "
             f'Install it with: python3 -m pip install "{SDK_DISTRIBUTION}{SDK_SPECIFIER}"'
-        )
-    return tuple((numbers + [0, 0])[:3])
+        ) from exc
 
 
 def require_sampler_sdk() -> str:
-    """Return the installed distribution version when it is newer than 1.0.0."""
+    """Return the installed distribution version when it meets the SDK minimum."""
     try:
         installed = version(SDK_DISTRIBUTION)
     except PackageNotFoundError as exc:
@@ -45,7 +38,7 @@ def require_sampler_sdk() -> str:
             f"{SDK_DISTRIBUTION}{SDK_SPECIFIER} is not installed. "
             f'Install it with: python3 -m pip install "{SDK_DISTRIBUTION}{SDK_SPECIFIER}"'
         ) from exc
-    if _release(installed) <= _V1:
+    if _release(installed) < _MIN_VERSION:
         raise SamplerSDKError(
             f"{SDK_DISTRIBUTION} {installed} does not satisfy {SDK_SPECIFIER}. "
             f'Install it with: python3 -m pip install "{SDK_DISTRIBUTION}{SDK_SPECIFIER}"'

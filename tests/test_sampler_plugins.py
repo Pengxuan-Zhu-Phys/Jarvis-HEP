@@ -10,6 +10,7 @@ telemetry, monitor, the CLI, and a full ``core.run``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -181,6 +182,14 @@ def test_shipped_plugin_flags_match_its_file(home: Path) -> None:
         assert spec.family == "plugin" and spec.source == "builtin-plugin"
 
 
+def test_sdk_reserves_every_hep_builtin_method(home: Path) -> None:
+    from jarvis_hep_sampler.metadata import RESERVED_METHOD_NAMES
+
+    sdk_names = {name.casefold() for name in RESERVED_METHOD_NAMES}
+    shipped = (*sampler_catalog.builtin_specs(), *sampler_catalog.builtin_plugin_specs())
+    assert {spec.name.casefold() for spec in shipped} <= sdk_names
+
+
 def test_user_plugin_joins_the_catalog_and_distributor(half_cube: Path) -> None:
     spec = sampler_catalog.spec_for("HalfCube")
     assert spec is not None and spec.source == "user" and spec.family == "plugin"
@@ -193,9 +202,32 @@ def test_user_plugin_joins_the_catalog_and_distributor(half_cube: Path) -> None:
     assert isinstance(Distributor.set_method("HalfCube"), PluginSampler)
 
 
-def test_a_user_entry_never_shadows_a_shipped_method(tmp_path: Path, home: Path) -> None:
+def test_a_user_entry_never_shadows_a_shipped_method(
+    tmp_path: Path, home: Path, half_cube: Path
+) -> None:
+    # Model a registration written by an older SDK, before the name became
+    # reserved. Current load correctly refuses to create this entry.
     clone = _write(tmp_path, "lhs.py", HALF_CUBE.replace('"HalfCube"', '"LatinHypercube"'))
-    SamplerRegistry().load(clone)  # e.g. loaded before Jarvis-HEP shipped the name
+    payload = clone.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    snapshot = f"user_sources/LatinHypercube-{digest[:12]}.py"
+    (home / snapshot).write_bytes(payload)
+    old_entry = SamplerRegistry().entries()["HalfCube"].to_dict()
+    old_entry.update(
+        source_path=str(clone), snapshot=snapshot, source_sha256=digest,
+        plugin={**old_entry["plugin"], "method": "LatinHypercube"},
+    )
+    (home / "sources.json").write_text(
+        json.dumps({"version": 1, "entries": {"LatinHypercube": old_entry}}),
+        encoding="utf-8",
+    )
+    assert SamplerRegistry().get("LatinHypercube") is not None
+    assert sampler_catalog.spec_for("LatinHypercube").source == "builtin-plugin"
+    assert next(
+        row for row in sampler_catalog.registry_report().entries
+        if row.method == "LatinHypercube" and row.source == "user"
+    ).status == "name-conflict"
+    assert SamplerRegistry().remove("LatinHypercube").method == "LatinHypercube"
     assert sampler_catalog.spec_for("LatinHypercube").source == "builtin-plugin"
 
 
@@ -328,6 +360,53 @@ def test_preflight_keeps_a_scan_copy_that_resume_prefers(tmp_path: Path, half_cu
     assert any("own copy" in message for message in capture.messages())
     fresh = preflight_plugin(config, task_root=str(tmp_path), scan_name="s2")
     assert fresh.plugin.source_sha256 != first.plugin.source_sha256
+
+
+def test_bound_builtin_plugin_resumes_after_packaged_source_changes(
+    tmp_path: Path, home: Path
+) -> None:
+    from jarvishep2.sampling import plugin_identity
+
+    source = sampler_catalog.builtin_plugin_path("LatinHypercube")
+    assert source is not None
+    packaged_copy = tmp_path / "old-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
+    packaged_copy.parent.mkdir(parents=True)
+    packaged_copy.write_bytes(source.read_bytes())
+    config = _config(tmp_path, "LatinHypercube", {"point_number": 5, "seed": 11})
+    config["scan_name"] = "builtin-scan"
+    config["Scan"]["name"] = "builtin-scan"
+    with (
+        mock.patch.object(sampler_catalog, "builtin_plugin_path", return_value=packaged_copy),
+        mock.patch.object(plugin_identity, "builtin_plugin_path", return_value=packaged_copy),
+    ):
+        sampler_catalog._builtin_plugin_record.cache_clear()
+        try:
+            first = preflight_plugin(config, task_root=str(tmp_path), scan_name="builtin-scan")
+            assert first is not None and first.source_copy is not None
+            original_bytes = first.source_copy.read_bytes()
+            original_hash = first.plugin.source_sha256
+            packaged_copy.write_bytes(original_bytes + b"\n# packaged source changed\n")
+            binding = plugin_identity.read_binding(config)
+            assert binding is not None and binding["source_sha256"] == original_hash
+            resumed = preflight_plugin(
+                config, task_root=str(tmp_path), scan_name="builtin-scan", resume=True
+            )
+            assert resumed is not None and resumed.resumed_from_copy
+            assert resumed.plugin.source_sha256 == original_hash
+            assert resumed.source_copy == first.source_copy
+            assert resumed.source_copy.read_bytes() == original_bytes
+            moved_package = tmp_path / "new-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
+            moved_package.parent.mkdir(parents=True)
+            moved_package.write_bytes(packaged_copy.read_bytes())
+            with mock.patch.object(plugin_identity, "builtin_plugin_path", return_value=moved_package):
+                assert plugin_identity.read_binding(config) is not None
+                moved_resume = preflight_plugin(
+                    config, task_root=str(tmp_path), scan_name="builtin-scan", resume=True
+                )
+            assert moved_resume is not None and moved_resume.resumed_from_copy
+            assert moved_resume.plugin.source_sha256 == original_hash
+        finally:
+            sampler_catalog._builtin_plugin_record.cache_clear()
 
 
 def test_preflight_failure_is_logged_with_the_plugin_traceback(tmp_path: Path, half_cube: Path) -> None:
@@ -674,7 +753,9 @@ def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture
     assert dispatch_sampler(["check", str(target), "--dimension", "3", "--points", "20"]) == 0
     assert dispatch_sampler(["load", str(target)]) == 0
     assert "Sampling.Method: MyScan" in capsys.readouterr().out
-    assert dispatch_sampler(["check", "MyScan", "--points", "20"]) == 0
+    assert dispatch_sampler(["check", "MyScan", "--points", "20"]) == 2
+    error = capsys.readouterr().err
+    assert "Jarvis sampler info" in error and "MyScan" in error
     assert dispatch_sampler(["list"]) == 0
     listing = capsys.readouterr().out
     assert "MyScan" in listing and "LatinHypercube" in listing and "Grid" in listing
@@ -687,13 +768,15 @@ def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture
     assert target.exists()
 
 
-def test_cli_json_list_and_info_include_builtins(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_json_list_and_info_include_builtins(
+    tmp_path: Path, home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     from jarvishep2 import __version__
     from jarvishep2.cli.sampler import dispatch_sampler
 
     assert dispatch_sampler(["list", "--json"]) == 0
     listed = json.loads(capsys.readouterr().out)
-    assert listed["ok"] is True and listed["command"] == "list" and listed["samplers"] == []
+    assert listed["ok"] is True and listed["command"] == "sampler list" and listed["samplers"] == []
     shipped = {row["method"]: row for row in listed["jarvis_hep"]}
     assert shipped["Grid"] == {
         "method": "Grid",
@@ -707,7 +790,8 @@ def test_cli_json_list_and_info_include_builtins(home: Path, capsys: pytest.Capt
 
     assert dispatch_sampler(["--json", "info", "grid"]) == 0
     info = json.loads(capsys.readouterr().out)
-    assert info["ok"] is True and info["method"] == "Grid" and info["status"] == "built-in"
+    assert info["ok"] is True and info["command"] == "sampler info"
+    assert info["method"] == "Grid" and info["status"] == "built-in"
     assert info["family"] == "simple" and info["statistical"] is False
     assert info["options_schema"] is False and info["functions"] == []
     assert info["source"] == "Jarvis-HEP"
@@ -715,25 +799,33 @@ def test_cli_json_list_and_info_include_builtins(home: Path, capsys: pytest.Capt
 
     assert dispatch_sampler(["info", "LatinHypercube", "--json"]) == 0
     latin = json.loads(capsys.readouterr().out)
-    assert latin["ok"] is True and latin["method"] == "LatinHypercube"
+    assert latin["ok"] is True and latin["command"] == "sampler info"
+    assert latin["method"] == "LatinHypercube"
     assert latin["options_schema"] is True and "draw" in latin["functions"]
     assert latin["source"] == "sampling/plugins/latin_hypercube.py"
     assert latin["description"] and latin["status"] == "built-in"
 
+    SamplerRegistry().load(_write(tmp_path, "HalfCube.py", HALF_CUBE))
+    assert dispatch_sampler(["info", "HalfCube", "--json"]) == 0
+    external = json.loads(capsys.readouterr().out)
+    assert external["ok"] is True and external["command"] == "sampler info"
+    assert external["method"] == "HalfCube"
+
     assert dispatch_sampler(["info", "NotLoaded", "--json"]) != 0
-    assert json.loads(capsys.readouterr().out)["ok"] is False
+    missing = json.loads(capsys.readouterr().out)
+    assert missing["ok"] is False and missing["command"] == "sampler info"
 
     assert dispatch_sampler(["-h"]) == 0
     root_help = capsys.readouterr().out
     assert "--json" in root_help
-    assert "samplers shipped with Jarvis-HEP" in root_help
+    assert "methods shipped" in root_help and "with Jarvis-HEP" in root_help
     commands = root_help.split("Commands", 1)[1]
     order = ("init", "check", "load", "list", "info", "remove")
     assert [commands.index(name) for name in order] == sorted(commands.index(name) for name in order)
     assert dispatch_sampler(["check", "-h"]) == 0
     check_help = capsys.readouterr().out
     assert "--json" in check_help and "--dimension" in check_help
-    assert "Check a sampler offline" in check_help
+    assert "Check a sampler file offline" in check_help
 
 
 def test_cli_check_reports_a_broken_plugin(tmp_path: Path, home: Path) -> None:

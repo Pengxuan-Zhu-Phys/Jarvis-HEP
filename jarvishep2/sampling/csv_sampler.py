@@ -16,6 +16,7 @@ from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 from jarvishep2.task_config import resolve_sampling_path
+from jarvishep2.sampling.runtime_checkpoint import file_fingerprint
 
 _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
@@ -34,6 +35,7 @@ class CSVSampler(CheckpointedSampler):
         {
             "_logger", "_batch_size", "_records_exhausted", "_record_iter",
             "_checkpoint_heartbeat_sec",
+            "_source_fingerprint",
         }
     )
 
@@ -51,6 +53,7 @@ class CSVSampler(CheckpointedSampler):
         self._runtime_csv_cursor = 0
         self._accepted_index = 0
         self._records_exhausted = False
+        self._source_fingerprint: dict[str, Any] | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -80,6 +83,7 @@ class CSVSampler(CheckpointedSampler):
         )
         self._uuid_column_resolved = self._resolve_uuid_column_from_file()
         self._validate_source_uuids()
+        self._source_fingerprint = file_fingerprint(self._csv_path)
 
     @staticmethod
     def _normalize_selected_variables(raw_variables: Any) -> list[str] | None:
@@ -270,6 +274,11 @@ class CSVSampler(CheckpointedSampler):
     def run_distributed(self) -> int:
         return run_stateless_distributed(self, propose_next=self.propose_next)
 
+    def should_submit_uuid(self, uuid: str) -> bool:
+        # Legacy CSV rows can have UUIDs without sample_index. Those rows
+        # suppress work only during resume, never a fresh or check run.
+        return not self._resume_mode or super().should_submit_uuid(uuid)
+
     def at_safe_barrier(self) -> bool:
         return self._records_exhausted
 
@@ -301,9 +310,12 @@ class CSVSampler(CheckpointedSampler):
             "ready_queue": [],
             "control_state": self._checkpoint_control_state(),
             "numpy_random_state": None,
+            "source_fingerprint": self._source_fingerprint,
         }
 
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
+        if state.get("source_fingerprint") != file_fingerprint(self._csv_path):
+            raise ValueError("CSV source file changed or checkpoint lacks source fingerprint")
         self._csv_path = state.get("csv_path", self._csv_path)
         self._csv_delimiter = state.get("csv_delimiter", self._csv_delimiter)
         self._csv_encoding = state.get("csv_encoding", self._csv_encoding)

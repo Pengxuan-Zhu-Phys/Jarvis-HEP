@@ -78,6 +78,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_run_spec,
     check_mapper_fingerprint,
     check_operas_constants_fingerprint,
+    checkpoint_replacing_existing,
     checkpoint_path,
     load_checkpoint,
     prepare_resume,
@@ -258,16 +259,58 @@ class Jarvis2Core:
             pass
 
     def preflight_sampler_plugin(self) -> None:
-        """Load and prepare a plug-in sampler before Redis, Workers or the Archiver start.
-
-        No-op for built-in methods. A failing plug-in stops the run here, with
-        its traceback in ``sampler.log`` (technical design §5.4).
-        """
-        from jarvishep2.sampler_catalog import is_plugin
+        """Check the full registry, then prepare a plug-in before runtime work."""
+        from jarvishep2.sampler_catalog import (
+            SOURCE_USER,
+            SamplerRegistryPreflightError,
+            builtin_plugin_specs,
+            builtin_specs,
+            is_plugin,
+            registry_report,
+        )
         from jarvishep2.sampling.plugin_sampler import plugin_logger, preflight_plugin
 
         self._plugin_preflight = None
         method = sampling_method(self.config)
+        report = registry_report()
+        if report.conflicts:
+            details = "\n".join(
+                f"  {entry.method}: {entry.problems[0]}; "
+                f"remove with {entry.repair_command}"
+                for entry in report.conflicts
+            )
+            raise SamplerRegistryPreflightError(
+                "External sampler names conflict with Jarvis-HEP built-in methods:\n"
+                f"{details}"
+            )
+
+        builtins = {spec.name for spec in (*builtin_specs(), *builtin_plugin_specs())}
+        if report.error is not None:
+            if method not in builtins:
+                raise SamplerRegistryPreflightError(
+                    f"Cannot read sampler registry for {method!r}: {report.error}. "
+                    "Repair the registry or choose a built-in method."
+                )
+            self._logger.warning(
+                "Sampler registry cannot be read; continuing with built-in %s: %s",
+                method,
+                report.error,
+            )
+        else:
+            selected = report.for_method(method, source=SOURCE_USER)
+            if selected is not None and selected.status == "snapshot-broken":
+                raise SamplerRegistryPreflightError(
+                    f"Sampler {selected.method!r} snapshot is unusable: "
+                    f"{'; '.join(selected.problems)}. "
+                    f"Reload it with Jarvis sampler load <source-file>."
+                )
+            for entry in report.entries:
+                if entry.source == SOURCE_USER and entry.status == "snapshot-broken":
+                    self._logger.warning(
+                        "Unrelated sampler %s has an unusable snapshot; continuing: %s",
+                        entry.method,
+                        "; ".join(entry.problems),
+                    )
         if not method or not is_plugin(method):
             return
         try:
@@ -918,6 +961,7 @@ class Jarvis2Core:
     ) -> RunOutcome:
         """Execute a distributed scan; return a truthful :class:`RunOutcome` (D11.1)."""
         is_check = bool(check_modules)
+        self._scan_completed = False
         # Smoke is never a resume: leftover checkpoints must not fast-forward
         # Bridson/CSV indices into an existing DATABASE.
         self.prepare_resume(
@@ -965,6 +1009,7 @@ class Jarvis2Core:
                 self._logger.info("final archive verification before normal exit")
                 self._wait_for_archive_caught_up(timeout=120.0)
                 outcome = self._capture_run_outcome(submitted=submitted)
+                self._scan_completed = True
                 if self._sampler_log is not None:
                     self._sampler_log.result(outcome)
 
@@ -1103,8 +1148,27 @@ class Jarvis2Core:
         """
         return self._get_resume()._load_persisted_database_state(database_dir)
 
-    def apply_resume_checkpoint(self, worker_config: Mapping[str, Any] | None = None) -> int:
-        return self._get_resume().apply_resume_checkpoint(worker_config)
+    def _bind_sampler_persistence(self) -> None:
+        """Apply the selected resume policy and durable DATABASE facts to the sampler."""
+        sampler = self.sampler
+        if sampler is None:
+            return
+        if hasattr(sampler, "set_resume_mode"):
+            sampler.set_resume_mode(self._resume_policy == "resume")
+        if hasattr(sampler, "set_persisted_uuids"):
+            sampler.set_persisted_uuids(self._persisted_uuids)
+        if hasattr(sampler, "set_persisted_prefix"):
+            sampler.set_persisted_prefix(self._persisted_index_prefix)
+        if hasattr(sampler, "set_persisted_pending_indices"):
+            sampler.set_persisted_pending_indices(
+                getattr(self, "_persisted_pending_indices", set())
+            )
+        if (
+            self._resume_policy == "resume"
+            and not checkpoint_replacing_existing(self._resume_checkpoint_payload)
+            and hasattr(sampler, "advance_to_persisted_prefix")
+        ):
+            sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
 
     def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
         return self._get_resume().save_runtime_checkpoint(reason=reason)
@@ -1299,8 +1363,8 @@ class Jarvis2Core:
     def _import_sampler_checkpoint_state(self, sampler: Any | None = None) -> bool:
         """Import sampler_state from the preloaded checkpoint, or start fresh.
 
-        Shared by ``set_sampler``, late Method resolution, bootstrap, and
-        ``apply_resume_checkpoint``. On Bounds/shape mismatch (``ValueError``)
+        Shared by ``set_sampler``, late Method resolution, and bootstrap.
+        On Bounds/shape mismatch (``ValueError``)
         the stale checkpoint is discarded so a finished or drifted snapshot
         cannot silently yield ``submitted=0`` under a new card.
 

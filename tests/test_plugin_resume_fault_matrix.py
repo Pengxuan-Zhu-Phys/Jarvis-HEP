@@ -177,6 +177,7 @@ def test_submission_skips_only_durable_indices_and_counts_pushes(prepared_unit, 
     sampler.attach_preflight(prepared)
     sampler.set_config(config)
     sampler.assert_checkpoint_attribute_contract()
+    sampler.set_resume_mode(True)
     sampler.set_persisted_prefix(2)
     sampler.advance_to_persisted_prefix(2)
     # Feed the DATABASE-derived out-of-order facts. The old implementation
@@ -207,6 +208,7 @@ def test_whole_durable_batch_still_captures_checkpoint(prepared_unit):
     sampler = PluginSampler(prepared.spec)
     sampler.attach_preflight(prepared)
     sampler.set_config(config)
+    sampler.set_resume_mode(True)
     sampler.set_persisted_prefix(2)
     sampler.advance_to_persisted_prefix(2)
     sampler.record_persisted_proposals()
@@ -259,6 +261,7 @@ def test_builtin_random_holes_keep_single_slot_backpressure(prepared_unit, monke
     sampler = RandomS()
     sampler.set_config(config)
     sampler.assert_checkpoint_attribute_contract()
+    sampler.set_resume_mode(True)
     sampler.set_persisted_prefix(2)
     sampler.advance_to_persisted_prefix(2)
     sampler.set_persisted_pending_indices({3, 5})
