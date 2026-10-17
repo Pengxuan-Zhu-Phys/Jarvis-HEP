@@ -211,7 +211,8 @@ def ecosystem_versions() -> list[dict[str, str | None]]:
                 release = version(name)
             except PackageNotFoundError:
                 release = None
-        rows.append({"name": name, "version": release})
+        display_name = "Jarvis-PLOT" if name == "JarvisPLOT" else name
+        rows.append({"name": display_name, "version": release})
     return rows
 
 

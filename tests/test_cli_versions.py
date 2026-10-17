@@ -8,7 +8,7 @@ from importlib import metadata
 import pytest
 
 from jarvishep2.cli.client import dispatch_version, main
-from jarvishep2.versioning import ECOSYSTEM_DISTRIBUTIONS, ecosystem_versions, get_runtime_version
+from jarvishep2.versioning import ecosystem_versions, get_runtime_version
 
 
 def test_ecosystem_missing_package_uses_null(monkeypatch):
@@ -18,7 +18,9 @@ def test_ecosystem_missing_package_uses_null(monkeypatch):
         return "9.8.7"
     monkeypatch.setattr(metadata, "version", installed)
     rows = ecosystem_versions()
-    assert [r["name"] for r in rows] == list(ECOSYSTEM_DISTRIBUTIONS)
+    assert [r["name"] for r in rows] == [
+        "Jarvis-HEP", "Jarvis-HEP-Sampler", "Jarvis-Operas", "Jarvis-PLOT", "Jarvis-HEP-Portal",
+    ]
     assert rows[0]["version"] == get_runtime_version()
     assert next(r for r in rows if r["name"] == "Jarvis-Operas")["version"] is None
 
@@ -45,4 +47,4 @@ def test_root_json_versions(tokens, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["name"] == "Jarvis-HEP"
     assert payload["version"] == get_runtime_version()
-    assert [r["name"] for r in payload["ecosystem"]] == list(ECOSYSTEM_DISTRIBUTIONS)
+    assert [r["name"] for r in payload["ecosystem"]] == [r["name"] for r in ecosystem_versions()]

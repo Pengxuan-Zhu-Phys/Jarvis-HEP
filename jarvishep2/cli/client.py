@@ -171,19 +171,30 @@ def dispatch_version(*, as_json: bool = False) -> int:
     else:
         from io import StringIO
         from rich import box
+        from rich.align import Align
+        from rich.cells import cell_len
         from rich.console import Console
+        from rich.panel import Panel
         from rich.table import Table
+        from rich.text import Text
 
         color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
         buffer = StringIO()
         console = Console(file=buffer, force_terminal=color, color_system="truecolor" if color else None)
-        table = Table(title="Jarvis ecosystem", title_justify="left", box=box.SIMPLE)
-        table.add_column("Package", style="cyan", no_wrap=True)
-        table.add_column("Version", no_wrap=True)
+        logo = render_logo_with_version(color=color)
+        logo_width = max(cell_len(line.rstrip()) for line in Text.from_ansi(logo).plain.splitlines())
+        console.width = min(console.width, logo_width)
+        table = Table(box=box.SIMPLE_HEAD, padding=(0, 1), header_style="dim", border_style="dim")
+        table.add_column("Package", style="#73b8f4", no_wrap=True)
+        table.add_column("Version", justify="right", no_wrap=True)
         for row in rows:
-            table.add_row(row["name"], row["version"] or "not installed")
-        console.print(table)
-        print(f"{render_logo_with_version(color=color)}\n\n{buffer.getvalue().rstrip()}")
+            release = Text(row["version"] or "not installed",
+                           style="bold #b8ffe4" if row["version"] else "dim")
+            table.add_row(row["name"], release)
+        panel = Panel.fit(table, title="[bold #73b8f4]Jarvis ecosystem[/]",
+                          title_align="left", border_style="#2f7fd8", padding=(0, 1))
+        console.print(Align.right(panel))
+        print(f"{logo}\n\n{buffer.getvalue().rstrip()}")
     return EXIT_OK
 
 
