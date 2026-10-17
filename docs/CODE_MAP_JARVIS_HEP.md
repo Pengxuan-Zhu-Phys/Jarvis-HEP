@@ -18,6 +18,8 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 
 本轮行为约束见 [产品要求](PRD_JARVIS_HEP_MASTER.md) 和 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md)；任务与发行门槛见 [开发台账](development-ledger-2.0.15.md)。
 
+> 当前源码状态（2026-10-17 提交复查后）：本轮复查修复使用 SDK 源码的 `HOST_CONTRACT_VERSION >= 2`，包含入口保留名策略和 `CatalogExtension` 数据接口；已发布的 SDK 1.0.3 尚无该契约。两仓版本号和 `>=1.0.3` 的历史最低声明保持不变，不加上限。HEP 运行时额外核查契约，旧 SDK 给出匹配源码构建的安装诊断；维护者后续发布 SDK 后再将 HEP 版本下限对齐真实发行号。本轮不发布。
+
 ## 新增 CLI 与 YAML 职责
 
 | 职责 | 实现 | 主要验证 |
@@ -79,22 +81,34 @@ Jarvis-Operas 的 help renderer 位于其仓库 `jarvis_operas/cli.py`，对应 
 
 | 责任 | 实现位置 | 回归 |
 | --- | --- | --- |
-| SDK 默认保留名单（N1） | SDK `metadata.py`（`RESERVED_METHOD_NAMES`、`check_method_name`）；HEP `sampler_catalog.py` `reserved_method_names` | 两个 load 拒绝重名；HEP builtin 与 builtin-plugin ⊆ SDK 名单；普通 init/load/check 无豁免 |
-| 官方 builtin-plugin 的精确低层豁免（N1） | SDK `metadata.py`、`loader.py` 的 `trusted_builtin_method`；HEP `sampler_catalog.py` 官方来源加载、`sampling/plugin_identity.py` 官方旧绑定判定、`sampling/plugin_sampler.py` 扫描副本恢复 | `LatinHypercube` 的旧扫描副本及保存 hash 在包路径/字节变化后仍可续跑；项目本地绑定可编辑，不能防有意伪造 |
+| SDK 默认保留名单（N1） | SDK `metadata.py`（`RESERVED_METHOD_NAMES`、语法 `check_method_name`、入口策略 `check_external_method_name`）；HEP `sampler_catalog.py` `reserved_method_names` | 两个 load 拒绝重名；HEP builtin 与 builtin-plugin ⊆ SDK 名单；普通 init/load/check 无豁免 |
+| 保留名分层（复查更正） | SDK `check_external_method_name` 由 template/init、registry.load、testing.check_plugin 调用；通用 metadata/loader 无保留名策略；HEP 官方插件与绑定直接通用加载。所有 trusted_builtin 参数和路径判定已删除 | 内置插件正常加载与续跑；外部重名先于错误 options schema 失败 |
 | check 只接受文件、名称第一项、CLI 诊断（N2） | SDK `cli.py`（`_run_check`、`--dimension` 解析、`_run_info` 与统一渲染）、`testing.check_plugin` | 方法名参数 exit 2；重名文件后续项未执行；`--dimension 0` 与负 `--seed` exit 2；损坏登记的 list/info/remove exit 2；`--version --json` |
 | remove 只删外部登记及托管快照 | SDK `registry.py` `remove`、`entries`（不做名字检查）；HEP `cli/sampler.py` 原样转发，不动内置方法或用户源文件 | 重名条目 `grid` 可读取并 `remove grid` |
 | HEP CLI 转发（N4） | `cli/sampler.py`：`_load_sampler`、`_guard_check`、info 中的重名拦截已删除；load/check 转发 SDK | `Jarvis sampler load/check` 与 `jsampler` 输出一致 |
 | HEP 帮助解析器（N4） | `cli/help.py` 的 SDK 解析器拷贝 `build_sampler_help_parser` 已删除；帮助与 `cli/agent.py` 命令目录使用 SDK `build_parser("Jarvis sampler")`；错误用 SDK 面板，SDK CLI 不可导入时由 HEP 输出等价面板或 JSON。规则见 [CLI 规范](JARVIS_CLI_DESIGN.md) §10 | 无扩展子命令替换程序名后帮助一致；根帮助及 list/info 通过 SDK 扩展点增加 HEP 内置说明 |
 | 注册表报告（N5 已实现） | `sampler_catalog.py`：`RegistryReport` / `registry_report()`；`runtime/core.py` `preflight_sampler_plugin` 在 Redis 前核查；`cli/run.py` 将注册表 preflight 错误映射 exit 2 | 重名任意卡片退出；无关快照问题警告；真实 run/check 入口回归 |
 | 删除分散拦截（N5 已实现） | 已删除 `assert_no_reserved_name_collision` 及 `distributor.py` `set_method`、`runtime/core.py`、`cli/sampler.py` 的调用；直接 Distributor 内置优先 | 新报告回归替代旧冲突拦截回归 |
-| 报告展示（N6 已实现） | `cli/sampler.py` 的 list/info 用 SDK 登记 JSON 载荷与 HEP `registry_report()` 合并；文本主表和 JSON 共用报告状态 | `Grid`/`grid` 旧登记的 name-conflict、精确 remove 命令、移除后内置方法恢复 |
+| 报告展示（N6 已实现） | `cli/sampler.py` 只实现 `CatalogExtension` 的数据回调；SDK `cli.py` 统一解析与渲染，内置 info 查询大小写无关的全部冲突 | `Grid`/`grid` 旧登记的 name-conflict、精确 remove 命令、移除后内置方法恢复 |
 | 发布与依赖下限（N3 已完成） | 维护者已公开 SDK 1.0.3；HEP `pyproject.toml`、`sampler_sdk.py`、两份 `environment_default.yaml` 均设 `Jarvis-HEP-Sampler>=1.0.3`，不加上限；SDK README 同步 | 干净 Python 3.11 环境从本地 HEP 源码实际安装 66 个包，依赖从公共 PyPI 解析并选中 SDK 1.0.3；`pip check`、已安装运行时版本门禁及双入口 JSON 版本通过；HEP 未公开新版本 |
 | Diver 移植（暂留） | `sampling/Source/Diver/`、`tests/test_diver_engine.py`、`pyproject.toml` package-data | 未注册为 `Sampling.Method`；未做数值验证 |
 
-本地验证：SDK 源码 234 passed、Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（先于最后 CLI 边界修复，随后定向复跑）。HEP N5 非 CLI 专测 5 passed，旧冲突的真实 run/check 与 list/info/remove 入口 4 passed。N4 的原生帮助、错误与 JSON 转发已有定向回归。
+前次提交的历史验证：SDK 源码 234 passed、Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（先于最后 CLI 边界修复，随后定向复跑）。HEP N5 非 CLI 专测 5 passed，旧冲突的真实 run/check 与 list/info/remove 入口 4 passed。N4 的原生帮助、错误与 JSON 转发已有定向回归。
 
 ## 2026-10-17 复查遗留清理代码地图（C1 已实现）
 
 | 责任 | 实现位置 | 回归 |
 | --- | --- | --- |
 | sampler 持久化绑定（resume 模式、persisted UUID/prefix/pending、按前缀推进） | `runtime/_runtime_supervisor.py` 原两处调用同一 `Jarvis2Core._bind_sampler_persistence()`；`runtime/_resume_service.py` `apply_resume_checkpoint` 及 Core 包装已删除。为兼容现有 MagicMock 回归，两处显式调用 Core 类方法体。队列清理仍在 supervisor 的 `prepare_resume` 调用处，重新提议标记仍在 checkpoint 导入处 | 指定三组非 slow 回归 58 passed；Core collaborator 17 passed；真实 Redis 慢测 20 passed / 54 deselected（278.16 秒） |
+
+## 2026-10-17 提交复查修复代码地图
+
+| 责任 | 实现 | 验证 |
+| --- | --- | --- |
+| 保持分片、无变化不重写、失败可重试 | `io/database.py` `trim_scan_records` / `_trim_shard`，SQLite 保存最后位置而非整行副本 | `tests/test_runtime_finalization.py`；真实长短扫描强制轮转 |
+| 确认 Archiver 停止与异常收尾 | `io/archiver.py` stop 返回 bool / thread is_alive；`runtime/_runtime_supervisor.py` 逐阶段收尾并延后报错；`runtime/core.py` 保留原异常并在清尾后出图 | 超时/close/磁盘异常注入；原异常不被覆盖 |
+| SDK 接口匹配 | SDK 根包 `HOST_CONTRACT_VERSION=2`；HEP `sampler_sdk.py` 校验最低版本及 host 契约 | 旧契约清晰诊断；2.x 不设上限 |
+
+实际命令、结果和已知边界继续写入 [现有验证 JSON](hep-review-2026-10-16-verification.json) 的提交复查记录。
+
+提交复查验证完成：SDK 全套 253 passed、Ruff 通过；HEP 最终快速门禁 1627 passed / 197 deselected / 478 subtests，真实 Redis/spawn/HDF5 慢测 21 passed，最后边界补丁后长短扫描两种分片模式复跑 2 passed，收尾定向 40 passed。匹配暂存源码的两个 wheel 在干净 Python 3.11 环境完整安装 66 个包，pip check、官方插件、分片清尾与双入口 CLI 通过；公开 SDK 1.0.3 的旧契约诊断也经真实换装核验。wheel 内 HEP 227 / SDK 16 个 Python 文件逐字匹配暂存内容。详细命令、耗时、构件哈希和范围保护见现有 [验证 JSON](hep-review-2026-10-16-verification.json) 的 `review_followup_2026_10_17`；本轮未改发行版本、未发布。

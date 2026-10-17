@@ -399,71 +399,105 @@ def read_checkpoint_prefix_status(database_dir: str, cursor: int) -> tuple[bool,
     return all(statuses), statuses.count(2)
 
 
-def trim_scan_records(database_dir: str, total: int) -> int:
-    """Keep the final row for each index in the completed indexed scan.
+def _trim_shard(path: str, keep_rows: Any, scratch: str) -> None:
+    """Replace one changed shard, preserving its name and non-record metadata."""
+    temporary = os.path.join(scratch, os.path.basename(path))
+    with _open_hdf5_readonly(path) as source, h5py.File(temporary, "w", libver="latest") as target:
+        target.attrs.update(source.attrs)
+        for key in source:
+            if key != "records":
+                source.copy(key, target)
+        dataset = SimpleHDF5Writer._ensure_records_dataset(target)
+        dataset.attrs.update(source["records"].attrs)
+        batch: list[Any] = []
+        for (row_number,) in keep_rows:
+            batch.append(source["records"][row_number])
+            if len(batch) >= 4096:
+                start = len(dataset)
+                dataset.resize((start + len(batch),))
+                dataset[start:] = batch
+                batch.clear()
+        if batch:
+            start = len(dataset)
+            dataset.resize((start + len(batch),))
+            dataset[start:] = batch
+        target.flush()
+    with open(temporary, "rb") as handle:
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
 
-    Run only after the Archiver has closed its writer. Rebuilding the live shard
-    also removes stale rows from older sealed shards and refreshes its CSV.
+
+def _remove_shard_csv(path: str) -> None:
+    for suffix in (".csv", ".csv.md5"):
+        export = os.path.splitext(path)[0] + suffix
+        if os.path.isfile(export):
+            os.unlink(export)
+
+
+def trim_scan_records(database_dir: str, total: int) -> int:
+    """Remove stale/duplicate indexed rows after the Archiver has stopped.
+
+    SQLite stores only the location of each final row. Unchanged shards are
+    never rewritten; changed shards keep their names and partition boundaries.
+    Each replacement removes only tail rows or older duplicates, so a partial
+    failure can be retried without losing the final copy of an in-range row.
     """
     paths = discover_samples_hdf5_shards(database_dir)
     if not paths:
         return 0
-    seen = 0
+    limit = max(0, int(total))
     root = os.path.abspath(database_dir)
     live = os.path.join(root, "samples.hdf5")
+    counts: list[int] = []
     with tempfile.TemporaryDirectory(prefix="scan-trim-", dir=root) as scratch:
         conn = sqlite3.connect(os.path.join(scratch, "rows.sqlite"))
         try:
-            conn.execute("CREATE TABLE rows (sample_index INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
-            for path in paths:
+            conn.execute("CREATE TABLE rows (sample_index INTEGER PRIMARY KEY, shard INTEGER, row_number INTEGER)")
+            for shard, path in enumerate(paths):
                 with _open_hdf5_readonly(path) as handle:
-                    if "records" not in handle:
+                    records = handle.get("records")
+                    counts.append(len(records) if records is not None else 0)
+                    if records is None:
                         continue
-                    for item in handle["records"]:
-                        seen += 1
+                    for row_number, item in enumerate(records):
                         if isinstance(item, bytes):
                             item = item.decode("utf-8")
                         try:
                             row = json.loads(item)
                         except (TypeError, ValueError):
                             continue
-                        if not isinstance(row, Mapping):
-                            continue
-                        index = SimpleHDF5Writer._record_sample_index(row)
-                        if index is not None and index < max(0, int(total)):
-                            conn.execute("INSERT OR REPLACE INTO rows VALUES (?, ?)", (index, item))
+                        index = SimpleHDF5Writer._record_sample_index(row) if isinstance(row, Mapping) else None
+                        if index is not None and index < limit:
+                            conn.execute("INSERT OR REPLACE INTO rows VALUES (?, ?, ?)",
+                                         (index, shard, row_number))
                 conn.commit()
-            tmp_hdf5 = os.path.join(scratch, "samples.hdf5")
-            with h5py.File(tmp_hdf5, "w", libver="latest") as handle:
-                handle.attrs["schema_version"] = 1
-                dataset = SimpleHDF5Writer._ensure_records_dataset(handle)
-                batch: list[str] = []
-                for (payload,) in conn.execute("SELECT payload FROM rows ORDER BY sample_index"):
-                    batch.append(payload)
-                    if len(batch) >= 4096:
-                        start = len(dataset)
-                        dataset.resize((start + len(batch),))
-                        dataset[start:] = batch
-                        batch.clear()
-                if batch:
-                    start = len(dataset)
-                    dataset.resize((start + len(batch),))
-                    dataset[start:] = batch
-                kept = len(dataset)
-                handle.flush()
-            with open(tmp_hdf5, "rb") as handle:
-                os.fsync(handle.fileno())
-            os.replace(tmp_hdf5, live)
+            conn.execute("CREATE INDEX rows_by_shard ON rows (shard, row_number)")
+            kept = dict(conn.execute("SELECT shard, COUNT(*) FROM rows GROUP BY shard"))
+            removed = sum(counts) - sum(kept.values())
+            for shard, path in enumerate(paths):
+                remaining = kept.get(shard, 0)
+                if remaining == counts[shard]:
+                    # A previous attempt may have replaced HDF5 before its CSV
+                    # export failed. The digest check repairs that case without
+                    # rewriting an unchanged export.
+                    if remaining:
+                        convert_hdf5_to_csv(path)
+                    else:
+                        _remove_shard_csv(path)
+                    continue
+                if remaining == 0 and os.path.abspath(path) != live:
+                    _remove_shard_csv(path)
+                    os.unlink(path)
+                    continue
+                rows = conn.execute("SELECT row_number FROM rows WHERE shard = ? ORDER BY row_number", (shard,))
+                _trim_shard(path, rows, scratch)
+                if remaining:
+                    convert_hdf5_to_csv(path)
+                else:
+                    _remove_shard_csv(path)
+            return removed
         finally:
             conn.close()
-    for path in paths:
-        if os.path.abspath(path) != live:
-            os.unlink(path)
-            csv_path = os.path.splitext(path)[0] + ".csv"
-            if os.path.isfile(csv_path):
-                os.unlink(csv_path)
-    convert_hdf5_to_csv(live)
-    return seen - kept
 
 
 def ensure_samples_csv_shards(

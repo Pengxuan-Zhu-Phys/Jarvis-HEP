@@ -427,8 +427,10 @@ def _builtin_plugin_record(name: str) -> PluginRecord:
     from jarvis_hep_sampler.loader import load_plugin_file
 
     path = builtin_plugin_path(name)
-    # The path is selected from HEP's shipped file map, never a user registry.
-    plugin = load_plugin_file(path, trusted_builtin_method=name)
+    from jarvishep2.sampler_sdk import require_sampler_sdk
+
+    require_sampler_sdk()
+    plugin = load_plugin_file(path)
     meta = plugin.metadata
     return PluginRecord(
         method=meta.method,

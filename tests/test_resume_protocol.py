@@ -400,8 +400,11 @@ def test_final_trim_removes_stale_sealed_shard_rows(tmp_path):
 
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
-def test_short_scan_removes_tail_of_completed_long_scan(tmp_path):
+@pytest.mark.parametrize("sharded", [False, True], ids=["live", "rolling-shards"])
+def test_short_scan_removes_tail_of_completed_long_scan(tmp_path, sharded):
     source, card = _card(tmp_path, "Grid")
+    if sharded:
+        card["EnvReqs"]["V2"]["archiver"] = {"max_hdf5_bytes": 1, "batch_size": 1}
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
                JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
                JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
@@ -415,7 +418,11 @@ def test_short_scan_removes_tail_of_completed_long_scan(tmp_path):
         result = subprocess.run([sys.executable, "-c", DRIVER, str(source), str(output), "fresh", "before"],
                                 cwd=tmp_path, env=env, text=True, capture_output=True, timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
-        rows = SimpleHDF5Writer(str(database)).read_records()
+        from jarvishep2.io.database import discover_samples_hdf5_shards
+        paths = discover_samples_hdf5_shards(str(database.parent))
+        rows = [row for path in paths for row in SimpleHDF5Writer(path).read_records()]
+        if sharded:
+            assert len(paths) > 1
         assert len(rows) == expected
         assert {int(row["sample_index"]) for row in rows} == set(range(expected))
 

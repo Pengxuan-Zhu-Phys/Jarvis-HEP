@@ -58,3 +58,10 @@ def test_default_environments_require_sampler_minimum() -> None:
         packaging = next(item for item in dependencies if item["name"] == "packaging")
         assert packaging["required"] is True
         assert packaging["version"] == ">=23.0"
+
+
+def test_published_sdk_without_new_host_contract_gets_actionable_error(monkeypatch):
+    import jarvis_hep_sampler
+    monkeypatch.setattr(jarvis_hep_sampler, "HOST_CONTRACT_VERSION", 0)
+    with pytest.raises(SamplerSDKError, match="host contract 2"):
+        require_sampler_sdk()

@@ -110,7 +110,10 @@ apply to this master-based source. Current results belong in the
 
 The current source checkout after the SDK-free 2.0.17 package requires
 `Jarvis-HEP-Sampler>=1.0.3` without an upper bound. The default environment
-cards use the same bound. `Jarvis sampler` forwards the SDK `jsampler` commands
+cards use the same bound. The unreleased follow-up also requires SDK host
+contract 2; public SDK 1.0.3 predates that interface. The maintainer must publish
+the matching SDK and update the HEP minimum before releasing this source.
+`Jarvis sampler` forwards the SDK `jsampler` commands
 and adds HEP's built-in method display. When this HEP source is packaged and
 installed, pip resolves a matching sampler release from PyPI. The published
 2.0.17 package remains the historical release without this dependency.

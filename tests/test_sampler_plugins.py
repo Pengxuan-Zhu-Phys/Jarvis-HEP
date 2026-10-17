@@ -377,7 +377,6 @@ def test_bound_builtin_plugin_resumes_after_packaged_source_changes(
     config["Scan"]["name"] = "builtin-scan"
     with (
         mock.patch.object(sampler_catalog, "builtin_plugin_path", return_value=packaged_copy),
-        mock.patch.object(plugin_identity, "builtin_plugin_path", return_value=packaged_copy),
     ):
         sampler_catalog._builtin_plugin_record.cache_clear()
         try:
@@ -398,7 +397,7 @@ def test_bound_builtin_plugin_resumes_after_packaged_source_changes(
             moved_package = tmp_path / "new-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
             moved_package.parent.mkdir(parents=True)
             moved_package.write_bytes(packaged_copy.read_bytes())
-            with mock.patch.object(plugin_identity, "builtin_plugin_path", return_value=moved_package):
+            with mock.patch.object(sampler_catalog, "builtin_plugin_path", return_value=moved_package):
                 assert plugin_identity.read_binding(config) is not None
                 moved_resume = preflight_plugin(
                     config, task_root=str(tmp_path), scan_name="builtin-scan", resume=True

@@ -2,6 +2,8 @@
 
 2026-10-11 根据当前实现重建，未恢复历史审阅原文。
 
+> 当前源码状态（2026-10-17 提交复查后）：本轮复查修复使用 SDK 源码的 `HOST_CONTRACT_VERSION >= 2`，包含入口保留名策略和 `CatalogExtension` 数据接口；已发布的 SDK 1.0.3 尚无该契约。两仓版本号和 `>=1.0.3` 的历史最低声明保持不变，不加上限。HEP 运行时额外核查契约，旧 SDK 给出匹配源码构建的安装诊断；维护者后续发布 SDK 后再将 HEP 版本下限对齐真实发行号。本轮不发布。
+
 ## 当前发行架构
 
 2.0.17 的公开发行不带外部 Sampler SDK，记录见 [2.0.17 发行记录](release-2.0.17.md)。当前 master 在该发行之后接入 Jarvis-HEP-Sampler：依赖为 `Jarvis-HEP-Sampler>=1.0.3`，不设上限；`Jarvis sampler` 复用 `jsampler` 命令面，HEP 适配层另负责内置方法、保留名和调用前校验。插件格式在 SDK，运行时、检查点和项目包在 HEP。
@@ -89,7 +91,7 @@ HEP 的 wheel/sdist 不应包含 SDK/plugin registry/CLI，不应有 `Jarvis-HEP
 5. **resume 的进度来源。**
    - 带 `replacing_existing`：只信 checkpoint 游标以下的行。Archiver 初始前缀取游标；不调用 `advance_to_persisted_prefix`，不按 DATABASE 跳过；继续 `replace_duplicates`。代价是重算最近一次 checkpoint 之后的点（默认心跳 30 秒）。
    - 不带标记：DATABASE 只含本扫描自身的行，保留按 DATABASE 前缀推进，只重放 checkpoint 之后的空档。
-6. **fresh 结束时清尾。** 带标记的扫描正常结束、Archiver 关闭后，按本次提交总数跨 live/封存 HDF5 shards 清理旧尾部与重复 index。原设计指定 writer `drop_matching_records`，但该 writer 只能处理 live shard；实现改为临时 SQLite 按 index 保留最后落盘行，再原子替换 live shard 和刷新 CSV，以覆盖封存 shard 的旧行，内存不随行数增长。
+6. **fresh 结束时清尾（复查更正）。** 先前实现把全部分片合并为一个 live 文件，且把 stop 返回误当成 Archiver 已退出；这两个判断均错误。现在 stop 返回已停止状态，supervisor 检查进程/线程确实退出；超时、非零退出或关闭异常时跳过清尾；子进程 drain/线程停止失败也以非零退出报告，并关闭自身 Redis 连接。进程超时会尝试 terminate/kill，但强制退出不视为完整落盘，后续 shutdown 也不再清尾。正常停止后，SQLite 只记录每个 index 最后出现的分片与行号，逐个原分片删除尾行和旧重复行：分片名与分区保持，未变分片及 CSV 不重写，只删除已清空的封存分片，live 保持兼容名称。每个 changed shard 单独写临时文件、fsync、原子替换并刷新自身 CSV；重试也核对未改 HDF5 的 CSV 摘要，修复上次导出失败的旧 CSV，清空 live 时移除旧 CSV 与摘要；过程中异常可重试，不移除任何 in-range index 的最后副本。清尾、summary 或停止异常均不阻断后续锁/Worker/Redis 收尾，最后报告失败；原扫描异常优先保留。覆盖扫描的绘图在成功清尾后进行。
 7. **核对卡片。** checkpoint 记录 Sampling 部分（Bounds 与 selection）的哈希；续跑时不一致，按 Mapper 指纹不符处理：拒绝 checkpoint，从头扫描。workers 等运行参数不参与比较。现有写入但无人读取的 `config_hash` 已由 `sampling_hash` 取代。现在 checkpoint 中的 seed/selection 会在 `FixedSetSampler._import_common_fields` 静默覆盖卡片值，核对后这种覆盖不再可能。
 8. **核对点集。** checkpoint 记录点集指纹：Grid 为 `_P` 的 SHA-256（含 shape、dtype），CSV 为数据文件的 SHA-256 与大小，Bridson 见下节。续跑时重新生成或读取后比对，不符则拒绝 checkpoint。Random 不生成点集，NumPy 随机状态本已在 checkpoint 内（固定约 2.5 KB）。插件沿用现有身份绑定。
 9. **不累积提交 UUID。** `stateless_batch.flush_batch` 每批调用 `CheckpointedSampler.record_submitted_batch`，Grid/Random/Bridson 原先把整次扫描的 UUID 留在内存；CSV 已改为空操作，现已提升到 `FixedSetSampler`（插件保持原行为）；`_scan_driver` 结束时只为非 indexed sampler 构造提交集合。
@@ -136,9 +138,9 @@ Dynesty 的 `nested_engine.pkl` 看起来不受 `checkpoint.enabled` 控制（`d
 
 ### 规则
 
-1. **保留名单。** SDK 已定义 `RESERVED_METHOD_NAMES`，`check_method_name`（`metadata.py`）默认使用，不再需要调用方传入名单。`init`、`load`、`check` 在两个入口下拒绝同样的名字。读取登记和 `remove` 不做名字检查，否则重名条目既不能读也删不掉。HEP `reserved_method_names()` = SDK 名单 ∪ HEP catalog；HEP 测试断言 builtin 与 builtin-plugin 都在 SDK 名单内。新增内置方法先改 SDK 名单并发布，HEP 再提高 SDK 版本下限，不加上限。
+1. **保留名单。** SDK 定义 `RESERVED_METHOD_NAMES`；`check_method_name` 仅验证语法，`check_external_method_name` 在 init/load/check 入口使用默认保留名单。`init`、`load`、`check` 在两个入口下拒绝同样的名字。读取登记和 `remove` 不做名字检查，否则重名条目既不能读也删不掉。HEP `reserved_method_names()` = SDK 名单 ∪ HEP catalog；HEP 测试断言 builtin 与 builtin-plugin 都在 SDK 名单内。新增内置方法先改 SDK 名单并发布，HEP 再提高 SDK 版本下限，不加上限。
 2. **load 等价。** `Jarvis sampler load` 已直接转发 `jsampler load`；HEP `_load_sampler` 已删除。
-3. **check 只接受文件路径。** 参数不是文件时 exit 2，提示用 `Jarvis sampler info <Method>` 找到源文件。导入文件后第一项检查方法名，单独列在报告首位；重名即失败，options/prepare/draw 不执行。SDK `_check_target` 的登记分支和 HEP `_guard_check` 已删除。
+3. **check 只接受文件路径。** 参数不是文件时 exit 2，提示用 `Jarvis sampler info <Method>` 找到源文件。导入文件后第一项检查方法名，单独列在报告首位；重名即 exit 2，options schema/prepare/draw 不执行；算法数值、形状或可重复性检查失败仍 exit 1。SDK `_check_target` 的登记分支和 HEP `_guard_check` 已删除。
 4. **注册表报告。** `sampler_catalog.registry_report()` 合并 builtin、builtin-plugin、user 三层。user 条目状态为 ok、与内置重名、快照缺失或被改（复用 SDK `SamplerRegistry.problems`）；登记整体无法读取时记一个全局错误。只读文件，不导入插件代码。登记部分沿用 `_user_layer` 的签名缓存，快照校验每次都做。
 5. **启动时处理。** 报告在 `core.preflight_sampler_plugin` 开头生成，先于 Redis、Worker、Archiver 和 DATABASE 整理。
    - 任一条目与内置重名：退出（exit 2），不论卡片用哪个方法；列出全部重名条目和 `Jarvis sampler remove <X> --yes` 修复命令，`<X>` 用登记中的确切名字。`remove` 只删除外部登记及其托管快照，不动内置方法或用户源文件。
@@ -146,20 +148,24 @@ Dynesty 的 `nested_engine.pkl` 看起来不受 `checkpoint.enabled` 控制（`d
    - 其他条目的快照问题：警告并继续。
    - 登记无法读取：卡片用内置方法时警告并继续，用插件时退出。
 6. **删除分散拦截。** `assert_no_reserved_name_collision` 及其在 `distributor.py`、`runtime/core.py`、`cli/sampler.py` 的调用已删除。不经 Core、直接在 Python 中使用 Distributor 时内置方法优先；当前 SDK 源码拒绝新重名登记，旧 SDK 或手写登记留下的条目由 run/check 启动时拦截。
-7. **展示。** `Jarvis sampler list` / `info` 读同一份报告，重名条目照常列出并标明状态。
+7. **展示。** `Jarvis sampler list` / `info` 读同一份报告，重名条目照常列出并标明状态；查询内置 `Grid` 时也列出 `grid` 等大小写不同的旧冲突及精确 remove 命令。
 8. **CLI 风格。** `jsampler` 已改用 Jarvis CLI 风格，HEP 已删除 `cli/help.py` 自带的 SDK 解析器拷贝；`Jarvis sampler` 的帮助与错误由 SDK 按程序名 `Jarvis sampler` 渲染。损坏登记的 list/info/remove 统一 exit 2，`--version --json` 输出规范 JSON。全生态的帮助、错误、退出码与 JSON 规则见 [CLI 规范](JARVIS_CLI_DESIGN.md)。
 
 SDK README 中"check 也接受已登记 sampler"的旧说明已修改。完整命令语义见 [技术设计](jarvis-hep-sampler/technical-design.md) §5.1、§5.2、§5.4。
 
-官方打包的 builtin-plugin `LatinHypercube` 必须使用其 SDK 保留名。HEP 加载已核对的官方插件时，向 SDK 低层 metadata/loader 传入精确 `trusted_builtin_method="LatinHypercube"`；仅该规范大小写名称获得豁免，普通 SDK init/load/check 没有豁免入口。已有扫描的 `sampler_identity.json` 保存原来源与 SHA-256，preflight 以原扫描副本的字节及保存的 hash 验证并续跑；识别官方旧绑定使用 `jarvishep2/sampling/plugins/latin_hypercube.py` 的包内相对路径，不要求后来安装的包仍位于同一绝对路径或具有相同字节。项目中的绑定文件和扫描副本是用户可编辑状态：该协议能发现偶然损坏，不能防御有意伪造。
+**保留名分层更正。** 先前把外部命名策略放进通用 `parse_metadata`，导致官方内置插件也被拦，再靠 `trusted_builtin_method` 和路径尾缀补救，这个设计已删除。现在 metadata/loader 仅验证元数据与名字语法；外部 init、registry.load、check_plugin 调用 `check_external_method_name`。loader 的可选 `metadata_validator` 由这两个入口传入，在元数据解析后、options schema 与 hook 检查前执行入口策略；运行时不传该策略。check 的名称失败在报告首项呈现且 exit 2，算法检查失败 exit 1。旧登记由注册表报告在运行前拦截。已有扫描仍核验自己的源码副本和保存的 SHA-256，不再根据原来源路径判断是否豁免。项目绑定是可编辑状态，哈希用于发现偶然损坏。
 
-本地实现核对：注册表报告将旧重名登记保留为 `name-conflict` 行，每次读取重新核验快照；Core 在初始化 Redis 前针对全部重名、所选插件坏快照及不可读登记执行上述分流。`Jarvis sampler list/info` 的文本主表与 JSON 使用同一报告状态，显示登记中的精确名字及移除命令。N1/N2 SDK 本地源码 234 passed 且 Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（最后三项 CLI 修复经后续定向复跑）；N5 非 CLI 专测 5 passed，N6 及真实 run/check 入口 4 passed。N4 已转发 SDK 并移除 HEP 自有 `_load_sampler`、`_guard_check` 和解析器拷贝。N3 使用已公开且包含 N1/N2 的 SDK 1.0.3；HEP 打包依赖、运行时版本门禁及默认环境卡同步采用 `>=1.0.3`，以免安装后由运行时接受低于该协议的 SDK。2.x 继续受支持。全新 Python 3.11 环境从本地 HEP 源码完成全依赖安装（66 个包），依赖来自公共 PyPI，已安装 SDK 1.0.3 与 HEP 运行时版本门禁一致，`pip check` 及双入口 JSON 版本输出通过。此安装验证不代表 HEP 已公开新版本。详情见 [验证证据](hep-review-2026-10-16-verification.json)。
+**渲染职责更正。** 先前 HEP 捕获 SDK JSON 再自行绘制 list/info，虽然共用解析器，仍复制了展示逻辑。现在 SDK `CatalogExtension` 接收 HEP 的列表增补、info 数据和附加分组；SDK 统一输出文本与 JSON。HEP 只提供内置记录、注册表状态与大小写无关的冲突数据，不再重建表格或面板。原 SDK JSON 字段及 HEP `jarvis_hep` 保留，内置 info 的 `conflicts` 为新增字段。
+
+08b2dab5 / d9d2853 阶段历史实现与验收：注册表报告将旧重名登记保留为 `name-conflict` 行，每次读取重新核验快照；Core 在初始化 Redis 前针对全部重名、所选插件坏快照及不可读登记执行上述分流。`Jarvis sampler list/info` 的文本主表与 JSON 使用同一报告状态，显示登记中的精确名字及移除命令。N1/N2 SDK 本地源码 234 passed 且 Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（最后三项 CLI 修复经后续定向复跑）；N5 非 CLI 专测 5 passed，N6 及真实 run/check 入口 4 passed。N4 已转发 SDK 并移除 HEP 自有 `_load_sampler`、`_guard_check` 和解析器拷贝。N3 使用已公开且包含 N1/N2 的 SDK 1.0.3；HEP 打包依赖、运行时版本门禁及默认环境卡同步采用 `>=1.0.3`，以免安装后由运行时接受低于该协议的 SDK。2.x 继续受支持。全新 Python 3.11 环境从本地 HEP 源码完成全依赖安装（66 个包），依赖来自公共 PyPI，已安装 SDK 1.0.3 与 HEP 运行时版本门禁一致，`pip check` 及双入口 JSON 版本输出通过。此安装验证不代表 HEP 已公开新版本。详情见 [验证证据](hep-review-2026-10-16-verification.json)。
 
 已公开的 SDK 1.0.3 包的 PyPI 长描述内嵌了旧 README，仍写 1.0.2 和 HEP `>1`。这是发布描述的历史快照，不能据此推断 wheel 缺少 N1/N2；本地 SDK README 已改正，公开页须待后续版本才能同步。当前 HEP 依赖约束以其 `pyproject.toml` 为准。
 
 ### 复查遗留清理 C1（已实现）
 
 续跑 sampler 的运行策略、持久化 UUID/prefix/pending 和按前缀推进，在 sampler 初始化后及 Archiver 启动后都通过同一个 `Jarvis2Core._bind_sampler_persistence()` 方法体绑定。原无调用的 `apply_resume_checkpoint` 与 Core 包装已删除。现有回归以 MagicMock 模拟 Core，故 supervisor 两处采用显式类方法调用，不改变实际 Core 行为。队列清理与重新提议标记仍保留各自原位置。指定三组非 slow 回归 58 passed、Core collaborator 17 passed；真实 Redis 慢测 20 passed、54 deselected，用时 278.16 秒。
+
+提交复查验证完成：SDK 全套 253 passed、Ruff 通过；HEP 最终快速门禁 1627 passed / 197 deselected / 478 subtests，真实 Redis/spawn/HDF5 慢测 21 passed，最后边界补丁后长短扫描两种分片模式复跑 2 passed，收尾定向 40 passed。匹配暂存源码的两个 wheel 在干净 Python 3.11 环境完整安装 66 个包，pip check、官方插件、分片清尾与双入口 CLI 通过；公开 SDK 1.0.3 的旧契约诊断也经真实换装核验。wheel 内 HEP 227 / SDK 16 个 Python 文件逐字匹配暂存内容。详细命令、耗时、构件哈希和范围保护见现有 [验证 JSON](hep-review-2026-10-16-verification.json) 的 `review_followup_2026_10_17`；本轮未改发行版本、未发布。
 
 ## Diver 移植（暂留，未验证）
 

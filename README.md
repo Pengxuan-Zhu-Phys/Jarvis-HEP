@@ -53,7 +53,7 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-The current source checkout requires `Jarvis-HEP-Sampler>=1.0.3` from PyPI, with no upper bound. The published Jarvis-HEP 2.0.17 package predates this integration and does not require the SDK. For development and tests, install the sibling sampler tree and the test tools:
+The current source checkout keeps `Jarvis-HEP-Sampler>=1.0.3` without an upper bound and additionally checks sampler host contract 2. This unreleased follow-up requires the matching SDK source build; public SDK 1.0.3 does not yet provide that interface. Install the sibling SDK below before using this checkout. The published Jarvis-HEP 2.0.17 package predates this integration and does not require the SDK. For development and tests, install the sibling sampler tree and the test tools:
 
 ```bash
 python3 -m pip install -e ../Jarvis-HEP-Sampler

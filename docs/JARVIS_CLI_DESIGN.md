@@ -86,8 +86,8 @@
 | 码 | 含义 | 例 |
 | --- | --- | --- |
 | 0 | 成功 | |
-| 1 | 工作已经执行，但结果是失败 | 运行错误或样本失败；`jsampler check` 有检查项不通过；calculator 执行失败 |
-| 2 | 用法或输入错误，工作没有开始 | 未知命令或选项；参数值非法（如 `--dimension 0`）；文件不存在；卡片配置错误（`Jarvis validate`）；名字未登记；登记文件损坏；与内置方法重名；非交互且缺 `--yes` |
+| 1 | 工作已经执行，但结果是失败 | 运行错误或样本失败；`jsampler check` 的数值、形状或可重复性等算法检查不通过；calculator 执行失败 |
+| 2 | 用法或输入错误，工作没有开始 | 未知命令或选项；参数值非法（如 `--dimension 0`）；文件不存在；卡片配置错误（`Jarvis validate`）；名字未登记；登记文件损坏；与内置方法重名（包括 `jsampler check` 的方法名首项失败，报告后仍 exit 2）；非交互且缺 `--yes` |
 | 130 | 被中断（Ctrl-C） | |
 
 转发命令原样透传子命令的退出码。
@@ -113,6 +113,7 @@
 - `Jarvis sampler`、`Jarvis plot`、`Jarvis operas`、`Jarvis portal` 与 `jsampler`、`jplot`、`jopera`、`jportal` 对同样的参数保持子命令的解析、错误与退出码一致；帮助、错误和用法中显示 `Jarvis <command>`。`Jarvis sampler list`/`info` 通过 SDK 扩展点增加 HEP 内置方法说明与结果。
 - 解析器只有一份，由子项目拥有。子项目的入口接受程序名参数（SDK 已有 `main(argv, prog=...)`）。HEP 不复制子项目的解析器，补充内容只在子项目提供的扩展点上添加，如 `Jarvis sampler list` 额外列出内置方法。
 - 退出码和 JSON 原样透传。
+- sampler 的宿主扩展使用 SDK `CatalogExtension` 的数据回调（列表增补、info 解析、额外列表分组）；解析器、文本表格/面板与 JSON 序列化均由 SDK 拥有。HEP 不捕获 JSON 再自行渲染。内置 info 以 `conflicts` 增补大小写无关的旧冲突与精确修复命令。
 
 ## 11. 手册与 agent 发现
 
@@ -151,3 +152,5 @@
 4. **jarvis-agent**：MVP 阶段结束后再对齐。
 
 各项目按自己的变更流程实施，例如 HEP 的变更门禁与 PR 开头约定。
+
+2026-10-17 提交复查更新：重名 check 明确 exit 2，算法检查失败 exit 1；HEP 的 list/info 重绘已移除，改用 SDK CatalogExtension 数据扩展及同一渲染器。此接口属于尚未发布的 host contract 2 源码，不能用前次 SDK 1.0.3 的公共安装证据代替本轮验收。

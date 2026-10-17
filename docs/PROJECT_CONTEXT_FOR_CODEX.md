@@ -2,6 +2,8 @@
 
 维护基线：2026-10-11。本文件在原约定路径及 Git 历史中均无旧版本，现依据当前代码、README、安装与发布文档重建；不代表恢复了遗失的历史原文。
 
+> 当前源码状态（2026-10-17 提交复查后）：本轮复查修复使用 SDK 源码的 `HOST_CONTRACT_VERSION >= 2`，包含入口保留名策略和 `CatalogExtension` 数据接口；已发布的 SDK 1.0.3 尚无该契约。两仓版本号和 `>=1.0.3` 的历史最低声明保持不变，不加上限。HEP 运行时额外核查契约，旧 SDK 给出匹配源码构建的安装诊断；维护者后续发布 SDK 后再将 HEP 版本下限对齐真实发行号。本轮不发布。
+
 ## 产品与执行模型
 
 发行包为 `Jarvis-HEP`，Python 包为 `jarvishep2`，用户命令为 `Jarvis`。源码版本为 2.0.17。2.0.17 已公开不依赖外部 Sampler SDK 的 GitHub Release 与 PyPI wheel；完整公共索引安装已核验，PyPI 源码包上传超时，源码包由 GitHub Release 提供。当前 master 在该发行之后要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限。Python 最低版本为 3.10。
@@ -74,11 +76,19 @@ Jarvis-Operas 提供函数与常量注册，Jarvis-HEP-Portal 提供 calculator 
 
 现行规则：
 
-- 外部 sampler 不能与内置方法重名（大小写不敏感）；SDK 的 `RESERVED_METHOD_NAMES` 是唯一保留名单。`jsampler` 与 `Jarvis sampler` 的普通 init/load/check 均不能绕过。官方打包的 builtin-plugin `LatinHypercube` 通过低层 `trusted_builtin_method` 精确豁免，HEP 在使用前核对官方来源；这不是面向用户的命令选项。
-- `Jarvis sampler load/check` 直接转发 SDK。check 只接受文件路径，报告首项检查方法名；按名字 check、HEP `_load_sampler`/`_guard_check` 和自带 SDK 解析器均已删除。SDK 统一处理非正 dimension、损坏登记的 list/info/remove（exit 2）及 `--version --json`。
+- 外部 sampler 不能与内置方法重名（大小写不敏感）；SDK 的 `RESERVED_METHOD_NAMES` 是唯一保留名单。`check_method_name` 只查语法；`check_external_method_name` 只由 init/load/check 入口调用。通用 metadata/loader 不拒绝内置插件名字，全部 `trusted_builtin_method` 参数及路径尾缀判定已删除。
+- `Jarvis sampler load/check` 直接转发 SDK。check 只接受文件路径，报告首项检查方法名，重名 exit 2；按名字 check、HEP `_load_sampler`/`_guard_check` 和自带 SDK 解析器均已删除。SDK 统一处理非正 dimension、损坏登记的 list/info/remove（exit 2）及 `--version --json`。
 - `Jarvis run` 与 `Jarvis check` 每次启动都生成只读注册表报告，内置与外部在内存中合并；发现任一重名即在 Redis 前退出。`Jarvis sampler list/info` 使用同一报告并显示旧冲突与修复命令。
 - `Jarvis sampler remove` 只删除外部登记及其托管快照，不动内置方法或用户源文件；旧重名登记仍可按登记中的确切名字移除。
 - 官方 `LatinHypercube` 已绑定扫描用原扫描副本和保存的 SHA-256 续跑，容忍后来安装的包路径或源码字节变化。项目中的 `sampler_identity.json` 和扫描副本属于用户可编辑状态；校验能发现偶然损坏，不能防御有意伪造。
 - SDK 与 `Jarvis sampler` 已按 [CLI 规范](JARVIS_CLI_DESIGN.md) 对齐；生态中其他 CLI 的差距另列步骤。
 
-本地 SDK 源码验收 234 passed，Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（之后对最后三项 CLI 修复复跑定向）。HEP N5 非 CLI 专测 5 passed、旧冲突真实 run/check 与 list/info/remove 入口 4 passed。C1 的真实 Redis 慢测 20 passed、54 deselected，用时 278.16 秒。N3 的 SDK 1.0.3 已公开，HEP 的 `pyproject.toml`、运行时版本门禁和环境默认卡均要求 `>=1.0.3`。全新 Python 3.11 环境从本地 HEP 源码构建并完整安装 66 个包，依赖均从公共 PyPI 解析，选中 SDK 1.0.3；`pip check` 通过，已安装的 HEP 与 SDK 模块来自该环境，`Jarvis sampler` / `jsampler --version --json` 都返回 1.0.3，HEP 运行时版本门禁返回 1.0.3。公开 SDK 的 N1/N2 行为也已在干净环境核验。HEP 本身仍未发布新版本。详细结果见 [验证证据](hep-review-2026-10-16-verification.json)。完整规则见 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md) 与 [实施路线](IMPLEMENTATION_ROADMAP.md) N1–N6。
+08b2dab5 / d9d2853 阶段的历史源码验收：SDK 234 passed，Ruff 通过；HEP 最终定向集成 169 passed / 4 deselected，快速全套门禁 1597 passed / 196 deselected（之后对最后三项 CLI 修复复跑定向）。HEP N5 非 CLI 专测 5 passed、旧冲突真实 run/check 与 list/info/remove 入口 4 passed。C1 的真实 Redis 慢测 20 passed、54 deselected，用时 278.16 秒。N3 的 SDK 1.0.3 已公开，HEP 的 `pyproject.toml`、运行时版本门禁和环境默认卡均要求 `>=1.0.3`。全新 Python 3.11 环境从本地 HEP 源码构建并完整安装 66 个包，依赖均从公共 PyPI 解析，选中 SDK 1.0.3；`pip check` 通过，已安装的 HEP 与 SDK 模块来自该环境，`Jarvis sampler` / `jsampler --version --json` 都返回 1.0.3，HEP 运行时版本门禁返回 1.0.3。公开 SDK 的 N1/N2 行为也已在干净环境核验。HEP 本身仍未发布新版本。详细结果见 [验证证据](hep-review-2026-10-16-verification.json)。完整规则见 [架构审阅](ARCHITECTURE_REVIEW_JARVIS_HEP.md) 与 [实施路线](IMPLEMENTATION_ROADMAP.md) N1–N6。
+
+## 2026-10-17 提交复查收尾
+
+前次提交的清尾将所有分片合并，且未确认 Archiver 已退出；此前验收遗漏这两个条件。现按原分片清尾，未变化文件不重写；停止失败跳过清尾，磁盘/关闭错误不会跳过其他资源收尾，最终报告失败并保留原扫描异常。覆盖扫描在清尾后出图。
+
+保留名政策现仅在 init/load/check 入口执行，元数据和运行时 loader 不再查保留名；已删除 trusted_builtin 豁免及路径尾缀判断。SDK 负责 list/info 全部展示，HEP 的 CatalogExtension 只提供数据；内置 info 也列出大小写不同的旧冲突。重名 check 统一 exit 2，算法检查失败 exit 1。验证以现有 JSON 的提交复查记录为准。
+
+提交复查验证完成：SDK 全套 253 passed、Ruff 通过；HEP 最终快速门禁 1627 passed / 197 deselected / 478 subtests，真实 Redis/spawn/HDF5 慢测 21 passed，最后边界补丁后长短扫描两种分片模式复跑 2 passed，收尾定向 40 passed。匹配暂存源码的两个 wheel 在干净 Python 3.11 环境完整安装 66 个包，pip check、官方插件、分片清尾与双入口 CLI 通过；公开 SDK 1.0.3 的旧契约诊断也经真实换装核验。wheel 内 HEP 227 / SDK 16 个 Python 文件逐字匹配暂存内容。详细命令、耗时、构件哈希和范围保护见现有 [验证 JSON](hep-review-2026-10-16-verification.json) 的 `review_followup_2026_10_17`；本轮未改发行版本、未发布。

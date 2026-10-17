@@ -1264,86 +1264,132 @@ class _RuntimeSupervisor:
             pass
 
     def shutdown(self, *, wait: bool = True, write_run_summary: bool = False) -> None:
-        """Stop Archiver, Workers, release the control lock, and managed Redis.
+        """Attempt every teardown step; trim only after a clean Archiver exit.
 
-        Idempotent: safe to call from ``finally``, signal paths, and atexit.
-        Managed Redis is always stopped last in an inner ``finally`` so a failure
-        earlier in the chain cannot leave ``Jarvis-Redis:*`` orphaned.
+        Failures are raised after Workers, locks and managed Redis have had
+        their cleanup attempts. Incomplete teardown remains retryable.
         """
         core = self._core
-
         if core._shutdown_done:
-            # Still try Redis in case a previous partial shutdown left it.
             core._stop_managed_redis()
             return
-        core._shutdown_done = True
+        if getattr(core, "_shutdown_in_progress", False) is True:
+            return
+        core._shutdown_in_progress = True
+        errors: list[str] = []
+
+        def failed(stage: str, exc: Exception) -> None:
+            errors.append(f"{stage}: {exc}")
+            core._logger.warning("%s failed -> %s", stage, exc)
+
         try:
             if core.sampler is not None and hasattr(core.sampler, "shutdown_checkpointing"):
                 try:
                     core.sampler.shutdown_checkpointing()
                 except Exception as exc:
-                    core._logger.warning("sampler checkpoint shutdown failed -> %s", exc)
+                    failed("sampler checkpoint shutdown", exc)
             if not core._interrupt_requested:
                 try:
                     core._finalize_sample_buckets()
-                except Exception:
-                    pass
-            if core.archiver is not None:
-                try:
-                    if isinstance(core.archiver, ArchiverProcess):
-                        # Interrupt path: don't hang forever on tar packing.
-                        timeout = 5.0 if core._interrupt_requested else 30.0
-                        core.archiver.stop(wait=wait, timeout=timeout)
-                    else:
-                        core.archiver.stop(
-                            wait=wait,
-                            drain=not core._interrupt_requested,
-                        )
                 except Exception as exc:
-                    core._logger.warning("archiver stop failed -> %s", exc)
+                    failed("sample bucket finalization", exc)
+            archiver_stopped = core.archiver is None
+            archiver_clean = archiver_stopped and getattr(core, "_archiver_shutdown_failed", False) is not True
+            if not archiver_clean and core.archiver is None:
+                failed("archiver stop", RuntimeError("previous Archiver exit was unclean; DATABASE cleanup skipped"))
+            if core.archiver is not None:
+                archiver = core.archiver
+                try:
+                    if isinstance(archiver, ArchiverProcess):
+                        timeout = 5.0 if core._interrupt_requested else 30.0
+                        stopped = archiver.stop(wait=wait, timeout=timeout)
+                        archiver_stopped = not archiver.is_alive()
+                        if stopped is False or not archiver_stopped:
+                            raise TimeoutError(f"Archiver did not stop within {timeout}s")
+                        if archiver.exitcode not in (None, 0):
+                            raise RuntimeError(f"Archiver exited with code {archiver.exitcode}")
+                    else:
+                        stopped = archiver.stop(wait=wait, drain=not core._interrupt_requested)
+                        archiver_stopped = (
+                            not archiver.is_alive() if isinstance(archiver, SimpleArchiver)
+                            else stopped is not False
+                        )
+                        if not archiver_stopped:
+                            raise TimeoutError("Archiver thread is still running")
+                    archiver_clean = True
+                except Exception as exc:
+                    failed("archiver stop", exc)
+                    # A forced exit is cleanup, not evidence of a complete flush.
+                    # Never trim after it, even if terminate/kill succeeds.
+                    if isinstance(archiver, ArchiverProcess):
+                        core._archiver_shutdown_failed = True
+                        try:
+                            if archiver.is_alive():
+                                archiver.terminate()
+                                archiver.join(timeout=5.0)
+                            if archiver.is_alive():
+                                archiver.kill()
+                                archiver.join(timeout=5.0)
+                            archiver_stopped = not archiver.is_alive()
+                        except Exception as stop_exc:
+                            failed("archiver forced stop", stop_exc)
                 try:
                     core._final_archived_records = core._archiver_records_written()
                 except Exception:
                     core._final_archived_records = None
-                core.archiver = None
+                if archiver_stopped:
+                    core.archiver = None
             if (
                 bool(getattr(core, "_scan_completed", False))
                 and not core._interrupt_requested
                 and bool(getattr(core, "_replacing_existing", False))
                 and uses_checkpoint_resume_protocol(core.config)
                 and bool(getattr(core.sampler, "uses_indexed_resume", False))
+                and archiver_clean
             ):
-                from jarvishep2.io.database import trim_scan_records
-
-                total = max(0, int(getattr(core.sampler, "_accepted_index", 0) or 0))
-                dropped = trim_scan_records(core._resolve_database_dir(), total)
-                core._logger.info("Final DATABASE cleanup: total=%d removed=%d stale row(s)", total, dropped)
+                try:
+                    from jarvishep2.io.database import trim_scan_records
+                    total = max(0, int(getattr(core.sampler, "_accepted_index", 0) or 0))
+                    dropped = trim_scan_records(core._resolve_database_dir(), total)
+                    core._logger.info("Final DATABASE cleanup: total=%d removed=%d stale row(s)", total, dropped)
+                except Exception as exc:
+                    failed("DATABASE cleanup", exc)
             if write_run_summary and core.factory is not None:
                 try:
                     core.write_run_summary()
                 except Exception as exc:
-                    core._logger.warning("run_summary write failed -> %s", exc)
-            try:
-                if core.redis is not None:
+                    failed("run_summary write", exc)
+            if core.redis is not None:
+                try:
                     core.redis.clear_runtime_metadata_path()
+                except Exception as exc:
+                    failed("runtime metadata clear", exc)
+            try:
                 core._release_redis_control_lock()
-            except Exception:
-                pass
+            except Exception as exc:
+                failed("Redis control lock release", exc)
             if core.factory is not None:
                 try:
                     core.factory.shutdown(wait=wait)
+                    core.factory = None
                 except Exception as exc:
-                    core._logger.warning("factory shutdown failed -> %s", exc)
-                core.factory = None
+                    failed("factory shutdown", exc)
             elif core.redis is not None:
                 try:
                     core.redis.close()
-                except Exception:
-                    pass
-            core.redis = None
+                except Exception as exc:
+                    failed("Redis connection close", exc)
+            if core.factory is None:
+                core.redis = None
             try:
                 refresh_install_control_summaries(getattr(core, "_install_control_modules", []))
             except Exception as exc:
                 core._logger.debug("install-control summary refresh skipped -> %s", exc)
         finally:
-            core._stop_managed_redis()
+            try:
+                core._stop_managed_redis()
+            finally:
+                core._shutdown_in_progress = False
+                core._shutdown_done = not errors
+        if errors and not core._interrupt_requested:
+            raise RuntimeError("Runtime shutdown failed: " + "; ".join(errors))

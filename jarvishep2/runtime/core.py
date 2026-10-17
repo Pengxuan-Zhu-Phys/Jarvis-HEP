@@ -971,6 +971,7 @@ class Jarvis2Core:
         self._install_control_signal_handlers()
         submitted = 0
         outcome: RunOutcome | None = None
+        shutdown_attempted = False
         if is_check:
             self._apply_check_modules_runtime_policy()
         try:
@@ -1010,6 +1011,12 @@ class Jarvis2Core:
                 self._wait_for_archive_caught_up(timeout=120.0)
                 outcome = self._capture_run_outcome(submitted=submitted)
                 self._scan_completed = True
+                from jarvishep2.sampling.runtime_checkpoint import uses_checkpoint_resume_protocol
+
+                if bool(getattr(self, "_replacing_existing", False)) and uses_checkpoint_resume_protocol(self.config):
+                    # Plots and CSV readers must see the trimmed shard set.
+                    shutdown_attempted = True
+                    self.shutdown(wait=True, write_run_summary=write_run_summary)
                 if self._sampler_log is not None:
                     self._sampler_log.result(outcome)
 
@@ -1078,11 +1085,18 @@ class Jarvis2Core:
                 )
             raise
         finally:
+            active_error = sys.exc_info()[1]
             try:
-                self.shutdown(
-                    wait=True,
-                    write_run_summary=write_run_summary and not self._interrupt_requested,
-                )
+                try:
+                    if not shutdown_attempted:
+                        self.shutdown(
+                            wait=True,
+                            write_run_summary=write_run_summary and not self._interrupt_requested,
+                        )
+                except Exception as exc:
+                    if active_error is None:
+                        raise
+                    self._logger.error("Additional runtime shutdown failure -> %s", exc)
             finally:
                 if outcome is not None and self._final_archived_records is not None:
                     outcome.archived = max(

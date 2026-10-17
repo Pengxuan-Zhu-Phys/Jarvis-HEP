@@ -8,7 +8,7 @@
 4. **Main risks**：单入口不含第三方依赖/资源，用户函数无强制超时；远程 OS/Python、最低依赖组合和性能目标仍开放。check 的通用 runtime/log/summary 仍遵循原生共享布局。
 5. **Verification performed**：SDK 全测试/完整构件，HEP 确定性回归、独立 CLI 管理/迁移、真实 SIGINT、联合故障、运行中登记和启动失败恢复及完整依赖安装；命令、结果、源码 hash 与例外见 [M1 验收](native-parity-m1-verification.json)和[M2 验收](native-parity-m2-verification.json)。
 
-当前 M2 验收基线为 SDK `cf924cb` / 当时的包版本 0.1.0 与 HEP `569d3865` / 2.0.17 加 sampler 工作区修改；M1 的 `ef6c223a` / 2.0.16 结果保留为历史。SDK 1.0.1 起提供 `jsampler`。当前 HEP 源码要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限；API、STREAM_PROTOCOL 与 registry 仍是 1。SDK 1.0.3 已由维护者发布，当前依赖下限对应其 N1/N2 行为。S0/S1、S2a 默认严格恢复与 S2b 源码打包已有实现；本轮修复 check 污染正式绑定、indexed 中断保存超前游标、恢复后重置游标，以及 prefix 外已落盘行重复计算和归档目标超计。S2c 内置推广、S3 generational 尚未交付。
+当前 M2 验收基线为 SDK `cf924cb` / 当时的包版本 0.1.0 与 HEP `569d3865` / 2.0.17 加 sampler 工作区修改；M1 的 `ef6c223a` / 2.0.16 结果保留为历史。SDK 1.0.1 起提供 `jsampler`。当前 HEP 源码要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限；API、STREAM_PROTOCOL 与 registry 仍是 1。SDK 1.0.3 已由维护者发布，当前依赖下限最初对应其 N1/N2 行为；本轮入口分层与共享渲染需要尚未发布的 HOST_CONTRACT_VERSION 2。源码版本号不变，HEP 明确校验契约，维护者后续发布新 SDK 后再同步新的发行下限。S0/S1、S2a 默认严格恢复与 S2b 源码打包已有实现；本轮修复 check 污染正式绑定、indexed 中断保存超前游标、恢复后重置游标，以及 prefix 外已落盘行重复计算和归档目标超计。S2c 内置推广、S3 generational 尚未交付。
 
 **更正旧维护描述**：AGENTS 指定的五份 canonical 文档现已重建并维护 HEP 总体上下文、PRD、架构、代码地图和路线。本文维护 sampler 技术决定，SDK 开发台账维护本轮任务与验收；历史章节的旧版本/推送/发行状态以其记录日期理解，不作为当前公开发行事实。
 
@@ -392,7 +392,7 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 | 命令 | 行为 |
 | --- | --- |
 | `init <Method> [--output PATH]` | 用 SDK 的 independent 固定模板生成 `<Method>.py`。检查方法名格式，检查是否与内置方法同名；目标文件已存在时拒绝。模板见 §5.5 |
-| `check <file> [--dimension D \| --card TASK.yaml] [--options OPTIONS.yaml] [--points N] [--seed S]` | 只接受文件路径。第一项检查方法名不与内置方法重名（§5.2 保留名），重名即失败，后续项不执行。然后离线执行参数/输出检查，重新导入后比较同 seed 流，并在新 Python 进程从中间候选重放尾段；覆盖 draw_block 的块边界。不需要 load；不能证明任意算法的科学正确性 |
+| `check <file> [--dimension D \| --card TASK.yaml] [--options OPTIONS.yaml] [--points N] [--seed S]` | 只接受文件路径。第一项检查方法名不与内置方法重名（§5.2 保留名），重名 exit 2，后续项不执行；算法检查失败 exit 1。然后离线执行参数/输出检查，重新导入后比较同 seed 流，并在新 Python 进程从中间候选重放尾段；覆盖 draw_block 的块边界。不需要 load；不能证明任意算法的科学正确性 |
 | `load <file>` | 导入一次，先比对保留名，再按 §4.1–§4.2 检查结构；有 `OPTIONS_SCHEMA` 时运行 `check_schema`；然后写快照和登记。**不调用** `prepare` / `draw`。与 `jsampler load` 完全相同 |
 | `list` | 内置方法与用户登记合并列出（§5.4 注册表报告）：方法、来源、版本、profile、源文件路径、状态（`ok` / `source changed since load` / `source missing` / `name-conflict` / `snapshot-broken`）。载入时间可由 `info` 查询；重名条目照常列出，不隐藏 |
 | `info <Method>` | 显示登记的全部字段和插件提供了哪些 hook；重名或快照有问题时给出原因和修复命令 |
@@ -400,7 +400,7 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 **`check` 的 S1 语义（R06/R07 已验收）**：`--card` 与 `--dimension` 互斥；提供 card 时沿用变量顺序、seed、options 和 `point_number`，没有 card 时默认预算为 100。显式 `--points` 改变本次检查的总预算，输出显示有效配置与覆盖项；`--options` 替换插件 options。可重复性检查重新导入同一源码字节，并由 SDK 私有 worker 在新 Python 进程重放中间尾段。此处重启的是离线 session，不是 HEP 的 DATABASE/checkpoint 恢复验收；将来若增加部分检查上限，须另设参数并保留 context 原预算。
 
-**CLI 风格。** 两个入口的帮助、错误面板、退出码与 JSON 遵循 [Jarvis 生态 CLI 设计规范](../JARVIS_CLI_DESIGN.md)；`Jarvis sampler` 直接使用 SDK 的解析器与渲染，通过 SDK 扩展点为 `list`/`info` 补充 HEP 内置方法说明及结果。
+**CLI 风格。** 两个入口的帮助、错误面板、退出码与 JSON 遵循 [Jarvis 生态 CLI 设计规范](../JARVIS_CLI_DESIGN.md)；`Jarvis sampler` 直接使用 SDK 的解析器与渲染，通过 SDK `CatalogExtension` 数据回调为 `list`/`info` 补充 HEP 内置方法及报告；文本、JSON 均由 SDK 渲染，HEP 不再捕获 JSON 后重绘。内置 info 的 `conflicts` 字段列出大小写无关的旧冲突。
 
 **`check` 只接受文件（2026-10-17 已在本地源码实现）。** check 用于用户写完 sampler 之后、load 之前，确认它能被 Jarvis 原生调用。已登记方法的快照就是 load 时那份源文件的字节，按名字 check 不提供新信息，还要求先校验快照 hash，因此删除按名字 check：参数不是文件时 exit 2，提示用 `Jarvis sampler info <Method>` 找到源文件路径再 check。`jsampler check` 与 `Jarvis sampler check` 行为相同。报告的第一项是方法名，单独列出；重名时后续项标为未执行。
 
@@ -445,11 +445,11 @@ def tell(state, context, results) -> dict: ...                 # 返回新状态
 
 **一致性检查。** 读取登记时，如果快照文件不存在，或快照的 hash 与 `source_sha256` 不符，就报 JV2-PLG-002，提示重新 load。
 
-**保留名（硬约束，已随 SDK 1.0.3 发布）。** 外部 sampler 不能与内置方法重名，大小写不敏感，没有绕过选项。保留名单只有一份，由 SDK 定义为 `RESERVED_METHOD_NAMES`（当前 16 个：AMMCMC、AdaptiveBridson、Bridson、CSV、DEMCMC、DRAM、Dynesty、EnsembleMCMC、Grid、LatinHypercube、MCMC、MultiNest、PTEnsemble、PTMCMC、Random、ToyMCMC），`check_method_name` 默认使用它，调用方不再传入名单。因此 `init`、`load`、`check` 在 `jsampler` 和 `Jarvis sampler` 两个入口下拒绝同样的名字。HEP 的 `reserved_method_names()` 为 SDK 名单与 HEP catalog 的并集，并由 HEP 测试断言 HEP 内置方法都在 SDK 名单内。新增内置方法时先更新 SDK 名单并发布，HEP 再提高 SDK 版本下限（不加上限）。旧版 SDK 或手工编辑仍可能在登记中留下重名条目，由 §5.4 的注册表报告在运行时拦截。
+**保留名（硬约束；入口分层为本轮未发布源码修复）。** 外部 sampler 不能与内置方法重名，大小写不敏感，没有绕过选项。保留名单只有一份，由 SDK 定义为 `RESERVED_METHOD_NAMES`（当前 16 个：AMMCMC、AdaptiveBridson、Bridson、CSV、DEMCMC、DRAM、Dynesty、EnsembleMCMC、Grid、LatinHypercube、MCMC、MultiNest、PTEnsemble、PTMCMC、Random、ToyMCMC），`check_method_name` 只检查语法，`check_external_method_name` 在 init/load/check 入口默认使用该名单。通用 metadata/loader 不执行外部保留名策略。因此 `init`、`load`、`check` 在 `jsampler` 和 `Jarvis sampler` 两个入口下拒绝同样的名字。HEP 的 `reserved_method_names()` 为 SDK 名单与 HEP catalog 的并集，并由 HEP 测试断言 HEP 内置方法都在 SDK 名单内。新增内置方法时先更新 SDK 名单并发布，HEP 再提高 SDK 版本下限（不加上限）。旧版 SDK 或手工编辑仍可能在登记中留下重名条目，由 §5.4 的注册表报告在运行时拦截。
 
 **可移植性。** 登记是"每个用户、每台机器"一份。在另一台机器上运行同一张 card，需要先 load，或者从打包的项目里拿到插件（§6.7）。
 
-SDK 的 `RESERVED_METHOD_NAMES` 对外部 `init`、`load`、`check` 始终生效。HEP 加载官方内置插件和识别已有内置插件 scan binding 时，才使用低层 `trusted_builtin_method` 精确豁免该官方方法名；用户登记 API 不传此参数。
+SDK 的 `RESERVED_METHOD_NAMES` 对外部 `init`、`load`、`check` 生效。先前 metadata 层默认拒绝保留名再靠 `trusted_builtin_method` 豁免官方插件的设计已更正：豁免参数与路径尾缀判断全部删除。registry.load/check_plugin 通过 loader 可选 metadata_validator 在 options schema 与 hooks 之前执行入口检查；运行时通用加载不传策略。
 
 ### 5.3 Bounds：保留键与插件参数
 
@@ -742,7 +742,7 @@ UUID 前缀只取自硬身份。相同 UUID 只能证明编号相同，不能证
 
 **首发不做：** `--accept-plugin-change`（2026-10-16）。续跑始终使用绑定源码。SDK、Python、NumPy 变化只警告并继续，与内置 Sampler 相同。
 
-官方 `LatinHypercube` 的历史 binding 以包内相对文件名识别来源，续跑仍以 scan 自己保存的源码副本与完整 SHA-256 为准；当前安装包的绝对路径或字节变化不会令完好的副本失效。`sampler_identity.json` 与副本都是本地可编辑的项目状态，包相对路径只用于兼容识别，不能认证蓄意同时篡改 binding 与副本的行为。
+官方 `LatinHypercube` 的续跑只依赖 scan 自己保存的源码副本、元数据、科学设置和完整 SHA-256；原路径不再被当成来源认证或豁免依据。当前安装包的绝对路径或字节变化不会令完好的副本失效。`sampler_identity.json` 与副本都是本地可编辑的项目状态，哈希校验不认证蓄意同时篡改它们的行为。
 
 续跑的机制本身沿用现有实现：
 

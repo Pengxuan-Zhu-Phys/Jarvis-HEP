@@ -139,3 +139,32 @@ def test_sdk_reserved_names_cover_hep_builtins() -> None:
     expected = {spec.name.casefold() for spec in (*builtin_specs(), *builtin_plugin_specs())}
     actual = {name.casefold() for name in RESERVED_METHOD_NAMES}
     assert expected <= actual
+
+
+@pytest.mark.parametrize(("registered", "query"), [("grid", "Grid"), ("Grid", "grid"), ("grid", "GRID")])
+def test_builtin_info_reports_case_insensitive_legacy_collision(
+    registry, tmp_path, capsys, registered, query,
+):
+    from jarvishep2.cli.sampler import dispatch_sampler
+    _load(registry, tmp_path)
+    _rename_registration(registry, "External", registered)
+    assert dispatch_sampler(["info", query, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["method"] == "Grid"
+    assert payload["conflicts"][0]["method"] == registered
+    assert payload["conflicts"][0]["repair_command"] == f"Jarvis sampler remove {registered} --yes"
+    assert dispatch_sampler(["info", query]) == 0
+    assert f"remove {registered} --yes" in capsys.readouterr().out
+
+
+def test_hep_list_and_info_are_rendered_by_the_sdk(registry, tmp_path, capsys):
+    from jarvis_hep_sampler import cli
+    from jarvishep2.cli.sampler import dispatch_sampler
+    with mock.patch.object(cli, "_render_list_section", wraps=cli._render_list_section) as listing:
+        assert dispatch_sampler(["list"]) == 0
+        assert listing.call_count == 2
+    output = capsys.readouterr().out
+    assert "No samplers loaded." in output and "Jarvis-HEP" in output
+    with mock.patch.object(cli, "_render_info", wraps=cli._render_info) as info:
+        assert dispatch_sampler(["info", "Grid"]) == 0
+        info.assert_called_once()

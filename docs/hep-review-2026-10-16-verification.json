@@ -146,7 +146,7 @@
     "implementation": [
       "Missing or disabled state.pkl starts fresh with a warning; check forces checkpoint off",
       "Fresh with existing HDF5 shards writes cursor-zero replacing_existing checkpoint before submission and seeds Archiver prefix at zero",
-      "Marked resume uses checkpoint cursor as progress ceiling; DATABASE cannot advance it; normal completion compacts all shards and removes stale tail",
+      "Marked resume uses checkpoint cursor as progress ceiling; DATABASE cannot advance it; final cleanup preserves shard partitions and removes stale/duplicate rows only after confirmed clean Archiver exit (follow-up correction)",
       "Sampling, Grid point array and CSV source fingerprints reject drift; workers excluded",
       "Bridson points.npy is written once atomically and loaded as validated mmap on resume",
       "FixedSetSampler retains no submitted UUID history"
@@ -232,9 +232,9 @@
   },
   "registry_naming_2026_10_17": {
     "roadmap": {
-    "N1": "implemented and published in Jarvis-HEP-Sampler 1.0.3: default reserved names, exact trusted built-in plug-in allowance",
-    "N2": "implemented and published in Jarvis-HEP-Sampler 1.0.3: file-only check and CLI diagnostics",
-    "N3": "completed after maintainer published SDK 1.0.3: HEP requires Jarvis-HEP-Sampler>=1.0.3 with no upper bound; public-index SDK installation, HEP dependency resolution and full HEP source installation verified",
+      "N1": "implemented and published in Jarvis-HEP-Sampler 1.0.3: default reserved names, exact trusted built-in plug-in allowance",
+      "N2": "implemented and published in Jarvis-HEP-Sampler 1.0.3: file-only check and CLI diagnostics",
+      "N3": "completed after maintainer published SDK 1.0.3: HEP requires Jarvis-HEP-Sampler>=1.0.3 with no upper bound; public-index SDK installation, HEP dependency resolution and full HEP source installation verified",
       "N4": "implemented in HEP: SDK load/check/help forwarding and shared error renderer",
       "N5": "implemented in HEP: read-only registry report and pre-Redis run/check gate",
       "N6": "implemented in HEP: list/info show legacy collisions and exact removal commands",
@@ -283,77 +283,291 @@
           "real Redis, spawn workers and HDF5 persistence"
         ]
       },
-    "bridson_million_point_resume": "See resume_protocol.verification.bridson_million_point_resume: 1000000 points, 0 generation calls, measured mmap open and SHA-256 validation times",
-    "N3_targeted": {
-      "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_sampler_sdk.py tests/test_sampler_registry_cli.py tests/test_hep_review_regressions.py -m 'not slow' --tb=short",
-      "passed": 50,
-      "deselected": 4,
-      "seconds": 37.72,
-      "assertions": [
-        "runtime gate rejects 1.0.2 and 1.0.3rc1; accepts 1.0.3 and 2.0.0",
-        "HEP dependency specifier and both default environment cards require >=1.0.3",
-        "Ruff on changed Python files and git diff --check passed"
-      ]
-    },
-    "N3_public_sdk_install": {
-      "index": "https://pypi.org/simple",
-      "command": "python -m pip install --index-url https://pypi.org/simple --no-cache-dir 'Jarvis-HEP-Sampler==1.0.3'",
-      "environment": "fresh isolated Python 3.13 venv; imported module from venv site-packages",
-      "seconds": 37.76,
-      "wheel_sha256": "805b1d9d1a7f7e2a561bdb12f8c2ab26a88460a082ff2024554044204d2ff4a2",
-      "passed": true,
-      "pip_check": "No broken requirements found",
-      "assertions": [
-        "all 16 reserved names rejected case-insensitively",
-        "trusted LatinHypercube exception is exact and limited to low-level official load",
-        "JSON version, help and error CLI contracts",
-        "file-only check rejects reserved method name first, without drawing points"
-      ]
-    },
-    "N3_hep_public_index_resolution": {
-      "command": "python -m pip install --dry-run --index-url https://pypi.org/simple --no-cache-dir --report <temp>/resolve-report.json /Users/p.zhu/Jarvis-Workshop/Jarvis-HEP",
-      "environment": "fresh isolated Python 3.11 venv",
-      "seconds": 182.7,
-      "passed": true,
-      "resolved_packages": 66,
-      "sdk_selected": "Jarvis-HEP-Sampler 1.0.3 from files.pythonhosted.org",
-      "metadata_requires": [
-        "Jarvis-HEP-Sampler>=1.0.3",
-        "packaging>=23.0"
-      ],
-      "note": "This first check was a dry-run; the subsequent full HEP source installation is recorded below."
-    },
-    "N3_hep_public_index_install": {
-      "command": "python -m pip install --index-url https://pypi.org/simple --no-cache-dir --no-input --report <temp>/install-report.json /Users/p.zhu/Jarvis-Workshop/Jarvis-HEP",
-      "environment": "fresh isolated Python 3.11 venv; no sibling editable SDK",
-      "seconds": 60.9,
-      "passed": true,
-      "installed_packages": 66,
-      "hep_source": "local current Jarvis-HEP source built into a wheel; package version 2.0.17 was not uploaded in this task",
-      "sdk_source": "Jarvis-HEP-Sampler 1.0.3 public files.pythonhosted.org wheel",
-      "packaging_version": "26.3",
-      "module_locations": "HEP and SDK imported from isolated venv site-packages",
-      "runtime_gate": "SDK_SPECIFIER == '>=1.0.3'; require_sampler_sdk() == '1.0.3'",
-      "pip_check": "No broken requirements found",
-      "installed_cli": [
-        "Jarvis sampler --version --json: exit 0, SDK 1.0.3 JSON object",
-        "jsampler --version --json: exit 0, SDK 1.0.3 JSON object"
-      ],
-      "report": "/var/folders/rz/jq3y3vy92s1b_6fsw7wvs6k40000gn/T/jhep-n3-hep-install.XXXXXX.KMebI7HnA2/install-report.json"
-    }
+      "bridson_million_point_resume": "See resume_protocol.verification.bridson_million_point_resume: 1000000 points, 0 generation calls, measured mmap open and SHA-256 validation times",
+      "N3_targeted": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_sampler_sdk.py tests/test_sampler_registry_cli.py tests/test_hep_review_regressions.py -m 'not slow' --tb=short",
+        "passed": 50,
+        "deselected": 4,
+        "seconds": 37.72,
+        "assertions": [
+          "runtime gate rejects 1.0.2 and 1.0.3rc1; accepts 1.0.3 and 2.0.0",
+          "HEP dependency specifier and both default environment cards require >=1.0.3",
+          "Ruff on changed Python files and git diff --check passed"
+        ]
+      },
+      "N3_public_sdk_install": {
+        "index": "https://pypi.org/simple",
+        "command": "python -m pip install --index-url https://pypi.org/simple --no-cache-dir 'Jarvis-HEP-Sampler==1.0.3'",
+        "environment": "fresh isolated Python 3.13 venv; imported module from venv site-packages",
+        "seconds": 37.76,
+        "wheel_sha256": "805b1d9d1a7f7e2a561bdb12f8c2ab26a88460a082ff2024554044204d2ff4a2",
+        "passed": true,
+        "pip_check": "No broken requirements found",
+        "assertions": [
+          "all 16 reserved names rejected case-insensitively",
+          "trusted LatinHypercube exception is exact and limited to low-level official load",
+          "JSON version, help and error CLI contracts",
+          "file-only check rejects reserved method name first, without drawing points"
+        ]
+      },
+      "N3_hep_public_index_resolution": {
+        "command": "python -m pip install --dry-run --index-url https://pypi.org/simple --no-cache-dir --report <temp>/resolve-report.json /Users/p.zhu/Jarvis-Workshop/Jarvis-HEP",
+        "environment": "fresh isolated Python 3.11 venv",
+        "seconds": 182.7,
+        "passed": true,
+        "resolved_packages": 66,
+        "sdk_selected": "Jarvis-HEP-Sampler 1.0.3 from files.pythonhosted.org",
+        "metadata_requires": [
+          "Jarvis-HEP-Sampler>=1.0.3",
+          "packaging>=23.0"
+        ],
+        "note": "This first check was a dry-run; the subsequent full HEP source installation is recorded below."
+      },
+      "N3_hep_public_index_install": {
+        "command": "python -m pip install --index-url https://pypi.org/simple --no-cache-dir --no-input --report <temp>/install-report.json /Users/p.zhu/Jarvis-Workshop/Jarvis-HEP",
+        "environment": "fresh isolated Python 3.11 venv; no sibling editable SDK",
+        "seconds": 60.9,
+        "passed": true,
+        "installed_packages": 66,
+        "hep_source": "local current Jarvis-HEP source built into a wheel; package version 2.0.17 was not uploaded in this task",
+        "sdk_source": "Jarvis-HEP-Sampler 1.0.3 public files.pythonhosted.org wheel",
+        "packaging_version": "26.3",
+        "module_locations": "HEP and SDK imported from isolated venv site-packages",
+        "runtime_gate": "SDK_SPECIFIER == '>=1.0.3'; require_sampler_sdk() == '1.0.3'",
+        "pip_check": "No broken requirements found",
+        "installed_cli": [
+          "Jarvis sampler --version --json: exit 0, SDK 1.0.3 JSON object",
+          "jsampler --version --json: exit 0, SDK 1.0.3 JSON object"
+        ],
+        "report": "/var/folders/rz/jq3y3vy92s1b_6fsw7wvs6k40000gn/T/jhep-n3-hep-install.XXXXXX.KMebI7HnA2/install-report.json"
+      }
     },
     "trust_boundary": "A shipped LatinHypercube scan may resume from its own byte-verified checkpoint copy after the installed package path or bytes change. The local editable sampler_identity.json and scan copy are trusted project state; package-relative source recognition is compatibility evidence, not authentication against deliberate local forgery.",
     "publication": {
-    "sdk_distribution_version": "1.0.3 public PyPI wheel and sdist",
-    "sdk_released": true,
-    "hep_dependency_lower_bound_updated": true,
-    "project_versions_bumped": true,
-    "hep_version_bumped": false,
-    "sdk_version_bumped_by_maintainer": true,
-    "uploaded": true,
-    "sdk_uploaded_by_maintainer": true,
-    "hep_uploaded": false,
-    "published_description_limitation": "The immutable PyPI 1.0.3 long description embeds the prior README text claiming version 1.0.2 and HEP >1; the local SDK README is corrected after publication. Wheel code and distribution metadata are 1.0.3."
+      "sdk_distribution_version": "1.0.3 public PyPI wheel and sdist",
+      "sdk_released": true,
+      "hep_dependency_lower_bound_updated": true,
+      "project_versions_bumped": true,
+      "hep_version_bumped": false,
+      "sdk_version_bumped_by_maintainer": true,
+      "uploaded": true,
+      "sdk_uploaded_by_maintainer": true,
+      "hep_uploaded": false,
+      "published_description_limitation": "The immutable PyPI 1.0.3 long description embeds the prior README text claiming version 1.0.2 and HEP >1; the local SDK README is corrected after publication. Wheel code and distribution metadata are 1.0.3."
     }
+  },
+  "review_followup_2026_10_17": {
+    "base_commits": {
+      "hep": "08b2dab5",
+      "sdk": "d9d2853"
+    },
+    "implementation": [
+      "trim_scan_records stores last row locations in SQLite and retains original shard names and partitions",
+      "Unchanged HDF5 and CSV files are not rewritten; empty sealed shards may be removed",
+      "Changed shards are replaced atomically; interrupted cleanup is retryable without deleting final in-range rows",
+      "Archiver stop returns confirmation; supervisor checks liveness and exit code; forced/unclean exits skip trim, including retries",
+      "Teardown attempts summary, control lock, Workers and managed Redis despite errors; final errors propagate after cleanup; original scan exception takes priority",
+      "Replacement-scan plot generation follows successful stop and trim",
+      "Reserved names are enforced only at init, registry.load and check_plugin; generic metadata/loader validate structure and syntax",
+      "All trusted_builtin parameters and filename-suffix recognition were removed",
+      "Reserved-name check returns exit 2 before options schemas/prepare/draw; algorithm check failure remains exit 1",
+      "SDK CatalogExtension owns list/info parsing and rendering; HEP supplies catalog/report data only",
+      "Built-in info reports case-insensitive external collisions in additive conflicts data with exact removal command",
+      "HOST_CONTRACT_VERSION 2 identifies matching SDK source; public 1.0.3 lacks this interface and receives an actionable dependency diagnostic",
+      "Child Archiver drain/stop failure exits nonzero after closing its Redis connection",
+      "Retry validates CSV source digests even when HDF5 needs no further trim; empty live shards remove stale CSV/digest"
+    ],
+    "public_interfaces": [
+      "check_method_name is syntax-only; check_external_method_name enforces external registration policy",
+      "parse_metadata/load_plugin_file/load_plugin_source no longer accept trusted_builtin_method or reserved_names; loader has optional metadata_validator",
+      "CheckReport.input_error distinguishes name/input policy failure from algorithm failure",
+      "SDK main accepts CatalogExtension data hooks; built-in info JSON adds conflicts without removing existing fields"
+    ],
+    "verification": {
+      "sdk_full": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src python3 -m pytest -q --tb=short",
+        "passed": 253,
+        "seconds": 1.84,
+        "ruff": "src and tests passed"
+      },
+      "hep_targeted": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_runtime_finalization.py tests/test_resume_protocol.py tests/test_sampler_sdk.py tests/test_sampler_registry_cli.py tests/test_sampler_plugins.py tests/test_sampler_registry_report.py tests/test_sampler_run_preflight.py tests/test_hep_review_regressions.py tests/test_graceful_stop.py tests/test_core_collaborators.py -m 'not slow' --tb=short",
+        "passed": 157,
+        "deselected": 17,
+        "seconds": 19.84
+      },
+      "real_runtime": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_resume_protocol.py tests/test_plugin_resume_fault_matrix.py tests/test_hep_review_regressions.py -m slow --tb=short",
+        "passed": 21,
+        "deselected": 61,
+        "seconds": 299.75,
+        "assertions": [
+          "real Redis and spawn Workers with HDF5 persistence",
+          "Grid/Random/Bridson/CSV interruption before and after first heartbeat",
+          "long then short scan with both live-only and forced rolling shards",
+          "legacy sparse/Failed resume fault matrix retained"
+        ]
+      },
+      "finalization_after_child_csv_fixes": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_runtime_finalization.py tests/test_graceful_stop.py tests/test_core_collaborators.py --tb=short",
+        "passed": 40,
+        "seconds": 2.11
+      },
+      "matched_wheel_install": {
+        "passed": true,
+        "install_seconds": 44.61431808402995,
+        "python": "3.11.15",
+        "installed_packages": 66,
+        "pip_check": "No broken requirements found.",
+        "source": "Two wheels built from HEAD plus staged changes; unrelated worktree changes excluded; no editable installs",
+        "wheels": {
+          "jarvis_hep_sampler-1.0.3-py3-none-any.whl": "580473abc13cff60ec36f4cfe73873c6bbf3354b62fce32e1a3fb1fb1d2c6a94",
+          "jarvis_hep-2.0.17-py3-none-any.whl": "d5e602ccff4f57acea34ff2547a08fb56235217ae2712f65c69bff1bdc99c6aa"
+        },
+        "smoke": {
+          "hep_module": "/private/tmp/jhep-followup-install-tcb9cuqe/venv/lib/python3.11/site-packages/jarvishep2/__init__.py",
+          "sdk_module": "/private/tmp/jhep-followup-install-tcb9cuqe/venv/lib/python3.11/site-packages/jarvis_hep_sampler/__init__.py",
+          "host_contract": 2,
+          "hep_version": "2.0.17",
+          "sdk_version": "1.0.3",
+          "partitioned_trim": true,
+          "packaged_plugin": true
+        },
+        "cli": [
+          {
+            "args": [
+              "Jarvis",
+              "sampler",
+              "--version",
+              "--json"
+            ],
+            "exit": 0,
+            "ok": true
+          },
+          {
+            "args": [
+              "jsampler",
+              "--version",
+              "--json"
+            ],
+            "exit": 0,
+            "ok": true
+          },
+          {
+            "args": [
+              "Jarvis",
+              "sampler",
+              "list",
+              "--json"
+            ],
+            "exit": 0,
+            "ok": true
+          },
+          {
+            "args": [
+              "Jarvis",
+              "sampler",
+              "info",
+              "Grid",
+              "--json"
+            ],
+            "exit": 0,
+            "ok": true
+          },
+          {
+            "args": [
+              "jsampler",
+              "check",
+              "/private/tmp/jhep-followup-install-tcb9cuqe/Grid.py",
+              "--json"
+            ],
+            "exit": 2,
+            "name_first": true
+          },
+          {
+            "args": [
+              "Jarvis",
+              "sampler",
+              "check",
+              "/private/tmp/jhep-followup-install-tcb9cuqe/Grid.py",
+              "--json"
+            ],
+            "exit": 2,
+            "name_first": true
+          }
+        ],
+        "published_sdk_guard": {
+          "version": "1.0.3",
+          "exit": 2,
+          "error": {
+            "hint": "Use Jarvis sampler <command> -h for usage.",
+            "message": "Jarvis-HEP-Sampler 1.0.3 lacks sampler host contract 2. Install a matching SDK build from the updated Jarvis-HEP-Sampler source; the published 1.0.3 release predates this interface.",
+            "type": "SamplerSDKError"
+          },
+          "public_wheel_sha256": "805b1d9d1a7f7e2a561bdb12f8c2ab26a88460a082ff2024554044204d2ff4a2"
+        },
+        "final_wheel_refresh": "Rebuilt from final staged runtime/SDK source after child finalization and CSV retry fixes; force-reinstalled both wheels into the already clean full-dependency environment; pip check, installed trim/plugin/CLI smoke passed.",
+        "install_command": "python3.11 -m venv <temp>/venv; <temp>/venv/bin/python -m pip install --index-url https://pypi.org/simple --no-cache-dir <staged-hep-wheel> <staged-sdk-wheel>",
+        "build_command": "git archive HEAD plus git diff --cached --binary applied to separate snapshots; python3 -m pip wheel --no-deps --no-build-isolation --no-cache-dir --wheel-dir <temp>/wheels <snapshot>",
+        "staged_python_files_byte_verified": {
+          "Jarvis-HEP": 227,
+          "Jarvis-HEP-Sampler": 16
+        }
+      },
+      "hep_fast_gate_before_final_child_csv_fixes": {
+        "passed": 1621,
+        "deselected": 197,
+        "subtests_passed": 478,
+        "warnings": 131,
+        "seconds": 269.1,
+        "note": "Historical first gate; the final 1627-test gate above includes the child finalization and CSV retry fixes."
+      },
+      "real_short_scan_after_final_child_csv_fixes": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/test_resume_protocol.py::test_short_scan_removes_tail_of_completed_long_scan -m slow --tb=short",
+        "passed": 2,
+        "seconds": 34.74,
+        "variants": [
+          "live-only",
+          "forced rolling shards"
+        ]
+      },
+      "scope_guard": {
+        "protected_paths_sha256_match_turn_start": true,
+        "release_scripts_and_diver_excluded_from_index": true,
+        "versions_changed": false,
+        "additional_unstaged_monitor_files_preserved": [
+          "jarvishep2/monitor/chrome.py",
+          "jarvishep2/monitor/overview.py",
+          "jarvishep2/monitor/styles.py"
+        ]
+      },
+      "hep_fast_gate": {
+        "command": "PYTHONDONTWRITEBYTECODE=1 JARVIS_OPERAS_CURVE_CACHE_ROOT=/private/tmp/jhep-followup-curve-cache-final python3 -m pytest -q --ignore=tests/test_diver_engine.py --deselect=tests/test_task_schema_corpus.py::TaskSchemaCorpusTests::test_shipped_yaml_corpus_is_ascii_only -m 'not slow' --tb=short --disable-warnings",
+        "passed": 1627,
+        "deselected": 197,
+        "subtests_passed": 478,
+        "warnings": 131,
+        "seconds": 268.78,
+        "log": "/private/tmp/jhep-followup-fast-final.log",
+        "exclusions": "Existing out-of-scope Diver draft test and unchanged external Jarvis-Examples non-ASCII corpus assertion; no files in those scopes modified."
+      }
+    },
+    "atomicity_boundary": "Each changed HDF5 shard is replaced atomically; the entire shard set and CSV exports are not one filesystem transaction. Interrupted cleanup retains final in-range rows; retry removes remaining tails/duplicates and repairs CSV digest mismatches. Empty live shards have stale CSV/digest removed.",
+    "publication": {
+      "versions_changed": false,
+      "uploaded": false,
+      "next_sdk_release_needed": true,
+      "hep_minimum_version_deferred_until_real_sdk_release": true,
+      "host_contract": 2
+    },
+    "scope": "Release scripts, Diver source/test/package-data and Dynesty engine behavior remain outside this follow-up.",
+    "completed_at_local_date": "2026-10-17",
+    "documentation_corrections": [
+      "Old whole-database shard compaction was incompatible with rolling shard boundaries",
+      "Timed Archiver join is not proof of clean writer closure",
+      "Metadata-level reserved-name rejection required an unnecessary exemption; policy belongs at external entry points",
+      "HEP JSON capture and text rebuilding duplicated SDK rendering despite a shared parser",
+      "A CSV export failure after HDF5 replacement must be repaired on retry, and an empty live shard must not retain stale CSV"
+    ]
   }
 }

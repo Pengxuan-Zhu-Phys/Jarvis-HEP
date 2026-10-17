@@ -134,7 +134,7 @@ def test_sdk_and_hep_sampler_forwarding_agree_on_reserved_file(
     sdk_payload = json.loads(capsys.readouterr().out)
     hep_code = dispatch_sampler(args)
     hep_payload = json.loads(capsys.readouterr().out)
-    assert (sdk_code, hep_code) == (1 if command == "check" else 2,) * 2
+    assert (sdk_code, hep_code) == (2, 2)
     assert sdk_payload["ok"] is hep_payload["ok"] is False
     assert sdk_payload["error"]["type"] == hep_payload["error"]["type"]
     assert hep_payload["command"] == f"sampler {command}"
@@ -298,3 +298,16 @@ raise SystemExit(outcome.exit_code)
     for row in rows:
         assert float(row["z"]) != -999.
         assert float(row["z"]) == pytest.approx(eggbox2d_numpy(float(row["x"]), float(row["y"]))["z"])
+
+
+def test_old_sdk_host_contract_has_one_json_dependency_error(monkeypatch, capsys):
+    import jarvis_hep_sampler
+    from jarvishep2.cli.sampler import dispatch_sampler
+    monkeypatch.setattr(jarvis_hep_sampler, "HOST_CONTRACT_VERSION", 0)
+    assert dispatch_sampler(["list", "--json"]) == 2
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert payload["ok"] is False
+    assert payload["error"]["type"] == "SamplerSDKError"
+    assert "host contract 2" in payload["error"]["message"]
+    assert "Traceback" not in captured.err

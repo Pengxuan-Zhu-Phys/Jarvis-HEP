@@ -779,15 +779,22 @@ class SimpleArchiver:
         """Delete archived staging directories using the configured backend."""
         delete_paths(list(paths), method=self.processor.delete_method, missing_ok=True)
 
-    def stop(self, *, wait: bool = True, drain: bool = True) -> None:
-        if drain:
-            self.drain()
+    def is_alive(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def stop(self, *, wait: bool = True, drain: bool = True) -> bool:
+        """Return true only after the loop and writer have both closed."""
         self._stop_event.set()
         thread = self._thread
         if thread is not None and wait:
             thread.join(timeout=5.0)
+        if thread is not None and thread.is_alive():
+            return False
         self._thread = None
-        if thread is None or not thread.is_alive():
+        try:
+            if drain:
+                self.drain()
+        finally:
             self.processor.writer.close()
         _log_archiver_kv(
             self._logger,
@@ -797,6 +804,7 @@ class SimpleArchiver:
                 ("buckets packed", _fmt_int(self.buckets_packed)),
             ],
         )
+        return True
 
 
 class ArchiverProcess(Process):
@@ -961,25 +969,29 @@ class ArchiverProcess(Process):
                 next_lease_check = now + 1.0
         # Publish rows before writer.close() exports CSV. That export can take
         # longer than the idle-stall window, and the batch counter is already 0.
+        finalization_error: Exception | None = None
         try:
             archiver.drain()
         except Exception as exc:
             logger.warning("Archiver drain before stop failed -> %s", exc)
-        with self.records_written.get_lock():
-            self.records_written.value = int(archiver.records_written)
-        archiver.stop(wait=True, drain=False)
-        self._set_loop_alive(False)
+            finalization_error = exc
         with self.records_written.get_lock():
             self.records_written.value = int(archiver.records_written)
         try:
-            logger.debug(
-                "Archiver process exiting pid=%s records_written=%s",
-                os.getpid(),
-                int(self.records_written.value),
-            )
-        except Exception:
-            pass
-        redis.close()
+            if archiver.stop(wait=True, drain=False) is False:
+                raise TimeoutError("Archiver thread did not stop; writer remains open")
+        except Exception as exc:
+            finalization_error = finalization_error or exc
+        finally:
+            self._set_loop_alive(False)
+            with self.records_written.get_lock():
+                self.records_written.value = int(archiver.records_written)
+            redis.close()
+        if finalization_error is not None:
+            # The parent must not interpret a failed drain/close as clean exit.
+            raise RuntimeError(f"Archiver finalization failed: {finalization_error}") from finalization_error
+        logger.debug("Archiver process exiting pid=%s records_written=%s", os.getpid(),
+                     int(self.records_written.value))
 
     def _set_loop_alive(self, alive: bool) -> None:
         with self._loop_alive.get_lock():
@@ -1018,18 +1030,19 @@ class ArchiverProcess(Process):
             "records_written": int(self.drain()),
         }
 
-    def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> None:
+    def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> bool:
         """Stop the child Archiver.
 
         ``drain`` is accepted for API parity with :class:`SimpleArchiver`. The
-        child always drains its in-process SimpleArchiver on exit
-        (``archiver.stop(wait=True, drain=True)`` in :meth:`run`); the flag is
-        therefore informational for callers and does not change parent behavior.
+        child drains before closing its writer. A timed join alone does not
+        confirm exit: callers must check the returned value before touching
+        the database. ``drain`` does not change parent behavior.
         """
         _ = drain
         self._stop_event.set()
         if wait:
             self.join(timeout=max(0.1, float(timeout)))
+        return not self.is_alive()
 
 
 __all__ = ["ArchiveProcessor", "ArchiverProcess", "SimpleArchiver"]

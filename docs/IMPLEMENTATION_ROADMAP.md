@@ -3,6 +3,8 @@
 当前 master 要求 `Jarvis-HEP-Sampler>=1.0.3`，不设上限。`Jarvis sampler` 复用 `jsampler` 命令面，HEP 侧增加内置方法与安全校验。下方 2.0.17 记录是已发布的 SDK-free 发行，不改写。
 
 
+> 当前源码状态（2026-10-17 提交复查后）：本轮复查修复使用 SDK 源码的 `HOST_CONTRACT_VERSION >= 2`，包含入口保留名策略和 `CatalogExtension` 数据接口；已发布的 SDK 1.0.3 尚无该契约。两仓版本号和 `>=1.0.3` 的历史最低声明保持不变，不加上限。HEP 运行时额外核查契约，旧 SDK 给出匹配源码构建的安装诊断；维护者后续发布 SDK 后再将 HEP 版本下限对齐真实发行号。本轮不发布。
+
 ## 2026-10-15 2.0.17 SDK-free 公开发行（已发布）
 
 | 阶段 | 范围 | 当前状态/结束门槛 |
@@ -40,7 +42,7 @@
 | --- | --- | --- |
 | R1 已完成：没有 checkpoint 就从头扫描 | 删除 DATABASE-only 恢复；check 模式强制关闭 checkpoint | `enabled: false` / 无 state.pkl 的 `--resume` 从头扫描；check 不写 state.pkl |
 | R2 已完成：fresh 水位与初始 checkpoint | fresh 立刻写游标 0 与 `replacing_existing`；Archiver 前缀从 0 开始；supervisor 仅 resume 载入 DATABASE | 第一次心跳前中断后续跑不跳到旧前缀 |
-| R3 已完成：带标记的 resume 与清尾 | 只信游标以下的行；不按 DATABASE 推进；结束时跨 shard 删除超出总数的旧行并去重 | 四种内置方法真实 Redis 中断续跑后库中无旧行；短扫描覆盖长扫描后无尾部 |
+| R3 已完成：带标记的 resume 与清尾 | 只信游标以下的行；不按 DATABASE 推进；确认 Archiver 正常退出后跨 shard 删除超出总数的旧行并去重，保留分片，异常完成其他收尾 | 四种内置方法真实 Redis 中断续跑后库中无旧行；短扫描覆盖长扫描后无尾部 |
 | R4 已完成：卡片与点集指纹 | Sampling（Bounds、selection）哈希；Grid `_P` 哈希；CSV 文件哈希 | 改 Bounds/selection/CSV 后拒绝续跑；只改 workers 照常续跑 |
 | R5 已完成：Bridson 点集文件 | points.npy 原子写一次；resume 内存映射读取并校验，不重新生成 | ≥10⁶ 点 resume 不调用生成；缺失/损坏/哈希不符时从头扫描 |
 | R6 已完成：内存 | indexed sampler 不累积 `_submitted_uuids` | 10 点与 10⁵ 点的 state.pkl 大小基本相同 |
@@ -55,7 +57,7 @@ R1–R6 阶段未改插件路径或 SDK。Dynesty `nested_engine.pkl` 与 `check
 
 | 步骤 | 范围 | 结束门槛 |
 | --- | --- | --- |
-| N1 已完成：SDK 保留名单 | SDK `RESERVED_METHOD_NAMES` 已由 `check_method_name` 默认使用；init/load/check 无需调用方传名单，读取登记与 remove 不查保留名。remove 只删除外部登记及其托管快照，不动内置方法或用户源文件。官方打包的 `LatinHypercube` 只经核对来源的低层 `trusted_builtin_method` 精确豁免；普通 SDK 命令无豁免 | `jsampler`/`Jarvis sampler` load 拒绝 `Grid`/`grid`/`LATINHYPERCUBE`；旧 `grid` 登记可读可删；HEP builtin 与 builtin-plugin ⊆ SDK 名单 |
+| N1 已完成：SDK 保留名单 | SDK `RESERVED_METHOD_NAMES` 由入口策略 `check_external_method_name` 默认使用；通用 metadata/loader 仅校验格式，init/load/check 无需调用方传名单，读取登记与 remove 不查保留名。remove 只删除外部登记及其托管快照，不动内置方法或用户源文件。官方打包的 `LatinHypercube` 通过通用 loader；已删除全部 trusted_builtin 豁免与路径判断 | `jsampler`/`Jarvis sampler` load 拒绝 `Grid`/`grid`/`LATINHYPERCUBE`；旧 `grid` 登记可读可删；HEP builtin 与 builtin-plugin ⊆ SDK 名单 |
 | N2 已完成：SDK file-only check 与 CLI 诊断 | `_check_target` 登记分支已删除，报告首项为方法名；`--dimension` 非正数及 `--seed` 负数在导入前 exit 2；`_run_info` 捕获 RegistryError；SDK README 已改为 file-only。帮助、错误面板、退出码、JSON 字段按 [CLI 规范](JARVIS_CLI_DESIGN.md) §3–§8；帮助中旧版本上限文字已删除，README 保持无版本上限 | 方法名参数 exit 2；重名文件在 options/prepare/draw 前失败；损坏登记的 list/info/remove exit 2 且 JSON 含 `error.type`；`--version --json` 输出规范对象；SDK 本地源码 234 passed、Ruff 通过 |
 | N3 已完成：SDK 发版与 HEP 下限 | 维护者已发布含 N1/N2 的 SDK 1.0.3；HEP `pyproject.toml`、运行时版本门禁及默认环境卡提高至 `>=1.0.3`，不加上限；SDK README 同步新下限 | 全新 Python 3.11 环境从本地 HEP 源码完成全依赖实际安装（66 个包），依赖从公共 PyPI 解析并选中 SDK 1.0.3；`pip check`、运行时版本门禁及双入口 JSON 版本通过；HEP 未公开新版本 |
 | N4 已完成：HEP load/check 转发与 CLI 风格 | `cli/sampler.py` 的 `_load_sampler`、`_guard_check` 与 info 旧重名拦截已删除；load/check 直接转发 SDK；`cli/help.py` 的 SDK 解析器拷贝已删除，帮助和 agent 目录用 SDK `build_parser("Jarvis sampler")`；错误用 SDK 面板 | load/check 等无扩展命令替换程序名后帮助与错误一致、退出码一致；list/info 通过 SDK 扩展点增加 HEP 内置说明与报告；损坏登记含内置 info 均 exit 2，SDK 缺失时仍输出统一错误面板或单个 JSON 错误；按名字 check 的旧用例已换成 file-only 断言 |
@@ -71,3 +73,16 @@ N1/N2/N4/N5/N6 已在本地源码整合，维护者公开了含 N1/N2 的 SDK 1.
 | 步骤 | 范围 | 结束门槛 |
 | --- | --- | --- |
 | C1 已完成：持久化绑定收拢 | 无调用的 `_resume_service.py` `apply_resume_checkpoint`、Core 包装与两处 docstring 引用已删除；`_runtime_supervisor.py` 原两处 sampler 持久化绑定共用 `Jarvis2Core._bind_sampler_persistence()`，各调用一次 | 指定三组非 slow 回归 58 passed；Core collaborator 17 passed；真实 Redis 慢测 20 passed / 54 deselected，用时 278.16 秒 |
+
+## 2026-10-17 提交复查修复
+
+| 范围 | 源码结果 | 验收 |
+| --- | --- | --- |
+| 清尾与关闭 | 按原分片清尾；无变化不改文件；CSV 导出失败重试修复、空 live 清除旧 CSV；确认 Archiver 正常退出，异常逐步收尾并报错；清尾后出图 | 故障注入、分片与重试回归、真实 Redis/spawn/HDF5 强制轮转 |
+| 命名策略 | 通用 metadata/loader 只查格式；init/load/check 执行默认保留名单；删除所有 trusted_builtin 与路径判定；重名 check exit 2 | SDK 全仓、官方插件与旧绑定恢复 |
+| list/info | SDK `CatalogExtension` 提供数据扩展与共享渲染；HEP 只提供状态与内置数据；大小写不同的旧冲突也显示 | SDK 与 HEP 文本/JSON、共享渲染器回归 |
+| SDK 接口 | 两仓不改版本、不发布；host contract 2 在源码可用；发布 1.0.3 缺少时明确拒绝新宿主接口 | 本地匹配构件安装；维护者下一次 SDK 发布后再提高 HEP 依赖下限 |
+
+这轮更正了“合并清尾仍满足分片约束”和“metadata 层必须拒绝保留名”的旧理解。先前 N3 的公共安装证据仍属于 08b2dab5 / d9d2853 阶段，不代表这轮源码已发布。实际测试结果记入现有验证 JSON。
+
+提交复查验证完成：SDK 全套 253 passed、Ruff 通过；HEP 最终快速门禁 1627 passed / 197 deselected / 478 subtests，真实 Redis/spawn/HDF5 慢测 21 passed，最后边界补丁后长短扫描两种分片模式复跑 2 passed，收尾定向 40 passed。匹配暂存源码的两个 wheel 在干净 Python 3.11 环境完整安装 66 个包，pip check、官方插件、分片清尾与双入口 CLI 通过；公开 SDK 1.0.3 的旧契约诊断也经真实换装核验。wheel 内 HEP 227 / SDK 16 个 Python 文件逐字匹配暂存内容。详细命令、耗时、构件哈希和范围保护见现有 [验证 JSON](hep-review-2026-10-16-verification.json) 的 `review_followup_2026_10_17`；本轮未改发行版本、未发布。
