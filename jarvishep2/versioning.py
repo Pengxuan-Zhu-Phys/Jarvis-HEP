@@ -145,7 +145,7 @@ def default_logo_path() -> str:
     return os.path.join(os.path.dirname(__file__), "card", "logo")
 
 
-def render_logo_with_version(logo_path: str | None = None) -> str:
+def render_logo_with_version(logo_path: str | None = None, *, color: bool = True) -> str:
     """Render logo text and inject runtime version line."""
     version = get_runtime_version()
     path = logo_path or default_logo_path()
@@ -185,10 +185,38 @@ def render_logo_with_version(logo_path: str | None = None) -> str:
             break
 
     lines = _render_logo_template_lines(lines)
-    return "\n".join(lines)
+    rendered = "\n".join(lines)
+    return rendered if color else re.sub(r"\x1b\[[0-9;]*m", "", rendered)
+
+
+ECOSYSTEM_DISTRIBUTIONS = (
+    "Jarvis-HEP",
+    "Jarvis-HEP-Sampler",
+    "Jarvis-Operas",
+    "JarvisPLOT",
+    "Jarvis-HEP-Portal",
+)
+
+
+def ecosystem_versions() -> list[dict[str, str | None]]:
+    """Read local distribution metadata without importing dependency runtimes."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    rows = []
+    for name in ECOSYSTEM_DISTRIBUTIONS:
+        if name == "Jarvis-HEP":
+            release = get_runtime_version()
+        else:
+            try:
+                release = version(name)
+            except PackageNotFoundError:
+                release = None
+        rows.append({"name": name, "version": release})
+    return rows
 
 
 __all__ = [
+    "ecosystem_versions",
     "default_logo_path",
     "get_runtime_version",
     "render_logo_with_version",

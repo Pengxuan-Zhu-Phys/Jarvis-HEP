@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 
@@ -157,11 +158,32 @@ def dispatch_refs() -> int:
     return EXIT_OK
 
 
-def dispatch_version() -> int:
-    """Print V1-style logo banner with injected runtime version (no scan init)."""
-    from jarvishep2.versioning import render_logo_with_version
+def dispatch_version(*, as_json: bool = False) -> int:
+    """Show the runtime banner and local ecosystem versions without scan init."""
+    from jarvishep2.versioning import ecosystem_versions, render_logo_with_version
 
-    print(render_logo_with_version())
+    rows = ecosystem_versions()
+    if as_json:
+        print(json.dumps({
+            "ok": True, "command": "version", "name": "Jarvis-HEP",
+            "version": rows[0]["version"], "ecosystem": rows,
+        }, indent=2))
+    else:
+        from io import StringIO
+        from rich import box
+        from rich.console import Console
+        from rich.table import Table
+
+        color = sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+        buffer = StringIO()
+        console = Console(file=buffer, force_terminal=color, color_system="truecolor" if color else None)
+        table = Table(title="Jarvis ecosystem", title_justify="left", box=box.SIMPLE)
+        table.add_column("Package", style="cyan", no_wrap=True)
+        table.add_column("Version", no_wrap=True)
+        for row in rows:
+            table.add_row(row["name"], row["version"] or "not installed")
+        console.print(table)
+        print(f"{render_logo_with_version(color=color)}\n\n{buffer.getvalue().rstrip()}")
     return EXIT_OK
 
 
@@ -552,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
     redis_reported = False
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
+        if ("--json" in raw and {"-v", "--version"}.intersection(raw)
+                and set(raw) <= {"-v", "--version", "--json"}):
+            return dispatch_version(as_json=True)
         if raw[:1] == ["refs"]:
             print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
             return EXIT_USAGE

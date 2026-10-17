@@ -448,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis project create|pack|browse|fetch|info …\n"
             "  Jarvis ps                  # list running Jarvis* processes\n"
             "  Jarvis kill [--yes]        # kill them (asks for confirmation)\n"
-            "  Jarvis -v / --version      # logo + authors + package version\n"
+            "  Jarvis -v / --version      # logo + authors + ecosystem versions\n"
             "  Jarvis --refs              # framework and sampler references\n"
             "\n"
             "Legacy aliases (still accepted):\n"
@@ -463,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-v",
         "--version",
         action="store_true",
-        help="Print Jarvis-HEP logo, author information and runtime package version",
+        help="Print Jarvis-HEP logo, authors and ecosystem package versions",
     )
     parser.add_argument(
         "--refs",

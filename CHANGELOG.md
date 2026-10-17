@@ -3,6 +3,12 @@
 Developer documentation lives in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
+## Unreleased
+
+- Add a local ecosystem version table below the `Jarvis -v` banner.
+  `--version --json` returns the HEP version and ecosystem inventory; plain
+  output respects `NO_COLOR` and omits ANSI colors when redirected.
+
 ## 2.1.0 — 2026-10-18
 
 Requires `Jarvis-HEP-Sampler>=1.1.0` (no upper bound) and `packaging>=23.0`;

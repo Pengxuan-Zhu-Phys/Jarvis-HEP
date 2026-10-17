@@ -204,6 +204,11 @@ without needing Redis). Run it before every `Jarvis run`.
 
 ## CLI workflow
 
+`Jarvis -v` shows the framework banner followed by a table of locally installed
+Jarvis ecosystem versions. `Jarvis --version --json` returns the same inventory
+as JSON. Each `Jarvis sampler|operas|plot|portal -v` command prints the child
+distribution's official name and version, matching its standalone CLI.
+
 ```bash
 Jarvis validate TASK.yaml          # validate only
 Jarvis check TASK.yaml             # quick test of calculators on a few points
