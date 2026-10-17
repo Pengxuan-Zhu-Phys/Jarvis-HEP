@@ -312,11 +312,13 @@ class DistributedResumeTests(unittest.TestCase):
         resumed_queue = ctx.Queue()
         point_count = 4000
         scan_prefix = f"resume-ctrl-c-{os.getpid()}"
-        try:
-            with (
-                tempfile.TemporaryDirectory() as baseline_dir,
-                tempfile.TemporaryDirectory() as resume_dir,
-            ):
+        with (
+            tempfile.TemporaryDirectory() as baseline_dir,
+            tempfile.TemporaryDirectory() as resume_dir,
+        ):
+            # Stop child processes before the temporary scan directories are
+            # removed, including when a timeout or assertion interrupts the test.
+            try:
                 baseline = ctx.Process(
                     target=_run_crashable_control,
                     args=(
@@ -329,7 +331,9 @@ class DistributedResumeTests(unittest.TestCase):
                     ),
                 )
                 baseline.start()
-                baseline.join(timeout=120.0)
+                # This verifies persistence, not throughput. Allow time for
+                # 4000 TCP-fakeredis points, plotting, and process shutdown.
+                baseline.join(timeout=300.0)
                 self.assertFalse(baseline.is_alive(), "uninterrupted baseline did not finish")
                 self.assertEqual(baseline.exitcode, 0)
                 self.assertTrue(baseline_queue.get(timeout=5.0)["ok"])
@@ -387,7 +391,7 @@ class DistributedResumeTests(unittest.TestCase):
                     ),
                 )
                 resumed.start()
-                resumed.join(timeout=120.0)
+                resumed.join(timeout=300.0)
                 self.assertFalse(resumed.is_alive(), "Ctrl+C resume did not finish")
                 self.assertEqual(resumed.exitcode, 0)
                 outcome = resumed_queue.get(timeout=5.0)
@@ -411,19 +415,19 @@ class DistributedResumeTests(unittest.TestCase):
                 self.assertEqual(len(resumed_records), point_count)
                 self.assertEqual(len(resumed_by_uuid), point_count)
                 self.assertEqual(resumed_by_uuid, baseline_by_uuid)
-        finally:
-            for proc in (baseline, interrupted, resumed):
-                if proc is not None and proc.is_alive():
-                    proc.terminate()
-                    proc.join(timeout=5.0)
-            for scan in list_running_scans():
-                if scan.name.startswith(scan_prefix):
-                    kill_jarvis_processes(list(scan.processes), force=True)
-            for queue in (baseline_queue, interrupted_queue, resumed_queue):
-                queue.close()
-                queue.join_thread()
-            server.shutdown()
-            server.server_close()
+            finally:
+                for proc in (baseline, interrupted, resumed):
+                    if proc is not None and proc.is_alive():
+                        proc.terminate()
+                        proc.join(timeout=5.0)
+                for scan in list_running_scans():
+                    if scan.name.startswith(scan_prefix):
+                        kill_jarvis_processes(list(scan.processes), force=True)
+                for queue in (baseline_queue, interrupted_queue, resumed_queue):
+                    queue.close()
+                    queue.join_thread()
+                server.shutdown()
+                server.server_close()
 
     def test_sigkill_control_then_database_only_resume_is_unique(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
@@ -457,12 +461,14 @@ class DistributedResumeTests(unittest.TestCase):
                 first.join(timeout=10.0)
                 self.assertFalse(first.is_alive())
 
-                # No heartbeat checkpoint is expected this early.  Resume must
-                # reconcile from DATABASE and clean the exact-name orphan fleet.
+                # A formal fresh scan writes a cursor-0 state.pkl before it
+                # submits any sample; no heartbeat has run yet.  Without the
+                # replacing_existing marker, resume advances by the DATABASE
+                # prefix and cleans the exact-name orphan fleet.
                 checkpoint = os.path.join(
                     tmpdir, "checkpoints", scan_name, "Random", "state.pkl"
                 )
-                self.assertFalse(os.path.exists(checkpoint))
+                self.assertTrue(os.path.exists(checkpoint))
                 second = ctx.Process(
                     target=_run_crashable_control,
                     args=(redis_config, tmpdir, scan_name, True, outcome_queue),

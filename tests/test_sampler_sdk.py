@@ -1,4 +1,4 @@
-"""Jarvis-HEP requires the first SDK release with N1/N2 behavior."""
+"""Jarvis-HEP requires the first SDK release with host contract 2 (1.1.0)."""
 
 from __future__ import annotations
 
@@ -16,17 +16,17 @@ def test_installed_sdk_meets_minimum() -> None:
 
     installed = require_sampler_sdk()
     assert installed == version("Jarvis-HEP-Sampler") == jarvis_hep_sampler.__version__
-    assert SDK_SPECIFIER == ">=1.0.3"
+    assert SDK_SPECIFIER == ">=1.1.0"
 
 
-@pytest.mark.parametrize("installed", ["0.1.0", "1.0.0", "1", "1.0.1", "1.0.2", "1.0.3rc1"])
+@pytest.mark.parametrize("installed", ["0.1.0", "1.0.0", "1", "1.0.2", "1.0.3", "1.1.0rc1"])
 def test_sdk_requirement_rejects_older_releases(monkeypatch: pytest.MonkeyPatch, installed: str) -> None:
     monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
     with pytest.raises(SamplerSDKError, match=SDK_SPECIFIER):
         require_sampler_sdk()
 
 
-@pytest.mark.parametrize("installed", ["1.0.3", "1.2.0", "2.0.0"])
+@pytest.mark.parametrize("installed", ["1.1.0", "1.1.1", "1.2.0", "2.0.0"])
 def test_sdk_requirement_accepts_minimum_and_newer(
     monkeypatch: pytest.MonkeyPatch, installed: str
 ) -> None:

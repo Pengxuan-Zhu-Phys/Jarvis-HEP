@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.0.17`). Its
+The PyPI distribution is named `Jarvis-HEP` (current version `2.1.0`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -53,7 +53,7 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-The current source checkout keeps `Jarvis-HEP-Sampler>=1.0.3` without an upper bound and additionally checks sampler host contract 2. This unreleased follow-up requires the matching SDK source build; public SDK 1.0.3 does not yet provide that interface. Install the sibling SDK below before using this checkout. The published Jarvis-HEP 2.0.17 package predates this integration and does not require the SDK. For development and tests, install the sibling sampler tree and the test tools:
+Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.1.0` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
 
 ```bash
 python3 -m pip install -e ../Jarvis-HEP-Sampler
@@ -307,9 +307,6 @@ These inputs are literal text; paths are not read and commands are not executed.
 `missing_fields` identifies remaining blanks; `draft_ready` only means all required
 text sections are filled, not that their contents were verified or mail was sent.
 
-The implementation audit and validation record are in
-[the CLI agent integration report](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/archive/Jarvis-HEP/2026-10-17/docs/cli-agent-integration-report.md).
-
 ## Outputs
 
 For a scan named `my_scan`, the project folder typically contains:
@@ -363,9 +360,9 @@ are not. See [SAMPLE storage](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/
 - [Installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md) — installation, Redis setup, full command list, and
   sharing projects
 - [SAMPLE storage](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/specs/sample-storage.md) — keeping or discarding per-point files
-- [CHANGELOG](CHANGELOG.md) — changes in each release
+- [CHANGELOG](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/CHANGELOG.md) — changes in each release
 - [Developer documentation](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md) — design, specifications and roadmap
-- [Project template](jarvishep2/project_template/README.md) — what
+- [Project template](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/jarvishep2/project_template/README.md) — what
   `Jarvis project create` puts in a new project
 
 Coming from Jarvis-HEP 1.x? Version 2 replaces it and 1.x is no longer
@@ -444,6 +441,25 @@ python3 -m pytest -q tests/test_worker_failure.py
 
 ## License
 
-Jarvis-HEP is released under the [MIT License](LICENSE). Bundled third-party
+Jarvis-HEP is released under the [MIT License](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/LICENSE). Bundled third-party
 code keeps its own license (for example
-[Dynesty](jarvishep2/sampling/Source/Dynesty/LICENSE)).
+[Dynesty](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/jarvishep2/sampling/Source/Dynesty/LICENSE)).
+
+## Releasing
+
+`jhrel` is a maintainer-local script, excluded from Git and distribution archives.
+
+Record changes in `CHANGELOG.md`, then run from this checkout (replace the
+example version with the intended release):
+
+```bash
+./jhrel 2.1.0 --dry
+./jhrel 2.1.0
+```
+
+`--dry` performs read-only source and release-note checks. The normal command
+requires a clean Git checkout, builds and checks the wheel and sdist, uploads
+to PyPI, refreshes the local version with `python3 -m pip install -e .`, and
+verifies the installed version. Only then does it commit the version, push the
+`vX.Y.Z` tag, and create a GitHub release with changelog notes. Configure Twine
+and `gh` authentication before publishing.

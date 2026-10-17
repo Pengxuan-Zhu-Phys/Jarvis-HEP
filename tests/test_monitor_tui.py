@@ -790,7 +790,7 @@ class BrandingTests(unittest.TestCase):
         self.assertEqual(len(branding.logo_pattern), 8)
         self.assertTrue(any("Version:" in line for line in branding.banner_lines))
         markup = render_banner_markup(branding.banner_lines)
-        self.assertIn("2.0.", markup)
+        self.assertIn(f"Version:  {branding.version}", markup)
         frame = render_logo_monitor_frame(40, branding.logo_pattern, animate=False)
         lines = frame.splitlines()
         self.assertEqual(len(lines), 8)

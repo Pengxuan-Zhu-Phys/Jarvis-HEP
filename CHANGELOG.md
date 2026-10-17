@@ -3,10 +3,10 @@
 Developer documentation lives in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
-## Unreleased
+## 2.1.0 — 2026-10-18
 
-Requires `Jarvis-HEP-Sampler>=1.0.3` (no upper bound). This source also needs
-an SDK build with host contract 2, which is not yet in a public SDK release.
+Requires `Jarvis-HEP-Sampler>=1.1.0` (no upper bound) and `packaging>=23.0`;
+pip installs both with Jarvis-HEP.
 
 ### Added
 
@@ -14,10 +14,23 @@ an SDK build with host contract 2, which is not yet in a public SDK release.
   init|check|load|list|info|remove` is the same command as `jsampler`; a loaded
   plug-in is used as `Sampling.Method` like a built-in method.
 - `LatinHypercube`, shipped as an official plug-in.
-- Project packages include the sampler source each scan is bound to.
+- A scan keeps the sampler source it started with. Reloading or removing a
+  registration affects later scans only; `--resume` uses the bound source.
+  Project packages include the sampler source each scan is bound to.
+- `Jarvis man sampler.<Method>` and the `Jarvis man` sampler index include
+  registered plug-ins, read from the registry without running plug-in code.
+  Plug-in problems use the `JV2-PLG-*` codes.
+- `Jarvis agent` describes the `Jarvis sampler` commands and their effects.
 
 ### Changed
 
+- Exclude maintainer release helpers, local configuration, credentials, and
+  generated files from distribution archives. Experimental sampler research
+  is maintained outside the HEP source tree and is not part of this release.
+
+- The standalone `jhrel` command now checks release inputs with `--dry`,
+  publishes to PyPI, refreshes the local editable install, and creates the
+  matching Git tag and GitHub release.
 - `--resume` follows the checkpoint only. Without a checkpoint, or with
   `checkpoint.enabled: false`, it warns and starts from scratch. Changing
   `Sampling.Bounds` or the selection invalidates the checkpoint.
@@ -29,6 +42,13 @@ an SDK build with host contract 2, which is not yet in a public SDK release.
 - `Jarvis run` and `Jarvis check` stop before starting Redis when a registered
   external sampler uses a built-in method name. The error gives the exact
   `Jarvis sampler remove <name> --yes` command.
+- Grid and CSV checkpoints record a fingerprint of the point set or the CSV
+  file. If it changed, or the checkpoint comes from an earlier release,
+  `--resume` discards the checkpoint and starts from scratch.
+- An unknown `Sampling.Method` suggests the correctly cased name or
+  `Jarvis sampler load`.
+- `EnvReqs` Python dependency versions accept `>` as well as `>=`. The default
+  environment cards require `Jarvis-HEP-Sampler>=1.1.0` and `packaging>=23.0`.
 
 ### Fixed
 

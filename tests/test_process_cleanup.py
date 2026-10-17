@@ -70,13 +70,13 @@ class CommandMatchTests(unittest.TestCase):
         self.assertFalse(_command_is_jarvis("JarvisLit:serve"))
         self.assertFalse(
             _command_is_jarvis(
-                "/Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/python "
-                "/Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve"
+                "/Users/developer/Jarvis-Workshop/Jarvis-Lit/.venv/bin/python "
+                "/Users/developer/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve"
             )
         )
         self.assertFalse(
             _command_is_jarvis(
-                "/Users/p.zhu/Library/Developer/Xcode/DerivedData/"
+                "/Users/developer/Library/Developer/Xcode/DerivedData/"
                 "JarvisLit.app/Contents/MacOS/JarvisLit"
             )
         )
@@ -209,7 +209,7 @@ class ListProcessesTests(_StickyRefTestCase):
             "  222   501 Jarvis:DemoScan\n"
             "  333   501 Jarvis-Worker-0:DemoScan\n"
             "  444   502 Jarvis-Redis:DemoScan\n"
-            "  555   501 /Users/p.zhu/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve\n"
+            "  555   501 /Users/developer/Jarvis-Workshop/Jarvis-Lit/.venv/bin/jlit serve\n"
         )
         with mock.patch("jarvishep2.process_cleanup.os.getpid", return_value=999):
             with mock.patch("jarvishep2.process_cleanup.subprocess.run") as run:
