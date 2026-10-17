@@ -6,7 +6,7 @@ Developer documentation lives in
 ## Unreleased
 
 - Add a local ecosystem version table below the `Jarvis -v` banner, with a
-  right-aligned rounded panel, coordinated colors and right-aligned versions.
+  right alignment, no outer frame or title, coordinated colors and right-aligned versions.
   Display the plotting project as `Jarvis-PLOT` while reading `JarvisPLOT` metadata.
   `--version --json` returns the HEP version and ecosystem inventory; plain
   output respects `NO_COLOR` and omits ANSI colors when redirected.

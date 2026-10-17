@@ -36,7 +36,7 @@ def test_root_report_keeps_banner_and_aligns_ecosystem(monkeypatch, capsys, is_t
     assert dispatch_version() == 0
     output = capsys.readouterr().out
     assert "Author:" in output and "Version:" in output
-    assert output.index("Author:") < output.index("Jarvis ecosystem")
+    assert output.index("Author:") < output.index("Package")
     assert "Jarvis-HEP" in output and "not installed" in output
     assert "\x1b[" not in output
 
