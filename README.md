@@ -394,9 +394,7 @@ The fixes and release gates for 2.0.15 are tracked in the
 [development ledger](docs/development-ledger-2.0.15.md).
 
 ```bash
-release_dir="$(mktemp -d)"
-./jhrel --output "$release_dir"
-python3 -m pip install --force-reinstall "$release_dir/"*.whl
+python3 -m pip install -e .
 python3 -m pip install "pytest>=7.0" "fakeredis>=2.0" "colorlog>=6.0"
 python3 -m pytest -q
 ```
