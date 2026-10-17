@@ -516,10 +516,10 @@ class DistributedAcceptanceTests(unittest.TestCase):
 
 
 def _write_benchmark_report() -> None:
-    """Persist gate metrics for docs/benchmarks (invoked after the suite)."""
+    """Persist gate metrics under reports/benchmarks (invoked after the suite)."""
     if not DistributedAcceptanceTests.metrics:
         return
-    report_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "docs", "benchmarks")
+    report_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports", "benchmarks")
     os.makedirs(report_dir, exist_ok=True)
     payload = {
         "milestone": "D7.1",

@@ -1,6 +1,6 @@
 """External sampler S1: Jarvis-HEP-Sampler plug-ins behave like built-in samplers.
 
-Covers the parity contract of ``docs/jarvis-hep-sampler/technical-design.md``
+Covers the parity contract of ``Jarvis-Books Docs/Jarvis-HEP/specs/sampler-integration.md``
 §1.2 (P1–P6, P9) for the shipped ``LatinHypercube`` and for user plug-ins
 loaded with ``Jarvis sampler load``: catalog and Distributor, validation and
 ``Jarvis man`` without running plug-in code, the adapter against the SDK's

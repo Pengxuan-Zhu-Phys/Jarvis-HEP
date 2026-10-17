@@ -9,7 +9,7 @@ D25.1: Distributor, JSON Schema manifest keys, contracts method families,
 ``STATISTICAL_METHODS``, and man sampler families all derive from this table.
 
 Three layers share one ``Sampling.Method`` namespace (external sampler S1,
-``docs/jarvis-hep-sampler/technical-design.md`` §6.1):
+``Jarvis-Books Docs/Jarvis-HEP/specs/sampler-integration.md`` §6.1):
 
 * ``builtin`` — the samplers implemented in this package (``_SPECS``);
 * ``builtin-plugin`` — samplers shipped with Jarvis-HEP but written in the

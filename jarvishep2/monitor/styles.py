@@ -1,4 +1,4 @@
-"""Named TUI type ramp. Ask for a scheme name from docs/TUI/STYLES.txt."""
+"""Named TUI type ramp. Ask for a scheme name from Jarvis-Books Docs/Jarvis-HEP/design/TUI/STYLES.txt."""
 
 from __future__ import annotations
 

@@ -121,7 +121,7 @@ client, `msgpack`, `aiofiles`, Textual Monitor, `Jarvis-HEP-Portal`,
 Jarvis does not publish optional dependency groups.
 
 For the complete installation guide, Redis options, and project-packaging
-workflow, see [INSTALL.md](INSTALL.md).
+workflow, see the [installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md).
 
 ## First run
 
@@ -308,7 +308,7 @@ These inputs are literal text; paths are not read and commands are not executed.
 text sections are filled, not that their contents were verified or mail was sent.
 
 The implementation audit and validation record are in
-[the CLI agent integration report](docs/cli-agent-integration-report.md).
+[the CLI agent integration report](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/archive/Jarvis-HEP/2026-10-17/docs/cli-agent-integration-report.md).
 
 ## Outputs
 
@@ -354,15 +354,17 @@ EnvReqs:
 Calculators still run normally, but their files are written to a temporary
 folder and deleted after each point. Results, error status for failed points,
 resume data and the main logs are kept; per-point files and per-point logs
-are not. See [SAMPLE storage](docs/sample-storage.md) for details.
+are not. See [SAMPLE storage](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/specs/sample-storage.md) for details.
 
 ## Documentation
 
 - [Online documentation](https://pengxuan-zhu-phys.github.io/Jarvis-Docs/)
 - `Jarvis man` — built-in manual for every task-card field, with examples
-- [INSTALL.md](INSTALL.md) — installation, Redis setup, full command list, and
+- [Installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md) — installation, Redis setup, full command list, and
   sharing projects
-- [SAMPLE storage](docs/sample-storage.md) — keeping or discarding per-point files
+- [SAMPLE storage](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/specs/sample-storage.md) — keeping or discarding per-point files
+- [CHANGELOG](CHANGELOG.md) — changes in each release
+- [Developer documentation](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md) — design, specifications and roadmap
 - [Project template](jarvishep2/project_template/README.md) — what
   `Jarvis project create` puts in a new project
 
@@ -390,8 +392,8 @@ references for Jarvis-HEP and for each built-in sampler.
 
 ## Development
 
-The fixes and release gates for 2.0.15 are tracked in the
-[development ledger](docs/development-ledger-2.0.15.md).
+Developer documentation, including the change rules, architecture and
+roadmap, is in [Jarvis-Books](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
 ```bash
 python3 -m pip install -e .

@@ -1,3 +1,4 @@
+include CHANGELOG.md
 include jhrel
 recursive-include scripts *.sh *.py
 recursive-include tests *.py *.yaml *.csv

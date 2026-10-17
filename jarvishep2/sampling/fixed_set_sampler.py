@@ -284,11 +284,11 @@ class FixedSetSampler(CheckpointedSampler):
         return int(self._accepted_index)
 
     def log_settings_rows(self) -> list[tuple[str, Any]]:
-        """Settings rows for the sampler log (docs/logging-spec.md S2)."""
+        """Settings rows for the sampler log (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md S2)."""
         return [("selection", self._selectionexp)] if self._selectionexp else []
 
     def log_summary_rows(self) -> list[tuple[str, Any]]:
-        """Summary rows for the sampler log (docs/logging-spec.md S10)."""
+        """Summary rows for the sampler log (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md S10)."""
         rows: list[tuple[str, Any]] = [
             ("candidates drawn", int(self._index)),
             ("points submitted", int(self._accepted_index)),

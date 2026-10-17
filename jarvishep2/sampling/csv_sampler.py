@@ -242,7 +242,7 @@ class CSVSampler(CheckpointedSampler):
         return sample
 
     def log_settings_rows(self) -> list[tuple[str, Any]]:
-        """Settings rows for the sampler log (docs/logging-spec.md S2)."""
+        """Settings rows for the sampler log (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md S2)."""
         rows: list[tuple[str, Any]] = [
             ("file", self._csv_path),
             ("columns", ", ".join(self._selected_variables) if self._selected_variables else "all"),
@@ -253,7 +253,7 @@ class CSVSampler(CheckpointedSampler):
         return rows
 
     def log_summary_rows(self) -> list[tuple[str, Any]]:
-        """Summary rows for the sampler log (docs/logging-spec.md S10)."""
+        """Summary rows for the sampler log (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md S10)."""
         rows_read = int(self._runtime_csv_cursor)
         rows: list[tuple[str, Any]] = [
             ("file", self._csv_path),

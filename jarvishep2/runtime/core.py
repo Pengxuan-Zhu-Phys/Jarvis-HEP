@@ -155,7 +155,7 @@ class Jarvis2Core:
         # the post-flush count rather than the pre-shutdown snapshot.
         self._final_archived_records: int | None = None
         self._interrupt_requested = False
-        # Required sampler lifecycle records (docs/logging-spec.md §2).
+        # Required sampler lifecycle records (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md §2).
         self._sampler_log: Any = None
         # Plug-in sampler loaded and prepared before Redis starts (external sampler S1).
         self._plugin_preflight: Any = None

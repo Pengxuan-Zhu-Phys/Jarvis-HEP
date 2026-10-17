@@ -216,7 +216,7 @@ class MonitorTopbar(Horizontal):
 
 
 class TabBar(Static):
-    """Frozen folder-tab strip. See docs/TUI/STYLES.txt (Tabs)."""
+    """Frozen folder-tab strip. See Jarvis-Books Docs/Jarvis-HEP/design/TUI/STYLES.txt (Tabs)."""
 
     def __init__(
         self,

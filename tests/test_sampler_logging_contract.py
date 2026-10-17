@@ -1,4 +1,4 @@
-"""Sampler logging contract (docs/logging-spec.md §2).
+"""Sampler logging contract (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md §2).
 
 Every method in the sampler catalog must produce the required lifecycle
 records (S1 start, S2 settings, S3 ready, S9 result, S10 summary) under its

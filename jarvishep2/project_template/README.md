@@ -131,4 +131,4 @@ other users of the machine can see it with `ps` and your shell history keeps it.
 The list of official example projects (public and restricted) is kept in the
 [Jarvis-Examples](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Examples)
 repository. For all `Jarvis project` commands, see the
-[installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/INSTALL.md).
+[installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md).

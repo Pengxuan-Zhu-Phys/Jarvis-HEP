@@ -1,4 +1,4 @@
-"""Lifecycle log lines every sampler must emit (docs/logging-spec.md §2).
+"""Lifecycle log lines every sampler must emit (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md §2).
 
 The runtime calls these at fixed points of a scan, so built-in and plug-in
 samplers produce the same start / settings / ready / checkpoint / result /

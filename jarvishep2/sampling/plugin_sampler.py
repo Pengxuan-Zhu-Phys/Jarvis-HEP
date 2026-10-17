@@ -9,7 +9,7 @@ with backpressure, checkpoints and the lifecycle log.
 The run preflight (:func:`preflight_plugin`) loads the plug-in and runs its
 ``prepare`` before Redis, Workers or the Archiver start, and keeps a copy of
 the plug-in source next to the scan's checkpoint. Workers never import the
-plug-in. Design: ``docs/jarvis-hep-sampler/technical-design.md`` §5.4, §6.2, §7.
+plug-in. Design: ``Jarvis-Books Docs/Jarvis-HEP/specs/sampler-integration.md`` §5.4, §6.2, §7.
 """
 
 from __future__ import annotations

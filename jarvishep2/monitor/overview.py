@@ -591,7 +591,7 @@ def render_resource_row(
     mem_g: float | None,
     mem_total_g: float | None,
 ) -> str:
-    """LOCKED RESOURCES inner row. See docs/TUI/STYLES.txt."""
+    """LOCKED RESOURCES inner row. See Jarvis-Books Docs/Jarvis-HEP/design/TUI/STYLES.txt."""
     cpu_sfx = " —" if cpu is None else f" {cpu:0.0f}%"
     mem_known = mem_g is not None and mem_total_g is not None and mem_total_g > 0
     mem_sfx = " —" if not mem_known else f" ≈{mem_g:0.1f}/{mem_total_g:0.0f}G"
