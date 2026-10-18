@@ -1,20 +1,22 @@
 # Changelog
 
-Developer documentation lives in
+User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
 ## Unreleased
 
-- Collect host metrics and Redis monitor data independently. Host failures show
-  unavailable resources while fresh Redis statistics continue; Redis failures
-  retain stale statistics while host metrics refresh. Report each source failure
-  separately without repeating the same warning every frame.
+### Added
 
-- Add a local ecosystem version table below the `Jarvis -v` banner, with a
-  right alignment, no outer frame or title, coordinated colors and right-aligned versions.
-  Display the plotting project as `Jarvis-PLOT` while reading `JarvisPLOT` metadata.
-  `--version --json` returns the HEP version and ecosystem inventory; plain
-  output respects `NO_COLOR` and omits ANSI colors when redirected.
+- Show installed versions of all five Jarvis packages below the `Jarvis -v`
+  banner. `--version --json` provides the same inventory as structured data.
+  Text output respects `NO_COLOR` and omits color codes when redirected.
+
+### Fixed
+
+- Keep Redis sampling statistics updating when host metrics are unavailable.
+  If Redis fails, retain the previous statistics with a stale indicator while
+  host metrics continue to refresh. Each source recovers independently, and
+  repeated failures do not flood the log.
 
 ## 2.1.0 — 2026-10-18
 
@@ -37,13 +39,6 @@ pip installs both with Jarvis-HEP.
 
 ### Changed
 
-- Exclude maintainer release helpers, local configuration, credentials, and
-  generated files from distribution archives. Experimental sampler research
-  is maintained outside the HEP source tree and is not part of this release.
-
-- The standalone `jhrel` command now checks release inputs with `--dry`,
-  publishes to PyPI, refreshes the local editable install, and creates the
-  matching Git tag and GitHub release.
 - `--resume` follows the checkpoint only. Without a checkpoint, or with
   `checkpoint.enabled: false`, it warns and starts from scratch. Changing
   `Sampling.Bounds` or the selection invalidates the checkpoint.
