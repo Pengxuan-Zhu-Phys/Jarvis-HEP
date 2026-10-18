@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import sys
@@ -26,6 +27,9 @@ from jarvishep2.monitor.samples import SamplerDisplay, sampler_display_from_sour
 from jarvishep2.monitor.workers import WorkerBlockData
 from jarvishep2.redis_queue import MONITOR_WANT_TTL_SEC, RedisQueue
 from jarvishep2.runtime_metadata import calculator_pools_from_metadata
+
+
+_LOG = logging.getLogger(__name__)
 
 
 def want_channels_for_page(slug: str) -> tuple[bool, bool] | None:
@@ -63,8 +67,11 @@ class CollectorFrame:
     host: dict[str, Any] = field(default_factory=dict)
     selected_calc: str | None = None
     want_on: bool = False
+    # Redis freshness; host collection has an independent failure boundary.
     stale: bool = False
     error: str | None = None
+    host_stale: bool = False
+    host_error: str | None = None
 
 
 class Collector:
@@ -113,6 +120,7 @@ class Collector:
         self._machine_cpu_primed = False
         self._cpu_meter = _CpuMeter()
         self.last_frame = CollectorFrame(page="overview")
+        self._source_errors: dict[str, str] = {}
 
     @property
     def redis_endpoint(self) -> str:
@@ -159,6 +167,38 @@ class Collector:
 
     def tick(self, page: str) -> CollectorFrame:
         slug = str(page or "").strip() or "overview"
+        frame = self._collect_redis_frame(slug)
+        self._report_source_error("Redis", frame.error)
+        # Always attempt host collection, including when Redis/want failed.
+        host: dict[str, Any] = {}
+        host_error = None
+        if slug in {"overview", "host"}:
+            try:
+                host = dict(self._host_snapshotter())
+                if not host.get("available"):
+                    host_error = str(host.get("reason") or "host metrics unavailable")
+            except Exception as exc:
+                host_error = str(exc) or exc.__class__.__name__
+            if host_error is not None:
+                # Unknown measurements are unavailable, never zero or fresh old data.
+                host = {"available": False, "reason": host_error, "processes": []}
+            self._report_source_error("Host", host_error)
+        frame = replace(
+            frame, host=host, host_stale=host_error is not None, host_error=host_error
+        )
+        if not frame.stale:
+            self.last_frame = frame
+        return frame
+
+    def _report_source_error(self, source: str, error: str | None) -> None:
+        """Log failures once per reason until that source recovers."""
+        if error is None:
+            self._source_errors.pop(source, None)
+        elif self._source_errors.get(source) != error:
+            self._source_errors[source] = error
+            _LOG.warning("Monitor %s collection failed: %s", source, error)
+
+    def _collect_redis_frame(self, slug: str) -> CollectorFrame:
         try:
             self._sync_want(slug)
             occupancy: dict[str, dict[str, int]] = {}
@@ -173,7 +213,6 @@ class Collector:
             proc_core: dict[str, Any] = {}
             proc_archiver: dict[str, Any] = {}
             proc_redis: dict[str, Any] = {}
-            host: dict[str, Any] = {}
             queue_block = self.last_frame.queue_block
             worker_block = self.last_frame.worker_block
             sample_rate = self.last_frame.sample_rate
@@ -225,9 +264,7 @@ class Collector:
                 )
                 worker_block = self._observe_worker_block(workers, proc_core)
                 calculator_block = self._calculator_block(occupancy)
-            if slug in {"overview", "host"}:
-                host = dict(self._host_snapshotter())
-            elif self._pool_names:
+            if slug not in {"overview", "host"} and self._pool_names:
                 occupancy = self._redis.fetch_calc_occupancy(
                     self._pool_names, slots=self._slots
                 )
@@ -255,7 +292,6 @@ class Collector:
                 proc_core=proc_core,
                 proc_archiver=proc_archiver,
                 proc_redis=proc_redis,
-                host=host,
                 selected_calc=self._selected_calc,
                 want_on=self._want_on,
             )
@@ -272,7 +308,6 @@ class Collector:
                 worker_block=replace(self.last_frame.worker_block, source_stale=True),
                 error=str(exc) or exc.__class__.__name__,
             )
-        self.last_frame = frame
         return frame
 
     def _observe_queue_block(

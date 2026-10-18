@@ -217,7 +217,7 @@ class HostPane(Horizontal):
             right = self.query_one("#host-detail", Static)
         except Exception:
             return
-        stale = "  [STALE]" if self.frame.stale else ""
+        stale = "  [STALE]" if self.frame.host_stale else ""
         host = self.frame.host
         if not host.get("available"):
             left.update(
@@ -226,11 +226,15 @@ class HostPane(Horizontal):
             right.update("PROCESS DETAIL\n\nNo process is selected.")
             return
         gib = 1024**3
-        scan_mem = float(host.get("memory_used", 0) or 0) / gib
-        mem_total = float(host.get("memory_total", 0) or 0) / gib
-        machine_mem = float(host.get("machine_memory_used", 0) or 0) / gib
-        swap_used = float(host.get("swap_used", 0) or 0) / gib
-        swap_total = float(host.get("swap_total", 0) or 0) / gib
+        def gib_text(key: str) -> str:
+            value = host.get(key)
+            return "—" if value is None else f"{float(value) / gib:.1f}"
+
+        scan_mem = gib_text("memory_used")
+        mem_total = gib_text("memory_total")
+        machine_mem = gib_text("machine_memory_used")
+        swap_used = gib_text("swap_used")
+        swap_total = gib_text("swap_total")
         load = host.get("load") or ()
         load_text = " / ".join(f"{float(value):.2f}" for value in load) or "—"
         cpu = host.get("cpu_percent")
@@ -248,9 +252,9 @@ class HostPane(Horizontal):
         lines = [
             f"HOST{stale}  this scan (rough; memory counts shared pages more than once)",
             "",
-            f"SCAN     CPU  {scan_cpu}{cores}    MEM  ≈{scan_mem:.1f}G",
+            f"SCAN     CPU  {scan_cpu}{cores}    MEM  ≈{scan_mem}G",
             f"MACHINE  CPU  {machine_cpu_text}    LOAD  {load_text}",
-            f"         MEM  {machine_mem:.1f}/{mem_total:.1f}G    SWAP  {swap_used:.1f}/{swap_total:.1f}G",
+            f"         MEM  {machine_mem}/{mem_total}G    SWAP  {swap_used}/{swap_total}G",
             "",
             "ROLE       PID       CPU%     RSS   FDS  ALIVE",
         ]

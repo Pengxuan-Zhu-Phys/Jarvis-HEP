@@ -117,7 +117,11 @@ class LiveOverviewProjector:
         memory_used = max(0, _int(host.get("memory_used")))
         memory_total = max(0, _int(host.get("memory_total")))
         # CPU is unknown on the first refresh; the block still shows memory.
-        resources_available = bool(host.get("available")) and memory_total > 0
+        resources_available = (
+            bool(host.get("available"))
+            and host.get("memory_used") is not None
+            and memory_total > 0
+        )
         cores_used = _float(host.get("cpu_cores_used"))
         cores_available = max(0, _int(host.get("cpu_cores_available")))
         processes = [row for row in host.get("processes", ()) if isinstance(row, dict)]

@@ -5,6 +5,11 @@ Developer documentation lives in
 
 ## Unreleased
 
+- Collect host metrics and Redis monitor data independently. Host failures show
+  unavailable resources while fresh Redis statistics continue; Redis failures
+  retain stale statistics while host metrics refresh. Report each source failure
+  separately without repeating the same warning every frame.
+
 - Add a local ecosystem version table below the `Jarvis -v` banner, with a
   right alignment, no outer frame or title, coordinated colors and right-aligned versions.
   Display the plotting project as `Jarvis-PLOT` while reading `JarvisPLOT` metadata.
