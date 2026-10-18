@@ -36,6 +36,7 @@ _SUBCOMMANDS = frozenset(
         "check",
         "validate",
         "man",
+        "download-manual",
         "agent",
         "convert",
         "monitor",
@@ -470,6 +471,10 @@ def dispatch(args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE
 
+    if intent == "download-manual":
+        from jarvishep2.cli.manual_download import run_download_manual
+
+        return run_download_manual(args)
     if intent == "monitor":
         return dispatch_monitor(args)
     if intent == "redis":
@@ -577,12 +582,21 @@ def _emit_json_usage(argv: list[str], message: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # Downloads are independent of the scan runtime and Redis onboarding.
+    prefix = 0
+    while prefix < len(raw) and raw[prefix] in {"--json", "--help", "-h", "--debug", "-d"}:
+        prefix += 1
+    if raw[prefix:prefix + 1] == ["download-manual"]:
+        from jarvishep2.cli.manual_download import dispatch_download_manual
+
+        return dispatch_download_manual(raw[prefix + 1:] + raw[:prefix])
+
     from jarvishep2.proc_title import control_title, set_process_title
 
     set_process_title(control_title())
     redis_reported = False
     try:
-        raw = list(sys.argv[1:] if argv is None else argv)
         if ("--json" in raw and {"-v", "--version"}.intersection(raw)
                 and set(raw) <= {"-v", "--version", "--json"}):
             return dispatch_version(as_json=True)

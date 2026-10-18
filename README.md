@@ -370,6 +370,29 @@ are not. See [SAMPLE storage](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/
 - [Project template](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/blob/master/jarvishep2/project_template/README.md) — what
   `Jarvis project create` puts in a new project
 
+### Download the PDF manual
+
+```bash
+Jarvis download-manual                              # latest stable release, current directory
+Jarvis download-manual --release v2.1.0 -o manual.pdf # specific release
+Jarvis download-manual -o ~/Downloads --force         # replace an existing copy
+Jarvis download-manual --json                        # machine-readable result
+```
+
+The command downloads the `Jarvis-HEP-Manual.pdf` attachment from a public
+[Jarvis-HEP GitHub Release](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP/releases).
+The default `latest` follows GitHub's latest stable release; use `--release TAG`
+to select a specific release independently of your installed package version.
+A plain version such as `2.1.0` is accepted as `v2.1.0`.
+
+`--output` (`-o`) accepts a file path or an existing directory. Existing files
+require `--force`; a failed or interrupted download leaves the original file
+intact. Downloads have a 256 MiB size limit and a 30-second network operation
+timeout, configurable with `--timeout`. The downloaded file receives basic PDF
+header, trailer and transfer-length checks before it is saved. If the release
+or attachment has not been published, the command reports this clearly.
+Downloading the manual does not require Redis or a GitHub login.
+
 Coming from Jarvis-HEP 1.x? Version 2 replaces it and 1.x is no longer
 developed. The command is still called `Jarvis`; check older task cards with
 `Jarvis validate` before running them.

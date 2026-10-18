@@ -39,6 +39,7 @@ _COMMAND_HELP_PANELS = {
     "check": "Scan workflow",
     "validate": "Scan workflow",
     "man": "YAML authoring",
+    "download-manual": "Documentation",
     "agent": "YAML authoring",
     "convert": "Data export",
     "gen-plot-yaml": "Plots",
@@ -55,6 +56,7 @@ _COMMAND_HELP_PANELS = {
 _COMMAND_HELP_ORDER = {
     # Scan lifecycle
     "man": 5,
+    "download-manual": 6,
     "agent": 4,
     "validate": 10,
     "check": 20,
@@ -420,6 +422,18 @@ class JarvisArgumentParser(argparse.ArgumentParser):
             typer.rich_utils.MAX_WIDTH = old_max_width
         return output.getvalue()
 
+def add_manual_download_arguments(parser: argparse.ArgumentParser) -> None:
+    """Share the download command's arguments between help and execution."""
+    parser.add_argument("--release", default="latest",
+                        help="Release tag or X.Y.Z version (default: latest published stable release)")
+    parser.add_argument("--output", "-o", default="Jarvis-HEP-Manual.pdf",
+                        help="Destination file or existing directory (default: Jarvis-HEP-Manual.pdf)")
+    parser.add_argument("--force", action="store_true", help="Replace an existing file after a successful download")
+    parser.add_argument("--timeout", type=float, default=30.0, help="Network operation timeout in seconds (default: 30)")
+    parser.add_argument("--json", action="store_true", help="Emit the download result or error as JSON")
+    parser.add_argument("--debug", "-d", action="store_true", help="Include a traceback on errors")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = JarvisArgumentParser(
         prog="Jarvis",
@@ -438,6 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis check TASK.yaml\n"
             "  Jarvis validate TASK.yaml [--strict] [--json]\n"
             "  Jarvis man [yaml|sampler|calculator|…]  # YAML writing manuals\n"
+            "  Jarvis download-manual [--release TAG] [--output PATH]\n"
             "  Jarvis convert TASK.yaml\n"
             "  Jarvis monitor\n"
             "  Jarvis redis [info|check|install|start] [--json]\n"
@@ -553,6 +568,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         add_help=False,
     )
+
+    manual_p = sub.add_parser(
+        "download-manual", help="Download the PDF user manual from GitHub Releases",
+        description="Download the PDF manual from a Jarvis-HEP GitHub Release.",
+    )
+    add_manual_download_arguments(manual_p)
 
     sub.add_parser(
         "agent",

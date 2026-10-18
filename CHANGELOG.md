@@ -7,6 +7,9 @@ User guides and reference documentation are available in
 
 ### Added
 
+- Download the PDF manual with `Jarvis download-manual`, with support for a
+  specific GitHub Release, destination path and JSON output. Existing files
+  require `--force`; failed downloads preserve the previous copy.
 - Show installed versions of all five Jarvis packages below the `Jarvis -v`
   banner. `--version --json` provides the same inventory as structured data.
   Text output respects `NO_COLOR` and omits color codes when redirected.

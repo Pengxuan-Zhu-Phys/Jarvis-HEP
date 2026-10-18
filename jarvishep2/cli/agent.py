@@ -16,6 +16,7 @@ CONTRACT_VERSION = 1
 # CLIs have their own argument schemas and must be inspected before use.
 _EFFECTS: dict[str, tuple[str, str, list[str]]] = {
     "agent": ("query", "Read the installed agent contract.", ["text", "json"]),
+    "download-manual": ("network_write", "Download the PDF manual from a public Jarvis-HEP GitHub Release and save it locally; --force replaces an existing file only after successful validation.", ["text", "json"]),
     "man": ("query", "Read installed YAML fields, examples and sampler metadata.", ["text", "json"]),
     "validate": ("validate", "Read task/default YAML and metadata; compile expressions; no scan execution.", ["text", "json"]),
     "run": ("execute", "Execute configured Python/calculators/install commands; start Redis/Workers; write outputs/checkpoints/logs; may update project Redis port.", ["text"]),
