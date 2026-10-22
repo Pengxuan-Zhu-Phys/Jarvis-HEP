@@ -8,6 +8,7 @@ import json
 import os
 import pickle
 import threading
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -53,11 +54,24 @@ def utc_now_iso() -> str:
 
 
 def atomic_pickle_dump(path: str, payload: Mapping[str, Any]) -> None:
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "wb") as handle:
-        pickle.dump(dict(payload), handle, protocol=pickle.HIGHEST_PROTOCOL)
-    os.replace(tmp_path, path)
+    directory = os.path.dirname(os.path.abspath(path))
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            pickle.dump(dict(payload), handle, protocol=pickle.HIGHEST_PROTOCOL)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        if os.name == "posix":
+            directory_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def pickle_load(path: str) -> dict[str, Any]:

@@ -41,6 +41,19 @@ User guides and reference documentation are available in
 
 ### Fixed
 
+- Format tiny elapsed times correctly in progress records instead of interpreting
+  scientific-notation digits as milliseconds.
+
+- Emit budget progress and periodic algorithm summaries for external feedback
+  samplers. Logs distinguish proposals, Worker evaluations, retained transitions,
+  failures and durable recovery progress, including resumed runs and early stops.
+- Save generational checkpoints at the configured heartbeat instead of at every
+  256 evaluations. Archive/chain safety barriers still bound replay memory;
+  checkpoint records show the actual saved generation, trial and chain cursors.
+- Flush and fsync checkpoint temporary files before atomic replacement, then sync
+  the parent directory on POSIX. Serialization or write failures preserve the
+  previous checkpoint and clean up the temporary file.
+
 - Keep Redis sampling statistics updating when host metrics are unavailable.
   If Redis fails, retain the previous statistics with a stale indicator while
   host metrics continue to refresh. Each source recovers independently, and

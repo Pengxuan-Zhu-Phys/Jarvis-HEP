@@ -134,7 +134,10 @@ External feedback samplers are supported with SDK host contract 3. Load the SDK'
 `Jarvis run`. Workers evaluate the real Opera and send LogLikelihood to the
 plugin. The card caps global trials at 20,000; `DATABASE/chain.csv` contains
 retained posterior transitions, while `samples.csv` contains all evaluations.
-Use `--resume` with the same card after interruption. See the
+Use `--resume` with the same card after interruption. External feedback
+samplers log proposal progress and separate warmup/retained summaries.
+`EnvReqs.V2.checkpoint.heartbeat` controls disk snapshots (default 30 seconds);
+archive and chain durability barriers remain separate from that disk cadence. See the
 [feedback sampler contract](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP-Sampler/FEEDBACK_MCMC_DESIGN.md).
 
 ## First run

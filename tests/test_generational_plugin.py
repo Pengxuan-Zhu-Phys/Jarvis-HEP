@@ -296,3 +296,98 @@ def test_chain_write_failure_preserves_previous_durable_state(config, monkeypatc
             [normalize_feedback_record(row) for row in feedback(samples)]
         )
     assert s.checkpoint_runtime_state(safe=True) == original
+
+
+def test_progress_distinguishes_trials_warmup_and_retained(config, caplog):
+    config["Sampling"]["Bounds"]["burn_in"] = 2
+    s = adapter(config)
+    with caplog.at_level("INFO"):
+        absorb(s)  # initialization uses four trials, zero transitions
+        s._maybe_log_step(force=True)
+        assert s._session.status(s._stats())["warmup_done"] == 0
+        absorb(s)  # four warmup transitions
+        assert s._session.status(s._stats())["warmup_done"] == 4
+        assert s._session.retained == 0
+        absorb(s)  # warmup completes
+        absorb(s)  # final single proposal produces exactly one retained state
+        s._maybe_log_step(force=True)
+    assert "SliceMCMC proposals completed" in caplog.text
+    assert "SliceMCMC Progress ->" in caplog.text
+    assert "warmup transitions" in caplog.text and "retained transitions" in caplog.text
+    assert "chain 0" in caplog.text
+    assert s._index == 13 and s._session.retained == 1
+
+
+def test_archive_windows_do_not_write_disk_checkpoints_at_every_batch(
+    config, monkeypatch
+):
+    from jarvishep2.sampling import generational_plugin_sampler as implementation
+
+    config["Sampling"]["Bounds"]["max_evaluations"] = 1000
+    ticks = [100.0]
+    monkeypatch.setattr(implementation.time, "monotonic", lambda: ticks[0])
+    s = adapter(config)
+    saved = []
+    s._save_checkpoint_callback = lambda **kw: (
+        saved.append((kw["reason"], s.checkpoint_runtime_state(safe=True))) or True
+    )
+    s.redis = SimpleNamespace(get_archived_index_prefix=lambda scan: s._accepted_index)
+    s._ensure_trajectory()
+    assert s.checkpoint_at_barrier(reason="plugin_initial", final=True)
+    for _ in range(64):
+        samples = absorb(s)
+        s._submitted_uuids.extend(sample.uuid for sample in samples)
+        assert not s.checkpoint_at_barrier()
+    assert len(saved) == 1
+    assert s._durable_index == s.checkpoint_runtime_state(safe=True)["index"] == 256
+    assert s._submitted_uuids == []
+    # The runtime StateSaver refreshes the archive watermark before capturing
+    # interrupt state. This must not replace a feedback barrier with the
+    # indexed sampler's stale initial snapshot.
+    s._checkpoint_snapshots.append((0, saved[0][1]))
+    pending = s.propose_generation()
+    s.set_persisted_prefix(256)
+    assert s.checkpoint_runtime_state(safe=True)["index"] == 256
+    s.absorb_generation([normalize_feedback_record(row) for row in feedback(pending)])
+    s._submitted_uuids.extend(sample.uuid for sample in pending)
+    ticks[0] = 129.0
+    assert not s.checkpoint_at_barrier()
+    ticks[0] = 130.0
+    assert s.checkpoint_at_barrier()
+    assert saved[-1][0] == "checkpoint_heartbeat" and saved[-1][1]["index"] == 260
+    assert len(saved) == 2
+    # Explicit heartbeat requests use the same durable boundary, even before
+    # another 256-point archive window fills.
+    samples = absorb(s)
+    s._submitted_uuids.extend(sample.uuid for sample in samples)
+    s.request_checkpoint_capture()
+    assert s.checkpoint_at_barrier()
+    assert saved[-1][1]["index"] == 264 and not s._checkpoint_requested
+    s.assert_checkpoint_attribute_contract()
+
+
+def test_disabled_checkpoints_still_keep_a_bounded_durable_replay_window(config):
+    config["EnvReqs"]["V2"]["checkpoint"] = {"enabled": False, "heartbeat": 30}
+    s = adapter(config)
+    calls = []
+    s._save_checkpoint_callback = lambda **kw: calls.append(kw) or True
+    absorb(s)
+    assert not s.checkpoint_at_barrier(final=True)
+    assert calls == [] and s._durable_index == 4
+
+
+def test_checkpoint_log_uses_saved_cursor_instead_of_newer_live_progress(
+    config, caplog
+):
+    from jarvishep2.sampling.lifecycle_log import SamplerLifecycleLog
+
+    s = adapter(config)
+    lifecycle = SamplerLifecycleLog(s, config=config)
+    with caplog.at_level("INFO"):
+        lifecycle.checkpoint_saved(
+            "state.pkl",
+            "checkpoint_heartbeat",
+            progress="generation=8, proposals=32, retained=7, chain_bytes=900",
+        )
+    assert "Checkpoint saved to state.pkl (checkpoint_heartbeat)" in caplog.text
+    assert "proposals=32, retained=7" in caplog.text

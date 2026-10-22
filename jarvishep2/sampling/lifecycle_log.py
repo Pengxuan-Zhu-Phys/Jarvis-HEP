@@ -121,8 +121,10 @@ class SamplerLifecycleLog:
         self.logger.warning("WorkerFactory is ready for %s sampler", self.method)
 
     # S6
-    def checkpoint_saved(self, path: str, reason: str = "") -> None:
+    def checkpoint_saved(self, path: str, reason: str = "", *, progress: str = "") -> None:
         suffix = f" ({reason})" if reason else ""
+        if progress:
+            suffix += f" [{progress}]"
         self.logger.info("Checkpoint saved to %s%s", path, suffix)
 
     def checkpoint_loaded(self, path: str) -> None:

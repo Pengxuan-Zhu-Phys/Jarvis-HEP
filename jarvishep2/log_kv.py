@@ -46,15 +46,14 @@ def failure_traceback(exc: BaseException | str | None) -> str:
 def format_duration(seconds: float) -> str:
     """V1-compatible ``HH:MM:SS.msc`` duration for progress heartbeats."""
     total = max(0.0, float(seconds))
-    hours = int(total // 3600)
-    minutes = int((total % 3600) // 60)
-    secs = total % 60
-    millisec = secs % 1
-    # Match V1: fractional part of seconds as three-digit milliseconds.
-    frac = str(millisec)
-    ms = frac[2:5] if "." in frac else "000"
-    ms = (ms + "000")[:3]
-    return f"{hours:02d}:{minutes:02d}:{int(secs):02d}.{ms}"
+    # Integer milliseconds also cover tiny durations represented as 1e-05;
+    # slicing str(fraction) interpreted exponent digits as elapsed milliseconds.
+    milliseconds = int(total * 1000)
+    hours, remainder = divmod(milliseconds, 3600000)
+    minutes, remainder = divmod(remainder, 60000)
+    secs, millis = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+
 
 
 class PermilleProgress:

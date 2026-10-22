@@ -43,3 +43,11 @@ def test_two_column_log_wraps_title_under_80_columns() -> None:
     )
     _assert_max_width(rendered, 80)
     assert "status" in rendered
+
+def test_duration_uses_integer_milliseconds_for_tiny_and_fractional_seconds():
+    from jarvishep2.log_kv import format_duration
+    for seconds in [0, 1e-6, 2e-5, 5e-4]:
+        assert format_duration(seconds) == "00:00:00.000"
+    assert format_duration(1.2) == "00:00:01.200"
+    assert format_duration(12.3456) == "00:00:12.345"
+    assert format_duration(3661.0023) == "01:01:01.002"

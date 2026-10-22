@@ -93,6 +93,11 @@ def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
         "--skip-draw-flowchart",
         expected=1 if case == "failure" else 0,
     )
+    log_text = (tmp_path / "logs/native-slice/sampler.log").read_text()
+    assert "SliceMCMC proposals completed" in log_text
+    assert "SliceMCMC Progress ->" in log_text
+    assert "retained draws" in log_text
+    assert "proposals=" in log_text and "chain_bytes=" in log_text
     data, chain = rows(tmp_path)
     assert len(data) == (0 if case == "selection" else 4 if case == "failure" else 13)
     assert len({row["uuid"] for row in data}) == len(data)
@@ -114,7 +119,7 @@ def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
 
 
 def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tmp_path):
-    env, card = setup(tmp_path, budget=601)
+    env, card = setup(tmp_path, budget=2401)
     task = tmp_path / "task.yaml"
     task.write_text(yaml.safe_dump(card))
     cli(tmp_path, env, "load", "sampler", "load", str(EXAMPLES / "SliceMCMC.py"))
@@ -133,7 +138,11 @@ def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tm
                 assert process.poll() is None, (
                     tmp_path / "interrupted.log"
                 ).read_text()[-6000:]
-                if chain.exists() and len(chain.read_text().splitlines()) > 8:
+                sampler_log = tmp_path / "logs/native-slice/sampler.log"
+                if (
+                    sampler_log.exists()
+                    and "durable proposals=256" in sampler_log.read_text()
+                ):
                     break
                 time.sleep(0.02)
             else:
@@ -144,12 +153,18 @@ def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tm
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=45)
+    from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
+
+    state = load_checkpoint(
+        str(tmp_path / "checkpoints/native-slice/SliceMCMC/state.pkl")
+    )["sampler_state"]
+    assert state["index"] >= 256  # latest memory barrier, not initial/old disk snapshot
     cli(tmp_path, env, "remove", "sampler", "remove", "SliceMCMC", "--yes")
     card["EnvReqs"]["V2"]["workers"] = 3
     task.write_text(yaml.safe_dump(card))
     cli(tmp_path, env, "resume", "run", str(task), "--resume", "--skip-draw-flowchart")
     data, chain = rows(tmp_path)
-    assert len(data) == len({r["uuid"] for r in data}) == 601
+    assert len(data) == len({r["uuid"] for r in data}) == 2401
     assert len({(r["chain"], r["step"]) for r in chain}) == len(chain)
     # Compare the complete native posterior trajectory with the same SDK state machine.
     from jarvis_hep_sampler import GenerationalSession, load_plugin_file
@@ -184,4 +199,4 @@ def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tm
     summary = json.loads(
         (tmp_path / "outputs/native-slice/DATABASE/sampler_summary.json").read_text()
     )
-    assert summary["proposals"] == 601 and summary["retained_draws"] == len(chain)
+    assert summary["proposals"] == 2401 and summary["retained_draws"] == len(chain)

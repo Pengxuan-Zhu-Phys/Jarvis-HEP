@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from jarvis_hep_sampler.errors import PluginOutputError, PluginResumeMismatch
+from jarvishep2.log_kv import PermilleProgress, format_two_column_log
 from jarvishep2.mapper import MapperPipeline
 from jarvishep2.sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.sampling.plugin_sampler import preflight_plugin, plugin_logger
@@ -68,6 +69,11 @@ class GenerationalPluginSampler(FeedbackSampler):
             "_committing",
             "_plugin_status_snapshot",
             "_plugin_status_next_at",
+            "_submit_progress",
+            "_last_step_log_at",
+            "_last_checkpoint_at",
+            "_checkpoint_interval_sec",
+            "_durable_index",
         }
     )
 
@@ -91,6 +97,11 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._committing = False
         self._plugin_status_snapshot = {}
         self._plugin_status_next_at = 0.0
+        self._submit_progress = None
+        self._last_step_log_at = None
+        self._last_checkpoint_at = 0.0
+        self._checkpoint_interval_sec = 30.0
+        self._durable_index = 0
 
     def attach_preflight(self, preflight):
         if preflight.method != self.method:
@@ -106,6 +117,9 @@ class GenerationalPluginSampler(FeedbackSampler):
         self.vars = load_variables(self.config)
         self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._selectionexp = (self.config.get("Sampling") or {}).get("selection")
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        self._checkpoint_interval_sec = get_checkpoint_config(self.config)["heartbeat"]
         result_dir = self.config.get("task_result_dir")
         if not result_dir:
             root = Path(self.config.get("task_root") or os.getcwd())
@@ -142,6 +156,15 @@ class GenerationalPluginSampler(FeedbackSampler):
         return dict(
             self._preflight.plugin.metadata.feedback_return
             or {"mode": "minimal", "include_logl": True}
+        )
+
+    def set_persisted_prefix(self, prefix):
+        # The shared saver refreshes this watermark before every write,
+        # including interrupts. Indexed snapshot deque entries belong to fixed
+        # samplers; applying that deque here would reset our latest durable
+        # feedback barrier to the initial state while a generation is pending.
+        self._persisted_index_prefix = max(
+            self._persisted_index_prefix, int(prefix or 0)
         )
 
     def set_persisted_uuids(self, uuids):
@@ -303,6 +326,8 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._refresh_status()
         self._last_feedback.update(self._current_feedback)
         self._proposals, self._synthetic, self._uuid_to_id = [], [], {}
+        self._emit_progress()
+        self._maybe_log_step()
 
     def at_safe_barrier(self):
         return (
@@ -326,13 +351,27 @@ class GenerationalPluginSampler(FeedbackSampler):
                 os.fsync(handle.fileno())
 
     def checkpoint_at_barrier(self, *, reason="generation_barrier", final=False):
-        # Bounded windows avoid a disk barrier per cheap Eggbox evaluation.
-        if (
-            not final
-            and len(self._submitted_uuids) < 256
-            and not self._checkpoint_requested
-        ):
+        # Archive confirmation bounds replay/memory. Disk snapshots follow the
+        # configured heartbeat instead of writing every 256 cheap evaluations.
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        enabled = get_checkpoint_config(self.config)["enabled"]
+        due = (
+            enabled
+            and self._save_checkpoint_callback is not None
+            and (
+                final
+                or self._checkpoint_requested
+                or time.monotonic() - self._last_checkpoint_at
+                >= self._checkpoint_interval_sec
+            )
+        )
+        if not final and len(self._submitted_uuids) < 256 and not due:
             return False
+        if self._session._pending is not None or self._committing:
+            raise RuntimeError(
+                "plugin checkpoint requires a complete tell/chain barrier"
+            )
         scan = (
             self.config.get("scan_name")
             or (self.config.get("Scan") or {}).get("name")
@@ -353,18 +392,76 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._submitted_uuids.clear()
         self._persisted_uuids.clear()
         self._last_feedback.clear()
-        self._checkpoint_requested = False
+        self._durable_index = self._index
         self._last_safe_state = copy.deepcopy(self.export_runtime_state())
-        return self.persist_runtime_checkpoint(force=True, reason=reason)
+        if not due:
+            return False
+        save_reason = reason
+        if reason == "generation_barrier":
+            save_reason = "checkpoint_heartbeat"
+        written = self.persist_runtime_checkpoint(force=True, reason=save_reason)
+        if written:
+            self._checkpoint_requested = False
+            self._last_checkpoint_at = time.monotonic()
+        return written
 
     def run_adaptive(self, *, generation_timeout=3600.0, timeout=None):
         self._ensure_trajectory()
         self.checkpoint_at_barrier(reason="plugin_initial", final=True)
-        count = super().run_adaptive(
-            generation_timeout=generation_timeout, timeout=timeout
-        )
-        self.checkpoint_at_barrier(reason="plugin_finished", final=True)
+        self._emit_progress(force=True)
+        self._maybe_log_step(force=True)
+        try:
+            count = super().run_adaptive(
+                generation_timeout=generation_timeout, timeout=timeout
+            )
+            self.checkpoint_at_barrier(reason="plugin_finished", final=True)
+        finally:
+            # Read committed counters only: an unfinished ask/tell never looks
+            # like completed progress on failure or interruption.
+            self._emit_progress(force=True)
+            self._maybe_log_step(force=True)
+        self._logger.warning("Posterior chain saved to %s", self._trajectory_path)
         return count
+
+    def _emit_progress(self, *, force=False):
+        if self._submit_progress is None:
+            self._submit_progress = PermilleProgress(
+                self._logger,
+                total=self._session.max_evaluations,
+                label=f"{self.method} proposals completed",
+            )
+        self._submit_progress.update(
+            self._index,
+            force=force,
+            extra=f"worker evaluations={self._accepted_index}, retained={self._session.retained}, "
+            f"generation={self._session.generation}, durable proposals={self._durable_index}",
+        )
+
+    def _maybe_log_step(self, *, force=False):
+        now = time.monotonic()
+        if self._last_step_log_at is None:
+            self._last_step_log_at = now
+            if not force:
+                return
+        if not force and now - self._last_step_log_at < 60.0:
+            return
+        self._last_step_log_at = now
+        rows = [
+            ("generation", self._session.generation),
+            ("proposals / limit", f"{self._index} / {self._session.max_evaluations}"),
+            ("worker evaluations", self._accepted_index),
+            ("selection rejects", self._selection_rejected),
+            ("evaluation failures", self._evaluation_failures),
+            ("retained draws", self._session.retained),
+            ("durable proposals", self._durable_index),
+        ]
+        from jarvishep2.sampling.plugin_sampler import _setting_text
+
+        rows.extend(
+            (key, _setting_text(value))
+            for key, value in self._session.summary_rows(self._stats())[:32]
+        )
+        self._logger.info(format_two_column_log(f"{self.method} Progress ->", rows))
 
     def export_runtime_state(self):
         return {
@@ -415,11 +512,25 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._pending_uuids.clear()
         self._submitted_uuids.clear()
         self._last_safe_state = copy.deepcopy(dict(state))
+        self._durable_index = self._index
+        self._submit_progress = None
+        self._last_step_log_at = None
+        self._last_checkpoint_at = time.monotonic()
+        self._refresh_status()
+        self._logger.info(
+            "%s resume barrier -> generation=%d proposals=%d retained=%d chain_bytes=%d",
+            self.method,
+            self._session.generation,
+            self._index,
+            self._session.retained,
+            self._trajectory_offset,
+        )
 
     def _stats(self):
         return self._session.stats(self._index, self._session.retained)
 
     def log_settings_rows(self):
+        from jarvishep2.runtime_config import get_checkpoint_config
         from jarvishep2.sampling.plugin_sampler import _setting_text
 
         extra = dict(self._session.settings_rows())
@@ -427,6 +538,14 @@ class GenerationalPluginSampler(FeedbackSampler):
         rows = [
             ("plugin", f"{self.method} {self.plugin_version}"),
             ("evaluation limit", self._session.max_evaluations),
+            (
+                "checkpoint",
+                "enabled"
+                if get_checkpoint_config(self.config)["enabled"]
+                else "disabled",
+            ),
+            ("checkpoint heartbeat (s)", self._checkpoint_interval_sec),
+            ("archive barrier window", 256),
         ]
         merged = {key: extra.pop(key, value) for key, value in options.items()}
         merged.update(extra)
@@ -451,6 +570,7 @@ class GenerationalPluginSampler(FeedbackSampler):
             "evaluations": self._index,
             "retained": self._session.retained,
             "generation": self._session.generation,
+            "durable": self._durable_index,
             **self._plugin_status_snapshot,
         }
 

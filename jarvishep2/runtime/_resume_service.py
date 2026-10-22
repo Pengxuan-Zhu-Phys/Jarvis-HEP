@@ -370,7 +370,15 @@ class _ResumeService:
         save_checkpoint(path, payload)
         sampler_log = getattr(core, "_sampler_log", None)
         if sampler_log is not None:
-            sampler_log.checkpoint_saved(path, reason)
+            if getattr(core.sampler, "is_generational_plugin", False):
+                session = sampler_state.get("session") or {}
+                detail = (f"generation={sampler_state.get('generation', 0)}, "
+                          f"proposals={sampler_state.get('index', 0)}, "
+                          f"retained={session.get('retained', 0)}, "
+                          f"chain_bytes={sampler_state.get('trajectory_offset', 0)}")
+                sampler_log.checkpoint_saved(path, reason, progress=detail)
+            else:
+                sampler_log.checkpoint_saved(path, reason)
         return path
 
     def _save_interrupt_checkpoint(self) -> str | None:
