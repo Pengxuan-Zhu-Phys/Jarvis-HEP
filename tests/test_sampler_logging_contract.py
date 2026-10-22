@@ -23,7 +23,6 @@ from jarvishep2.sampling.lifecycle_log import SamplerLifecycleLog
 
 _STATELESS_BOUNDS: dict[str, dict[str, Any]] = {
     "Random": {"point_number": 10},
-    "LatinHypercube": {"point_number": 10, "centered": True},
     "Grid": {},
     "Bridson": {"radius": 0.3, "max_attempt": 30},
     "CSV": {},

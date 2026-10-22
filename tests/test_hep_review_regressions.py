@@ -43,7 +43,7 @@ def plugin_file(tmp_path, method="ReviewDemo"):
     return path
 
 
-@pytest.mark.parametrize("method", ["Grid", "GRID", "LatinHypercube", "LATINHYPERCUBE"])
+@pytest.mark.parametrize("method", ["Grid", "GRID", "Random", "RANDOM"])
 def test_hep_load_rejects_reserved_names_without_registry_changes(tmp_path, registry, capsys, method):
     source = plugin_file(tmp_path, method)
     before = registry.entries()

@@ -12,8 +12,7 @@ Three layers share one ``Sampling.Method`` namespace (external sampler S1,
 ``Jarvis-Books Docs/Jarvis-HEP/specs/sampler-integration.md`` §6.1):
 
 * ``builtin`` — the samplers implemented in this package (``_SPECS``);
-* ``builtin-plugin`` — samplers shipped with Jarvis-HEP but written in the
-  public plug-in format (``_BUILTIN_PLUGINS``), run through ``PluginSampler``;
+* ``builtin-plugin`` — a retained host catalog layer, currently empty;
 * ``user`` — plug-ins loaded with ``Jarvis sampler load``, read from the
   Jarvis-HEP-Sampler registry (``~/.jarvis/samplers/sources.json``).
 
@@ -265,20 +264,10 @@ _SPECS: tuple[SamplerSpec, ...] = (
 
 _BY_NAME: dict[str, SamplerSpec] = {spec.name: spec for spec in _SPECS}
 
-# Samplers shipped with Jarvis-HEP in the public plug-in format (dogfooding:
-# they exercise the same path as user plug-ins). Flags here must match the
-# file's PLUGIN dict; a test checks it.
+# No plug-ins ship with HEP. Keep the catalog layer for host compatibility;
+# LatinHypercube is an external example in Jarvis-HEP-Sampler/examples.
 _PLUGIN_DIR = Path(__file__).resolve().parent / "sampling" / "plugins"
-_BUILTIN_PLUGINS: tuple[tuple[SamplerSpec, str], ...] = (
-    (
-        SamplerSpec(
-            name="LatinHypercube",
-            family=PLUGIN_FAMILY,
-            source=SOURCE_BUILTIN_PLUGIN,
-        ),
-        "latin_hypercube.py",
-    ),
-)
+_BUILTIN_PLUGINS: tuple[tuple[SamplerSpec, str], ...] = ()
 _BUILTIN_PLUGIN_BY_NAME: dict[str, tuple[SamplerSpec, str]] = {
     spec.name: (spec, filename) for spec, filename in _BUILTIN_PLUGINS
 }

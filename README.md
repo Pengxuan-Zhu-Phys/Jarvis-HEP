@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The PyPI distribution is named `Jarvis-HEP` (current version `2.1.0`). Its
+The distribution is named `Jarvis-HEP` (current source version `2.1.1`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -14,13 +14,19 @@ command: `Jarvis`.
 | Capability | V2 implementation |
 | --- | --- |
 | Distributed execution | Redis-backed queue with Python `spawn` Workers |
-| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `LatinHypercube`, `Dynesty`, and `MultiNest` |
+| Parameter sampling | Stable catalog: `Random`, `Grid`, `Bridson`, `AdaptiveBridson`, `CSV`, `Dynesty`, and `MultiNest` |
 | Your own samplers | [Jarvis-HEP-Sampler](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler) plug-ins: write one Python file, `Jarvis sampler load` it, use it as `Sampling.Method` |
 | HEP calculator integration | [Jarvis-HEP-Portal](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Portal) for calculator file I/O |
 | Python operators | [Jarvis-Operas](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Operas) for registered operators and expressions |
 | Reliability | Checkpoints, resume, graceful shutdown, and per-sample failure artifacts |
 | Observability | Validation diagnostics, monitor snapshots, component logs, and performance summaries |
 | Project workflow | Scaffold, validate, run, package, fetch, and inspect standalone projects |
+
+`LatinHypercube` is an external sampler example in
+[Jarvis-HEP-Sampler/examples](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler/tree/main/examples).
+With the updated SDK, load `LatinHypercube.py` before using
+`Sampling.Method: LatinHypercube` in a new scan. Existing scans resume from
+their saved sampler source.
 
 The execution model is deliberately simple:
 
@@ -53,7 +59,7 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.1.0` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
+Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.1.2` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
 
 ```bash
 python3 -m pip install -e ../Jarvis-HEP-Sampler
@@ -481,8 +487,8 @@ Record changes in `CHANGELOG.md`, then run from this checkout (replace the
 example version with the intended release):
 
 ```bash
-./jhrel 2.1.0 --dry
-./jhrel 2.1.0
+./jhrel 2.1.1 --dry
+./jhrel 2.1.1
 ```
 
 `--dry` performs read-only source and release-note checks. The normal command

@@ -42,7 +42,7 @@ EnvReqs:
         version: ">=23.0"
       - name: pandas
         required: true
-        version: ">=2.1.0"
+        version: ">=2.1.1"
       - name: pillow
         required: true
         version: ">=10.0.0"
@@ -88,7 +88,7 @@ EnvReqs:
         version: ">=1.5.1"
       - name: Jarvis-HEP-Sampler
         required: true
-        version: ">=1.1.0"
+        version: ">=1.1.2"
       - name: Jarvis-Operas
         required: true
         version: ">=1.4.1"

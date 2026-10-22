@@ -1,7 +1,7 @@
 """Installed Jarvis-HEP-Sampler release required by this Jarvis-HEP.
 
 The plug-in CLI, registry, and scan identity all use this package. The floor is
-1.1.0, the first release with host contract 2; there is no upper bound.
+1.1.2, which makes LatinHypercube available as an external example; there is no upper bound.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from importlib.metadata import PackageNotFoundError, version
 from packaging.version import InvalidVersion, Version
 
 SDK_DISTRIBUTION = "Jarvis-HEP-Sampler"
-SDK_SPECIFIER = ">=1.1.0"
-_MIN_VERSION = Version("1.1.0")
+SDK_SPECIFIER = ">=1.1.2"
+_MIN_VERSION = Version("1.1.2")
 
 
 class SamplerSDKError(RuntimeError):

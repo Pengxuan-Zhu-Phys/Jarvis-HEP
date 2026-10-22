@@ -5,6 +5,15 @@ User guides and reference documentation are available in
 
 ## Unreleased
 
+### Changed
+
+- Remove the bundled `LatinHypercube` implementation and built-in catalog
+  entry. The same algorithm is available as an explicitly loaded external
+  sampler in Jarvis-HEP-Sampler's
+  [`examples/LatinHypercube.py`](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler/blob/main/examples/LatinHypercube.py).
+- Require `Jarvis-HEP-Sampler>=1.1.2` without an upper bound. Default
+  environment cards and runtime dependency checks use the same minimum.
+
 ### Added
 
 - Download the PDF manual with `Jarvis download-manual`, with support for a
@@ -20,6 +29,18 @@ User guides and reference documentation are available in
   If Redis fails, retain the previous statistics with a stale indicator while
   host metrics continue to refresh. Each source recovers independently, and
   repeated failures do not flood the log.
+
+### Compatibility and upgrade notes
+
+- Upgrade the SDK to 1.1.2 or newer, obtain `examples/LatinHypercube.py` and
+  its matching `.task.yaml` card from Jarvis-HEP-Sampler, and load the file
+  with `jsampler load` or `Jarvis sampler load` before starting a new scan
+  using `Sampling.Method: LatinHypercube`. An unloaded method is no longer
+  listed by `Jarvis sampler list` or accepted in a new task card.
+- Keep existing scans' method names and checkpoints unchanged. Scans with a
+  valid source binding resume from their saved source with `--resume`, even
+  when the former package file or external registration is absent. Moving
+  the example does not change the algorithm or the `centered` option.
 
 ## 2.1.0 — 2026-10-18
 

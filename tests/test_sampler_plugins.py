@@ -1,7 +1,7 @@
 """External sampler S1: Jarvis-HEP-Sampler plug-ins behave like built-in samplers.
 
 Covers the parity contract of ``Jarvis-Books Docs/Jarvis-HEP/specs/sampler-integration.md``
-§1.2 (P1–P6, P9) for the shipped ``LatinHypercube`` and for user plug-ins
+§1.2 (P1–P6, P9) for external plug-ins
 loaded with ``Jarvis sampler load``: catalog and Distributor, validation and
 ``Jarvis man`` without running plug-in code, the adapter against the SDK's
 reference stream, batch invariance, checkpoints, preflight, logging,
@@ -173,13 +173,10 @@ class _Capture(logging.Handler):
 
 
 # ---------------------------------------------------------- catalog / Distributor
-def test_shipped_plugin_flags_match_its_file(home: Path) -> None:
-    for spec in sampler_catalog.builtin_plugin_specs():
-        record = sampler_catalog.plugin_record(spec.name)
-        assert record is not None and record.method == spec.name
-        assert spec.stateless == (record.profile == "independent")
-        assert spec.statistical == record.statistical
-        assert spec.family == "plugin" and spec.source == "builtin-plugin"
+def test_latin_hypercube_is_not_shipped_or_reserved(home: Path) -> None:
+    assert "LatinHypercube" not in sampler_catalog.available_methods()
+    assert "LatinHypercube" not in sampler_catalog.reserved_method_names()
+    assert sampler_catalog.builtin_plugin_path("LatinHypercube") is None
 
 
 def test_sdk_reserves_every_hep_builtin_method(home: Path) -> None:
@@ -207,28 +204,28 @@ def test_a_user_entry_never_shadows_a_shipped_method(
 ) -> None:
     # Model a registration written by an older SDK, before the name became
     # reserved. Current load correctly refuses to create this entry.
-    clone = _write(tmp_path, "lhs.py", HALF_CUBE.replace('"HalfCube"', '"LatinHypercube"'))
+    clone = _write(tmp_path, "Grid.py", HALF_CUBE.replace('"HalfCube"', '"Grid"'))
     payload = clone.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
-    snapshot = f"user_sources/LatinHypercube-{digest[:12]}.py"
+    snapshot = f"user_sources/Grid-{digest[:12]}.py"
     (home / snapshot).write_bytes(payload)
     old_entry = SamplerRegistry().entries()["HalfCube"].to_dict()
     old_entry.update(
         source_path=str(clone), snapshot=snapshot, source_sha256=digest,
-        plugin={**old_entry["plugin"], "method": "LatinHypercube"},
+        plugin={**old_entry["plugin"], "method": "Grid"},
     )
     (home / "sources.json").write_text(
-        json.dumps({"version": 1, "entries": {"LatinHypercube": old_entry}}),
+        json.dumps({"version": 1, "entries": {"Grid": old_entry}}),
         encoding="utf-8",
     )
-    assert SamplerRegistry().get("LatinHypercube") is not None
-    assert sampler_catalog.spec_for("LatinHypercube").source == "builtin-plugin"
+    assert SamplerRegistry().get("Grid") is not None
+    assert sampler_catalog.spec_for("Grid").source == "builtin"
     assert next(
         row for row in sampler_catalog.registry_report().entries
-        if row.method == "LatinHypercube" and row.source == "user"
+        if row.method == "Grid" and row.source == "user"
     ).status == "name-conflict"
-    assert SamplerRegistry().remove("LatinHypercube").method == "LatinHypercube"
-    assert sampler_catalog.spec_for("LatinHypercube").source == "builtin-plugin"
+    assert SamplerRegistry().remove("Grid").method == "Grid"
+    assert sampler_catalog.spec_for("Grid").source == "builtin"
 
 
 def test_unknown_method_points_at_jarvis_sampler_load(home: Path) -> None:
@@ -276,7 +273,7 @@ def test_identity_drives_uuids(tmp_path: Path, half_cube: Path) -> None:
     assert first_uuid({**base, "seed": 6}) != reference
 
 
-def test_submission_is_batch_invariant(tmp_path: Path) -> None:
+def test_submission_is_batch_invariant(tmp_path: Path, half_cube: Path) -> None:
     from jarvishep2.redis_queue import make_fakeredis_queue
 
     seen = []
@@ -285,7 +282,7 @@ def test_submission_is_batch_invariant(tmp_path: Path) -> None:
         # whole budget (Runtime normalisation drops max_inflight; Bounds.max_worker
         # is the reserved key FixedSetSampler reads).
         config = _config(
-            tmp_path, "LatinHypercube", {"seed": 3, "point_number": 50, "max_worker": 1000}
+            tmp_path, "HalfCube", {"seed": 3, "point_number": 50, "max_worker": 1000}
         )
         config["Runtime"]["batch_size"] = batch_size
         sampler = _sampler(config)
@@ -307,11 +304,16 @@ def test_bad_output_stops_at_the_candidate(tmp_path: Path, half_cube: Path) -> N
     assert info.value.candidate_index == 3
 
 
-def test_non_finite_mapped_value_is_rejected(tmp_path: Path) -> None:
+def test_non_finite_mapped_value_is_rejected(tmp_path: Path, half_cube: Path) -> None:
+    half_cube.write_text(HALF_CUBE.replace(
+        'return rng.random(context.dimension) * plan["upper"]',
+        'return np.full(context.dimension, 0.25)',
+    ))
+    SamplerRegistry().load(half_cube)
     config = _config(
         tmp_path,
-        "LatinHypercube",
-        {"seed": 1, "point_number": 2, "centered": True},
+        "HalfCube",
+        {"seed": 1, "point_number": 2},
         Mapper=[{"name": "lx", "expression": "log(x - 0.25)"}],
     )
     with pytest.raises(PluginOutputError, match="lx = -inf"):
@@ -362,50 +364,40 @@ def test_preflight_keeps_a_scan_copy_that_resume_prefers(tmp_path: Path, half_cu
     assert fresh.plugin.source_sha256 != first.plugin.source_sha256
 
 
-def test_bound_builtin_plugin_resumes_after_packaged_source_changes(
-    tmp_path: Path, home: Path
-) -> None:
+def test_latin_hypercube_load_remove_and_bound_resume(tmp_path: Path, home: Path) -> None:
+    # A legacy scan may remember the former package path. Its source copy is
+    # sufficient after the sampler is removed from HEP and from the registry.
     from jarvishep2.sampling import plugin_identity
 
-    source = sampler_catalog.builtin_plugin_path("LatinHypercube")
-    assert source is not None
-    packaged_copy = tmp_path / "old-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
-    packaged_copy.parent.mkdir(parents=True)
-    packaged_copy.write_bytes(source.read_bytes())
+    source = _write(
+        tmp_path, "LatinHypercube.py", HALF_CUBE.replace('"HalfCube"', '"LatinHypercube"')
+    )
+    SamplerRegistry().load(source)
+    assert sampler_catalog.spec_for("LatinHypercube").source == "user"
+    assert not sampler_catalog.registry_report().conflicts
     config = _config(tmp_path, "LatinHypercube", {"point_number": 5, "seed": 11})
-    config["scan_name"] = "builtin-scan"
-    config["Scan"]["name"] = "builtin-scan"
-    with (
-        mock.patch.object(sampler_catalog, "builtin_plugin_path", return_value=packaged_copy),
-    ):
-        sampler_catalog._builtin_plugin_record.cache_clear()
-        try:
-            first = preflight_plugin(config, task_root=str(tmp_path), scan_name="builtin-scan")
-            assert first is not None and first.source_copy is not None
-            original_bytes = first.source_copy.read_bytes()
-            original_hash = first.plugin.source_sha256
-            packaged_copy.write_bytes(original_bytes + b"\n# packaged source changed\n")
-            binding = plugin_identity.read_binding(config)
-            assert binding is not None and binding["source_sha256"] == original_hash
-            resumed = preflight_plugin(
-                config, task_root=str(tmp_path), scan_name="builtin-scan", resume=True
-            )
-            assert resumed is not None and resumed.resumed_from_copy
-            assert resumed.plugin.source_sha256 == original_hash
-            assert resumed.source_copy == first.source_copy
-            assert resumed.source_copy.read_bytes() == original_bytes
-            moved_package = tmp_path / "new-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
-            moved_package.parent.mkdir(parents=True)
-            moved_package.write_bytes(packaged_copy.read_bytes())
-            with mock.patch.object(sampler_catalog, "builtin_plugin_path", return_value=moved_package):
-                assert plugin_identity.read_binding(config) is not None
-                moved_resume = preflight_plugin(
-                    config, task_root=str(tmp_path), scan_name="builtin-scan", resume=True
-                )
-            assert moved_resume is not None and moved_resume.resumed_from_copy
-            assert moved_resume.plugin.source_sha256 == original_hash
-        finally:
-            sampler_catalog._builtin_plugin_record.cache_clear()
+    first = preflight_plugin(config, task_root=str(tmp_path), scan_name="plugin-scan")
+    assert first is not None and first.source_copy is not None
+    expected = _drain(_sampler(config))
+    original_source = first.source_copy.read_bytes()
+    binding = plugin_identity.read_binding(config)
+    assert binding is not None
+    binding["original_source"] = str(
+        tmp_path / "old-venv/jarvishep2/sampling/plugins/latin_hypercube.py"
+    )
+    plugin_identity.write_binding(plugin_identity.identity_path(config), binding)
+    SamplerRegistry().remove("LatinHypercube")
+    source.unlink()
+    assert sampler_catalog.spec_for("LatinHypercube") is None
+
+    resumed = preflight_plugin(config, task_root=str(tmp_path), scan_name="plugin-scan", resume=True)
+    assert resumed is not None and resumed.resumed_from_copy
+    assert resumed.plugin.source_sha256 == first.plugin.source_sha256
+    assert resumed.source_copy.read_bytes() == original_source
+    with sampler_catalog.scan_plugin_context(resumed.record):
+        actual = _drain(_sampler(config))
+    assert [p.uuid for p in actual] == [p.uuid for p in expected]
+    assert all(np.array_equal(a.u_coords, b.u_coords) for a, b in zip(actual, expected, strict=True))
 
 
 def test_preflight_failure_is_logged_with_the_plugin_traceback(tmp_path: Path, half_cube: Path) -> None:
@@ -714,7 +706,7 @@ def test_man_pages_for_plugins(half_cube: Path) -> None:
     assert page["capabilities"]["type"] == "plugin"
     assert "upper: 0.5" in page["examples"][0]
     index = {row["method"]: row["type"] for row in resolve_man_request(["sampler"])["methods"]}
-    assert index["HalfCube"] == "plugin" and index["LatinHypercube"] == "plugin"
+    assert index["HalfCube"] == "plugin" and "LatinHypercube" not in index
     assert resolve_man_request([], code="JV2-PLG-004")["diagnostics"][0] == "JV2-PLG-004"
 
 
@@ -757,7 +749,7 @@ def test_cli_lifecycle(tmp_path: Path, home: Path, capsys: pytest.CaptureFixture
     assert "Jarvis sampler info" in error and "MyScan" in error
     assert dispatch_sampler(["list"]) == 0
     listing = capsys.readouterr().out
-    assert "MyScan" in listing and "LatinHypercube" in listing and "Grid" in listing
+    assert "MyScan" in listing and "Grid" in listing and "LatinHypercube" not in listing
     assert "Jarvis-HEP" in listing
     assert dispatch_sampler(["info", "Grid"]) == 0
     assert "built-in" in capsys.readouterr().out
@@ -784,8 +776,7 @@ def test_cli_json_list_and_info_include_builtins(
         "source": "Jarvis-HEP",
         "status": "built-in",
     }
-    assert shipped["LatinHypercube"]["source"] == "Jarvis-HEP"
-    assert shipped["LatinHypercube"]["status"] == "built-in"
+    assert "LatinHypercube" not in shipped
 
     assert dispatch_sampler(["--json", "info", "grid"]) == 0
     info = json.loads(capsys.readouterr().out)
@@ -796,13 +787,8 @@ def test_cli_json_list_and_info_include_builtins(
     assert info["source"] == "Jarvis-HEP"
     assert info["manual"] == "Jarvis man sampler.Grid"
 
-    assert dispatch_sampler(["info", "LatinHypercube", "--json"]) == 0
-    latin = json.loads(capsys.readouterr().out)
-    assert latin["ok"] is True and latin["command"] == "sampler info"
-    assert latin["method"] == "LatinHypercube"
-    assert latin["options_schema"] is True and "draw" in latin["functions"]
-    assert latin["source"] == "sampling/plugins/latin_hypercube.py"
-    assert latin["description"] and latin["status"] == "built-in"
+    assert dispatch_sampler(["info", "LatinHypercube", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["ok"] is False
 
     SamplerRegistry().load(_write(tmp_path, "HalfCube.py", HALF_CUBE))
     assert dispatch_sampler(["info", "HalfCube", "--json"]) == 0
