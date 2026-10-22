@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The distribution is named `Jarvis-HEP` (current source version `2.1.1`). Its
+The distribution is named `Jarvis-HEP` (current source version `2.2.0`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -59,7 +59,7 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.1.2` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
+Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.2.0` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
 
 ```bash
 python3 -m pip install -e ../Jarvis-HEP-Sampler
@@ -128,6 +128,14 @@ Jarvis does not publish optional dependency groups.
 
 For the complete installation guide, Redis options, and project-packaging
 workflow, see the [installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md).
+
+External feedback samplers are supported with SDK host contract 3. Load the SDK's
+`examples/SliceMCMC.py`, then run its `examples/SliceMCMC.eggbox.task.yaml` with
+`Jarvis run`. Workers evaluate the real Opera and send LogLikelihood to the
+plugin. The card caps global trials at 20,000; `DATABASE/chain.csv` contains
+retained posterior transitions, while `samples.csv` contains all evaluations.
+Use `--resume` with the same card after interruption. See the
+[feedback sampler contract](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP-Sampler/FEEDBACK_MCMC_DESIGN.md).
 
 ## First run
 
@@ -487,8 +495,8 @@ Record changes in `CHANGELOG.md`, then run from this checkout (replace the
 example version with the intended release):
 
 ```bash
-./jhrel 2.1.1 --dry
-./jhrel 2.1.1
+./jhrel 2.2.0 --dry
+./jhrel 2.2.0
 ```
 
 `--dry` performs read-only source and release-note checks. The normal command

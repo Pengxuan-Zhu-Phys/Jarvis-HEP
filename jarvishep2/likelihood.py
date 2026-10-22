@@ -32,6 +32,7 @@ class LogLikelihoodEvaluator:
         expressions: Sequence[Mapping[str, Any]] | None,
         *,
         expression_context: ExpressionContext | None = None,
+        strict: bool = False,
     ) -> None:
         if expression_context is None:
             from jarvishep2.operas_functions import (
@@ -44,6 +45,7 @@ class LogLikelihoodEvaluator:
                 if expression_uses_operas_function(expressions)
                 else ExpressionContext()
             )
+        self._strict = strict
         self._context = expression_context
         self._compiled: list[tuple[str, CompiledExpression]] = []
         known_symbols = ("x", "y", "z", "shift", "calc_z", "LogL", "LogL_Z")
@@ -67,6 +69,8 @@ class LogLikelihoodEvaluator:
         values: dict[str, float] = {}
         payload = dict(observables)
         eval_values = _sanitize_eval_values(payload)
+        if not self._compiled and self._strict:
+            raise ValueError("generational feedback requires a LogLikelihood expression")
         if not self._compiled:
             values["LogL"] = float("-inf")
             return values
@@ -81,6 +85,8 @@ class LogLikelihoodEvaluator:
                 ) from exc
             if isinstance(result, np.generic):
                 result = result.item()
+            if self._strict:
+                _validate_log_density(result)
             if result is None:
                 likelihood = float("-inf")
             else:
@@ -126,6 +132,8 @@ class LogLikelihoodEvaluator:
         # Evaluate term-by-term so each expression can be sample-logged like V1.
         payload = dict(observables)
         eval_values = _sanitize_eval_values(payload)
+        if not self._compiled and self._strict:
+            raise ValueError("generational feedback requires a LogLikelihood expression")
         if not self._compiled:
             observables["LogL"] = float("-inf")
             sample_info["observables"] = observables
@@ -145,6 +153,8 @@ class LogLikelihoodEvaluator:
                     ) from exc
                 if isinstance(result, np.generic):
                     result = result.item()
+                if self._strict:
+                    _validate_log_density(result)
                 if result is None:
                     likelihood = float("-inf")
                 else:
@@ -174,6 +184,8 @@ class LogLikelihoodEvaluator:
                         f"   with input \t-> [{input_text}] \n"
                         f"   Output \t\t-> {likelihood}"
                     )
+            if self._strict:
+                _validate_log_density(total_loglikelihood)
             values["LogL"] = _finite_or_neginf(float(total_loglikelihood))
             observables.update(values)
             sample_info["observables"] = observables
@@ -189,6 +201,14 @@ class LogLikelihoodEvaluator:
             sample_info["observables"] = observables
             sample_info["likelihood"] = float("-inf")
             raise
+
+
+def _validate_log_density(value: Any) -> None:
+    """Preserve explicit -inf; never disguise an invalid calculation as zero density."""
+    if (isinstance(value, (bool, np.bool_, complex, np.complexfloating))
+            or not isinstance(value, (int, float, np.number))
+            or np.isnan(value) or value == float("inf")):
+        raise ValueError(f"invalid log density: {value!r}; expected a real number or -inf")
 
 
 def _finite_or_neginf(value: float) -> float:

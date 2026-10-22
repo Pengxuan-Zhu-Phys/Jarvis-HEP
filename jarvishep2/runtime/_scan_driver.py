@@ -271,7 +271,9 @@ class _ScanDriver:
             for item in getattr(core.sampler, "submitted_uuids", frozenset())
             if str(item)
         }
-        if bool(getattr(core.sampler, "uses_indexed_resume", False)):
+        if hasattr(core.sampler, "archive_target_count"):
+            expected = core.sampler.archive_target_count
+        elif bool(getattr(core.sampler, "uses_indexed_resume", False)):
             # Redis sample counters are run-local and can include work from a
             # killed control process.  Indexed samplers instead have one
             # durable logical target: the highest proposed sample index.

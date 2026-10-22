@@ -309,5 +309,5 @@ def test_old_sdk_host_contract_has_one_json_dependency_error(monkeypatch, capsys
     payload = json.loads(captured.out)
     assert payload["ok"] is False
     assert payload["error"]["type"] == "SamplerSDKError"
-    assert "host contract 2" in payload["error"]["message"]
+    assert "host contract 3" in payload["error"]["message"]
     assert "Traceback" not in captured.err

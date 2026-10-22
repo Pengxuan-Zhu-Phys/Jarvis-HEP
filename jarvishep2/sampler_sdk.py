@@ -1,7 +1,7 @@
 """Installed Jarvis-HEP-Sampler release required by this Jarvis-HEP.
 
 The plug-in CLI, registry, and scan identity all use this package. The floor is
-1.1.2, which makes LatinHypercube available as an external example; there is no upper bound.
+1.2.0, which makes generational ask/tell available to the host; there is no upper bound.
 """
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from importlib.metadata import PackageNotFoundError, version
 from packaging.version import InvalidVersion, Version
 
 SDK_DISTRIBUTION = "Jarvis-HEP-Sampler"
-SDK_SPECIFIER = ">=1.1.2"
-_MIN_VERSION = Version("1.1.2")
+SDK_SPECIFIER = ">=1.2.0"
+_MIN_VERSION = Version("1.2.0")
 
 
 class SamplerSDKError(RuntimeError):
@@ -45,9 +45,9 @@ def require_sampler_sdk() -> str:
         )
     import jarvis_hep_sampler
 
-    if getattr(jarvis_hep_sampler, "HOST_CONTRACT_VERSION", 0) < 2:
+    if getattr(jarvis_hep_sampler, "HOST_CONTRACT_VERSION", 0) < 3:
         raise SamplerSDKError(
-            f"{SDK_DISTRIBUTION} {installed} lacks sampler host contract 2. "
+            f"{SDK_DISTRIBUTION} {installed} lacks sampler host contract 3. "
             f'Reinstall it with: python3 -m pip install --force-reinstall "{SDK_DISTRIBUTION}{SDK_SPECIFIER}"'
         )
     return installed

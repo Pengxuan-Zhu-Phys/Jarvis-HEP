@@ -1452,7 +1452,7 @@ class Jarvis2Core:
         sampler_name = type(self.sampler).__name__ if self.sampler is not None else None
         from jarvishep2.sampling.plugin_sampler import PluginSampler
 
-        if isinstance(self.sampler, PluginSampler):
+        if isinstance(self.sampler, PluginSampler) or getattr(self.sampler, "is_generational_plugin", False):
             # Every plug-in runs through one adapter class; name it by its method.
             sampler_name = self.sampler.method
         summary = build_run_summary(

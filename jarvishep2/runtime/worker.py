@@ -289,6 +289,7 @@ class Worker(Process):
         self._likelihood = LogLikelihoodEvaluator(
             likelihood_exprs,
             expression_context=expression_context,
+            strict=bool(self.worker_config.get("plugin_feedback_version")),
         )
         self._expression_context = expression_context
         nuisance_cfg = self.worker_config.get("nuisance_config")
@@ -665,7 +666,7 @@ class Worker(Process):
             from jarvishep2.feedback_return import build_feedback_record
 
             # Ensure unusable samples still carry LogL=-inf for flat feedback.
-            if "LogL" not in sample.observables:
+            if not self.worker_config.get("plugin_feedback_version") and "LogL" not in sample.observables:
                 sample.observables["LogL"] = float("-inf")
                 sample._mirror_fields_to_info()
             spec = self.worker_config.get("feedback_return") or {
@@ -682,7 +683,8 @@ class Worker(Process):
             if not feedback_queue and getattr(sample, "feedback_queue", None):
                 feedback_queue = sample.feedback_queue
             self._redis.publish_feedback(
-                build_feedback_record(sample, spec=spec),
+                build_feedback_record(sample, spec=spec,
+                                      terminal_version=self.worker_config.get("plugin_feedback_version")),
                 queue=str(feedback_queue) if feedback_queue else None,
             )
 

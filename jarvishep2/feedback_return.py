@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 # Wire key for total log-likelihood (maps from sample observables["LogL"]).
@@ -116,6 +116,7 @@ def build_feedback_record(
     sample: Any,
     *,
     spec: Mapping[str, Any] | None = None,
+    terminal_version: int | None = None,
 ) -> dict[str, Any]:
     """Build a flat feedback dict for ``hep:feedback``."""
     policy = dict(spec or {})
@@ -138,8 +139,19 @@ def build_feedback_record(
         obs = dict(getattr(sample, "observables", None) or {})
         params = dict(getattr(sample, "params", None) or {})
     bag = {**params, **obs}
+    if terminal_version is not None:
+        if terminal_version != 1:
+            raise ValueError("unsupported plugin feedback version")
+        lifecycle = sample.get("status") if isinstance(sample, Mapping) else getattr(sample, "status", None)
+        raw_score = obs.get("LogL")
+        valid = (not isinstance(raw_score, bool) and isinstance(raw_score, (int, float))
+                 and not math.isnan(raw_score) and raw_score != math.inf)
+        completed = lifecycle == "Completed" and valid
+        out.update(plugin_feedback_version=1, evaluation_outcome="ok" if completed else "failed",
+                   score_present=bool(completed))
+        out[WIRE_LOGL_KEY] = encode_feedback_float(raw_score) if completed else None
 
-    if include_logl:
+    if include_logl and terminal_version is None:
         logl = extract_logl_total(obs)
         out[WIRE_LOGL_KEY] = encode_feedback_float(
             float(logl) if logl is not None else float("-inf")
@@ -163,7 +175,8 @@ def build_feedback_record(
         )
 
     for name in names:
-        if name in {"uuid", WIRE_LOGL_KEY, "status", "observables"}:
+        if name in {"uuid", WIRE_LOGL_KEY, "status", "observables",
+                    "plugin_feedback_version", "evaluation_outcome", "score_present"}:
             continue
         if name not in bag:
             continue
@@ -212,8 +225,10 @@ def normalize_feedback_record(record: Mapping[str, Any] | None) -> dict[str, Any
             continue
         out[key] = value
 
-    if WIRE_LOGL_KEY in out:
+    if WIRE_LOGL_KEY in out and not raw.get("plugin_feedback_version"):
         out[WIRE_LOGL_KEY] = decode_feedback_float(out[WIRE_LOGL_KEY])
+    if raw.get("plugin_feedback_version") and out.get(WIRE_LOGL_KEY) == "-inf":
+        out[WIRE_LOGL_KEY] = float("-inf")
     return out
 
 
@@ -243,6 +258,15 @@ def resolve_feedback_return(
     sampling = dict(sampling or {})
 
     explicit = sampling.get("FeedbackReturn")
+    if getattr(sampler, "is_generational_plugin", False):
+        required = _normalize_spec(sampler.feedback_return_spec())
+        requested = _normalize_spec(explicit) if isinstance(explicit, Mapping) and explicit else required
+        if not requested["include_logl"]:
+            raise ValueError("generational plugins require FeedbackReturn.include_logl: true")
+        modes = {required["mode"], requested["mode"]}
+        fields = list(dict.fromkeys(required["fields"] + requested["fields"]))
+        return {"mode": "all_flat" if "all_flat" in modes else "fields" if fields else "minimal",
+                "fields": fields, "include_logl": True}
     if isinstance(explicit, Mapping) and explicit:
         return _normalize_spec(dict(explicit))
 

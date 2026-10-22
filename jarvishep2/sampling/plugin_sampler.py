@@ -105,6 +105,10 @@ def plugin_identity(
         "point_number": int(point_number),
         "options": thaw_options(options),
     }
+    if metadata.profile == "generational":
+        fields.update(feedback_protocol=1, loglikelihood=sampling.get("LogLikelihood"),
+                      operas=config.get("Operas"), calculators=config.get("Calculators"),
+                      nuisance=sampling.get("Nuisance"), feedback_return=sampling.get("FeedbackReturn"))
     from jarvishep2.sampling.plugin_identity import canonical_hash
 
     return canonical_hash(fields), fields
@@ -159,13 +163,17 @@ class PluginPreflight:
 
     def runtime_metadata(self) -> dict[str, Any]:
         """Allowlisted provenance for the source and settings actually prepared."""
-        return {
+        result = {
             "method": self.plugin.metadata.method,
             "version": self.plugin.metadata.version,
             "source_sha256": self.plugin.source_sha256,
             "seed": self.session.seed,
             "point_number": self.session.point_number,
         }
+        if self.plugin.metadata.profile == "generational":
+            result.update(profile="generational", max_evaluations=self.session.max_evaluations,
+                          feedback_protocol=1)
+        return result
 
 
 def _variable_names(config: Mapping[str, Any]) -> list[str]:
@@ -180,7 +188,7 @@ def preflight_plugin(
     checkpoint_state: Mapping[str, Any] | None = None,
 ) -> PluginPreflight | None:
     """Resolve exact scan source and reject drift before any run resources start."""
-    from jarvis_hep_sampler import IndependentSession, SamplerLog, SamplerRegistry
+    from jarvis_hep_sampler import GenerationalSession, IndependentSession, SamplerLog, SamplerRegistry
     from jarvis_hep_sampler.errors import PluginLoadError, PluginResumeMismatch
     from jarvis_hep_sampler.loader import load_plugin_source
     from jarvishep2.cardload.task_config import sampling_method
@@ -207,8 +215,8 @@ def preflight_plugin(
             if record else spec_for(method))
     if spec is None or not spec.is_plugin:
         return None
-    if record is None or not spec.stateless:
-        raise PluginLoadError(f"{method} is not a loaded independent sampler", method=method)
+    if record is None:
+        raise PluginLoadError(f"{method} is not a loaded sampler", method=method)
     path = identity_path(cfg)
     source_dir = (plugin_source_dir(task_root, scan_name, method, check=check)
                   if task_root and scan_name else None)
@@ -227,7 +235,7 @@ def preflight_plugin(
         reserved, options = split_bounds(_sampling(cfg).get("Bounds") or {}, meta.profile)
         settings = parse_reserved(reserved, meta.profile)
         identity, fields = plugin_identity(
-            cfg, metadata=meta, seed=settings.seed, point_number=settings.point_number,
+            cfg, metadata=meta, seed=settings.seed, point_number=settings.point_number or settings.max_evaluations,
             options=freeze_options(options), generation_mode=binding["identity_fields"]["generation_mode"],
         )
         check_identity(binding["identity_fields"], fields, method=method)
@@ -258,13 +266,21 @@ def preflight_plugin(
         if hashlib.sha256(payload).hexdigest() != record.source_sha256:
             raise PluginLoadError("registered source SHA-256 mismatch", method=method, source=str(origin))
     plugin = load_plugin_source(payload, origin=origin)
-    session = IndependentSession.from_bounds(
+    session_class = IndependentSession if plugin.metadata.profile == "independent" else GenerationalSession
+    if plugin.metadata.profile == "generational":
+        sampling = _sampling(cfg)
+        if not sampling.get("LogLikelihood"):
+            raise PluginLoadError("generational samplers require Sampling.LogLikelihood", method=method)
+        if (sampling.get("FeedbackReturn") or {}).get("include_logl") is False:
+            raise PluginLoadError("generational samplers require FeedbackReturn.include_logl: true", method=method)
+    session = session_class.from_bounds(
         plugin, _sampling(cfg).get("Bounds") or {}, variable_names=_variable_names(cfg),
         log=SamplerLog(method, JarvisLogBackend(method)),
     )
     identity, fields = plugin_identity(
         cfg, metadata=plugin.metadata, seed=session.seed, point_number=session.point_number,
-        options=session.options, generation_mode="draw_block" if plugin.function("draw_block") else "draw",
+        options=session.options, generation_mode=("ask_tell" if plugin.metadata.profile == "generational" else
+                         "draw_block" if plugin.function("draw_block") else "draw"),
     )
     if binding:
         check_identity(binding["identity_fields"], fields, method=method)
@@ -272,6 +288,20 @@ def preflight_plugin(
         validate_checkpoint(checkpoint_state, identity=identity, source=plugin.source_sha256,
                             fields=fields, method=method)
     session.prepare()
+    if checkpoint_state is not None and plugin.metadata.profile == "generational":
+        from jarvishep2.sampling.generational_plugin_sampler import validate_trajectory
+        session.restore(checkpoint_state.get("session", {}))
+        if (session.candidates != checkpoint_state["index"] or
+                session.generation != checkpoint_state.get("generation")):
+            raise PluginResumeMismatch("checkpoint session/cursor differs", method=method)
+        rejects = checkpoint_state.get("selection_rejected")
+        failures = checkpoint_state.get("evaluation_failures")
+        if (isinstance(rejects, bool) or not isinstance(rejects, int) or rejects < 0 or
+                isinstance(failures, bool) or not isinstance(failures, int) or failures < 0 or
+                checkpoint_state["accepted_index"] + rejects != session.candidates or
+                failures > checkpoint_state["accepted_index"]):
+            raise PluginResumeMismatch("checkpoint evaluation counters differ", method=method)
+        validate_trajectory(path.parent / "chain.csv", checkpoint_state, method=method)
     logger = plugin_logger(method)
     environment = environment_versions()
     if binding and environment != binding["environment"]:
@@ -517,13 +547,8 @@ def _setting_text(value: Any) -> Any:
 def create_plugin_sampler(spec: SamplerSpec) -> PluginSampler:
     """Distributor factory for plug-in methods."""
     if not spec.stateless:
-        from jarvis_hep_sampler.errors import PluginLoadError
-
-        raise PluginLoadError(
-            f"{spec.name} is a feedback (generational) plug-in, which this Jarvis-HEP "
-            "cannot run yet",
-            method=spec.name,
-        )
+        from jarvishep2.sampling.generational_plugin_sampler import GenerationalPluginSampler
+        return GenerationalPluginSampler(spec)
     return PluginSampler(spec)
 
 

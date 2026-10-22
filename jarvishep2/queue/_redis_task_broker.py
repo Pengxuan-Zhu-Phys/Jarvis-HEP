@@ -238,7 +238,7 @@ class _TaskBroker:
         if not payload.get("uuid"):
             raise TaskValidationError("feedback payload requires uuid")
         # Encode non-finite floats for JSON codecs.
-        if WIRE_LOGL_KEY in payload:
+        if WIRE_LOGL_KEY in payload and not payload.get("plugin_feedback_version"):
             try:
                 payload[WIRE_LOGL_KEY] = encode_feedback_float(
                     float(payload[WIRE_LOGL_KEY])

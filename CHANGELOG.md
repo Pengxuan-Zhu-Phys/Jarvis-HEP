@@ -11,10 +11,26 @@ User guides and reference documentation are available in
   entry. The same algorithm is available as an explicitly loaded external
   sampler in Jarvis-HEP-Sampler's
   [`examples/LatinHypercube.py`](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler/blob/main/examples/LatinHypercube.py).
-- Require `Jarvis-HEP-Sampler>=1.1.2` without an upper bound. Default
+- Require `Jarvis-HEP-Sampler>=1.2.0` without an upper bound. Default
   environment cards and runtime dependency checks use the same minimum.
 
 ### Added
+
+- Run external feedback samplers through the SDK's generational ask/tell
+  interface. `Jarvis sampler load SliceMCMC.py` followed by `Jarvis run` now
+  evaluates proposals in Workers and returns LogLikelihood to the plugin.
+  The SDK's `SliceMCMC.eggbox.task.yaml` demonstrates the Opera path with a
+  20,000 global trial limit.
+- Save posterior transitions in `DATABASE/chain.csv`, separately from all
+  trial evaluations in `samples.csv`. Sampler summaries distinguish proposal
+  budgets, actual Worker evaluations, selection rejects, failures and retained draws.
+- Restore feedback plugins from the scan's own source and complete durable
+  barriers. Recovery replays unfinished proposals deterministically, deduplicates
+  archived evaluations and truncates chain output to its checkpointed prefix.
+- Versioned plugin feedback distinguishes valid `-inf` log density from missing
+  or invalid scores and calculator failures. Generational evaluations reject
+  boolean, NaN and positive-infinite scores; existing built-in feedback stays
+  compatible.
 
 - Download the PDF manual with `Jarvis download-manual`, with support for a
   specific GitHub Release, destination path and JSON output. Existing files
@@ -32,7 +48,14 @@ User guides and reference documentation are available in
 
 ### Compatibility and upgrade notes
 
-- Upgrade the SDK to 1.1.2 or newer, obtain `examples/LatinHypercube.py` and
+- Native generational plugins require SDK 1.2.0 with host contract 3. Upgrade
+  both HEP and SDK before loading SliceMCMC; plugin API and stream protocol stay 1.
+- Use `Sampling.Bounds.max_evaluations` for the global proposal ceiling, including
+  initialization, burn-in and selection rejects. It is not a retained-chain target.
+  `Sampling.LogLikelihood` is required, and `FeedbackReturn.include_logl` cannot
+  be disabled. Failure handling belongs to the plugin; SliceMCMC halts by default.
+
+- Upgrade the SDK to 1.2.0 or newer, obtain `examples/LatinHypercube.py` and
   its matching `.task.yaml` card from Jarvis-HEP-Sampler, and load the file
   with `jsampler load` or `Jarvis sampler load` before starting a new scan
   using `Sampling.Method: LatinHypercube`. An unloaded method is no longer
