@@ -208,6 +208,12 @@ def replay_sample_log_events(
 class SampleLogger:
     """Sample-local file logger with optional thresholded terminal forwarding."""
 
+    def __deepcopy__(self, memo):
+        # A logger is a live resource, like logging.Logger. JO snapshots must
+        # copy business inputs without cloning its file handle or lock.
+        memo[id(self)] = self
+        return self
+
     def __init__(self, backend: _SampleLogBackend, *, extra: dict[str, Any] | None = None) -> None:
         self._backend = backend
         self._extra = dict(extra or {})
@@ -284,6 +290,10 @@ class SampleLogger:
 
 class BufferedSampleLogger:
     """In-memory sample logger used before sample artifacts are materialized."""
+
+    def __deepcopy__(self, memo):
+        memo[id(self)] = self
+        return self
 
     def __init__(
         self,

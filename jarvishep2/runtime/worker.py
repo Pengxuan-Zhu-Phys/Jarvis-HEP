@@ -250,6 +250,12 @@ class Worker(Process):
             opera_configs,
             expression_context=expression_context,
         )
+        expected_units = self.worker_config.get("unit_declarations")
+        if expected_units is not None:
+            from jarvishep2.operas_units import plan_identity, UnitBridgeError
+            actual = [plan_identity(m._unit_plan) for m in self._operas.values() if m.units_enabled]
+            if actual != expected_units:
+                raise UnitBridgeError("Worker unit declarations differ from control preflight")
         calculator_configs = self.worker_config.get("calculator_modules") or []
         if isinstance(calculator_configs, dict):
             calculator_configs = list(calculator_configs.values())

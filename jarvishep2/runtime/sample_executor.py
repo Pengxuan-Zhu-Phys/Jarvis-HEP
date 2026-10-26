@@ -63,6 +63,9 @@ class SampleExecutor:
     def process(self, sample: Sample) -> None:
         """Run mapper, layers, calculators, operas, likelihood, and nuisance."""
         worker = self._worker
+        unit_identity = worker.worker_config.get("unit_execution_identity")
+        if unit_identity:
+            sample.enable_units(unit_identity)
         if worker._mapper is not None:
             sample.bind_params(worker._mapper)
         elif sample.opera_params:
@@ -108,6 +111,12 @@ class SampleExecutor:
         sample.set_status("Completed")
 
     def _run_calculator_step(
+        self, step_name: str, sample: Sample, *, selection_checked: bool = False,
+    ) -> None:
+        with sample.unit_producer(step_name):
+            self._execute_calculator_step(step_name, sample, selection_checked=selection_checked)
+
+    def _execute_calculator_step(
         self,
         step_name: str,
         sample: Sample,
@@ -422,6 +431,8 @@ class SampleExecutor:
     def _run_layer(self, layer: list[ExecutionStep], sample: Sample) -> None:
         """Run one execution-plan layer; fan out same-layer calculators concurrently."""
         worker = self._worker
+        if sample.info.get("unit_execution") is not None:
+            sample._unit_layer_writes = {}
     
         calc_steps = [step for step in layer if step.type == "calculator"]
         inline_steps = [step for step in layer if step.type != "calculator"]
@@ -444,6 +455,8 @@ class SampleExecutor:
         for layer in layers:
             calc_steps = [step for step in layer if step.type == "calculator"]
             opera_steps = [step for step in layer if step.type == "opera"]
+            if sample.info.get("unit_execution") is not None:
+                sample._unit_layer_writes = {}
             if calc_steps:
                 worker._run_calculator_steps(calc_steps, sample)
             for step in opera_steps:
@@ -547,20 +560,34 @@ class SampleExecutor:
                 pass
 
     def _run_opera_step(self, step_name: str, sample: Sample) -> None:
+        with sample.unit_producer(step_name):
+            self._execute_opera_step(step_name, sample)
+
+    def _execute_opera_step(self, step_name: str, sample: Sample) -> None:
         worker = self._worker
     
         module = worker._operas.get(step_name)
         if module is None:
             raise KeyError(f"unknown opera module '{step_name}'")
-        updated = module.execute(
-            sample.observables,
-            sample.info,
-            sample_logger=sample.child_logger(
-                module=f"{sample.info.get('logger_name', f'Sample@{sample.uuid}')} "
-                f"(Operas:{step_name})"
-            ),
-        )
-        sample.merge_observables(updated)
+        if sample.info.get("unit_execution") is not None and not module.units_enabled:
+            sample.invalidate_mutable_unit_sources()
+        try:
+            updated = module.execute_result(
+                sample.observables,
+                sample.info,
+                sample_logger=sample.child_logger(
+                    module=f"{sample.info.get('logger_name', f'Sample@{sample.uuid}')} (Operas:{step_name})"
+                ),
+            )
+            sample.commit_opera_result(updated)
+        except Exception as exc:
+            state = sample.info.get("unit_execution")
+            if state is not None:
+                from jarvishep2.operas_units import UnitBridgeError
+                diagnostic = (exc.diagnostic() if isinstance(exc, UnitBridgeError)
+                              else dict(code="JV2-UNIT-003", message=str(exc)))
+                state["failures"].append(dict(module=step_name, **diagnostic))
+            raise
 
     def _run_likelihood(self, sample: Sample) -> None:
         worker = self._worker
@@ -570,6 +597,8 @@ class SampleExecutor:
         if not isinstance(sample.info, dict):
             sample.info = {}
         sample._mirror_fields_to_info()
+        if sample.info.get("unit_execution") is not None:
+            sample.invalidate_mutable_unit_sources()
         value = worker._likelihood.calculate(sample.info)
         # Likelihood may rebind info["observables"] / params; adopt then re-share.
         sample.pull_dual_truth_from_info()

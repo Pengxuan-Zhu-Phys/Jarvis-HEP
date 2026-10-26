@@ -77,6 +77,9 @@ class _RuntimeSupervisor:
         if core._plugin_preflight is None:
             core.init_logger()
         core.check_environment_requirements()
+        from jarvishep2.unit_runtime import preflight_units
+        preflight_units(core, resume=core._resume_policy == "resume",
+                        check=bool(core.config.get("_check_modules_sample_layout")))
         if core._plugin_preflight is None:
             core.preflight_sampler_plugin()
         ensure_scan_name_available(scan_name, cleanup_stale=core._resume_policy == "resume")
@@ -104,6 +107,13 @@ class _RuntimeSupervisor:
                     exc,
                 )
         if core._resume_policy == "resume":
+            if not core.config.get("_unit_execution") and not os.path.exists(
+                os.path.join(os.path.dirname(db_path), "unit_execution.json")
+            ):
+                # A historical file may have required read-only recovery before
+                # its missing unit marker could be diagnosed. Never reuse it.
+                preflight_units(core, resume=True,
+                                check=bool(core.config.get("_check_modules_sample_layout")))
             core._load_persisted_database_state(os.path.dirname(db_path))
         # Preflight remains before command setup, Redis, Workers, and Archiver,
         # while init_logger above ensures all outcomes reach core.log.
@@ -121,6 +131,8 @@ class _RuntimeSupervisor:
         core.init_command_parser()
         core.init_redis()
         core._claim_redis_control_lock()
+        from jarvishep2.unit_runtime import publish_unit_manifest
+        publish_unit_manifest(core)
         core._publish_runtime_metadata()
         if core._resume_policy != "resume":
             core._reset_redis_for_fresh_run()
@@ -957,6 +969,10 @@ class _RuntimeSupervisor:
         if core._control_lock_owner:
             overrides.setdefault("control_lock_owner", str(core._control_lock_owner))
         extra = dict(overrides or {})
+        if core.config.get("_unit_execution"):
+            descriptor = core.config["_unit_execution"]
+            extra["unit_execution_identity"] = descriptor["execution_identity"]
+            extra["unit_declarations"] = descriptor["identity_payload"]["declarations"]
         # Stamp active sampler into feedback_return resolution (D13.8).
         if "sampler" not in extra and core.sampler is not None:
             extra["sampler"] = core.sampler

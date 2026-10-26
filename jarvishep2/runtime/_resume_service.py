@@ -43,6 +43,9 @@ class _ResumeService:
 
         from jarvishep2.sampler_catalog import is_plugin
         if not fresh and is_plugin(sampling_method(core.config)):
+            from jarvishep2.unit_runtime import preflight_units
+            preflight_units(core, resume=resume or os.path.isfile(core.checkpoint_file()),
+                            check=getattr(core, "_unit_check_run", False) is True)
             self._prepare_plugin_resume(resume=resume)
         else:
             core._preload_resume_checkpoint(resume=resume, fresh=fresh)
@@ -158,6 +161,10 @@ class _ResumeService:
         fresh: bool = False,
     ) -> None:
         core = self._core
+
+        from jarvishep2.unit_runtime import preflight_units
+        preflight_units(core, resume=resume or (not fresh and os.path.isfile(core.checkpoint_file())),
+                        check=getattr(core, "_unit_check_run", False) is True)
 
         if fresh:
             core._resume_policy = "fresh"

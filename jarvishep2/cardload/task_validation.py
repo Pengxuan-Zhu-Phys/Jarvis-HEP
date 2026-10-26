@@ -51,11 +51,14 @@ class ValidationIssue:
     hint: str | None = None
     suggestion: str | None = None
     example: str | None = None
+    jo_code: str | None = None
 
     def format_line(self) -> str:
         # path/message may embed user YAML; suggestion/example/hint are author prose.
         path = _ascii_diagnostic(self.path) or self.path
         message = _ascii_diagnostic(self.message) or self.message
+        if self.jo_code:
+            message = f"[{self.jo_code}] {message}"
         base = f"  [{self.level}] {self.code}  {path}\n          {message}"
         if self.hint:
             base += f"\n          hint: {self.hint}"
@@ -103,6 +106,7 @@ class ValidationReport:
                 hint=i.hint,
                 suggestion=i.suggestion,
                 example=i.example,
+                jo_code=i.jo_code,
             )
             if i.level == "warning"
             else i
@@ -126,6 +130,7 @@ def issue(
     hint: str | None = None,
     suggestion: str | None = None,
     example: str | None = None,
+    jo_code: str | None = None,
 ) -> ValidationIssue:
     if suggestion is None:
         suggestion, automatic_example = guidance_for(code, path, message)
@@ -148,6 +153,7 @@ def issue(
         hint=hint,
         suggestion=suggestion,
         example=example,
+        jo_code=jo_code,
     )
 
 
@@ -361,11 +367,18 @@ def _validate_operas_constant_operators(
     modules = operas.get("Modules")
     if not isinstance(modules, list):
         return issues
+    from jarvishep2.operas_units import enabled
+    # Unit declarations are resolved by run/check preflight. Looking up the
+    # global constant registry here would execute persisted user sources just
+    # to structurally validate a unit-only card.
+    modules_to_check = [m for m in modules if isinstance(m, Mapping) and not enabled(m)]
+    if not modules_to_check:
+        return issues
     constants = _operas_constant_full_names()
     if not constants:
         return issues
     for index, mod in enumerate(modules):
-        if not isinstance(mod, Mapping):
+        if not isinstance(mod, Mapping) or enabled(mod):
             continue
         operator = str(mod.get("operator") or "").strip()
         if not operator or operator not in constants:
@@ -449,6 +462,9 @@ def validate_task_config(
     )
 
     cm = bool(check_modules)
+
+    from jarvishep2.operas_units import static_issues
+    report.extend(static_issues(raw_task_card))
 
     sampling = sampling_block(config)
     if sampling is None:

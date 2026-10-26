@@ -72,9 +72,14 @@
     "osRequirement": {
       "type": "object",
       "x-jarvis-zone": "closed",
-      "required": ["name", "version"],
+      "required": [
+        "name",
+        "version"
+      ],
       "properties": {
-        "name": {"$ref": "#/$defs/nonemptyString"},
+        "name": {
+          "$ref": "#/$defs/nonemptyString"
+        },
         "version": {
           "type": "string",
           "pattern": "^\\s*>=\\s*\\d+(?:\\.\\d+)*\\s*$"
@@ -516,6 +521,12 @@
         },
         "expression": {
           "$ref": "#/$defs/nonemptyString"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Input source unit or output storage unit; explicit units enable JO contract processing."
         }
       },
       "additionalProperties": false
@@ -818,6 +829,32 @@
         "walks": {
           "$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish",
           "description": "Nested Bounds.walks."
+        }
+      },
+      "additionalProperties": false
+    },
+    "operasOutput": {
+      "type": "object",
+      "x-jarvis-zone": "closed",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "entry": {
+          "type": "string",
+          "description": "Output dot path or JSON Pointer. Empty selects the canonical result in unit modules."
+        },
+        "expression": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Input source unit or output storage unit; explicit units enable JO contract processing."
         }
       },
       "additionalProperties": false

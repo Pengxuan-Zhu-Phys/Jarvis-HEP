@@ -2917,7 +2917,12 @@ def _operas_page() -> dict[str, Any]:
         "summary": (
             "• Role: Operas.Modules list entries write derived observables from in-process operators.\n"
             "• Contract: operator must return a mapping (dict).\n"
-            "• Catalog: Jarvis man documents YAML shape; use Jarvis operas list/info for operators."
+            "• Catalog: Jarvis man documents YAML shape; use Jarvis operas list/info for operators.\n"
+            "• Units: input.unit is the source; output.unit is storage. Any unit enables canonical processing.\n"
+            "• unit_policy: strict requires confirmed input sources; it is independent of validate --strict.\n"
+            "• Unit entry: dot path or JSON Pointer; output entry '' preserves the canonical result.\n"
+            "• validate checks structure; run/check preflight verifies registered JO contracts.\n"
+            "• DATABASE stores units/audit in _jarvis_units even with store_samples: false."
         ),
         "keys": keys,
         "examples": [_OPERAS_EXAMPLE],

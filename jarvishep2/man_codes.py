@@ -15,6 +15,11 @@ from typing import Any
 # tokens: optional list for resolve_man_request
 
 _CODE_INDEX: dict[str, dict[str, Any]] = {
+    "JV2-UNIT-001": {"kind": "operas"},
+    "JV2-UNIT-002": {"kind": "operas"},
+    "JV2-UNIT-003": {"kind": "operas"},
+    "JV2-UNIT-004": {"kind": "operas"},
+    "JV2-UNIT-005": {"kind": "operas"},
     # Schema
     "JV2-SCH-001": {"kind": "yaml", "path": None},
     "JV2-SCH-002": {"kind": "calculator", "topic": "execution"},

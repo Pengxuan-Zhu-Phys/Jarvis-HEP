@@ -13,8 +13,20 @@ User guides and reference documentation are available in
   [`examples/LatinHypercube.py`](https://github.com/Pengxuan-Zhu-Phys/Jarvis-HEP-Sampler/blob/main/examples/LatinHypercube.py).
 - Require `Jarvis-HEP-Sampler>=1.2.0` without an upper bound. Default
   environment cards and runtime dependency checks use the same minimum.
+- Require `Jarvis-Operas>=1.5.1` for the public unit-contract API.
 
 ### Added
+
+- Support optional Opera input/output `unit` bindings through registered
+  Jarvis-Operas contracts. Inputs declare the source unit; outputs select the
+  stored unit. `unit_policy: strict` requires confirmed input units, while
+  `canonical` records assumptions for inputs without a source declaration.
+- Preserve canonical results and record identities when projecting output units.
+  Store units and per-call audit in HDF5 and CSV, including when
+  `store_samples: false`. Downstream unit-enabled Operas consume recorded sources.
+- Accept JSON Pointer entries in unit-enabled modules alongside dot paths;
+  output `entry: ""` preserves the complete canonical result. Unit diagnostics
+  identify the affected binding and retain the underlying JO error code.
 
 - Run external feedback samplers through the SDK's generational ask/tell
   interface. `Jarvis sampler load SliceMCMC.py` followed by `Jarvis run` now
@@ -60,6 +72,13 @@ User guides and reference documentation are available in
   repeated failures do not flood the log.
 
 ### Compatibility and upgrade notes
+
+- `unit` remains optional; cards without unit requests need no migration.
+  Function unit contracts are required when requesting conversion. Write
+  dimensionless units as the string `"1"`, rather than the YAML number `1`.
+- Unit checkpoint resume supports Grid, Random, CSV and Bridson. Changes to
+  bindings, unit policy, function contracts or JO version reject incompatible
+  resume state. Other samplers support fresh unit runs and reject unit resume.
 
 - Native generational plugins require SDK 1.2.0 with host contract 3. Upgrade
   both HEP and SDK before loading SliceMCMC; plugin API and stream protocol stay 1.

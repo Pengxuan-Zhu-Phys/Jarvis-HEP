@@ -8,6 +8,7 @@ import shlex
 import sys
 
 from jarvishep2.logging import get_jarvis_logger
+from jarvishep2.operas_units import UnitBridgeError
 from jarvishep2.run_outcome import (
     EXIT_OK,
     EXIT_RUN_FAILED,
@@ -201,6 +202,7 @@ def dispatch_validate(
                     "hint": i.hint,
                     "suggestion": i.suggestion,
                     "example": i.example,
+                    **({"jo_code": i.jo_code} if i.jo_code else {}),
                     **_manual_navigation(i.code),
                 }
                 for i in report.issues
@@ -331,6 +333,9 @@ def dispatch_run(
             outcome = core.check_modules(timeout=check_timeout)
         else:
             outcome = core.run(resume=resume)
+    except UnitBridgeError as exc:
+        print(str(exc), file=sys.stderr)
+        return EXIT_USAGE
     except NotImplementedError as exc:
         print(str(exc), file=sys.stderr)
         return EXIT_USAGE

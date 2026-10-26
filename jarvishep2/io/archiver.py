@@ -293,6 +293,15 @@ class ArchiveProcessor:
             return
         drop(uuids=uuids, sample_indices=indices)
 
+    @staticmethod
+    def _attach_units(record, result):
+        from jarvishep2.operas_units import DATABASE_KEY, UnitBridgeError
+        state = result.get("unit_execution")
+        if state is not None:
+            if DATABASE_KEY in record:
+                raise UnitBridgeError(f"{DATABASE_KEY} is reserved", code="JV2-UNIT-005")
+            record[DATABASE_KEY] = state
+
     def _archive_one(self, result: Mapping[str, Any]) -> bool:
         uuid = str(result.get("uuid", "")).strip()
         if not uuid:
@@ -310,6 +319,7 @@ class ArchiveProcessor:
             record.setdefault("status", str(result.get("status") or "Completed"))
             if sample_index is not None:
                 record.setdefault("sample_index", sample_index)
+            self._attach_units(record, result)
             self.writer.add_record(record)
             self.records_written += 1
             self._mark_persisted(uuid, sample_index)
@@ -364,6 +374,7 @@ class ArchiveProcessor:
                 record.setdefault("bucket_dir", bucket_dir)
             if result.get("bucket_id") is not None:
                 record.setdefault("bucket_id", result.get("bucket_id"))
+            self._attach_units(record, result)
             self.writer.add_record(record)
             self.records_written += 1
             self._mark_persisted(uuid, sample_index)
@@ -376,6 +387,7 @@ class ArchiveProcessor:
             record = {"uuid": uuid, "status": str(result.get("status") or "Completed")}
             if sample_index is not None:
                 record["sample_index"] = sample_index
+            self._attach_units(record, result)
             self.writer.add_record(record)
             self.records_written += 1
             self._mark_persisted(uuid, sample_index)
@@ -385,6 +397,7 @@ class ArchiveProcessor:
         record = {"uuid": uuid, "status": str(result.get("status") or "Completed")}
         if sample_index is not None:
             record["sample_index"] = sample_index
+        self._attach_units(record, result)
         self.writer.add_record(record)
         self.records_written += 1
         self._mark_persisted(uuid, sample_index)

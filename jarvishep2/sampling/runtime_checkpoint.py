@@ -265,6 +265,8 @@ def build_payload(
         "safe_barrier_confirmed": bool(safe_barrier_confirmed),
         "checkpoint_reason": str(reason or ""),
     }
+    if normalized.get("_unit_execution"):
+        integrity["unit_execution"] = normalized["_unit_execution"]["execution_identity"]
     return {
         "format": CHECKPOINT_FORMAT,
         "version": CHECKPOINT_VERSION,

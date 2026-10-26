@@ -961,6 +961,7 @@ class Jarvis2Core:
     ) -> RunOutcome:
         """Execute a distributed scan; return a truthful :class:`RunOutcome` (D11.1)."""
         is_check = bool(check_modules)
+        self._unit_check_run = is_check
         self._scan_completed = False
         # Smoke is never a resume: leftover checkpoints must not fast-forward
         # Bridson/CSV indices into an existing DATABASE.

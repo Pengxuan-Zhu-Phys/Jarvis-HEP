@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The distribution is named `Jarvis-HEP` (current source version `2.2.0`). Its
+The distribution is named `Jarvis-HEP` (current source version `2.1.1`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -218,6 +218,44 @@ Jarvis man calculator.execution.output --type JSON
 
 `Jarvis validate` checks a card for mistakes without starting a scan (and
 without needing Redis). Run it before every `Jarvis run`.
+
+### Optional Opera units
+
+Opera input/output bindings accept an optional `unit`. Input units describe the
+source number; output units select the stored number's unit. The expected units
+come from the registered Jarvis-Operas function's `unit_contract`, never from
+parameter names. For a registered function expecting GeV and returning pb:
+
+```yaml
+Operas:
+  Modules:
+    - name: Limit
+      operator: my_physics.limit_prediction
+      input:
+        - {name: mass_GeV, entry: mass_TeV, unit: "TeV"}
+      output:
+        - {name: limit_fb, entry: value, unit: "fb"}
+```
+
+`mass_TeV: 0.2` reaches the function as `200.0` GeV. A result of `0.038332` pb
+is stored as `38.332` fb. Omit `unit` to retain ordinary numeric calling behavior;
+there is no card migration. Adding any unit enables JO processing. Optional
+`unit_policy: canonical` also enables it with audited canonical assumptions;
+`unit_policy: strict` requires confirmed sources for supplied contracted values.
+Dimensionless units use the string `"1"`.
+
+Unit-enabled entries accept dot paths or JSON Pointers; output `entry: ""`
+preserves a separate canonical result. Numeric projections do not rewrite its
+unit, record ID or provenance. DATABASE adds `_jarvis_units` with source units
+and per-call audit, including with `store_samples: false`. A downstream Opera
+must enable unit processing to consume the recorded units automatically.
+
+Unit-enabled scans support checkpoint resume with Grid, Random, CSV and Bridson.
+Changing unit bindings, policy, contract or JO version refuses resume. Other
+samplers support fresh unit execution; their unit-enabled resume is rejected.
+`Jarvis check` appends independent test batches. Validate checks unit syntax;
+run/check preflight verifies the actual registered contract before evaluation.
+See [unit design and acceptance](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/design/operas-units.md).
 
 ## CLI workflow
 
@@ -498,8 +536,8 @@ Record changes in `CHANGELOG.md`, then run from this checkout (replace the
 example version with the intended release):
 
 ```bash
-./jhrel 2.2.0 --dry
-./jhrel 2.2.0
+./jhrel 2.1.1 --dry
+./jhrel 2.1.1
 ```
 
 `--dry` performs read-only source and release-note checks. The normal command

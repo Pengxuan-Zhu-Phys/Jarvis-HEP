@@ -232,6 +232,16 @@ def build_worker_config(
 
     if extra_payload:
         worker_config.update(extra_payload)
+    # Direct Python users of the blueprint need the same unit envelope and
+    # declaration verification as the Core/supervisor route.
+    from jarvishep2.operas_units import enabled, execution_identity
+    if any(enabled(module) for module in opera):
+        effective_config = dict(cfg)
+        effective_config["Operas"] = {"Modules": opera}
+        same_modules = (cfg.get("Operas") or {}).get("Modules") == opera
+        descriptor = (cfg.get("_unit_execution") if same_modules else None) or execution_identity(effective_config)
+        worker_config.setdefault("unit_execution_identity", descriptor["execution_identity"])
+        worker_config.setdefault("unit_declarations", descriptor["identity_payload"]["declarations"])
     return worker_config
 
 

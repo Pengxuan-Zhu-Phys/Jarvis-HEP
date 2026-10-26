@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import copy
 import time
 import queue
 import threading
@@ -21,6 +22,9 @@ from jarvishep2.expression import (
     CompiledExpression,
     ExpressionContext,
     MissingExpressionVariablesError,
+)
+from jarvishep2.operas_units import (
+    OperaResult, UnitBridgeError, enabled, prepare_plan, entry_pointer, read_entry,
 )
 
 
@@ -210,8 +214,10 @@ class OperasModule:
         config: Mapping[str, Any],
         *,
         expression_context: ExpressionContext | None = None,
+        yaml_path: str = "$.Operas.Modules[0]",
     ) -> None:
         self.name = str(name)
+        self.yaml_path = yaml_path
         self.config = dict(config)
         self.operator = str(config["operator"])
         self.input = list(config.get("input", []) or [])
@@ -220,6 +226,8 @@ class OperasModule:
         self.call_mode = normalize_call_mode(config.get("call_mode", "call"))
         self.timeout_sec = self._normalize_timeout(config.get("timeout_sec"))
         self._func: Callable[..., Any] | None = None
+        self._unit_plan: Any | None = None
+        self.units_enabled = enabled(config)
         self._bound_signature: inspect.Signature | None = None
         if expression_context is None:
             from jarvishep2.operas_functions import (
@@ -248,6 +256,11 @@ class OperasModule:
         # Re-validate in case config was mutated after construction.
         self.call_mode = normalize_call_mode(self.call_mode)
         self._compile_input_expressions()
+        if self.units_enabled:
+            if self._unit_plan is None:
+                self._unit_plan = prepare_plan(self.config)
+                self._bound_signature = self._unit_plan.signature
+            return
         if self._func is None:
             self._func = resolve_operator(self.operator, call_mode=self.call_mode)
             try:
@@ -311,7 +324,8 @@ class OperasModule:
         *,
         logger: Any | None = None,
     ) -> dict[str, Any]:
-        payload = dict(observables)
+        payload = copy.deepcopy(dict(observables)) if self.units_enabled else dict(observables)
+        source_snapshot = dict(payload)
         if not self.input:
             return payload
         for index, item in enumerate(self.input):
@@ -352,8 +366,71 @@ class OperasModule:
                     )
             else:
                 src_key = str(item.get("entry", target_name))
-                payload[target_name] = _resolve_entry(payload, src_key)
+                payload[target_name] = (read_entry(source_snapshot, src_key) if self.units_enabled
+                                        else _resolve_entry(payload, src_key))
         return payload
+
+    def execute_result(self, observables, sample_info, *, sample_logger=None) -> OperaResult:
+        """Independent per-call envelope; only the Worker commits its contents."""
+        if not self.units_enabled:
+            return OperaResult(self.execute(observables, sample_info, sample_logger=sample_logger))
+        self.preload()
+        plan = self._unit_plan
+        logger = sample_logger if sample_logger is not None else self._sample_logger(sample_info)
+        try:
+            payload = self._build_input_observables(observables, logger=logger)
+            kwargs = dict(self.kwargs)
+            if "observables" in plan.signature.parameters:
+                kwargs.setdefault("observables", copy.deepcopy(dict(observables)))
+            if logger is not None:
+                kwargs.setdefault("logger", logger)
+            for key, value in payload.items():
+                kwargs.setdefault(str(key), value)
+            # The plan carries the real callable signature, including for acall.
+            kwargs = filter_operator_kwargs(plan, kwargs, operator_name=self.operator)
+            source_records = sample_info.get("unit_execution", {}).get("observable_units", {})
+            sources = {}
+            input_specs = {s["name"]: s for s in self.input if isinstance(s, Mapping)}
+            for name in plan.contract["inputs"]:
+                if name not in kwargs or name in self.kwargs:
+                    continue
+                spec = input_specs.get(name, {})
+                if "expression" in spec:
+                    continue
+                pointer = entry_pointer(spec.get("entry", name))
+                if pointer in source_records:
+                    sources[name] = source_records[pointer]
+            def invoke():
+                if self.call_mode == "acall":
+                    return self._run_coro(plan.arun_inputs((), kwargs, source_units=sources))
+                return plan.run_inputs((), kwargs, source_units=sources)
+            result = self._run_with_timeout(invoke, self.operator)
+            if not isinstance(result.canonical_result, Mapping):
+                raise TypeError(f"Operas module {self.name!r} requires dict output")
+            call = dict(module=self.name, operator=plan.declaration.full_name,
+                        policy=self.config.get("unit_policy", "canonical"), contract_version="1.0",
+                        audit=result.audit, input_bindings=self.input,
+                        output_bindings={s["name"]: entry_pointer(s.get("entry", s["name"])) for s in self.output})
+            if logger is not None:
+                logger.info("Operas unit projection: module={} operator={} units={} audit={}",
+                            self.name, self.operator, result.units, result.audit)
+            return OperaResult(result.values, result.units, call)
+        except Exception as exc:
+            if isinstance(exc, UnitBridgeError):
+                raise
+            field = getattr(exc, "field", None)
+            path = self.yaml_path
+            found = False
+            for side in ("input", "output"):
+                for i, spec in enumerate(self.config.get(side, [])):
+                    if field == spec.get("name") or (side == "output" and field == entry_pointer(spec.get("entry", spec["name"]))):
+                        path = f"{self.yaml_path}.{side}[{i}]"
+                        found = True
+                        break
+                if found:
+                    break
+            raise UnitBridgeError(f"{self.operator}: {exc}", code="JV2-UNIT-003", path=path,
+                                  jo_code=getattr(exc, "code", None)) from exc
 
     @staticmethod
     def _run_coro(coro: Any) -> Any:
@@ -407,6 +484,8 @@ class OperasModule:
         module-global logger.  It is forwarded to Jarvis-Operas NumPy
         implementations under their established ``logger`` keyword.
         """
+        if self.units_enabled:
+            return self.execute_result(observables, sample_info, sample_logger=sample_logger).values
         if self._func is None:
             self.preload()
         assert self._func is not None
@@ -507,8 +586,9 @@ def preload_operas(
 ) -> dict[str, OperasModule]:
     """Build and preload all configured Operas modules."""
     loaded: dict[str, OperasModule] = {}
-    for name, config in modules.items():
-        module = OperasModule(name, config, expression_context=expression_context)
+    for index, (name, config) in enumerate(modules.items()):
+        module = OperasModule(name, config, expression_context=expression_context,
+                              yaml_path=f"$.Operas.Modules[{index}]")
         module.preload()
         loaded[name] = module
     return loaded

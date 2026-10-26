@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 import os
 import shutil
 import tempfile
+import copy
+import threading
+from contextlib import contextmanager
 from typing import Any, Mapping, Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -16,6 +19,53 @@ import numpy as np
 from jarvishep2.runtime_config import should_eager_materialize, should_materialize_on_failure
 from jarvishep2.log_kv import failure_traceback
 from jarvishep2.sample_logger import BufferedSampleLogger, NullSampleLogger, SampleLogger
+
+
+class _UnitObservables(dict):
+    """Invalidate provenance even for legacy direct, same-value assignments."""
+    def __init__(self, values, owner):
+        super().__init__(values)
+        self.owner = owner
+
+    def __setitem__(self, key, value):
+        self.owner.invalidate_unit(key)
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        for key, value in dict(*args, **kwargs).items():
+            self[key] = value
+
+    def __delitem__(self, key):
+        self.owner.invalidate_unit(key)
+        super().__delitem__(key)
+
+    def pop(self, key, *default):
+        self.owner.invalidate_unit(key)
+        return super().pop(key, *default)
+
+    def clear(self):
+        for key in list(self):
+            self.owner.invalidate_unit(key)
+        super().clear()
+
+    def popitem(self):
+        if not self:
+            return super().popitem()
+        key = next(reversed(self))
+        self.owner.invalidate_unit(key)
+        return super().popitem()
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            self[key] = default
+        return self[key]
+
+    def __ior__(self, values):
+        self.update(values)
+        return self
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(dict(self), memo)
 
 
 def _sample_logger_extra(info: Mapping[str, Any], *, module: str) -> dict[str, Any]:
@@ -327,6 +377,8 @@ class Sample:
                 if key in self.info:
                     projection[key] = self.info[key]
         projection.pop("logger", None)
+        if "unit_execution" in self.info:
+            projection["unit_execution"] = copy.deepcopy(self.info["unit_execution"])
         if not self.info.get("store_samples", True):
             projection["store_samples"] = False
             for key in ("save_dir", "run_log", "staging_path", "product_list", "bucket_id", "bucket_dir", "bucket_name"):
@@ -559,6 +611,16 @@ class Sample:
         """
         if not isinstance(self.info, dict):
             self.info = {}
+        if "unit_execution" in self.info and "_jarvis_units" in self.observables:
+            from jarvishep2.operas_units import UnitBridgeError
+            # Quarantine the forbidden user field before raising so the normal
+            # record_failure/status path can still archive this failed point.
+            dict.__delitem__(self.observables, "_jarvis_units")
+            raise UnitBridgeError("_jarvis_units is reserved", code="JV2-UNIT-005")
+        if "unit_execution" in self.info and not isinstance(self.observables, _UnitObservables):
+            # A whole-bag rebind cannot retain earlier provenance.
+            self.info["unit_execution"]["observable_units"].clear()
+            self.observables = _UnitObservables(self.observables, self)
         self.info["uuid"] = self.uuid
         self.info["status"] = self.status
         self.info["params"] = self.params
@@ -578,6 +640,76 @@ class Sample:
             raise TypeError("merge_observables requires a mapping")
         self.observables.update(dict(updates))
         self._mirror_fields_to_info()
+
+    def enable_units(self, identity: str) -> None:
+        self._unit_lock = threading.RLock()
+        self._unit_producer = threading.local()
+        self._unit_layer_writes = {}
+        self.info["unit_execution"] = dict(schema_version=1, execution_identity=identity,
+                                            observable_units={}, calls=[], failures=[])
+        self._mirror_fields_to_info()
+
+    def invalidate_unit(self, key: str) -> None:
+        from jarvishep2.operas_units import pointer_token, DATABASE_KEY, UnitBridgeError
+        if key == DATABASE_KEY:
+            raise UnitBridgeError(f"{DATABASE_KEY} is reserved", code="JV2-UNIT-005")
+        state = self.info.get("unit_execution")
+        if state is None:
+            return
+        prefix = "/" + pointer_token(key)
+        with self._unit_lock:
+            self._check_unit_write(key)
+            for path in list(state["observable_units"]):
+                if path == prefix or path.startswith(prefix + "/"):
+                    del state["observable_units"][path]
+
+    def _check_unit_write(self, key):
+        from jarvishep2.operas_units import UnitBridgeError
+        owner = getattr(self._unit_producer, "name", None)
+        previous = self._unit_layer_writes.get(key)
+        if owner is not None:
+            if previous is not None and previous != owner:
+                raise UnitBridgeError(f"same-layer output {key!r} written by {previous} and {owner}",
+                                      code="JV2-UNIT-005")
+            self._unit_layer_writes[key] = owner
+
+    @contextmanager
+    def unit_producer(self, name):
+        if "unit_execution" not in self.info:
+            yield
+            return
+        previous = getattr(self._unit_producer, "name", None)
+        self._unit_producer.name = name
+        try:
+            yield
+        finally:
+            self._unit_producer.name = previous
+
+    def commit_opera_result(self, result) -> None:
+        from jarvishep2.operas_units import pointer_token, DATABASE_KEY, UnitBridgeError
+        state = self.info.get("unit_execution")
+        if state is None:
+            self.merge_observables(result.values)
+            return
+        if DATABASE_KEY in result.values:
+            raise UnitBridgeError(f"{DATABASE_KEY} is reserved", code="JV2-UNIT-005")
+        with self._unit_lock:
+            for name in result.values:
+                self._check_unit_write(name)
+            self.merge_observables(result.values)
+            for name, unit in result.units.items():
+                if unit is not None:
+                    state["observable_units"]["/" + pointer_token(name)] = unit
+            if result.call is not None:
+                state["calls"].append(copy.deepcopy(result.call))
+
+    def invalidate_mutable_unit_sources(self) -> None:
+        # Ordinary Python functions may mutate arrays/lists in place without a
+        # dict assignment. Once handed to a non-unit stage their provenance is
+        # no longer confirmed, even when the numeric value happens to match.
+        for name, value in list(self.observables.items()):
+            if isinstance(value, (Mapping, list, np.ndarray)):
+                self.invalidate_unit(name)
 
     def set_status(self, status: str) -> None:
         """Update status field and its info projection."""
@@ -613,6 +745,11 @@ class Sample:
         elif not self.info.get("failed_module") and self.execution_plan:
             last = self.execution_plan[-1]
             self.info["failed_module"] = str(getattr(last, "name", "") or "")
+        from jarvishep2.operas_units import UnitBridgeError
+        state = self.info.get("unit_execution")
+        if state is not None and isinstance(error, UnitBridgeError):
+            if not any(item.get("message") == str(error) for item in state["failures"]):
+                state["failures"].append(dict(module=self.info.get("failed_module"), **error.diagnostic()))
 
     def record_handoff(
         self,
@@ -722,6 +859,7 @@ class Sample:
                 "priority",
                 "sample_index",
                 "created_at",
+                "unit_execution",
             )
             if key in info
         }
