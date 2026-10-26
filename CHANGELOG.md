@@ -3,8 +3,7 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
-## Unreleased
-
+## 2.1.1 — 2026-10-27
 ### Changed
 
 - Remove the bundled `LatinHypercube` implementation and built-in catalog
