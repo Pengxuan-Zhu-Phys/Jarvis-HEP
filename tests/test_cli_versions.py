@@ -41,10 +41,30 @@ def test_root_report_keeps_banner_and_aligns_ecosystem(monkeypatch, capsys, is_t
     assert "\x1b[" not in output
 
 
-@pytest.mark.parametrize("tokens", [["--version", "--json"], ["--json", "-v"]])
-def test_root_json_versions(tokens, capsys):
+@pytest.mark.parametrize("flag", ["-v", "-V", "--version"])
+def test_root_text_versions(flag, capsys):
+    assert main([flag]) == 0
+    output = capsys.readouterr().out
+    assert "Version:" in output and get_runtime_version() in output
+    assert "Author:" in output and "Package" in output
+
+
+@pytest.mark.parametrize("flag", ["-v", "-V", "--version"])
+@pytest.mark.parametrize("json_first", [False, True])
+def test_root_json_versions(flag, json_first, capsys):
+    tokens = ["--json", flag] if json_first else [flag, "--json"]
     assert main(tokens) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["name"] == "Jarvis-HEP"
     assert payload["version"] == get_runtime_version()
     assert [r["name"] for r in payload["ecosystem"]] == [r["name"] for r in ecosystem_versions()]
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_root_help_only_advertises_lowercase_version_alias(flag, capsys):
+    with pytest.raises(SystemExit) as exc:
+        main([flag])
+    assert exc.value.code == 0
+    output = capsys.readouterr().out
+    assert "--version" in output and "-v" in output
+    assert "-V" not in output

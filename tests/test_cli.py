@@ -201,7 +201,7 @@ class CliResolveIntentTests(unittest.TestCase):
 
 class CliVersionTests(unittest.TestCase):
     def test_parse_version_flags(self) -> None:
-        for flag in ("-v", "--version"):
+        for flag in ("-v", "-V", "--version"):
             args = build_parser().parse_args([flag])
             self.assertTrue(args.version)
 

@@ -3,6 +3,13 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
+## Unreleased
+
+### Added
+
+- Accept `Jarvis -V` as an alias for `-v` and `--version`, including JSON output.
+  Help continues to advertise only the lowercase `-v` short option.
+
 ## 2.1.1 — 2026-10-27
 ### Changed
 

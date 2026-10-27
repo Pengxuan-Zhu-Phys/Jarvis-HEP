@@ -597,8 +597,8 @@ def main(argv: list[str] | None = None) -> int:
     set_process_title(control_title())
     redis_reported = False
     try:
-        if ("--json" in raw and {"-v", "--version"}.intersection(raw)
-                and set(raw) <= {"-v", "--version", "--json"}):
+        if ("--json" in raw and {"-v", "-V", "--version"}.intersection(raw)
+                and set(raw) <= {"-v", "-V", "--version", "--json"}):
             return dispatch_version(as_json=True)
         if raw[:1] == ["refs"]:
             print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)

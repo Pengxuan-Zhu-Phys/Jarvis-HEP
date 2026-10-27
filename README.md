@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The distribution is named `Jarvis-HEP` (current source version `2.1.1`). Its
+The distribution is named `Jarvis-HEP` (current source version `2.1.2`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -536,8 +536,8 @@ Record changes in `CHANGELOG.md`, then run from this checkout (replace the
 example version with the intended release):
 
 ```bash
-./jhrel 2.1.1 --dry
-./jhrel 2.1.1
+./jhrel 2.1.2 --dry
+./jhrel 2.1.2
 ```
 
 `--dry` performs read-only source and release-note checks. The normal command

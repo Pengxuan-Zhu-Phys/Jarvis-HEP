@@ -481,6 +481,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print Jarvis-HEP logo, authors and ecosystem package versions",
     )
     parser.add_argument(
+        "-V", dest="version", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument(
         "--refs",
         action="store_true",
         help="Print framework and built-in sampler references for citation",
