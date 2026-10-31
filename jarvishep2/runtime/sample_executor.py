@@ -108,7 +108,8 @@ class SampleExecutor:
                     )
                     + "\n"
                 )
-        sample.set_status("Completed")
+        if sample.status != "Failed":
+            sample.set_status("Completed")
 
     def _run_calculator_step(
         self, step_name: str, sample: Sample, *, selection_checked: bool = False,

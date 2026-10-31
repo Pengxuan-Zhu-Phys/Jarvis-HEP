@@ -207,6 +207,17 @@ def _is_numeric_union_error(error: Any) -> bool:
 def _schema_error_message(error: Any) -> str:
     """Replace opaque numeric-union errors with an immediately editable one."""
     if _is_numeric_union_error(error):
+        if isinstance(error.instance, (int, float)) and not isinstance(error.instance, bool):
+            branches = error.schema.get("oneOf", error.schema.get("anyOf", []))
+            numeric = next((node for node in branches if node.get("type") in {"number", "integer"}), {})
+            noun = "an integer" if numeric.get("type") == "integer" else "a number"
+            bounds = []
+            for key, sign in (("minimum", ">="), ("exclusiveMinimum", ">"),
+                              ("maximum", "<="), ("exclusiveMaximum", "<")):
+                if key in numeric:
+                    bounds.append(f"{sign} {numeric[key]}")
+            constraint = " " + " and ".join(bounds) if bounds else ""
+            return f"expected {noun}{constraint}, got {error.instance!r}"
         if isinstance(error.instance, str):
             return (
                 "expected a number (e.g. 0.05 or 1.0e-5), got the string "
@@ -309,6 +320,8 @@ def _schema_error_guidance(
         return "Adjust the value so it satisfies the bound stated in the error message.", example
     if error.validator in {"anyOf", "oneOf"}:
         if _is_numeric_union_error(error):
+            if isinstance(error.instance, (int, float)) and not isinstance(error.instance, bool):
+                return "Use a numeric value satisfying the type and bounds stated in the error.", example
             return (
                 "Use a numeric YAML scalar, for example: 0.05 or 1.0e-5.",
                 example,

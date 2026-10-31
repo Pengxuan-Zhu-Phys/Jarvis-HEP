@@ -34,6 +34,11 @@ def resolve_module_layers(modules: Sequence[Mapping[str, Any]] | None) -> dict[s
         names.append(name)
         deps[name] = set(_normalize_required_modules(module.get("required_modules")))
 
+    known = set(names)
+    for name, required in deps.items():
+        unknown = sorted(required - known)
+        if unknown:
+            raise ValueError(f"Module {name!r} requires unknown module(s): {', '.join(unknown)}")
     layers: dict[str, int] = {}
     resolved: set[str] = set()
     remaining = set(names)
@@ -43,7 +48,7 @@ def resolve_module_layers(modules: Sequence[Mapping[str, Any]] | None) -> dict[s
             name for name in remaining if deps.get(name, set()).issubset(resolved)
         )
         if not ready:
-            ready = sorted(remaining)
+            raise ValueError(f"Module dependency cycle: {', '.join(sorted(remaining))}")
         for name in ready:
             layers[name] = layer_idx
             resolved.add(name)

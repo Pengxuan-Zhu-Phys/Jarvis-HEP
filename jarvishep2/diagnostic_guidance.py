@@ -40,9 +40,10 @@ _GUIDANCE_BY_PREFIX: tuple[tuple[str, str, str | None], ...] = (
     ("Calculators.Modules", "Use a module mapping with name; add execution when this module runs an external calculator.", "Modules:\n  - name: MyCalculator\n    execution:\n      path: .\n      commands: [\"./run.sh\"]"),
     ("Operas.Modules", "Use an Opera module mapping with name and operator.", "Modules:\n  - name: likelihood\n    operator: package.module.function"),
     ("EnvReqs.V2.redis", "Use a Redis mapping with host, port, and db only when overriding defaults.", "redis:\n  host: 127.0.0.1\n  port: 6379\n  db: 0"),
-    ("EnvReqs.V2", "Use a mapping and keep only documented V2 runtime settings.", "V2:\n  workers: 4\n  batch_size: 1"),
     ("EnvReqs.V2.sample_directory", "Use the V2 mapping; numeric bucket settings must be positive integers.", "EnvReqs:\n  V2:\n    sample_directory:\n      enabled: true\n      limit: 200\n      width: 6"),
     ("EnvReqs.V2.archiver", "Use an archiver mapping and choose a supported mode.", "archiver:\n  mode: process"),
+    ("EnvReqs.V2.check_modules", "Use a check_modules mapping containing only data, n_samples and timeout_sec.", "check_modules:\n  n_samples: 1\n  timeout_sec: 60"),
+    ("EnvReqs.V2", "Use a mapping and keep only documented V2 runtime settings.", "V2:\n  workers: 4\n  batch_size: 1"),
 )
 
 

@@ -83,6 +83,8 @@ class Profile1DProfiler:
         self.logl_registry = logl_registry
         self.pass_registry = pass_registry
         self.mode = str(mode or "min").lower()
+        if self.mode not in {"min", "minimize", "max", "maximize"}:
+            raise ValueError(f"Nuisance.target_mode must be min or max, got {mode!r}")
         self.max_attempt = max(1, int(max_attempt))
         self.re_run_physics = bool(re_run_physics)
         self._logger = get_jarvis_logger("nuisance.profile1d")
@@ -99,8 +101,7 @@ class Profile1DProfiler:
             return None
         method = str(block.get("method") or "Profile1D").strip()
         if method and method not in ("Profile1D", "profile1d", "profile_1d"):
-            # Only Profile1D ships in D13.4; unknown methods still try Profile1D shape.
-            pass
+            raise ValueError(f"Nuisance.method must be Profile1D, got {method!r}")
         ctx = context or ExpressionContext()
         logl_reg = NuisanceExpressionRegistry(ctx)
         pass_reg = NuisancePassConditionRegistry(ctx)

@@ -477,7 +477,7 @@ def emit_jplot_scan_levelset_yaml(
     config: Mapping[str, Any] | None = None,
     yaml_basename: str | None = None,
 ) -> str | None:
-    """Emit a **stock jplot** YAML: sample scatter + level-set polyline overlay.
+    """Emit one stock jplot YAML with samples, level set and nested diagnostics.
 
     - Plot YAML → ``<project>/images/<scan>/``
     - Samples CSV → next to HDF5 under ``DATABASE/samples.csv`` (full columns)
@@ -528,12 +528,29 @@ def emit_jplot_scan_levelset_yaml(
 
     polylines = _polylines_physical(payload) if payload else []
 
-    if not csv_paths and not polylines:
+    sampling = config.get("Sampling", {}) if isinstance(config, Mapping) else {}
+    method = str(sampling.get("Method", "")).lower() if isinstance(sampling, Mapping) else ""
+    nested_names = {"dynesty": "dynesty_result.csv", "multinest": "multinest_result.csv"}
+    if method:
+        nested_labels = [method] if method in nested_names else []
+    else:
+        present = [name for name, filename in nested_names.items()
+                   if os.path.isfile(os.path.join(database_dir, filename))]
+        nested_labels = present if len(present) == 1 else []
+    nested_path = next((os.path.join(database_dir, nested_names[name])
+                        for name in nested_labels
+                        if os.path.isfile(os.path.join(database_dir, nested_names[name]))), None)
+    if not csv_paths and not polylines and not nested_path:
         return None
 
     datasets: list[dict[str, Any]] = []
     layers: list[dict[str, Any]] = []
 
+    columns = set(_columns_from_records(records))
+    variables = _mapper_names_from_config(config) or _variable_names_from_config(config)
+    if (csv_paths and x_key in columns and color_key in columns and not polylines
+            and (y_key not in columns or len(variables) == 1)):
+        y_key = color_key
     if csv_paths:
         # Absolute paths let jplot run from images/<scan>/; a list of sources
         # is concatenated lazily by Jarvis-PLOT without reconstructing one CSV.
@@ -551,24 +568,22 @@ def emit_jplot_scan_levelset_yaml(
                     "type": "csv",
                 }
             )
-        layers.append(
-            {
+        if x_key in columns and y_key in columns:
+            coordinates = {"x": {"expr": x_key}, "y": {"expr": y_key}}
+            colored = color_key in columns and color_key != y_key
+            if colored:
+                coordinates["c"] = {"expr": color_key}
+            scatter = {
                 "name": "scatter",
                 "data": [{"source": source_names[0] if len(source_names) == 1 else source_names}],
                 "axes": "ax",
                 "method": "scatter",
-                "coordinates": {
-                    "x": {"expr": x_key},
-                    "y": {"expr": y_key},
-                    "c": {"expr": color_key},
-                },
-                "style": {
-                    "marker": ".",
-                    "s": 6,
-                    "zorder": 1,
-                },
+                "coordinates": coordinates,
+                "style": {"marker": ".", "s": 6},
             }
-        )
+            if colored:
+                scatter["colorbar"] = "axc"
+            layers.append(scatter)
 
     for index, poly in enumerate(polylines):
         xs = [pt[0] for pt in poly]
@@ -591,58 +606,30 @@ def emit_jplot_scan_levelset_yaml(
             }
         )
 
-    if not layers:
+    figures: list[dict[str, Any]] = []
+    if layers:
+        colored = any(layer.get("colorbar") for layer in layers)
+        frame: dict[str, Any] = {"ax": {"labels": {"x": x_key, "y": y_key}}}
+        if colored:
+            frame["axc"] = {"label": {"ylabel": color_key}}
+        figures.append({
+            "name": "samples",
+            "style": ["a4paper_2x1", "rectcmap" if colored else "rect"],
+            "frame": frame,
+            "layers": layers,
+        })
+    if nested_path:
+        datasets.append({"name": "dynesty", "path": os.path.abspath(nested_path), "type": "csv"})
+        figures.append({"name": "runplot", "style": ["a4paper_2x1", "dynesty_runplot"]})
+    if not figures:
         return None
-
-    title = f"{scan_name} samples"
-    if polylines:
-        target = None
-        if payload is not None:
-            target = payload.get("target_expression")
-            tval = payload.get("target_value")
-            if target is not None and tval is not None:
-                title = f"{scan_name}: {target} = {tval}"
-            elif target is not None:
-                title = f"{scan_name}: {target}"
-        else:
-            title = f"{scan_name} + level-set"
-
     jplot_doc: dict[str, Any] = {
+        "version": "0.3",
         "DataSet": datasets,
-        "Figures": [
-            {
-                "name": f"{scan_name}_levelset",
-                "enable": True,
-                "style": ["a4paper_2x1"],
-                "frame": {
-                    "ax": {
-                        "labels": {
-                            "x": f"${x_key}$",
-                            "y": f"${y_key}$",
-                        },
-                    },
-                    "axc": {
-                        "label": {
-                            "ylabel": f"${color_key}$",
-                        },
-                    },
-                },
-                "layers": layers,
-            }
-        ],
-        # Non-jplot metadata (ignored by plot engine if unknown)
-        "_jarvishep2": {
-            "producer": "Jarvis-HEP-V2",
-            "scan_name": scan_name,
-            "levelset": os.path.basename(levelset_path) if payload else None,
-            "title": title,
-            "axis_keys": {"x": x_key, "y": y_key, "c": color_key},
-            "sample_csv_shards": [os.path.basename(path) for path in csv_paths],
-        },
+        "Figures": figures,
+        "output": {"dir": "."},
     }
-    yaml_path = os.path.join(
-        out_dir, yaml_basename or f"{scan_name}_levelset_jplot.yaml"
-    )
+    yaml_path = os.path.join(out_dir, yaml_basename or "plot.yaml")
     return _write_yaml(yaml_path, jplot_doc)
 
 
@@ -747,9 +734,8 @@ def emit_plot_scenes_from_run(
     """Emit plot inputs for a finished run.
 
     Layout:
-    - ``<project>/images/<scan>/`` — jplot YAML + intermediate scene YAML / PNG
-    - ``<scan>/DATABASE/samples.csv`` — full observables CSV next to ``samples.hdf5``
-    - ``<scan>/DATABASE/dynesty_result.csv`` + dynesty_runplot jplot (when present)
+    - ``<project>/images/<scan>/plot.yaml`` — all available figures
+    - ``<scan>/DATABASE/`` — sample CSV shards and nested results, when present
 
     When ``auto_render`` is true and JarvisPLOT is installed, also render the
     jplot YAML to PNG via the stock plot bridge.
@@ -772,132 +758,25 @@ def emit_plot_scenes_from_run(
     os.makedirs(out_dir, exist_ok=True)
     written: dict[str, str] = {}
 
-    levelset = os.path.join(root, "levelset.json")
-    levelset_payload = _load_levelset(levelset)
-    database_dir = os.path.join(root, "DATABASE")
-    db_path = os.path.join(database_dir, "samples.hdf5")
-    records = _read_database_shard_records(database_dir, limit=64)
-    x_key, y_key, color_key = resolve_plot_axis_keys(
-        x_key=x_key,
-        y_key=y_key,
-        color_key=color_key,
-        levelset=levelset_payload,
-        records=records,
-        config=config,
-    )
-
-    overlay = emit_levelset_overlay_scene(
-        levelset,
-        output_yaml=os.path.join(out_dir, f"{scan_name}_levelset.yaml"),
-        title=f"{scan_name} level-set",
-        config=config,
-    )
-    if overlay:
-        written["levelset_overlay"] = overlay
-
-    # The intermediate scatter remains a compact preview of the current shard;
-    # the stock jplot YAML below carries every sealed CSV shard.
-    if os.path.isfile(db_path):
-        scatter = emit_scan_scatter_scene_from_hdf5(
-            db_path,
-            output_yaml=os.path.join(out_dir, f"{scan_name}_scatter.yaml"),
-            x_key=x_key,
-            y_key=y_key,
-            color_key=color_key,
-            title=f"{scan_name} samples",
-        )
-        if scatter:
-            written["scatter"] = scatter
-
     jplot_yaml = emit_jplot_scan_levelset_yaml(
-        root,
-        scan_name=scan_name,
-        images_dir=out_dir,
-        project_root=proj,
-        x_key=x_key,
-        y_key=y_key,
-        color_key=color_key,
-        config=config,
+        root, scan_name=scan_name, images_dir=out_dir, project_root=proj,
+        x_key=x_key, y_key=y_key, color_key=color_key, config=config,
     )
-    if jplot_yaml:
-        written["jplot_levelset"] = jplot_yaml
-        # Also expose every CSV shard to callers; preserve samples_csv when a
-        # live shard is present for compatibility with older integrations.
-        from jarvishep2.database import ensure_samples_csv_shards
-
-        csv_shards = ensure_samples_csv_shards(database_dir)
-        if csv_shards:
-            written["samples_csv_shards"] = ",".join(csv_shards)
-        samples_csv = os.path.join(database_dir, "samples.csv")
-        if os.path.isfile(samples_csv):
-            written["samples_csv"] = samples_csv
-        if auto_render:
-            png = _try_render_jplot(jplot_yaml)
-            if png:
-                written["jplot_levelset_png"] = png
-
-    # Nested-sampling diagnostics (Jarvis-PLOT dynesty_runplot).
-    # Dynesty → dynesty_result.csv; MultiNest → multinest_result.csv (same card).
-    nested_csv_specs = (
-        ("dynesty", "dynesty_result.csv", "jplot_dynesty_runplot", "jplot_dynesty_runplot_png"),
-        (
-            "multinest",
-            "multinest_result.csv",
-            "jplot_multinest_runplot",
-            "jplot_multinest_runplot_png",
-        ),
-    )
-    for label, csv_name, jplot_key, png_key in nested_csv_specs:
-        nested_csv = os.path.join(root, "DATABASE", csv_name)
-        if not os.path.isfile(nested_csv):
-            continue
-        written[f"{label}_result_csv"] = nested_csv
-        jplot_nested = emit_jplot_dynesty_runplot_yaml(
-            root,
-            scan_name=scan_name,
-            images_dir=out_dir,
-            project_root=proj,
-            dynesty_csv=nested_csv,
-            source_label=label,
-        )
-        if jplot_nested:
-            written[jplot_key] = jplot_nested
-            if auto_render:
-                png = _try_render_jplot(jplot_nested)
-                if png:
-                    written[png_key] = png
-
+    if not jplot_yaml:
+        return written
+    written["plot_yaml"] = jplot_yaml
+    if auto_render and _try_render_jplot(jplot_yaml):
+        written["rendered"] = "true"
     return written
 
 
-def _try_render_jplot(plot_yaml: str) -> str | None:
-    """Best-effort stock JarvisPLOT render; never raises."""
+def _try_render_jplot(plot_yaml: str) -> bool:
+    """Render all figures in the card, without failing the scan on plot errors."""
     try:
         from jarvishep2.plot_bridge import run_plot
+        return int(run_plot(plot_yaml)) == 0
     except Exception:
-        return None
-    try:
-        code = int(run_plot(plot_yaml))
-    except Exception:
-        return None
-    if code != 0:
-        return None
-    # Common jplot output locations relative to yaml dir / cwd
-    base = os.path.splitext(os.path.abspath(plot_yaml))[0]
-    candidates = [
-        base + ".png",
-        os.path.join(os.path.dirname(base), "images", os.path.basename(base) + ".png"),
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    # Search sibling images dirs produced by jplot project layout
-    parent = os.path.dirname(os.path.abspath(plot_yaml))
-    for root, _dirs, files in os.walk(parent):
-        for name in files:
-            if name.endswith(".png") and os.path.basename(base) in name:
-                return os.path.join(root, name)
-    return None
+        return False
 
 
 __all__ = [

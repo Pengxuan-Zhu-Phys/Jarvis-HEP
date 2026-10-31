@@ -18,7 +18,7 @@
       "description": "Method-specific sampler settings (see sampling/methods/*.json)."
     },
     "selection": {"type": "string"},
-    "on_failure": {"type": "string"},
+    "on_failure": {"type": "string", "enum": ["reject", "halt"]},
     "LogLikelihood": {
       "type": "array",
       "x-jarvis-zone": "closed",
@@ -54,7 +54,7 @@
       "x-jarvis-zone": "closed",
       "description": "Profile1D nuisance configuration. Its nested keys use lower snake_case.",
       "properties": {
-        "method": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+        "method": {"type": "string", "enum": ["Profile1D", "profile1d", "profile_1d"]},
         "max_attempt": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/integerish"},
         "variables": {
           "type": "array",
@@ -74,7 +74,7 @@
             "additionalProperties": false
           }
         },
-        "target_mode": {"$ref": "https://jarvis-hep.org/schema/v2/core/common.json#/$defs/nonemptyString"},
+        "target_mode": {"type": "string", "enum": ["min", "minimize", "max", "maximize"]},
         "rerun_physics": {"type": "boolean"},
         "pass_condition": {
           "type": "array",

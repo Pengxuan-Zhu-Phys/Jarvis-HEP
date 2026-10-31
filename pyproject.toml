@@ -36,8 +36,8 @@ dependencies = [
     "setproctitle>=1.3.3",
     "Jarvis-HEP-Portal>=1.5.1",
     "Jarvis-HEP-Sampler>=1.2.0",
-    "Jarvis-Operas>=1.5.1",
-    "JarvisPLOT>=1.3.3",
+    "Jarvis-Operas>=1.5.2",
+    "JarvisPLOT>=2.1.14",
     "typer>=0.25.0",
     "xmltodict>=0.13.0",
 ]
@@ -65,6 +65,10 @@ jarvishep2 = [
     "monitor/*.tcss",
     "project_template/*",
     "project_template/**/*",
+    "sampling/Source/Dynesty/LICENSE",
+    "sampling/Source/Dynesty/AUTHORS.md",
+    "sampling/Source/Dynesty/PATCHES.md",
+    "sampling/Source/Dynesty/VENDOR.md",
 ]
 
 [tool.pytest.ini_options]

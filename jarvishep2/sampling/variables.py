@@ -27,6 +27,11 @@ class Variable:
             key: _numeric_string_to_float(value) for key, value in parameters.items()
         }
 
+        if self._distribution == "Log":
+            lo, hi = float(self._parameters["min"]), float(self._parameters["max"])
+            if not (np.isfinite(lo) and np.isfinite(hi) and 0 < lo < hi):
+                raise ValueError("Log distribution requires finite 0 < min < max")
+
     @property
     def name(self) -> str:
         return self._name

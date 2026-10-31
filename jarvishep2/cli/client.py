@@ -151,11 +151,18 @@ def run_monitor(
     return EXIT_OK
 
 
-def dispatch_refs() -> int:
+def dispatch_refs(*, as_json: bool = False) -> int:
     """Print the framework and built-in sampler citations without a task card."""
     from jarvishep2.versioning import render_logo_with_version
 
-    sys.stdout.write(f"{render_logo_with_version()}\n\n{render_references()}")
+    if as_json:
+        from dataclasses import asdict
+        from jarvishep2.references import FRAMEWORK_REFERENCES, SAMPLER_REFERENCES
+        print(json.dumps({"ok": True, "command": "refs",
+                          "framework": [asdict(item) for item in FRAMEWORK_REFERENCES],
+                          "samplers": [asdict(item) for item in SAMPLER_REFERENCES]}, indent=2))
+    else:
+        sys.stdout.write(f"{render_logo_with_version()}\n\n{render_references()}")
     return EXIT_OK
 
 
@@ -365,7 +372,7 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
         core = Jarvis2Core()
         core.load_task_yaml(task_yaml, validate=False)
         from jarvishep2.base import infer_project_root_from_task_result_dir
-        from jarvishep2.plot_scene import emit_jplot_scan_levelset_yaml
+        from jarvishep2.plot_scene import emit_plot_scenes_from_run
 
         task_result_dir = str(core.config.get("task_result_dir") or "").strip()
         scan_name = str(core.config.get("scan_name") or "scan").strip() or "scan"
@@ -374,12 +381,11 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
         project_root = str(
             core.config.get("project_root") or core.config.get("task_root") or ""
         ).strip() or infer_project_root_from_task_result_dir(task_result_dir)
-        output = emit_jplot_scan_levelset_yaml(
+        written = emit_plot_scenes_from_run(
             task_result_dir,
             scan_name=scan_name,
             project_root=project_root,
             config=core.config,
-            yaml_basename="plot.yaml",
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
@@ -393,6 +399,7 @@ def dispatch_gen_plot_yaml(task_yaml: str) -> int:
     except (ValueError, OSError) as exc:
         print(f"gen-plot-yaml failed: {exc}", file=sys.stderr)
         return EXIT_USAGE
+    output = written.get("plot_yaml")
     if not output:
         print("No plot YAML could be generated: run outputs were not found.", file=sys.stderr)
         return EXIT_RUN_FAILED
@@ -600,6 +607,8 @@ def main(argv: list[str] | None = None) -> int:
         if ("--json" in raw and {"-v", "-V", "--version"}.intersection(raw)
                 and set(raw) <= {"-v", "-V", "--version", "--json"}):
             return dispatch_version(as_json=True)
+        if "--refs" in raw and "--json" in raw and set(raw) <= {"--refs", "--json"}:
+            return dispatch_refs(as_json=True)
         if raw[:1] == ["refs"]:
             print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
             return EXIT_USAGE

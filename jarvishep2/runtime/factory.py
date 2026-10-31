@@ -779,10 +779,8 @@ class TaskFactory:
             failed = int(stats.get("failed", 0) or 0)
             running = int(stats.get("running", 0) or 0)
             queued = int(lengths.get("task_queue_length", 0) or 0)
-            submitted = max(
-                int(self.redis.get_op_count("task")),
-                ok + failed + running + queued,
-            )
+            # op_count counts Redis sends, including watchdog retries.
+            submitted = ok + failed + running + queued
         alive = sum(1 for worker in self.workers if worker.is_alive())
         return {
             "submitted": submitted,

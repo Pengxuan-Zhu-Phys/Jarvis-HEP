@@ -57,7 +57,7 @@ def test_pack_export_fetch_conflict_and_integrity(tmp_path, monkeypatch, profile
     target.mkdir()
     with tarfile.open(report.archive_path) as archive:
         archive.extractall(target, filter="data")
-    root = target if profile == "manifest" else target / "project"
+    root = target / "project"
     index = json.loads((root / INDEX).read_text())
     digest = second.source_sha256 if profile == "share" else first.source_sha256
     assert index["entries"][0]["source_sha256"] == digest

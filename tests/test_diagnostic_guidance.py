@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import unittest
 
+import yaml
+
 from jarvishep2.diagnostic_guidance import guidance_for
 from jarvishep2.task_validation import ValidationReport, issue
 
@@ -24,6 +26,25 @@ class DiagnosticGuidanceTests(unittest.TestCase):
         self.assertIn("point_number", suggestion)
         self.assertIn("Bounds", example or "")
         self.assertIn("point_number: 100", example or "")
+
+    def test_runtime_guidance_uses_the_relevant_block(self) -> None:
+        from jarvishep2.cardload.contracts.operational import (
+            _validate_archiver, _validate_sample_directory,
+        )
+        from jarvishep2.task_validation import validate_task_config
+
+        cases = [
+            (_validate_archiver({"unknown": True}, "EnvReqs.V2.archiver")[0], "archiver"),
+            (_validate_sample_directory({"unknown": True}, "EnvReqs.V2.sample_directory")[0], "sample_directory"),
+        ]
+        report = validate_task_config({"EnvReqs": {"V2": {"check_modules": {"unknown": True}}}})
+        cases += [(item, "check_modules") for item in report.issues if item.code == "JV2-ENV-061"]
+        self.assertEqual(len(cases), 3)
+        for diagnostic, block in cases:
+            with self.subTest(code=diagnostic.code):
+                self.assertNotIn("workers:", diagnostic.example or "")
+                self.assertIn(block, diagnostic.example or "")
+                self.assertIsInstance(yaml.safe_load(diagnostic.example), dict)
 
     def test_warning_promotion_keeps_guidance_and_example(self) -> None:
         report = ValidationReport([issue(

@@ -586,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_p = sub.add_parser(
         "validate",
-        help="Validate task YAML (no Redis / workers); D13.9 config gate",
+        help="Validate task YAML (no Redis / workers)",
     )
     validate_p.add_argument("task_yaml", help="Path to scan task YAML")
     validate_p.add_argument(

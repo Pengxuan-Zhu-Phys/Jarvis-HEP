@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -435,13 +438,8 @@ class PlotSceneEmitTests(unittest.TestCase):
                 project_root=project,
                 auto_render=False,
             )
-            self.assertIn("jplot_levelset", written)
-            self.assertIn("levelset_overlay", written)
-            self.assertIn("scatter", written)
-            self.assertIn("samples_csv", written)
-            self.assertEqual(
-                written["samples_csv"], os.path.join(db_dir, "samples.csv")
-            )
+            self.assertEqual(written["plot_yaml"], jplot_path)
+            self.assertEqual(os.listdir(os.path.dirname(jplot_path)), ["plot.yaml"])
 
     def test_jplot_levelset_uses_real_parameter_names(self) -> None:
         """iDM-style scans: MChi/Y must appear in scatter expr, not bare x/y."""
@@ -492,9 +490,8 @@ class PlotSceneEmitTests(unittest.TestCase):
             )
             self.assertEqual(scatter["coordinates"]["x"]["expr"], "MChi")
             self.assertEqual(scatter["coordinates"]["y"]["expr"], "Y")
-            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["x"], "$MChi$")
-            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["y"], "$Y$")
-            self.assertEqual(doc["_jarvishep2"]["axis_keys"]["x"], "MChi")
+            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["x"], "MChi")
+            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["y"], "Y")
 
     def test_jplot_uses_multiple_csv_shards_without_merging(self) -> None:
         from jarvishep2.database import convert_hdf5_to_csv
@@ -580,9 +577,10 @@ class PlotSceneEmitTests(unittest.TestCase):
                 project_root=project,
                 auto_render=False,
             )
-            self.assertIn("dynesty_result_csv", written)
-            self.assertIn("jplot_dynesty_runplot", written)
-            self.assertEqual(written["dynesty_result_csv"], dynesty_csv)
+            with open(written["plot_yaml"], encoding="utf-8") as handle:
+                combined = yaml.safe_load(handle)
+            self.assertEqual(combined["DataSet"][0]["path"], dynesty_csv)
+            self.assertEqual(combined["Figures"][0]["style"], ["a4paper_2x1", "dynesty_runplot"])
 
     def test_jplot_multinest_runplot_hook(self) -> None:
         """V1 path: multinest_result.csv → dynesty_runplot jplot (DataSet name dynesty)."""
@@ -628,9 +626,87 @@ class PlotSceneEmitTests(unittest.TestCase):
                 project_root=project,
                 auto_render=False,
             )
-            self.assertIn("multinest_result_csv", written)
-            self.assertIn("jplot_multinest_runplot", written)
-            self.assertEqual(written["multinest_result_csv"], multinest_csv)
+            with open(written["plot_yaml"], encoding="utf-8") as handle:
+                combined = yaml.safe_load(handle)
+            self.assertEqual(combined["DataSet"][0]["path"], multinest_csv)
+            self.assertEqual(combined["Figures"][0]["style"], ["a4paper_2x1", "dynesty_runplot"])
+
+    def test_single_card_contains_samples_and_matching_nested_diagnostics(self) -> None:
+        from jarvishep2.plot_scene import emit_plot_scenes_from_run
+
+        with tempfile.TemporaryDirectory() as project:
+            scan = os.path.join(project, "outputs", "scan")
+            database = os.path.join(scan, "DATABASE")
+            os.makedirs(database)
+            SimpleHDF5Writer(os.path.join(database, "samples.hdf5")).add_record(
+                {"x": 0.1, "y": 0.2, "LogL": -1.0}
+            )
+            for name in ("dynesty", "multinest"):
+                with open(os.path.join(database, f"{name}_result.csv"), "w") as handle:
+                    handle.write("log_Like\n-1\n")
+            config = {"Sampling": {"Method": "MultiNest", "Variables": [
+                {"name": "x"}, {"name": "y"}
+            ]}}
+            written = emit_plot_scenes_from_run(scan, project_root=project, config=config)
+            path = written["plot_yaml"]
+            with open(path, encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            self.assertEqual([f["name"] for f in doc["Figures"]], ["samples", "runplot"])
+            self.assertEqual(doc["DataSet"][-1]["path"], os.path.join(database, "multinest_result.csv"))
+            self.assertEqual(os.listdir(os.path.dirname(path)), ["plot.yaml"])
+            config["Sampling"]["Method"] = "Grid"
+            emit_plot_scenes_from_run(scan, project_root=project, config=config)
+            with open(path, encoding="utf-8") as handle:
+                doc = yaml.safe_load(handle)
+            self.assertEqual([f["name"] for f in doc["Figures"]], ["samples"])
+
+    def test_one_variable_plots_likelihood(self) -> None:
+        from jarvishep2.plot_scene import emit_plot_scenes_from_run
+
+        with tempfile.TemporaryDirectory() as project:
+            scan = os.path.join(project, "outputs", "scan")
+            database = os.path.join(scan, "DATABASE")
+            os.makedirs(database)
+            SimpleHDF5Writer(os.path.join(database, "samples.hdf5")).add_record(
+                {"mass": 1.0, "observable": 4.0, "LogL": -2.0}
+            )
+            written = emit_plot_scenes_from_run(scan, project_root=project,
+                config={"Sampling": {"Method": "Random", "Variables": [{"name": "mass"}]}})
+            with open(written["plot_yaml"], encoding="utf-8") as handle:
+                figure = yaml.safe_load(handle)["Figures"][0]
+            self.assertEqual(figure["layers"][0]["coordinates"],
+                             {"x": {"expr": "mass"}, "y": {"expr": "LogL"}})
+            self.assertEqual(figure["style"], ["a4paper_2x1", "rect"])
+
+    def test_manual_and_automatic_generation_use_same_card(self) -> None:
+        from jarvishep2.cli.client import dispatch_gen_plot_yaml
+        from jarvishep2.plot_scene import emit_plot_scenes_from_run
+
+        with tempfile.TemporaryDirectory() as project:
+            scan = os.path.join(project, "outputs", "scan")
+            database = os.path.join(scan, "DATABASE")
+            os.makedirs(database)
+            SimpleHDF5Writer(os.path.join(database, "samples.hdf5")).add_record(
+                {"x": 0.1, "y": 0.2, "LogL": -1.0}
+            )
+            with open(os.path.join(database, "dynesty_result.csv"), "w") as handle:
+                handle.write("log_Like\n-1\n")
+            config = {"task_result_dir": scan, "project_root": project, "scan_name": "scan",
+                      "Sampling": {"Method": "Dynesty", "Variables": [{"name": "x"}, {"name": "y"}]}}
+            with mock.patch("jarvishep2.plot_scene._try_render_jplot", return_value=True) as render:
+                automatic = emit_plot_scenes_from_run(scan, project_root=project,
+                                                       config=config, auto_render=True)
+            render.assert_called_once_with(automatic["plot_yaml"])
+            with open(automatic["plot_yaml"], encoding="utf-8") as handle:
+                expected = yaml.safe_load(handle)
+            fake_core = mock.Mock(config=config)
+            with mock.patch("jarvishep2.core.Jarvis2Core", return_value=fake_core), \
+                 mock.patch("jarvishep2.plot_scene._try_render_jplot") as render, \
+                 contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(dispatch_gen_plot_yaml("task.yaml"), 0)
+            render.assert_not_called()
+            with open(automatic["plot_yaml"], encoding="utf-8") as handle:
+                self.assertEqual(yaml.safe_load(handle), expected)
 
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ def _fieldnames_for_records(
     fieldnames: list[str] = []
     seen: set[str] = set()
     for key in preferred_keys:
-        if any(key in row for row in records):
+        if key == "LogL" or any(key in row for row in records):
             fieldnames.append(str(key))
             seen.add(str(key))
     for row in records:

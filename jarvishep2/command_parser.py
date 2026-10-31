@@ -384,7 +384,8 @@ def _build_libdeps_context(
             candidate = install.get("path") or install.get("source")
         candidate = candidate or module.get("path") or module.get("source")
         if candidate:
-            paths[name] = decode_path(str(candidate), project_root=project_root, base_dir=base)
+            paths[name] = decode_path(str(candidate).replace("${LibDeps:path}", base),
+                                      project_root=project_root, base_dir=base)
         else:
             paths[name] = os.path.join(base, name)
     return paths, values

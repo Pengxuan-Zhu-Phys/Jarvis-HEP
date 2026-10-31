@@ -258,6 +258,8 @@ class MCMCBaseSampler(FeedbackSampler):
         self._init_seed_sequence(seed)
         on_fail = bounds.get("on_failure", sampling.get("on_failure", "reject"))
         self._on_failure = str(on_fail or "reject").lower()
+        if self._on_failure not in {"reject", "halt"}:
+            raise ValueError("Sampling.Bounds.on_failure must be reject or halt")
         if self._nchains < workers:
             self._logger.warning(
                 "%s: chains (%d) < workers (%d) — workers may idle; "
@@ -693,7 +695,9 @@ class MCMCBaseSampler(FeedbackSampler):
     def _population_for(self, chain_id: int) -> list[np.ndarray]:
         """Complementary population for ensemble / DE moves.
 
-        Half-ensemble: partners are the other half of walkers (emcee semantics).
+        Partners are held fixed in the other half during a half-step. PTEnsemble
+        can select a different temperature: the conditional target still uses
+        this chain's beta, and EnsembleChain includes the stretch Jacobian.
         """
         assert self._registry is not None
         ids = self._registry.ids()

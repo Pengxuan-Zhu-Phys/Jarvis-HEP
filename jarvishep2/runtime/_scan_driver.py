@@ -347,7 +347,7 @@ class _ScanDriver:
             verify_check_modules_golden(task_result_dir=task_result_dir, golden=verify_golden)
         core._logger.warning(
             "Jarvis check finished: submitted %d sample(s) "
-            "(pipeline smoke only — not a full MultiNest/Dynesty evidence run; "
+            "(pipeline smoke only; "
             "inspect artifacts under %s)",
             len(samples),
             core._resolve_sample_root(),

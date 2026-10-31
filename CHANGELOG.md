@@ -3,10 +3,45 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
-## Unreleased
+## 2.1.2
+
+### Fixed
+
+- Preserve nuisance pass-condition failures as failed samples; reject unknown
+  nuisance methods, target modes and failure policies before execution.
+- Reject non-positive Log prior minima, and report numeric range violations
+  directly instead of claiming an integer or float is not a number.
+- Keep run and performance counters consistent across nested evaluations and
+  Worker retries; use the sampling method name in run summaries.
+- Use pipes for FileOperation IPC so killed Workers leave no named semaphore
+  queues, and report a stopped FileOperation child promptly.
+- Resolve project-local Python modules and `${LibDeps:path}` installation paths;
+  reject unknown module dependencies and cycles.
+- Keep a blank `LogL` column in CSV exports when every evaluation failed.
+- Show generational plugin budgets and a valid calculator-pool example in `man`;
+  remove internal milestone text and unrelated nested-method smoke messages.
+- Keep only the encrypted archive after a successful `project pack --encrypt`.
+- Include the bundled Dynesty licence, author credits and provenance in wheels
+  and source distributions.
+- Give manifest packages the same project root directory, checksums and
+  `.jarvis-pack` records as profile packages. Resolve relative archive outputs
+  beside the manifest and preserve file/directory distinctions in exclusions.
+- Exclude `.redis/` and `.jarvis2/` runtime directories from share and repro
+  packages, including manifest packages with directory includes.
+- Show relevant archiver, sample-directory and module-check examples in
+  validation errors, and clarify which default environment sections are loaded.
+
+### Changed
+
+- Require `Jarvis-Operas>=1.5.2` and `JarvisPLOT>=2.1.14` so upgrades include
+  the matching operator and plotting fixes. Sampler remains `>=1.2.0` with no upper bound.
+- Write one `images/<scan>/plot.yaml` per scan with the sample plot and any
+  available level-set overlay or Dynesty/MultiNest diagnostics. The manual
+  `gen-plot-yaml` command produces the same card as scan finalization.
 
 ### Added
 
+- Support `Jarvis --refs --json` for structured framework and sampler citations.
 - Accept `Jarvis -V` as an alias for `-v` and `--version`, including JSON output.
   Help continues to advertise only the lowercase `-v` short option.
 

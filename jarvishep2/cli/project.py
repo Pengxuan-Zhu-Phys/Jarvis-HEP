@@ -102,13 +102,14 @@ def _run_project_pack(
             if archive_path.endswith(".tar.gz"):
                 encrypted_path = archive_path[: -len(".tar.gz")] + ".tar.gz.jenc"
             encrypt_file(archive_path, encrypted_path, key=str(resolve_fetch_key(key)))
-        except ProjectCryptoError as exc:
+            os.unlink(archive_path)
+        except (ProjectCryptoError, OSError) as exc:
             print(f"[Jarvis] {exc}", file=sys.stderr)
             return EXIT_RUN_FAILED
 
     rows = [
         ("Project root", report.project_root),
-        ("Archive", report.archive_path),
+        ("Archive", encrypted_path or report.archive_path),
         ("Mode", report.profile),
         ("Packed files", report.included_files),
         ("Skipped files", report.excluded_files),

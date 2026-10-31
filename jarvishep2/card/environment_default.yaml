@@ -1,5 +1,5 @@
 # Jarvis-HEP V2 default runtime policy (EnvReqs.Check_default_dependencies.default_yaml_path).
-# Only EnvReqs.V2 is merged by the V2 loader; task YAML overrides take precedence.
+# EnvReqs.V2, Python, CERN_ROOT and OS defaults are merged; task values take precedence.
 EnvReqs:
   # V1-compatible preflight checks. Set CERN_ROOT.required: true for ROOT-based
   # calculators; the check runs before Redis, Workers, and Archiver startup.
@@ -90,10 +90,10 @@ EnvReqs:
         version: ">=1.2.0"
       - name: Jarvis-Operas
         required: true
-        version: ">=1.4.1"
+        version: ">=1.5.2"
       - name: JarvisPLOT
         required: true
-        version: ">=1.3.3"
+        version: ">=2.1.14"
       - name: typer
         required: true
         version: ">=0.25.0"

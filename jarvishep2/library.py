@@ -294,9 +294,12 @@ class LibraryInstaller:
                 raise LibraryInstallError(
                     f"Library '{spec.name}' requires unknown module(s): {', '.join(unknown)}"
                 )
-        layer_map = resolve_module_layers(
-            [{"name": spec.name, "required_modules": list(spec.required_modules)} for spec in self.modules]
-        )
+        try:
+            layer_map = resolve_module_layers(
+                [{"name": spec.name, "required_modules": list(spec.required_modules)} for spec in self.modules]
+            )
+        except ValueError as exc:
+            raise LibraryInstallError(str(exc)) from exc
         for spec in self.modules:
             if any(layer_map[dependency] >= layer_map[spec.name] for dependency in spec.required_modules):
                 raise LibraryInstallError(

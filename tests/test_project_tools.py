@@ -9,6 +9,9 @@ import os
 import tarfile
 import tempfile
 import unittest
+from pathlib import Path
+
+import yaml
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from unittest import mock
@@ -37,6 +40,7 @@ from jarvishep2.project_crypto import (
 )
 from jarvishep2.project_packager import (
     create_project_package,
+    create_project_package_from_manifest,
     create_project_pack_manifest,
 )
 from jarvishep2.project_scaffold import (
@@ -129,6 +133,63 @@ class ProjectPackTests(unittest.TestCase):
             man = create_project_pack_manifest(root, profile="repro", manifest_dir=tmp)
             self.assertTrue(os.path.isfile(man.manifest_path))
             self.assertEqual(man.profile, "repro")
+
+    def test_manifest_package_matches_profile_layout_and_checksums(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("SameLayout", cwd=tmp)
+            manifest_dir = Path(tmp) / "manifests"
+            cwd_dir = Path(tmp) / "elsewhere"
+            cwd_dir.mkdir()
+            profile = create_project_package(root, profile="share")
+            manifest = create_project_pack_manifest(root, profile="share", manifest_dir=str(manifest_dir))
+            with mock.patch("os.getcwd", return_value=str(cwd_dir)):
+                packed = create_project_package_from_manifest(manifest.manifest_path)
+            self.assertEqual(Path(packed.archive_path).parent, manifest_dir)
+            with tarfile.open(profile.archive_path) as first, tarfile.open(packed.archive_path) as second:
+                self.assertEqual(set(first.getnames()), set(second.getnames()))
+                checksums = "SameLayout/.jarvis-pack/checksums.sha256"
+                self.assertEqual(first.extractfile(checksums).read(), second.extractfile(checksums).read())
+                metadata = json.load(second.extractfile("SameLayout/.jarvis-pack/manifest.json"))
+                self.assertEqual(metadata["included_files"], packed.included_files)
+                self.assertEqual(metadata["payload_bytes"], packed.total_bytes)
+                self.assertEqual(metadata["profile"], "share")
+
+    def test_manifest_excludes_distinguish_files_and_directories(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("Excludes", cwd=tmp)
+            with open(os.path.join(root, "jarvis.project.yaml"), "a") as handle:
+                handle.write("\npack:\n  exclude:\n    - bin/quickstart_random.yaml\n    - data/\n")
+            report = create_project_pack_manifest(root, profile="share", manifest_dir=tmp)
+            payload = yaml.safe_load(Path(report.manifest_path).read_text())
+            self.assertIn("bin/quickstart_random.yaml", payload["exclude"])
+            self.assertNotIn("bin/quickstart_random.yaml/", payload["exclude"])
+            self.assertIn("data/", payload["exclude"])
+
+    def test_runtime_directories_excluded_from_share_and_repro(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = create_project_scaffold("RuntimeData", cwd=tmp)
+            runtime = ["outputs/scan/.redis/dump.rdb", "outputs/scan/.jarvis2/state.json"]
+            paths = runtime + ["outputs/scan/DATABASE/samples.csv"]
+            for rel in paths:
+                path = Path(root) / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("data")
+            for mode in ("share", "repro", "full"):
+                with self.subTest(mode=mode):
+                    direct = create_project_package(root, profile=mode)
+                    manifest = create_project_pack_manifest(root, profile=mode, manifest_dir=tmp)
+                    # Directory includes must enforce the runtime exclusions too.
+                    payload = yaml.safe_load(Path(manifest.manifest_path).read_text())
+                    payload["include"] = ["bin/", "outputs/"]
+                    payload["exclude"] = []
+                    Path(manifest.manifest_path).write_text(yaml.safe_dump(payload))
+                    manual = create_project_package_from_manifest(manifest.manifest_path)
+                    for report in (direct, manual):
+                        with tarfile.open(report.archive_path) as archive:
+                            names = set(archive.getnames())
+                        self.assertIn("RuntimeData/outputs/scan/DATABASE/samples.csv", names)
+                        for rel in runtime:
+                            self.assertEqual("RuntimeData/" + rel in names, mode == "full")
 
     def test_share_pack_includes_deps_unless_project_excludes_them(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -681,6 +742,7 @@ class ProjectCryptoTests(unittest.TestCase):
             ]
             self.assertTrue(jencs, "expected encrypted pack next to project parent")
             self.assertTrue(is_openssl_encrypted_file(jencs[0]))
+            self.assertFalse(os.path.exists(jencs[0][:-len(".jenc")]))
 
             # encrypt subcommand on a plain file
             plain = os.path.join(tmp, "manual.bin")
@@ -689,6 +751,7 @@ class ProjectCryptoTests(unittest.TestCase):
             code = dispatch_project(["encrypt", plain, "--key", "cli-secret"])
             self.assertEqual(code, 0)
             self.assertTrue(os.path.isfile(plain + ".jenc"))
+            self.assertTrue(os.path.isfile(plain))
 
     def test_openssl_encrypt_decrypt_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

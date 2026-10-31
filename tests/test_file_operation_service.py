@@ -265,6 +265,10 @@ class FileOperationServiceTests(unittest.TestCase):
                     _pid_exists(file_operation_pid),
                     "busy FileOperation survived after its Worker owner was SIGKILLed",
                 )
+                assert owner.stderr is not None
+                readable, _, _ = select.select([owner.stderr], [], [], 5.0)
+                self.assertTrue(readable, "FileOperation left stderr open after owner death")
+                self.assertNotIn("leaked semaphore", owner.stderr.read())
             finally:
                 if owner.poll() is None:
                     owner.kill()

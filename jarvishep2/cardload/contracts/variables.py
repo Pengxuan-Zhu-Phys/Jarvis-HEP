@@ -290,6 +290,11 @@ def validate_variables(
                     )
                 )
 
+        if dist_type == "Log" and lo is not None and (not math.isfinite(lo) or lo <= 0):
+            issues.append(issue("error", "JV2-VAR-033",
+                                f"{path}.distribution.parameters.min",
+                                f"Log requires a finite minimum > 0, got {lo!r}"))
+
         if require_length and "length" in params:
             length = try_float(params.get("length"))
             if length is None or not math.isfinite(length) or length <= 0:

@@ -290,6 +290,11 @@ Jarvis gen-plot-yaml TASK.yaml
 Jarvis plot path/to/plot.yaml      # Jarvis-PLOT is installed by default
 ```
 
+A finished scan writes `images/<scan>/plot.yaml` and, by default, renders it.
+The card contains a sample scatter plot, an available level-set overlay, and a
+nested-sampling runplot for Dynesty or MultiNest when its results are available.
+`Jarvis gen-plot-yaml` regenerates the same card without rendering it.
+
 Use `Jarvis COMMAND -h` for command-specific options. Screen logging defaults
 to `WARNING`; use `--console-level INFO`, `--debug`, or `--silence` as needed.
 File logs remain available under `logs/<scan>/`.

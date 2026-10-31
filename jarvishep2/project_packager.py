@@ -26,6 +26,8 @@ ALWAYS_EXCLUDE_DIRS = {
     ".pytest_cache",
     ".ruff_cache",
 }
+RUNTIME_EXCLUDE_DIRS = {".redis", ".jarvis2"}
+
 ALWAYS_EXCLUDE_BASENAMES = {
     ".DS_Store",
 }
@@ -225,9 +227,9 @@ def _pack_directory_exclusion(relpath: str, rules: ProjectPackRules) -> str | No
     return None
 
 
-def _common_exclude(parts: list[str], basename: str) -> str | None:
+def _common_exclude(parts: list[str], basename: str, profile: str) -> str | None:
     for part in parts[:-1]:
-        if part in ALWAYS_EXCLUDE_DIRS:
+        if part in ALWAYS_EXCLUDE_DIRS or (profile != "full" and part in RUNTIME_EXCLUDE_DIRS):
             return f"exclude-dir:{part}"
     if basename in ALWAYS_EXCLUDE_BASENAMES:
         return f"exclude-name:{basename}"
@@ -247,7 +249,7 @@ def _select_profile(
     basename = parts[-1]
     rules = rules or ProjectPackRules()
 
-    common = _common_exclude(parts, basename)
+    common = _common_exclude(parts, basename, profile)
     if common is not None:
         return False, common
 
@@ -309,8 +311,8 @@ def _collect_project_files(project_root: str, profile: str) -> tuple[list[str], 
         kept_dirs = []
         for dname in dirs:
             drel = "/".join(prefix_parts + [dname])
-            if dname in ALWAYS_EXCLUDE_DIRS:
-                excluded.append((drel, f"exclude-dir:{dname}"))
+            if dname in ALWAYS_EXCLUDE_DIRS or (profile != "full" and dname in RUNTIME_EXCLUDE_DIRS):
+                excluded.append((drel + "/", f"exclude-dir:{dname}"))
                 continue
             pack_exclude = _pack_directory_exclusion(drel, rules)
             if pack_exclude is not None:
@@ -364,11 +366,8 @@ def _next_archive_name(output_dir: str, project_name: str, profile: str) -> str:
 def _manifest_exclude_entries(excluded: list[tuple[str, str]]) -> list[str]:
     entries: list[str] = []
     seen: set[str] = set()
-    for rel, reason in excluded:
-        if reason.startswith(("exclude-dir:", "pack-exclude:")):
-            entry = rel.rstrip("/") + "/"
-        else:
-            entry = rel
+    for rel, _reason in excluded:
+        entry = rel
         if entry not in seen:
             seen.add(entry)
             entries.append(entry)
@@ -490,9 +489,9 @@ def _manifest_exclude_rules(project_root: str, excludes: list[str]) -> list[str]
     return rules
 
 
-def _manifest_skip_reason(relpath: str, excludes: list[str]) -> str | None:
+def _manifest_skip_reason(relpath: str, excludes: list[str], profile: str) -> str | None:
     parts = relpath.split("/")
-    common = _common_exclude(parts, parts[-1])
+    common = _common_exclude(parts, parts[-1], profile)
     if common is not None:
         return common
     if _is_manifest_excluded(relpath, excludes):
@@ -500,46 +499,28 @@ def _manifest_skip_reason(relpath: str, excludes: list[str]) -> str | None:
     return None
 
 
-def _count_manifest_files(path: str) -> int:
-    if os.path.isfile(path):
-        return 1
-    if not os.path.isdir(path):
-        return 0
-
-    count = 0
-    for root, dirs, files in os.walk(path):
-        dirs[:] = sorted(d for d in dirs if d not in ALWAYS_EXCLUDE_DIRS)
-        for fname in sorted(files):
-            if fname in ALWAYS_EXCLUDE_BASENAMES:
-                continue
-            if any(fname.endswith(suffix) for suffix in ALWAYS_EXCLUDE_SUFFIXES):
-                continue
-            fpath = os.path.join(root, fname)
-            if os.path.isfile(fpath):
-                count += 1
-    return count
-
-
 def _expand_manifest_include(
     project_root: str,
     relpath: str,
     excludes: list[str],
-) -> tuple[list[str], int]:
+    profile: str,
+) -> tuple[list[str], list[tuple[str, str]]]:
     src = os.path.join(project_root, relpath)
     if not os.path.exists(src):
         raise ProjectPackError(f"Included path does not exist: {relpath}")
 
     rel = relpath.rstrip("/")
     if os.path.isfile(src):
-        if _manifest_skip_reason(rel, excludes) is not None:
-            return [], 1
-        return [rel], 0
+        reason = _manifest_skip_reason(rel, excludes, profile)
+        if reason is not None:
+            return [], [(rel, reason)]
+        return [rel], []
 
     if not os.path.isdir(src):
         raise ProjectPackError(f"Included path is not a file or directory: {relpath}")
 
     included: list[str] = []
-    excluded_count = 0
+    excluded: list[tuple[str, str]] = []
     for root, dirs, files in os.walk(src):
         dirs.sort()
         files.sort()
@@ -548,8 +529,9 @@ def _expand_manifest_include(
         for dname in dirs:
             dpath = os.path.join(root, dname)
             drel = os.path.relpath(dpath, project_root).replace("\\", "/")
-            if dname in ALWAYS_EXCLUDE_DIRS or _is_manifest_excluded(drel + "/", excludes):
-                excluded_count += _count_manifest_files(dpath)
+            reason = _manifest_skip_reason(drel + "/", excludes, profile)
+            if reason is not None:
+                excluded.append((drel + "/", reason))
                 continue
             kept_dirs.append(dname)
         dirs[:] = kept_dirs
@@ -559,33 +541,35 @@ def _expand_manifest_include(
             if not os.path.isfile(fpath):
                 continue
             frel = os.path.relpath(fpath, project_root).replace("\\", "/")
-            if _manifest_skip_reason(frel, excludes) is not None:
-                excluded_count += 1
+            reason = _manifest_skip_reason(frel, excludes, profile)
+            if reason is not None:
+                excluded.append((frel, reason))
                 continue
             included.append(frel)
 
-    return included, excluded_count
+    return included, excluded
 
 
 def _expand_manifest_includes(
     project_root: str,
     includes: list[str],
     excludes: list[str],
-) -> tuple[list[str], int]:
+    profile: str,
+) -> tuple[list[str], list[tuple[str, str]]]:
     final_files: list[str] = []
-    excluded_count = 0
+    excluded: list[tuple[str, str]] = []
     seen: set[str] = set()
 
     for rel in includes:
-        expanded, skipped = _expand_manifest_include(project_root, rel, excludes)
-        excluded_count += skipped
+        expanded, skipped = _expand_manifest_include(project_root, rel, excludes, profile)
+        excluded.extend(skipped)
         for item in expanded:
             if item not in seen:
                 seen.add(item)
                 final_files.append(item)
 
     final_files.sort()
-    return final_files, excluded_count
+    return final_files, sorted(set(excluded))
 
 
 def create_project_package_from_manifest(manifest_path: str) -> ProjectPackReport:
@@ -604,7 +588,7 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
     if not isinstance(output, str) or not output.strip():
         raise ProjectPackError("Pack manifest requires 'output'.")
     output = os.path.expanduser(output.strip())
-    archive_path = output if os.path.isabs(output) else os.path.abspath(output)
+    archive_path = os.path.abspath(os.path.join(os.path.dirname(manifest), output))
 
     includes = [
         _validate_manifest_relpath(rel, "include")
@@ -616,10 +600,11 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
     ]
     exclude_rules = _manifest_exclude_rules(project_root, excludes)
 
-    final_files, excluded_count = _expand_manifest_includes(
+    final_files, excluded = _expand_manifest_includes(
         project_root,
         includes,
         exclude_rules,
+        mode,
     )
     if not final_files:
         raise ProjectPackError("No files selected for packaging.")
@@ -628,24 +613,11 @@ def create_project_package_from_manifest(manifest_path: str) -> ProjectPackRepor
     if output_parent:
         os.makedirs(output_parent, exist_ok=True)
 
-    total_bytes = 0
-    assets = _sampler_assets(project_root, final_files, mode)
-    final_files = _without_generated_assets(final_files)
-    with tarfile.open(archive_path, "w:gz") as tar:
-        for rel in final_files:
-            src = os.path.join(project_root, rel)
-            total_bytes += max(0, int(os.path.getsize(src)))
-            tar.add(src, arcname=rel, recursive=False)
-        _add_sampler_assets(tar, assets)
-        total_bytes += sum(map(len, assets.values()))
-
-    return ProjectPackReport(
-        project_root=project_root,
-        archive_path=archive_path,
-        profile=mode,
-        included_files=len(final_files) + len(assets),
-        excluded_files=excluded_count,
-        total_bytes=total_bytes,
+    recorded = {rel: reason for rel, reason in excluded}
+    for rel in exclude_rules:
+        recorded.setdefault(rel, "manifest-exclude")
+    return _write_project_package(
+        project_root, archive_path, mode, final_files, sorted(recorded.items())
     )
 
 
@@ -723,6 +695,16 @@ def create_project_package(project_root: str | None, profile: str = "repro") -> 
     archive_name = _next_archive_name(output_root, project_name, profile)
     archive_path = os.path.join(output_root, archive_name)
 
+    return _write_project_package(target, archive_path, profile, included, excluded)
+
+
+def _write_project_package(
+    target: str, archive_path: str, profile: str,
+    included: list[str], excluded: list[tuple[str, str]],
+) -> ProjectPackReport:
+    """Write the same payload layout and audit records for both pack entry points."""
+    project_name = os.path.basename(os.path.normpath(target))
+    archive_name = os.path.basename(archive_path)
     checksums: list[str] = []
     assets = _sampler_assets(target, included, profile)
     # Generated assets supersede any index left by a previous fetched package.

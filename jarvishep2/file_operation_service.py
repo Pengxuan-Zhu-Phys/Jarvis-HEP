@@ -19,7 +19,7 @@ import time
 import traceback
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from jarvishep2.file_ops import (
@@ -73,6 +73,24 @@ def wait_for_session_leader(
 
 
 @dataclass
+class _PipeChannel:
+    """Queue-shaped pipe endpoint; no named semaphores survive a killed Worker."""
+
+    connection: Any
+
+    def put(self, payload: Any) -> None:
+        self.connection.send(payload)
+
+    def get(self, timeout: float | None = None) -> Any:
+        if timeout is not None and not self.connection.poll(timeout):
+            raise queue.Empty
+        return self.connection.recv()
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+@dataclass
 class FileOperationService:
     """Client side of the FileOperation process (or inline backend)."""
 
@@ -84,6 +102,7 @@ class FileOperationService:
     _process: Any = None
     _started: bool = False
     _pgid: int | None = None
+    _call_lock: Any = field(default_factory=threading.RLock, repr=False)
 
     @property
     def pid(self) -> int | None:
@@ -121,13 +140,15 @@ class FileOperationService:
             self._started = True
             return
         ctx = get_spawn_context()
-        self._request = ctx.Queue()
-        self._response = ctx.Queue()
+        request_reader, request_writer = ctx.Pipe(duplex=False)
+        response_reader, response_writer = ctx.Pipe(duplex=False)
+        self._request = _PipeChannel(request_writer)
+        self._response = _PipeChannel(response_reader)
         self._process = ctx.Process(
             target=_file_operation_main,
             args=(
-                self._request,
-                self._response,
+                _PipeChannel(request_reader),
+                _PipeChannel(response_writer),
                 self.delete_method,
                 self.scan_name,
                 os.getpid(),
@@ -150,6 +171,9 @@ class FileOperationService:
             self._process = None
             self._pgid = None
             raise
+        finally:
+            request_reader.close()
+            response_writer.close()
         self._started = True
         pid = self.pid
         self._pgid = wait_for_session_leader(pid) if pid is not None else None
@@ -191,7 +215,7 @@ class FileOperationService:
             self._started = False
 
     def _close_queues(self) -> None:
-        """Close parent-side queue handles without waiting on feeder threads."""
+        """Close the parent pipe endpoints, including on child startup failure."""
         for channel in (self._request, self._response):
             if channel is None:
                 continue
@@ -237,6 +261,12 @@ class FileOperationService:
         )
 
     def _call(self, payload: dict[str, Any]) -> Any:
+        # Concurrent calculator layers share the service. Keep each request and
+        # its reply together; multiple threads must not read one pipe concurrently.
+        with self._call_lock:
+            return self._call_locked(payload)
+
+    def _call_locked(self, payload: dict[str, Any]) -> Any:
         if not self._started:
             self._start()
         if self.mode == "inline":
@@ -246,11 +276,16 @@ class FileOperationService:
         payload = dict(payload)
         payload["job_id"] = job_id
         assert self._request is not None and self._response is not None
-        self._request.put(payload)
+        try:
+            self._request.put(payload)
+        except (BrokenPipeError, EOFError, OSError) as exc:
+            raise RuntimeError("FileOperation process exited before returning a result") from exc
         # Wait for matching job_id (single-threaded client per worker is fine).
         while True:
             try:
                 reply = self._response.get(timeout=0.5)
+            except (EOFError, OSError) as exc:
+                raise RuntimeError("FileOperation process exited before returning a result") from exc
             except queue.Empty:
                 process = self._process
                 if process is None or not process.is_alive():

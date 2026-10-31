@@ -176,7 +176,7 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                 "error",
                                 "JV2-ENV-012",
                                 "EnvReqs.V2.checkpoint.heartbeat",
-                                "expected number ≥ "
+                                "expected number >= "
                                 f"{int(CHECKPOINT_HEARTBEAT_MIN_SEC)} seconds, got "
                                 f"{checkpoint.get('heartbeat')!r}",
                             )

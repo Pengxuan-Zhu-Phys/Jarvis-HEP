@@ -1330,7 +1330,7 @@ _PLUGIN_RESERVED_KEYS: tuple[dict[str, Any], ...] = (
 )
 
 
-def _plugin_example(method: str, schema: Mapping[str, Any] | None) -> str:
+def _plugin_example(method: str, schema: Mapping[str, Any] | None, profile: str = "independent") -> str:
     lines = [
         f"Method: {method}",
         "Variables:",
@@ -1340,7 +1340,7 @@ def _plugin_example(method: str, schema: Mapping[str, Any] | None) -> str:
         "      parameters: {min: 0.0, max: 1.0}",
         "Bounds:",
         "  seed: 0",
-        "  point_number: 1000",
+        "  max_evaluations: 1000" if profile == "generational" else "  point_number: 1000",
     ]
     props = _collect_properties(schema, base=schema) if isinstance(schema, Mapping) else None
     if isinstance(props, Mapping):
@@ -1364,6 +1364,12 @@ def _plugin_method_page(method: str) -> dict[str, Any]:
         {**key, "aliases": [], "exclusive": False, "nav": False}
         for key in _PLUGIN_RESERVED_KEYS
     ]
+    if record.profile == "generational":
+        for key in keys:
+            if key["name"] == "point_number":
+                key.update(name="max_evaluations", description="Global proposal budget, including rejected proposals.")
+            elif key["name"] == "seed":
+                key["description"] = "Master RNG seed for the sampler session."
     if schema:
         keys.extend(_key_entries(schema, base=schema))
     summary = _clean_man_prose(record.description or f"Plug-in sampler {method}.")
@@ -1381,7 +1387,7 @@ def _plugin_method_page(method: str) -> dict[str, Any]:
         "summary": summary,
         "keys": _annotate_nav(keys),
         "options_schema": schema,
-        "examples": [_plugin_example(method, schema)],
+        "examples": [_plugin_example(method, schema, record.profile)],
         "diagnostics": ["JV2-PLG-002", "JV2-PLG-003", "JV2-PLG-004"],
         "see_also": [
             "Jarvis man sampler",
@@ -2887,7 +2893,7 @@ def _calculator_page(
                     "description": "Max concurrent slots for modules assigned to this pool.",
                 }
             ],
-            "examples": ["Pools:\n  susy: 4"],
+            "examples": ["Calculators:\n  Pools:\n    MyCalculator: 4\n  Modules:\n    - name: MyCalculator\n      execution:\n        path: .\n        commands: [\"./run.sh\"]"],
             "diagnostics": [],
             "see_also": ["Jarvis man calculator"],
             "further_reading": None,

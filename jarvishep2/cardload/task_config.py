@@ -108,8 +108,9 @@ def _v2_defaults_from_envreqs(
 
         EnvReqs.Check_default_dependencies.default_yaml_path: "&J/deps/..."
 
-    Only ``EnvReqs.V2`` from that external YAML is interpreted by V2.  It is
-    merged with the task's ``EnvReqs.V2`` block; task values take precedence.
+    This helper reads ``EnvReqs.V2`` and merges it with the task block, with
+    task values taking precedence. Python, CERN_ROOT and OS defaults are loaded
+    separately by ``_legacy_environment_requirements_from_defaults``.
     """
     envreqs = config.get("EnvReqs")
     if not isinstance(envreqs, Mapping):

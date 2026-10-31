@@ -475,6 +475,11 @@ class Jarvis2Core:
         tests that intentionally exercise malformed cards past the loader.
         """
         self.config = load_task_yaml(path)
+        # Console-script entry points do not put the task project on sys.path.
+        # Spawn Workers inherit these explicit paths as well.
+        for import_root in (self.config.get("task_root"), os.path.dirname(os.path.abspath(path))):
+            if import_root and str(import_root) not in sys.path:
+                sys.path.insert(0, str(import_root))
         self.runtime = get_runtime_block(self.config)
         self._populate_info_from_config()
         if validate:
@@ -864,16 +869,10 @@ class Jarvis2Core:
                     "plot scenes emitted → %s",
                     ", ".join(f"{key}={path}" for key, path in written.items()),
                 )
-                for key, label in (
-                    ("jplot_levelset", "jplot_levelset_png"),
-                    ("jplot_dynesty_runplot", "jplot_dynesty_runplot_png"),
-                    ("jplot_multinest_runplot", "jplot_multinest_runplot_png"),
-                ):
-                    jplot = written.get(key)
-                    if jplot and label not in written:
-                        self._logger.info(
-                            "jplot YAML ready (render with: Jarvis plot %s)", jplot
-                        )
+                if written.get("plot_yaml") and "rendered" not in written:
+                    self._logger.info(
+                        "plot YAML ready (render with: Jarvis plot %s)", written["plot_yaml"]
+                    )
         except Exception as exc:
             self._logger.warning("plot scene emit failed -> %s", exc)
 
@@ -911,7 +910,7 @@ class Jarvis2Core:
             ncall = reported
             submitted_out = max(redis_total, ok + failed)
         else:
-            submitted_out = reported if reported > 0 else redis_total
+            submitted_out = redis_total if redis_total > 0 else reported
             # Still surface dynesty ncall when available on the sampler summary.
             try:
                 summary = (
@@ -1450,12 +1449,8 @@ class Jarvis2Core:
         started = metrics.pop("run_started_at", None)
         scan = self.config.get("Scan") or {}
         scan_name = scan.get("name") if isinstance(scan, Mapping) else None
-        sampler_name = type(self.sampler).__name__ if self.sampler is not None else None
-        from jarvishep2.sampling.plugin_sampler import PluginSampler
-
-        if isinstance(self.sampler, PluginSampler) or getattr(self.sampler, "is_generational_plugin", False):
-            # Every plug-in runs through one adapter class; name it by its method.
-            sampler_name = self.sampler.method
+        sampler_name = (str(getattr(self.sampler, "method", type(self.sampler).__name__))
+                        if self.sampler is not None else None)
         summary = build_run_summary(
             factory_metrics=metrics,
             project_name=str(self.config.get("project_name") or scan_name or ""),
