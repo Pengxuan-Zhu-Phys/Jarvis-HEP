@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import csv
 import os
+import pickle
 import tempfile
 import threading
 import time
+import types
 import unittest
 from collections import namedtuple
 from typing import Any
@@ -27,6 +29,7 @@ from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
 from jarvishep2.distributor import Distributor, STATELESS_METHODS
 from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.sample import Sample
+from jarvishep2.sampling.runtime_checkpoint import atomic_write_bytes
 
 
 class JarvisUuidHelpersTests(unittest.TestCase):
@@ -934,13 +937,11 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                     add_live=False,
                 )
                 mid._sampler = engine
+                mid._pool = pool
                 mid._finished = False
-                mid._engine_checkpoint_path = os.path.join(
-                    tmp, "checkpoints", "nested-resume", "MultiNest", "nested_engine.pkl"
-                )
                 state = mid.export_runtime_state()
                 self.assertIsInstance(state.get("native_sampler_blob"), (bytes, bytearray))
-                self.assertTrue(os.path.isfile(state["engine_checkpoint_path"]))
+                self.assertEqual(state["checkpoint_index"], pool._call_index)
                 ncall_mid = int(getattr(engine, "ncall", 0) or 0)
                 self.assertGreater(ncall_mid, 0)
 
@@ -949,7 +950,8 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                 resumed.set_redis(queue)
                 resumed.import_runtime_state(state)
                 self.assertFalse(resumed._finished)
-                self.assertIsNotNone(resumed._native_sampler_blob or resumed._sampler)
+                self.assertIsNotNone(resumed._sampler)
+                self.assertEqual(resumed._pool_call_index, pool._call_index)
                 # Continue further under resume.
                 resumed._run_nested_kwargs = {
                     "maxiter": 40,
@@ -974,7 +976,7 @@ class NestedCheckpointResumeTests(unittest.TestCase):
 
     def test_dynesty_export_import_roundtrip_restores_live_engine(self) -> None:
         """export → import restores nlive/it and pickle blob without Redis."""
-        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import DynamicNestedSampler
         from jarvishep2.Sampling.dynesty_sampler import NestedRedisLogL
 
         queue = make_fakeredis_queue()
@@ -996,27 +998,29 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                     method="Dynesty",
                 )
                 bridge = NestedRedisLogL(pool)
-                # Use static NestedSampler for a deterministic mid-run snapshot
-                # even though Method=Dynesty normally builds Dynamic.
-                engine = NestedSampler(
-                    loglikelihood=bridge,
-                    prior_transform=_jarvis_prior_transform,
-                    ndim=2,
+                # Method=Dynesty resumes only a DynamicNestedSampler engine.
+                engine = DynamicNestedSampler(
+                    bridge,
+                    _jarvis_prior_transform,
+                    2,
                     nlive=12,
                     pool=pool,
                     rstate=np.random.default_rng(0),
                     queue_size=4,
                 )
                 engine.run_nested(
-                    maxiter=6, dlogz=1e-9, print_progress=False, add_live=False
+                    maxiter=6, maxbatch=0, dlogz_init=1e-9, print_progress=False
                 )
                 sampler._sampler = engine
+                sampler._pool = pool
                 sampler._finished = False
                 it_before = int(engine.it)
                 ncall_before = int(engine.ncall)
                 state = sampler.export_runtime_state()
-                self.assertEqual(state.get("native_sampler_format"), "pickle")
-                self.assertTrue(state.get("native_sampler_blob"))
+                self.assertEqual(state.get("native_sampler_format"), "dynesty_save_v1")
+                saved = pickle.loads(state["native_sampler_blob"])
+                self.assertEqual(saved["format_version"], 1)
+                self.assertEqual(int(saved["sampler"].it), it_before)
 
                 other = DynestySampler()
                 other.set_config(cfg)
@@ -1095,7 +1099,8 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                 state = mid.export_runtime_state()
                 eng_path = state["engine_checkpoint_path"]
                 self.assertIn(os.path.join("MultiNest", "nested_engine.pkl"), eng_path)
-                self.assertTrue(os.path.isfile(eng_path))
+                # Export is a live snapshot; it never writes the engine copy.
+                self.assertFalse(os.path.isfile(eng_path))
                 self.assertEqual(state["method"], "MultiNest")
                 self.assertFalse(state["use_dynamic"])
 
@@ -1168,12 +1173,17 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                     print_progress=False,
                 )
                 s._sampler = dyn
+                s._pool = pool
                 s._finished = False
-                s.import_runtime_state(s.export_runtime_state())
-                # Import should drop the incompatible dynamic engine.
-                self.assertIsNone(s._sampler)
-                s.arm_engine_resume()
-                restored, resume = s._resolve_resume_engine(pool=pool)
+                state = s.export_runtime_state()
+                other = MultiNestSampler()
+                other.set_config(cfg)
+                # Core turns the ValueError into a fresh start.
+                with self.assertRaisesRegex(ValueError, "DynamicNestedSampler"):
+                    other.import_runtime_state(state)
+                self.assertIsNone(other._sampler)
+                self.assertFalse(other._resume_engine_requested)
+                restored, resume = other._resolve_resume_engine(pool=pool)
                 self.assertIsNone(restored)
                 self.assertFalse(resume)
         finally:
@@ -1231,7 +1241,7 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                 )
                 s._sampler = engine
                 s._finished = False
-                s._save_engine_side_file()
+                atomic_write_bytes(s._engine_path(), s._pickle_native_sampler())
                 self.assertTrue(os.path.isfile(s._engine_path()))
 
                 # Fresh sampler: no import_runtime_state → must ignore side file.
@@ -1250,9 +1260,150 @@ class NestedCheckpointResumeTests(unittest.TestCase):
                 restored, resume = fresh._resolve_resume_engine(pool=pool2)
                 self.assertIsNone(restored)
                 self.assertFalse(resume)
+                # The fresh initial checkpoint removes the earlier copy.
+                fresh.prepare_fresh_points(
+                    os.path.join(os.path.dirname(s._engine_path()), "state.pkl")
+                )
+                self.assertFalse(os.path.isfile(s._engine_path()))
         finally:
             stop.set()
             thread.join(timeout=2.0)
+
+
+def _quadratic_logl(x: np.ndarray) -> float:
+    return float(-np.sum(np.asarray(x, dtype=float) ** 2))
+
+
+def _unit_prior(u: np.ndarray) -> np.ndarray:
+    return np.asarray(u, dtype=float)
+
+
+class NestedSnapshotFenceTests(unittest.TestCase):
+    """An engine snapshot reaches state.pkl only after DATABASE holds its cursor."""
+
+    def _sampler(self, tmp: str, *, enabled: bool = True) -> DynestySampler:
+        cfg = NestedCheckpointResumeTests._two_var_config(method="Dynesty", nlive=12)
+        cfg["task_root"] = tmp
+        cfg["task_result_dir"] = tmp
+        cfg["EnvReqs"] = {"V2": {"checkpoint": {"enabled": enabled}}}
+        sampler = DynestySampler()
+        sampler.set_config(cfg)
+        return sampler
+
+    @staticmethod
+    def _capture_at(sampler: DynestySampler, cursor: int) -> None:
+        sampler._pool_call_index = cursor
+        sampler._sampler = types.SimpleNamespace(it=cursor)
+        assert sampler._capture_engine_snapshot()
+
+    def _configure(self, sampler: DynestySampler, tmp: str) -> list[int]:
+        written: list[int] = []
+
+        def save(reason: str = "") -> bool:
+            # Core: archive prefix → set_persisted_prefix → committed state.
+            state = sampler.checkpoint_runtime_state(safe=False)
+            written.append(int(state["checkpoint_index"]))
+            return True
+
+        sampler.configure_checkpoint(
+            checkpoint_file=os.path.join(tmp, "ck", "state.pkl"), save_callback=save
+        )
+        self.addCleanup(sampler.shutdown_checkpointing)
+        return written
+
+    def test_snapshot_waits_for_archive_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = self._sampler(tmp)
+            written = self._configure(sampler, tmp)
+            sampler._pool_call_index = 40
+            sampler._sampler = types.SimpleNamespace(it=3)
+            sampler._capture_engine_snapshot(reason="dynesty_engine_checkpoint")
+            # The live engine is at cursor 40; DATABASE holds nothing yet.
+            self.assertEqual(written, [0])
+            self.assertIsNone(sampler.checkpoint_runtime_state(safe=True)["native_sampler_blob"])
+            sampler.set_persisted_prefix(39)
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["checkpoint_index"], 0)
+            sampler.set_persisted_prefix(40)
+            state = sampler.checkpoint_runtime_state(safe=False)
+            self.assertEqual(state["checkpoint_index"], 40)
+            self.assertEqual(pickle.loads(state["native_sampler_blob"])["sampler"].it, 3)
+
+    def test_pending_window_keeps_oldest_snapshots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = self._sampler(tmp)
+            self._configure(sampler, tmp)
+            for cursor in (10, 20, 30, 40, 50, 60):
+                self._capture_at(sampler, cursor)
+            self.assertEqual([i for i, _ in sampler._checkpoint_snapshots], [10, 20, 30, 60])
+            sampler.set_persisted_prefix(35)
+            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["checkpoint_index"], 30)
+            self.assertEqual([i for i, _ in sampler._checkpoint_snapshots], [60])
+
+    def test_committed_engine_is_mirrored_for_restore_sampler(self) -> None:
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+        from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import restore_sampler
+
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = self._sampler(tmp)
+            self._configure(sampler, tmp)
+            engine = NestedSampler(
+                loglikelihood=_quadratic_logl,
+                prior_transform=_unit_prior,
+                ndim=2,
+                nlive=12,
+                rstate=np.random.default_rng(0),
+            )
+            engine.run_nested(maxiter=5, dlogz=1e-9, print_progress=False, add_live=False)
+            sampler._sampler = engine
+            sampler._pool_call_index = int(engine.ncall)
+            sampler._capture_engine_snapshot()
+            mirror = os.path.join(tmp, "ck", "nested_engine.pkl")
+            sampler.checkpoint_runtime_state(safe=False)
+            self.assertFalse(os.path.exists(mirror))
+            sampler.set_persisted_prefix(int(engine.ncall))
+            sampler.checkpoint_runtime_state(safe=False)
+            self.assertEqual(int(restore_sampler(mirror).it), int(engine.it))
+
+    def test_disabled_checkpoint_writes_no_engine_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = self._sampler(tmp, enabled=False)
+            self._configure(sampler, tmp)
+            self._capture_at(sampler, 5)
+            sampler.set_persisted_prefix(5)
+            sampler.checkpoint_runtime_state(safe=False)
+            self.assertFalse(os.path.exists(os.path.join(tmp, "ck", "nested_engine.pkl")))
+
+    def test_earlier_release_snapshot_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            sampler = self._sampler(tmp)
+            legacy = {
+                "native_sampler_blob": pickle.dumps(types.SimpleNamespace(it=1)),
+                "native_sampler_format": "pickle",
+                "checkpoint_index": 7,
+            }
+            with self.assertRaisesRegex(ValueError, "earlier release"):
+                sampler.import_runtime_state(legacy)
+            with self.assertRaisesRegex(ValueError, "has no engine"):
+                sampler.import_runtime_state({"checkpoint_index": 7})
+            self.assertFalse(sampler._resume_engine_requested)
+
+    def test_discarded_import_forgets_engine_and_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = self._sampler(tmp)
+            source._pool_call_index = 12
+            source._sampler = types.SimpleNamespace(it=2)
+            # The engine type check needs a real engine; skip it here.
+            state = source.export_runtime_state()
+            sampler = self._sampler(tmp)
+            sampler._engine_matches_method = lambda engine: True
+            sampler.import_runtime_state(state)
+            self.assertEqual(sampler._pool_call_index, 12)
+            self.assertIsNotNone(sampler._sampler)
+            sampler.set_resume_mode(False)
+            self.assertEqual(sampler._accepted_index, 0)
+            self.assertIsNone(sampler._sampler)
+            self.assertIsNone(sampler._last_safe_state)
+            self.assertFalse(sampler._resume_engine_requested)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,9 @@ import csv
 import inspect
 import os
 import pickle
+import time
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 from uuid import uuid4
 
@@ -39,10 +41,17 @@ from jarvishep2.contracts.nested import NESTED_CONSTRUCTOR_USER_KEYS
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
+from jarvishep2.sampling.runtime_checkpoint import atomic_write_bytes
 
-# Side-file basename next to Jarvis ``state.pkl`` for dynesty's native engine
-# pickle (live points, saved_run, rstate, bounds, internal_state, …).
+# Side-file basename next to Jarvis ``state.pkl``: a copy of the committed
+# engine snapshot (live points, saved_run, rstate, bounds, internal_state, …)
+# that ``dynesty.utils.restore_sampler`` can read.  ``--resume`` never reads it.
 NESTED_ENGINE_FILENAME = "nested_engine.pkl"
+# ``native_sampler_blob`` holds the bytes dynesty's ``save_sampler`` writes.
+NATIVE_SAMPLER_FORMAT = "dynesty_save_v1"
+_DYNESTY_SAVE_FORMAT_VERSION = 1
+# Engine snapshots held in memory until the Archiver confirms their cursor.
+_PENDING_SNAPSHOT_LIMIT = 4
 
 # NestedSampler.run_nested (static) — user-facing only.
 # Checkpoint cadence/path/resume are HEP-owned (EnvReqs.V2 + runtime).
@@ -546,6 +555,10 @@ class DynestySampler(CheckpointedSampler):
     method = "Dynesty"
     # MultiNest subclasses force static NestedSampler via default_dynamic=False.
     default_dynamic: bool = True
+    # Every pushed likelihood task has a dense ``sample_index`` (the pool
+    # cursor).  A checkpoint is an engine snapshot taken at cursor C and
+    # committed only after DATABASE holds [0, C).
+    uses_indexed_resume = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -570,22 +583,38 @@ class DynestySampler(CheckpointedSampler):
         self._summary: dict[str, Any] | None = None
         self._use_dynamic = bool(self.default_dynamic)
         self._dynesty_csv_path: str | None = None
-        # Native engine resume (dynesty save/restore + runtime checkpoint).
+        # Native engine resume (dynesty save format inside state.pkl).
         self._native_sampler_blob: bytes | None = None
         self._engine_checkpoint_path: str | None = None
         self._pool_call_index = 0
+        self._pool: RedisEvaluationPool | None = None
         self._loglike_bridge: NestedRedisLogL | None = None
         self._checkpoint_every_sec = 60.0
-        self._native_snapshot_ready = False
+        self._mirrored_engine_index: int | None = None
         self._parallel_workers = 1
-        # Only True after import_runtime_state / arm_engine_resume (Core --resume).
-        # Prevents a leftover nested_engine.pkl from poisoning a fresh run.
+        # Only True after import_runtime_state (Core --resume).
         self._resume_engine_requested = False
         self._wrapped_dynesty_save = False
 
-    def arm_engine_resume(self) -> None:
-        """Core ``--resume``: allow loading ``nested_engine.pkl`` even without blob."""
-        self._resume_engine_requested = True
+    @property
+    def _accepted_index(self) -> int:
+        """Next ``sample_index``: the number of likelihood tasks pushed so far."""
+        if self._pool is not None:
+            return int(self._pool._call_index)
+        return int(self._pool_call_index or 0)
+
+    def set_resume_mode(self, enabled: bool) -> None:
+        super().set_resume_mode(enabled)
+        if not enabled and self._resume_engine_requested:
+            # A discarded checkpoint must not leave its engine or cursor behind.
+            self._resume_engine_requested = False
+            self._sampler = None
+            self._native_sampler_blob = None
+            self._pool_call_index = 0
+            self._finished = False
+            self._summary = None
+            self._last_safe_state = None
+            self._checkpoint_snapshots.clear()
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
@@ -668,28 +697,41 @@ class DynestySampler(CheckpointedSampler):
         """Nested sampling checkpoints via dynesty save, not generation barriers."""
         return True
 
-    def checkpoint_at_barrier(self, *, reason: str = "dynesty_finished") -> bool:
-        """Persist nested engine + state.pkl after a completed (or interrupted) run."""
+    def checkpoint_at_barrier(
+        self,
+        *,
+        reason: str = "dynesty_finished",
+        timeout: float = 3600.0,
+    ) -> bool:
+        """Commit the finished engine once DATABASE holds every evaluation it used."""
+        if self._sampler is None or not get_checkpoint_config(self.config)["enabled"]:
+            return False
+        if not self._capture_engine_snapshot():
+            return False
+        cursor = self._accepted_index
         redis = self.redis
-        scan_block = self.config.get("Scan")
-        scan_mapping = scan_block if isinstance(scan_block, Mapping) else {}
-        scan_name = str(
-            self.config.get("scan_name") or scan_mapping.get("name") or "scan"
-        )
-        if redis is not None and self._submitted_uuids:
-            from jarvishep2.sampling.runtime_checkpoint import (
-                wait_for_archived_uuid_window,
+        if redis is not None:
+            scan_block = self.config.get("Scan")
+            scan_mapping = scan_block if isinstance(scan_block, Mapping) else {}
+            scan_name = str(
+                self.config.get("scan_name") or scan_mapping.get("name") or "scan"
             )
-
-            window = [str(uuid) for uuid in self._submitted_uuids]
-            missing = wait_for_archived_uuid_window(
-                redis, scan_name, window, timeout_sec=5.0
-            )
-            missing_set = set(missing)
-            acked = [uuid for uuid in window if uuid not in missing_set]
-            if acked:
-                self._persisted_uuids.update(acked)
-            self._submitted_uuids = list(missing)
+            deadline = time.monotonic() + max(1.0, float(timeout))
+            while True:
+                prefix = redis.get_archived_index_prefix(scan_name)
+                self.set_persisted_prefix(prefix)
+                if self._persisted_index_prefix >= cursor:
+                    break
+                if time.monotonic() >= deadline:
+                    self._logger.warning(
+                        "%s: DATABASE did not reach the final cursor %d within %.0fs; "
+                        "the checkpoint keeps the last confirmed engine snapshot",
+                        self.method,
+                        cursor,
+                        float(timeout),
+                    )
+                    break
+                time.sleep(0.1)
         return self.persist_runtime_checkpoint(force=True, reason=reason)
 
     def _feedback_export_state(self) -> dict[str, Any]:
@@ -899,14 +941,23 @@ class DynestySampler(CheckpointedSampler):
         self._wrapped_dynesty_save = False
 
     def _pickle_native_sampler(self, sampler: Any | None = None) -> bytes | None:
-        """Serialize the dynesty engine with stdlib pickle (no dill)."""
+        """Serialize the engine in dynesty's ``save_sampler`` format (stdlib pickle)."""
+        from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import DYNESTY_VERSION
+
         target = sampler if sampler is not None else self._sampler
         if target is None:
             return None
         reinstall = target is self._sampler
         self._strip_dynesty_save_hook(target)
         try:
-            return pickle.dumps(target, protocol=pickle.HIGHEST_PROTOCOL)
+            return pickle.dumps(
+                {
+                    "sampler": target,
+                    "version": DYNESTY_VERSION,
+                    "format_version": _DYNESTY_SAVE_FORMAT_VERSION,
+                },
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
         except Exception as exc:
             self._logger.warning(
                 "%s: failed to pickle native dynesty engine for checkpoint: %s",
@@ -918,37 +969,14 @@ class DynestySampler(CheckpointedSampler):
             if reinstall:
                 self._install_dynesty_save_hook()
 
-    def _save_engine_side_file(self, sampler: Any | None = None) -> str | None:
-        """Atomic dynesty-native save → ``nested_engine.pkl`` (sampling-thread safe)."""
-        target = sampler if sampler is not None else self._sampler
-        if target is None:
-            return None
-        path = self._engine_path()
-        parent = os.path.dirname(os.path.abspath(path))
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        reinstall = target is self._sampler
-        self._strip_dynesty_save_hook(target)
-        try:
-            # Stock class method — pickle-safe.
-            type(target).save(target, path)
-            return path
-        except Exception as exc:
-            self._logger.warning(
-                "%s: dynesty engine save to %s failed: %s", self.method, path, exc
-            )
-            return None
-        finally:
-            if reinstall:
-                self._install_dynesty_save_hook()
-
     def _install_dynesty_save_hook(self) -> None:
-        """Wrap dynesty ``.save`` so each engine pickle also updates Jarvis state.pkl.
+        """Turn dynesty's timed ``save`` into a Jarvis engine snapshot.
 
-        Dynesty calls ``save(checkpoint_file)`` on its **sampling thread** every
-        ``checkpoint_every`` seconds (and at run end).  The hook is stripped
-        before every pickle so the local function is never written into the
-        engine checkpoint.
+        Dynesty calls ``save(checkpoint_file)`` on its **sampling thread**
+        between iterations, every ``checkpoint_every`` seconds and at the end
+        of the run.  No likelihood task is in flight then, so the pool cursor
+        is exact.  The hook is stripped before every pickle so the local
+        function is never written into the engine.
         """
         engine = self._sampler
         if engine is None or self._wrapped_dynesty_save:
@@ -958,52 +986,109 @@ class DynestySampler(CheckpointedSampler):
         sampler_self = self
 
         def _save_with_jarvis_state(fname: str, *args: Any, **kwargs: Any) -> None:
-            # Strip before dynesty pickles ``self`` inside save_sampler.
-            sampler_self._strip_dynesty_save_hook(engine)
+            # The snapshot replaces dynesty's own file write; see _mirror_engine_file.
+            _ = fname, args, kwargs
             try:
-                type(engine).save(engine, fname, *args, **kwargs)
-            finally:
-                sampler_self._install_dynesty_save_hook()
-            try:
-                blob = sampler_self._pickle_native_sampler(engine)
-                if blob is not None:
-                    sampler_self._native_sampler_blob = blob
+                sampler_self._capture_engine_snapshot(reason="dynesty_engine_checkpoint")
             except Exception as exc:
                 sampler_self._logger.warning(
-                    "%s: pickle after dynesty save failed: %s", sampler_self.method, exc
+                    "%s: engine checkpoint was not saved -> %s", sampler_self.method, exc
                 )
-            cb = getattr(sampler_self, "_save_checkpoint_callback", None)
-            if cb is not None:
-                try:
-                    sampler_self._last_safe_state = None
-                    # The side file and blob above already represent this exact
-                    # barrier. The callback must not pickle/write them again.
-                    sampler_self._native_snapshot_ready = True
-                    cb(reason="dynesty_engine_checkpoint")
-                except Exception as exc:
-                    sampler_self._logger.warning(
-                        "%s: state.pkl write after dynesty save failed: %s",
-                        sampler_self.method,
-                        exc,
-                    )
-                finally:
-                    sampler_self._native_snapshot_ready = False
 
         engine.save = _save_with_jarvis_state  # type: ignore[method-assign]
         self._wrapped_dynesty_save = True
 
-    def checkpoint_runtime_state(self, *, safe: bool) -> dict[str, Any]:
-        """Always snapshot the live dynesty engine (not a stale barrier copy).
+    def _capture_engine_snapshot(self, *, reason: str | None = None) -> bool:
+        """Queue the engine at the current pool cursor, then save state.pkl if *reason*.
 
-        Nested sampling does not use FeedbackSampler generation barriers.  The
-        default ``CheckpointedSampler.checkpoint_runtime_state`` may return the
-        post-configure snapshot when ``safe=False``, freezing pre-run state and
-        making interrupt checkpoints useless.  Always re-export.
+        The snapshot stays pending until the Archiver confirms DATABASE holds
+        every row below its cursor.  The pending window keeps the oldest
+        snapshots, because they are the next to be confirmed.
         """
-        state = self.export_runtime_state()
-        # Avoid deepcopy of multi-MB blobs twice; export already returns a new dict.
-        self._last_safe_state = state
+        engine = self._sampler
+        if engine is None:
+            return False
+        cursor = self._accepted_index
+        self._pool_call_index = cursor
+        blob = self._pickle_native_sampler(engine)
+        if blob is None:
+            return False
+        state = self._engine_state(blob=blob, cursor=cursor)
+        with self._runtime_checkpoint_save_lock:
+            snapshots = self._checkpoint_snapshots
+            if len(snapshots) >= _PENDING_SNAPSHOT_LIMIT:
+                snapshots.pop()
+            snapshots.append((cursor, state))
+            self._promote_committed_snapshots()
+            if reason is not None and self._save_checkpoint_callback is not None:
+                self._save_checkpoint_callback(reason=reason)
+        return True
+
+    def _promote_committed_snapshots(self) -> None:
+        with self._runtime_checkpoint_save_lock:
+            snapshots = self._checkpoint_snapshots
+            while snapshots and snapshots[0][0] <= self._persisted_index_prefix:
+                self._last_safe_state = snapshots.popleft()[1]
+
+    def set_persisted_prefix(self, prefix: int) -> None:
+        """Commit every pending engine snapshot whose cursor DATABASE has reached."""
+        with self._runtime_checkpoint_save_lock:
+            self._persisted_index_prefix = max(self._persisted_index_prefix, int(prefix or 0))
+            self._promote_committed_snapshots()
+
+    def checkpoint_runtime_state(self, *, safe: bool) -> dict[str, Any]:
+        """Return the newest committed engine snapshot, never the live engine.
+
+        The live engine can hold points whose DATABASE rows are not durable
+        yet.  ``safe`` does not apply: a snapshot is safe only by its cursor.
+        """
+        _ = safe
+        with self._runtime_checkpoint_save_lock:
+            if self._last_safe_state is None:
+                self._last_safe_state = self._initial_engine_state()
+            state = self._last_safe_state
+        self._mirror_engine_file(state)
         return dict(state)
+
+    def _initial_engine_state(self) -> dict[str, Any]:
+        """Recovery point before the first likelihood task: no engine, cursor 0."""
+        state = self._engine_state(blob=None, cursor=0)
+        state["finished"] = False
+        state["summary"] = None
+        return state
+
+    def _mirror_engine_file(self, state: Mapping[str, Any]) -> None:
+        """Copy the committed engine to ``nested_engine.pkl`` for dynesty tools.
+
+        It is written before state.pkl.  ``--resume`` reads only state.pkl, so
+        a crash between the two writes cannot pair an engine with a cursor.
+        """
+        blob = state.get("native_sampler_blob")
+        cursor = self._state_index(state)
+        if not isinstance(blob, (bytes, bytearray)) or cursor == self._mirrored_engine_index:
+            return
+        if not get_checkpoint_config(self.config)["enabled"]:
+            return
+        path = self._engine_path()
+        try:
+            atomic_write_bytes(path, bytes(blob))
+        except OSError as exc:
+            self._logger.warning(
+                "%s: engine copy %s was not written -> %s", self.method, path, exc
+            )
+            return
+        self._mirrored_engine_index = cursor
+
+    def prepare_fresh_points(self, checkpoint_file: str) -> None:
+        """Remove an earlier run's engine copy before the fresh state.pkl is written."""
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(checkpoint_file)), NESTED_ENGINE_FILENAME
+        )
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        self._mirrored_engine_index = None
 
     def configure_checkpoint(
         self,
@@ -1019,11 +1104,14 @@ class DynestySampler(CheckpointedSampler):
 
         self._checkpoint_file = str(checkpoint_file)
         self._save_checkpoint_callback = save_callback
-        # Capture current engine (restored or empty) as the first safe snapshot.
-        try:
-            self._last_safe_state = self.export_runtime_state()
-        except Exception:
-            self._last_safe_state = {"method": self.method, "finished": self._finished}
+        self._engine_checkpoint_path = os.path.join(
+            os.path.dirname(os.path.abspath(self._checkpoint_file)), NESTED_ENGINE_FILENAME
+        )
+        with self._runtime_checkpoint_save_lock:
+            # A resumed run keeps the imported snapshot; a fresh run starts at cursor 0.
+            if self._last_safe_state is None:
+                self._last_safe_state = self._initial_engine_state()
+            self._checkpoint_snapshots.clear()
         # Heartbeat only requests a flag for enum samplers.  Dynesty never polls
         # it; keep a long interval no-op so CheckpointedSampler wiring stays happy.
         if self._checkpoint_heartbeat is not None:
@@ -1045,35 +1133,34 @@ class DynestySampler(CheckpointedSampler):
         )
         self._checkpoint_heartbeat.start()
         self._logger.info(
-            "%s checkpoint: nested_engine.pkl every %.0fs (dynesty); "
-            "state.pkl on each engine save + interrupt/finish",
+            "%s checkpoint: engine snapshot every %.0fs (dynesty); state.pkl takes "
+            "a snapshot once DATABASE holds every evaluation it used",
             self.method,
             float(self._checkpoint_every_sec),
         )
 
-    def _load_native_from_blob(self, blob: bytes) -> Any | None:
+    def _load_native_from_blob(self, blob: bytes) -> Any:
+        """Return the engine in a ``dynesty_save_v1`` blob; ValueError if unreadable."""
         try:
-            return pickle.loads(blob)
+            saved = pickle.loads(blob)
         except Exception as exc:
-            self._logger.warning(
-                "%s: failed to unpickle native engine blob: %s", self.method, exc
-            )
-            return None
+            raise ValueError(f"{self.method} engine snapshot cannot be read: {exc}") from exc
+        if (
+            not isinstance(saved, Mapping)
+            or saved.get("format_version") != _DYNESTY_SAVE_FORMAT_VERSION
+            or saved.get("sampler") is None
+        ):
+            raise ValueError(f"{self.method} engine snapshot has an unknown layout")
+        from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import DYNESTY_VERSION
 
-    def _load_native_from_engine_file(self, path: str, pool: Any = None) -> Any | None:
-        if not path or not os.path.isfile(path):
-            return None
-        try:
-            from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import (
-                restore_sampler,
-            )
-
-            return restore_sampler(path, pool=pool)
-        except Exception as exc:
+        if saved.get("version") != DYNESTY_VERSION:
             self._logger.warning(
-                "%s: failed to restore engine from %s: %s", self.method, path, exc
+                "%s: engine snapshot comes from dynesty %s; this release has %s",
+                self.method,
+                saved.get("version"),
+                DYNESTY_VERSION,
             )
-            return None
+        return saved["sampler"]
 
     @staticmethod
     def _is_dynamic_engine(sampler: Any) -> bool:
@@ -1119,90 +1206,38 @@ class DynestySampler(CheckpointedSampler):
         pool: RedisEvaluationPool,
         logger: Any | None = None,
     ) -> tuple[Any | None, bool]:
-        """Load a previously interrupted dynesty/MultiNest engine if available.
+        """Reattach the engine imported from state.pkl for ``run_nested(resume=True)``.
 
-        Only runs when :attr:`_resume_engine_requested` is set by
-        ``import_runtime_state`` / ``arm_engine_resume`` (Core ``--resume``).
-        A leftover ``nested_engine.pkl`` alone must **not** hijack a fresh start.
-
-        Preference order (newest / most durable first):
-
-        1. Side-file ``nested_engine.pkl`` — written by dynesty's own timer
-           between iterations (survives kill -9 when the last timed save completed)
-        2. Live ``self._sampler`` already unpickled by ``import_runtime_state``
-        3. Embedded pickle blob in the runtime ``state.pkl``
+        Only runs after ``import_runtime_state`` (Core ``--resume``).  The
+        engine is the committed snapshot in state.pkl; ``nested_engine.pkl``
+        is never a resume source.
         """
-        if not self._resume_engine_requested:
+        if not self._resume_engine_requested or self._finished:
             return None, False
-        if self._finished:
+        sampler = self._sampler
+        if sampler is None and self._native_sampler_blob:
+            sampler = self._load_native_from_blob(self._native_sampler_blob)
+        if sampler is None:
             return None, False
-
         bridge = NestedRedisLogL(pool)
-        self._loglike_bridge = bridge
-
-        candidates: list[tuple[str, Any | None]] = []
-        engine_path = self._engine_path()
-        if engine_path and os.path.isfile(engine_path):
-            candidates.append(("engine_file", None))  # load lazily
-        if self._sampler is not None:
-            candidates.append(("live", self._sampler))
-        if self._native_sampler_blob:
-            candidates.append(("blob", None))
-
-        for source, obj in candidates:
-            sampler = obj
-            if source == "engine_file":
-                sampler = self._load_native_from_engine_file(engine_path, pool=pool)
-            elif source == "blob":
-                sampler = self._load_native_from_blob(self._native_sampler_blob or b"")
-            if sampler is None:
-                continue
-            if not self._engine_matches_method(sampler):
-                expected = (
-                    "DynamicNestedSampler"
-                    if self.default_dynamic
-                    else "static NestedSampler"
-                )
-                self._logger.warning(
-                    "%s resume: skipping engine from %s — type %s is not %s "
-                    "(Method selects the engine; do not mix Dynesty/MultiNest "
-                    "checkpoints under the same scan name)",
-                    self.method,
-                    source,
-                    type(sampler).__name__,
-                    expected,
-                )
-                continue
-            if self._engine_looks_finished(sampler):
-                self._logger.info(
-                    "%s resume: engine from %s is already complete "
-                    "(RUN_DONE / added_live); not re-entering run_nested",
-                    self.method,
-                    source,
-                )
-                self._reattach_native_runtime(
-                    sampler, pool=pool, bridge=bridge, logger=logger
-                )
-                self._sampler = sampler
-                self._finished = True
-                if self._summary is None:
-                    try:
-                        self._summary = self._build_summary()
-                    except Exception:
-                        pass
-                return sampler, False
-            self._reattach_native_runtime(
-                sampler, pool=pool, bridge=bridge, logger=logger
-            )
+        self._reattach_native_runtime(sampler, pool=pool, bridge=bridge, logger=logger)
+        if self._engine_looks_finished(sampler):
             self._logger.info(
-                "%s resume: restored native dynesty engine from %s (it=%s ncall=%s)",
+                "%s resume: the engine is already complete (RUN_DONE / added_live); "
+                "not re-entering run_nested",
                 self.method,
-                source,
-                getattr(sampler, "it", "?"),
-                getattr(sampler, "ncall", "?"),
             )
-            return sampler, True
-        return None, False
+            # run_adaptive skips run_nested and writes the result files again.
+            self._finished = True
+            return sampler, False
+        self._logger.info(
+            "%s resume: restored native dynesty engine (it=%s ncall=%s cursor=%d)",
+            self.method,
+            getattr(sampler, "it", "?"),
+            getattr(sampler, "ncall", "?"),
+            int(pool._call_index),
+        )
+        return sampler, True
 
     def run_adaptive(
         self,
@@ -1212,9 +1247,8 @@ class DynestySampler(CheckpointedSampler):
     ) -> int:
         """Run nested sampling with a per-generation timeout setting.
 
-        Supports mid-run resume via dynesty native pickle
-        (``nested_engine.pkl`` + runtime ``state.pkl`` blob) and
-        ``run_nested(resume=True)``.
+        ``--resume`` continues the committed engine snapshot from state.pkl
+        with ``run_nested(resume=True)``.
         """
         if timeout is not None:
             generation_timeout = timeout
@@ -1260,8 +1294,10 @@ class DynestySampler(CheckpointedSampler):
             self._batch_size,
             (self._constructor_kwargs.get("use_pool") or {}).get("propose_point", True),
         )
-        # Resume call_index so any non-uuid fallback UUIDs stay deterministic.
+        # The pool cursor continues from the snapshot, so new tasks take the
+        # sample_index values after the committed DATABASE prefix.
         pool._call_index = max(0, int(self._pool_call_index or 0))
+        self._pool = pool
 
         resume = False
         wanted_resume = bool(self._resume_engine_requested)
@@ -1269,8 +1305,6 @@ class DynestySampler(CheckpointedSampler):
         # Consume the one-shot resume request after the resolve attempt so a
         # later accidental re-entry cannot silently re-load a finished engine.
         self._resume_engine_requested = False
-        if self._finished and restored is not None:
-            return int((self._summary or {}).get("ncall") or 0)
         if restored is not None:
             self._sampler = restored
             self._wrapped_dynesty_save = False  # restored object has stock .save
@@ -1285,15 +1319,9 @@ class DynestySampler(CheckpointedSampler):
             )
         else:
             if wanted_resume:
-                self._logger.warning(
-                    "%s --resume was requested but no native engine was restored "
-                    "(engine_file=%s exists=%s, blob=%s). Starting a FRESH nested "
-                    "run — progress will restart from iter≈0. Check "
-                    "checkpoints/<scan>/%s/nested_engine.pkl and state.pkl.",
-                    self.method,
-                    self._engine_path(),
-                    os.path.isfile(self._engine_path()),
-                    "yes" if self._native_sampler_blob else "no",
+                self._logger.info(
+                    "%s resume: the checkpoint holds no engine yet; the nested run "
+                    "starts again from its seed and replaces the earlier rows",
                     self.method,
                 )
             rstate = np.random.default_rng(self._rseed)
@@ -1342,61 +1370,11 @@ class DynestySampler(CheckpointedSampler):
         except Exception:
             pass
 
-        # Mid-run: dynesty.save → nested_engine.pkl + Jarvis state.pkl together.
+        # dynesty's timed save → a pending engine snapshot (see _capture_engine_snapshot).
         self._install_dynesty_save_hook()
 
-        run_kwargs = filter_kwargs_to_callable(
-            self._run_nested_kwargs,
-            self._sampler.run_nested,
-            context="run_nested",
-            logger=self._logger,
-        )
-        # HEP injects checkpoint path/interval from EnvReqs.V2 — never from Sampling YAML.
-        if get_checkpoint_config(self.config)["enabled"]:
-            run_kwargs["checkpoint_file"] = self._engine_path()
-            run_kwargs["checkpoint_every"] = float(self._checkpoint_every_sec)
-        # Dynesty's save_sampler writes ``path.tmp`` then renames — parent dir
-        # must exist (stock dynesty does not create it).
-        ckpt = run_kwargs.get("checkpoint_file")
-        if ckpt:
-            parent = os.path.dirname(os.path.abspath(str(ckpt)))
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-        if resume:
-            run_kwargs["resume"] = True
-        else:
-            # Fresh run: never pass resume=True (would no-op if state is weird).
-            run_kwargs.pop("resume", None)
-
-        self._logger.info(
-            "run_nested kwargs → %s",
-            {
-                k: v
-                for k, v in run_kwargs.items()
-                if k not in {"print_func"}
-            },
-        )
-        try:
-            self._sampler.run_nested(**run_kwargs)
-            self._finished = True
-        except BaseException:
-            # Interrupt / crash path: persist engine so --resume can continue.
-            try:
-                if get_checkpoint_config(self.config)["enabled"]:
-                    self.export_runtime_state()
-            except Exception as save_exc:
-                self._logger.warning(
-                    "%s emergency engine checkpoint was not saved -> %s",
-                    self.method,
-                    save_exc,
-                    exc_info=True,
-                )
-            raise
-        finally:
-            try:
-                self._pool_call_index = int(getattr(pool, "_call_index", 0) or 0)
-            except Exception:
-                pass
+        if not self._finished:
+            self._run_nested_engine(pool=pool, resume=resume)
 
         self._summary = self._build_summary()
         # V1 finalize path: clean nested CSV for Jarvis-PLOT dynesty_runplot.
@@ -1431,13 +1409,8 @@ class DynestySampler(CheckpointedSampler):
             self._logger.warning(
                 "%s sampler summary was not written -> %s", self.method, exc, exc_info=True
             )
-        # The runtime callback exports once; without Core, keep a native
-        # snapshot for callers that use this sampler directly.
-        if get_checkpoint_config(self.config)["enabled"]:
-            if self._save_checkpoint_callback is not None:
-                self.checkpoint_at_barrier(reason="dynesty_finished")
-            else:
-                self.export_runtime_state()
+        if self._save_checkpoint_callback is not None:
+            self.checkpoint_at_barrier(reason="dynesty_finished", timeout=generation_timeout)
         # Official nested summary block (nlive/niter/ncall/eff/logz) → sampler.log
         try:
             self._log_nested_run_summary()
@@ -1446,6 +1419,40 @@ class DynestySampler(CheckpointedSampler):
                 "%s run summary could not be logged -> %s", self.method, exc, exc_info=True
             )
         return int(self._summary.get("ncall") or 0)
+
+    def _run_nested_engine(self, *, pool: RedisEvaluationPool, resume: bool) -> None:
+        run_kwargs = filter_kwargs_to_callable(
+            self._run_nested_kwargs,
+            self._sampler.run_nested,
+            context="run_nested",
+            logger=self._logger,
+        )
+        # HEP injects the checkpoint interval from EnvReqs.V2 — never from
+        # Sampling YAML.  The save hook ignores the file name.
+        if get_checkpoint_config(self.config)["enabled"]:
+            run_kwargs["checkpoint_file"] = self._engine_path()
+            run_kwargs["checkpoint_every"] = float(self._checkpoint_every_sec)
+        if resume:
+            run_kwargs["resume"] = True
+        else:
+            # Fresh run: never pass resume=True (would no-op if state is weird).
+            run_kwargs.pop("resume", None)
+
+        self._logger.info(
+            "run_nested kwargs → %s",
+            {
+                k: v
+                for k, v in run_kwargs.items()
+                if k not in {"print_func"}
+            },
+        )
+        # An interrupt leaves state.pkl on the last committed snapshot; the
+        # live engine may hold evaluations that DATABASE does not have yet.
+        try:
+            self._sampler.run_nested(**run_kwargs)
+            self._finished = True
+        finally:
+            self._pool_call_index = int(pool._call_index)
 
     def _log_nested_run_summary(self) -> None:
         """Emit dynesty/MultiNest ``Results.summary()`` block to the sampler logger."""
@@ -1645,34 +1652,12 @@ class DynestySampler(CheckpointedSampler):
             self._summary = self._build_summary()
         return dict(self._summary)
 
-    def export_runtime_state(self) -> dict[str, Any]:
-        """Export Jarvis feedback fields + pickled dynesty engine (live points).
+    def _engine_state(self, *, blob: bytes | None, cursor: int) -> dict[str, Any]:
+        """Checkpoint fields for an engine snapshot taken at pool cursor *cursor*.
 
-        The native engine is stored two ways:
-
-        * ``native_sampler_blob`` — stdlib pickle bytes inside ``state.pkl``
-        * ``nested_engine.pkl`` side file — dynesty's own ``save()`` format
-          (also written periodically by ``run_nested(checkpoint_file=…)``)
-
-        Redis / logger / pool are never pickled; they are reattached on resume.
+        ``native_sampler_blob`` holds dynesty's ``save_sampler`` bytes.  Redis,
+        logger and pool are never pickled; they are reattached on resume.
         """
-        # Prefer a fresh snapshot of the live engine when present (interrupt path).
-        if self._sampler is not None and not self._native_snapshot_ready:
-            blob = self._pickle_native_sampler()
-            if blob is not None:
-                self._native_sampler_blob = blob
-            try:
-                if get_checkpoint_config(self.config)["enabled"]:
-                    self._save_engine_side_file()
-            except Exception as exc:
-                self._logger.warning(
-                    "%s: engine side-file write during export failed: %s",
-                    self.method,
-                    exc,
-                )
-
-        if self._loglike_bridge is not None and self._loglike_bridge._pool is not None:
-            self._pool_call_index = self._loglike_bridge._pool._call_index
         state = self._feedback_export_state()
         # Strip non-pickleable keys from constructor kwargs (callables).
         safe_ctor = {
@@ -1691,12 +1676,11 @@ class DynestySampler(CheckpointedSampler):
             for k, v in dict(self._run_nested_kwargs).items()
             if k not in {"print_func"}
         }
-        engine_path = self._engine_path()
         state.update(
             {
                 "method": self.method,
                 "finished": self._finished,
-                "summary": self._summary,
+                "summary": deepcopy(self._summary),
                 "nlive": self._nlive,
                 "dlogz": self._dlogz,
                 "rseed": self._rseed,
@@ -1704,18 +1688,63 @@ class DynestySampler(CheckpointedSampler):
                 "constructor_kwargs": safe_ctor,
                 "run_nested_kwargs": safe_run,
                 "dynesty_csv_path": self._dynesty_csv_path,
-                "call_index": int(self._pool_call_index or 0),
-                "pool_call_index": int(self._pool_call_index or 0),
-                "engine_checkpoint_path": engine_path,
-                "native_sampler_blob": self._native_sampler_blob,
-                "native_sampler_format": "pickle",
+                "checkpoint_index": int(cursor),
+                "pool_call_index": int(cursor),
+                "engine_checkpoint_path": self._engine_path(),
+                "native_sampler_blob": blob,
+                "native_sampler_format": NATIVE_SAMPLER_FORMAT,
                 "nested_engine_filename": NESTED_ENGINE_FILENAME,
             }
         )
         return state
 
+    def export_runtime_state(self) -> dict[str, Any]:
+        """Live engine state at the current pool cursor.
+
+        It is not fenced: rows below the cursor may still be on their way to
+        DATABASE.  state.pkl takes :meth:`checkpoint_runtime_state` instead.
+        """
+        blob = self._native_sampler_blob
+        if self._sampler is not None:
+            blob = self._pickle_native_sampler()
+        return self._engine_state(blob=blob, cursor=self._accepted_index)
+
+    def _validated_resume_engine(self, state: Mapping[str, Any]) -> Any | None:
+        """Return the snapshot's engine, or raise ValueError if it cannot continue."""
+        blob = state.get("native_sampler_blob")
+        if blob is None:
+            if self._state_index(state) > 0 and not state.get("finished"):
+                raise ValueError(
+                    f"{self.method} checkpoint at cursor {self._state_index(state)} has no engine"
+                )
+            return None
+        if (
+            state.get("native_sampler_format") != NATIVE_SAMPLER_FORMAT
+            or not isinstance(blob, (bytes, bytearray))
+        ):
+            raise ValueError(
+                f"{self.method} checkpoint engine format "
+                f"{state.get('native_sampler_format')!r} comes from an earlier release"
+            )
+        if state.get("finished"):
+            return None
+        engine = self._load_native_from_blob(bytes(blob))
+        if not self._engine_matches_method(engine):
+            expected = "DynamicNestedSampler" if self.default_dynamic else "static NestedSampler"
+            raise ValueError(
+                f"{self.method} checkpoint holds a {type(engine).__name__} engine; "
+                f"{self.method} needs {expected}"
+            )
+        return engine
+
     def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        """Restore feedback metadata + queue native engine for ``run_adaptive``."""
+        """Restore the committed engine snapshot for ``run_adaptive``.
+
+        Raises ValueError for a snapshot this release cannot continue (earlier
+        format, unreadable engine, or the other method's engine).  Core then
+        discards the checkpoint and starts fresh.
+        """
+        engine = self._validated_resume_engine(state)
         self._feedback_import_state(state)
         # Arm engine restore for the next run_adaptive (Core --resume only).
         self._resume_engine_requested = True
@@ -1754,35 +1783,11 @@ class DynestySampler(CheckpointedSampler):
             }
         path = state.get("dynesty_csv_path")
         self._dynesty_csv_path = str(path) if path else None
-        self._pool_call_index = int(
-            state.get("pool_call_index", state.get("call_index", 0)) or 0
-        )
-        engine_path = state.get("engine_checkpoint_path")
-        if engine_path:
-            self._engine_checkpoint_path = str(engine_path)
-        elif not self._engine_checkpoint_path:
-            self._engine_checkpoint_path = self._default_engine_checkpoint_path()
-
+        self._pool_call_index = self._state_index(state)
         blob = state.get("native_sampler_blob")
-        if isinstance(blob, (bytes, bytearray)):
-            self._native_sampler_blob = bytes(blob)
-            # Eagerly unpickle so export/interrupt have a live object if needed;
-            # pool reattachment happens in run_adaptive.
-            if not self._finished:
-                native = self._load_native_from_blob(self._native_sampler_blob)
-                if native is not None:
-                    self._sampler = native
-        elif blob is not None:
-            # Legacy: native object embedded directly (already unpickled by outer load).
-            try:
-                if hasattr(blob, "run_nested") or hasattr(blob, "results"):
-                    self._sampler = blob
-                    self._native_sampler_blob = self._pickle_native_sampler(blob)
-            except Exception:
-                self._logger.warning(
-                    "%s: ignoring unreadable native_sampler in checkpoint",
-                    self.method,
-                )
+        self._native_sampler_blob = bytes(blob) if blob is not None else None
+        # Pool reattachment happens in run_adaptive.
+        self._sampler = engine
 
 
 def create_dynesty() -> DynestySampler:

@@ -3,6 +3,24 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
+## Unreleased
+
+### Fixed
+
+- Resume Dynesty and MultiNest scans without missing or duplicate rows. A
+  checkpoint keeps only engine snapshots whose evaluations are already in
+  DATABASE; after `--resume`, each sample index appears once.
+- Keep the sample index on the failure row that the watchdog writes after the
+  last retry.
+
+### Changed
+
+- Dynesty and MultiNest `--resume` reads only `state.pkl`; without it the scan
+  starts fresh. A fresh scan removes the old `nested_engine.pkl`, which stays a
+  copy of the last saved engine for `dynesty.utils.restore_sampler`.
+- Reject Dynesty and MultiNest checkpoints from earlier releases; the scan
+  starts fresh and the log gives the reason.
+
 ## 2.1.2
 
 ### Fixed
@@ -18,6 +36,8 @@ User guides and reference documentation are available in
 - Resolve project-local Python modules and `${LibDeps:path}` installation paths;
   reject unknown module dependencies and cycles.
 - Keep a blank `LogL` column in CSV exports when every evaluation failed.
+- Keep DATABASE archiving fast in long fresh Dynesty and MultiNest scans. Each
+  batch no longer re-reads all stored rows to look for duplicates.
 - Show generational plugin budgets and a valid calculator-pool example in `man`;
   remove internal milestone text and unrelated nested-method smoke messages.
 - Keep only the encrypted archive after a successful `project pack --encrypt`.

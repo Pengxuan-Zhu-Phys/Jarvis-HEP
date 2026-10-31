@@ -342,6 +342,26 @@ class InflightOwnershipTests(unittest.TestCase):
         self.assertEqual([item["uuid"] for item in queued], ["hb-only"])
         self.assertEqual(int(queued[0]["_retry_count"]), 1)
 
+    def test_retries_exhausted_failure_keeps_sample_index(self) -> None:
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from jarvishep2.runtime.factory import _Watchdog
+
+        redis = mock.Mock()
+        watchdog = _Watchdog(SimpleNamespace(redis=redis))
+        spent = {"_retry_count": watchdog.max_sample_retries}
+        redis.reclaim_inflight_task.return_value = [
+            {**_task("indexed"), "sample_index": 7, **spent},
+            {**_task("plain"), **spent},
+        ]
+        self.assertFalse(watchdog.requeue_in_flight_task({}, worker_id="0"))
+        failures = [call.args[0] for call in redis.submit_result.call_args_list]
+        # Indexed samplers need the Failed row inside their contiguous prefix.
+        self.assertEqual(failures[0]["sample_index"], 7)
+        self.assertNotIn("sample_index", failures[1])
+        self.assertEqual({row["status"] for row in failures}, {"Failed"})
+
     def test_reclaim_drains_all_inflight_items(self) -> None:
         self._plant_inflight(_task("a"), _task("b"))
         payloads = self.queue.reclaim_inflight_task("0")

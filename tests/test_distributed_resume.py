@@ -133,6 +133,7 @@ class CheckpointPathResolutionTests(unittest.TestCase):
                     "native_sampler_blob": None,
                     "nlive": 50,
                 },
+                persistence={"replacing_existing": True},
                 reason="test",
             )
             save_checkpoint(path, payload)

@@ -461,14 +461,16 @@ class _Watchdog:
             if retry_count >= self.max_sample_retries:
                 sample_uuid = str(task.get("uuid") or heartbeat.get("current_sample") or "")
                 if sample_uuid:
-                    redis.submit_result(
-                        {
-                            "uuid": sample_uuid,
-                            "status": "Failed",
-                            "observables": {},
-                            "error": "worker_failure_retries_exhausted",
-                        }
-                    )
+                    failure = {
+                        "uuid": sample_uuid,
+                        "status": "Failed",
+                        "observables": {},
+                        "error": "worker_failure_retries_exhausted",
+                    }
+                    # Indexed samplers need the row in their contiguous prefix.
+                    if task.get("sample_index") is not None:
+                        failure["sample_index"] = task["sample_index"]
+                    redis.submit_result(failure)
                 continue
             task["_retry_count"] = retry_count + 1
             to_requeue.append(task)

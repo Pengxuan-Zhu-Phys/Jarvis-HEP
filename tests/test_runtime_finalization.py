@@ -267,3 +267,35 @@ def test_trim_to_empty_live_removes_stale_csv_and_its_digest(tmp_path):
     assert live.exists() and database.SimpleHDF5Writer(str(live)).read_records() == []
     assert not live.with_suffix(".csv").exists()
     assert not (tmp_path / "samples.csv.md5").exists()
+
+
+def _archiver_config_for(sampler, method, tmp_path, policy="fresh"):
+    core = SimpleNamespace(
+        config={"Sampling": {"Method": method}, "EnvReqs": {"V2": {"archiver": {"mode": "thread"}}}},
+        sampler=sampler, redis=mock.Mock(), _logger=mock.Mock(), info={},
+        _resume_policy=policy, _resume_checkpoint_payload=None, _control_lock_owner=None,
+        _resolve_database_dir=mock.Mock(return_value=str(tmp_path / "DATABASE")),
+        _resolve_sample_root=mock.Mock(return_value=str(tmp_path / "SAMPLE")),
+        _restore_archiver_persistence=mock.Mock(),
+    )
+    core.redis.connection_config.return_value = {}
+    module = "jarvishep2.runtime._runtime_supervisor"
+    with mock.patch(f"{module}.SimpleArchiver") as archiver:
+        _RuntimeSupervisor(core).init_archiver()
+    return archiver.call_args.kwargs["archiver_config"]
+
+
+@pytest.mark.parametrize("policy", ["fresh", "resume"])
+@pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
+def test_nested_scan_never_scans_live_shard_for_duplicates(method, policy, tmp_path):
+    from jarvishep2.distributor import Distributor
+
+    # Resume duplicates are removed by the final trim, which keeps the last copy.
+    sampler = Distributor.set_method(method)
+    config = _archiver_config_for(sampler, method, tmp_path, policy)
+    assert not config.get("replace_duplicates")
+
+
+def test_fresh_enumerated_scan_still_replaces_duplicates(tmp_path):
+    sampler = SimpleNamespace(method="Random")
+    assert _archiver_config_for(sampler, "Random", tmp_path)["replace_duplicates"] is True

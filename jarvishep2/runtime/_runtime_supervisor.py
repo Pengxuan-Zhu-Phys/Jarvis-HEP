@@ -37,6 +37,7 @@ from jarvishep2.database import prepare_hdf5_database_for_writer
 from jarvishep2.Sampling.runtime_checkpoint import (
     prepare_resume,
     checkpoint_replacing_existing,
+    replaces_tail_on_resume,
     uses_checkpoint_resume_protocol,
 )
 
@@ -180,10 +181,6 @@ class _RuntimeSupervisor:
             # to the durable prefix above; importing it again would rewind them.
             if not bool(getattr(core.sampler, "uses_indexed_resume", False)):
                 core._import_sampler_checkpoint_state(core.sampler)
-            # Always arm nested engine resume under --resume, even if state.pkl
-            # is missing: nested_engine.pkl alone is enough to continue.
-            if core.sampler is not None and hasattr(core.sampler, "arm_engine_resume"):
-                core.sampler.arm_engine_resume()
             ckpt = core.checkpoint_file()
             core._logger.warning(
                 "Resume checkpoint path → %s (payload=%s)",
@@ -1078,9 +1075,12 @@ class _RuntimeSupervisor:
             archiver_config["pack_buckets"] = False
         # Fresh full scans rewrite colliding identities. Check continues from
         # the existing DATABASE prefix and appends a new batch instead.
+        # Dynesty/MultiNest leave duplicates only after a resume, and the
+        # final trim keeps the last copy; the replacement scan would re-read
+        # the live shard on every batch.
         if (str(getattr(core, "_resume_policy", "") or "") == "fresh" or replacing_resume) and not bool(
             core.config.get("_check_modules_sample_layout")
-        ):
+        ) and not replaces_tail_on_resume(core.config):
             archiver_config["replace_duplicates"] = True
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(core, "_log_silence", False)))

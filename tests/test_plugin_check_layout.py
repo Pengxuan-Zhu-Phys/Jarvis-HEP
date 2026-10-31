@@ -154,8 +154,8 @@ def test_interrupt_saves_the_durable_plugin_cursor(config):
         sampler.shutdown_checkpointing()
 
 
-@pytest.mark.parametrize("reason", ["interrupt", "dynesty_engine_checkpoint", "dynesty_finished"])
-def test_nonindexed_engine_keeps_live_checkpoint_behavior(config, reason):
+@pytest.mark.parametrize("reason,expected", [("interrupt", "live"), ("checkpoint_heartbeat", "old")])
+def test_nonindexed_engine_keeps_live_checkpoint_behavior(config, reason, expected):
     class Engine:
         uses_indexed_resume = False
 
@@ -172,7 +172,7 @@ def test_nonindexed_engine_keeps_live_checkpoint_behavior(config, reason):
     core.sampler = Engine()
     core.info["sampler_name"] = "FeedbackEngine"
     saved = load_checkpoint(core.save_runtime_checkpoint(reason=reason))
-    assert saved["sampler_state"]["engine_state"] == "live"
+    assert saved["sampler_state"]["engine_state"] == expected
 
 
 @pytest.mark.parametrize("indexed", [True, False], ids=["indexed", "feedback"])

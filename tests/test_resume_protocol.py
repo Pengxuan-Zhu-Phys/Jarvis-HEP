@@ -140,6 +140,104 @@ def test_fresh_interrupt_resume_replaces_old_rows(tmp_path, monkeypatch, method,
     assert all(float(row["z"]) != -999 for row in rows)
 
 
+NESTED_DRIVER = r"""
+import json, sys, time
+from pathlib import Path
+from jarvishep2.runtime.core import Jarvis2Core
+from jarvishep2.sampling.dynesty_sampler import DynestySampler
+from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
+
+card, output, phase = sys.argv[1:]
+core = Jarvis2Core()
+core.load_task_yaml(card)
+core.config.update(skip_draw_flowchart=True, skip_render_plots=True)
+original_config = DynestySampler.set_config
+def fast_engine_saves(self, config_info):
+    original_config(self, config_info)
+    self._checkpoint_every_sec = 0.2
+DynestySampler.set_config = fast_engine_saves
+if phase == "interrupt":
+    original_capture = DynestySampler._capture_engine_snapshot
+    committed = None
+    def capture(self, *, reason=None):
+        global committed
+        scan = core.info.get("scan_name") or "scan"
+        deadline = time.monotonic() + 30
+        if reason is not None and committed is not None and self._accepted_index > committed:
+            # The engine ran past the committed snapshot: let DATABASE take
+            # those rows, then Ctrl+C before the next snapshot.
+            while self.redis.get_archived_index_prefix(scan) < self._accepted_index:
+                if time.monotonic() > deadline:
+                    raise AssertionError("archive did not catch up")
+                time.sleep(0.05)
+            Path(output).with_suffix(".tail").write_text(str(self._accepted_index))
+            raise KeyboardInterrupt
+        done = original_capture(self, reason=reason)
+        if reason is None or committed is not None:
+            return done
+        # Wait until state.pkl takes this snapshot.
+        while time.monotonic() < deadline:
+            self.persist_runtime_checkpoint(force=True, reason="test")
+            state = load_checkpoint(core.checkpoint_file())["sampler_state"]
+            if int(state.get("checkpoint_index", 0)) > 0:
+                committed = int(state["checkpoint_index"])
+                return done
+            time.sleep(0.05)
+        raise AssertionError("engine snapshot was never committed")
+    DynestySampler._capture_engine_snapshot = capture
+outcome = core.run(resume=phase == "resume", write_run_summary=False)
+Path(output).write_text(json.dumps(outcome.to_dict()))
+raise SystemExit(outcome.exit_code)
+"""
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
+@pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
+def test_nested_interrupt_resume_keeps_one_row_per_index(tmp_path, method):
+    from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import restore_sampler
+
+    source, card = _card(tmp_path, "Random")
+    card["Sampling"]["Method"] = method
+    run_nested = ({"maxiter": 150, "maxbatch": 1, "print_progress": False}
+                  if method == "Dynesty" else {"maxiter": 150, "print_progress": False})
+    card["Sampling"]["Bounds"] = {"nlive": 8, "seed": 11, "dlogz": 0.5, "run_nested": run_nested}
+    source.write_text(yaml.safe_dump(card))
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
+               JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
+               JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
+               JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
+    checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/state.pkl"
+    database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE"
+    for phase in ("interrupt", "resume"):
+        output = tmp_path / f"{phase}.json"
+        result = subprocess.run([sys.executable, "-c", NESTED_DRIVER, str(source), str(output), phase],
+                                cwd=tmp_path, env=env, text=True, capture_output=True, timeout=180)
+        (tmp_path / f"{phase}.log").write_text(result.stdout + result.stderr)
+        assert output.exists(), result.stdout + result.stderr
+        if phase == "interrupt":
+            assert result.returncode == 130, result.stdout + result.stderr
+            payload = load_checkpoint(str(checkpoint))
+            cursor = int(payload["sampler_state"]["checkpoint_index"])
+            tail = int(output.with_suffix(".tail").read_text())
+            # The interrupt keeps the committed snapshot, not the live engine.
+            assert 0 < cursor < tail
+            assert payload["persistence"]["replacing_existing"] is True
+            assert payload["integrity"]["safe_barrier_confirmed"] is True
+            engine = restore_sampler(str(checkpoint.with_name("nested_engine.pkl")))
+            assert int(engine.ncall) > 0
+        else:
+            assert result.returncode == 0, result.stdout + result.stderr
+    rows = []
+    for shard in sorted(database.glob("*.hdf5")):
+        rows.extend(SimpleHDF5Writer(str(shard)).read_records())
+    indices = [int(row["sample_index"]) for row in rows]
+    final = load_checkpoint(str(checkpoint))["sampler_state"]
+    assert final["finished"] is True
+    assert sorted(indices) == list(range(int(final["checkpoint_index"])))
+    assert int(final["checkpoint_index"]) > tail
+
+
 def test_bridson_million_points_resume_uses_mmap_without_generation(tmp_path, monkeypatch):
     from jarvishep2.sampling.bridson import Bridson
     from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
@@ -271,13 +369,35 @@ def test_missing_or_disabled_checkpoint_starts_fresh(tmp_path, caplog):
     assert "checkpoint.enabled: false" in caplog.text
 
 
-def test_dynesty_nested_engine_resume_remains_outside_protocol(tmp_path):
+@pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
+def test_nested_resume_without_state_pkl_starts_fresh(tmp_path, caplog, method):
     from jarvishep2.runtime.core import Jarvis2Core
 
     core = Jarvis2Core({"task_root": str(tmp_path), "scan_name": "nested",
-                        "Sampling": {"Method": "Dynesty", "Variables": []}})
+                        "Sampling": {"Method": method, "Variables": []}})
+    # A leftover engine copy is never a resume source.
+    engine_copy = Path(core.checkpoint_file()).with_name("nested_engine.pkl")
+    engine_copy.parent.mkdir(parents=True)
+    engine_copy.write_bytes(b"engine")
     core.prepare_resume(resume=True)
-    assert core._resume_policy == "resume"
+    assert core._resume_policy == "fresh"
+    assert "without state.pkl" in caplog.text
+
+
+@pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
+def test_nested_checkpoint_without_archive_cursor_is_rejected(tmp_path, caplog, method):
+    from jarvishep2.runtime.core import Jarvis2Core
+    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
+
+    config = {"task_root": str(tmp_path), "scan_name": "nested",
+              "Sampling": {"Method": method, "Variables": []}}
+    core = Jarvis2Core(config)
+    spec = build_run_spec(config=core.config, scan_name="nested", task_root=str(tmp_path),
+                          task_result_dir=str(tmp_path), sampler_name=method)
+    save_checkpoint(core.checkpoint_file(), build_payload(run_spec=spec, sampler_state={}))
+    core.prepare_resume(resume=True)
+    assert core._resume_policy == "fresh"
+    assert "earlier release" in caplog.text
 
 
 @pytest.mark.parametrize("change,expect_resume", [

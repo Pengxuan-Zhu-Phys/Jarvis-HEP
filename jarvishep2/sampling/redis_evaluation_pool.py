@@ -56,6 +56,9 @@ class RedisEvaluationPool:
         Seconds to wait for a full generation barrier.
     seed :
         For deterministic uuids when the input vector has no trailing uuid.
+
+    Every pushed task gets the next ``sample_index`` from ``_call_index``;
+    selection rejects get none.
     """
 
     def __init__(
@@ -376,21 +379,29 @@ class RedisEvaluationPool:
         results: list[Any | None] = [None] * len(items)
         seen: set[str] = set()
         for index, item in enumerate(items):
-            uuid, payload = _uuid_and_payload(
-                item, seed=self.seed, index=self._alloc_index()
-            )
-            if uuid in seen:
-                raise ValueError(
-                    "RedisEvaluationPool received duplicate sample UUID "
-                    f"{uuid!r} in one loglikelihood batch "
-                    "UUIDs must be unique per batch"
-                )
-            seen.add(uuid)
+            uuid, payload = _uuid_and_payload(item)
+            if uuid is not None:
+                if uuid in seen:
+                    raise ValueError(
+                        "RedisEvaluationPool received duplicate sample UUID "
+                        f"{uuid!r} in one loglikelihood batch "
+                        "UUIDs must be unique per batch"
+                    )
+                seen.add(uuid)
             if self.accepts_payload is not None and not self.accepts_payload(payload):
                 results[index] = -1.0e300
                 continue
-            sample = self.build_sample(payload, uuid)
+            # Only pushed tasks take a sample_index, so DATABASE indices stay
+            # dense and the Archiver's contiguous prefix covers every task
+            # allocated before an engine snapshot.
+            sample = self.build_sample(payload, uuid or "")
+            sample_index = self._alloc_index()
+            if uuid is None:
+                uuid = deterministic_sampler_uuid(
+                    prefix="dynesty", seed=self.seed, sample_index=sample_index
+                )
             sample.uuid = uuid
+            sample.sample_index = sample_index
             pending[uuid] = index
             samples.append(sample)
 
@@ -464,7 +475,7 @@ def _default_extract_logl(record: dict[str, Any]) -> float:
     return float(logl)
 
 
-def _uuid_and_payload(item: Any, *, seed: int, index: int) -> tuple[str, np.ndarray]:
+def _uuid_and_payload(item: Any) -> tuple[str | None, np.ndarray]:
     """Extract uuid (if trailing string) and numeric payload for Sample.u_coords."""
     arr = np.asarray(item, dtype=object).reshape(-1)
     if arr.size >= 2:
@@ -474,9 +485,7 @@ def _uuid_and_payload(item: Any, *, seed: int, index: int) -> tuple[str, np.ndar
             payload = np.asarray(arr[:-1], dtype=np.float64)
             return uuid, payload
         # Non-string trailing object is not a uuid channel (do not str(SeedSequence)).
-    payload = np.asarray(arr, dtype=np.float64)
-    uuid = deterministic_sampler_uuid(prefix="dynesty", seed=seed, sample_index=index)
-    return uuid, payload
+    return None, np.asarray(arr, dtype=np.float64)
 
 
 def _callable_label(func: Callable) -> str:

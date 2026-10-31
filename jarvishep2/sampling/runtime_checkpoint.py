@@ -22,7 +22,12 @@ from jarvishep2.redis_queue import RedisQueue
 
 CHECKPOINT_FORMAT = "jarvis-hep.v2-distributed"
 CHECKPOINT_VERSION = 1
-CHECKPOINT_RESUME_METHODS = frozenset({"grid", "random", "bridson", "csv"})
+CHECKPOINT_RESUME_METHODS = frozenset(
+    {"grid", "random", "bridson", "csv", "dynesty", "multinest"}
+)
+# A restored nested engine continues on a new trajectory from its cursor.
+# Rows after the cursor are never counted as done; the final trim removes them.
+TAIL_REPLACING_METHODS = frozenset({"dynesty", "multinest"})
 
 V1_CHECKPOINT_FORMAT = "jarvis-hep.statesaver"
 V1_MCMc_FORMAT = "jarvis-hep.mcmc-runtime"
@@ -53,13 +58,13 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def atomic_pickle_dump(path: str, payload: Mapping[str, Any]) -> None:
+def _atomic_write(path: str, write: Any, *, prefix: str) -> None:
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".state-", suffix=".tmp", dir=directory)
+    descriptor, temporary = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=directory)
     try:
         with os.fdopen(descriptor, "wb") as handle:
-            pickle.dump(dict(payload), handle, protocol=pickle.HIGHEST_PROTOCOL)
+            write(handle)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
@@ -72,6 +77,19 @@ def atomic_pickle_dump(path: str, payload: Mapping[str, Any]) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def atomic_pickle_dump(path: str, payload: Mapping[str, Any]) -> None:
+    _atomic_write(
+        path,
+        lambda handle: pickle.dump(dict(payload), handle, protocol=pickle.HIGHEST_PROTOCOL),
+        prefix=".state-",
+    )
+
+
+def atomic_write_bytes(path: str, data: bytes) -> None:
+    """Replace *path* with *data*; fsync the file and its directory."""
+    _atomic_write(path, lambda handle: handle.write(data), prefix=f".{os.path.basename(path)}-")
 
 
 def pickle_load(path: str) -> dict[str, Any]:
@@ -115,6 +133,12 @@ def uses_checkpoint_resume_protocol(config: Mapping[str, Any] | None) -> bool:
     sampling = (config or {}).get("Sampling") or {}
     method = sampling.get("Method") if isinstance(sampling, Mapping) else None
     return str(method or "").strip().lower() in CHECKPOINT_RESUME_METHODS
+
+
+def replaces_tail_on_resume(config: Mapping[str, Any] | None) -> bool:
+    sampling = (config or {}).get("Sampling") or {}
+    method = sampling.get("Method") if isinstance(sampling, Mapping) else None
+    return str(method or "").strip().lower() in TAIL_REPLACING_METHODS
 
 
 def check_sampling_fingerprint(payload: Mapping[str, Any], config: Mapping[str, Any] | None) -> tuple[bool, str]:
@@ -512,7 +536,9 @@ __all__ = [
     "check_mapper_fingerprint",
     "check_sampling_fingerprint",
     "uses_checkpoint_resume_protocol",
+    "replaces_tail_on_resume",
     "checkpoint_replacing_existing",
+    "atomic_write_bytes",
     "sampling_fingerprint",
     "array_fingerprint",
     "file_fingerprint",

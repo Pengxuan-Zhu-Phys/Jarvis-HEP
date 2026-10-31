@@ -21,6 +21,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     check_mapper_fingerprint,
     check_sampling_fingerprint,
     checkpoint_replacing_existing,
+    replaces_tail_on_resume,
     uses_checkpoint_resume_protocol,
     check_operas_constants_fingerprint,
     checkpoint_path,
@@ -226,6 +227,17 @@ class _ResumeService:
             core._resume_checkpoint_payload = None
             core._resume_policy = "fresh"
             return
+        if replaces_tail_on_resume(core.config) and not checkpoint_replacing_existing(payload):
+            # Earlier nested checkpoints carry no archive cursor, so DATABASE
+            # rows cannot be matched to the saved engine.
+            core._logger.error(
+                "Checkpoint rejected (starting fresh) -> %s checkpoint from an earlier "
+                "release has no DATABASE cursor",
+                sampling_method(core.config),
+            )
+            core._resume_checkpoint_payload = None
+            core._resume_policy = "fresh"
+            return
         # D23.8: refuse when Operas constant values drifted (outside the card).
         # D23.13: if Operas is merely unavailable, skip with WARNING — never treat
         # that as drift (would delete a good checkpoint and re-run from index 0).
@@ -340,20 +352,11 @@ class _ResumeService:
             safe = at_barrier and submitted <= frozenset(
                 getattr(core.sampler, "_persisted_uuids", set())
             )
-        # Nested samplers override checkpoint_runtime_state to always re-export
-        # the live dynesty engine (ignore stale FeedbackSampler barrier copies).
         if hasattr(core.sampler, "checkpoint_runtime_state"):
-            # Feedback/nested engines need their live state on interrupt.
+            # Feedback engines need their live state on interrupt.
             # Indexed samplers must retain the newest batch snapshot proven
             # durable; their live cursor can include unarchived proposals.
-            force_live = not indexed and (
-                str(reason or "") in {
-                    "interrupt",
-                    "dynesty_engine_checkpoint",
-                    "dynesty_finished",
-                }
-                or getattr(core.sampler, "method", "") in {"Dynesty", "MultiNest"}
-            )
+            force_live = not indexed and str(reason or "") == "interrupt"
             sampler_state = core.sampler.checkpoint_runtime_state(
                 safe=True if force_live else safe
             )
@@ -364,7 +367,9 @@ class _ResumeService:
                 sampler_state.get("checkpoint_index", sampler_state.get("accepted_index", 0)) or 0
             )
             safe = checkpoint_index <= prefix
-        if getattr(core, "_replacing_existing", False) and uses_checkpoint_resume_protocol(core.config):
+        if uses_checkpoint_resume_protocol(core.config) and (
+            getattr(core, "_replacing_existing", False) or replaces_tail_on_resume(core.config)
+        ):
             persistence["replacing_existing"] = True
         payload = build_payload(
             run_spec=run_spec,

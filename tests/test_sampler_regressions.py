@@ -1,4 +1,5 @@
 """Sampler audit: prior correctness, bounded recovery state and nested runtime."""
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -152,7 +153,10 @@ def test_nested_selection_applies_to_batch_and_direct_calls(tmp_path):
     pool._wait_feedback = wait
     values = pool._redis_batch_logl([np.array([.8]), np.array([.2]), np.array([.9])])
     assert [v.val for v in values] == [-1e300, 42., -1e300]
-    assert len(queue.push_many_tasks.call_args.args[0]) == 1
+    pushed = queue.push_many_tasks.call_args.args[0]
+    # Selection rejects take no sample_index, so DATABASE indices stay dense.
+    assert [task["sample_index"] for task in pushed] == [0]
+    assert pool._call_index == 1
     queue.reset_mock()
     assert NestedRedisLogL(pool)(np.array([.8])) == -1e300
     queue.push_many_tasks.assert_not_called()
@@ -174,34 +178,39 @@ class SavedEngine:
         self.saves += 1
 
 
-def test_nested_timed_save_does_not_reserialize_in_callback(tmp_path, monkeypatch):
+def test_nested_timed_save_queues_one_snapshot_until_archived(tmp_path, monkeypatch):
     sampler = DynestySampler()
     sampler.set_config(config(tmp_path, "Dynesty"))
     sampler._sampler = SavedEngine()
+    sampler._pool_call_index = 8
     pickle_native = Mock(return_value=b"engine")
     monkeypatch.setattr(sampler, "_pickle_native_sampler", pickle_native)
-    side_save = Mock()
-    monkeypatch.setattr(sampler, "_save_engine_side_file", side_save)
     states = []
     sampler._save_checkpoint_callback = lambda **kw: states.append(sampler.checkpoint_runtime_state(safe=True))
     sampler._install_dynesty_save_hook()
     sampler._sampler.save("unused")
-    assert sampler._sampler.saves == 1
+    # The hook replaces dynesty's own file write and pickles the engine once.
+    assert sampler._sampler.saves == 0
     pickle_native.assert_called_once()
-    side_save.assert_not_called()
-    assert states[0]["native_sampler_blob"] == b"engine"
-    assert not sampler._native_snapshot_ready
+    # DATABASE has no row below cursor 8 yet: state.pkl keeps the initial point.
+    assert states[0]["checkpoint_index"] == 0
+    assert states[0]["native_sampler_blob"] is None
+    sampler.set_persisted_prefix(8)
+    committed = sampler.checkpoint_runtime_state(safe=False)
+    assert committed["checkpoint_index"] == 8
+    assert committed["native_sampler_blob"] == b"engine"
 
 
 def test_nested_disabled_checkpoint_never_writes_engine(tmp_path, monkeypatch):
     sampler = DynestySampler()
     sampler.set_config(config(tmp_path, "Dynesty"))
     sampler._sampler = SavedEngine()
-    monkeypatch.setattr(sampler, "_pickle_native_sampler", lambda: b"engine")
-    side_save = Mock()
-    monkeypatch.setattr(sampler, "_save_engine_side_file", side_save)
+    monkeypatch.setattr(sampler, "_pickle_native_sampler", lambda *a: b"engine")
+    sampler._capture_engine_snapshot()
+    sampler.set_persisted_prefix(10)
+    sampler.checkpoint_runtime_state(safe=False)
     sampler.export_runtime_state()
-    side_save.assert_not_called()
+    assert not os.path.exists(sampler._engine_path())
 
 
 def test_nested_resume_reattaches_current_parallelism(tmp_path):
