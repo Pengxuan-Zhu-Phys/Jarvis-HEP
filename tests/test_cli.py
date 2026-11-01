@@ -28,33 +28,24 @@ CHECK_MODULES_YAML = os.path.join(TESTS_ROOT, "parity_project", "check_modules.y
 
 
 class CliNormalizeArgvTests(unittest.TestCase):
-    def test_bare_yaml_becomes_run(self) -> None:
-        self.assertEqual(
-            normalize_argv([CHECK_MODULES_YAML, "--resume"]),
-            ["run", CHECK_MODULES_YAML, "--resume"],
+    def test_normalize_argv_rewrites_only_legacy_shortcuts(self) -> None:
+        cases = (
+            ([CHECK_MODULES_YAML, "--resume"], ["run", CHECK_MODULES_YAML, "--resume"]),
+            # The removed --check-modules flag passes through so `run` rejects it.
+            (
+                [CHECK_MODULES_YAML, "--check-modules"],
+                ["run", CHECK_MODULES_YAML, "--check-modules"],
+            ),
+            (["scene.yaml", "--plot"], ["plot", "scene.yaml"]),
+            (["task.yaml", "--convert"], ["convert", "task.yaml"]),
+            (["task.yaml", "--validate", "--strict"], ["validate", "task.yaml", "--strict"]),
+            (["monitor"], ["monitor"]),
+            # ``Jarvis --monitor`` keeps the top-level flag (resolve_intent → monitor).
+            (["--monitor"], ["--monitor"]),
         )
-
-    def test_removed_check_modules_flag_is_not_rewritten(self) -> None:
-        self.assertEqual(
-            normalize_argv([CHECK_MODULES_YAML, "--check-modules"]),
-            ["run", CHECK_MODULES_YAML, "--check-modules"],
-        )
-
-    def test_legacy_plot_flag(self) -> None:
-        self.assertEqual(
-            normalize_argv(["scene.yaml", "--plot"]),
-            ["plot", "scene.yaml"],
-        )
-
-    def test_explicit_subcommand_unchanged(self) -> None:
-        self.assertEqual(
-            normalize_argv(["monitor"]),
-            ["monitor"],
-        )
-
-    def test_legacy_top_level_monitor_flag(self) -> None:
-        """``Jarvis --monitor`` keeps the top-level flag (resolve_intent → monitor)."""
-        self.assertEqual(normalize_argv(["--monitor"]), ["--monitor"])
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                self.assertEqual(normalize_argv(argv), expected)
 
 
 class CliParseTests(unittest.TestCase):
@@ -70,9 +61,14 @@ class CliParseTests(unittest.TestCase):
             console_level="DEBUG", silence=False
         )
 
-    def test_run_rejects_removed_file_log_level(self) -> None:
-        with self.assertRaises(SystemExit):
-            build_parser().parse_args(["run", "task.yaml", "--log-level", "DEBUG"])
+    def test_removed_options_are_rejected(self) -> None:
+        for argv in (
+            ["run", "task.yaml", "--log-level", "DEBUG"],
+            ["convert", "task.yaml", "--force"],
+        ):
+            with self.subTest(argv=argv), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    build_parser().parse_args(argv)
 
     def test_run_help_explains_console_level_values(self) -> None:
         help_text = build_parser()._subparsers._group_actions[0].choices["run"].format_help()
@@ -83,20 +79,35 @@ class CliParseTests(unittest.TestCase):
         self.assertIn("default:", help_text)
         self.assertIn("WARNING).", help_text)
 
-    def test_run_console_level_defaults_to_warning(self) -> None:
-        args = build_parser().parse_args(["run", "task.yaml"])
-        self.assertEqual(args.console_level, "WARNING")
-
-    def test_check_console_level_defaults_to_debug(self) -> None:
-        args = build_parser().parse_args(["check", "task.yaml"])
-        self.assertEqual(args.console_level, "DEBUG")
-
-    def test_run_and_check_accept_skip_library_installation(self) -> None:
-        for command in ("run", "check"):
-            args = build_parser().parse_args(
-                [command, "task.yaml", "--skip-library-installation"]
-            )
-            self.assertTrue(args.skip_library_installation)
+    def test_parse_sets_command_arguments_and_defaults(self) -> None:
+        cases = (
+            (
+                ["run", CHECK_MODULES_YAML, "--resume"],
+                {"command": "run", "task_yaml": CHECK_MODULES_YAML, "resume": True},
+            ),
+            (["run", "task.yaml"], {"console_level": "WARNING"}),
+            (["check", CHECK_MODULES_YAML], {"command": "check", "console_level": "DEBUG"}),
+            (["run", "task.yaml", "--skip-library-installation"], {"skip_library_installation": True}),
+            (
+                ["check", "task.yaml", "--skip-library-installation"],
+                {"skip_library_installation": True},
+            ),
+            (["monitor", "R1"], {"command": "monitor", "scan_ref": "R1"}),
+            (
+                ["gen-plot-yaml", CHECK_MODULES_YAML],
+                {"command": "gen-plot-yaml", "task_yaml": CHECK_MODULES_YAML},
+            ),
+            (["convert", "task.yaml"], {"command": "convert", "task_yaml": "task.yaml"}),
+            (["--refs"], {"refs": True}),
+            (["-v"], {"version": True}),
+            (["-V"], {"version": True}),
+            (["--version"], {"version": True}),
+        )
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                args = build_parser().parse_args(argv)
+                for name, value in expected.items():
+                    self.assertEqual(getattr(args, name), value, name)
 
     def test_help_uses_jarvis_box_sections(self) -> None:
         help_text = build_parser().format_help()
@@ -161,30 +172,6 @@ class CliParseTests(unittest.TestCase):
         self.assertIn("╭─ Options", help_text)
         self.assertIn("╰", help_text)
 
-    def test_parse_run_subcommand(self) -> None:
-        args = build_parser().parse_args(["run", CHECK_MODULES_YAML, "--resume"])
-        self.assertEqual(args.command, "run")
-        self.assertEqual(args.task_yaml, CHECK_MODULES_YAML)
-        self.assertTrue(args.resume)
-
-    def test_parse_check_subcommand(self) -> None:
-        args = build_parser().parse_args(["check", CHECK_MODULES_YAML])
-        self.assertEqual(args.command, "check")
-
-    def test_parse_monitor_subcommand(self) -> None:
-        args = build_parser().parse_args(["monitor", "R1"])
-        self.assertEqual(args.command, "monitor")
-        self.assertEqual(args.scan_ref, "R1")
-
-    def test_parse_refs_flag(self) -> None:
-        args = build_parser().parse_args(["--refs"])
-        self.assertTrue(args.refs)
-
-    def test_parse_gen_plot_yaml_subcommand(self) -> None:
-        args = build_parser().parse_args(["gen-plot-yaml", CHECK_MODULES_YAML])
-        self.assertEqual(args.command, "gen-plot-yaml")
-        self.assertEqual(args.task_yaml, CHECK_MODULES_YAML)
-
 
 class CliResolveIntentTests(unittest.TestCase):
     def test_conflict_monitor_and_plot(self) -> None:
@@ -200,11 +187,6 @@ class CliResolveIntentTests(unittest.TestCase):
 
 
 class CliVersionTests(unittest.TestCase):
-    def test_parse_version_flags(self) -> None:
-        for flag in ("-v", "-V", "--version"):
-            args = build_parser().parse_args([flag])
-            self.assertTrue(args.version)
-
     def test_dispatch_version_prints_logo(self) -> None:
         from jarvishep2.client import dispatch_version
 
@@ -305,50 +287,40 @@ class CliDispatchTests(unittest.TestCase):
         self.assertEqual(code, EXIT_OK)
         core.run.assert_called_once_with(resume=True)
 
-    def test_dispatch_all_failed_exits_nonzero(self) -> None:
-        args = build_parser().parse_args(["run", CHECK_MODULES_YAML])
-        core = mock.Mock()
-        # Archived rows exist but every sample failed — must not exit 0.
-        core.run.return_value = RunOutcome(
-            submitted=5, completed=0, failed=5, archived=5
+    def test_dispatch_exit_codes(self) -> None:
+        # (argv, what Core.run returns or raises, expected exit). None: Core
+        # is not mocked; the command fails before or while loading the card.
+        cases = (
+            # Archived rows exist but every sample failed: must not exit 0.
+            (
+                ["run", CHECK_MODULES_YAML],
+                RunOutcome(submitted=5, completed=0, failed=5, archived=5),
+                EXIT_RUN_FAILED,
+            ),
+            (
+                ["run", CHECK_MODULES_YAML],
+                RunOutcome(submitted=5, completed=3, failed=2, archived=5),
+                EXIT_RUN_FAILED,
+            ),
+            (["run", CHECK_MODULES_YAML], NotImplementedError("unsupported sampler"), EXIT_USAGE),
+            # No subcommand and no path.
+            ([], None, EXIT_USAGE),
+            (["check", "/no/such/task.yaml"], None, EXIT_RUN_FAILED),
+            (["--monitor", "--plot"], None, EXIT_USAGE),
         )
-        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
-            code = dispatch(args)
-        self.assertEqual(code, EXIT_RUN_FAILED)
-
-    def test_dispatch_partial_failure_exits_nonzero(self) -> None:
-        args = build_parser().parse_args(["run", CHECK_MODULES_YAML])
-        core = mock.Mock()
-        core.run.return_value = RunOutcome(
-            submitted=5, completed=3, failed=2, archived=5
-        )
-        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
-            code = dispatch(args)
-        self.assertEqual(code, EXIT_RUN_FAILED)
-
-    def test_dispatch_missing_task_yaml_returns_usage_exit(self) -> None:
-        # No subcommand / no path → usage.
-        args = build_parser().parse_args([])
-        code = dispatch(args)
-        self.assertEqual(code, EXIT_USAGE)
-
-    def test_dispatch_missing_file_is_clear_error(self) -> None:
-        args = build_parser().parse_args(["check", "/no/such/task.yaml"])
-        code = dispatch(args)
-        self.assertEqual(code, EXIT_RUN_FAILED)
-
-    def test_dispatch_not_implemented_returns_exit_2(self) -> None:
-        args = build_parser().parse_args(["run", CHECK_MODULES_YAML])
-        core = mock.Mock()
-        core.run.side_effect = NotImplementedError("unsupported sampler")
-        with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
-            code = dispatch(args)
-        self.assertEqual(code, EXIT_USAGE)
-
-    def test_dispatch_mode_conflict_exits_usage(self) -> None:
-        args = build_parser().parse_args(["--monitor", "--plot"])
-        code = dispatch(args)
-        self.assertEqual(code, EXIT_USAGE)
+        for argv, result, expected in cases:
+            with self.subTest(argv=argv, result=result):
+                args = build_parser().parse_args(argv)
+                if result is None:
+                    self.assertEqual(dispatch(args), expected)
+                    continue
+                core = mock.Mock()
+                if isinstance(result, Exception):
+                    core.run.side_effect = result
+                else:
+                    core.run.return_value = result
+                with mock.patch("jarvishep2.core.Jarvis2Core", return_value=core):
+                    self.assertEqual(dispatch(args), expected)
 
     def test_main_does_not_import_v1_client(self) -> None:
         self.assertNotIn("jarvishep.client", sys.modules)
@@ -416,11 +388,10 @@ if loaded:
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
-    def test_project_help_does_not_import_worker(self) -> None:
-        self._assert_argv_stays_light(["project", "--help"])
-
-    def test_top_level_help_does_not_import_worker(self) -> None:
-        self._assert_argv_stays_light(["-h"])
+    def test_help_does_not_import_the_runtime(self) -> None:
+        for argv in (["project", "--help"], ["-h"]):
+            with self.subTest(argv=argv):
+                self._assert_argv_stays_light(argv)
 
 
 if __name__ == "__main__":

@@ -383,6 +383,8 @@ class CoreNuisanceIntegrationTests(unittest.TestCase):
                 )
                 self.assertIn("nuisance_optimize", [s["type"] for s in plan])
                 core = Jarvis2Core(cfg)
+                # This test checks the flowchart, not plots; rendering costs ~20 s.
+                core.config["skip_render_plots"] = True
                 outcome = core.run()
                 submitted = int(getattr(outcome, "submitted", 0) or 0)
                 self.assertGreater(submitted, 0)

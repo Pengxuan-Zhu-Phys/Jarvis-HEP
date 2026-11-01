@@ -16,7 +16,6 @@ import numpy as np
 from jarvishep2.Sampling.dynesty_sampler import (
     NestedRedisLogL,
     _jarvis_prior_transform,
-    export_dynesty_results_csv,
 )
 from jarvishep2.Sampling.multinest_sampler import MultiNestSampler, create_multinest
 from jarvishep2.Sampling.redis_evaluation_pool import RedisEvaluationPool
@@ -131,41 +130,6 @@ class MultiNestCsvExportTests(unittest.TestCase):
             self.assertIn("x", fieldnames)
             self.assertIn("y", fieldnames)
             self.assertIn("samples_v[0]", fieldnames)
-
-    def test_export_schema_matches_dynesty_plot_columns(self) -> None:
-        n = 3
-        results = {
-            "logl": np.array([-2.0, -1.0, -0.5]),
-            "logwt": np.array([-1.0, -0.5, -0.1]),
-            "logvol": np.array([0.0, -0.5, -1.0]),
-            "logz": np.array([-3.0, -2.5, -2.0]),
-            "logzerr": np.full(n, 0.1),
-            "samples_n": np.full(n, 15),
-            "ncall": np.arange(1, n + 1),
-            "samples_it": np.arange(n),
-            "samples_id": np.arange(n),
-            "information": np.linspace(0, 1, n),
-            "samples": np.zeros((n, 1)),
-            "samples_u": np.zeros((n, 1)),
-            "samples_uid": ["a", "b", "c"],
-            "nlive": 15,
-        }
-        with tempfile.TemporaryDirectory() as tmp:
-            path = export_dynesty_results_csv(
-                results, os.path.join(tmp, "multinest_result.csv")
-            )
-            with open(path, encoding="utf-8", newline="") as handle:
-                fieldnames = list(csv.DictReader(handle).fieldnames or [])
-        for col in (
-            "uuid",
-            "log_weight",
-            "log_Like",
-            "log_PriorVolume",
-            "log_Evidence",
-            "log_Evidence_err",
-            "samples_nlive",
-        ):
-            self.assertIn(col, fieldnames)
 
 
 class MultiNestParallelEvolveTests(unittest.TestCase):

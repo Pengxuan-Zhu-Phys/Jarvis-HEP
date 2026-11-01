@@ -78,60 +78,38 @@ class SamplerCatalogImportIsolationTests(unittest.TestCase):
         "jarvishep2.runtime.core",
     )
 
-    def _assert_clean_import(self, module: str) -> None:
-        banned = ", ".join(repr(name) for name in self._BANNED)
-        script = f"""
+    def test_light_imports_do_not_load_the_runtime(self) -> None:
+        # Factories stay lazy; registering builtins must not import MCMC/ALS/Dynesty.
+        distributor_banned = (
+            "jarvishep2.Sampling.mcmc_sampler",
+            "jarvishep2.sampling.mcmc_sampler",
+            "jarvishep2.Sampling.adaptive_bridson",
+            "jarvishep2.sampling.adaptive_bridson",
+            "jarvishep2.Sampling.dynesty_sampler",
+            "jarvishep2.sampling.dynesty_sampler",
+        )
+        cases = (
+            ("jarvishep2.sampler_catalog", self._BANNED),
+            ("jarvishep2.task_validation", self._BANNED),
+            ("jarvishep2.client", self._BANNED),
+            ("jarvishep2", self._BANNED),
+            ("jarvishep2.distributor", distributor_banned),
+        )
+        for module, banned in cases:
+            with self.subTest(module=module):
+                names = ", ".join(repr(name) for name in banned)
+                script = f"""
 import sys
 import {module}
-loaded = [name for name in ({banned},) if name in sys.modules]
+loaded = [name for name in ({names},) if name in sys.modules]
 if loaded:
     raise SystemExit("unexpected modules: " + ",".join(loaded))
 """
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(Path(__file__).resolve().parents[1]),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
-
-    def test_catalog_import_is_light(self) -> None:
-        self._assert_clean_import("jarvishep2.sampler_catalog")
-
-    def test_task_validation_import_is_light(self) -> None:
-        self._assert_clean_import("jarvishep2.task_validation")
-
-    def test_client_import_is_light(self) -> None:
-        self._assert_clean_import("jarvishep2.client")
-
-    def test_package_import_is_light(self) -> None:
-        self._assert_clean_import("jarvishep2")
-
-    def test_distributor_register_does_not_import_samplers(self) -> None:
-        """Factories stay lazy; registering builtins must not import MCMC/ALS."""
-        script = """
-import sys
-import jarvishep2.distributor
-loaded = [
-    name for name in (
-        'jarvishep2.Sampling.mcmc_sampler',
-        'jarvishep2.sampling.mcmc_sampler',
-        'jarvishep2.Sampling.adaptive_bridson',
-        'jarvishep2.sampling.adaptive_bridson',
-        'jarvishep2.Sampling.dynesty_sampler',
-        'jarvishep2.sampling.dynesty_sampler',
-    )
-    if name in sys.modules
-]
-if loaded:
-    raise SystemExit('unexpected modules: ' + ','.join(loaded))
-"""
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(Path(__file__).resolve().parents[1]),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        self.assertEqual(completed.returncode, 0, completed.stderr)
+                completed = subprocess.run(
+                    [sys.executable, "-c", script],
+                    cwd=str(Path(__file__).resolve().parents[1]),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)

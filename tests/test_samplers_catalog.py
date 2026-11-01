@@ -761,7 +761,13 @@ class StatelessDistributedRunTests(unittest.TestCase):
     def tearDown(self) -> None:
         _stop_factory_workers()
 
-    def _run_task_yaml(self, yaml_path: str, *, expected_count: int | None = None) -> int:
+    def _run_task_yaml(
+        self,
+        yaml_path: str,
+        *,
+        expected_count: int | None = None,
+        render_plots: bool = False,
+    ) -> int:
         server, redis_config = _start_tcp_fakeredis()
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -770,6 +776,9 @@ class StatelessDistributedRunTests(unittest.TestCase):
                 core.config["task_result_dir"] = tmpdir
                 core.config["Runtime"]["redis"] = redis_config
                 core.config["Runtime"]["Watchdog"] = {"enabled": False}
+                # The JarvisPLOT render takes ~26 s of each run; only the
+                # Bridson run checks it.
+                core.config["skip_render_plots"] = not render_plots
                 core.runtime = core.config["Runtime"]
                 core._populate_info_from_config()
 
@@ -777,6 +786,8 @@ class StatelessDistributedRunTests(unittest.TestCase):
                 self.assertGreater(count, 0)
                 if expected_count is not None:
                     self.assertEqual(count, expected_count)
+                if render_plots:
+                    self.assertEqual(core.info["plot_scenes"].get("rendered"), "true")
 
                 db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
                 records = _normalize_bridson_records(SimpleHDF5Writer(db_path).read_records())
@@ -791,7 +802,7 @@ class StatelessDistributedRunTests(unittest.TestCase):
             server.server_close()
 
     def test_bridson_yaml_end_to_end_via_core_run(self) -> None:
-        self._run_task_yaml(BRIDSON_YAML)
+        self._run_task_yaml(BRIDSON_YAML, render_plots=True)
 
     def test_v1_shaped_bridson_operas_yaml_end_to_end(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
@@ -805,6 +816,7 @@ class StatelessDistributedRunTests(unittest.TestCase):
                 core.config["task_result_dir"] = tmpdir
                 core.config["Runtime"]["redis"] = redis_config
                 core.config["Runtime"]["Watchdog"] = {"enabled": False}
+                core.config["skip_render_plots"] = True
                 core.runtime = core.config["Runtime"]
                 core._populate_info_from_config()
 

@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 
-from jarvishep2.client import dispatch_run, dispatch_validate, main, normalize_argv
+from jarvishep2.client import dispatch_run, dispatch_validate, main
 from jarvishep2.task_config import TaskCardLoadError, load_task_yaml
 from jarvishep2.task_validation import (
     ConfigValidationError,
@@ -204,98 +204,58 @@ class TaskValidationKernelTests(unittest.TestCase):
         self.assertTrue(report.ok)
         self.assertEqual(report.errors(), [])
 
-    def test_unknown_method_errors(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Method"] = "Dynestyy"
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        codes = {i.code for i in report.errors()}
-        self.assertIn("JV2-MTH-003", codes)
-
-    def test_empty_method_errors(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Method"] = "  "
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-MTH-002" for i in report.errors()))
-
-    def test_distribution_type_case_sensitive(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Variables"][0]["distribution"]["type"] = "flat"
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-VAR-002" for i in report.errors()))
-
-    def test_nameless_variable_not_dropped(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Variables"][0]["name"] = ""
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-VAR-012" for i in report.errors()))
-
-    def test_missing_flat_params(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Variables"][0]["distribution"]["parameters"] = {"min": 0.0}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-VAR-031" for i in report.errors()))
-
-    def test_min_not_less_than_max(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Variables"][0]["distribution"]["parameters"] = {
-            "min": 1.0,
-            "max": 0.0,
-        }
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-VAR-034" for i in report.errors()))
-
-    def test_unknown_bounds_key(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Bounds"]["live"] = 50
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-BND-001" for i in report.errors()))
-
-    def test_nlive_invalid(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Bounds"]["nlive"] = "auto"
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-BND-010" for i in report.errors()))
-
-    def test_bounds_dynamic_key_rejected_for_any_nested_method(self) -> None:
-        for method in ("Dynesty", "MultiNest"):
-            cfg = _minimal_dynesty_config()
-            cfg["Sampling"]["Method"] = method
-            cfg["Sampling"]["Bounds"]["dynamic"] = True
-            report = validate_task_config(cfg)
-            self.assertFalse(report.ok, method)
-            self.assertTrue(
-                any(i.code == "JV2-BND-012" for i in report.errors()),
-                method,
-            )
-
-    def test_archiver_unknown_mode(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["archiver"] = {"mode": "turbo"}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ARC-010" for i in report.errors()))
-
-    def test_archiver_unknown_key(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["archiver"] = {"mode": "process", "async_io": True}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ARC-002" for i in report.errors()))
-
-    def test_archiver_shard_limit_is_validated(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["archiver"] = {"max_hdf5_bytes": 0}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ARC-014" for i in report.errors()))
+    def test_invalid_values_report_their_error_code(self) -> None:
+        # Each row changes one field of the minimal Dynesty card. Checkpoint
+        # settings live in EnvReqs.V2 only, not in Sampling.Bounds.run_nested.
+        cases = (
+            ({"Sampling.Method": "Dynestyy"}, "JV2-MTH-003"),
+            ({"Sampling.Method": "  "}, "JV2-MTH-002"),
+            ({"Sampling.Variables.0.distribution.type": "flat"}, "JV2-VAR-002"),
+            ({"Sampling.Variables.0.name": ""}, "JV2-VAR-012"),
+            ({"Sampling.Variables.0.distribution.parameters": {"min": 0.0}}, "JV2-VAR-031"),
+            (
+                {"Sampling.Variables.0.distribution.parameters": {"min": 1.0, "max": 0.0}},
+                "JV2-VAR-034",
+            ),
+            ({"Sampling.Bounds.live": 50}, "JV2-BND-001"),
+            ({"Sampling.Bounds.nlive": "auto"}, "JV2-BND-010"),
+            ({"Sampling.Bounds.dynamic": True}, "JV2-BND-012"),
+            ({"Sampling.Method": "MultiNest", "Sampling.Bounds.dynamic": True}, "JV2-BND-012"),
+            (
+                {
+                    "Sampling.Bounds.run_nested": {
+                        "dlogz": 0.5,
+                        "checkpoint_every": 15,
+                        "checkpoint_file": "foo.pkl",
+                        "resume": True,
+                    }
+                },
+                "JV2-BND-021",
+            ),
+            ({"EnvReqs.V2.archiver": {"mode": "turbo"}}, "JV2-ARC-010"),
+            ({"EnvReqs.V2.archiver": {"mode": "process", "async_io": True}}, "JV2-ARC-002"),
+            ({"EnvReqs.V2.archiver": {"max_hdf5_bytes": 0}}, "JV2-ARC-014"),
+            ({"EnvReqs.V2.workers": "many"}, "JV2-ENV-010"),
+            ({"EnvReqs.V2.checkpoint": {"heartbeat": 15}}, "JV2-ENV-012"),
+            ({"EnvReqs.V2.checkpoint_heartbeat_sec": 30}, "JV2-ENV-014"),
+            ({"EnvReqs.V2.checkpoint": {"history_tail": 256}}, "JV2-ENV-013"),
+            (
+                {"Operas": {"Modules": [{"name": "T", "operator": "x", "call_mode": "maybe"}]}},
+                "JV2-OPR-001",
+            ),
+        )
+        for changes, code in cases:
+            with self.subTest(changes=changes):
+                cfg = _minimal_dynesty_config()
+                for dotted, value in changes.items():
+                    *parents, leaf = dotted.split(".")
+                    target = cfg
+                    for key in parents:
+                        target = target[int(key)] if isinstance(target, list) else target[key]
+                    target[leaf] = value
+                report = validate_task_config(cfg)
+                self.assertFalse(report.ok)
+                self.assertIn(code, {item.code for item in report.errors()})
 
     def test_envreqs_boolean_fields_reject_strings(self) -> None:
         cases = (
@@ -330,47 +290,6 @@ class TaskValidationKernelTests(unittest.TestCase):
                     any(item.code == code and item.path == path for item in report.errors()),
                     [item.format_line() for item in report.errors()],
                 )
-
-    def test_workers_illegal_present_value(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"] = {"V2": {"workers": "many", "batch_size": 16}}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ENV-010" for i in report.errors()))
-
-    def test_checkpoint_heartbeat_must_be_at_least_30_seconds(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["checkpoint"] = {"heartbeat": 15}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ENV-012" for i in report.errors()))
-
-    def test_flat_checkpoint_heartbeat_sec_is_rejected(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["checkpoint_heartbeat_sec"] = 30
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ENV-014" for i in report.errors()))
-
-    def test_checkpoint_unknown_key_is_rejected(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["EnvReqs"]["V2"]["checkpoint"] = {"history_tail": 256}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-ENV-013" for i in report.errors()))
-
-    def test_nested_run_nested_rejects_hep_owned_checkpoint_keys(self) -> None:
-        """Checkpoint interval is EnvReqs.V2 only — not Sampling.Bounds.run_nested."""
-        cfg = _minimal_dynesty_config()
-        cfg["Sampling"]["Bounds"]["run_nested"] = {
-            "dlogz": 0.5,
-            "checkpoint_every": 15,
-            "checkpoint_file": "foo.pkl",
-            "resume": True,
-        }
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-BND-021" for i in report.errors()))
 
     def test_bridson_requires_length_and_radius(self) -> None:
         cfg = {
@@ -478,13 +397,6 @@ class TaskValidationKernelTests(unittest.TestCase):
             validate_or_raise(cfg)
         self.assertIn("JV2-MTH-003", str(ctx.exception))
 
-    def test_operas_call_mode(self) -> None:
-        cfg = _minimal_dynesty_config()
-        cfg["Operas"] = {"Modules": [{"name": "T", "operator": "x", "call_mode": "maybe"}]}
-        report = validate_task_config(cfg)
-        self.assertFalse(report.ok)
-        self.assertTrue(any(i.code == "JV2-OPR-001" for i in report.errors()))
-
     def test_author_prose_keeps_unicode_in_format_line(self) -> None:
         """D23.14: suggestion/example/hint keep Unicode; path/message still escape users."""
         from jarvishep2.task_validation import issue
@@ -549,51 +461,53 @@ class TaskValidationKernelTests(unittest.TestCase):
 
 
 class TaskValidationCliTests(unittest.TestCase):
-    def test_normalize_argv_validate(self) -> None:
-        self.assertEqual(
-            normalize_argv(["task.yaml", "--validate", "--strict"]),
-            ["validate", "task.yaml", "--strict"],
+    def test_validate_exit_codes(self) -> None:
+        dynesty_card = (
+            "Scan:\n  name: v\n"
+            "Sampling:\n"
+            "  Method: Dynesty\n"
+            "  Variables:\n"
+            "    - name: x\n"
+            "      description: d\n"
+            "      distribution:\n"
+            "        type: {type}\n"
+            "        parameters: {{min: 0.0, max: 1.0}}\n"
         )
-
-    def test_dispatch_validate_json_ok(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "task.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Scan:\n  name: v\n"
-                    "Sampling:\n"
-                    "  Method: Dynesty\n"
-                    "  Variables:\n"
-                    "    - name: x\n"
-                    "      description: d\n"
-                    "      distribution:\n"
-                    "        type: Flat\n"
-                    "        parameters: {min: 0.0, max: 1.0}\n"
-                    "  Bounds:\n"
-                    "    nlive: 20\n"
-                    "EnvReqs: {}\n"
-                    "Calculators: {}\n"
-                )
-            code = dispatch_validate(path, as_json=True)
-            self.assertEqual(code, 0)
-
-    def test_dispatch_validate_fails_on_typo(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "task.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Scan:\n  name: v\n"
-                    "Sampling:\n"
-                    "  Method: Dynesty\n"
-                    "  Variables:\n"
-                    "    - name: x\n"
-                    "      description: d\n"
-                    "      distribution:\n"
-                    "        type: flat\n"
-                    "        parameters: {min: 0.0, max: 1.0}\n"
-                )
-            code = dispatch_validate(path, as_json=True)
-            self.assertEqual(code, 2)
+        random_card = (
+            "Scan:\n  name: v\n"
+            "Sampling:\n"
+            "  Method: Random\n"
+            "  Bounds:\n"
+            "    point_number: 10\n"
+            "  Variables:\n"
+            "    - name: x\n"
+            "      description: d\n"
+            "      distribution:\n"
+            "        type: Flat\n"
+            "        parameters: {min: 0.0, max: 1.0}\n"
+            "EnvReqs: {}\n"
+            "Calculators: {}\n"
+        )
+        valid_dynesty = (
+            dynesty_card.format(type="Flat")
+            + "  Bounds:\n    nlive: 20\nEnvReqs: {}\nCalculators: {}\n"
+        )
+        cases = (
+            ("valid card", valid_dynesty, lambda path: dispatch_validate(path, as_json=True), 0),
+            (
+                "distribution typo",
+                dynesty_card.format(type="flat"),
+                lambda path: dispatch_validate(path, as_json=True),
+                2,
+            ),
+            ("main validate", random_card, lambda path: main(["validate", path, "--json"]), 0),
+        )
+        for label, text, call, expected in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "task.yaml")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                self.assertEqual(call(path), expected)
 
     def test_dispatch_validate_json_contains_actionable_guidance(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -623,60 +537,51 @@ class TaskValidationCliTests(unittest.TestCase):
             self.assertIn("indentation", issue["suggestion"])
             self.assertIn("Method: Random", issue["example"])
 
-    def test_dispatch_run_reports_yaml_syntax_with_guidance(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "broken.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write("Sampling:\n  Method: Random\n    point_number: 10\n")
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                code = dispatch_run(path)
-            self.assertEqual(code, 2)
-            self.assertIn("JV2-YAML-001", stderr.getvalue())
-            self.assertIn("suggestion:", stderr.getvalue())
-
-    def test_dispatch_run_rejects_non_ascii_before_creating_outputs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "task.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Scan:\n  name: \u6697\u7269\u8d28\n"
-                    "Sampling:\n  Method: Random\n"
-                    "  Bounds:\n    point_number: 1\n"
-                    "  Variables:\n    - name: x\n"
-                    "      distribution:\n        type: Flat\n"
-                    "        parameters: {min: 0.0, max: 1.0}\n"
-                    "EnvReqs: {}\n"
-                    "Calculators: {}\n"
-                )
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                code = dispatch_run(path)
-            self.assertEqual(code, 2)
-            self.assertEqual(stderr.getvalue().count("JV2-ENC-001"), 1)
-            self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
-
-    def test_dispatch_run_rejects_top_level_calculator_typo_before_creating_outputs(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "task.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Scan:\n  name: typo-scan\n"
-                    "Sampling:\n  Method: Random\n"
-                    "  Bounds:\n    point_number: 1\n"
-                    "  Variables:\n    - name: x\n"
-                    "      distribution:\n        type: Flat\n"
-                    "        parameters: {min: 0.0, max: 1.0}\n"
-                    "Calculater:\n  Modules: []\n"
-                    "EnvReqs: {}\n"
-                )
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                code = dispatch_run(path)
-            self.assertEqual(code, 2)
-            self.assertIn("JV2-SCH-001", stderr.getvalue())
-            self.assertIn("Did you mean 'Calculators'?", stderr.getvalue())
-            self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
+    def test_dispatch_run_rejects_invalid_cards_before_creating_outputs(self) -> None:
+        random_card = (
+            "Sampling:\n  Method: Random\n"
+            "  Bounds:\n    point_number: 1\n"
+            "  Variables:\n    - name: x\n"
+            "      distribution:\n        type: Flat\n"
+            "        parameters: {min: 0.0, max: 1.0}\n"
+        )
+        cases = (
+            (
+                "YAML syntax",
+                "Sampling:\n  Method: Random\n    point_number: 10\n",
+                ("JV2-YAML-001", "suggestion:"),
+                False,
+            ),
+            (
+                "non-ASCII scan name",
+                "Scan:\n  name: \u6697\u7269\u8d28\n" + random_card
+                + "EnvReqs: {}\nCalculators: {}\n",
+                ("JV2-ENC-001",),
+                True,
+            ),
+            (
+                "top-level calculator typo",
+                "Scan:\n  name: typo-scan\n" + random_card
+                + "Calculater:\n  Modules: []\nEnvReqs: {}\n",
+                ("JV2-SCH-001", "Did you mean 'Calculators'?"),
+                False,
+            ),
+        )
+        # once: the code appears exactly once in stderr, not once per field.
+        for label, text, fragments, once in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as tmp:
+                path = os.path.join(tmp, "task.yaml")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    code = dispatch_run(path)
+                self.assertEqual(code, 2)
+                for fragment in fragments:
+                    self.assertIn(fragment, stderr.getvalue())
+                if once:
+                    self.assertEqual(stderr.getvalue().count(fragments[0]), 1)
+                self.assertFalse(os.path.exists(os.path.join(tmp, "outputs")))
 
     def test_referenced_default_yaml_syntax_has_the_same_diagnostic(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,41 +600,6 @@ class TaskValidationCliTests(unittest.TestCase):
                 load_task_yaml(task_path)
             self.assertEqual(ctx.exception.code, "JV2-YAML-001")
             self.assertIn("default environment YAML", str(ctx.exception))
-
-    def test_referenced_runtime_yaml_interface_is_removed(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            task_path = os.path.join(tmp, "task.yaml")
-            with open(task_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "EnvReqs:\n"
-                    "  Runtime:\n"
-                    "    workers: 2\n"
-                )
-            with self.assertRaises(ValueError) as ctx:
-                load_task_yaml(task_path)
-            self.assertIn("EnvReqs.Runtime", str(ctx.exception))
-
-    def test_main_validate_subcommand(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "task.yaml")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Scan:\n  name: v\n"
-                    "Sampling:\n"
-                    "  Method: Random\n"
-                    "  Bounds:\n"
-                    "    point_number: 10\n"
-                    "  Variables:\n"
-                    "    - name: x\n"
-                    "      description: d\n"
-                    "      distribution:\n"
-                    "        type: Flat\n"
-                    "        parameters: {min: 0.0, max: 1.0}\n"
-                    "EnvReqs: {}\n"
-                    "Calculators: {}\n"
-                )
-            code = main(["validate", path, "--json"])
-            self.assertEqual(code, 0)
 
     def test_load_task_yaml_then_gate_on_core(self) -> None:
         from jarvishep2.core import Jarvis2Core

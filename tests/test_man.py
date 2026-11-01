@@ -34,7 +34,7 @@ class ManPathTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_yaml_path("$.Calculators.Modules[0].execution.input[0]")
 
-    def test_log_likelihood_page_exposes_list_item_schema(self) -> None:
+    def test_list_pages_expose_their_item_schema(self) -> None:
         sampling_page = resolve_man_request(["yaml.Sampling"])
         log_likelihood_row = next(
             row for row in sampling_page["keys"] if row["name"] == "LogLikelihood"
@@ -44,50 +44,73 @@ class ManPathTests(unittest.TestCase):
             log_likelihood_row["man"],
             "Jarvis man yaml.Sampling.LogLikelihood",
         )
-
-        page = resolve_man_request(["yaml.Sampling.LogLikelihood"])
-        self.assertEqual(page["path"], "$.Sampling.LogLikelihood")
-        self.assertEqual(page["keys"], [])
-        self.assertEqual(
-            [row["name"] for row in page["list_rows"]],
-            ["name", "expression"],
+        cases = (
+            ("yaml.Sampling.LogLikelihood", "$.Sampling.LogLikelihood", ["name", "expression"]),
+            ("yaml.EnvReqs.OS", "$.EnvReqs.OS", ["name", "version"]),
         )
-        self.assertEqual(page["item_schema"]["required"], ["name", "expression"])
+        for topic, path, fields in cases:
+            with self.subTest(topic):
+                page = resolve_man_request([topic])
+                self.assertEqual(page["path"], path)
+                self.assertEqual(page["keys"], [])
+                self.assertEqual([row["name"] for row in page["list_rows"]], fields)
+                self.assertEqual(page["item_schema"]["required"], fields)
+                self.assertFalse(page["item_schema"]["additionalProperties"])
 
-    def test_envreqs_v2_pages_are_closed(self) -> None:
-        self.assertEqual(resolve_man_request(["yaml.EnvReqs.V2"])["zone"], "closed")
-        self.assertEqual(
-            resolve_man_request(["yaml.EnvReqs.V2.check_modules"])["zone"],
-            "closed",
-        )
-        self.assertEqual(resolve_man_request(["yaml.EnvReqs"])["zone"], "closed")
+    def test_envreqs_pages_are_closed(self) -> None:
+        for topic in ("yaml.EnvReqs", "yaml.EnvReqs.V2", "yaml.EnvReqs.V2.check_modules"):
+            with self.subTest(topic):
+                self.assertEqual(resolve_man_request([topic])["zone"], "closed")
+        page = resolve_man_request(["yaml.EnvReqs"])
+        self.assertIn("OS", {key["name"] for key in page["keys"]})
+        self.assertIn("preflight", page["summary"])
 
 
 class ManCliTests(unittest.TestCase):
-    def test_man_help_uses_man_cards_and_coding_agent_hint(self) -> None:
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = main(["man", "-h"])
-        self.assertEqual(code, 0)
-        rendered = out.getvalue()
-        self.assertIn("╭", rendered)
-        self.assertIn("Jarvis man", rendered)
-        self.assertIn("Options", rendered)
-        self.assertIn("Examples · one dotted path", rendered)
-        self.assertIn("Coding agents", rendered)
-        self.assertIn("--json", rendered)
-        self.assertNotIn("positional arguments:", rendered)
-
-    def test_page_panels_wrap_long_text(self) -> None:
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = main(["man", "calculator.execution"])
-        self.assertEqual(code, 0)
-        rendered = out.getvalue()
-        self.assertIn("Keys · $.Calculators.Modules.execution", rendered)
-        self.assertIn("Use --type TYPE --direction", rendered)
-        self.assertIn("input|output", rendered)
-        self.assertIn("file-type", rendered)
+    def test_rendered_pages_show_their_panels(self) -> None:
+        cases = (
+            (
+                ["man", "-h"],
+                [
+                    "╭",
+                    "Jarvis man",
+                    "Options",
+                    "Examples · one dotted path",
+                    "Coding agents",
+                    "--json",
+                ],
+                ["positional arguments:"],
+            ),
+            # Page panels wrap long text.
+            (
+                ["man", "calculator.execution"],
+                [
+                    "Keys · $.Calculators.Modules.execution",
+                    "Use --type TYPE --direction",
+                    "input|output",
+                    "file-type",
+                ],
+                [],
+            ),
+            (["man"], ["• Purpose:", "• Topic syntax:"], []),
+            # Non-YAML catalogs use list tables.
+            (["man", "tokens"], ["Tokens · $"], ["Keys · $"]),
+            (["man", "calculator"], ["Topics · $.Calculators"], ["Keys · $"]),
+            (["man", "example"], ["Examples · $"], ["Keys · $"]),
+        )
+        for argv, present, absent in cases:
+            with self.subTest(argv=argv):
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    code = main(argv)
+                self.assertEqual(code, 0)
+                rendered = out.getvalue()
+                for fragment in present:
+                    self.assertIn(fragment, rendered)
+                for fragment in absent:
+                    self.assertNotIn(fragment, rendered)
+                if argv == ["man"]:
+                    self.assertGreaterEqual(rendered.count("•"), 8)
 
     def test_portal_io_actions_are_direction_and_format_specific(self) -> None:
         json_input = resolve_man_request(
@@ -218,35 +241,17 @@ class ManCliTests(unittest.TestCase):
             {"yaml", "sampler", "calculator", "operas", "tokens", "example"} <= names
         )
 
-    def test_center_page_uses_bulleted_guidance(self) -> None:
-        out = io.StringIO()
-        with redirect_stdout(out):
-            code = main(["man"])
-        self.assertEqual(code, 0)
-        rendered = out.getvalue()
-        self.assertIn("• Purpose:", rendered)
-        self.assertIn("• Topic syntax:", rendered)
-        self.assertGreaterEqual(rendered.count("•"), 8)
-
-    def test_non_yaml_catalogs_use_list_tables(self) -> None:
-        for topic, title in (
-            ("tokens", "Tokens · $"),
-            ("calculator", "Topics · $.Calculators"),
-            ("example", "Examples · $"),
-        ):
-            out = io.StringIO()
-            with redirect_stdout(out):
-                code = main(["man", topic])
-            self.assertEqual(code, 0)
-            rendered = out.getvalue()
-            self.assertIn(title, rendered)
-            self.assertNotIn("Keys · $", rendered)
-
-    def test_path_prefix_equivalence(self) -> None:
-        a = resolve_man_request(["yaml.Sampling.Bounds"])
-        b = resolve_man_request(["$.Sampling.Bounds"])
-        self.assertEqual(a["path"], b["path"])
-        self.assertEqual(a["summary"], b["summary"])
+    def test_optional_prefixes_resolve_to_the_same_page(self) -> None:
+        cases = (
+            ("yaml.Sampling.Bounds", "$.Sampling.Bounds", "summary"),
+            ("calculator.execution", "yaml.calculator.execution", "keys"),
+        )
+        for first, second, field in cases:
+            with self.subTest(first):
+                a = resolve_man_request([first])
+                b = resolve_man_request([second])
+                self.assertEqual(a["path"], b["path"])
+                self.assertEqual(a[field], b[field])
 
     def test_yaml_root_blocks_are_required(self) -> None:
         page = resolve_man_request(["yaml"])
@@ -270,24 +275,8 @@ class ManCliTests(unittest.TestCase):
         self.assertFalse(
             next(key for key in page["keys"] if key["name"] == "LibDeps")["required"]
         )
-
-    def test_sampling_method_is_required_in_man(self) -> None:
-        page = resolve_man_request(["yaml.Sampling"])
-        method = next(key for key in page["keys"] if key["name"] == "Method")
-        self.assertTrue(method["required"])
-
-    def test_envreqs_envelope_is_closed_in_man(self) -> None:
-        page = resolve_man_request(["yaml.EnvReqs"])
-        self.assertEqual(page["zone"], "closed")
-        self.assertIn("OS", {key["name"] for key in page["keys"]})
-        self.assertIn("preflight", page["summary"])
-
-    def test_envreqs_os_page_exposes_list_item_schema(self) -> None:
-        page = resolve_man_request(["yaml.EnvReqs.OS"])
-        self.assertEqual(page["path"], "$.EnvReqs.OS")
-        self.assertEqual({row["name"] for row in page["list_rows"]}, {"name", "version"})
-        self.assertEqual(page["item_schema"]["required"], ["name", "version"])
-        self.assertFalse(page["item_schema"]["additionalProperties"])
+        sampling = resolve_man_request(["yaml.Sampling"])
+        self.assertTrue(next(key for key in sampling["keys"] if key["name"] == "Method")["required"])
 
     def test_generic_yaml_path_summary_keeps_jsonpath_dot(self) -> None:
         page = resolve_man_request(["yaml.Scan"])
@@ -298,29 +287,23 @@ class ManCliTests(unittest.TestCase):
         self.assertTrue(name["required"])
         self.assertEqual({key["name"] for key in page["keys"]}, {"name"})
 
-    def test_space_separated_topic_is_rejected(self) -> None:
+    def test_bad_topics_exit_2_with_a_hint(self) -> None:
         with self.assertRaises(KeyError) as ctx:
             resolve_man_request(["calculator", "execution", "input"], io_type="JSON")
         self.assertIn("calculator.execution.input", str(ctx.exception))
-        err = io.StringIO()
-        with mock.patch("sys.stderr", err):
-            code = main(["man", "calculator", "execution"])
-        self.assertNotEqual(code, 0)
-        self.assertIn("calculator.execution", err.getvalue())
-        self.assertIn("dotted path", err.getvalue().lower())
-
-    def test_yaml_prefix_optional_for_calculator(self) -> None:
-        a = resolve_man_request(["calculator.execution"])
-        b = resolve_man_request(["yaml.calculator.execution"])
-        self.assertEqual(a["path"], b["path"])
-        self.assertEqual(a["keys"], b["keys"])
-
-    def test_unknown_topic_exit_code(self) -> None:
-        err = io.StringIO()
-        with mock.patch("sys.stderr", err):
-            code = main(["man", "yaml.Samplng"])
-        self.assertNotEqual(code, 0)
-        self.assertIn("did you mean", err.getvalue().lower())
+        cases = (
+            (["man", "calculator", "execution"], ["calculator.execution", "dotted path"]),
+            (["man", "yaml.Samplng"], ["did you mean"]),
+            (["man", "yaml.Calculators.Modules[].execution"], ["brackets are no longer supported"]),
+        )
+        for argv, fragments in cases:
+            with self.subTest(argv=argv):
+                err = io.StringIO()
+                with mock.patch("sys.stderr", err):
+                    code = main(argv)
+                self.assertEqual(code, 2)
+                for fragment in fragments:
+                    self.assertIn(fragment, err.getvalue().lower())
 
     def test_sampler_bridson_has_keys_and_descriptions(self) -> None:
         page = resolve_man_request(["sampler.Bridson"])
@@ -888,13 +871,6 @@ class ManCliTests(unittest.TestCase):
             checkpoint["diagnostics"],
             ["JV2-ENV-012", "JV2-ENV-013", "JV2-ENV-014"],
         )
-
-    def test_array_bracket_topics_are_rejected(self) -> None:
-        err = io.StringIO()
-        with mock.patch("sys.stderr", err):
-            code = main(["man", "yaml.Calculators.Modules[].execution"])
-        self.assertEqual(code, 2)
-        self.assertIn("brackets are no longer supported", err.getvalue())
 
     def test_man_uses_list_words_without_array_suffixes(self) -> None:
         pages = [

@@ -36,24 +36,23 @@ def test_checkpoint_fsync_precedes_atomic_replace_and_syncs_directory(
     assert list(tmp_path.glob("*.tmp")) == []
 
 
-@pytest.mark.parametrize("stage", ["serialize", "fsync", "replace"])
-def test_failed_state_save_preserves_previous_file_and_cleans_temp(
-    tmp_path, monkeypatch, stage
-):
-    path = tmp_path / "state.pkl"
-    checkpoint.atomic_pickle_dump(str(path), {"cursor": 12})
-    before = path.read_bytes()
-
+def test_failed_state_save_preserves_previous_file_and_cleans_temp(subtests, tmp_path_factory):
     def fail(*args, **kwargs):
         raise OSError("injected save failure")
 
-    if stage == "serialize":
-        monkeypatch.setattr(checkpoint.pickle, "dump", fail)
-    elif stage == "fsync":
-        monkeypatch.setattr(checkpoint.os, "fsync", fail)
-    else:
-        monkeypatch.setattr(checkpoint.os, "replace", fail)
-    with pytest.raises(OSError, match="injected save failure"):
-        checkpoint.atomic_pickle_dump(str(path), {"cursor": 24})
-    assert path.read_bytes() == before
-    assert list(tmp_path.iterdir()) == [path]
+    stages = {
+        "serialize": (checkpoint.pickle, "dump"),
+        "fsync": (checkpoint.os, "fsync"),
+        "replace": (checkpoint.os, "replace"),
+    }
+    for stage, (owner, name) in stages.items():
+        with subtests.test(stage=stage), pytest.MonkeyPatch.context() as monkeypatch:
+            tmp_path = tmp_path_factory.mktemp("case")
+            path = tmp_path / "state.pkl"
+            checkpoint.atomic_pickle_dump(str(path), {"cursor": 12})
+            before = path.read_bytes()
+            monkeypatch.setattr(owner, name, fail)
+            with pytest.raises(OSError, match="injected save failure"):
+                checkpoint.atomic_pickle_dump(str(path), {"cursor": 24})
+            assert path.read_bytes() == before
+            assert list(tmp_path.iterdir()) == [path]

@@ -26,42 +26,25 @@ class DeletePathTests(unittest.TestCase):
     def test_default_method_is_shutil(self) -> None:
         self.assertEqual(DEFAULT_DELETE_METHOD, "shutil")
 
-    def test_shutil_deletes_file(self) -> None:
-        with tempfile.NamedTemporaryFile(delete=False) as handle:
-            path = handle.name
-        try:
-            delete_path(path, method="shutil")
-            self.assertFalse(os.path.lexists(path))
-        finally:
-            if os.path.lexists(path):
-                os.remove(path)
-
-    def test_shutil_deletes_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            nested = os.path.join(tmpdir, "nested")
-            os.makedirs(nested)
-            marker = os.path.join(nested, "marker.txt")
-            with open(marker, "w", encoding="utf-8") as handle:
-                handle.write("x")
-            delete_path(tmpdir, method="shutil")
-            self.assertFalse(os.path.lexists(tmpdir))
-
-    def test_rm_deletes_file(self) -> None:
-        with tempfile.NamedTemporaryFile(delete=False) as handle:
-            path = handle.name
-        try:
-            delete_path(path, method="rm")
-            self.assertFalse(os.path.lexists(path))
-        finally:
-            if os.path.lexists(path):
-                os.remove(path)
-
-    def test_rm_deletes_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            nested = os.path.join(tmpdir, "nested")
-            os.makedirs(nested)
-            delete_path(tmpdir, method="rm")
-            self.assertFalse(os.path.lexists(tmpdir))
+    def test_each_method_deletes_files_and_directories(self) -> None:
+        for method in ("shutil", "rm"):
+            with self.subTest(method=method, kind="file"):
+                with tempfile.NamedTemporaryFile(delete=False) as handle:
+                    path = handle.name
+                try:
+                    delete_path(path, method=method)
+                    self.assertFalse(os.path.lexists(path))
+                finally:
+                    if os.path.lexists(path):
+                        os.remove(path)
+            with self.subTest(method=method, kind="directory"):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    nested = os.path.join(tmpdir, "nested")
+                    os.makedirs(nested)
+                    with open(os.path.join(nested, "marker.txt"), "w", encoding="utf-8") as handle:
+                        handle.write("x")
+                    delete_path(tmpdir, method=method)
+                    self.assertFalse(os.path.lexists(tmpdir))
 
     def test_bad_method_raises(self) -> None:
         with tempfile.NamedTemporaryFile(delete=False) as handle:

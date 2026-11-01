@@ -24,18 +24,32 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(config["Runtime"]["mode"], "redis")
 
-    def test_top_level_runtime_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            task_path = os.path.join(tmpdir, "task.yaml")
-            with open(task_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "Runtime:\n  mode: auto\nScan:\n  name: explicit\n"
-                    "Sampling:\n  Method: Bridson\n"
-                )
-
-            with self.assertRaisesRegex(ValueError, "top-level Runtime"):
-                load_task_yaml(task_path)
-
+    def test_load_rejects_removed_unknown_or_missing_blocks(self) -> None:
+        sampling = "Scan:\n  name: bad\nSampling:\n  Method: Bridson\n"
+        cases = (
+            ("Runtime:\n  mode: auto\n" + sampling, ValueError, "top-level Runtime"),
+            ("EnvReqs:\n  Runtime:\n    workers: 6\n" + sampling, ValueError, "EnvReqs.Runtime"),
+            (
+                "EnvReqs:\n  V2:\n    not_a_real_knob: 1\n" + sampling,
+                ValueError,
+                "unsupported.*not_a_real_knob",
+            ),
+            (
+                "EnvReqs:\n"
+                "  Check_default_dependencies:\n"
+                "    required: true\n"
+                "    default_yaml_path: '&J/deps/missing.yaml'\n",
+                FileNotFoundError,
+                "default YAML not found",
+            ),
+        )
+        for text, error, pattern in cases:
+            with self.subTest(pattern), tempfile.TemporaryDirectory() as tmpdir:
+                task_path = os.path.join(tmpdir, "task.yaml")
+                with open(task_path, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                with self.assertRaisesRegex(error, pattern):
+                    load_task_yaml(task_path)
 
     def test_v1_envreqs_path_supplies_v2_defaults_and_task_overrides_them(self) -> None:
         with tempfile.TemporaryDirectory() as root:
@@ -110,20 +124,6 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
             config = load_task_yaml(task_path)
 
         self.assertEqual(config["EnvReqs"]["OS"], [{"name": "Darwin", "version": ">=10.14"}])
-
-    def test_required_v1_default_yaml_must_exist(self) -> None:
-        with tempfile.TemporaryDirectory() as root:
-            task_path = os.path.join(root, "task.yaml")
-            with open(task_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "EnvReqs:\n"
-                    "  Check_default_dependencies:\n"
-                    "    required: true\n"
-                    "    default_yaml_path: '&J/deps/missing.yaml'\n"
-                )
-
-            with self.assertRaisesRegex(FileNotFoundError, "default YAML not found"):
-                load_task_yaml(task_path)
 
     def test_task_root_environment_override_is_honored(self) -> None:
         with tempfile.TemporaryDirectory() as yaml_dir, tempfile.TemporaryDirectory() as root:
@@ -303,38 +303,6 @@ class TaskConfigCompatibilityTests(unittest.TestCase):
 
         self.assertEqual(core.config["Runtime"]["redis"]["port"], 6380)
         self.assertEqual(document["EnvReqs"]["V2"]["redis"]["port"], 6380)
-
-    def test_unknown_envreqs_v2_key_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            task_path = os.path.join(tmpdir, "task.yaml")
-            with open(task_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "EnvReqs:\n"
-                    "  V2:\n"
-                    "    not_a_real_knob: 1\n"
-                    "Scan:\n"
-                    "  name: bad\n"
-                    "Sampling:\n"
-                    "  Method: Bridson\n"
-                )
-            with self.assertRaisesRegex(ValueError, "unsupported.*not_a_real_knob"):
-                load_task_yaml(task_path)
-
-    def test_envreqs_runtime_is_removed(self) -> None:
-        with tempfile.TemporaryDirectory() as root:
-            task_path = os.path.join(root, "task.yaml")
-            with open(task_path, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "EnvReqs:\n"
-                    "  Runtime:\n"
-                    "    workers: 6\n"
-                    "Scan:\n"
-                    "  name: removed-runtime\n"
-                    "Sampling:\n"
-                    "  Method: Bridson\n"
-                )
-            with self.assertRaisesRegex(ValueError, "EnvReqs.Runtime"):
-                load_task_yaml(task_path)
 
 
 if __name__ == "__main__":

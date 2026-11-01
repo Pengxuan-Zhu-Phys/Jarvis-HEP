@@ -19,43 +19,27 @@ def _installed_version(name: str) -> str:
         raise PackageNotFoundError(name) from exc
 
 
-def test_runtime_version_matches_package_constant() -> None:
+def test_package_constant_wins_over_stale_metadata() -> None:
     assert get_runtime_version() == package_version
-
-
-def test_runtime_version_prefers_package_constant_over_stale_metadata() -> None:
     with mock.patch("importlib.metadata.version", side_effect=_installed_version):
         assert get_runtime_version() == package_version
-
-
-def test_project_packager_version_matches_package_constant() -> None:
-    with mock.patch("importlib.metadata.version", side_effect=_installed_version):
         assert _jarvis_version() == package_version
 
 
-def test_runtime_version_ignores_installed_v1_when_constant_unavailable() -> None:
-    def installed_version(name: str) -> str:
-        return {"Jarvis-HEP": "1.7.5", "jarvishep2": "2.0.0"}[name]
+def test_without_constant_runtime_version_uses_installed_v2(subtests) -> None:
+    cases = (
+        # An installed V1 Jarvis-HEP is ignored.
+        ({"Jarvis-HEP": "1.7.5", "jarvishep2": "2.0.0"}, "2.0.0"),
+        ({"Jarvis-HEP": "2.1.0", "jarvishep2": "2.0.0"}, "2.1.0"),
+    )
+    for installed, expected in cases:
+        with (
+            subtests.test(installed=installed),
+            mock.patch(
+                "jarvishep2.versioning._read_package_version_constant",
+                return_value=None,
+            ),
+            mock.patch("importlib.metadata.version", side_effect=installed.__getitem__),
+        ):
+            assert get_runtime_version() == expected
 
-    with (
-        mock.patch(
-            "jarvishep2.versioning._read_package_version_constant",
-            return_value=None,
-        ),
-        mock.patch("importlib.metadata.version", side_effect=installed_version),
-    ):
-        assert get_runtime_version() == "2.0.0"
-
-
-def test_runtime_version_prefers_jarvis_hep_v2_when_constant_unavailable() -> None:
-    def installed_version(name: str) -> str:
-        return {"Jarvis-HEP": "2.1.0", "jarvishep2": "2.0.0"}[name]
-
-    with (
-        mock.patch(
-            "jarvishep2.versioning._read_package_version_constant",
-            return_value=None,
-        ),
-        mock.patch("importlib.metadata.version", side_effect=installed_version),
-    ):
-        assert get_runtime_version() == "2.1.0"

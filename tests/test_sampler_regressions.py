@@ -41,48 +41,52 @@ def engine(cls, seed=10):
     return cls([.5], .25, 60000, **kw)
 
 
-@pytest.mark.parametrize("cls", [MCMCChain, AMMCMCChain, EnsembleChain, DEMCMCChain, DRAMChain])
-def test_invalid_initial_likelihood_never_becomes_chain_state(cls):
-    c = engine(cls)
-    initial = c.param.copy()
-    next(c)
-    assert not c.update(-np.inf)
-    np.testing.assert_array_equal(c.param, initial)
-    assert c.last_loglikelihood is None
-    next(c)
-    assert c.update(0.)
-    assert c.last_loglikelihood == 0.
+def test_invalid_initial_likelihood_never_becomes_chain_state(subtests):
+    for cls in [MCMCChain, AMMCMCChain, EnsembleChain, DEMCMCChain, DRAMChain]:
+        with subtests.test(cls=cls):
+            c = engine(cls)
+            initial = c.param.copy()
+            next(c)
+            assert not c.update(-np.inf)
+            np.testing.assert_array_equal(c.param, initial)
+            assert c.last_loglikelihood is None
+            next(c)
+            assert c.update(0.)
+            assert c.last_loglikelihood == 0.
 
 
-@pytest.mark.parametrize("cls", [MCMCChain, AMMCMCChain, EnsembleChain, DEMCMCChain])
-def test_uniform_target_keeps_boundary_probability(cls):
-    c = engine(cls)
-    values = []
-    for i in range(40000):
-        next(c)
-        c.update(0.)  # Engine must reject outside points, even with finite logL.
-        if i >= 1000:
-            values.append(c.param[0])
-    values = np.asarray(values)
-    edge_fraction = np.mean((values < .1) | (values > .9))
-    assert .18 < edge_fraction < .22, (cls.__name__, edge_fraction)
-    assert abs(np.var(values) - 1 / 12) < .006
+def test_uniform_target_keeps_boundary_probability(subtests):
+    for cls in [MCMCChain, AMMCMCChain, EnsembleChain, DEMCMCChain]:
+        with subtests.test(cls=cls):
+            c = engine(cls)
+            values = []
+            for i in range(40000):
+                next(c)
+                c.update(0.)  # Engine must reject outside points, even with finite logL.
+                if i >= 1000:
+                    values.append(c.param[0])
+            values = np.asarray(values)
+            edge_fraction = np.mean((values < .1) | (values > .9))
+            assert .18 < edge_fraction < .22, (cls.__name__, edge_fraction)
+            assert abs(np.var(values) - 1 / 12) < .006
 
 
-@pytest.mark.parametrize("method", ["MCMC", "AMMCMC", "DRAM", "EnsembleMCMC", "DEMCMC", "PTMCMC", "PTEnsemble"])
-def test_selection_rejection_stays_local_and_finishes(tmp_path, method):
-    cfg = config(tmp_path, method)
-    cfg["Sampling"]["selection"] = "x < 0"
-    sampler = Distributor.set_method(method)
-    sampler.set_config(cfg)
-    sampler.set_redis(make_fakeredis_queue())
-    sampler._submit_group = Mock(side_effect=AssertionError("invalid point reached Redis"))
-    sampler.run_adaptive(timeout=1)
-    assert sampler._all_finished()
-    assert sampler._total_accepted == 0
-    assert sampler._total_failed == 0
-    assert not sampler._uuid_to_meta
-    sampler._submit_group.assert_not_called()
+def test_selection_rejection_stays_local_and_finishes(subtests, tmp_path_factory):
+    for method in ["MCMC", "AMMCMC", "DRAM", "EnsembleMCMC", "DEMCMC", "PTMCMC", "PTEnsemble"]:
+        with subtests.test(method=method):
+            tmp_path = tmp_path_factory.mktemp("case")
+            cfg = config(tmp_path, method)
+            cfg["Sampling"]["selection"] = "x < 0"
+            sampler = Distributor.set_method(method)
+            sampler.set_config(cfg)
+            sampler.set_redis(make_fakeredis_queue())
+            sampler._submit_group = Mock(side_effect=AssertionError("invalid point reached Redis"))
+            sampler.run_adaptive(timeout=1)
+            assert sampler._all_finished()
+            assert sampler._total_accepted == 0
+            assert sampler._total_failed == 0
+            assert not sampler._uuid_to_meta
+            sampler._submit_group.assert_not_called()
 
 
 def test_failed_uuid_history_is_bounded_and_count_survives_resume(tmp_path):
@@ -121,22 +125,26 @@ def test_dram_refuses_unimplemented_higher_order_acceptance():
         DRAMChain([.5], .1, 10, dr_steps=3)
 
 
-@pytest.mark.parametrize("cls", [DynestySampler, MultiNestSampler])
-def test_nested_queue_uses_workers_not_transport_chunk(tmp_path, cls):
-    sampler = cls()
-    sampler.set_config(config(tmp_path, sampler.method))
-    kwargs = sampler._build_constructor_kwargs(pool=Mock(), rstate=np.random.default_rng(0))
-    assert kwargs["queue_size"] == 4
+def test_nested_queue_uses_workers_not_transport_chunk(subtests, tmp_path_factory):
+    for cls in [DynestySampler, MultiNestSampler]:
+        with subtests.test(cls=cls):
+            tmp_path = tmp_path_factory.mktemp("case")
+            sampler = cls()
+            sampler.set_config(config(tmp_path, sampler.method))
+            kwargs = sampler._build_constructor_kwargs(pool=Mock(), rstate=np.random.default_rng(0))
+            assert kwargs["queue_size"] == 4
 
 
-@pytest.mark.parametrize("cls", [DynestySampler, MultiNestSampler])
-def test_completed_nested_checkpoint_does_not_restart(tmp_path, cls):
-    sampler = cls()
-    sampler.set_config(config(tmp_path, sampler.method))
-    sampler.import_runtime_state({"finished": True, "summary": {"ncall": 123}})
-    sampler.set_redis(make_fakeredis_queue())
-    assert sampler.run_adaptive() == 123
-    assert sampler._sampler is None
+def test_completed_nested_checkpoint_does_not_restart(subtests, tmp_path_factory):
+    for cls in [DynestySampler, MultiNestSampler]:
+        with subtests.test(cls=cls):
+            tmp_path = tmp_path_factory.mktemp("case")
+            sampler = cls()
+            sampler.set_config(config(tmp_path, sampler.method))
+            sampler.import_runtime_state({"finished": True, "summary": {"ncall": 123}})
+            sampler.set_redis(make_fakeredis_queue())
+            assert sampler.run_adaptive() == 123
+            assert sampler._sampler is None
 
 
 def test_nested_selection_applies_to_batch_and_direct_calls(tmp_path):

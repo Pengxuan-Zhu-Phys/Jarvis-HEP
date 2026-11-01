@@ -23,6 +23,22 @@ def plugin_names() -> set[str]:
     return {spec.name for spec in iter_specs() if spec.is_plugin}
 
 
+_DELETE = object()
+
+
+def _apply(card: dict, changes: dict) -> None:
+    """Set (or delete with ``_DELETE``) dotted paths; digits index lists."""
+    for dotted, value in changes.items():
+        *parents, leaf = dotted.split(".")
+        target = card
+        for key in parents:
+            target = target[int(key)] if isinstance(target, list) else target[key]
+        if value is _DELETE:
+            del target[leaf]
+        else:
+            target[leaf] = value
+
+
 def _card() -> dict:
     return {
         "Scan": {"name": "schema-card"},
@@ -93,44 +109,60 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertEqual(list(task_card_validator().iter_errors(_card())), [])
         self.assertEqual(schema_catalog_lint_errors(), [])
 
-    def test_scan_name_is_required(self) -> None:
-        card = _card()
-        del card["Scan"]["name"]
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                item.code == "JV2-SCH-001"
-                and item.path == "$.Scan"
-                and "required" in item.message
-                for item in report.errors()
-            )
+    def test_closed_blocks_report_missing_and_unknown_fields(self) -> None:
+        # (changes to the minimal card, issue path, fragment of the message);
+        # None skips that check.
+        cases = (
+            ({"Scan.name": _DELETE}, "$.Scan", "required"),
+            ({"Sampling.Method": _DELETE}, "$.Sampling", "Method"),
+            ({"EnvReqs": {"V2": {"future_setting": True}}}, "$.EnvReqs.V2", "future_setting"),
+            ({"Calculators": _DELETE, "Operas": _DELETE}, "$", None),
+            ({"Operas.typo": True}, "$.Operas", None),
+            ({"Operas.Modules.0.typo": True}, None, None),
+            ({"Calculators.Archiver": {"mode": "process"}}, "$.Calculators", "Archiver"),
+            ({"Scan.save_dir": "outputs/custom"}, "$.Scan", "save_dir"),
+            (
+                {"Scan.sample_directory": {"enabled": True, "limit": 10}},
+                "$.Scan",
+                "sample_directory",
+            ),
+            (
+                {
+                    "Calculators.Modules.0.execution.input.0.actions.0.variables": [
+                        {"name": "x", "value": 1.0}
+                    ]
+                },
+                None,
+                None,
+            ),
+            (
+                {
+                    "Calculators.Modules.0.execution.output.0.variables": [
+                        {"name": "z", "expression": "z"}
+                    ]
+                },
+                None,
+                None,
+            ),
+        ) + tuple(
+            # Unmigrated RLTPMCMC blocks.
+            ({f"Sampling.{field}": {"future_key": 1}}, "$.Sampling", field)
+            for field in ("Control", "Diagnostics", "PPO", "Reward")
         )
-
-    def test_sampling_method_is_required_for_normal_cards(self) -> None:
-        card = _card()
-        del card["Sampling"]["Method"]
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                item.code == "JV2-SCH-001"
-                and item.path == "$.Sampling"
-                and "Method" in item.message
-                for item in report.errors()
-            )
-        )
-
-    def test_envreqs_v2_rejects_unknown_top_level_key(self) -> None:
-        card = _card()
-        card["EnvReqs"] = {"V2": {"future_setting": True}}
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                item.code == "JV2-SCH-001"
-                and item.path == "$.EnvReqs.V2"
-                and "future_setting" in item.message
-                for item in report.errors()
-            )
-        )
+        for changes, path, fragment in cases:
+            with self.subTest(changes=changes):
+                card = _card()
+                _apply(card, changes)
+                report = validate_task_config(card)
+                self.assertTrue(
+                    any(
+                        item.code == "JV2-SCH-001"
+                        and (path is None or item.path == path)
+                        and (fragment is None or fragment in item.message)
+                        for item in report.errors()
+                    ),
+                    [item.format_line() for item in report.errors()],
+                )
 
     def test_envreqs_os_uses_v1_compatible_closed_list_items(self) -> None:
         card = _card()
@@ -157,15 +189,6 @@ class TaskCardSchemaTests(unittest.TestCase):
         self.assertFalse(
             any(item.code == "JV2-SCH-001" and item.path == "$.Sampling" for item in report.errors()),
             [item.format_line() for item in report.errors()],
-        )
-
-    def test_calculator_or_operas_block_is_required(self) -> None:
-        card = _card()
-        del card["Calculators"]
-        del card["Operas"]
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(item.code == "JV2-SCH-001" and item.path == "$" for item in report.errors())
         )
 
     def test_log_likelihood_has_closed_list_item_schema(self) -> None:
@@ -213,15 +236,6 @@ class TaskCardSchemaTests(unittest.TestCase):
                     ]
                 )
 
-    def test_json_input_dump_rejects_unknown_variable_shape(self) -> None:
-        card = _card()
-        card["Calculators"]["Modules"][0]["execution"]["input"][0]["actions"][0]["variables"] = [
-            {"name": "x", "value": 1.0}
-        ]
-        self.assertTrue(
-            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
-        )
-
     def test_json_output_supports_root_and_entry_variants(self) -> None:
         for variable in ({"name": "z"}, {"name": "log_likelihood", "entry": "fit.log_likelihood"}):
             with self.subTest(variable=variable):
@@ -235,23 +249,6 @@ class TaskCardSchemaTests(unittest.TestCase):
                     ]
                 )
 
-    def test_json_output_rejects_unknown_variable_shape(self) -> None:
-        card = _card()
-        card["Calculators"]["Modules"][0]["execution"]["output"][0]["variables"] = [
-            {"name": "z", "expression": "z"}
-        ]
-        self.assertTrue(
-            [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
-        )
-
-    def test_operas_root_rejects_unknown_key(self) -> None:
-        card = _card()
-        card["Operas"]["typo"] = True
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(issue.code == "JV2-SCH-001" and issue.path == "$.Operas" for issue in report.errors())
-        )
-
     def test_removed_sampling_check_fields_are_rejected(self) -> None:
         for key, value in (
             ("mode", "check_modules"),
@@ -264,45 +261,6 @@ class TaskCardSchemaTests(unittest.TestCase):
                 self.assertTrue(
                     [issue for issue in validate_task_config(card).errors() if issue.code == "JV2-SCH-001"]
                 )
-
-    def test_calculators_archiver_is_not_a_user_yaml_field(self) -> None:
-        card = _card()
-        card["Calculators"]["Archiver"] = {"mode": "process"}
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                issue.code == "JV2-SCH-001"
-                and issue.path == "$.Calculators"
-                and "Archiver" in issue.message
-                for issue in report.errors()
-            )
-        )
-
-    def test_scan_save_dir_is_not_a_v2_field(self) -> None:
-        card = _card()
-        card["Scan"]["save_dir"] = "outputs/custom"
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                item.code == "JV2-SCH-001"
-                and item.path == "$.Scan"
-                and "save_dir" in item.message
-                for item in report.errors()
-            )
-        )
-
-    def test_scan_sample_directory_is_not_a_v2_field(self) -> None:
-        card = _card()
-        card["Scan"]["sample_directory"] = {"enabled": True, "limit": 10}
-        report = validate_task_config(card)
-        self.assertTrue(
-            any(
-                item.code == "JV2-SCH-001"
-                and item.path == "$.Scan"
-                and "sample_directory" in item.message
-                for item in report.errors()
-            )
-        )
 
     def test_manifest_dispatches_sampling_and_io_schemas(self) -> None:
         card = _card()
@@ -686,21 +644,6 @@ class TaskCardSchemaTests(unittest.TestCase):
         problem = next(issue for issue in report.errors() if issue.path == "$.Scan.name")
         self.assertIn("Quote YAML boolean-like", problem.suggestion or "")
 
-    def test_unmigrated_rltpmcmc_blocks_are_rejected(self) -> None:
-        for field in ("Control", "Diagnostics", "PPO", "Reward"):
-            with self.subTest(field=field):
-                card = _card()
-                card["Sampling"][field] = {"future_key": 1}
-                report = validate_task_config(card)
-                self.assertTrue(
-                    any(
-                        item.code == "JV2-SCH-001"
-                        and item.path == "$.Sampling"
-                        and field in item.message
-                        for item in report.errors()
-                    )
-                )
-
     def test_adaptive_bridson_lowercase_block_alias_is_valid(self) -> None:
         card = _card()
         card["Sampling"].update({
@@ -717,28 +660,19 @@ class TaskCardSchemaTests(unittest.TestCase):
         report = validate_task_config(card)
         self.assertFalse([issue for issue in report.errors() if issue.code.startswith("JV2-SCH")])
 
-    def test_operas_module_rejects_unknown_user_key(self) -> None:
-        card = _card()
-        card["Operas"]["Modules"][0]["typo"] = True
-        report = validate_task_config(card)
-        self.assertTrue(any(issue.code == "JV2-SCH-001" for issue in report.errors()))
-
-    def test_existing_parity_card_passes_schema_layer(self) -> None:
-        path = os.path.join(os.path.dirname(__file__), "parity_project", "bridson_opera.yaml")
-        config = load_task_yaml(path)
-        report = validate_task_config(config)
-        self.assertFalse(
-            [issue for issue in report.errors() if issue.code == "JV2-SCH-001"],
-            [issue.format_line() for issue in report.errors()],
+    def test_parity_cards_pass_the_schema_layer(self) -> None:
+        root = os.path.join(os.path.dirname(__file__), "parity_project")
+        cases = (
+            ("bridson_opera.yaml", {}, "JV2-SCH-001"),
+            ("check_modules.yaml", {"check_modules": True}, "JV2-SCH"),
         )
-
-    def test_check_modules_parity_card_passes_closed_block_schema(self) -> None:
-        path = os.path.join(os.path.dirname(__file__), "parity_project", "check_modules.yaml")
-        report = validate_task_config(load_task_yaml(path), check_modules=True)
-        self.assertFalse(
-            [issue for issue in report.errors() if issue.code.startswith("JV2-SCH")],
-            [issue.format_line() for issue in report.errors()],
-        )
+        for name, options, prefix in cases:
+            with self.subTest(name):
+                report = validate_task_config(load_task_yaml(os.path.join(root, name)), **options)
+                self.assertFalse(
+                    [issue for issue in report.errors() if issue.code.startswith(prefix)],
+                    [issue.format_line() for issue in report.errors()],
+                )
 
 
 if __name__ == "__main__":

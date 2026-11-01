@@ -14,48 +14,27 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class DefaultSlowFilterTests(unittest.TestCase):
-    def test_bare_pytest_keeps_fast_gate(self) -> None:
-        self.assertEqual(drop_default_slow_markexpr("not slow", []), "not slow")
-        self.assertEqual(drop_default_slow_markexpr("not slow", ["tests/"]), "not slow")
-        self.assertEqual(drop_default_slow_markexpr("not slow", ["-q"]), "not slow")
-
-    def test_user_dash_m_is_never_overridden(self) -> None:
-        self.assertEqual(
-            drop_default_slow_markexpr("not slow", ["-m", "not slow", "tests/test_mcmc_sampler.py"]),
-            "not slow",
-        )
-        self.assertEqual(
-            drop_default_slow_markexpr("slow", ["-m", "slow", "tests/test_mcmc_sampler.py"]),
-            "slow",
-        )
-
-    def test_option_values_are_not_selected_test_paths(self) -> None:
+    def test_only_a_named_test_file_drops_the_default_filter(self) -> None:
+        mcmc = "tests/test_mcmc_sampler.py"
+        cases = [
+            # Bare pytest keeps the fast gate.
+            ("not slow", [], "not slow"),
+            ("not slow", ["tests/"], "not slow"),
+            ("not slow", ["-q"], "not slow"),
+            # A user -m is never overridden.
+            ("not slow", ["-m", "not slow", mcmc], "not slow"),
+            ("slow", ["-m", "slow", mcmc], "slow"),
+            # Option values are not selected test paths.
+            ("not slow", ["--deselect=tests/fake.py::test_a", "tests/"], "not slow"),
+            ("not slow", ["--deselect", "tests/fake.py::test_a", "tests/real.py"], ""),
+            ("not slow", [mcmc], ""),
+            ("not slow", ["-q", mcmc + "::MCMCSamplerTests::test_foo"], ""),
+        ]
         for option in ("--deselect", "--ignore", "--junitxml", "--override-ini", "-o"):
-            self.assertEqual(
-                drop_default_slow_markexpr("not slow", ["tests/", option, "tests/fake.py::test_a"]),
-                "not slow",
-            )
-        self.assertEqual(
-            drop_default_slow_markexpr("not slow", ["--deselect=tests/fake.py::test_a", "tests/"]),
-            "not slow",
-        )
-        self.assertEqual(
-            drop_default_slow_markexpr("not slow", ["--deselect", "tests/fake.py::test_a", "tests/real.py"]),
-            "",
-        )
-
-    def test_named_py_file_drops_default_filter(self) -> None:
-        self.assertEqual(
-            drop_default_slow_markexpr("not slow", ["tests/test_mcmc_sampler.py"]),
-            "",
-        )
-        self.assertEqual(
-            drop_default_slow_markexpr(
-                "not slow",
-                ["-q", "tests/test_mcmc_sampler.py::MCMCSamplerTests::test_foo"],
-            ),
-            "",
-        )
+            cases.append(("not slow", ["tests/", option, "tests/fake.py::test_a"], "not slow"))
+        for markexpr, args, expected in cases:
+            with self.subTest(args=args):
+                self.assertEqual(drop_default_slow_markexpr(markexpr, args), expected)
 
     def test_named_slow_file_is_collected_under_default_addopts(self) -> None:
         proc = subprocess.run(

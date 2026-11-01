@@ -87,36 +87,52 @@ class AgentValidationTests(unittest.TestCase):
         self.assertEqual(payload["scan_name"], "agent_validation")
         self.assertEqual(payload["issues"], [])
 
-    def test_human_success_accepts_the_base_report_without_a_notes_api(self) -> None:
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with (
-            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
-            mock.patch("jarvishep2.core.Jarvis2Core") as core,
-            mock.patch("jarvishep2.redis_queue.RedisQueue") as redis,
-        ):
-            code = dispatch_validate(str(self.card))
-        self.assertEqual(code, EXIT_OK)
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Config validation successful", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
-        core.assert_not_called()
-        redis.assert_not_called()
-
-    def test_human_success_preserves_base_report_warnings(self) -> None:
-        report = ValidationReport([
+    def test_human_output_is_concise_on_stderr(self) -> None:
+        warning = ValidationReport([
             issue("warning", "JV2-FUTURE-001", "$.Sampling.Bounds", "Review the proposed budget")
         ])
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with (
-            contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
-            mock.patch("jarvishep2.task_validation.validate_task_config", return_value=report),
-        ):
-            code = dispatch_validate(str(self.card))
-        self.assertEqual(code, EXIT_OK)
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("Config validation successful", stderr.getvalue())
-        self.assertIn("Config validation warnings", stderr.getvalue())
-        self.assertIn("Review the proposed budget", stderr.getvalue())
+        cases = (
+            # The base report has no notes API; success still prints.
+            ("success", None, EXIT_OK, ["Config validation successful"]),
+            (
+                "warnings",
+                {"return_value": warning},
+                EXIT_OK,
+                [
+                    "Config validation successful",
+                    "Config validation warnings",
+                    "Review the proposed budget",
+                ],
+            ),
+            (
+                "internal error",
+                {"side_effect": RuntimeError("validator defect")},
+                EXIT_RUN_FAILED,
+                ["JV2-VAL-001", "validator defect"],
+            ),
+        )
+        for label, validator, exit_code, fragments in cases:
+            with self.subTest(label):
+                stdout, stderr = io.StringIO(), io.StringIO()
+                patch_validator = (
+                    mock.patch("jarvishep2.task_validation.validate_task_config", **validator)
+                    if validator
+                    else contextlib.nullcontext()
+                )
+                with (
+                    contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr),
+                    mock.patch("jarvishep2.core.Jarvis2Core") as core,
+                    mock.patch("jarvishep2.redis_queue.RedisQueue") as redis,
+                    patch_validator,
+                ):
+                    code = dispatch_validate(str(self.card))
+                self.assertEqual(code, exit_code)
+                self.assertEqual(stdout.getvalue(), "")
+                for fragment in fragments:
+                    self.assertIn(fragment, stderr.getvalue())
+                self.assertNotIn("Traceback", stderr.getvalue())
+                core.assert_not_called()
+                redis.assert_not_called()
 
     def test_known_schema_and_semantic_issues_have_callable_manual_commands(self) -> None:
         self.card.write_text(
@@ -131,52 +147,44 @@ class AgentValidationTests(unittest.TestCase):
         self.assertTrue(payload["issues"])
         self.assertTrue(all("--code" in item["manual_argv"] for item in payload["issues"]))
 
-    def test_missing_file_and_directory_keep_failure_exit_code(self) -> None:
-        for path in (str(self.card.with_name("missing.yaml")), self.directory.name):
-            with self.subTest(path=path):
+    def test_unloadable_input_keeps_its_exit_code(self) -> None:
+        cases = (
+            (str(self.card.with_name("missing.yaml")), None, EXIT_RUN_FAILED, "JV2-LOAD-001"),
+            (self.directory.name, None, EXIT_RUN_FAILED, "JV2-LOAD-001"),
+            (None, "Scan: [broken\n", EXIT_USAGE, "JV2-YAML-001"),
+            # A missing argument is structured for direct dispatch too.
+            ("", None, EXIT_USAGE, None),
+        )
+        for path, text, exit_code, issue_code in cases:
+            with self.subTest(path=path, text=text):
+                if text is not None:
+                    self.card.write_text(text, encoding="utf-8")
                 code, payload = self.validate(path)
-                self.assertEqual(code, EXIT_RUN_FAILED)
-                self.assertEqual(payload["issues"][0]["code"], "JV2-LOAD-001")
+                self.assertEqual(code, exit_code)
+                self.assertFalse(payload["ok"])
                 self.assertFalse(payload["metadata"]["validation_completed"])
+                if issue_code:
+                    self.assertEqual(payload["issues"][0]["code"], issue_code)
 
-    def test_yaml_syntax_error_keeps_configuration_exit_code(self) -> None:
-        self.card.write_text("Scan: [broken\n", encoding="utf-8")
-        code, payload = self.validate()
-        self.assertEqual(code, EXIT_USAGE)
-        self.assertEqual(payload["issues"][0]["code"], "JV2-YAML-001")
-        self.assertFalse(payload["metadata"]["validation_completed"])
-
-    def test_missing_argument_is_structured_for_direct_dispatch(self) -> None:
-        code, payload = self.validate("")
-        self.assertEqual(code, EXIT_USAGE)
-        self.assertFalse(payload["ok"])
-        self.assertFalse(payload["metadata"]["validation_completed"])
-
-    def test_unreadable_file_returns_json_without_traceback(self) -> None:
-        with mock.patch("jarvishep2.task_config.load_task_yaml", side_effect=PermissionError("permission denied")):
-            code, payload = self.validate()
-        self.assertEqual(code, EXIT_RUN_FAILED)
-        diagnostic = payload["issues"][0]
-        self.assertEqual(diagnostic["code"], "JV2-LOAD-003")
-        self.assertIn("readable", diagnostic["suggestion"])
-        self.assertFalse(payload["metadata"]["validation_completed"])
-
-    def test_unexpected_loader_failure_is_distinct_from_configuration_error(self) -> None:
-        with mock.patch("jarvishep2.task_config.load_task_yaml", side_effect=RuntimeError("loader defect")):
-            code, payload = self.validate()
-        self.assertEqual(code, EXIT_RUN_FAILED)
-        self.assertEqual(payload["issues"][0]["code"], "JV2-LOAD-004")
-        self.assertIn("loader defect", payload["issues"][0]["message"])
-        self.assertFalse(payload["metadata"]["validation_completed"])
-
-    def test_internal_validator_exception_is_failure_even_if_card_is_valid(self) -> None:
-        with mock.patch("jarvishep2.task_validation.validate_task_config", side_effect=RuntimeError("registry unavailable")):
-            code, payload = self.validate()
-        self.assertEqual(code, EXIT_RUN_FAILED)
-        self.assertFalse(payload["ok"])
-        self.assertEqual(payload["issues"][0]["code"], "JV2-VAL-001")
-        self.assertIn("registry unavailable", payload["issues"][0]["message"])
-        self.assertFalse(payload["metadata"]["validation_completed"])
+    def test_loader_and_validator_exceptions_are_run_failures(self) -> None:
+        loader = "jarvishep2.task_config.load_task_yaml"
+        validator = "jarvishep2.task_validation.validate_task_config"
+        cases = (
+            (loader, PermissionError("permission denied"), "JV2-LOAD-003", "suggestion", "readable"),
+            # A loader defect is distinct from a configuration error.
+            (loader, RuntimeError("loader defect"), "JV2-LOAD-004", "message", "loader defect"),
+            # Even a valid card fails when the validator itself raises.
+            (validator, RuntimeError("registry unavailable"), "JV2-VAL-001", "message", "registry unavailable"),
+        )
+        for target, error, issue_code, field, fragment in cases:
+            with self.subTest(issue_code):
+                with mock.patch(target, side_effect=error):
+                    code, payload = self.validate()
+                self.assertEqual(code, EXIT_RUN_FAILED)
+                self.assertFalse(payload["ok"])
+                self.assertEqual(payload["issues"][0]["code"], issue_code)
+                self.assertIn(fragment, payload["issues"][0][field])
+                self.assertFalse(payload["metadata"]["validation_completed"])
 
     def test_unknown_diagnostic_uses_yaml_overview_without_guessing_a_topic(self) -> None:
         report = ValidationReport([issue("error", "JV2-FUTURE-001", "Future.nested[0].leaf", "future error")])
@@ -184,17 +192,6 @@ class AgentValidationTests(unittest.TestCase):
             code, payload = self.validate()
         self.assertEqual(code, EXIT_USAGE)
         self.assertEqual(payload["issues"][0]["manual_argv"], ["Jarvis", "man", "yaml", "--json"])
-
-    def test_human_internal_error_remains_concise(self) -> None:
-        stdout, stderr = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-            with mock.patch("jarvishep2.task_validation.validate_task_config", side_effect=RuntimeError("validator defect")):
-                code = dispatch_validate(str(self.card))
-        self.assertEqual(code, EXIT_RUN_FAILED)
-        self.assertEqual(stdout.getvalue(), "")
-        self.assertIn("JV2-VAL-001", stderr.getvalue())
-        self.assertIn("validator defect", stderr.getvalue())
-        self.assertNotIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

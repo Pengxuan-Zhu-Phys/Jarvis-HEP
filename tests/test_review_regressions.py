@@ -27,22 +27,24 @@ def test_nuisance_failure_remains_failed_after_pipeline():
     assert sample.status == "Failed"
 
 
-@pytest.mark.parametrize("block", [{"method": "typo"}, {"target_mode": "typo"}])
-def test_nuisance_unknown_modes_fail_before_evaluation(block):
-    nuisance = {"variables": [{"name": "z", "distribution": {"parameters": {"min": 0, "max": 1}}}], **block}
-    with pytest.raises(ValueError):
-        Profile1DProfiler.from_config({"Sampling": {"Nuisance": nuisance}})
-    issues = validate_task_config({"Sampling": {"Nuisance": nuisance}}).errors()
-    assert any("Nuisance" in issue.path for issue in issues)
+def test_nuisance_unknown_modes_fail_before_evaluation(subtests):
+    for block in [{"method": "typo"}, {"target_mode": "typo"}]:
+        with subtests.test(block=block):
+            nuisance = {"variables": [{"name": "z", "distribution": {"parameters": {"min": 0, "max": 1}}}], **block}
+            with pytest.raises(ValueError):
+                Profile1DProfiler.from_config({"Sampling": {"Nuisance": nuisance}})
+            issues = validate_task_config({"Sampling": {"Nuisance": nuisance}}).errors()
+            assert any("Nuisance" in issue.path for issue in issues)
 
 
-@pytest.mark.parametrize("lo", [0, -1])
-def test_log_distribution_rejects_nonpositive_minimum(lo):
-    with pytest.raises(ValueError, match="0 < min < max"):
-        Variable("x", "", "Log", {"min": lo, "max": 10})
-    report = validate_task_config({"Sampling": {"Method": "Random", "Bounds": {"point_number": 2},
-        "Variables": [{"name": "x", "distribution": {"type": "Log", "parameters": {"min": lo, "max": 10}}}]}})
-    assert any("minimum > 0" in item.message for item in report.errors())
+def test_log_distribution_rejects_nonpositive_minimum(subtests):
+    for lo in [0, -1]:
+        with subtests.test(lo=lo):
+            with pytest.raises(ValueError, match="0 < min < max"):
+                Variable("x", "", "Log", {"min": lo, "max": 10})
+            report = validate_task_config({"Sampling": {"Method": "Random", "Bounds": {"point_number": 2},
+                "Variables": [{"name": "x", "distribution": {"type": "Log", "parameters": {"min": lo, "max": 10}}}]}})
+            assert any("minimum > 0" in item.message for item in report.errors())
 
 
 def test_libdeps_installation_path_expands_base_before_decoding(tmp_path):
@@ -107,15 +109,16 @@ def test_ensemble_acceptance_uses_chain_temperature_and_stretch_jacobian():
     assert engine.update(-2., beta=.25)
 
 
-@pytest.mark.parametrize("on_failure", ["typo", 3])
-def test_unknown_failure_policy_is_rejected(on_failure):
-    config = {"Scan": {"name": "s"}, "EnvReqs": {}, "Operas": {"Modules": []},
-              "Sampling": {"Method": "ToyMCMC", "Bounds": {
-                  "num_chains": 2, "num_iters": 4, "proposal_scale": .1,
-                  "on_failure": on_failure}, "on_failure": on_failure,
-                  "Variables": [{"name": "x", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}}]}}
-    report = validate_task_config(config)
-    assert any("on_failure" in item.path for item in report.errors())
+def test_unknown_failure_policy_is_rejected(subtests):
+    for on_failure in ["typo", 3]:
+        with subtests.test(on_failure=on_failure):
+            config = {"Scan": {"name": "s"}, "EnvReqs": {}, "Operas": {"Modules": []},
+                      "Sampling": {"Method": "ToyMCMC", "Bounds": {
+                          "num_chains": 2, "num_iters": 4, "proposal_scale": .1,
+                          "on_failure": on_failure}, "on_failure": on_failure,
+                          "Variables": [{"name": "x", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}}]}}
+            report = validate_task_config(config)
+            assert any("on_failure" in item.path for item in report.errors())
 
 
 def test_plugin_manual_generational_budget_matches_profile():
@@ -134,13 +137,14 @@ def test_decimal_adaptation_scale_is_valid():
     assert bounds_get_float({"adapt_scale": 2.38}, "adapt_scale", minimum=1e-9) == 2.38
 
 
-@pytest.mark.parametrize("field,value", [("radius", 0), ("adapt_scale", -2.38)])
-def test_numeric_bound_diagnostic_does_not_call_a_number_the_wrong_type(field, value):
-    from jarvishep2.cardload.task_schema import _schema_error_message
-    error = SimpleNamespace(validator="oneOf", instance=value,
-                            schema={"x-jarvis-numeric": True, "oneOf": [
-                                {"type": "number", "exclusiveMinimum": 0}, {"type": "string"}]})
-    assert _schema_error_message(error) == f"expected a number > 0, got {value!r}"
+def test_numeric_bound_diagnostic_does_not_call_a_number_the_wrong_type(subtests):
+    for field, value in [("radius", 0), ("adapt_scale", -2.38)]:
+        with subtests.test(field=field, value=value):
+            from jarvishep2.cardload.task_schema import _schema_error_message
+            error = SimpleNamespace(validator="oneOf", instance=value,
+                                    schema={"x-jarvis-numeric": True, "oneOf": [
+                                        {"type": "number", "exclusiveMinimum": 0}, {"type": "string"}]})
+            assert _schema_error_message(error) == f"expected a number > 0, got {value!r}"
 
 
 def test_project_module_is_importable_without_pythonpath_in_spawn(tmp_path, monkeypatch):

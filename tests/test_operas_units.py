@@ -58,55 +58,50 @@ def sample():
     return s
 
 
-@pytest.mark.parametrize(
-    "mode,operator", [("call", "limit"), ("acall", "limit"), ("acall", "alimit")]
-)
-@pytest.mark.parametrize(
-    "value,unit", [(200.0, "GeV"), (0.2, "TeV"), (200000.0, "MeV")]
-)
-def test_equivalent_units_and_original_records(mode, operator, value, unit):
-    config = module_config(
-        call_mode=mode,
-        operator="hep_unit_fixture." + operator,
-        input=[dict(name="mass_GeV", entry="mass", unit=unit)],
-    )
-    original = {"mass": value}
-    snapshot = copy.deepcopy(original)
-    log = BufferedSampleLogger(extra={"module": "units"})
-    result = OperasModule("Limit", config).execute_result(
-        original, {}, sample_logger=log
-    )
-    assert result.values["limit"] == pytest.approx(38.332, rel=1e-13)
-    assert result.values["raw"]["mass_received"] == 200.0
-    assert result.values["raw"]["value"] == 0.038332
-    assert result.values["raw"]["unit"] == "pb"
-    assert result.values["raw"]["record_id"] == "canonical-record"
-    assert result.values["raw"]["provenance"] == {"dependencies": ["mass-record"]}
-    assert original == snapshot and result.units["limit"] == "fb"
-    assert log.event_count >= 1
+def test_equivalent_units_and_original_records(subtests):
+    for mode, operator in [("call", "limit"), ("acall", "limit"), ("acall", "alimit")]:
+        for value, unit in [(200.0, "GeV"), (0.2, "TeV"), (200000.0, "MeV")]:
+            with subtests.test(mode=mode, operator=operator, unit=unit):
+                config = module_config(
+                    call_mode=mode,
+                    operator="hep_unit_fixture." + operator,
+                    input=[dict(name="mass_GeV", entry="mass", unit=unit)],
+                )
+                original = {"mass": value}
+                snapshot = copy.deepcopy(original)
+                log = BufferedSampleLogger(extra={"module": "units"})
+                result = OperasModule("Limit", config).execute_result(
+                    original, {}, sample_logger=log
+                )
+                assert result.values["limit"] == pytest.approx(38.332, rel=1e-13)
+                assert result.values["raw"]["mass_received"] == 200.0
+                assert result.values["raw"]["value"] == 0.038332
+                assert result.values["raw"]["unit"] == "pb"
+                assert result.values["raw"]["record_id"] == "canonical-record"
+                assert result.values["raw"]["provenance"] == {"dependencies": ["mass-record"]}
+                assert original == snapshot and result.units["limit"] == "fb"
+                assert log.event_count >= 1
 
 
-@pytest.mark.parametrize(
-    "value,unit,code",
-    [
+def test_bad_input_never_calls_physics(subtests, registry):
+    for value, unit, code in [
         (0.2, "pb", "dimension_mismatch"),
         (0.2, "gev", "unknown_unit"),
         (True, "GeV", "type_error"),
         (complex(1, 2), "GeV", "type_error"),
         (float("nan"), "GeV", "non_finite"),
         ([1.0, 2.0], "GeV", "shape_mismatch"),
-    ],
-)
-def test_bad_input_never_calls_physics(registry, value, unit, code):
-    func = registry.get("hep_unit_fixture.limit").numpy_impl
-    before = len(func.__globals__["CALLS"])
-    with pytest.raises(UnitBridgeError) as error:
-        OperasModule(
-            "Limit",
-            module_config(input=[dict(name="mass_GeV", entry="mass", unit=unit)]),
-        ).execute({"mass": value}, {})
-    assert error.value.jo_code == code
-    assert len(func.__globals__["CALLS"]) == before
+    ]:
+        with subtests.test(value=value, unit=unit, code=code):
+            func = registry.get("hep_unit_fixture.limit").numpy_impl
+            before = len(func.__globals__["CALLS"])
+            with pytest.raises(UnitBridgeError) as error:
+                OperasModule(
+                    "Limit",
+                    module_config(input=[dict(name="mass_GeV", entry="mass", unit=unit)]),
+                ).execute({"mass": value}, {})
+            assert error.value.jo_code == code
+            assert len(func.__globals__["CALLS"]) == before
 
 
 def test_strict_assumption_default_and_missing_entry():
@@ -198,26 +193,25 @@ def test_pointer_root_and_arrays():
         read_entry({}, "a")
 
 
-@pytest.mark.parametrize(
-    "change", ["duplicate", "kwargs", "expression", "empty", "pointer", "reserved"]
-)
-def test_static_diagnostics(change):
-    cfg = module_config()
-    if change == "duplicate":
-        cfg["output"].append(dict(name="limit", entry="value"))
-    if change == "kwargs":
-        cfg["kwargs"] = {"mass_GeV": 1.0}
-    if change == "expression":
-        cfg["input"][0]["expression"] = "mass"
-    if change == "empty":
-        cfg["input"][0]["entry"] = ""
-    if change == "pointer":
-        cfg["input"][0]["entry"] = "/bad~2x"
-    if change == "reserved":
-        cfg["output"][0]["name"] = DATABASE_KEY
-    assert any(
-        i.level == "error" for i in static_issues({"Operas": {"Modules": [cfg]}})
-    )
+def test_static_diagnostics(subtests):
+    for change in ["duplicate", "kwargs", "expression", "empty", "pointer", "reserved"]:
+        with subtests.test(change=change):
+            cfg = module_config()
+            if change == "duplicate":
+                cfg["output"].append(dict(name="limit", entry="value"))
+            if change == "kwargs":
+                cfg["kwargs"] = {"mass_GeV": 1.0}
+            if change == "expression":
+                cfg["input"][0]["expression"] = "mass"
+            if change == "empty":
+                cfg["input"][0]["entry"] = ""
+            if change == "pointer":
+                cfg["input"][0]["entry"] = "/bad~2x"
+            if change == "reserved":
+                cfg["output"][0]["name"] = DATABASE_KEY
+            assert any(
+                i.level == "error" for i in static_issues({"Operas": {"Modules": [cfg]}})
+            )
 
 
 def test_schema_accepts_only_opera_unit_fields():
@@ -246,50 +240,52 @@ def test_schema_accepts_only_opera_unit_fields():
     assert not validate_task_config(card).ok
 
 
-@pytest.mark.parametrize("store_samples", [False, True])
-def test_all_archive_branches_keep_units(tmp_path, store_samples):
-    from jarvishep2.io.archiver import ArchiveProcessor
-    from jarvishep2.io.database import (
-        StreamingHDF5Writer,
-        SimpleHDF5Writer,
-        convert_hdf5_to_csv,
-    )
-    from jarvishep2.runtime_config import get_archiver_config
+def test_all_archive_branches_keep_units(subtests, tmp_path_factory):
+    for store_samples in [False, True]:
+        with subtests.test(store_samples=store_samples):
+            tmp_path = tmp_path_factory.mktemp("case")
+            from jarvishep2.io.archiver import ArchiveProcessor
+            from jarvishep2.io.database import (
+                StreamingHDF5Writer,
+                SimpleHDF5Writer,
+                convert_hdf5_to_csv,
+            )
+            from jarvishep2.runtime_config import get_archiver_config
 
-    path = tmp_path / "samples.hdf5"
-    writer = StreamingHDF5Writer(str(path))
-    proc = ArchiveProcessor.from_config(
-        writer,
-        sample_root=str(tmp_path / "SAMPLE"),
-        archiver_config=get_archiver_config(
-            {"EnvReqs": {"V2": {"store_samples": store_samples}}}
-        ),
-    )
-    s = sample()
-    s.commit_opera_result(
-        OperasModule("L", module_config()).execute_result(s.observables, s.info)
-    )
-    try:
-        row = s.to_info_dict()
-        row["store_samples"] = store_samples
-        proc.ingest(row)
-        row = dict(
-            uuid="failed",
-            status="Failed",
-            observables={},
-            store_samples=store_samples,
-            unit_execution=s.info["unit_execution"],
-        )
-        proc.ingest(row)
-        proc.flush_batch(force=True)
-    finally:
-        writer.close()
-    rows = SimpleHDF5Writer(str(path)).read_records()
-    assert len(rows) == 2 and all(r[DATABASE_KEY]["schema_version"] == 1 for r in rows)
-    assert rows[0][DATABASE_KEY]["observable_units"] == {"/limit": "fb"}
-    convert_hdf5_to_csv(str(path))
-    exported = list(csv.DictReader(path.with_suffix(".csv").open()))
-    assert json.loads(exported[0][DATABASE_KEY]) == rows[0][DATABASE_KEY]
+            path = tmp_path / "samples.hdf5"
+            writer = StreamingHDF5Writer(str(path))
+            proc = ArchiveProcessor.from_config(
+                writer,
+                sample_root=str(tmp_path / "SAMPLE"),
+                archiver_config=get_archiver_config(
+                    {"EnvReqs": {"V2": {"store_samples": store_samples}}}
+                ),
+            )
+            s = sample()
+            s.commit_opera_result(
+                OperasModule("L", module_config()).execute_result(s.observables, s.info)
+            )
+            try:
+                row = s.to_info_dict()
+                row["store_samples"] = store_samples
+                proc.ingest(row)
+                row = dict(
+                    uuid="failed",
+                    status="Failed",
+                    observables={},
+                    store_samples=store_samples,
+                    unit_execution=s.info["unit_execution"],
+                )
+                proc.ingest(row)
+                proc.flush_batch(force=True)
+            finally:
+                writer.close()
+            rows = SimpleHDF5Writer(str(path)).read_records()
+            assert len(rows) == 2 and all(r[DATABASE_KEY]["schema_version"] == 1 for r in rows)
+            assert rows[0][DATABASE_KEY]["observable_units"] == {"/limit": "fb"}
+            convert_hdf5_to_csv(str(path))
+            exported = list(csv.DictReader(path.with_suffix(".csv").open()))
+            assert json.loads(exported[0][DATABASE_KEY]) == rows[0][DATABASE_KEY]
 
 
 def test_identity_changes_only_with_unit_semantics():
@@ -324,19 +320,20 @@ def test_logical_opaque_and_named_mapping():
     )
 
 
-@pytest.mark.parametrize("dtype", [np.float64, np.float32])
-def test_array_shape_units_and_input_protection(dtype):
-    values = np.array([[-0.2, 0.0, 0.2]], dtype=dtype)
-    original = values.copy()
-    cfg = module_config(
-        operator="hep_unit_fixture.array",
-        output=[dict(name="mass_back", entry="value", unit="TeV")],
-    )
-    result = OperasModule("A", cfg).execute({"mass": values}, {})
-    np.testing.assert_allclose(
-        result["mass_back"], original, rtol=1e-6 if dtype == np.float32 else 1e-13
-    )
-    np.testing.assert_array_equal(values, original)
+def test_array_shape_units_and_input_protection(subtests):
+    for dtype in [np.float64, np.float32]:
+        with subtests.test(dtype=dtype):
+            values = np.array([[-0.2, 0.0, 0.2]], dtype=dtype)
+            original = values.copy()
+            cfg = module_config(
+                operator="hep_unit_fixture.array",
+                output=[dict(name="mass_back", entry="value", unit="TeV")],
+            )
+            result = OperasModule("A", cfg).execute({"mass": values}, {})
+            np.testing.assert_allclose(
+                result["mass_back"], original, rtol=1e-6 if dtype == np.float32 else 1e-13
+            )
+            np.testing.assert_array_equal(values, original)
 
 
 def test_dynamic_output_conflicts_are_atomic():

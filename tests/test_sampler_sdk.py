@@ -19,19 +19,19 @@ def test_installed_sdk_meets_minimum() -> None:
     assert SDK_SPECIFIER == ">=1.2.0"
 
 
-@pytest.mark.parametrize("installed", ["0.1.0", "1.0.0", "1", "1.0.2", "1.0.3", "1.1.0", "1.1.1", "1.1.2", "1.1.3", "1.2.0rc1"])
-def test_sdk_requirement_rejects_older_releases(monkeypatch: pytest.MonkeyPatch, installed: str) -> None:
-    monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
-    with pytest.raises(SamplerSDKError, match=SDK_SPECIFIER):
-        require_sampler_sdk()
+def test_sdk_requirement_rejects_older_releases(subtests, monkeypatch):
+    for installed in ["0.1.0", "1.0.0", "1", "1.0.2", "1.0.3", "1.1.0", "1.1.1", "1.1.2", "1.1.3", "1.2.0rc1"]:
+        with subtests.test(installed=installed):
+            monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
+            with pytest.raises(SamplerSDKError, match=SDK_SPECIFIER):
+                require_sampler_sdk()
 
 
-@pytest.mark.parametrize("installed", ["1.2.0", "1.2.1", "1.3.0", "2.0.0"])
-def test_sdk_requirement_accepts_minimum_and_newer(
-    monkeypatch: pytest.MonkeyPatch, installed: str
-) -> None:
-    monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
-    assert require_sampler_sdk() == installed
+def test_sdk_requirement_accepts_minimum_and_newer(subtests, monkeypatch):
+    for installed in ["1.2.0", "1.2.1", "1.3.0", "2.0.0"]:
+        with subtests.test(installed=installed):
+            monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
+            assert require_sampler_sdk() == installed
 
 
 def test_user_registry_reports_an_unsupported_sdk(monkeypatch: pytest.MonkeyPatch) -> None:

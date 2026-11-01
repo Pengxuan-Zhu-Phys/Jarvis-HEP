@@ -7,7 +7,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 import yaml
 
 from jarvishep2.cli.agent import agent_contract
@@ -70,26 +69,27 @@ def test_human_contract_includes_workflow_boundaries_and_request_protocol():
         assert evidence in text
 
 
-@pytest.mark.parametrize("argv", [
-    ("agent", "--json", "--unknown"),
-    ("agent", "--json=bad"),
-    ("man", "--json", "--type"),
-    ("man", "--json=bad"),
-    ("man", "--json", "--direction", "wrong"),
-    ("validate", "--json"),
-    ("validate", "missing.yaml", "--json", "--unknown"),
-    ("validate", "missing.yaml", "--json=bad"),
-    ("validate", "missing.yaml", "--json", "--plot"),
-    ("monitor", "--json", "--unknown"),
-    ("agent", "template", "--json", "missing"),
-    ("agent", "schema", "--json", "--id", "https://example.invalid/schema"),
-    ("agent", "request", "--json", "--send"),
-])
-def test_machine_readable_usage_failures_reach_agent_from_top_level(argv):
-    status, text = invoke(*argv)
-    assert status == 2
-    payload = json.loads(text)
-    assert payload["ok"] is False
+def test_machine_readable_usage_failures_reach_agent_from_top_level(subtests):
+    for argv in [
+        ("agent", "--json", "--unknown"),
+        ("agent", "--json=bad"),
+        ("man", "--json", "--type"),
+        ("man", "--json=bad"),
+        ("man", "--json", "--direction", "wrong"),
+        ("validate", "--json"),
+        ("validate", "missing.yaml", "--json", "--unknown"),
+        ("validate", "missing.yaml", "--json=bad"),
+        ("validate", "missing.yaml", "--json", "--plot"),
+        ("monitor", "--json", "--unknown"),
+        ("agent", "template", "--json", "missing"),
+        ("agent", "schema", "--json", "--id", "https://example.invalid/schema"),
+        ("agent", "request", "--json", "--send"),
+    ]:
+        with subtests.test(argv=argv):
+            status, text = invoke(*argv)
+            assert status == 2
+            payload = json.loads(text)
+            assert payload["ok"] is False
 
 
 def test_man_internal_failure_is_single_json(monkeypatch):

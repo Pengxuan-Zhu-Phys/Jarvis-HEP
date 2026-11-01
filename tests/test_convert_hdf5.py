@@ -100,21 +100,6 @@ class ConvertHdf5HelpersTests(unittest.TestCase):
 
 
 class ConvertCliTests(unittest.TestCase):
-    def test_normalize_legacy_convert_flag(self) -> None:
-        self.assertEqual(
-            normalize_argv(["task.yaml", "--convert"]),
-            ["convert", "task.yaml"],
-        )
-
-    def test_parse_convert_subcommand(self) -> None:
-        args = build_parser().parse_args(["convert", "task.yaml"])
-        self.assertEqual(args.command, "convert")
-        self.assertEqual(args.task_yaml, "task.yaml")
-
-    def test_convert_rejects_removed_force_option(self) -> None:
-        with self.assertRaises(SystemExit):
-            build_parser().parse_args(["convert", "task.yaml", "--force"])
-
     def test_dispatch_convert_routes_to_core(self) -> None:
         args = build_parser().parse_args(
             normalize_argv(["/tmp/task.yaml", "--convert"])

@@ -125,49 +125,36 @@ class RedisQueueConnectTests(unittest.TestCase):
         self.assertEqual(kwargs["socket_timeout"], CONTROL_SOCKET_TIMEOUT_SEC)
         self.assertIsNone(queue._client_kwargs()["socket_timeout"])
 
-    def test_connect_uses_two_connection_pools(self):
-        clients: list[MagicMock] = []
+    def test_connect_uses_two_clients_with_separate_pools(self):
+        cases = (
+            ("host", {"host": "127.0.0.1", "port": 6379, "db": 0}),
+            ("url", {"url": "redis://127.0.0.1:6379/0"}),
+        )
+        for label, config in cases:
+            with self.subTest(label):
+                clients: list[MagicMock] = []
 
-        def _factory(*_a, **_k):
-            client = MagicMock()
-            client.connection_pool = object()
-            clients.append(client)
-            return client
+                def _factory(*_a, **_k):
+                    client = MagicMock()
+                    client.connection_pool = object()
+                    clients.append(client)
+                    return client
 
-        with patch("redis.Redis", side_effect=_factory) as redis_cls:
-            queue = RedisQueue({"host": "127.0.0.1", "port": 6379, "db": 0})
-            queue.connect()
-        self.assertEqual(len(clients), 2)
-        self.assertIs(queue.r, clients[0])
-        self.assertIs(queue.r_ctrl, clients[1])
-        self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
-        self.assertIsNone(redis_cls.call_args_list[0].kwargs["socket_timeout"])
-        self.assertEqual(redis_cls.call_args_list[1].kwargs["socket_timeout"], 2.0)
-        self.assertNotIn("connection_pool", redis_cls.call_args_list[0].kwargs)
-        self.assertNotIn("connection_pool", redis_cls.call_args_list[1].kwargs)
-
-    def test_connect_from_url_uses_two_clients(self):
-        clients: list[MagicMock] = []
-
-        def _factory(*_a, **_k):
-            client = MagicMock()
-            client.connection_pool = object()
-            clients.append(client)
-            return client
-
-        with patch("redis.Redis") as redis_cls:
-            redis_cls.from_url.side_effect = _factory
-            queue = RedisQueue({"url": "redis://127.0.0.1:6379/0"})
-            queue.connect()
-        self.assertEqual(len(clients), 2)
-        self.assertIs(queue.r, clients[0])
-        self.assertIs(queue.r_ctrl, clients[1])
-        self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
-        self.assertEqual(redis_cls.from_url.call_count, 2)
-        self.assertIsNone(redis_cls.from_url.call_args_list[0].kwargs["socket_timeout"])
-        self.assertEqual(redis_cls.from_url.call_args_list[1].kwargs["socket_timeout"], 2.0)
-        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[0].kwargs)
-        self.assertNotIn("connection_pool", redis_cls.from_url.call_args_list[1].kwargs)
+                with patch("redis.Redis") as redis_cls:
+                    factory = redis_cls.from_url if label == "url" else redis_cls
+                    factory.side_effect = _factory
+                    queue = RedisQueue(config)
+                    queue.connect()
+                self.assertEqual(len(clients), 2)
+                self.assertIs(queue.r, clients[0])
+                self.assertIs(queue.r_ctrl, clients[1])
+                self.assertIsNot(queue.r.connection_pool, queue.r_ctrl.connection_pool)
+                self.assertEqual(factory.call_count, 2)
+                first, second = factory.call_args_list
+                self.assertIsNone(first.kwargs["socket_timeout"])
+                self.assertEqual(second.kwargs["socket_timeout"], 2.0)
+                self.assertNotIn("connection_pool", first.kwargs)
+                self.assertNotIn("connection_pool", second.kwargs)
 
     def test_injected_client_shares_r_and_r_ctrl(self):
         client = object()

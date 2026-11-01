@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 
 from jarvishep2.cli import agent_request
 
@@ -203,18 +202,19 @@ def test_repeated_title_keeps_last_value_on_one_header_line(capsys):
     assert data["automatic_send"] is False
 
 
-@pytest.mark.parametrize("argv", [
-    ["--json", "--title"], ["--json", "--send"], ["--json=bad"],
-    ["--json", "--yaml"], ["--json", "--diagnostics"], ["--json", "--installation-method"],
-])
-def test_request_json_usage_errors_are_single_objects_with_nonzero_status(argv, capsys):
-    assert agent_request.dispatch_request(argv) == 2
-    captured = capsys.readouterr()
-    response = json.loads(captured.out)
-    assert response["ok"] is False
-    assert response["error"]["code"] == "usage_error"
-    assert response["error"]["message"]
-    assert captured.err == ""
+def test_request_json_usage_errors_are_single_objects_with_nonzero_status(subtests, capsys):
+    for argv in [
+        ["--json", "--title"], ["--json", "--send"], ["--json=bad"],
+        ["--json", "--yaml"], ["--json", "--diagnostics"], ["--json", "--installation-method"],
+    ]:
+        with subtests.test(argv=argv):
+            assert agent_request.dispatch_request(argv) == 2
+            captured = capsys.readouterr()
+            response = json.loads(captured.out)
+            assert response["ok"] is False
+            assert response["error"]["code"] == "usage_error"
+            assert response["error"]["message"]
+            assert captured.err == ""
 
 
 def test_request_internal_error_is_json_and_does_not_claim_draft_success(monkeypatch, capsys):
