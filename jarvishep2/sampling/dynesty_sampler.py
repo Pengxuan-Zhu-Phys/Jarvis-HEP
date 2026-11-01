@@ -709,17 +709,12 @@ class DynestySampler(CheckpointedSampler):
         if not self._capture_engine_snapshot():
             return False
         cursor = self._accepted_index
-        redis = self.redis
-        if redis is not None:
-            scan_block = self.config.get("Scan")
-            scan_mapping = scan_block if isinstance(scan_block, Mapping) else {}
-            scan_name = str(
-                self.config.get("scan_name") or scan_mapping.get("name") or "scan"
-            )
+        if self.redis is not None:
             deadline = time.monotonic() + max(1.0, float(timeout))
             while True:
-                prefix = redis.get_archived_index_prefix(scan_name)
-                self.set_persisted_prefix(prefix)
+                prefix = self.confirm_archived_prefix()
+                if prefix is not None:
+                    self.set_persisted_prefix(prefix)
                 if self._persisted_index_prefix >= cursor:
                     break
                 if time.monotonic() >= deadline:
@@ -1285,6 +1280,7 @@ class DynestySampler(CheckpointedSampler):
             logger=inner_logger,
             accepts_payload=self._accepts_pool_payload,
             njobs=self._parallel_workers,
+            on_submit=self.note_archive_submissions,
         )
         self._logger.info(
             "%s parallelism: workers=%d queue_size=%s transport_batch=%d propose_point=%s; "
@@ -1295,7 +1291,7 @@ class DynestySampler(CheckpointedSampler):
             (self._constructor_kwargs.get("use_pool") or {}).get("propose_point", True),
         )
         # The pool cursor continues from the snapshot, so new tasks take the
-        # sample_index values after the committed DATABASE prefix.
+        # sample_index values after the committed cursor.
         pool._call_index = max(0, int(self._pool_call_index or 0))
         self._pool = pool
 

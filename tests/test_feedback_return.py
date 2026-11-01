@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""D13.8 flat feedback return contract tests."""
+"""Feedback wire format and likelihood edge cases, including null and nonfinite values."""
 
 from __future__ import annotations
 
 import math
 import unittest
-
 import numpy as np
-
 from jarvishep2.feedback_return import (
     WIRE_LOGL_KEY,
     build_feedback_record,
@@ -21,6 +19,7 @@ from jarvishep2.feedback_return import (
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.sample import Sample
+from jarvishep2.inner_func import LogGauss
 
 
 class CodecTests(unittest.TestCase):
@@ -148,7 +147,8 @@ class LikelihoodNegInfTests(unittest.TestCase):
         ev = LogLikelihoodEvaluator(
             [{"name": "LogL", "expression": "log(x)"}]
         )
-        out = ev.evaluate({"x": 0.0})
+        with self.assertWarnsRegex(RuntimeWarning, "divide by zero encountered in log"):
+            out = ev.evaluate({"x": 0.0})
         self.assertTrue(math.isinf(out["LogL"]) or out["LogL"] < -1e100)
 
     def test_calculate_writes_neginf_on_missing_symbol(self) -> None:
@@ -170,6 +170,37 @@ class NormalizeLegacyTests(unittest.TestCase):
         self.assertEqual(rec["uuid"], "a")
         self.assertAlmostEqual(float(rec["logL"]), -1.0)
         self.assertNotIn("status", rec)
+
+
+class LikelihoodNullObservablesTests(unittest.TestCase):
+    def test_loggauss_none_is_nan(self) -> None:
+        value = LogGauss(None, 0.12, 0.0012)
+        self.assertTrue(math.isnan(float(value)))
+
+    def test_calculate_null_omega_returns_neginf_without_raise(self) -> None:
+        """micrOMEGAs may emit JSON null for Omega_h2 on unphysical points."""
+        evaluator = LogLikelihoodEvaluator(
+            [
+                {
+                    "name": "LogL_Omega",
+                    "expression": "LogGauss(Omega_h2, 0.1200, 0.0012)",
+                }
+            ]
+        )
+        info = {"observables": {"Omega_h2": None}, "uuid": "null-omega"}
+        total = evaluator.calculate(info)
+        self.assertEqual(total, float("-inf"))
+        self.assertEqual(info["observables"]["LogL"], float("-inf"))
+        self.assertEqual(info["observables"]["LogL_Omega"], float("-inf"))
+        # Raw portal null is preserved; only LogL terms are written.
+        self.assertIsNone(info["observables"]["Omega_h2"])
+
+    def test_evaluate_null_is_neginf(self) -> None:
+        evaluator = LogLikelihoodEvaluator(
+            [{"name": "LogL", "expression": "LogGauss(x, 0, 1)"}]
+        )
+        terms = evaluator.evaluate({"x": None})
+        self.assertEqual(terms["LogL"], float("-inf"))
 
 
 if __name__ == "__main__":

@@ -251,16 +251,12 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             self.assertEqual(writer.records_persisted, 3)
             writer.close()
 
-    def test_pending_count_is_visible_before_duplicate_scan(self) -> None:
+    def test_pending_count_is_visible_while_batch_commits(self) -> None:
         published: list[int] = []
 
         class _SlowWriter(RollingHDF5Writer):
             def __init__(self) -> None:
-                self.pending_at_drop: int | None = None
-
-            def drop_matching_records(self, **_kwargs: object) -> int:
-                self.pending_at_drop = published[-1] if published else None
-                return 0
+                self.pending_at_commit: int | None = None
 
             def begin_batch(self) -> None:
                 return None
@@ -269,6 +265,7 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 return None
 
             def commit_batch(self) -> int:
+                self.pending_at_commit = published[-1] if published else None
                 return 1
 
             def abort_batch(self) -> None:
@@ -281,7 +278,6 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 sample_root=os.path.join(tmpdir, "SAMPLE"),
                 batch_size=10,
                 flush_interval_sec=60.0,
-                replace_duplicates=True,
             )
             processor._on_pending = published.append
             self.assertEqual(
@@ -290,26 +286,11 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             )
             self.assertEqual(published, [1])
             self.assertEqual(processor.flush_batch(force=True), 1)
-            self.assertEqual(writer.pending_at_drop, 1)
+            self.assertEqual(writer.pending_at_commit, 1)
             self.assertEqual(published[-1], 0)
             self.assertFalse(processor.has_pending())
 
-    def test_drop_matching_records_removes_uuid_and_index_rows(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
-            writer = SimpleHDF5Writer(db_path)
-            writer.add_record({"uuid": "keep", "sample_index": 0, "x": 0})
-            writer.add_record({"uuid": "drop-uuid", "sample_index": 1, "x": 1})
-            writer.add_record({"uuid": "other", "sample_index": 2, "x": 2})
-            dropped = writer.drop_matching_records(
-                uuids={"drop-uuid"}, sample_indices={2}
-            )
-            self.assertEqual(dropped, 2)
-            rows = writer.read_records()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["uuid"], "keep")
-
-    def test_replace_duplicates_rewrites_existing_identity_instead_of_skipping(self) -> None:
+    def test_replayed_identity_is_appended_as_a_new_row(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
             writer = StreamingHDF5Writer(db_path)
@@ -317,76 +298,80 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 writer,
                 sample_root=os.path.join(tmpdir, "SAMPLE"),
                 batch_size=1,
-                replace_duplicates=True,
             )
-            self.assertEqual(
-                processor.ingest(
-                    {"uuid": "u1", "sample_index": 0, "observables": {"x": 1.0}}
-                ),
-                1,
-            )
-            self.assertEqual(
-                processor.ingest(
-                    {"uuid": "u1", "sample_index": 0, "observables": {"x": 99.0}}
-                ),
-                1,
-            )
+            for value in (1.0, 99.0):
+                self.assertEqual(
+                    processor.ingest(
+                        {"uuid": "u1", "sample_index": 0, "observables": {"x": value}}
+                    ),
+                    1,
+                )
             rows = SimpleHDF5Writer(db_path).read_records()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["x"], 99.0)
+            self.assertEqual([row["x"] for row in rows], [1.0, 99.0])
             self.assertEqual(processor.records_written, 2)
             writer.close()
 
-    def test_index_prefix_waits_for_delayed_record_and_deduplicates_replay(self) -> None:
-        """D21.12 A8: a durable hole may not advance the resume watermark."""
+    def test_receipts_follow_fsync_and_marker_follows_earlier_results(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
-            writer = StreamingHDF5Writer(db_path)
-            processor = ArchiveProcessor(
-                writer,
+            redis = make_fakeredis_queue()
+            redis.connect()
+            archiver = SimpleArchiver(
+                redis,
+                db_path,
                 sample_root=os.path.join(tmpdir, "SAMPLE"),
-                batch_size=1,
+                archiver_config={"batch_size": 10, "flush_interval_sec": 60.0},
+                scan_name="receipts",
             )
-            self.assertEqual(
-                processor.ingest({"uuid": "u0", "sample_index": 0, "observables": {"x": 0}}),
-                1,
-            )
-            self.assertEqual(
-                processor.ingest({"uuid": "u2", "sample_index": 2, "observables": {"x": 2}}),
-                1,
-            )
-            state = processor.persistence_state()
-            self.assertEqual(state["persisted_prefix"], 1)
-            self.assertEqual(state["pending_persisted_indices"], 1)
-            # Replaying the ahead-of-watermark item must remain a no-op.
-            self.assertEqual(
-                processor.ingest({"uuid": "u2-replay", "sample_index": 2, "observables": {"x": 2}}),
-                0,
-            )
-            self.assertEqual(
-                processor.ingest({"uuid": "u1", "sample_index": 1, "observables": {"x": 1}}),
-                1,
-            )
-            self.assertEqual(processor.persistence_state()["persisted_prefix"], 3)
-            self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 3)
-            writer.close()
+            try:
+                for index in (0, 2):
+                    archiver._ingest_result(
+                        {"uuid": f"u{index}", "sample_index": index, "observables": {"x": index}}
+                    )
+                # Buffered rows have no receipt before their batch is written.
+                self.assertEqual(redis.get_archived_uuids("receipts"), set())
+                self.assertEqual(
+                    archiver._ingest_result({"archive_marker": "barrier-1"}), 2
+                )
+                self.assertEqual(
+                    redis.get_archived_uuids("receipts"), {"u0", "u2", "barrier-1"}
+                )
+                # The marker is a barrier, not a row.
+                self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 2)
+            finally:
+                archiver.stop(wait=False, drain=False)
+                redis.close()
 
-    def test_process_persistence_state_reads_only_the_o1_index_prefix(self) -> None:
+    def test_archive_receipts_cursor_stops_at_the_first_missing_index(self) -> None:
+        from jarvishep2.sample import Sample
+        from jarvishep2.sampling.archive_receipts import ArchiveReceipts
+
+        redis = make_fakeredis_queue()
+        redis.connect()
+        try:
+            receipts = ArchiveReceipts(redis, "cursor")
+            self.assertIsNone(receipts.confirm())
+            receipts.add(Sample(uuid=f"u{index}", sample_index=index) for index in range(3))
+            redis.add_archived_uuids("cursor", ["u0", "u2"])
+            self.assertEqual(receipts.confirm(), 1)
+            # Consumed receipts leave Redis; the hole keeps its sample pending.
+            self.assertEqual(redis.get_archived_uuids("cursor"), set())
+            self.assertEqual(receipts.pending_count(), 1)
+            redis.add_archived_uuids("cursor", ["u1"])
+            self.assertEqual(receipts.confirm(), 3)
+            self.assertEqual(receipts.pending_count(), 0)
+        finally:
+            redis.close()
+
+    def test_process_persistence_state_does_not_read_redis(self) -> None:
         process = ArchiverProcess.__new__(ArchiverProcess)
-        process.redis_config = {"host": "127.0.0.1", "port": 6379, "db": 0}
-        process.scan_name = "watermark"
         process.drain = mock.Mock(return_value=17)
-        redis = mock.Mock()
-        redis.get_archived_index_prefix.return_value = 12
-        with mock.patch("jarvishep2.archiver.RedisQueue", return_value=redis):
+        with mock.patch("jarvishep2.archiver.RedisQueue") as redis_cls:
             state = process.persistence_state()
-        self.assertEqual(state, {"persisted_prefix": 12, "records_written": 17})
-        redis.get_archived_uuids.assert_not_called()
-        redis.connect.assert_called_once()
-        redis.close.assert_called_once()
+        self.assertEqual(state, {"records_written": 17})
+        redis_cls.assert_not_called()
 
-    def test_thread_persistence_state_is_o1_highwater_only(self) -> None:
-        """D21.14: do not sorted()-materialise the full UUID set on the hot path."""
+    def test_thread_persistence_state_counts_rows_written(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
             writer = StreamingHDF5Writer(db_path)
@@ -394,12 +379,9 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                 writer,
                 sample_root=os.path.join(tmpdir, "SAMPLE"),
                 batch_size=1,
-                persisted_uuids={"legacy-a", "legacy-b"},
             )
-            state = processor.persistence_state()
-            self.assertNotIn("acked_uuids", state)
-            self.assertEqual(state["acked_uuids_highwater"], 2)
-            self.assertEqual(state["persisted_prefix"], 0)
+            processor.ingest({"uuid": "u0", "sample_index": 0, "observables": {"x": 0}})
+            self.assertEqual(processor.persistence_state(), {"records_written": 1})
             writer.close()
 
     def test_read_persisted_outcome_counts_split_failed_and_completed(self) -> None:
@@ -423,7 +405,7 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             completed, failed = read_persisted_outcome_counts(database_dir)
             self.assertEqual((completed, failed), (3, 2))
 
-    def test_database_uuid_seed_prevents_duplicate_rows(self) -> None:
+    def test_existing_database_rows_stay_and_new_rows_append(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             database_dir = os.path.join(tmpdir, "DATABASE")
             db_path = os.path.join(database_dir, "samples.hdf5")
@@ -442,9 +424,11 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
                     archiver._ingest_result(
                         {"uuid": "u-1", "observables": {"uuid": "u-1", "x": 99.0}}
                     ),
-                    0,
+                    1,
                 )
-                self.assertEqual(len(SimpleHDF5Writer(db_path).read_records()), 1)
+                archiver.processor.writer.close()
+                rows = SimpleHDF5Writer(db_path).read_records()
+                self.assertEqual([row["x"] for row in rows], [1.0, 99.0])
                 self.assertEqual(read_persisted_uuids(database_dir), {"u-1"})
                 self.assertEqual(redis.get_archived_uuids("resume"), {"u-1"})
             finally:

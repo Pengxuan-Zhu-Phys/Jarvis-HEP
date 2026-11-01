@@ -20,8 +20,6 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_run_spec,
     check_mapper_fingerprint,
     check_sampling_fingerprint,
-    checkpoint_replacing_existing,
-    replaces_tail_on_resume,
     uses_checkpoint_resume_protocol,
     check_operas_constants_fingerprint,
     checkpoint_path,
@@ -227,17 +225,6 @@ class _ResumeService:
             core._resume_checkpoint_payload = None
             core._resume_policy = "fresh"
             return
-        if replaces_tail_on_resume(core.config) and not checkpoint_replacing_existing(payload):
-            # Earlier nested checkpoints carry no archive cursor, so DATABASE
-            # rows cannot be matched to the saved engine.
-            core._logger.error(
-                "Checkpoint rejected (starting fresh) -> %s checkpoint from an earlier "
-                "release has no DATABASE cursor",
-                sampling_method(core.config),
-            )
-            core._resume_checkpoint_payload = None
-            core._resume_policy = "fresh"
-            return
         # D23.8: refuse when Operas constant values drifted (outside the card).
         # D23.13: if Operas is merely unavailable, skip with WARNING — never treat
         # that as drift (would delete a good checkpoint and re-run from index 0).
@@ -254,32 +241,33 @@ class _ResumeService:
         if str(consts_reason).startswith("skip:"):
             core._logger.warning("%s", consts_reason)
         core._resume_checkpoint_payload = payload
-        core._replacing_existing = bool((payload.get("persistence") or {}).get("replacing_existing"))
 
     def _load_persisted_database_state(self, database_dir: str) -> None:
-        """Refresh index prefix, UUID set, and completed/failed counts from DATABASE.
+        """Set the resume cursor, UUID set, and completed/failed counts.
 
-        Index prefix drives resume fast-forward; outcome counts seed Redis
-        SAMPLE_STATS so a resume does not re-label durable Failed rows as
-        successful (D21.13).
+        Protocol samplers read them from the checkpoint alone: its cursor was
+        confirmed by archive receipts, and DATABASE is never scanned.  Other
+        samplers and check mode read DATABASE.  Outcome counts seed Redis
+        SAMPLE_STATS so a resume does not re-label Failed rows as successful
+        (D21.13).
         """
         core = self._core
 
-        if checkpoint_replacing_existing(core._resume_checkpoint_payload):
-            from jarvishep2.io.database import read_checkpoint_prefix_status
-
-            state = (core._resume_checkpoint_payload or {}).get("sampler_state") or {}
+        payload = core._resume_checkpoint_payload
+        if (
+            payload is not None
+            and uses_checkpoint_resume_protocol(core.config)
+            and not core.config.get("_check_modules_sample_layout")
+        ):
+            state = payload.get("sampler_state") or {}
             cursor = max(0, int(state.get("checkpoint_index", state.get("accepted_index", 0)) or 0))
-            present, failed = read_checkpoint_prefix_status(database_dir, cursor)
-            if not present:
-                core._discard_resume_checkpoint(
-                    reason=f"DATABASE lacks checkpoint-confirmed prefix [0,{cursor}); starting fresh"
-                )
-                return
+            counts = (payload.get("persistence") or {}).get("outcome_counts") or {}
+            completed = max(0, int(counts.get("completed", 0) or 0))
+            failed = max(0, int(counts.get("failed", 0) or 0))
             core._persisted_index_prefix = cursor
             core._persisted_pending_indices = set()
             core._persisted_uuids = set()
-            core._persisted_records_count = cursor
+            core._persisted_records_count = completed + failed
             core._persisted_failed_count = failed
             return
 
@@ -312,13 +300,20 @@ class _ResumeService:
 
         if not get_checkpoint_config(getattr(core, "config", None))["enabled"]:
             return None
-        persistence: dict[str, Any] = {}
-        if core.archiver is not None and hasattr(core.archiver, "persistence_state"):
-            persistence = dict(core.archiver.persistence_state())
-        prefix = max(
-            core._persisted_index_prefix,
-            int(persistence.get("persisted_prefix", 0) or 0),
-        )
+        # Counters include evaluations above the saved cursor; a resume
+        # evaluates those again and DATABASE keeps both rows.
+        counters = core._live_sample_counters()
+        persistence: dict[str, Any] = {
+            "outcome_counts": {
+                "completed": int(counters.get("ok", 0) or 0),
+                "failed": int(counters.get("failed", 0) or 0),
+            }
+        }
+        prefix = core._persisted_index_prefix
+        confirm = getattr(core.sampler, "confirm_archived_prefix", None)
+        confirmed = confirm() if callable(confirm) else None
+        if confirmed is not None:
+            prefix = max(prefix, int(confirmed))
         core._persisted_index_prefix = prefix
         if hasattr(core.sampler, "set_persisted_prefix"):
             core.sampler.set_persisted_prefix(prefix)
@@ -340,8 +335,8 @@ class _ResumeService:
         )
         indexed = bool(getattr(core.sampler, "uses_indexed_resume", False))
         if indexed:
-            # ``prefix`` is the sole hot-path completion fact.  It arrives
-            # from the Archiver after fsync and is independent of scan size.
+            # ``prefix`` is the sole hot-path completion fact.  Archive
+            # receipts confirm it after fsync; the cost is the in-flight window.
             # Do not let ``checkpoint_runtime_state`` capture the current
             # generator state here: only a batch-boundary snapshot may become
             # a resume point.
@@ -367,10 +362,6 @@ class _ResumeService:
                 sampler_state.get("checkpoint_index", sampler_state.get("accepted_index", 0)) or 0
             )
             safe = checkpoint_index <= prefix
-        if uses_checkpoint_resume_protocol(core.config) and (
-            getattr(core, "_replacing_existing", False) or replaces_tail_on_resume(core.config)
-        ):
-            persistence["replacing_existing"] = True
         payload = build_payload(
             run_spec=run_spec,
             sampler_state=sampler_state,
@@ -433,7 +424,6 @@ class _ResumeService:
         log("Checkpoint sampler state rejected (starting fresh) -> %s", reason)
         core._resume_policy = "fresh"
         core._resume_checkpoint_payload = None
-        core._replacing_existing = True
         core._persisted_index_prefix = 0
         core._persisted_pending_indices = set()
         core._persisted_uuids = set()

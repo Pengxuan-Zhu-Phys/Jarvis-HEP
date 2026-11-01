@@ -32,6 +32,9 @@ def flush_batch(sampler: Any, batch: list[Sample]) -> int:
         if proposed and callable(getattr(sampler, "record_persisted_proposals", None)):
             sampler.record_persisted_proposals()
         return 0
+    note = getattr(sampler, "note_archive_submissions", None)
+    if callable(note):
+        note(batch)
     if len(batch) == 1:
         sampler._submit(batch[0])
     else:

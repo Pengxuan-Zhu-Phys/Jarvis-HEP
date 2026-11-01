@@ -8,6 +8,23 @@ from importlib import import_module, metadata
 
 
 class PackageLayoutCompatibilityTests(unittest.TestCase):
+    def test_aliases_preserve_canonical_import_metadata(self) -> None:
+        for legacy_name, canonical_name in (
+            ("jarvishep2.Sampling.bridson", "jarvishep2.sampling.bridson"),
+            ("jarvishep2.Module.calculator", "jarvishep2.calculators.calculator"),
+            ("jarvishep2.contracts.methods", "jarvishep2.cardload.contracts.methods"),
+            ("jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils",
+             "jarvishep2.sampling.Source.Dynesty.py.dynesty.utils"),
+        ):
+            with self.subTest(module=legacy_name):
+                canonical = import_module(canonical_name)
+                expected_spec = canonical.__spec__
+                legacy = import_module(legacy_name)
+                self.assertIs(legacy, canonical)
+                self.assertIs(legacy.__spec__, expected_spec)
+                self.assertEqual(legacy.__spec__.name, canonical_name)
+                self.assertEqual(legacy.__package__, legacy.__spec__.parent)
+
     def test_sampling_legacy_and_canonical_bridson_are_the_same(self) -> None:
         from jarvishep2.Sampling.bridson import Bridson as legacy
         from jarvishep2.sampling.bridson import Bridson as canonical

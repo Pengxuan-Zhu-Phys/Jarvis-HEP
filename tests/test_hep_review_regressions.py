@@ -156,7 +156,8 @@ def test_hep_sampler_uses_sdk_help_with_list_info_extensions(capsys):
 
 @pytest.mark.parametrize("method", ["Grid", "Random", "Bridson", "CSV"])
 @pytest.mark.parametrize("policy", ["fresh", "resume", "rejected-checkpoint", "check"])
-def test_durable_rows_filter_only_resume(tmp_path, monkeypatch, method, policy):
+def test_database_rows_never_filter_protocol_submissions(tmp_path, monkeypatch, method, policy):
+    """Protocol samplers resume from the checkpoint cursor; DATABASE is never read."""
     monkeypatch.setenv("JARVIS_SAMPLERS_HOME", str(tmp_path / "registry"))
     csv = tmp_path / "points.csv"
     csv.write_text("uuid,x,y\nrow-0,0.1,0.2\nrow-1,0.3,0.4\nrow-2,0.5,0.6\n")
@@ -204,6 +205,10 @@ def test_durable_rows_filter_only_resume(tmp_path, monkeypatch, method, policy):
     core._persisted_failed_count = 0
     core._persisted_pending_indices = set()
     core._persisted_uuids = set()
+    core._resume_checkpoint_payload = (
+        {"sampler_state": {"checkpoint_index": 0}, "persistence": {}}
+        if policy == "resume" else None
+    )
     core._resolve_database_dir.return_value = str(database)
     service = _ResumeService(core)
     core._load_persisted_database_state.side_effect = service._load_persisted_database_state
@@ -225,8 +230,7 @@ def test_durable_rows_filter_only_resume(tmp_path, monkeypatch, method, policy):
             supervisor.bootstrap_distributed_runtime()
         pushed = sampler.run_distributed()
         actual = [queue.pull_task(timeout=1)["sample_index"] for _ in range(pushed)]
-        expected = [i for i in indices if i not in {0, 2}] if policy == "resume" else indices
-        assert actual == expected
+        assert actual == indices
     finally:
         sampler.shutdown_checkpointing()
         queue.close()
@@ -235,8 +239,8 @@ def test_durable_rows_filter_only_resume(tmp_path, monkeypatch, method, policy):
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis is required")
 @pytest.mark.parametrize("method", ["Grid", "Random", "Bridson", "CSV"])
-def test_fresh_runtime_replaces_old_results(tmp_path, monkeypatch, method):
-    """Exercise real Redis, spawn Workers and HDF5 replacement, not only submission."""
+def test_fresh_runtime_appends_after_old_results(tmp_path, monkeypatch, method):
+    """Exercise real Redis, spawn Workers and the append-only HDF5 writer."""
     import yaml
     from jarvishep2.task_config import load_task_yaml
     from jarvishep2.testing.eggbox import eggbox2d_numpy
@@ -293,6 +297,9 @@ raise SystemExit(outcome.exit_code)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(output.read_text())["completed"] == len(stale)
     rows = SimpleHDF5Writer(str(database)).read_records()
+    # DATABASE only appends: the earlier rows stay ahead of this run's rows.
+    assert rows[: len(stale)] == stale
+    rows = rows[len(stale):]
     assert len(rows) == len(stale)
     assert {row["uuid"] for row in rows} == {row["uuid"] for row in stale}
     for row in rows:

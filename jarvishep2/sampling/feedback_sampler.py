@@ -271,15 +271,15 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         override = getattr(self, "_board_ttl_sec", None)
         if override is not None:
             return float(override)
-        stale_sec = 30.0
-        try:
-            from jarvishep2.runtime_config import get_watchdog_config
+        from jarvishep2.runtime_config import WATCHDOG_DEFAULTS, get_watchdog_config
 
+        stale_sec = float(WATCHDOG_DEFAULTS["stale_sec"])
+        try:
             stale_sec = float(
-                get_watchdog_config(getattr(self, "config", None)).get("stale_sec", 30.0)
+                get_watchdog_config(getattr(self, "config", None))["stale_sec"]
             )
         except Exception:
-            stale_sec = 30.0
+            pass
         return max(float(PROC_BOARD_TTL_SEC), 2.0 * stale_sec)
 
     def _generation_interrupt_requested(self) -> bool:

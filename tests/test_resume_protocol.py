@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from collections import Counter
 import socket
 import subprocess
 import sys
@@ -102,7 +103,7 @@ def _card(tmp_path: Path, method: str, *, count: int = 16) -> tuple[Path, dict]:
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
 @pytest.mark.parametrize("method", ["Grid", "Random", "Bridson", "CSV"])
 @pytest.mark.parametrize("timing", ["before", "after"])
-def test_fresh_interrupt_resume_replaces_old_rows(tmp_path, monkeypatch, method, timing):
+def test_fresh_interrupt_resume_appends_after_old_rows(tmp_path, monkeypatch, method, timing):
     source, card = _card(tmp_path, method)
     config = load_task_yaml(str(source))
     sampler = Distributor.set_method(method)
@@ -130,14 +131,18 @@ def test_fresh_interrupt_resume_replaces_old_rows(tmp_path, monkeypatch, method,
             assert result.returncode == 130, result.stdout + result.stderr
             checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/state.pkl"
             payload = load_checkpoint(str(checkpoint))
-            assert payload["persistence"]["replacing_existing"] is True
+            assert set(payload["persistence"]["outcome_counts"]) == {"completed", "failed"}
             assert (int(payload["sampler_state"].get("checkpoint_index", 0)) > 0) == (timing == "after")
         else:
             assert result.returncode == 0, result.stdout + result.stderr
     rows = SimpleHDF5Writer(str(database)).read_records()
-    assert len(rows) == len(stale)
-    assert {int(row["sample_index"]) for row in rows} == set(range(len(stale)))
-    assert all(float(row["z"]) != -999 for row in rows)
+    # DATABASE only appends: the earlier rows stay, and every index gets a new
+    # row. Rows past the checkpoint cursor can appear twice.
+    old, new = rows[: len(stale) + 1], rows[len(stale) + 1:]
+    assert [row["uuid"] for row in old] == [row["uuid"] for row in stale] + ["old-tail"]
+    assert all(float(row["z"]) == -999 for row in old)
+    assert all(float(row["z"]) != -999 for row in new)
+    assert {int(row["sample_index"]) for row in new} == set(range(len(stale)))
 
 
 NESTED_DRIVER = r"""
@@ -161,12 +166,11 @@ if phase == "interrupt":
     committed = None
     def capture(self, *, reason=None):
         global committed
-        scan = core.info.get("scan_name") or "scan"
         deadline = time.monotonic() + 30
         if reason is not None and committed is not None and self._accepted_index > committed:
             # The engine ran past the committed snapshot: let DATABASE take
             # those rows, then Ctrl+C before the next snapshot.
-            while self.redis.get_archived_index_prefix(scan) < self._accepted_index:
+            while (self.confirm_archived_prefix() or 0) < self._accepted_index:
                 if time.monotonic() > deadline:
                     raise AssertionError("archive did not catch up")
                 time.sleep(0.05)
@@ -194,7 +198,7 @@ raise SystemExit(outcome.exit_code)
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
 @pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
-def test_nested_interrupt_resume_keeps_one_row_per_index(tmp_path, method):
+def test_nested_interrupt_resume_covers_every_index_once_past_the_redo_window(tmp_path, method):
     from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import restore_sampler
 
     source, card = _card(tmp_path, "Random")
@@ -222,7 +226,7 @@ def test_nested_interrupt_resume_keeps_one_row_per_index(tmp_path, method):
             tail = int(output.with_suffix(".tail").read_text())
             # The interrupt keeps the committed snapshot, not the live engine.
             assert 0 < cursor < tail
-            assert payload["persistence"]["replacing_existing"] is True
+            assert set(payload["persistence"]["outcome_counts"]) == {"completed", "failed"}
             assert payload["integrity"]["safe_barrier_confirmed"] is True
             engine = restore_sampler(str(checkpoint.with_name("nested_engine.pkl")))
             assert int(engine.ncall) > 0
@@ -231,11 +235,14 @@ def test_nested_interrupt_resume_keeps_one_row_per_index(tmp_path, method):
     rows = []
     for shard in sorted(database.glob("*.hdf5")):
         rows.extend(SimpleHDF5Writer(str(shard)).read_records())
-    indices = [int(row["sample_index"]) for row in rows]
+    counts = Counter(int(row["sample_index"]) for row in rows)
     final = load_checkpoint(str(checkpoint))["sampler_state"]
     assert final["finished"] is True
-    assert sorted(indices) == list(range(int(final["checkpoint_index"])))
+    assert set(counts) == set(range(int(final["checkpoint_index"])))
     assert int(final["checkpoint_index"]) > tail
+    # The resumed engine evaluates [cursor, tail) again; DATABASE keeps both rows.
+    assert {index for index, n in counts.items() if n > 1} == set(range(cursor, tail))
+    assert max(counts.values()) == 2
 
 
 def test_bridson_million_points_resume_uses_mmap_without_generation(tmp_path, monkeypatch):
@@ -384,22 +391,6 @@ def test_nested_resume_without_state_pkl_starts_fresh(tmp_path, caplog, method):
     assert "without state.pkl" in caplog.text
 
 
-@pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
-def test_nested_checkpoint_without_archive_cursor_is_rejected(tmp_path, caplog, method):
-    from jarvishep2.runtime.core import Jarvis2Core
-    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
-
-    config = {"task_root": str(tmp_path), "scan_name": "nested",
-              "Sampling": {"Method": method, "Variables": []}}
-    core = Jarvis2Core(config)
-    spec = build_run_spec(config=core.config, scan_name="nested", task_root=str(tmp_path),
-                          task_result_dir=str(tmp_path), sampler_name=method)
-    save_checkpoint(core.checkpoint_file(), build_payload(run_spec=spec, sampler_state={}))
-    core.prepare_resume(resume=True)
-    assert core._resume_policy == "fresh"
-    assert "earlier release" in caplog.text
-
-
 @pytest.mark.parametrize("change,expect_resume", [
     ({"workers": 4}, True),
     ({"seed": 2}, False),
@@ -498,30 +489,10 @@ def test_indexed_checkpoint_size_does_not_scale_with_submissions(tmp_path):
     assert abs(sizes[1] - sizes[0]) < 100
 
 
-def test_final_trim_removes_stale_sealed_shard_rows(tmp_path):
-    from jarvishep2.io.database import trim_scan_records
-
-    database = tmp_path / "DATABASE"
-    sealed = database / "samples.0001.hdf5"
-    live = database / "samples.hdf5"
-    SimpleHDF5Writer(str(sealed)).add_records([
-        {"uuid": "old-0", "sample_index": 0, "z": -999},
-        {"uuid": "old-tail", "sample_index": 3, "z": -999},
-    ])
-    SimpleHDF5Writer(str(live)).add_records([
-        {"uuid": "new-0", "sample_index": 0, "z": 1},
-        {"uuid": "new-1", "sample_index": 1, "z": 2},
-    ])
-    assert trim_scan_records(str(database), 2) == 2
-    assert not sealed.exists()
-    rows = SimpleHDF5Writer(str(live)).read_records()
-    assert [(row["sample_index"], row["z"]) for row in rows] == [(0, 1), (1, 2)]
-
-
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
 @pytest.mark.parametrize("sharded", [False, True], ids=["live", "rolling-shards"])
-def test_short_scan_removes_tail_of_completed_long_scan(tmp_path, sharded):
+def test_second_fresh_scan_appends_after_the_first(tmp_path, sharded):
     source, card = _card(tmp_path, "Grid")
     if sharded:
         card["EnvReqs"]["V2"]["archiver"] = {"max_hdf5_bytes": 1, "batch_size": 1}
@@ -530,7 +501,8 @@ def test_short_scan_removes_tail_of_completed_long_scan(tmp_path, sharded):
                JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
                JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
     database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/samples.hdf5"
-    for size, expected in ((4, 16), (2, 4)):
+    expected: Counter[int] = Counter()
+    for size in (4, 2):
         for variable in card["Sampling"]["Variables"]:
             variable["distribution"]["parameters"]["num"] = size
         source.write_text(yaml.safe_dump(card))
@@ -543,8 +515,8 @@ def test_short_scan_removes_tail_of_completed_long_scan(tmp_path, sharded):
         rows = [row for path in paths for row in SimpleHDF5Writer(path).read_records()]
         if sharded:
             assert len(paths) > 1
-        assert len(rows) == expected
-        assert {int(row["sample_index"]) for row in rows} == set(range(expected))
+        expected.update(range(size * size))
+        assert Counter(int(row["sample_index"]) for row in rows) == expected
 
 
 @pytest.mark.slow
@@ -574,8 +546,10 @@ def test_resume_without_usable_checkpoint_restarts_from_zero(tmp_path, disabled)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "starting fresh" in result.stdout + result.stderr
     rows = SimpleHDF5Writer(str(database)).read_records()
-    assert len(rows) == len(stale)
-    assert all(float(row["z"]) != -999 for row in rows)
+    assert rows[: len(stale)] == stale
+    new = rows[len(stale):]
+    assert sorted(int(row["sample_index"]) for row in new) == list(range(len(stale)))
+    assert all(float(row["z"]) != -999 for row in new)
     checkpoint_dir = tmp_path / f"checkpoints/{card['Scan']['name']}/Bridson"
     assert (checkpoint_dir / "state.pkl").exists() is not disabled
     assert (checkpoint_dir / "points.npy").exists() is not disabled

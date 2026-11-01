@@ -155,7 +155,7 @@ def test_database_retains_failure_and_resume_prefix_without_sample_tree(tmp_path
             processor.ingest({"uuid": f"u{index}", "sample_index": index,
                               "status": status, "observables": {"x": index}})
         processor.flush_batch(force=True)
-        assert processor.persistence_state()["persisted_prefix"] == 2
+        assert processor.persistence_state()["records_written"] == 2
     finally:
         writer.close()
     assert [r["status"] for r in SimpleHDF5Writer(str(db)).read_records()] == ["Completed", "Failed"]

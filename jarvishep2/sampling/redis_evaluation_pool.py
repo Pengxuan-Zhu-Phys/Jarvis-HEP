@@ -52,6 +52,9 @@ class RedisEvaluationPool:
     accepts_payload :
         Optional prior/selection predicate; rejected points return -1e300
         without publishing a task.
+    on_submit :
+        Called with each batch's Samples just before their tasks are pushed;
+        the sampler records them for archive receipts.
     timeout :
         Seconds to wait for a full generation barrier.
     seed :
@@ -74,6 +77,7 @@ class RedisEvaluationPool:
         logger=None,
         accepts_payload: Callable[[np.ndarray], bool] | None = None,
         njobs: int | None = None,
+        on_submit: Callable[[list[Sample]], None] | None = None,
     ) -> None:
         self.redis = redis
         self.build_sample = build_sample
@@ -84,6 +88,7 @@ class RedisEvaluationPool:
         self.method = str(method)
         self.njobs = max(1, int(njobs if njobs is not None else self.batch_size))
         self.accepts_payload = accepts_payload
+        self.on_submit = on_submit
         self._call_index = 0
         self._index_lock = threading.Lock()
         self._waiters_lock = threading.Lock()
@@ -391,9 +396,9 @@ class RedisEvaluationPool:
             if self.accepts_payload is not None and not self.accepts_payload(payload):
                 results[index] = -1.0e300
                 continue
-            # Only pushed tasks take a sample_index, so DATABASE indices stay
-            # dense and the Archiver's contiguous prefix covers every task
-            # allocated before an engine snapshot.
+            # Only pushed tasks take a sample_index, so indices stay dense and
+            # the receipt cursor covers every task allocated before an engine
+            # snapshot.
             sample = self.build_sample(payload, uuid or "")
             sample_index = self._alloc_index()
             if uuid is None:
@@ -406,6 +411,8 @@ class RedisEvaluationPool:
             samples.append(sample)
 
         ordered = [s.uuid for s in samples]
+        if self.on_submit is not None and samples:
+            self.on_submit(samples)
         futs = self._register_waiters(ordered)
         try:
             for i in range(0, len(samples), self.batch_size):

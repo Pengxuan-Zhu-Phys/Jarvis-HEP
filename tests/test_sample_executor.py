@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""D25.5: Worker is a Redis/FileOperation process; physics lives on SampleExecutor."""
+"""SampleExecutor ownership, bucket allocation and calculator release."""
 
 from __future__ import annotations
 
-import pickle
 import unittest
 
 from jarvishep2.sample_executor import SampleExecutor, stamp_task_sample_bucket
@@ -19,15 +18,6 @@ class SampleExecutorSplitTests(unittest.TestCase):
         self.assertIs(executor._worker, worker)
         self.assertIs(worker._get_executor(), executor)
 
-    def test_spawn_boundary_does_not_pickle_live_runtime(self) -> None:
-        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
-        self.assertIsNone(worker._scheduler)
-        self.assertIsNone(worker._observables_lock)
-        self.assertIsNone(worker._redis)
-        self.assertFalse(hasattr(worker, "_executor"))
-        restored = pickle.loads(pickle.dumps(worker.redis_config))
-        self.assertEqual(restored["host"], "127.0.0.1")
-
     def test_stamp_helper_skips_when_disabled_or_already_allocated(self) -> None:
         payload = {"uuid": "u1", "bucket_dir": "/tmp/SAMPLE/000001"}
         self.assertIs(stamp_task_sample_bucket(object(), payload, enabled=True), payload)
@@ -35,6 +25,32 @@ class SampleExecutorSplitTests(unittest.TestCase):
             stamp_task_sample_bucket(object(), {"uuid": "u1"}, enabled=False),
             {"uuid": "u1"},
         )
+
+
+class _FailingRedis:
+    def force_release_calc(self, _name: str, _pack: str) -> bool:
+        raise ConnectionError("redis unavailable")
+
+
+class _SuccessfulRedis:
+    def force_release_calc(self, _name: str, _pack: str) -> bool:
+        return True
+
+
+class WorkerReleaseTests(unittest.TestCase):
+    def test_release_error_keeps_pack_visible_to_watchdog(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = _FailingRedis()
+        worker._held_calc_packs["DemoCalc"] = "001"
+        worker._force_release_pack("DemoCalc", "001")
+        self.assertEqual(worker._held_calc_packs, {"DemoCalc": "001"})
+
+    def test_release_success_removes_pack_after_confirmation(self) -> None:
+        worker = Worker(0, {"host": "127.0.0.1", "port": 6379, "db": 0}, {})
+        worker._redis = _SuccessfulRedis()
+        worker._held_calc_packs["DemoCalc"] = "001"
+        worker._force_release_pack("DemoCalc", "001")
+        self.assertEqual(worker._held_calc_packs, {})
 
 
 if __name__ == "__main__":

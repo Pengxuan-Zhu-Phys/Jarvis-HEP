@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -111,6 +112,48 @@ def _variable_names_from_config(config: Mapping[str, Any] | None) -> list[str]:
             if name:
                 names.append(name)
     return names
+
+
+def _plot_axis_settings(config: Mapping[str, Any] | None, name: str) -> dict[str, Any]:
+    """Use a sampling variable's declared support and natural display scale.
+
+    Mapper aliases preserve this metadata. General derived expressions do not
+    have a declared support, so retain automatic bounds rather than applying
+    the input variable's limits to a different physical quantity.
+    """
+    defaults: dict[str, Any] = {"scale": "linear"}
+    sampling = config.get("Sampling") if isinstance(config, Mapping) else None
+    if not isinstance(sampling, Mapping):
+        return defaults
+    aliases = {
+        str(item.get("name", "")): str(item.get("expression", "")).strip()
+        for item in sampling.get("Mapper") or [] if isinstance(item, Mapping)
+    }
+    visited: set[str] = set()
+    while name in aliases and aliases[name] != name:
+        if name in visited:
+            return defaults
+        visited.add(name)
+        name = aliases[name]
+    for variable in sampling.get("Variables") or []:
+        if not isinstance(variable, Mapping) or variable.get("name") != name:
+            continue
+        distribution = variable.get("distribution")
+        if not isinstance(distribution, Mapping):
+            return defaults
+        kind = distribution.get("type")
+        defaults["scale"] = "log" if kind in {"Log", "Log-Normal"} else "linear"
+        parameters = distribution.get("parameters")
+        if kind not in {"Flat", "Log"} or not isinstance(parameters, Mapping):
+            return defaults
+        try:
+            lo, hi = float(parameters["min"]), float(parameters["max"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return defaults
+        if math.isfinite(lo) and math.isfinite(hi) and lo < hi and (kind != "Log" or lo > 0):
+            defaults["lim"] = [lo, hi]
+        return defaults
+    return defaults
 
 
 def _variable_names_from_levelset(payload: Mapping[str, Any] | None) -> list[str]:
@@ -610,6 +653,11 @@ def emit_jplot_scan_levelset_yaml(
     if layers:
         colored = any(layer.get("colorbar") for layer in layers)
         frame: dict[str, Any] = {"ax": {"labels": {"x": x_key, "y": y_key}}}
+        for direction, name in (("x", x_key), ("y", y_key)):
+            frame["ax"].update({
+                f"{direction}{setting}": value
+                for setting, value in _plot_axis_settings(config, name).items()
+            })
         if colored:
             frame["axc"] = {"label": {"ylabel": color_key}}
         figures.append({

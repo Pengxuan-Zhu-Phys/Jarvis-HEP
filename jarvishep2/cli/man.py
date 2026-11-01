@@ -285,9 +285,9 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
             "death_rate_frac": "Fraction of workers whose deaths pause respawn.",
             "degraded_frac": "Fraction of workers whose deaths enter degraded.",
             "pause_grace_sec": "Seconds of low death-rate before leaving paused.",
-            "inflight_idle_grace_sec": "Seconds idle+inflight must last before recovery.",
+            "inflight_idle_grace_sec": "Seconds the same task attempt must remain idle+inflight before recovery.",
         },
-        "watchdog:\n  enabled: true\n  stale_sec: 30",
+        "watchdog:\n  enabled: true\n  stale_sec: 60\n  poll_interval_sec: 2\n  inflight_idle_grace_sec: 30",
     ),
 }
 

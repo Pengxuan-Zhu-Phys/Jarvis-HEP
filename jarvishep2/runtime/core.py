@@ -78,11 +78,11 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     build_run_spec,
     check_mapper_fingerprint,
     check_operas_constants_fingerprint,
-    checkpoint_replacing_existing,
     checkpoint_path,
     load_checkpoint,
     prepare_resume,
     save_checkpoint,
+    uses_checkpoint_resume_protocol,
 )
 from jarvishep2.Sampling.sampler import SamplingVirtial
 from jarvishep2.check_modules import (
@@ -887,7 +887,7 @@ class Jarvis2Core:
         counters = self._live_sample_counters()
         archived = 0
         try:
-            archived = int(self._archiver_records_written())
+            archived = self._resumed_record_base() + int(self._archiver_records_written())
         except Exception:
             archived = 0
         run_id = str(self.info.get("run_id") or "")
@@ -1011,12 +1011,6 @@ class Jarvis2Core:
                 self._wait_for_archive_caught_up(timeout=120.0)
                 outcome = self._capture_run_outcome(submitted=submitted)
                 self._scan_completed = True
-                from jarvishep2.sampling.runtime_checkpoint import uses_checkpoint_resume_protocol
-
-                if bool(getattr(self, "_replacing_existing", False)) and uses_checkpoint_resume_protocol(self.config):
-                    # Plots and CSV readers must see the trimmed shard set.
-                    shutdown_attempted = True
-                    self.shutdown(wait=True, write_run_summary=write_run_summary)
                 if self._sampler_log is not None:
                     self._sampler_log.result(outcome)
 
@@ -1101,7 +1095,7 @@ class Jarvis2Core:
                 if outcome is not None and self._final_archived_records is not None:
                     outcome.archived = max(
                         int(outcome.archived),
-                        int(self._final_archived_records),
+                        self._resumed_record_base() + int(self._final_archived_records),
                     )
                 self._restore_control_signal_handlers()
 
@@ -1177,9 +1171,10 @@ class Jarvis2Core:
             sampler.set_persisted_pending_indices(
                 getattr(self, "_persisted_pending_indices", set())
             )
+        # Protocol samplers already sit at the checkpoint cursor.
         if (
             self._resume_policy == "resume"
-            and not checkpoint_replacing_existing(self._resume_checkpoint_payload)
+            and not uses_checkpoint_resume_protocol(self.config)
             and hasattr(sampler, "advance_to_persisted_prefix")
         ):
             sampler.advance_to_persisted_prefix(self._persisted_index_prefix)
@@ -1364,6 +1359,17 @@ class Jarvis2Core:
 
     def _archiver_records_written(self) -> int:
         return self._get_runtime()._archiver_records_written()
+
+    def _resumed_record_base(self) -> int:
+        """Rows from earlier runs that a resume counts with this run's writes.
+
+        The Archiver counts only the rows it appends; a resume seeds
+        SAMPLE_STATS with the same base, so archived stays comparable to
+        completed + failed.
+        """
+        if self._resume_policy != "resume":
+            return 0
+        return max(0, int(getattr(self, "_persisted_records_count", 0) or 0))
 
     def _discard_resume_checkpoint(
         self,

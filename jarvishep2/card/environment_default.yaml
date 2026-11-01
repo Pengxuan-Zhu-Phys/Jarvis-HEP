@@ -150,8 +150,9 @@ EnvReqs:
     # factory:
     #   watchdog:
     #     enabled: true
-    #     stale_sec: 30
-    #     poll_interval_sec: 1.0
+    #     stale_sec: 60
+    #     poll_interval_sec: 2.0
+    #     inflight_idle_grace_sec: 30
     #     max_sample_retries: 3
     # worker:
     #   force_serial_layers: false

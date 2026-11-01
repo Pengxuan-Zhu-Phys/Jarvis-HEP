@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Any, Mapping
 
+from jarvishep2.sampling.archive_receipts import ArchiveReceipts
 from jarvishep2.sampling.runtime_checkpoint import (
     CHECKPOINT_HEARTBEAT_SEC,
     CheckpointHeartbeat,
@@ -19,8 +20,8 @@ from jarvishep2.sampling.sampler import SamplingVirtial
 class CheckpointedSampler(SamplingVirtial, ABC):
     """Adds lightweight checkpoint capture and safe resume support to samplers."""
 
-    # Fixed/CSV enumerators override this: they use the DATABASE's contiguous
-    # ``sample_index`` prefix rather than a full UUID acknowledgement set.
+    # Fixed/CSV enumerators override this: they resume from a ``sample_index``
+    # cursor that archive receipts confirm, not from a UUID set.
     uses_indexed_resume = False
     # Every instance attribute is explicitly saved by a subclass export or
     # deliberately excluded.  ``assert_checkpoint_attribute_contract`` makes
@@ -35,7 +36,7 @@ class CheckpointedSampler(SamplingVirtial, ABC):
             "_persisted_uuids", "_persisted_index_prefix", "_last_safe_state",
             "_checkpoint_snapshots", "_checkpoint_requested", "_checkpoint_file",
             "_checkpoint_heartbeat", "_save_checkpoint_callback", "_repropose_after_resume",
-            "_resume_mode",
+            "_resume_mode", "_archive_receipts",
             # D22: rebuilt from task card on every process start (not checkpointed).
             "_mapper_pipeline",
         }
@@ -60,6 +61,7 @@ class CheckpointedSampler(SamplingVirtial, ABC):
         # DATABASE acknowledgements also advance during fresh/check runs.
         # Their presence alone does not authorize skipping evaluations.
         self._resume_mode = False
+        self._archive_receipts: ArchiveReceipts | None = None
 
     def set_resume_mode(self, enabled: bool) -> None:
         """Bind the current run policy; never restore it from a checkpoint."""
@@ -114,8 +116,34 @@ class CheckpointedSampler(SamplingVirtial, ABC):
         """Install DATABASE-derived completion truth for resume and dedup."""
         self._persisted_uuids = {str(item) for item in uuids if str(item)}
 
+    def note_archive_submissions(self, samples) -> None:
+        """Track indexed samples until their archive receipts arrive."""
+        if self.redis is None:
+            return
+        if self._archive_receipts is None:
+            config = getattr(self, "config", None) or {}
+            scan_block = config.get("Scan")
+            scan_name = config.get("scan_name") or (
+                scan_block.get("name") if isinstance(scan_block, Mapping) else None
+            )
+            self._archive_receipts = ArchiveReceipts(self.redis, str(scan_name or "scan"))
+        self._archive_receipts.add(samples)
+
+    def confirm_archived_prefix(self) -> int | None:
+        """Return the sample-index cursor DATABASE holds, or None if untracked."""
+        if self._archive_receipts is None:
+            return None
+        return self._archive_receipts.confirm()
+
+    def unconfirmed_archive_submissions(self) -> int:
+        """Consume arrived receipts; return how many tracked samples lack one."""
+        if self._archive_receipts is None:
+            return 0
+        self._archive_receipts.confirm()
+        return self._archive_receipts.pending_count()
+
     def set_persisted_prefix(self, prefix: int) -> None:
-        """Advance the DATABASE-proven contiguous sample-index prefix.
+        """Advance the DATABASE-proven sample-index cursor.
 
         A snapshot at index ``j`` is safe iff ``j <= prefix``.  Keeping a
         bounded snapshot window makes this check O(1) per archived batch and

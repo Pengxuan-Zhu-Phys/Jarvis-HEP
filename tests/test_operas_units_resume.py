@@ -40,7 +40,7 @@ def core(tmp_path):
     )
 
 
-def _checkpoint(core, *, replacing=False, cursor=1):
+def _checkpoint(core, *, cursor=1):
     from jarvishep2.sampling.runtime_checkpoint import save_checkpoint
 
     descriptor = core.config.get("_unit_execution") or {}
@@ -51,7 +51,7 @@ def _checkpoint(core, *, replacing=False, cursor=1):
             version=1,
             run_spec={},
             sampler_state={"checkpoint_index": cursor},
-            persistence={"replacing_existing": replacing},
+            persistence={},
             integrity={"unit_execution": descriptor.get("execution_identity")},
         ),
     )
@@ -121,12 +121,14 @@ def test_semantic_changes_refuse_without_writing(core, change, monkeypatch):
         )
     if change == "jo_version":
         from importlib import metadata
+        from packaging.version import Version
 
         original_version = metadata.version
+        changed_version = f"{Version(original_version('Jarvis-Operas')).major + 1}.0.0"
         monkeypatch.setattr(
             metadata,
             "version",
-            lambda name: "1.5.2" if name == "Jarvis-Operas" else original_version(name),
+            lambda name: changed_version if name == "Jarvis-Operas" else original_version(name),
         )
     with pytest.raises(UnitBridgeError, match="JV2-UNIT-004"):
         preflight_units(core, resume=True)
@@ -179,14 +181,16 @@ def test_unintegrated_unit_engines_refuse_resume(core, method):
         preflight_units(core, resume=True)
 
 
-def test_replacing_existing_ignores_historical_tail(core):
+def test_resume_verifies_rows_above_the_checkpoint_cursor(core):
+    # DATABASE is append-only: rows past the cursor stay and are checked too.
     preflight_units(core)
     publish_unit_manifest(core)
-    _checkpoint(core, replacing=True, cursor=1)
+    _checkpoint(core, cursor=1)
     _database(
         core, [_row(core), dict(uuid="stale", sample_index=1, status="Completed")]
     )
-    preflight_units(core, resume=True)
+    with pytest.raises(UnitBridgeError, match="unverified/mixed"):
+        preflight_units(core, resume=True)
 
 
 def test_explicit_fresh_can_replace_unit_policy_and_manifest(core):

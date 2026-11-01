@@ -6,7 +6,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from jarvishep2.client import main, normalize_argv
+from jarvishep2.client import main
 from jarvishep2.plot_bridge import PlotBridgeError, run_plot
 
 
@@ -47,12 +47,6 @@ class PlotBridgeUnitTests(unittest.TestCase):
 
 
 class PlotCliTests(unittest.TestCase):
-    def test_parse_plot_flag(self) -> None:
-        self.assertEqual(
-            normalize_argv(["scene.yaml", "--plot"]),
-            ["plot", "scene.yaml"],
-        )
-
     def test_plot_passthrough_forwards_the_complete_jplot_argv(self) -> None:
         with mock.patch("jarvisplot.client.main", return_value=7) as plot_main:
             self.assertEqual(main(["plot", "scene.yaml", "--dpi", "300"]), 7)

@@ -20,6 +20,7 @@ from jarvishep2.redis_queue import CONTROL_LOCK_TTL_SEC, PROC_BOARD_TTL_SEC, Red
 from jarvishep2.runtime_metadata import write_scan_metadata
 from jarvishep2.sampling.telemetry import sampler_status_json
 from jarvishep2.runtime_config import (
+    WATCHDOG_DEFAULTS,
     get_archiver_config,
     get_delete_method,
     get_redis_config,
@@ -36,8 +37,6 @@ from jarvishep2.Module.runtime_preparer import (
 from jarvishep2.database import prepare_hdf5_database_for_writer
 from jarvishep2.Sampling.runtime_checkpoint import (
     prepare_resume,
-    checkpoint_replacing_existing,
-    replaces_tail_on_resume,
     uses_checkpoint_resume_protocol,
 )
 
@@ -85,11 +84,6 @@ class _RuntimeSupervisor:
             core.preflight_sampler_plugin()
         ensure_scan_name_available(scan_name, cleanup_stale=core._resume_policy == "resume")
         db_path = os.path.join(core._resolve_database_dir(), "samples.hdf5")
-        if (core._resume_policy == "fresh" and not core.config.get("_check_modules_sample_layout")
-                and uses_checkpoint_resume_protocol(core.config)):
-            from jarvishep2.io.database import discover_samples_hdf5_shards
-
-            core._replacing_existing = bool(discover_samples_hdf5_shards(os.path.dirname(db_path)))
         if core._resume_policy == "resume":
             try:
                 # Control must not open samples.hdf5 for append (write lock would
@@ -763,7 +757,6 @@ class _RuntimeSupervisor:
             worker_ids=max(workers, 32),
         )
         core.redis.clear_archived_uuids(str(core.info.get("scan_name") or "scan"))
-        core.redis.clear_archived_index_prefix(str(core.info.get("scan_name") or "scan"))
         core._logger.info(
             "reset Redis run keys (deleted=%s sample_stats_reset=%s)",
             result.get("deleted_keys"),
@@ -841,11 +834,11 @@ class _RuntimeSupervisor:
         if lock is None:
             lock = threading.Lock()
             core._proc_board_lock = lock
-        stale_sec = 30.0
+        stale_sec = float(WATCHDOG_DEFAULTS["stale_sec"])
         try:
-            stale_sec = float(get_watchdog_config(core.config).get("stale_sec", 30.0))
+            stale_sec = float(get_watchdog_config(core.config)["stale_sec"])
         except Exception:
-            stale_sec = 30.0
+            pass
         ttl = max(int(PROC_BOARD_TTL_SEC), int(2 * stale_sec))
         payload: dict[str, Any] = {"scan_mode": mode, "ts": time.time()}
         for key, value in fields.items():
@@ -1063,25 +1056,9 @@ class _RuntimeSupervisor:
             os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = dict(get_archiver_config(core.config))
-        replacing_resume = checkpoint_replacing_existing(core._resume_checkpoint_payload)
-        if not core.config.get("_check_modules_sample_layout") and uses_checkpoint_resume_protocol(core.config):
-            if core._resume_policy == "fresh":
-                archiver_config["initial_persisted_prefix"] = 0
-            elif replacing_resume:
-                state = (core._resume_checkpoint_payload or {}).get("sampler_state") or {}
-                archiver_config["initial_persisted_prefix"] = int(state.get("checkpoint_index", state.get("accepted_index", 0)) or 0)
         if bool(core.config.get("_check_modules_sample_layout")):
             # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
             archiver_config["pack_buckets"] = False
-        # Fresh full scans rewrite colliding identities. Check continues from
-        # the existing DATABASE prefix and appends a new batch instead.
-        # Dynesty/MultiNest leave duplicates only after a resume, and the
-        # final trim keeps the last copy; the replacement scan would re-read
-        # the live shard on every batch.
-        if (str(getattr(core, "_resume_policy", "") or "") == "fresh" or replacing_resume) and not bool(
-            core.config.get("_check_modules_sample_layout")
-        ) and not replaces_tail_on_resume(core.config):
-            archiver_config["replace_duplicates"] = True
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(core, "_log_silence", False)))
         archiver_config.setdefault("console_level", str(getattr(core, "_console_level", "WARNING")))
@@ -1312,7 +1289,7 @@ class _RuntimeSupervisor:
             archiver_stopped = core.archiver is None
             archiver_clean = archiver_stopped and getattr(core, "_archiver_shutdown_failed", False) is not True
             if not archiver_clean and core.archiver is None:
-                failed("archiver stop", RuntimeError("previous Archiver exit was unclean; DATABASE cleanup skipped"))
+                failed("archiver stop", RuntimeError("previous Archiver exit was unclean"))
             if core.archiver is not None:
                 archiver = core.archiver
                 try:
@@ -1335,8 +1312,8 @@ class _RuntimeSupervisor:
                     archiver_clean = True
                 except Exception as exc:
                     failed("archiver stop", exc)
-                    # A forced exit is cleanup, not evidence of a complete flush.
-                    # Never trim after it, even if terminate/kill succeeds.
+                    # A forced exit is cleanup, not evidence of a complete flush,
+                    # even if terminate/kill succeeds.
                     if isinstance(archiver, ArchiverProcess):
                         core._archiver_shutdown_failed = True
                         try:
@@ -1355,21 +1332,6 @@ class _RuntimeSupervisor:
                     core._final_archived_records = None
                 if archiver_stopped:
                     core.archiver = None
-            if (
-                bool(getattr(core, "_scan_completed", False))
-                and not core._interrupt_requested
-                and bool(getattr(core, "_replacing_existing", False))
-                and uses_checkpoint_resume_protocol(core.config)
-                and bool(getattr(core.sampler, "uses_indexed_resume", False))
-                and archiver_clean
-            ):
-                try:
-                    from jarvishep2.io.database import trim_scan_records
-                    total = max(0, int(getattr(core.sampler, "_accepted_index", 0) or 0))
-                    dropped = trim_scan_records(core._resolve_database_dir(), total)
-                    core._logger.info("Final DATABASE cleanup: total=%d removed=%d stale row(s)", total, dropped)
-                except Exception as exc:
-                    failed("DATABASE cleanup", exc)
             if write_run_summary and core.factory is not None:
                 try:
                     core.write_run_summary()

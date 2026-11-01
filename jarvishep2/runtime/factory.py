@@ -21,6 +21,7 @@ from typing import Any
 from jarvishep2.calculator_pools import register_calculator_pools
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.runtime_config import WATCHDOG_DEFAULTS
 from jarvishep2.runtime.worker import Worker
 
 _FILE_OPERATION_TITLE_PREFIX = "Jarvis-FileOperation"
@@ -283,21 +284,25 @@ class _Watchdog:
         self._factory = factory
         self._thread: threading.Thread | None = None
         self._running = False
-        self.stale_sec = 30.0
-        self.poll_interval_sec = 1.0
+        self.stale_sec = float(WATCHDOG_DEFAULTS["stale_sec"])
+        self.poll_interval_sec = float(WATCHDOG_DEFAULTS["poll_interval_sec"])
         self.max_sample_retries = 3
-        self.inflight_idle_grace_sec = 2.0
+        self.inflight_idle_grace_sec = float(WATCHDOG_DEFAULTS["inflight_idle_grace_sec"])
         self._inflight_idle_since: dict[int, float] = {}
+        self._inflight_idle_identity: dict[int, tuple[Any, ...]] = {}
+        self._snapshot_read_errors: set[int] = set()
+        self._last_reclaimed_uuids: list[str] = []
+        self._last_requeued_uuids: list[str] = []
         self._logger = get_jarvis_logger("factory.watchdog")
 
     def start(
         self,
         *,
         enabled: bool = True,
-        stale_sec: float = 30.0,
-        poll_interval_sec: float = 1.0,
+        stale_sec: float = WATCHDOG_DEFAULTS["stale_sec"],
+        poll_interval_sec: float = WATCHDOG_DEFAULTS["poll_interval_sec"],
         max_sample_retries: int = 3,
-        inflight_idle_grace_sec: float = 2.0,
+        inflight_idle_grace_sec: float = WATCHDOG_DEFAULTS["inflight_idle_grace_sec"],
     ) -> None:
         if not enabled:
             return
@@ -308,6 +313,8 @@ class _Watchdog:
         self.max_sample_retries = max(0, int(max_sample_retries))
         self.inflight_idle_grace_sec = max(0.0, float(inflight_idle_grace_sec))
         self._inflight_idle_since.clear()
+        self._inflight_idle_identity.clear()
+        self._snapshot_read_errors.clear()
         self._running = True
 
         def _loop() -> None:
@@ -360,40 +367,32 @@ class _Watchdog:
             if not worker.is_alive():
                 self.handle_worker_failure(worker, reason="process_exit")
                 continue
-            wid = str(worker.worker_id)
-            board = {}
-            if redis is not None and hasattr(redis, "read_proc_board"):
-                board = redis.read_proc_board("worker", owner_id=wid)
-            last_seen = self.heartbeat_timestamp(board) or self.heartbeat_timestamp(
-                self.worker_heartbeat(worker.worker_id)
-            )
-            inflight_n = 0
-            if redis is not None:
-                try:
-                    from jarvishep2.queue.redis_queue import INFLIGHT
-                    ctrl = redis._ctrl() if hasattr(redis, "_ctrl") else redis.r
-                    inflight_n = int(ctrl.llen(INFLIGHT.format(worker=wid)) or 0)
-                except Exception:
-                    inflight_n = 0
-            status = str(board.get("status") or "").strip().lower()
-            if not status:
-                status = str(
-                    self.worker_heartbeat(worker.worker_id).get("status") or ""
-                ).strip().lower()
-            if inflight_n > 0 and status in {"idle", "", "starting"}:
-                if self._inflight_idle_ready(int(worker.worker_id)):
-                    self.handle_worker_failure(worker, reason="inflight_without_busy")
+            if redis is None:
                 continue
-            self._inflight_idle_since.pop(int(worker.worker_id), None)
+            snapshot = self._read_snapshot(worker)
+            if snapshot is None:
+                continue
+            heartbeat = snapshot["heartbeat"]
+            # A replacement process must not inherit its predecessor's heartbeat.
+            if self._heartbeat_matches_worker(worker, heartbeat):
+                last_seen = self.heartbeat_timestamp(heartbeat)
+            else:
+                last_seen = 0.0
+            ready = self._inflight_idle_ready(worker, snapshot)
             if last_seen <= 0:
                 age = time.time() - worker._spawned_at  # AttributeError = bug
                 if age > self.stale_sec:
                     self.handle_worker_failure(worker, reason="stale_heartbeat")
+                elif ready:
+                    self.handle_worker_failure(worker, reason="inflight_without_busy")
                 continue
-            if (time.time() - last_seen) <= self.stale_sec:
+            if (time.time() - last_seen) > self.stale_sec:
+                self.handle_worker_failure(worker, reason="stale_heartbeat")
+                continue
+            if ready:
+                self.handle_worker_failure(worker, reason="inflight_without_busy")
+            else:
                 self._reset_cooldown_if_healthy(worker)
-                continue
-            self.handle_worker_failure(worker, reason="stale_heartbeat")
         factory = self._factory
         evaluate = getattr(factory, "_evaluate_fuse", None)
         if callable(evaluate):
@@ -402,20 +401,78 @@ class _Watchdog:
         if callable(fill):
             fill()
 
-    def _inflight_idle_ready(self, worker_id: int) -> bool:
-        """True once idle+inflight has lasted past the occupy/heartbeat race.
+    def _clear_inflight_idle(self, worker_id: int) -> None:
+        self._inflight_idle_since.pop(worker_id, None)
+        self._inflight_idle_identity.pop(worker_id, None)
 
-        BLMOVE makes ``hep:inflight:{w}`` visible before the Worker can publish
-        status=busy. Instant recovery here SIGKILLs a healthy process. A short
-        grace keeps leftover occupancy recoverable without that race.
+    def _read_snapshot(self, worker: Worker) -> dict[str, Any] | None:
+        worker_id = int(worker.worker_id)
+        try:
+            snapshot = self._factory.redis._watchdog_snapshot(str(worker_id))
+        except Exception as exc:
+            self._clear_inflight_idle(worker_id)
+            if worker_id not in self._snapshot_read_errors:
+                self._logger.warning("worker %d watchdog read failed; deferring inspection -> %s", worker_id, exc)
+                self._snapshot_read_errors.add(worker_id)
+            return None
+        self._snapshot_read_errors.discard(worker_id)
+        return snapshot
+
+    @staticmethod
+    def _heartbeat_matches_worker(worker: Worker, heartbeat: Mapping[str, Any]) -> bool:
+        pid = _optional_positive_pid(heartbeat.get("pid"))
+        return pid is None or pid == worker.pid
+
+    def _idle_identity(self, worker: Worker, snapshot: Mapping[str, Any]) -> tuple[Any, ...] | None:
+        heartbeat = snapshot["heartbeat"]
+        status = str(heartbeat.get("status") or "").strip().lower()
+        task = snapshot.get("task") or {}
+        uuid = str(task.get("uuid") or "").strip()
+        if (
+            int(snapshot["inflight_count"]) <= 0
+            or status not in {"idle", "", "starting"}
+            or not uuid
+            or not self._heartbeat_matches_worker(worker, heartbeat)
+        ):
+            return None
+        try:
+            retry = int(task.get("_retry_count", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        return (worker.pid, worker._spawned_at, uuid, retry)
+
+    def _inflight_idle_ready(self, worker: Worker, snapshot: Mapping[str, Any]) -> bool:
+        """Count only repeated observations of the same process/task attempt.
+
+        BLMOVE precedes status=busy. Different tasks' transition windows must
+        never accumulate into one apparent stall, even if every poll sees idle.
         """
-        grace = float(self.inflight_idle_grace_sec)
-        now = time.time()
+        worker_id = int(worker.worker_id)
+        identity = self._idle_identity(worker, snapshot)
+        if identity is None:
+            self._clear_inflight_idle(worker_id)
+            return False
+        now = time.monotonic()
         since = self._inflight_idle_since.get(worker_id)
-        if since is None:
+        if since is None or self._inflight_idle_identity.get(worker_id) != identity:
+            self._inflight_idle_identity[worker_id] = identity
             self._inflight_idle_since[worker_id] = now
-            return grace <= 0.0
-        return (now - since) >= grace
+            return self.inflight_idle_grace_sec <= 0.0
+        return (now - since) >= self.inflight_idle_grace_sec
+
+    def confirm_inflight_idle(self, worker: Worker) -> dict[str, Any] | None:
+        """Recheck under Factory's recovery lock, immediately before SIGKILL."""
+        worker_id = int(worker.worker_id)
+        expected = self._inflight_idle_identity.get(worker_id)
+        snapshot = self._read_snapshot(worker)
+        if snapshot is None:
+            return None
+        if expected is None or self._idle_identity(worker, snapshot) != expected:
+            self._clear_inflight_idle(worker_id)
+            return None
+        if not self._inflight_idle_ready(worker, snapshot):
+            return None
+        return snapshot
 
     def _reset_cooldown_if_healthy(self, worker: Worker) -> None:
         spawned = float(getattr(worker, "_spawned_at", 0.0) or 0.0)
@@ -446,6 +503,8 @@ class _Watchdog:
         *,
         worker_id: str,
     ) -> bool:
+        self._last_reclaimed_uuids = []
+        self._last_requeued_uuids = []
         redis = self._factory.redis
         if redis is None:
             return False
@@ -455,6 +514,7 @@ class _Watchdog:
         else:
             task = redis.decode_heartbeat_task(heartbeat)
             payloads = [task] if task else []
+        self._last_reclaimed_uuids = [str(task.get("uuid") or "") for task in payloads]
         to_requeue: list[dict[str, Any]] = []
         for task in payloads:
             retry_count = int(task.get("_retry_count", 0) or 0)
@@ -487,6 +547,7 @@ class _Watchdog:
                     lpush_task(task)
                 else:
                     redis.push_task(task)
+        self._last_requeued_uuids = [str(task.get("uuid") or "") for task in to_requeue]
         return True
 
     @staticmethod
@@ -905,8 +966,8 @@ class TaskFactory:
         self,
         *,
         enabled: bool = True,
-        stale_sec: float = 30.0,
-        poll_interval_sec: float = 1.0,
+        stale_sec: float = WATCHDOG_DEFAULTS["stale_sec"],
+        poll_interval_sec: float = WATCHDOG_DEFAULTS["poll_interval_sec"],
         max_sample_retries: int = 3,
         respawn_cooldown_sec_base: float = 5.0,
         respawn_cooldown_sec_cap: float = 60.0,
@@ -915,7 +976,7 @@ class TaskFactory:
         death_rate_frac: float = 0.20,
         degraded_frac: float = 0.10,
         pause_grace_sec: float = 60.0,
-        inflight_idle_grace_sec: float = 2.0,
+        inflight_idle_grace_sec: float = WATCHDOG_DEFAULTS["inflight_idle_grace_sec"],
     ) -> None:
         """Launch the Worker watchdog (WP-D6.1 / D26.1 PB-11)."""
         self._respawn_cooldown_sec_base = max(0.0, float(respawn_cooldown_sec_base))
@@ -979,14 +1040,31 @@ class TaskFactory:
         worker_id = int(worker.worker_id)
         dead_pid = worker.pid
         watchdog = getattr(self, "_watchdog", None)
-        idle_since = getattr(watchdog, "_inflight_idle_since", None) if watchdog is not None else None
-        if isinstance(idle_since, dict):
-            idle_since.pop(worker_id, None)
         with self._recovery_lock:
             if self._last_recovered_pid.get(worker_id) == dead_pid:
                 return
             if self.redis is None:
                 return
+
+            if reason == "inflight_without_busy":
+                if watchdog is None or not any(item is worker for item in self.workers):
+                    return
+                snapshot = watchdog.confirm_inflight_idle(worker)
+                if snapshot is None:
+                    return
+                observed = snapshot["heartbeat"]
+                self._logger.warning(
+                    "stopping worker %d (reason=%s, pid=%s, inflight_uuid=%s, "
+                    "retry_count=%s, status=%s, heartbeat_uuid=%s, "
+                    "idle_elapsed_sec=%.3f, heartbeat_age_sec=%.3f)",
+                    worker_id, reason, dead_pid, snapshot["task"]["uuid"],
+                    snapshot["task"].get("_retry_count", 0), observed.get("status"),
+                    observed.get("current_sample"),
+                    time.monotonic() - watchdog._inflight_idle_since[worker_id],
+                    time.time() - watchdog.heartbeat_timestamp(observed),
+                )
+            if watchdog is not None:
+                watchdog._clear_inflight_idle(worker_id)
 
             # Kill first, sweep after: with stable PackIDs a slot IS its shadow
             # directory, so returning a stale-heartbeat Worker's slot while the
@@ -1021,7 +1099,9 @@ class TaskFactory:
             self.workers = [
                 item for item in self.workers if item.worker_id != worker_id
             ]
-            inflight_uuid = _inflight_uuid_from_heartbeat(self.redis, heartbeat)
+            heartbeat_uuid = _inflight_uuid_from_heartbeat(self.redis, heartbeat)
+            reclaimed_uuids = getattr(watchdog, "_last_reclaimed_uuids", [])
+            requeued_uuids = getattr(watchdog, "_last_requeued_uuids", [])
             deaths = getattr(self, "_death_times", None)
             if deaths is not None:
                 try:
@@ -1047,11 +1127,14 @@ class TaskFactory:
                 if logger is not None:
                     logger.warning(
                         "cooldown skip respawn worker %d (reason=%s, requeued=%s, "
-                        "inflight_uuid=%s, cooldown=%.1f, scan_mode=%s)",
+                        "heartbeat_uuid=%s, reclaimed_uuids=%s, requeued_uuids=%s, "
+                        "cooldown=%.1f, scan_mode=%s)",
                         worker_id,
                         reason,
                         requeued,
-                        inflight_uuid,
+                        heartbeat_uuid,
+                        reclaimed_uuids,
+                        requeued_uuids,
                         max(0.0, until - now),
                         scan_mode,
                     )
@@ -1078,12 +1161,15 @@ class TaskFactory:
             if logger is not None:
                 logger.warning(
                     "recovered dead worker %d (reason=%s, requeued=%s, "
-                    "inflight_uuid=%s, cooldown=%.1f, scan_mode=%s, "
+                    "heartbeat_uuid=%s, reclaimed_uuids=%s, requeued_uuids=%s, "
+                    "cooldown=%.1f, scan_mode=%s, "
                     "orphans_killed=%d, released_slots=%d, new_pid=%s)",
                     worker_id,
                     reason,
                     requeued,
-                    inflight_uuid,
+                    heartbeat_uuid,
+                    reclaimed_uuids,
+                    requeued_uuids,
                     delay,
                     scan_mode,
                     orphans_killed,

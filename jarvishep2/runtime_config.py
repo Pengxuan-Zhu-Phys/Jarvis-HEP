@@ -53,8 +53,8 @@ ARCHIVER_DEFAULTS: dict[str, Any] = {
 }
 WATCHDOG_DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    "stale_sec": 30.0,
-    "poll_interval_sec": 1.0,
+    "stale_sec": 60.0,
+    "poll_interval_sec": 2.0,
     "max_sample_retries": 3,
     "respawn_cooldown_sec_base": 5.0,
     "respawn_cooldown_sec_cap": 60.0,
@@ -63,7 +63,7 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "death_rate_frac": 0.20,
     "degraded_frac": 0.10,
     "pause_grace_sec": 60.0,
-    "inflight_idle_grace_sec": 2.0,
+    "inflight_idle_grace_sec": 30.0,
 }
 FACTORY_DEFAULTS: dict[str, Any] = {}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).

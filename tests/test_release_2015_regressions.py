@@ -187,7 +187,8 @@ def test_nested_budget_return_does_not_claim_convergence(tmp_path, method):
     })
     sampler.set_redis(queue)
     try:
-        sampler.run_adaptive(generation_timeout=30)
+        with pytest.warns(UserWarning, match="^The sampling was stopped short due to maxiter/maxcall"):
+            sampler.run_adaptive(generation_timeout=30)
         reason = sampler.log_stop_reason()
         assert sampler._finished
         assert 'engine returned' in reason and 'maxiter' in reason

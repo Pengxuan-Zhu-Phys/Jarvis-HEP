@@ -316,7 +316,10 @@ def test_non_finite_mapped_value_is_rejected(tmp_path: Path, half_cube: Path) ->
         {"seed": 1, "point_number": 2},
         Mapper=[{"name": "lx", "expression": "log(x - 0.25)"}],
     )
-    with pytest.raises(PluginOutputError, match="lx = -inf"):
+    with (
+        pytest.warns(RuntimeWarning, match="divide by zero encountered in log"),
+        pytest.raises(PluginOutputError, match="lx = -inf"),
+    ):
         _drain(_sampler(config))
 
 

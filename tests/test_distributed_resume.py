@@ -13,6 +13,7 @@ import signal
 import tempfile
 import time
 import unittest
+from collections import Counter
 from typing import Any
 
 from jarvishep2.Sampling.runtime_checkpoint import (
@@ -133,7 +134,7 @@ class CheckpointPathResolutionTests(unittest.TestCase):
                     "native_sampler_blob": None,
                     "nlive": 50,
                 },
-                persistence={"replacing_existing": True},
+                persistence={},
                 reason="test",
             )
             save_checkpoint(path, payload)
@@ -377,8 +378,9 @@ class DistributedResumeTests(unittest.TestCase):
                     "state.pkl",
                 )
                 self.assertTrue(os.path.isfile(checkpoint))
-                durable_before_resume = read_persisted_uuids(database_dir)
-                self.assertLess(len(durable_before_resume), point_count)
+                cursor = int(load_checkpoint(checkpoint)["sampler_state"]["checkpoint_index"])
+                rows_before_resume = self._database_records(database_dir)
+                self.assertLess(len(rows_before_resume), point_count)
 
                 resumed = ctx.Process(
                     target=_run_crashable_control,
@@ -397,25 +399,34 @@ class DistributedResumeTests(unittest.TestCase):
                 self.assertEqual(resumed.exitcode, 0)
                 outcome = resumed_queue.get(timeout=5.0)
                 self.assertTrue(outcome["ok"], outcome)
-                self.assertLessEqual(
-                    int(outcome["submitted"]),
-                    point_count - len(durable_at_interrupt) + 12,
-                )
 
+                # DATABASE is append-only: resume evaluates every index from
+                # the checkpoint cursor again, so rows written above it before
+                # the interrupt appear twice.  Rows below it are all durable.
                 resumed_records = self._database_records(database_dir)
                 physics_keys = ("uuid", "x", "y", "z", "LogL", "LogL_Z", "status")
                 baseline_by_uuid = {
                     str(row["uuid"]): {key: row.get(key) for key in physics_keys}
                     for row in baseline_records
                 }
-                resumed_by_uuid = {
-                    str(row["uuid"]): {key: row.get(key) for key in physics_keys}
-                    for row in resumed_records
-                }
                 self.assertEqual(len(baseline_records), point_count)
-                self.assertEqual(len(resumed_records), point_count)
-                self.assertEqual(len(resumed_by_uuid), point_count)
-                self.assertEqual(resumed_by_uuid, baseline_by_uuid)
+                self.assertEqual(len(baseline_by_uuid), point_count)
+                for row in resumed_records:
+                    self.assertEqual(
+                        {key: row.get(key) for key in physics_keys},
+                        baseline_by_uuid[str(row["uuid"])],
+                    )
+                self.assertEqual({str(row["uuid"]) for row in resumed_records}, set(baseline_by_uuid))
+                before_indices = {int(row["sample_index"]) for row in rows_before_resume}
+                self.assertTrue(set(range(cursor)) <= before_indices)
+                redo = {
+                    str(row["uuid"]) for row in rows_before_resume
+                    if int(row["sample_index"]) >= cursor
+                }
+                counts = Counter(str(row["uuid"]) for row in resumed_records)
+                self.assertEqual({uuid for uuid, n in counts.items() if n > 1}, redo)
+                self.assertEqual(max(counts.values()), 2)
+                self.assertEqual(len(resumed_records), point_count + len(redo))
             finally:
                 for proc in (baseline, interrupted, resumed):
                     if proc is not None and proc.is_alive():
@@ -430,7 +441,7 @@ class DistributedResumeTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
 
-    def test_sigkill_control_then_database_only_resume_is_unique(self) -> None:
+    def test_sigkill_control_then_resume_appends_from_checkpoint_cursor(self) -> None:
         server, redis_config = _start_tcp_fakeredis()
         scan_name = f"resume-e2e-{os.getpid()}"
         ctx = get_spawn_context()
@@ -463,13 +474,14 @@ class DistributedResumeTests(unittest.TestCase):
                 self.assertFalse(first.is_alive())
 
                 # A formal fresh scan writes a cursor-0 state.pkl before it
-                # submits any sample; no heartbeat has run yet.  Without the
-                # replacing_existing marker, resume advances by the DATABASE
-                # prefix and cleans the exact-name orphan fleet.
+                # submits any sample; no heartbeat has run yet.  Resume starts
+                # at that cursor, appends every row again and cleans the
+                # exact-name orphan fleet.
                 checkpoint = os.path.join(
                     tmpdir, "checkpoints", scan_name, "Random", "state.pkl"
                 )
                 self.assertTrue(os.path.exists(checkpoint))
+                cursor = int(load_checkpoint(checkpoint)["sampler_state"]["checkpoint_index"])
                 second = ctx.Process(
                     target=_run_crashable_control,
                     args=(redis_config, tmpdir, scan_name, True, outcome_queue),
@@ -481,14 +493,19 @@ class DistributedResumeTests(unittest.TestCase):
                 outcome = outcome_queue.get(timeout=5.0)
                 self.assertTrue(outcome["ok"], outcome)
 
+                # An orphan Archiver of the killed run may still write until
+                # the resume cleans it up, so compare against the final rows.
                 records = self._database_records(db_dir)
-                uuids = [str(row.get("uuid") or "") for row in records]
-                self.assertEqual(len(records), 200)
-                self.assertEqual(len(set(uuids)), len(records))
-                self.assertLessEqual(
-                    int(outcome["submitted"]),
-                    200 - len(durable_before_kill) + 12,
-                )
+                counts = Counter(str(row.get("uuid") or "") for row in records)
+                self.assertEqual(len(counts), 200)
+                self.assertLessEqual(max(counts.values()), 2)
+                physics_keys = ("sample_index", "x", "y", "z", "LogL", "status")
+                by_uuid: dict[str, dict[str, Any]] = {}
+                for row in records:
+                    physics = {key: row.get(key) for key in physics_keys}
+                    self.assertEqual(by_uuid.setdefault(str(row["uuid"]), physics), physics)
+                    if counts[str(row["uuid"])] > 1:
+                        self.assertGreaterEqual(int(row["sample_index"]), cursor)
         finally:
             for proc in (first, second):
                 if proc is not None and proc.is_alive():

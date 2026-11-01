@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-modules CSV resolution + sampler fallback (D13.9 follow-up)."""
+"""Check-modules contracts: CSV resolution, coordinate columns, fallback and pool policy."""
 
 from __future__ import annotations
 
@@ -18,6 +18,12 @@ from jarvishep2.task_config import (
     get_check_modules_settings,
     resolve_check_modules_csv,
 )
+from jarvishep2.testing.check_modules import (
+    build_check_module_u_coords,
+    coordinate_columns_for_check_modules,
+)
+from jarvishep2.calculator_pools import resolve_calculator_pools
+from jarvishep2.worker_config import build_worker_config
 
 
 class CheckModulesResolveTests(unittest.TestCase):
@@ -298,6 +304,122 @@ class CheckModulesIdentityContinuationTests(unittest.TestCase):
         start = core._get_scan()._continue_check_sampler_from_database()
         self.assertEqual(start, 10)
         self.assertEqual(advanced, [10])
+
+
+class CheckModulesColumnTests(unittest.TestCase):
+    def test_columns_from_sampling_variables(self) -> None:
+        config = {
+            "Sampling": {
+                "Variables": [
+                    {"name": "m0", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}},
+                    {"name": "m12", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}},
+                ]
+            }
+        }
+        cols = coordinate_columns_for_check_modules(config, ["uuid", "m0", "m12", "extra"])
+        self.assertEqual(cols, ["m0", "m12"])
+
+    def test_columns_from_csv_headers_when_no_variables(self) -> None:
+        cols = coordinate_columns_for_check_modules({}, ["uuid", "a", "b"])
+        self.assertEqual(cols, ["a", "b"])
+
+    def test_build_u_coords_order(self) -> None:
+        row = {"m0": "0.1", "m12": "0.2", "uuid": "u1"}
+        coords = build_check_module_u_coords(row, ["m0", "m12"])
+        self.assertEqual(coords, [0.1, 0.2])
+
+
+class CheckModulesPoolPolicyTests(unittest.TestCase):
+    def test_check_policy_pins_make_parallel_and_pools_to_one(self) -> None:
+        core = Jarvis2Core.__new__(Jarvis2Core)
+        core.config = {
+            "Runtime": {"workers": 8},
+            "EnvReqs": {
+                "V2": {
+                    "workers": 8,
+                    "sample_directory": {"pack": True, "enabled": True},
+                    "archiver": {"pack_buckets": True},
+                }
+            },
+            "Scan": {"name": "smoke"},
+            "Calculators": {
+                "make_parallel": 8,
+                "Pools": {"MicroOMEGAs_Vector": 8},
+                "Modules": [
+                    {
+                        "name": "MicroOMEGAs_Vector",
+                        "make_parallel": 8,
+                        "path": "&J/calculators/microOMEGAs/@PackID",
+                    }
+                ],
+            },
+            "Operas": {"Modules": []},
+        }
+        core.runtime = {}
+        core.info = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            core.info["task_result_dir"] = tmpdir
+            core.config["task_result_dir"] = tmpdir
+            core._apply_check_modules_runtime_policy()
+
+            calc = core.config["Calculators"]
+            self.assertEqual(calc["make_parallel"], 1)
+            self.assertEqual(calc["Modules"][0]["make_parallel"], 1)
+            self.assertEqual(calc["Pools"]["MicroOMEGAs_Vector"], 1)
+            self.assertNotIn("Archiver", calc)
+            self.assertEqual(core.config["Runtime"]["workers"], 1)
+            self.assertEqual(core.config["EnvReqs"]["V2"]["workers"], 1)
+            self.assertFalse(core.config["EnvReqs"]["V2"]["archiver"]["pack_buckets"])
+
+            worker = build_worker_config(core.config, task_result_dir=tmpdir)
+            pools = resolve_calculator_pools(worker)
+            self.assertEqual(pools.get("MicroOMEGAs_Vector"), 1)
+            self.assertTrue(
+                os.path.isdir(os.path.join(tmpdir, "SAMPLE", "test"))
+                or core.info.get("sample_root", "").endswith(
+                    os.path.join("SAMPLE", "test")
+                )
+            )
+            self.assertTrue(os.path.isdir(os.path.join(tmpdir, "DATABASE", "test")))
+            self.assertEqual(
+                core.info.get("database_dir"),
+                os.path.join(tmpdir, "DATABASE", "test"),
+            )
+
+    def test_check_policy_keeps_smoke_workspace_and_full_scan_database(self) -> None:
+        core = Jarvis2Core.__new__(Jarvis2Core)
+        core.config = {"Runtime": {}, "EnvReqs": {"V2": {}}, "Scan": {"name": "smoke"}}
+        core.runtime = {}
+        core.info = {}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            core.info["task_result_dir"] = tmpdir
+            core.config["task_result_dir"] = tmpdir
+            full_db = os.path.join(tmpdir, "DATABASE")
+            os.makedirs(full_db)
+            full_hdf5 = os.path.join(full_db, "samples.hdf5")
+            with open(full_hdf5, "w", encoding="utf-8") as handle:
+                handle.write("full-scan")
+            smoke_hdf5 = os.path.join(full_db, "test", "samples.hdf5")
+            os.makedirs(os.path.dirname(smoke_hdf5))
+            with open(smoke_hdf5, "w", encoding="utf-8") as handle:
+                handle.write("previous-check")
+            leftover_sample = os.path.join(tmpdir, "SAMPLE", "test", "old-uuid")
+            os.makedirs(leftover_sample)
+            with open(os.path.join(leftover_sample, "output.json"), "w", encoding="utf-8") as handle:
+                handle.write("{}")
+
+            core._apply_check_modules_runtime_policy()
+
+            self.assertTrue(os.path.isfile(full_hdf5))
+            with open(full_hdf5, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "full-scan")
+            with open(smoke_hdf5, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "previous-check")
+            self.assertTrue(os.path.isfile(os.path.join(leftover_sample, "output.json")))
+            self.assertEqual(
+                core.info.get("database_dir"),
+                os.path.join(tmpdir, "DATABASE", "test"),
+            )
 
 
 if __name__ == "__main__":

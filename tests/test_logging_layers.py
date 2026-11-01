@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for jarvishep2 two-layer logging (WP-D0.3)."""
+"""Logging contracts: sinks, sample replay, labels, bounded formatting and durations."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ import tempfile
 import time
 import unittest
 from datetime import datetime
-
 from jarvishep2.logging import (
     BufferedSampleLogger,
     JARVIS_HEP_LOG_DOMAIN,
@@ -27,6 +26,7 @@ from jarvishep2.logging import (
 )
 import logging
 from jarvishep2.sample import Sample, materialize_failure_artifacts
+from jarvishep2.log_kv import format_two_column_log
 
 
 class NoLoguruGuardTests(unittest.TestCase):
@@ -567,10 +567,6 @@ print("OK")
         self.assertIn("OK", proc.stdout)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ModuleLabelColorTests(unittest.TestCase):
     """Console label colors: Jarvis yellow for control, Jarvis blue for samplers."""
 
@@ -608,3 +604,55 @@ class ModuleLabelColorTests(unittest.TestCase):
         record = logging.LogRecord("jarvis_hep.core", logging.WARNING, __file__, 1, "hello", None, None)
         record.jarvis_module = "Jarvis-HEP"
         self.assertNotIn("\033[", JarvisContextFormatter(colorize=False).format(record))
+
+
+def _assert_max_width(block: str, max_width: int) -> None:
+    for line in block.splitlines():
+        assert len(line) <= max_width, f"line exceeds max width {max_width}: {line!r}"
+
+
+def test_two_column_log_wraps_long_values_under_80_columns() -> None:
+    long_value = "x" * 160
+    rendered = format_two_column_log(
+        "Subprocess scheduler configured",
+        [("max_concurrency", 8), ("very_long_value", long_value)],
+        max_width=80,
+    )
+    _assert_max_width(rendered, 80)
+    assert "very_long_value" in rendered
+    assert long_value[:40] in rendered
+
+
+def test_two_column_log_wraps_long_keys_under_80_columns() -> None:
+    long_key = "very_long_configuration_key_name_" * 3
+    rendered = format_two_column_log(
+        "Config dump",
+        [(long_key, "ok")],
+        max_width=80,
+    )
+    _assert_max_width(rendered, 80)
+    assert "ok" in rendered
+
+
+def test_two_column_log_wraps_title_under_80_columns() -> None:
+    long_title = "Scheduler report " + ("#" * 120)
+    rendered = format_two_column_log(
+        long_title,
+        [("status", "ready")],
+        max_width=80,
+    )
+    _assert_max_width(rendered, 80)
+    assert "status" in rendered
+
+
+def test_duration_uses_integer_milliseconds_for_tiny_and_fractional_seconds():
+    from jarvishep2.log_kv import format_duration
+    for seconds in [0, 1e-6, 2e-5, 5e-4]:
+        assert format_duration(seconds) == "00:00:00.000"
+    assert format_duration(1.2) == "00:00:01.200"
+    assert format_duration(12.3456) == "00:00:12.345"
+    assert format_duration(3661.0023) == "01:01:01.002"
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -15,6 +15,7 @@ from collections import namedtuple
 from typing import Any
 
 import numpy as np
+import pytest
 
 from jarvishep2.Sampling.Source.Dynesty.py.dynesty.jarvis_uuid import (
     looks_uuid_augmented,
@@ -802,6 +803,10 @@ class DynestyNestedSmokeTests(unittest.TestCase):
             thread.join(timeout=2.0)
 
 
+# Short checkpoint fixtures may hit their budget before converging. The
+# dedicated budget-stop regression asserts this warning; checkpoint tests only
+# suppress this exact, expected message, leaving other warnings visible.
+@pytest.mark.filterwarnings("ignore:^The sampling was stopped short due to maxiter/maxcall limit:UserWarning")
 class NestedCheckpointResumeTests(unittest.TestCase):
     """Dynesty / MultiNest native pickle engine + run_nested(resume=True)."""
 
@@ -1339,6 +1344,7 @@ class NestedSnapshotFenceTests(unittest.TestCase):
             self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["checkpoint_index"], 30)
             self.assertEqual([i for i, _ in sampler._checkpoint_snapshots], [60])
 
+    @pytest.mark.filterwarnings("ignore:^The sampling was stopped short due to maxiter/maxcall limit:UserWarning")
     def test_committed_engine_is_mirrored_for_restore_sampler(self) -> None:
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import restore_sampler

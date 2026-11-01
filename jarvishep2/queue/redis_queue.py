@@ -28,10 +28,11 @@ CALC_SHARED_PACK_MODE = "calc:packmode:{name}"
 SHARED_HELD_PREFIX = "@shared:"
 RESULTS = "hep:results:{uuid}"
 ARCHIVE_QUEUE = "hep:archive_queue"
+# Archive receipts: the Archiver SADDs each UUID after its HDF5 batch is
+# fsynced; the process that waits on the UUID SREMs it after confirmation.
 ARCHIVED_UUIDS = "hep:archived:{scan}"
-# Largest durable contiguous logical sample prefix [0, P).  Unlike
-# ARCHIVED_UUIDS this is O(1) to read from the control heartbeat.
-ARCHIVED_INDEX_PREFIX = "hep:archived-prefix:{scan}"
+# A result payload with this field is a FIFO barrier, not a sample row.
+ARCHIVE_MARKER_FIELD = "archive_marker"
 FEEDBACK_QUEUE = "hep:feedback"
 # Per-chain feedback shards for independent MCMC pipelines. Task submit stays
 # on the single ``hep:task_queue``; workers route by task.feedback_queue.
@@ -774,6 +775,7 @@ def _coerce_numeric(value: Any) -> int | float | str:
 
 
 __all__ = [
+    "ARCHIVE_MARKER_FIELD",
     "ARCHIVE_QUEUE",
     "ARCHIVED_UUIDS",
     "ARCHIVER_BOARD_TTL_SEC",

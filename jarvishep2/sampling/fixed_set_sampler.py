@@ -147,6 +147,7 @@ class FixedSetSampler(CheckpointedSampler):
                     and sample.sample_index not in self._persisted_pending_indices
                 )
             ]
+        self.note_archive_submissions(batch)
         if len(batch) == 1:
             self._submit(batch[0])
         elif batch:

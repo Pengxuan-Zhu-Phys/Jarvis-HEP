@@ -103,7 +103,6 @@ def preflight_units(core, *, resume=False, check=False):
         shards = sorted(directory.glob("samples*.hdf5"))
         if current and shards and not os.path.isfile(checkpoint):
             _refuse("unit DATABASE exists without a verifiable checkpoint")
-        prefix = None
         if os.path.isfile(checkpoint):
             try:
                 from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
@@ -111,18 +110,13 @@ def preflight_units(core, *, resume=False, check=False):
                 payload = load_checkpoint(checkpoint)
                 if (payload.get("integrity") or {}).get("unit_execution") != current:
                     _refuse("checkpoint and unit manifest disagree")
-                if (payload.get("persistence") or {}).get("replacing_existing"):
-                    state = payload.get("sampler_state") or {}
-                    prefix = int(
-                        state.get("checkpoint_index", state.get("accepted_index", 0))
-                        or 0
-                    )
             except UnitBridgeError:
                 raise
             except Exception as exc:
                 _refuse(f"unit checkpoint cannot be verified: {exc}")
         # Read only. Do not run HDF5 recovery before deciding whether these
-        # rows are even eligible for this scan's semantic identity.
+        # rows are even eligible for this scan's semantic identity.  DATABASE
+        # is append-only, so every row is checked.
         from jarvishep2.io.database import _open_hdf5_readonly
 
         for shard in shards:
@@ -134,11 +128,6 @@ def preflight_units(core, *, resume=False, check=False):
                     for start in range(0, len(records), 1024):
                         for raw in records[start : start + 1024]:
                             row = json.loads(raw)
-                            if (
-                                prefix is not None
-                                and int(row.get("sample_index", prefix)) >= prefix
-                            ):
-                                continue
                             units = row.get(DATABASE_KEY)
                             if current:
                                 if (
@@ -158,8 +147,8 @@ def preflight_units(core, *, resume=False, check=False):
             except Exception as exc:
                 _refuse(f"unit DATABASE cannot be verified read-only: {exc}")
     core._unit_manifest_path = str(path)
-    # An explicit fresh transition to legacy retains a marker so an interrupted
-    # replacing_existing run does not mistake its historical tail for new data.
+    # An explicit fresh transition to legacy retains a marker, so a resume
+    # checks DATABASE against legacy mode instead of a missing manifest.
     core._unit_manifest_value = descriptor or dict(
         schema_version=1, mode="legacy", execution_identity=None
     )

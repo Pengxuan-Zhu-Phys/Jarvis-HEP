@@ -148,10 +148,6 @@ class GenerationalPluginSampler(FeedbackSampler):
     def _maxp(self):
         return self._session.max_evaluations if self._session else None
 
-    @property
-    def archive_target_count(self):
-        return self._accepted_index
-
     def feedback_return_spec(self):
         return dict(
             self._preflight.plugin.metadata.feedback_return
@@ -168,8 +164,8 @@ class GenerationalPluginSampler(FeedbackSampler):
         )
 
     def set_persisted_uuids(self, uuids):
-        # Replay the last uncommitted generation to reconstruct feedback. The
-        # archive deduplicates deterministic UUIDs/sample_index; no lifetime set.
+        # Replay the last uncommitted generation to reconstruct feedback.
+        # DATABASE keeps the replayed rows as duplicates; no lifetime set.
         self._persisted_uuids = set()
 
     def _ensure_trajectory(self):
@@ -379,15 +375,21 @@ class GenerationalPluginSampler(FeedbackSampler):
         )
         if self.redis is not None and self._submitted_uuids:
             deadline = time.monotonic() + 30
-            # Tasks have dense sample_index even when selection rejects proposals.
-            # The Archiver publishes the fsync-confirmed prefix for indexed rows.
-            while self.redis.get_archived_index_prefix(scan) < self._accepted_index:
+            # The Archiver posts a receipt for each UUID after its HDF5 batch
+            # is fsynced; consume the receipts of this window.
+            window = list(self._submitted_uuids)
+            pending = window
+            while True:
+                pending = self.redis.missing_archived_uuids(scan, pending)
+                if not pending:
+                    break
                 self._fail_if_generation_blocked(what="plugin archive barrier")
                 if time.monotonic() >= deadline:
                     raise TimeoutError(
                         "archive did not confirm plugin generation window; previous checkpoint preserved"
                     )
                 time.sleep(0.05)
+            self.redis.remove_archived_uuids(scan, window)
         self._sync_trajectory()
         self._submitted_uuids.clear()
         self._persisted_uuids.clear()

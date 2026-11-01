@@ -25,9 +25,6 @@ CHECKPOINT_VERSION = 1
 CHECKPOINT_RESUME_METHODS = frozenset(
     {"grid", "random", "bridson", "csv", "dynesty", "multinest"}
 )
-# A restored nested engine continues on a new trajectory from its cursor.
-# Rows after the cursor are never counted as done; the final trim removes them.
-TAIL_REPLACING_METHODS = frozenset({"dynesty", "multinest"})
 
 V1_CHECKPOINT_FORMAT = "jarvis-hep.statesaver"
 V1_MCMc_FORMAT = "jarvis-hep.mcmc-runtime"
@@ -135,25 +132,12 @@ def uses_checkpoint_resume_protocol(config: Mapping[str, Any] | None) -> bool:
     return str(method or "").strip().lower() in CHECKPOINT_RESUME_METHODS
 
 
-def replaces_tail_on_resume(config: Mapping[str, Any] | None) -> bool:
-    sampling = (config or {}).get("Sampling") or {}
-    method = sampling.get("Method") if isinstance(sampling, Mapping) else None
-    return str(method or "").strip().lower() in TAIL_REPLACING_METHODS
-
-
 def check_sampling_fingerprint(payload: Mapping[str, Any], config: Mapping[str, Any] | None) -> tuple[bool, str]:
     integrity = payload.get("integrity") or {}
     stored = integrity.get("sampling_hash") if isinstance(integrity, Mapping) else None
     if stored != sampling_fingerprint(config):
         return False, "Sampling card (Bounds, Variables or selection) changed or checkpoint lacks its fingerprint"
     return True, "ok"
-
-
-def checkpoint_replacing_existing(payload: Any) -> bool:
-    if not isinstance(payload, Mapping):
-        return False
-    persistence = payload.get("persistence")
-    return bool(persistence.get("replacing_existing")) if isinstance(persistence, Mapping) else False
 
 
 def array_fingerprint(points: np.ndarray) -> str:
@@ -536,8 +520,6 @@ __all__ = [
     "check_mapper_fingerprint",
     "check_sampling_fingerprint",
     "uses_checkpoint_resume_protocol",
-    "replaces_tail_on_resume",
-    "checkpoint_replacing_existing",
     "atomic_write_bytes",
     "sampling_fingerprint",
     "array_fingerprint",

@@ -313,7 +313,7 @@ class IdleWatchdogTests(unittest.TestCase):
         assert queue.r is not None
         queue.r.rpush(INFLIGHT.format(worker="0"), '{"uuid":"race-1"}')
         self.assertEqual(self._inspect(factory), [])
-        factory._watchdog._inflight_idle_since[0] = now - 3.0
+        factory._watchdog._inflight_idle_since[0] = time.monotonic() - 3.0
         self.assertEqual(self._inspect(factory), ["inflight_without_busy"])
 
     def test_idle_inflight_clears_when_heartbeat_becomes_busy(self) -> None:

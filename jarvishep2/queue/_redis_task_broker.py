@@ -7,8 +7,8 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from jarvishep2.queue.redis_queue import (
+    ARCHIVE_MARKER_FIELD,
     ARCHIVE_QUEUE,
-    ARCHIVED_INDEX_PREFIX,
     ARCHIVED_UUIDS,
     CHAIN_FEEDBACK_QUEUE_PATTERN,
     CodecError,
@@ -101,6 +101,28 @@ class _TaskBroker:
         key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
         return int(self.r.sadd(key, *values))
 
+    def remove_archived_uuids(self, scan_name: str, uuids: Sequence[str]) -> int:
+        """Drop receipts the waiting process has confirmed (SREM)."""
+        self._require_client()
+        values = [str(item).strip() for item in uuids if str(item).strip()]
+        if not values:
+            return 0
+        key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
+        return int(self.r.srem(key, *values))
+
+    def push_archive_marker(self, token: str) -> None:
+        """Queue a barrier behind every result already in the archive queue.
+
+        The Archiver flushes its batch and posts ``token`` as a receipt.
+        SAMPLE_STATS does not change.
+        """
+        self._require_client()
+        token = str(token or "").strip()
+        if not token:
+            raise ValueError("archive marker token must not be empty")
+        encoded = encode_payload({ARCHIVE_MARKER_FIELD: token}, codec=self._codec)
+        self.r.rpush(ARCHIVE_QUEUE, encoded)
+
     def get_archived_uuids(self, scan_name: str) -> set[str]:
         """Read the process-visible durable-archive acknowledgement cache.
 
@@ -129,30 +151,9 @@ class _TaskBroker:
         return [item for item, flag in zip(values, flags) if not flag]
 
     def clear_archived_uuids(self, scan_name: str) -> int:
-        """Clear the Redis cache for a fresh run; DATABASE remains authoritative."""
+        """Clear stale receipts before a run starts."""
         self._require_client()
         key = ARCHIVED_UUIDS.format(scan=str(scan_name or "scan").strip() or "scan")
-        return int(self.r.delete(key))
-
-    def set_archived_index_prefix(self, scan_name: str, prefix: int) -> None:
-        """Publish the HDF5-durable contiguous sample-index prefix."""
-        self._require_client()
-        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
-        self.r.set(key, max(0, int(prefix)))
-
-    def get_archived_index_prefix(self, scan_name: str) -> int:
-        """Read the durable prefix in O(1); Redis remains only a cache."""
-        self._require_client()
-        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
-        raw = self.r.get(key)
-        try:
-            return max(0, int(_redis_text(raw))) if raw is not None else 0
-        except (TypeError, ValueError):
-            return 0
-
-    def clear_archived_index_prefix(self, scan_name: str) -> int:
-        self._require_client()
-        key = ARCHIVED_INDEX_PREFIX.format(scan=str(scan_name or "scan").strip() or "scan")
         return int(self.r.delete(key))
 
     def push_many_tasks(self, tasks: list[Mapping[str, Any]]) -> None:

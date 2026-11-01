@@ -240,60 +240,84 @@ class _ScanDriver:
         return requeued + pushed
 
     def _wait_for_archive_caught_up(self, *, timeout: float = 3600.0) -> None:
-        """Block until Archiver has persisted every Redis-completed sample.
+        """Block until the Archiver has written every result Workers submitted.
 
-        Process-mode :class:`ArchiverProcess.drain` is a parent-side no-op; the
-        child keeps consuming ``hep:archive``. Plot/CSV export must wait until
-        ``records_written >= ok + failed`` (and workers are idle), otherwise
-        ``DATABASE/samples.csv`` misses the last archive batches.
+        A Worker pushes its result to the archive queue in the same Redis
+        transaction that updates SAMPLE_STATS.  Once nothing is running or
+        queued, a marker pushed behind those results is a FIFO barrier: its
+        receipt arrives only after every earlier result is fsynced.  A Worker
+        that has moved a task but not yet counted it as running can still
+        finish after the marker; samplers that track archive receipts wait
+        for those too.  Feedback samplers cannot leave such a task: a Worker
+        submits the result before it publishes the feedback they wait on.
         """
+        from jarvishep2.io.archiver import ArchiverProcess
+
         core = self._core
 
-        if core.archiver is None:
+        archiver = core.archiver
+        if archiver is None or core.redis is None:
             return
         deadline = time.monotonic() + max(1.0, float(timeout))
-        # Stabilize Redis counters once workers finish the feedback barrier.
-        # Resume may deliberately replay a partially persisted adaptive
-        # generation to reconstruct its feedback.  Those Worker completions
-        # are not new DATABASE rows because the Archiver deduplicates UUIDs.
-        # Prefer the sampler's identity set; counters remain the fallback for
-        # nested/external samplers that do not expose submitted UUIDs.
-        expected = 0
         while time.monotonic() < deadline:
             counters = core._live_sample_counters()
-            expected = int(counters["ok"]) + int(counters["failed"])
-            inflight = int(counters["running"]) + int(counters["queued"])
-            if inflight == 0:
+            if int(counters["running"]) + int(counters["queued"]) == 0:
                 break
+            if core.factory is not None:
+                core.factory.raise_if_startup_failed()
             time.sleep(0.05)
-        submitted_uuids = {
-            str(item)
-            for item in getattr(core.sampler, "submitted_uuids", frozenset())
-            if str(item)
-        }
-        if hasattr(core.sampler, "archive_target_count"):
-            expected = core.sampler.archive_target_count
-        elif bool(getattr(core.sampler, "uses_indexed_resume", False)):
-            # Redis sample counters are run-local and can include work from a
-            # killed control process.  Indexed samplers instead have one
-            # durable logical target: the highest proposed sample index.
-            expected = max(0, int(getattr(core.sampler, "_accepted_index", expected) or expected))
-        elif submitted_uuids or core._persisted_uuids:
-            expected = len(submitted_uuids | core._persisted_uuids)
-        # Parent drain is meaningful only for in-process SimpleArchiver.
+        deadline = max(deadline, time.monotonic() + 1.0)
+        scan_name = str(core.info.get("scan_name") or core.config.get("scan_name") or "scan")
+        token = f"archive-barrier:{uuid4().hex}"
+        unconfirmed = getattr(core.sampler, "unconfirmed_archive_submissions", None)
+        # A SimpleArchiver without its thread consumes the queue only in drain().
+        threaded = isinstance(archiver, ArchiverProcess) or archiver.is_alive()
+        core.redis.push_archive_marker(token)
+        last_left = -1
+        stall_since: float | None = None
         try:
-            core.archiver.drain(idle_timeout=2.0)
-        except Exception:
-            pass
-        if expected <= 0:
-            return
-        remaining = max(1.0, deadline - time.monotonic())
-        core.wait_for_results(
-            expected,
-            timeout=remaining,
-            progress_total=expected,
-            progress_base=0,
-        )
+            while True:
+                if not threaded:
+                    archiver.drain(idle_timeout=0.5)
+                marker_done = not core.redis.missing_archived_uuids(scan_name, [token])
+                left = int(unconfirmed()) if callable(unconfirmed) else 0
+                if marker_done and left == 0:
+                    return
+                if core.factory is not None:
+                    core.factory.raise_if_startup_failed()
+                if threaded and not archiver.is_alive():
+                    raise RuntimeError(
+                        "Archiver stopped before the final archive barrier; "
+                        "inspect the Archiver log"
+                    )
+                counters = core._live_sample_counters()
+                idle = (
+                    marker_done
+                    and left == last_left
+                    and int(counters["running"]) + int(counters["queued"]) == 0
+                    and int(counters["archive_q"]) == 0
+                    and not _archiver_persistence_busy(archiver)
+                )
+                last_left = left
+                if not idle:
+                    stall_since = None
+                elif stall_since is None:
+                    stall_since = time.monotonic()
+                elif time.monotonic() - stall_since >= _ARCHIVE_IDLE_STALL_SEC:
+                    raise TimeoutError(
+                        f"archive drain stalled: Workers and the archive queue are idle, "
+                        f"but {left} submitted sample(s) have no DATABASE row. "
+                        f"Inspect the Archiver and Worker logs."
+                    )
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Archiver did not reach the final archive barrier within "
+                        f"{float(timeout):.0f}s (archive_q={counters['archive_q']}, "
+                        f"{left} sample(s) without a DATABASE row); inspect the Archiver log"
+                    )
+                time.sleep(0.05)
+        finally:
+            core.redis.remove_archived_uuids(scan_name, [token])
 
     def run_check_modules(
         self,

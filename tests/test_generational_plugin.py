@@ -270,7 +270,7 @@ def test_archive_lag_cannot_publish_new_checkpoint(config, monkeypatch):
     samples = s.propose_generation()
     s._submitted_uuids = [sample.uuid for sample in samples]
     s.absorb_generation([normalize_feedback_record(row) for row in feedback(samples)])
-    s.redis = SimpleNamespace(get_archived_index_prefix=lambda scan: 0)
+    s.redis = SimpleNamespace(missing_archived_uuids=lambda scan, uuids: list(uuids))
     times = iter([0.0, 31.0])
     monkeypatch.setattr(implementation.time, "monotonic", lambda: next(times))
     with pytest.raises(TimeoutError, match="archive did not confirm"):
@@ -331,7 +331,10 @@ def test_archive_windows_do_not_write_disk_checkpoints_at_every_batch(
     s._save_checkpoint_callback = lambda **kw: (
         saved.append((kw["reason"], s.checkpoint_runtime_state(safe=True))) or True
     )
-    s.redis = SimpleNamespace(get_archived_index_prefix=lambda scan: s._accepted_index)
+    s.redis = SimpleNamespace(
+        missing_archived_uuids=lambda scan, uuids: [],
+        remove_archived_uuids=lambda scan, uuids: len(uuids),
+    )
     s._ensure_trajectory()
     assert s.checkpoint_at_barrier(reason="plugin_initial", final=True)
     for _ in range(64):

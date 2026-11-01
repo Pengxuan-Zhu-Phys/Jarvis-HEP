@@ -467,31 +467,43 @@ class PlotSceneEmitTests(unittest.TestCase):
             with open(os.path.join(scan_dir, "levelset.json"), "w", encoding="utf-8") as handle:
                 json.dump(levelset, handle)
 
-            jplot_path = emit_jplot_scan_levelset_yaml(
-                scan_dir,
-                scan_name="idm_demo",
-                project_root=project,
-                config={
-                    "Sampling": {
-                        "Variables": [
-                            {"name": "MChi"},
-                            {"name": "Y"},
-                        ]
-                    }
-                },
-            )
-            self.assertIsNotNone(jplot_path)
-            with open(str(jplot_path), encoding="utf-8") as handle:
-                doc = yaml.safe_load(handle)
-            scatter = next(
-                layer
-                for layer in doc["Figures"][0]["layers"]
-                if layer.get("name") == "scatter"
-            )
-            self.assertEqual(scatter["coordinates"]["x"]["expr"], "MChi")
-            self.assertEqual(scatter["coordinates"]["y"]["expr"], "Y")
-            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["x"], "MChi")
-            self.assertEqual(doc["Figures"][0]["frame"]["ax"]["labels"]["y"], "Y")
+            def variable(name, kind, **parameters):
+                return {"name": name, "distribution": {"type": kind, "parameters": parameters}}
+
+            bounded = [variable("MChi", "Flat", min="10", max="100"),
+                       variable("Y", "Log", min="1e-7", max="1e-4")]
+            raw = [variable("mass", "Flat", min=10, max=100),
+                   variable("coupling", "Log", min=1e-7, max=1e-4)]
+            cases = [
+                ("unknown-priors", {"Variables": [{"name": "MChi"}, {"name": "Y"}]},
+                 {"xscale": "linear", "yscale": "linear"}),
+                ("bounded-priors", {"Variables": bounded},
+                 {"xlim": [10.0, 100.0], "ylim": [1e-7, 1e-4], "xscale": "linear", "yscale": "log"}),
+                ("unbounded-priors", {"Variables": [variable("MChi", "Normal", mean=50, stddev=10),
+                                                     variable("Y", "Log-Normal", mean=-14, stddev=1)]},
+                 {"xscale": "linear", "yscale": "log"}),
+                ("mapper-aliases", {"Variables": raw, "Mapper": [
+                    {"name": "MChi", "expression": "mass"}, {"name": "Y", "expression": "coupling"}]},
+                 {"xlim": [10.0, 100.0], "ylim": [1e-7, 1e-4], "xscale": "linear", "yscale": "log"}),
+                ("derived-axis", {"Variables": raw, "Mapper": [
+                    {"name": "MChi", "expression": "mass ** 2"}, {"name": "Y", "expression": "coupling"}]},
+                 {"ylim": [1e-7, 1e-4], "xscale": "linear", "yscale": "log"}),
+            ]
+            for name, sampling, expected in cases:
+                with self.subTest(name=name):
+                    jplot_path = emit_jplot_scan_levelset_yaml(
+                        scan_dir, scan_name="idm_demo", project_root=project,
+                        config={"Sampling": sampling},
+                    )
+                    self.assertIsNotNone(jplot_path)
+                    with open(str(jplot_path), encoding="utf-8") as handle:
+                        doc = yaml.safe_load(handle)
+                    scatter = next(layer for layer in doc["Figures"][0]["layers"]
+                                   if layer.get("name") == "scatter")
+                    self.assertEqual(scatter["coordinates"]["x"]["expr"], "MChi")
+                    self.assertEqual(scatter["coordinates"]["y"]["expr"], "Y")
+                    axis = doc["Figures"][0]["frame"]["ax"]
+                    self.assertEqual(axis, {"labels": {"x": "MChi", "y": "Y"}, **expected})
 
     def test_jplot_uses_multiple_csv_shards_without_merging(self) -> None:
         from jarvishep2.database import convert_hdf5_to_csv
@@ -671,12 +683,15 @@ class PlotSceneEmitTests(unittest.TestCase):
                 {"mass": 1.0, "observable": 4.0, "LogL": -2.0}
             )
             written = emit_plot_scenes_from_run(scan, project_root=project,
-                config={"Sampling": {"Method": "Random", "Variables": [{"name": "mass"}]}})
+                config={"Sampling": {"Method": "Random", "Variables": [{"name": "mass",
+                    "distribution": {"type": "Log", "parameters": {"min": 0.1, "max": 10}}}]}})
             with open(written["plot_yaml"], encoding="utf-8") as handle:
                 figure = yaml.safe_load(handle)["Figures"][0]
             self.assertEqual(figure["layers"][0]["coordinates"],
                              {"x": {"expr": "mass"}, "y": {"expr": "LogL"}})
             self.assertEqual(figure["style"], ["a4paper_2x1", "rect"])
+            self.assertEqual(figure["frame"]["ax"], {"labels": {"x": "mass", "y": "LogL"},
+                             "xlim": [0.1, 10.0], "xscale": "log", "yscale": "linear"})
 
     def test_manual_and_automatic_generation_use_same_card(self) -> None:
         from jarvishep2.cli.client import dispatch_gen_plot_yaml
@@ -692,13 +707,20 @@ class PlotSceneEmitTests(unittest.TestCase):
             with open(os.path.join(database, "dynesty_result.csv"), "w") as handle:
                 handle.write("log_Like\n-1\n")
             config = {"task_result_dir": scan, "project_root": project, "scan_name": "scan",
-                      "Sampling": {"Method": "Dynesty", "Variables": [{"name": "x"}, {"name": "y"}]}}
+                      "Sampling": {"Method": "Dynesty", "Variables": [
+                          {"name": "x", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}},
+                          {"name": "y", "distribution": {"type": "Log", "parameters": {"min": 1e-3, "max": 1}}}]}}
             with mock.patch("jarvishep2.plot_scene._try_render_jplot", return_value=True) as render:
                 automatic = emit_plot_scenes_from_run(scan, project_root=project,
                                                        config=config, auto_render=True)
             render.assert_called_once_with(automatic["plot_yaml"])
             with open(automatic["plot_yaml"], encoding="utf-8") as handle:
                 expected = yaml.safe_load(handle)
+            self.assertEqual(expected["Figures"][0]["frame"]["ax"], {
+                "labels": {"x": "x", "y": "y"}, "xlim": [0.0, 1.0], "ylim": [1e-3, 1.0],
+                "xscale": "linear", "yscale": "log",
+            })
+            self.assertNotIn("frame", expected["Figures"][1])  # Native nested-diagnostic axes.
             fake_core = mock.Mock(config=config)
             with mock.patch("jarvishep2.core.Jarvis2Core", return_value=fake_core), \
                  mock.patch("jarvishep2.plot_scene._try_render_jplot") as render, \

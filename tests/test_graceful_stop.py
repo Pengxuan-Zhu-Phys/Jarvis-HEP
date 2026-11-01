@@ -33,6 +33,7 @@ class InterruptCheckpointTests(unittest.TestCase):
             }
             sampler.submitted_uuids = frozenset({"a", "b"})
             sampler.at_safe_barrier.return_value = False
+            sampler.confirm_archived_prefix.return_value = None
             sampler.checkpoint_runtime_state.return_value = (
                 sampler.export_runtime_state.return_value
             )

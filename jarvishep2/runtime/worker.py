@@ -112,6 +112,7 @@ class Worker(Process):
         self._held_calc_packs: dict[str, str] = {}
         # Created child-side in _init_redis: locks/events are not spawn-picklable.
         self._heartbeat_lock: threading.Lock | None = None
+        self._heartbeat_publish_lock: threading.Lock | None = None
         self._last_status = "starting"
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
@@ -181,6 +182,7 @@ class Worker(Process):
         if lock is None:
             lock = threading.Lock()
             self._heartbeat_lock = lock
+            self._heartbeat_publish_lock = threading.Lock()
         return lock
 
     def _init_redis(self) -> None:
@@ -392,6 +394,14 @@ class Worker(Process):
                 return
 
     def _heartbeat(self, status: str | None = None) -> None:
+        # Serialize snapshot AND publication. Otherwise a delayed idle snapshot
+        # can overwrite busy from the main thread on a different Redis connection.
+        self._hb_lock()
+        assert self._heartbeat_publish_lock is not None
+        with self._heartbeat_publish_lock:
+            self._publish_heartbeat(status)
+
+    def _publish_heartbeat(self, status: str | None = None) -> None:
         if self._redis is None:
             return
         now = time.time()
@@ -404,6 +414,7 @@ class Worker(Process):
                 self._last_status = status
             publish_status = self._last_status
             held_packs = dict(self._held_calc_packs)
+            current_sample = self._current_sample_uuid
         active_pids: list[int] = []
         if self._scheduler is not None:
             active_pids = list(self._scheduler.active_subprocess_pids())
@@ -413,7 +424,7 @@ class Worker(Process):
         hb_fields: dict[str, Any] = {
             "status": publish_status,
             "pid": self.pid,
-            "current_sample": self._current_sample_uuid,
+            "current_sample": current_sample,
             "last_heartbeat": now,
             "ts": now,
             "held_calc_packs": json.dumps(held_packs),
@@ -707,9 +718,10 @@ class Worker(Process):
             for key in ("bucket_dir", "bucket_id", "bucket_name", "_bucket_parent"):
                 payload.pop(key, None)
 
-        self._current_task = payload
         sample = Sample.from_task_dict(payload)
-        self._current_sample_uuid = sample.uuid
+        with self._hb_lock():
+            self._current_task = payload
+            self._current_sample_uuid = sample.uuid
         self._heartbeat("busy")
         self._publish_sample_overlay("start")
         top = get_jarvis_logger(
@@ -781,8 +793,8 @@ class Worker(Process):
                 except Exception as cleanup_exc:
                     top.error("sample scratch cleanup failed -> %s", cleanup_exc, exc_info=True)
             self._publish_sample_overlay("end")
-            self._current_sample_uuid = None
             with self._hb_lock():
+                self._current_sample_uuid = None
                 self._current_task = None
 
     def _main_loop(self) -> None:

@@ -42,12 +42,16 @@ class _AliasLoader(Loader):
 
     def __init__(self, module: ModuleType) -> None:
         self._module = module
+        self._canonical_spec = module.__spec__
 
     def create_module(self, spec: ModuleSpec) -> ModuleType:
         return self._module
 
     def exec_module(self, module: ModuleType) -> None:
-        return None
+        # importlib installs the alias spec even when create_module returns an
+        # existing module. Keep its canonical metadata for relative imports,
+        # reload and pickle; sys.modules still exposes both names by identity.
+        module.__spec__ = self._canonical_spec
 
 
 class _LegacyPackageFinder(MetaPathFinder):

@@ -21,6 +21,7 @@ from jarvishep2.queue.redis_queue import (
     PROC_WORKER,
     SAMPLE_STATS,
     TASK_QUEUE,
+    WORKER_STATUS,
     _encode_heartbeat_value,
     _is_redis_timeout,
     _redis_text,
@@ -561,6 +562,29 @@ class _ProcBoard:
             return self._decode_task_payload(raw)
         except (CodecError, TypeError, ValueError):
             return None
+
+    def _watchdog_snapshot(self, worker_id: str) -> dict[str, Any]:
+        """Read one worker's heartbeat and occupancy at one Redis instant.
+
+        Unlike monitor snapshots, watchdog needs the actual task identity.
+        Read failures propagate: unavailable evidence must never authorize a kill.
+        """
+        self._require_client()
+        wid = str(worker_id)
+        pipe = self._ctrl().pipeline(transaction=True)
+        pipe.hgetall(WORKER_STATUS.format(id=wid))
+        pipe.hgetall(PROC_WORKER.format(id=wid))
+        pipe.llen(self._inflight_key(wid))
+        pipe.lindex(self._inflight_key(wid), 0)
+        heartbeat, board, count, raw = pipe.execute()
+        merged = dict(heartbeat or {})
+        merged.update(board or {})
+        task = None
+        try:
+            task = self._decode_task_payload(raw)
+        except (CodecError, TypeError, ValueError):
+            pass
+        return {"heartbeat": merged, "inflight_count": int(count or 0), "task": task}
 
     def ack_inflight_task(self, worker_id: str, uuid: str) -> bool:
         """Uuid-matched LPOP of the list head. Never DEL."""
