@@ -14,6 +14,9 @@ User guides and reference documentation are available in
 - Prevent watchdog recovery from combining different tasks' brief idle transitions
   into one timeout. Recheck task ownership before stopping a Worker and publish
   heartbeats in order so an older idle update cannot overwrite busy.
+- Report a refused unit resume (`JV2-UNIT-004`) as CRITICAL, and say that the
+  scan needs a new name or a moved-away DATABASE: a fresh run under the same name
+  keeps the old rows, so it cannot resume either.
 - Resume Dynesty and MultiNest scans without missing rows. A checkpoint keeps
   only engine snapshots whose evaluations are already in DATABASE.
 - Confirm checkpoint progress with per-sample archive receipts that the

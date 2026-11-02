@@ -17,8 +17,12 @@ from jarvishep2.operas_units import (
 
 
 def _refuse(reason):
+    # DATABASE is append-only: a fresh run keeps the old rows, so a later
+    # resume would be refused again.  Only a new scan name or an empty
+    # DATABASE makes the scan resumable.
     raise UnitBridgeError(
-        reason + "; use a new scan name or explicitly start fresh",
+        reason + "; this scan cannot resume. Use a new scan name, or move its "
+        "DATABASE directory away and start fresh",
         code="JV2-UNIT-004",
         path="$.Operas",
     )
@@ -26,6 +30,17 @@ def _refuse(reason):
 
 def preflight_units(core, *, resume=False, check=False):
     """Must precede engine restore, HDF5 recovery and reuse of persisted rows."""
+    try:
+        _preflight_units(core, resume=resume, check=check)
+    except UnitBridgeError as exc:
+        logger = getattr(core, "_logger", None)
+        if exc.code == "JV2-UNIT-004" and logger is not None:
+            logger.critical("%s", exc)
+            exc.logged = True
+        raise
+
+
+def _preflight_units(core, *, resume=False, check=False):
     config = core.config
     if not isinstance(config, Mapping):
         return

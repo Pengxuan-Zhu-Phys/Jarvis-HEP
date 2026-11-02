@@ -334,7 +334,9 @@ def dispatch_run(
         else:
             outcome = core.run(resume=resume)
     except UnitBridgeError as exc:
-        print(str(exc), file=sys.stderr)
+        # A refused unit resume is already on the console as CRITICAL.
+        if not getattr(exc, "logged", False):
+            print(str(exc), file=sys.stderr)
         return EXIT_USAGE
     except NotImplementedError as exc:
         print(str(exc), file=sys.stderr)

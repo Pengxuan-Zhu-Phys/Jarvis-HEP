@@ -1,5 +1,6 @@
 """Units through persisted JO sources, real Redis/spawn, DATABASE and restore."""
 
+from collections import Counter
 import csv
 import json
 import os
@@ -14,6 +15,7 @@ import yaml
 
 from jarvishep2.operas_units import DATABASE_KEY
 from jarvishep2.io.database import SimpleHDF5Writer
+from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
 
 FIXTURE = Path(__file__).parent / "fixtures/unit_ops.py"
 
@@ -51,6 +53,21 @@ except UnitBridgeError as exc:
     Path(output).write_text(json.dumps(dict(code=exc.code,error=str(exc))))
     raise SystemExit(2)
 """
+
+
+def _cursor(tmp_path, method):
+    path = tmp_path / "checkpoints/unit_scan" / method / "state.pkl"
+    if not path.exists():
+        return 0
+    return int(load_checkpoint(str(path))["sampler_state"].get("checkpoint_index", 0) or 0)
+
+
+def _assert_append_only(rows, expected, cursor):
+    # DATABASE is append-only: resume evaluates every index from the
+    # checkpoint cursor again, so only those rows may appear twice.
+    counts = Counter(int(r["sample_index"]) for r in rows)
+    assert len(counts) == expected
+    assert all(n <= 2 and (n == 1 or index >= cursor) for index, n in counts.items())
 
 
 def _setup(tmp_path, *, store=False, mode="call"):
@@ -161,9 +178,12 @@ def test_real_units_yaml_spawn_archive_and_resume(tmp_path, store, mode):
     assert json.loads(exported[0][DATABASE_KEY]) == rows[0][DATABASE_KEY]
     if not store:
         assert not (tmp_path / "outputs/unit_scan/SAMPLE").exists()
+    cursor = _cursor(tmp_path, "Random")
     process, result = _run(tmp_path, path, env, "resume")
     assert process.returncode == 0, result
-    assert len(SimpleHDF5Writer(str(directory / "samples.hdf5")).read_records()) == 4
+    _assert_append_only(
+        SimpleHDF5Writer(str(directory / "samples.hdf5")).read_records(), 4, cursor
+    )
     before = (directory / "samples.hdf5").read_bytes()
     cfg["Operas"]["Modules"][0]["output"][0]["unit"] = "pb"
     path.write_text(yaml.safe_dump(cfg))
@@ -207,6 +227,7 @@ def test_real_unit_interrupt_resume(tmp_path, method):
     path.write_text(yaml.safe_dump(cfg))
     process, result = _run(tmp_path, path, env, "interrupt")
     assert process.returncode == 130, result
+    cursor = _cursor(tmp_path, method)
     process, result = _run(tmp_path, path, env, "resume")
     assert process.returncode == 0, result
     rows = SimpleHDF5Writer(
@@ -217,5 +238,5 @@ def test_real_unit_interrupt_resume(tmp_path, method):
         import numpy as np
 
         expected = len(np.load(tmp_path / "checkpoints/unit_scan/Bridson/points.npy"))
-    assert len(rows) == expected and len({r["sample_index"] for r in rows}) == expected
+    _assert_append_only(rows, expected, cursor)
     assert all(r["rate_fb"] == pytest.approx(38.332) for r in rows)
