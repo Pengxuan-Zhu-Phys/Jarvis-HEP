@@ -36,22 +36,23 @@ def core(tmp_path):
         },
     )
     return SimpleNamespace(
-        config=config, info={}, checkpoint_file=lambda: str(tmp_path / "state.pkl")
+        config=config, info={}, checkpoint_file=lambda: str(tmp_path / "runtime.pickle")
     )
 
 
 def _checkpoint(core, *, cursor=1):
-    from jarvishep2.sampling.runtime_checkpoint import save_checkpoint
+    from jarvishep2.sampling.sample_checkpoint import (
+        FORMAT, VERSION, atomic_pickle, config_identity,
+    )
 
     descriptor = core.config.get("_unit_execution") or {}
-    save_checkpoint(
+    atomic_pickle(
         core.checkpoint_file(),
         dict(
-            format="jarvis-hep.v2-distributed",
-            version=1,
-            run_spec={},
-            sampler_state={"checkpoint_index": cursor},
-            persistence={},
+            format=FORMAT, version=VERSION,
+            method=core.config["Sampling"]["Method"].lower(),
+            config_id=config_identity(core.config),
+            sampler_state={"next_sample_index": cursor},
             integrity={"unit_execution": descriptor.get("execution_identity")},
         ),
     )

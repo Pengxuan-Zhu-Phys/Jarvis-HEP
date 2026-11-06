@@ -5,16 +5,15 @@ from __future__ import annotations
 
 import itertools
 import time
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
-from jarvishep2.sampling.fixed_set_sampler import FixedSetSampler
+from jarvishep2.sampling.completion_sampler import PointSetSampler
 from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.log_kv import PermilleProgress, format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
-from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
 
 
 def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
@@ -30,16 +29,14 @@ def grid_sampling(dimensions: np.ndarray) -> np.ndarray:
     return np.array(list(itertools.product(*grid_ranges)), dtype=np.float64)
 
 
-class Grid(FixedSetSampler):
+class Grid(PointSetSampler):
     method = "Grid"
     uuid_prefix = "grid"
-    _checkpoint_excluded_attributes = frozenset({"_logger", "_P", "_submit_progress", "_points_sha256"})
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.grid")
         self._P: np.ndarray | None = None
-        self._points_sha256: str | None = None
         self._submit_progress: PermilleProgress | None = None
 
     def initialize(self, *, reset: bool = True) -> None:
@@ -53,7 +50,6 @@ class Grid(FixedSetSampler):
             dims.append(int(var.parameters["num"]))
         dims_arr = np.array(dims, dtype=np.int64)
         self._P = grid_sampling(dims_arr)
-        self._points_sha256 = array_fingerprint(self._P)
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
         if reset:
@@ -89,7 +85,8 @@ class Grid(FixedSetSampler):
         self._ensure_grid()
         assert self._P is not None
         while self._index < len(self._P):
-            row = self._P[self._index]
+            point_index = self._index
+            row = self._P[point_index]
             self._index += 1
             self._emit_progress()
             physical = physical_from_u(row, self.vars, self._mapper_pipeline)
@@ -104,8 +101,8 @@ class Grid(FixedSetSampler):
             u_coords = np.asarray(row, dtype=np.float64)
             sample = self._build_sample(u_coords)
             sample.sample_index = accepted_index
-            sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            return sample
+            sample.uuid = self._point_uuid(point_index)
+            return self._remember(sample, point_index=point_index)
         return None
 
     def _stream_exhausted(self) -> bool:
@@ -113,8 +110,6 @@ class Grid(FixedSetSampler):
 
     def _emit_progress(self) -> None:
         """Emit one progress heartbeat for each newly traversed grid permille."""
-        if bool(getattr(self, "_suppress_submit_progress", False)):
-            return
         total = int(self.info.get("NSamples", 0) or 0)
         if self._P is not None:
             total = max(total, int(len(self._P)))
@@ -127,19 +122,5 @@ class Grid(FixedSetSampler):
                 label="grid points sampled",
             )
         self._submit_progress.update(self._index)
-
-    def export_runtime_state(self) -> dict[str, Any]:
-        self._ensure_grid()
-        payload = self._common_export_fields()
-        payload.update({"numpy_random_state": None, "points_sha256": self._points_sha256})
-        return payload
-
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        self._ensure_grid()
-        if state.get("points_sha256") != self._points_sha256:
-            raise ValueError("Grid point set changed or checkpoint lacks point fingerprint")
-        self._import_common_fields(state)
-        self._submit_progress = None
-
 
 __all__ = ["Grid", "grid_sampling"]

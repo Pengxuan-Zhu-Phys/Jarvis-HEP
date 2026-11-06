@@ -62,6 +62,7 @@ _CONTROL_HEADS: frozenset[str] = frozenset({"Jarvis"})
 _ROLE_HEAD_PREFIXES: tuple[str, ...] = (
     "Jarvis-Worker-",
     "Jarvis-Archiver",
+    "Jarvis-Checkpoint",
     "Jarvis-FileOperation",
     "Jarvis-Redis",
 )
@@ -233,6 +234,7 @@ def _scan_name_from_command(command: str) -> str | None:
         or head.startswith("Jarvis-Worker-")
         or head == "Jarvis-FileOperation"
         or head == "Jarvis-Archiver"
+        or head == "Jarvis-Checkpoint"
         or head == "Jarvis-Redis"
     ):
         return name.split("@", 1)[0].strip() or None
@@ -249,6 +251,7 @@ def _is_unscoped_jarvis_title(command: str) -> bool:
     title = str(command or "").strip().split(None, 1)[0]
     if title in _CONTROL_HEADS or title in {
         "Jarvis-Archiver",
+        "Jarvis-Checkpoint",
         "Jarvis-FileOperation",
         "Jarvis-Redis",
     }:
@@ -747,6 +750,8 @@ def _process_role_and_detail(proc: JarvisProcess, scan_name: str) -> tuple[str, 
         return "FileOperation", "Worker-owned SAMPLE save / copy / delete"
     if title.startswith("Jarvis-Archiver"):
         return "Archiver", "writes DATABASE and exports"
+    if title.startswith("Jarvis-Checkpoint"):
+        return "Checkpoint", "writes sampler runtime.pickle snapshots"
     if (
         title.startswith("Jarvis-Redis:")
         or title.startswith("Jarvis-Redis@")
@@ -847,13 +852,13 @@ def confirm_kill(count: int, *, yes: bool = False) -> bool:
 
 
 def _kill_order_key(proc: JarvisProcess) -> tuple[int, int]:
-    """Prefer Workers/FileOp → Archiver → control → Redis (drop deps first)."""
+    """Prefer Workers/FileOp → writers → control → Redis (drop deps first)."""
     cmd = proc.command
     if "Worker" in cmd:
         rank = 0
     elif "FileOperation" in cmd:
         rank = 1
-    elif "Archiver" in cmd:
+    elif "Archiver" in cmd or "Checkpoint" in cmd:
         rank = 2
     elif cmd.startswith("Jarvis-Redis"):
         rank = 4

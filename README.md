@@ -398,8 +398,34 @@ logs/my_scan/
 If a scan was interrupted, or you want to regenerate `samples.csv`, run
 `Jarvis convert TASK.yaml`.
 
-Progress for resuming is saved under
-`checkpoints/<scan>/<sampler>/state.pkl`. Press `Ctrl+C` to stop a scan cleanly;
+Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty and MultiNest save
+periodic snapshots under `checkpoints/<scan>/<sampler>/runtime.pickle`. Grid
+and Bridson also write their fixed coordinates and UUIDs once to `all.pickle`.
+A completion snapshot stores the generation cursor and the bounded set of
+unfinished points. Workers for Grid, Random, Bridson and CSV return terminal
+feedback even when checkpointing is disabled; only that feedback marks a point
+completed in the sampler. AdaptiveBridson, Dynesty and MultiNest still return
+the physics values those samplers store. Resume recalculates unfinished points
+with their original coordinates and UUIDs before generating new points.
+Dynesty and MultiNest resume the vendored engine from `runtime.pickle`;
+`nested_engine.pkl` beside it is only a copy for dynesty tools. Completions
+after the last saved snapshot can be recalculated too. These snapshots neither
+inspect nor synchronize the HDF5 output; existing output rows are retained.
+The archived counter reports this run's writer output; sampler completion
+counts are not added as presumed historical HDF5 rows.
+Control starts a separate non-daemon `spawn` process named
+`Jarvis-Checkpoint:<scan>`. It requests snapshots periodically and writes them
+through a bounded, local IPC channel. A busy or failed checkpoint process
+does not block sampling. Redis exposes its PID, heartbeat, last save and error
+under `hep:proc:checkpoint`; it never carries snapshot data. `Jarvis ps` and
+`Jarvis kill` include the checkpoint process, and its log is `checkpoint.log`.
+Missing, damaged or mismatched resume files are errors,
+and the previous `state.pkl` / `points.npy` formats are not imported for these
+samplers. Random and CSV keep only unfinished point data in the runtime
+snapshot; they do not store their full scan history.
+
+MCMC samplers currently save `checkpoints/<scan>/<sampler>/state.pkl`.
+Press `Ctrl+C` to stop a scan cleanly;
 Jarvis stops all of its worker processes and any Redis server it started
 itself. Continue later with `Jarvis run TASK.yaml --resume`.
 

@@ -15,7 +15,7 @@ import yaml
 
 from jarvishep2.operas_units import DATABASE_KEY
 from jarvishep2.io.database import SimpleHDF5Writer
-from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
+from jarvishep2.sampling.sample_checkpoint import read_pickle
 
 FIXTURE = Path(__file__).parent / "fixtures/unit_ops.py"
 
@@ -56,10 +56,11 @@ except UnitBridgeError as exc:
 
 
 def _cursor(tmp_path, method):
-    path = tmp_path / "checkpoints/unit_scan" / method / "state.pkl"
+    path = tmp_path / "checkpoints/unit_scan" / method / "runtime.pickle"
     if not path.exists():
         return 0
-    return int(load_checkpoint(str(path))["sampler_state"].get("checkpoint_index", 0) or 0)
+    state = read_pickle(str(path))["sampler_state"]
+    return min(state["unfinished"], default=state["next_sample_index"])
 
 
 def _assert_append_only(rows, expected, cursor):
@@ -235,8 +236,6 @@ def test_real_unit_interrupt_resume(tmp_path, method):
     ).read_records()
     expected = 4
     if method == "Bridson":
-        import numpy as np
-
-        expected = len(np.load(tmp_path / "checkpoints/unit_scan/Bridson/points.npy"))
+        expected = len(read_pickle(str(tmp_path / "checkpoints/unit_scan/Bridson/all.pickle"))["coordinates"])
     _assert_append_only(rows, expected, cursor)
     assert all(r["rate_fb"] == pytest.approx(38.332) for r in rows)

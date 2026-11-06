@@ -126,6 +126,7 @@ class FactoryPane(Horizontal):
         boards = (
             ("Core", self.frame.proc_core),
             ("Archiver", self.frame.proc_archiver),
+            ("Checkpoint", self.frame.proc_checkpoint),
             ("Redis", self.frame.proc_redis),
         )
         lines = [f"FACTORY{stale}  control plane", "", "ROLE       PID     STATUS       HOST"]

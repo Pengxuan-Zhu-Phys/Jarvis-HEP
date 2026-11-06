@@ -2,18 +2,14 @@
 """Bridson (Poisson-disk / blue-noise) sampler for Jarvis-HEP V2."""
 
 from __future__ import annotations
-import os
-import tempfile
-
 import hashlib
 import time
-from copy import deepcopy
 from typing import Any, Mapping
 
 import numpy as np
 from scipy.special import gammainc
 
-from jarvishep2.sampling.fixed_set_sampler import FixedSetSampler
+from jarvishep2.sampling.completion_sampler import PointSetSampler
 from jarvishep2.sampling.sampling_utils import (
     evaluate_selection,
     physical_from_u,
@@ -23,7 +19,6 @@ from jarvishep2.log_kv import format_duration
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
-from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
 
 
 def hypersphere_volume_sample(center: np.ndarray, radius: float, k: int = 1) -> np.ndarray:
@@ -108,21 +103,16 @@ def deterministic_bridson_uuid(*, seed: int, sample_index: int) -> str:
     )
 
 
-class Bridson(FixedSetSampler):
-    """Stateless batch proposer: precompute Poisson-disk set, submit via Redis."""
+class Bridson(PointSetSampler):
+    """Precomputed Poisson-disk points with completion-based resume."""
 
     method = "Bridson"
     uuid_prefix = "bridson"
-    _checkpoint_saved_attributes = frozenset({"barinfo"})
-    _checkpoint_excluded_attributes = frozenset(
-        {"_logger", "_P", "_radius", "_k", "_max_inflight", "_points_sha256"}
-    )
 
     def __init__(self) -> None:
         super().__init__()
         self._logger = get_jarvis_logger("sampler.bridson")
         self._P: np.ndarray | None = None
-        self._points_sha256: str | None = None
         self._radius = 0.0
         self._k = 30
         self._max_inflight = 1
@@ -130,9 +120,6 @@ class Bridson(FixedSetSampler):
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
-        # FixedSetSampler already set _batch_size from get_runtime_block (default 256).
-        # Do not re-read raw Runtime here — missing batch_size would wrongly fall back
-        # to max_worker/workers and change Redis pipeline sizing vs Random/Grid.
         sampling = dict(self.config.get("Sampling") or {})
         bounds = sampling.get("Bounds") if isinstance(sampling.get("Bounds"), Mapping) else {}
         if not isinstance(bounds, Mapping) or not bounds:
@@ -166,7 +153,6 @@ class Bridson(FixedSetSampler):
             k=self._k,
             hypersphere_sample=hypersphere_surface_sample,
         )
-        self._points_sha256 = array_fingerprint(self._P)
         self.info["NSamples"] = int(self._P.shape[0])
         self.info["t0"] = time.time() - t0
         if reset:
@@ -199,48 +185,15 @@ class Bridson(FixedSetSampler):
         if self._P is None:
             self.initialize(reset=False)
 
-    @staticmethod
-    def _points_path(checkpoint_file: str) -> str:
-        return os.path.join(os.path.dirname(checkpoint_file), "points.npy")
-
-    def prepare_fresh_points(self, checkpoint_file: str) -> None:
-        self._ensure_grid()
-        path = self._points_path(checkpoint_file)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix="points.", suffix=".tmp", dir=os.path.dirname(path))
-        try:
-            with os.fdopen(fd, "wb") as handle:
-                np.save(handle, self._P, allow_pickle=False)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, path)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-
-    def prepare_resume_points(self, checkpoint_file: str, state: Mapping[str, Any]) -> None:
-        path = self._points_path(checkpoint_file)
-        try:
-            points = np.load(path, mmap_mode="r", allow_pickle=False)
-            if points.ndim != 2 or points.shape[1] != len(self.vars):
-                raise ValueError("Bridson points.npy shape mismatch")
-            if state.get("points_sha256") != array_fingerprint(points):
-                raise ValueError("Bridson points.npy hash mismatch")
-        except (OSError, ValueError) as exc:
-            raise ValueError(f"Bridson points.npy missing, damaged or mismatched: {exc}") from exc
-        self._P = points
-        self._points_sha256 = str(state["points_sha256"])
-        self.info["NSamples"] = int(points.shape[0])
-
     def _uuid_for_accepted_index(self, accepted_index: int) -> str:
-        # Keep historical Bridson UUID formula (prefix "bridson:").
         return deterministic_bridson_uuid(seed=self._seed, sample_index=accepted_index)
 
     def propose_next(self) -> Sample | None:
         self._ensure_grid()
         assert self._P is not None
         while self._index < len(self._P):
-            row = self._P[self._index]
+            point_index = self._index
+            row = self._P[point_index]
             self._index += 1
             # V1 progress heartbeat: advance on every grid step (even if selection rejects).
             self._emit_progress()
@@ -256,18 +209,18 @@ class Bridson(FixedSetSampler):
             self._accepted_index += 1
             sample = self._build_sample(u_coords)
             sample.sample_index = accepted_index
-            sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            return sample
+            sample.uuid = self._point_uuid(point_index)
+            return self._remember(sample, point_index=point_index)
         return None
 
     def _stream_exhausted(self) -> bool:
         return self._P is not None and self._index >= len(self._P)
 
+    def _point_coords(self, index: int) -> np.ndarray:
+        return row_to_u_coords(self._P[index], self.vars)
+
     def _emit_progress(self) -> None:
         """V1 Bridson submit heartbeat: one log line per new ‰ of the grid."""
-        # Local DATABASE prefix replay must not look like real submissions.
-        if bool(getattr(self, "_suppress_submit_progress", False)):
-            return
         total = int(self.info.get("NSamples", 0) or 0)
         if self._P is not None:
             total = max(total, int(len(self._P)))
@@ -303,25 +256,6 @@ class Bridson(FixedSetSampler):
         if permille != int(self.barinfo.get("permille", -1)):
             self.barinfo["permille"] = permille
             _log_progress(permille)
-
-    def export_runtime_state(self) -> dict[str, Any]:
-        self._ensure_grid()
-        payload = self._common_export_fields()
-        payload.update(
-            {
-                "barinfo": deepcopy(self.barinfo),
-                "numpy_random_state": None,
-                "points_sha256": self._points_sha256,
-                "points_count": int(len(self._P)),
-                "points_dimension": int(self._P.shape[1]),
-            }
-        )
-        return payload
-
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        self._import_common_fields(state)
-        self.barinfo = deepcopy(state.get("barinfo", self.barinfo))
-
 
 __all__ = [
     "Bridson",

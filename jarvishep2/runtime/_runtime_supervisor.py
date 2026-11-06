@@ -160,7 +160,26 @@ class _RuntimeSupervisor:
                 or not uses_checkpoint_resume_protocol(core.config)):
             core._load_persisted_database_state(os.path.dirname(db_path))
         Jarvis2Core._bind_sampler_persistence(core)
-        if core._resume_policy == "resume":
+        if core._resume_policy == "resume" and getattr(core.sampler, "uses_sample_checkpoint", False) is True:
+            unfinished = getattr(core.sampler, "_unfinished", None)
+            if unfinished is not None:
+                core._logger.info(
+                    "Restored sampler completions: completed=%d failed=%d unfinished=%d",
+                    core.sampler._completed_count, core.sampler._failed_count,
+                    len(unfinished),
+                )
+            elif hasattr(core.sampler, "_pool_call_index"):
+                core._logger.info(
+                    "Restored sampler checkpoint: cursor=%d",
+                    int(getattr(core.sampler, "_pool_call_index", 0) or 0),
+                )
+            else:
+                core._logger.info(
+                    "Restored sampler checkpoint: points=%d pending=%d",
+                    len(getattr(core.sampler, "_points", ()) or ()),
+                    len(getattr(core.sampler, "_pending_uuids", ()) or ()),
+                )
+        elif core._resume_policy == "resume":
             core._logger.warning(
                 "Resume DATABASE reconciliation found prefix=%d, "
                 "completed=%d failed=%d, %d legacy UUID(s)",
@@ -1015,6 +1034,10 @@ class _RuntimeSupervisor:
             merged_config = dict(worker_config)
             if "command_parser" not in merged_config:
                 merged_config = core._apply_command_parser_to_worker_config(merged_config)
+        from jarvishep2.sampling.sample_checkpoint import uses_completion_feedback
+
+        if uses_completion_feedback(core.config):
+            merged_config.update(publish_feedback=True, completion_feedback=True)
         if core._control_lock_owner:
             merged_config.setdefault("control_lock_owner", str(core._control_lock_owner))
         # Direct Python callers may supply the public parent/mode shape as a
@@ -1249,6 +1272,12 @@ class _RuntimeSupervisor:
         """Best-effort stop of managed Redis if the process dies unexpectedly."""
         core = self._core
 
+        writer = getattr(core, "checkpoint_process", None)
+        if writer is not None:
+            try:
+                writer.finish(timeout=1.0)
+            except Exception:
+                pass
         if core._shutdown_done:
             return
         try:
@@ -1276,6 +1305,15 @@ class _RuntimeSupervisor:
             core._logger.warning("%s failed -> %s", stage, exc)
 
         try:
+            writer = getattr(core, "checkpoint_process", None)
+            if writer is not None:
+                # Checkpoint failures must never turn factory shutdown into a
+                # failed scan. Stop the owned child before Redis is released.
+                try:
+                    if writer.finish():
+                        core.checkpoint_process = None
+                except Exception as exc:
+                    core._logger.warning("Checkpoint process shutdown -> %s", exc)
             if core.sampler is not None and hasattr(core.sampler, "shutdown_checkpointing"):
                 try:
                     core.sampler.shutdown_checkpointing()

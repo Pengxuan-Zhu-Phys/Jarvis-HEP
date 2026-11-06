@@ -61,6 +61,7 @@ CONTROL_LOCK_TTL_SEC = 120
 # when stale_sec is known so the board outlives the watchdog window.
 PROC_CORE = "hep:proc:core"
 PROC_ARCHIVER = "hep:proc:archiver"
+PROC_CHECKPOINT = "hep:proc:checkpoint"
 PROC_REDIS = "hep:proc:redis"
 PROC_WORKER = "hep:proc:worker:{id}"
 PROC_CHILDREN = "hep:proc:children:{id}"
@@ -74,7 +75,7 @@ MONITOR_KEY_PATTERN = "hep:monitor:*"
 PROC_BOARD_TTL_SEC = 60
 ARCHIVER_BOARD_TTL_SEC = 120
 CONTROL_SOCKET_TIMEOUT_SEC = 2.0
-PROC_ROLES = frozenset({"core", "archiver", "redis", "worker", "children"})
+PROC_ROLES = frozenset({"core", "archiver", "checkpoint", "redis", "worker", "children"})
 _VALID_OP_KINDS = frozenset({"worker", "calculator", "sample", "task"})
 _VALID_SAMPLE_ARTIFACTS = frozenset({"auto", "always", "never"})
 _VALID_RESULT_STATUSES = frozenset({"Created", "Init", "Running", "Completed", "Failed"})
@@ -501,7 +502,7 @@ class RedisQueue(
             worker_ids = list(range(0, 64))
         elif isinstance(worker_ids, int):
             worker_ids = list(range(0, max(0, int(worker_ids))))
-        keys.extend((PROC_CORE, PROC_ARCHIVER, PROC_REDIS))
+        keys.extend((PROC_CORE, PROC_ARCHIVER, PROC_CHECKPOINT, PROC_REDIS))
         for worker_id in worker_ids:
             wid = str(worker_id)
             keys.append(WORKER_STATUS.format(id=wid))
@@ -709,6 +710,7 @@ class RedisQueue(
             "op_counts": {kind: self.get_op_count(kind) for kind in sorted(_VALID_OP_KINDS)},
             "proc_core": dict(ctrl.hgetall(PROC_CORE) or {}),
             "proc_archiver": dict(ctrl.hgetall(PROC_ARCHIVER) or {}),
+            "proc_checkpoint": dict(ctrl.hgetall(PROC_CHECKPOINT) or {}),
             "proc_redis": dict(ctrl.hgetall(PROC_REDIS) or {}),
         }
         if owner_ids is not None:
@@ -807,6 +809,7 @@ __all__ = [
     "MONITOR_WANT_TTL_SEC",
     "OP_COUNT",
     "PROC_ARCHIVER",
+    "PROC_CHECKPOINT",
     "PROC_BOARD_TTL_SEC",
     "PROC_CHILDREN",
     "PROC_CORE",

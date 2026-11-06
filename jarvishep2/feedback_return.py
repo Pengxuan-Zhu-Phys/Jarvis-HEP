@@ -7,7 +7,9 @@ Wire default::
 
 Unusable points carry ``logL = -inf`` (set by likelihood / projection).
 Extra optimizer fields are top-level siblings, never a nested observables bag.
-Sample lifecycle ``status`` stays on the archive path only.
+Sample lifecycle ``status`` stays on the archive path. Finite samplers use
+a separate compact terminal projection on the feedback channel:
+``{uuid, sample_index, terminal_status}``, without likelihood fields.
 """
 
 from __future__ import annotations

@@ -122,7 +122,10 @@ def _preflight_units(core, *, resume=False, check=False):
             try:
                 from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
 
-                payload = load_checkpoint(checkpoint)
+                from jarvishep2.sampling.sample_checkpoint import load_runtime, uses_sample_checkpoint
+
+                payload = (load_runtime(checkpoint, config) if uses_sample_checkpoint(config)
+                           else load_checkpoint(checkpoint))
                 if (payload.get("integrity") or {}).get("unit_execution") != current:
                     _refuse("checkpoint and unit manifest disagree")
             except UnitBridgeError:

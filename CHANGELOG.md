@@ -17,11 +17,12 @@ User guides and reference documentation are available in
 - Report a refused unit resume (`JV2-UNIT-004`) as CRITICAL, and say that the
   scan needs a new name or a moved-away DATABASE: a fresh run under the same name
   keeps the old rows, so it cannot resume either.
-- Resume Dynesty and MultiNest scans without missing rows. A checkpoint keeps
-  only engine snapshots whose evaluations are already in DATABASE.
+- Resume Dynesty and MultiNest from the engine snapshot in `runtime.pickle`.
+  The snapshot is taken between dynesty iterations and does not wait for DATABASE.
 - Confirm checkpoint progress with per-sample archive receipts that the
-  Archiver posts after each HDF5 fsync. Grid, Random, Bridson, CSV, Dynesty and
-  MultiNest never save a resume point past rows that are not on disk.
+  Archiver posts after each HDF5 fsync. MCMC checkpoints still advance only
+  after those receipts. Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty
+  and MultiNest resume from the landed checkpoint file alone.
 - Report a stalled or stopped Archiver at the end of a scan with the number of
   rows still missing, instead of waiting for the full timeout.
 - Keep the sample index on the failure row that the watchdog writes after the
@@ -32,17 +33,17 @@ User guides and reference documentation are available in
 - Allow 30 seconds for the same idle in-flight task, expire Worker heartbeats
   after 60 seconds, and check Workers every 2 seconds by default. Existing
   watchdog settings remain configurable.
-- Dynesty and MultiNest `--resume` reads only `state.pkl`; without it the scan
-  starts fresh. A fresh scan removes the old `nested_engine.pkl`, which stays a
-  copy of the last saved engine for `dynesty.utils.restore_sampler`.
+- Dynesty and MultiNest `--resume` reads only `runtime.pickle`. A missing file
+  is an error. `nested_engine.pkl` is a tools copy written by the checkpoint
+  process; a fresh scan removes the old copy, and resume never reads it.
 - Reject Dynesty and MultiNest checkpoints from earlier releases; the scan
   starts fresh and the log gives the reason.
 - DATABASE is append-only. A fresh scan appends to an existing DATABASE, and
   `--resume` evaluates the samples after the last checkpoint again, so their
   rows can appear twice. The Archiver no longer reads or rewrites existing rows,
   and the end-of-scan cleanup of old rows is removed.
-- Resume of Grid, Random, Bridson, CSV, Dynesty and MultiNest reads progress
-  and completed/failed counts from `state.pkl` only and never scans DATABASE.
+- Resume of Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty and MultiNest
+  reads the landed `runtime.pickle` only and never scans DATABASE.
 
 ## 2.1.2
 

@@ -186,37 +186,52 @@ class SavedEngine:
         self.saves += 1
 
 
-def test_nested_timed_save_queues_one_snapshot_until_archived(tmp_path, monkeypatch):
+def test_nested_timed_save_submits_when_the_writer_is_idle(tmp_path, monkeypatch):
     sampler = DynestySampler()
     sampler.set_config(config(tmp_path, "Dynesty"))
     sampler._sampler = SavedEngine()
     sampler._pool_call_index = 8
     pickle_native = Mock(return_value=b"engine")
     monkeypatch.setattr(sampler, "_pickle_native_sampler", pickle_native)
-    states = []
-    sampler._save_checkpoint_callback = lambda **kw: states.append(sampler.checkpoint_runtime_state(safe=True))
+
+    class Writer:
+        def __init__(self):
+            self.idle = False
+            self.payloads = []
+
+        def available(self):
+            return self.idle
+
+        def wait(self, timeout=10.0):
+            return True
+
+        def submit(self, payload):
+            self.payloads.append(payload)
+            return True
+
+    writer = Writer()
+    sampler._pickle_writer = writer
     sampler._install_dynesty_save_hook()
     sampler._sampler.save("unused")
-    # The hook replaces dynesty's own file write and pickles the engine once.
+    # A busy checkpoint process returns before the engine is pickled.
     assert sampler._sampler.saves == 0
+    pickle_native.assert_not_called()
+    writer.idle = True
+    sampler._sampler.save("unused")
     pickle_native.assert_called_once()
-    # DATABASE has no row below cursor 8 yet: state.pkl keeps the initial point.
-    assert states[0]["checkpoint_index"] == 0
-    assert states[0]["native_sampler_blob"] is None
-    sampler.set_persisted_prefix(8)
-    committed = sampler.checkpoint_runtime_state(safe=False)
-    assert committed["checkpoint_index"] == 8
-    assert committed["native_sampler_blob"] == b"engine"
+    assert writer.payloads[0]["sampler_state"]["checkpoint_index"] == 8
+    assert writer.payloads[0]["sampler_state"]["native_sampler_blob"] == b"engine"
+    assert not os.path.exists(sampler._engine_path())
 
 
 def test_nested_disabled_checkpoint_never_writes_engine(tmp_path, monkeypatch):
     sampler = DynestySampler()
     sampler.set_config(config(tmp_path, "Dynesty"))
+    sampler.config.setdefault("EnvReqs", {}).setdefault("V2", {}).setdefault("checkpoint", {})["enabled"] = False
     sampler._sampler = SavedEngine()
     monkeypatch.setattr(sampler, "_pickle_native_sampler", lambda *a: b"engine")
-    sampler._capture_engine_snapshot()
-    sampler.set_persisted_prefix(10)
-    sampler.checkpoint_runtime_state(safe=False)
+    sampler.configure_checkpoint(checkpoint_file=str(tmp_path / "runtime.pickle"))
+    assert sampler.save_checkpoint(force=True) is False
     sampler.export_runtime_state()
     assert not os.path.exists(sampler._engine_path())
 

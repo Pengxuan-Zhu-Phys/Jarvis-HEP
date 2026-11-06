@@ -30,6 +30,17 @@ from jarvishep2.redis_queue import make_fakeredis_queue
 from test_worker_mvp import _start_tcp_fakeredis
 
 
+def _restore_snapshot(restored, source, state):
+    # These unit tests supply their point-set fixture directly; all.pickle
+    # loading and cross-file identity checks live in test_sample_checkpoint.
+    from jarvishep2.sampling.completion_sampler import PointSetSampler
+    if isinstance(source, PointSetSampler):
+        restored._P = source._P.copy()
+        restored._point_uuids = tuple(source._point_uuid(i) for i in range(len(source._P)))
+        restored._dataset_id = state["dataset_id"]
+    restored.restore_checkpoint(state)
+
+
 def _normalize_bridson_records(records: list[dict]) -> list[dict[str, float]]:
     normalized = []
     for row in records:
@@ -223,12 +234,12 @@ class GridSamplerUnitTests(unittest.TestCase):
         sampler = Grid()
         sampler.set_config(_grid_test_config())
         sampler.initialize()
-        state = sampler.export_runtime_state()
+        state = sampler.checkpoint_state()
         expected = sampler.propose_next()
         self.assertIsNotNone(expected)
         restored = Grid()
         restored.set_config(sampler.config)
-        restored.import_runtime_state(state)
+        _restore_snapshot(restored, sampler, state)
         actual = restored.propose_next()
         self.assertIsNotNone(actual)
         self.assertEqual(actual.uuid, expected.uuid)
@@ -282,133 +293,6 @@ class GridSamplerUnitTests(unittest.TestCase):
             self.assertGreater(permille, 0)
             self.assertEqual(permille % 10, 0)
 
-    def test_grid_prefix_replay_suppresses_submit_progress(self) -> None:
-        sampler = Grid()
-        sampler.set_config(_grid_test_config())
-        messages: list[str] = []
-
-        class _Capture:
-            def info(self, msg, *args, **kwargs):  # noqa: ANN001
-                messages.append(str(msg) % args if args else str(msg))
-
-            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
-                messages.append(str(msg) % args if args else str(msg))
-
-        sampler._logger = _Capture()  # type: ignore[assignment]
-        sampler.initialize()
-        messages.clear()
-        self.assertEqual(sampler.advance_to_persisted_prefix(2), 2)
-        self.assertFalse(any("grid points sampled" in line for line in messages))
-
-        messages.clear()
-        self.assertIsNotNone(sampler.propose_next())
-        self.assertTrue(any("grid points sampled" in line for line in messages))
-
-    def test_resume_fast_forwards_durable_prefix_without_submitting_physics_work(self) -> None:
-        sampler = Grid()
-        sampler.set_config(_grid_test_config())
-        sampler.initialize()
-        self.assertEqual(sampler.advance_to_persisted_prefix(2), 2)
-        next_sample = sampler.propose_next()
-        assert next_sample is not None
-        self.assertEqual(next_sample.sample_index, 2)
-
-    def test_bridson_prefix_replay_suppresses_submit_progress(self) -> None:
-        """D21.14: local resume replay must not log 'samples submitted' ‰ lines."""
-        from jarvishep2.Sampling.bridson import Bridson
-
-        sampler = Bridson()
-        sampler.set_config(
-            {
-                "Sampling": {
-                    "Method": "Bridson",
-                    "Bounds": {"radius": 0.4, "max_attempt": 5, "seed": 7},
-                    "Variables": [
-                        {
-                            "name": "x",
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0.0, "max": 1.0, "length": 1.0},
-                            },
-                        },
-                        {
-                            "name": "y",
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0.0, "max": 1.0, "length": 1.0},
-                            },
-                        },
-                    ],
-                },
-                "Runtime": {},
-            }
-        )
-        sampler.initialize()
-        target = min(5, int(sampler.info.get("NSamples") or 0))
-        self.assertGreater(target, 0)
-        messages: list[str] = []
-
-        def _capture(msg: object, *args: object, **_kwargs: object) -> None:
-            text = str(msg)
-            if args:
-                try:
-                    text = text % args
-                except Exception:
-                    text = f"{text} {args}"
-            messages.append(text)
-
-        with (
-            mock.patch.object(sampler._logger, "info", side_effect=_capture),
-            mock.patch.object(sampler._logger, "warning", side_effect=_capture),
-        ):
-            advanced = sampler.advance_to_persisted_prefix(target)
-        self.assertEqual(advanced, target)
-        self.assertFalse(
-            any("submitted" in msg for msg in messages),
-            messages,
-        )
-        self.assertEqual(sampler.barinfo, {})
-        # After replay, normal proposes may emit progress again.
-        messages.clear()
-        with (
-            mock.patch.object(sampler._logger, "info", side_effect=_capture),
-            mock.patch.object(sampler._logger, "warning", side_effect=_capture),
-        ):
-            sample = sampler.propose_next()
-        self.assertIsNotNone(sample)
-        self.assertTrue(any("submitted" in msg for msg in messages), messages)
-
-    def test_restore_point_advances_only_after_batch_is_persisted(self) -> None:
-        sampler = Grid()
-        sampler.set_config(_grid_test_config())
-        queue = make_fakeredis_queue()
-        queue.connect()
-        sampler.set_redis(queue)
-        sampler.set_execution_plan_template(include_likelihood=False)
-        sampler.initialize()
-        sampler.configure_checkpoint(checkpoint_file="", save_callback=lambda **_: None)
-        try:
-            first_batch = [sampler.propose_next(), sampler.propose_next()]
-            first_batch = [sample for sample in first_batch if sample is not None]
-            sampler.request_checkpoint_capture()
-            sampler.flush_batch(first_batch)
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 0)
-
-            # A delayed sample index prevents promotion across its gap (D21.12 A8).
-            sampler.set_persisted_prefix(1)
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 0)
-            sampler.set_persisted_prefix(2)
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 2)
-
-            third = sampler.propose_next()
-            assert third is not None
-            sampler.request_checkpoint_capture()
-            sampler.flush_batch([third])
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["index"], 2)
-        finally:
-            sampler.shutdown_checkpointing()
-
-
 class BridsonSamplerUnitTests(unittest.TestCase):
     def test_format_duration_matches_v1_shape(self) -> None:
         self.assertRegex(format_duration(0.192), r"^\d{2}:\d{2}:\d{2}\.\d{3}$")
@@ -443,13 +327,13 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         first.set_config(cfg)
         first.initialize()
         self.assertIsNotNone(first.propose_next())
-        state = first.export_runtime_state()
+        state = first.checkpoint_state()
         expected = first.propose_next()
         self.assertIsNotNone(expected)
 
         restored = Bridson()
         restored.set_config(cfg)
-        restored.import_runtime_state(state)
+        _restore_snapshot(restored, first, state)
         actual = restored.propose_next()
         self.assertIsNotNone(actual)
         assert expected is not None and actual is not None
@@ -515,76 +399,40 @@ class BridsonSamplerUnitTests(unittest.TestCase):
         self.assertEqual(sampler._max_inflight, 2)
 
     def test_max_inflight_backpressure_limits_outstanding_tasks(self) -> None:
-        """run_distributed must not exceed max_inflight without worker completions."""
-        sampler = Bridson()
-        sampler.set_config(
-            {
-                "Runtime": {"mode": "redis", "workers": 2, "batch_size": 8},
-                "Sampling": {
-                    "Method": "Bridson",
-                    "Bounds": {"radius": 0.12, "max_attempt": 30, "max_worker": 2, "seed": 3},
-                    "Variables": [
-                        {
-                            "name": "x",
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0, "max": 1, "length": 1},
-                            },
-                        },
-                        {
-                            "name": "y",
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0, "max": 1, "length": 1},
-                            },
-                        },
-                    ],
-                },
-            }
-        )
-        self.assertEqual(sampler._max_inflight, 2)
+        sampler = Grid()
+        sampler.set_config(_grid_test_config())
+        sampler._max_inflight = 2
+        pending = []
+        peaks = []
 
-        pushed_events: list[int] = []
-        finish_after = {"n": 0}
+        class Queue:
+            def read_proc_board(self, role):
+                return {}
 
-        class _FakeRedis:
-            def fetch_sample_stats(self):
-                # Finish one sample whenever more than max_inflight would block forever.
-                finished = max(0, finish_after["n"])
-                return {"completed": finished, "failed": 0, "running": 0}
+            def push_task(self, task):
+                pending.append(task)
+                peaks.append(len(pending))
+                assert task["sample_index"] in sampler._unfinished
 
-            def get_queue_lengths(self):
-                return {"task_queue_length": 0}
+            def push_many_tasks(self, tasks):
+                for task in tasks:
+                    self.push_task(task)
 
-        def _submit(sample):  # noqa: ANN001
-            pushed_events.append(1)
-            # Simulate a slow worker: allow progress only after 2 are outstanding.
-            if len(pushed_events) - finish_after["n"] >= sampler._max_inflight:
-                finish_after["n"] += 1
+            def poll_feedback_batch(self, limit):
+                records = []
+                while pending and len(records) < limit:
+                    task = pending.pop()
+                    records.append({"uuid": task["uuid"],
+                                    "sample_index": task["sample_index"],
+                                    "terminal_status": "Completed"})
+                return records
 
-        def _submit_group(samples):  # noqa: ANN001
-            for sample in samples:
-                _submit(sample)
-
-        sampler.redis = _FakeRedis()  # type: ignore[assignment]
-        sampler.runtime_mode = "redis"
-        sampler._submit = _submit  # type: ignore[method-assign]
-        sampler._submit_group = _submit_group  # type: ignore[method-assign]
-
-        # Track peak outstanding = submitted - finished_at_that_time
-        peaks: list[int] = []
-        original_wait = sampler._wait_for_inflight_room
-
-        def _wait(pushed, *, base_finished, max_inflight):  # noqa: ANN001
-            peaks.append(sampler._inflight(pushed, base_finished=base_finished))
-            original_wait(pushed, base_finished=base_finished, max_inflight=max_inflight)
-
-        sampler._wait_for_inflight_room = _wait  # type: ignore[method-assign]
-        total = sampler.run_distributed()
-        self.assertGreater(total, 0)
-        self.assertEqual(total, len(pushed_events))
-        # Never wait while already above the cap (inflight recorded before wait).
-        self.assertTrue(all(p <= sampler._max_inflight for p in peaks))
+        sampler.set_redis(Queue())
+        total = sampler.run_distributed(timeout=2)
+        self.assertEqual(total, 4)
+        self.assertLessEqual(max(peaks), 2)
+        self.assertFalse(sampler._unfinished)
+        self.assertEqual(sampler._completed_count, total)
 
     def test_submit_progress_heartbeat_logs_permille(self) -> None:
         """V1-style ``N‰ of i/N samples submitted`` heartbeat while proposing."""
@@ -679,12 +527,12 @@ class BridsonSamplerUnitTests(unittest.TestCase):
             }
         )
         sampler.initialize()
-        state = sampler.export_runtime_state()
+        state = sampler.checkpoint_state()
         expected = sampler.propose_next()
         self.assertIsNotNone(expected)
         restored = Bridson()
         restored.set_config(sampler.config)
-        restored.import_runtime_state(state)
+        _restore_snapshot(restored, sampler, state)
         actual = restored.propose_next()
         self.assertIsNotNone(actual)
         self.assertEqual(actual.uuid, expected.uuid)
@@ -736,23 +584,6 @@ class RandomSamplerProgressTests(unittest.TestCase):
             )
         self.assertTrue(any(line.startswith("10‰ of 10/1000") for line in warning_messages))
         self.assertFalse(any(line.startswith("10‰") for line in info_messages))
-
-    def test_prefix_replay_does_not_emit_sampling_progress(self) -> None:
-        sampler = RandomS()
-        sampler.set_config(self._config())
-        messages: list[str] = []
-
-        class _Capture:
-            def info(self, msg, *args, **kwargs):  # noqa: ANN001
-                messages.append(str(msg) % args if args else str(msg))
-
-            def warning(self, msg, *args, **kwargs):  # noqa: ANN001
-                messages.append(str(msg) % args if args else str(msg))
-
-        sampler._logger = _Capture()  # type: ignore[assignment]
-        self.assertEqual(sampler.advance_to_persisted_prefix(10), 10)
-        self.assertFalse(any("random candidates sampled" in line for line in messages))
-
 
 class StatelessDistributedRunTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -910,95 +741,28 @@ class CheckpointScalingTests(unittest.TestCase):
         sampler.set_config(self._random_config(points=10))
         sampler.propose_next()
         sampler.propose_next()
-        state = sampler.export_runtime_state()
+        state = sampler.checkpoint_state()
         expected = sampler.propose_next()
         assert expected is not None
         restored = RandomS()
         restored.set_config(self._random_config(points=10))
-        restored.import_runtime_state(state)
+        _restore_snapshot(restored, sampler, state)
         actual = restored.propose_next()
         assert actual is not None
         self.assertEqual(actual.sample_index, expected.sample_index)
         np.testing.assert_array_equal(actual.u_coords, expected.u_coords)
-
-    def test_stateless_checkpoint_fields_are_all_explicitly_classified(self) -> None:
-        random = RandomS()
-        random.set_config(self._random_config(points=10))
-        random.assert_checkpoint_attribute_contract()
-
-        grid = Grid()
-        grid.set_config(_grid_test_config())
-        grid.initialize()
-        grid.assert_checkpoint_attribute_contract()
-
-        bridson = Bridson()
-        bridson.set_config(
-            {
-                "Runtime": {"mode": "redis", "workers": 1},
-                "Sampling": {
-                    "Method": "Bridson",
-                    "Bounds": {"radius": 0.3, "max_attempt": 8},
-                    "Variables": [
-                        {
-                            "name": name,
-                            "distribution": {
-                                "type": "Flat",
-                                "parameters": {"min": 0, "max": 1, "length": 1},
-                            },
-                        }
-                        for name in ("x", "y")
-                    ],
-                },
-            }
-        )
-        bridson.assert_checkpoint_attribute_contract()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = os.path.join(tmpdir, "points.csv")
-            with open(path, "w", encoding="utf-8") as handle:
-                handle.write("uuid,x\nu0,0.2\n")
-            csv_sampler = CSVSampler()
-            csv_sampler.set_config(
-                {
-                    "Runtime": {"mode": "redis", "workers": 1},
-                    "Sampling": {"Method": "CSV", "Bounds": {"path": path}},
-                }
-            )
-            csv_sampler.assert_checkpoint_attribute_contract()
-
-    def test_heartbeat_only_requests_a_capture_until_the_next_batch_boundary(self) -> None:
-        sampler = RandomS()
-        sampler.set_config(self._random_config(points=10))
-        calls = 0
-        original = sampler.export_runtime_state
-
-        def counted_export() -> dict:
-            nonlocal calls
-            calls += 1
-            return original()
-
-        sampler.export_runtime_state = counted_export  # type: ignore[method-assign]
-        sampler.configure_checkpoint(checkpoint_file="", save_callback=lambda **_: None)
-        try:
-            calls = 0
-            sampler.request_checkpoint_capture()
-            self.assertEqual(calls, 0)
-            self.assertTrue(sampler.capture_checkpoint_at_batch_boundary())
-            self.assertEqual(calls, 1)
-            self.assertFalse(sampler.capture_checkpoint_at_batch_boundary())
-            self.assertEqual(calls, 1)
-        finally:
-            sampler.shutdown_checkpointing()
 
     def test_random_checkpoint_payload_is_constant_after_twenty_thousand_samples(self) -> None:
         """D21.12 P3/P4: no UUID or coordinate history enters the payload."""
         sampler = RandomS()
         sampler.set_config(self._random_config())
         sampler.initialize()
-        before = pickle.dumps(sampler.export_runtime_state(), protocol=pickle.HIGHEST_PROTOCOL)
-        while sampler.propose_next() is not None:
-            pass
-        after_state = sampler.export_runtime_state()
+        before = pickle.dumps(sampler.checkpoint_state(), protocol=pickle.HIGHEST_PROTOCOL)
+        while (sample := sampler.propose_next()) is not None:
+            sampler.accept_completion({"uuid": sample.uuid,
+                                       "sample_index": sample.sample_index,
+                                       "terminal_status": "Completed"})
+        after_state = sampler.checkpoint_state()
         after = pickle.dumps(after_state, protocol=pickle.HIGHEST_PROTOCOL)
         self.assertLess(abs(len(after) - len(before)), 1024)
         self.assertNotIn("u_by_uuid", after_state)

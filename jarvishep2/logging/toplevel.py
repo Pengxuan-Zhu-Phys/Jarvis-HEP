@@ -77,6 +77,7 @@ COMPONENT_LOG_BASENAME = {
     "factory": "factory.log",
     "sampler": "sampler.log",
     "archiver": "archiver.log",
+    "checkpoint": "checkpoint.log",
     "datarecorder": "datarecorder.log",
     "worker": "worker.log",  # overridden by worker_id → worker-00.log
 }
@@ -107,6 +108,7 @@ COMPONENT_MODULE_LABEL = {
     "factory": "Jarvis-HEP.Factory",
     "sampler": "Jarvis-HEP.Sampler",
     "archiver": "Jarvis-HEP.Archiver",
+    "checkpoint": "Jarvis-HEP.Checkpoint",
     "datarecorder": "Jarvis-HEP.DataRecorder",
     "worker": "Jarvis-HEP.Worker",
 }
@@ -267,7 +269,7 @@ def resolve_record_component(record: logging.LogRecord) -> str:
     else:
         short = name
     root = short.split(".", 1)[0].strip().lower() if short else ""
-    if root in {"factory", "sampler", "archiver", "worker", "datarecorder"}:
+    if root in {"factory", "sampler", "archiver", "checkpoint", "worker", "datarecorder"}:
         return root
     if root in {"core", "control", "jarvis", "client"}:
         return "core"
@@ -290,6 +292,8 @@ def resolve_record_component(record: logging.LogRecord) -> str:
             return "factory"
         if ".Archiver" in mod or mod == "Archiver" or mod.endswith(".Archiver"):
             return "archiver"
+        if ".Checkpoint" in mod or mod == "Checkpoint":
+            return "checkpoint"
         if ".Worker" in mod or mod.startswith("Worker"):
             return "worker"
     return "core"

@@ -1486,14 +1486,15 @@ class AdaptiveSyntheticRunTests(unittest.TestCase):
                 interrupted.join(timeout=60.0)
                 self.assertFalse(interrupted.is_alive())
 
-                checkpoint = os.path.join(
+                checkpoint_dir = os.path.join(
                     resume_dir,
                     "checkpoints",
                     f"{scan_prefix}-resume",
                     "AdaptiveBridson",
-                    "state.pkl",
                 )
+                checkpoint = os.path.join(checkpoint_dir, "runtime.pickle")
                 self.assertTrue(os.path.isfile(checkpoint))
+                self.assertFalse(os.path.isfile(os.path.join(checkpoint_dir, "state.pkl")))
                 resumed = ctx.Process(
                     target=_run_adaptive_resume_control,
                     args=(

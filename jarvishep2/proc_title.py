@@ -39,6 +39,11 @@ def archiver_title(*, scan_name: str | None = None) -> str:
     return f"Jarvis-Archiver:{scan}" if scan else "Jarvis-Archiver"
 
 
+def checkpoint_title(*, scan_name: str | None = None) -> str:
+    scan = str(scan_name or "").strip()
+    return f"Jarvis-Checkpoint:{scan}" if scan else "Jarvis-Checkpoint"
+
+
 def file_operation_title(*, scan_name: str | None = None) -> str:
     """OS title for a Worker-owned file-operation child process."""
     scan = str(scan_name or "").strip()
@@ -54,6 +59,7 @@ def redis_title(*, scan_name: str | None = None, port: int | None = None, db: in
 
 __all__ = [
     "archiver_title",
+    "checkpoint_title",
     "control_title",
     "file_operation_title",
     "redis_title",

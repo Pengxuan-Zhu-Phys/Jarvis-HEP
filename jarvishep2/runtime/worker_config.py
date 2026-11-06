@@ -122,6 +122,10 @@ def build_worker_config(
     )
     sampling_method = str((cfg.get("Sampling") or {}).get("Method", "")).strip()
     publish_feedback = bool(extra_payload.pop("publish_feedback", False))
+    from jarvishep2.sampling.sample_checkpoint import uses_completion_feedback
+
+    completion_feedback = uses_completion_feedback(cfg)
+    publish_feedback = publish_feedback or completion_feedback
     # Feedback channel for stateful / feedback-driven samplers.
     if not publish_feedback and sampling_method:
         from jarvishep2.sampler_catalog import is_stateless
@@ -160,6 +164,7 @@ def build_worker_config(
         "sample_directory": get_sample_directory_config(cfg),
         "command_parser": command_parser.to_picklable(),
         "publish_feedback": publish_feedback,
+        "completion_feedback": completion_feedback,
         "feedback_return": feedback_return,
     }
     from jarvishep2.sampler_catalog import plugin_record
@@ -232,6 +237,8 @@ def build_worker_config(
 
     if extra_payload:
         worker_config.update(extra_payload)
+    if completion_feedback:
+        worker_config.update(publish_feedback=True, completion_feedback=True)
     # Direct Python users of the blueprint need the same unit envelope and
     # declaration verification as the Core/supervisor route.
     from jarvishep2.operas_units import enabled, execution_identity

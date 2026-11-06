@@ -9,35 +9,18 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
-from jarvishep2.sampling.checkpointed_sampler import CheckpointedSampler
+from jarvishep2.sampling.completion_sampler import CompletionSampler
 from jarvishep2.sampling.sampling_utils import evaluate_selection
-from jarvishep2.sampling.stateless_batch import run_stateless_distributed
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
 from jarvishep2.task_config import resolve_sampling_path
-from jarvishep2.sampling.runtime_checkpoint import file_fingerprint
+from jarvishep2.sampling.sample_checkpoint import file_fingerprint
 
 _INT_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
-class CSVSampler(CheckpointedSampler):
+class CSVSampler(CompletionSampler):
     method = "CSV"
-    uses_indexed_resume = True
-    _checkpoint_saved_attributes = frozenset(
-        {
-            "_csv_path", "_csv_delimiter", "_csv_encoding", "_uuid_column_requested",
-            "_uuid_column_resolved", "_selected_variables", "_selectionexp",
-            "_runtime_csv_cursor", "_accepted_index",
-        }
-    )
-    _checkpoint_excluded_attributes = frozenset(
-        {
-            "_logger", "_batch_size", "_records_exhausted", "_record_iter",
-            "_checkpoint_heartbeat_sec",
-            "_source_fingerprint",
-        }
-    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -58,7 +41,6 @@ class CSVSampler(CheckpointedSampler):
     def set_config(self, config_info: Mapping[str, Any]) -> None:
         super().set_config(config_info)
         sampling = dict(self.config.get("Sampling") or {})
-        runtime = get_runtime_block(self.config)
         # CSV path / columns live under Sampling.Bounds (method knobs).
         csv_cfg = (
             dict(sampling.get("Bounds") or {})
@@ -76,11 +58,6 @@ class CSVSampler(CheckpointedSampler):
         self._selectionexp = sampling.get("selection")
         self._csv_delimiter = str(csv_cfg.get("delimiter", ","))
         self._csv_encoding = str(csv_cfg.get("encoding", "utf-8"))
-        workers = int(runtime.get("workers", 1) or 1)
-        self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._checkpoint_heartbeat_sec = float(
-            get_checkpoint_config(self.config)["heartbeat"]
-        )
         self._uuid_column_resolved = self._resolve_uuid_column_from_file()
         self._validate_source_uuids()
         self._source_fingerprint = file_fingerprint(self._csv_path)
@@ -193,6 +170,7 @@ class CSVSampler(CheckpointedSampler):
             for row_index, row in enumerate(reader, start=1):
                 if row_index <= int(self._runtime_csv_cursor):
                     continue
+                self._runtime_csv_cursor = row_index
                 params: dict[str, Any] = {}
                 for key, col_idx in selected_idx:
                     raw_value = row[col_idx] if col_idx < len(row) else ""
@@ -239,7 +217,7 @@ class CSVSampler(CheckpointedSampler):
         self._accepted_index += 1
         sample.uuid = str(record["uuid"])
         sample.opera_params = dict(record["params"])
-        return sample
+        return self._remember(sample)
 
     def log_settings_rows(self) -> list[tuple[str, Any]]:
         """Settings rows for the sampler log (Jarvis-Books Docs/Jarvis-HEP/specs/logging-spec.md S2)."""
@@ -267,75 +245,26 @@ class CSVSampler(CheckpointedSampler):
     def log_stop_reason(self) -> str | None:
         return "end of file reached" if self._records_exhausted else None
 
-    def record_submitted_batch(self, uuids: list[str]) -> None:
-        """CSV is indexed and replayed; retaining UUIDs is unnecessary."""
-        return
-
-    def run_distributed(self) -> int:
-        return run_stateless_distributed(self, propose_next=self.propose_next)
-
-    def should_submit_uuid(self, uuid: str) -> bool:
-        # Legacy CSV rows can have UUIDs without sample_index. Those rows
-        # suppress work only during resume, never a fresh or check run.
-        return not self._resume_mode or super().should_submit_uuid(uuid)
-
-    def at_safe_barrier(self) -> bool:
-        return self._records_exhausted
-
-    def advance_to_persisted_prefix(self, prefix: int) -> int:
-        """Resume-only local replay through the DATABASE-durable prefix."""
-        target = max(0, int(prefix or 0))
-        previous = bool(getattr(self, "_suppress_submit_progress", False))
-        self._suppress_submit_progress = True
-        try:
-            while self._accepted_index < target:
-                if self.propose_next() is None:
-                    break
-        finally:
-            self._suppress_submit_progress = previous
-        return int(self._accepted_index)
-
-    def export_runtime_state(self) -> dict[str, Any]:
+    def _source_state(self) -> dict[str, Any]:
         return {
-            "csv_path": self._csv_path,
-            "csv_delimiter": self._csv_delimiter,
-            "csv_encoding": self._csv_encoding,
-            "uuid_column_requested": self._uuid_column_requested,
-            "uuid_column_resolved": self._uuid_column_resolved,
-            "selected_variables": list(self._selected_variables or []),
-            "selectionexp": self._selectionexp,
-            "cursor_row_index": int(self._runtime_csv_cursor),
-            "accepted_index": int(self._accepted_index),
-            "chains": [],
-            "ready_queue": [],
-            "control_state": self._checkpoint_control_state(),
-            "numpy_random_state": None,
+            "cursor_row_index": self._runtime_csv_cursor,
+            "exhausted": self._records_exhausted,
             "source_fingerprint": self._source_fingerprint,
         }
 
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        if state.get("source_fingerprint") != file_fingerprint(self._csv_path):
-            raise ValueError("CSV source file changed or checkpoint lacks source fingerprint")
-        self._csv_path = state.get("csv_path", self._csv_path)
-        self._csv_delimiter = state.get("csv_delimiter", self._csv_delimiter)
-        self._csv_encoding = state.get("csv_encoding", self._csv_encoding)
-        self._uuid_column_requested = state.get(
-            "uuid_column_requested",
-            self._uuid_column_requested,
-        )
-        self._uuid_column_resolved = state.get(
-            "uuid_column_resolved",
-            self._uuid_column_resolved,
-        )
-        selected = state.get("selected_variables", self._selected_variables)
-        self._selected_variables = list(selected) if selected else None
-        self._selectionexp = state.get("selectionexp", self._selectionexp)
-        self._runtime_csv_cursor = int(state.get("cursor_row_index", self._runtime_csv_cursor) or 0)
-        self._accepted_index = int(state.get("accepted_index", self._accepted_index) or 0)
-        self._records_exhausted = False
+    def _source_position(self) -> int:
+        return self._runtime_csv_cursor
+
+    def _restore_source_state(self, state: Mapping[str, Any]) -> None:
+        if state["source_fingerprint"] != self._source_fingerprint:
+            raise ValueError("CSV source file changed")
+        cursor = state["cursor_row_index"]
+        if type(cursor) is not int or cursor < 0 or type(state["exhausted"]) is not bool:
+            raise ValueError("invalid CSV source cursor")
+        self._runtime_csv_cursor = cursor
+        self._records_exhausted = state["exhausted"]
         if hasattr(self, "_record_iter"):
             delattr(self, "_record_iter")
-        self._import_checkpoint_control_state(state)
 
 
 __all__ = ["CSVSampler"]

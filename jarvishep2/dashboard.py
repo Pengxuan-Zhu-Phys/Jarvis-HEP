@@ -25,6 +25,7 @@ class MonitorView:
     op_counts: dict[str, int] = field(default_factory=dict)
     proc_core: dict[str, Any] = field(default_factory=dict)
     proc_archiver: dict[str, Any] = field(default_factory=dict)
+    proc_checkpoint: dict[str, Any] = field(default_factory=dict)
     proc_redis: dict[str, Any] = field(default_factory=dict)
     timestamp: float | None = None
 
@@ -73,6 +74,7 @@ class MonitorView:
             },
             proc_core=dict(snapshot.get("proc_core") or {}),
             proc_archiver=dict(snapshot.get("proc_archiver") or {}),
+            proc_checkpoint=dict(snapshot.get("proc_checkpoint") or {}),
             proc_redis=dict(snapshot.get("proc_redis") or {}),
             timestamp=observed_at,
         )

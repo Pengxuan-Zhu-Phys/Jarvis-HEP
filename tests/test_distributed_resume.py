@@ -29,6 +29,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     safe_barrier_ready,
     validate_checkpoint_payload,
 )
+from jarvishep2.sampling.sample_checkpoint import read_pickle
 from jarvishep2.Sampling.seeded_sampler import SeededOperaSampler, deterministic_uuid
 from jarvishep2.core import Jarvis2Core
 from jarvishep2.database import SimpleHDF5Writer, read_persisted_uuids
@@ -90,7 +91,7 @@ class CheckpointPathResolutionTests(unittest.TestCase):
                         "checkpoints",
                         "EggBox_Dynesty_Operas",
                         "Dynesty",
-                        "state.pkl",
+                        "runtime.pickle",
                     )
                 ),
                 msg=path,
@@ -98,11 +99,7 @@ class CheckpointPathResolutionTests(unittest.TestCase):
             self.assertNotIn("SamplingVirtial", path)
 
     def test_preload_resume_finds_dynesty_checkpoint_before_sampler(self) -> None:
-        from jarvishep2.Sampling.runtime_checkpoint import (
-            build_payload,
-            build_run_spec,
-            save_checkpoint,
-        )
+        from jarvishep2.sampling.sample_checkpoint import atomic_pickle, config_identity
 
         with tempfile.TemporaryDirectory() as tmp:
             core = Jarvis2Core(
@@ -116,28 +113,21 @@ class CheckpointPathResolutionTests(unittest.TestCase):
             )
             core.info["sampler_name"] = "SamplingVirtial"
             core.sampler = None
-            # Write a real V2 checkpoint under the Method name (as a finished run would).
             path = core.checkpoint_file()
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            run_spec = build_run_spec(
-                config=core.config,
-                scan_name="EggBox_Dynesty_Operas",
-                task_root=tmp,
-                task_result_dir=tmp,
-                sampler_name="Dynesty",
-            )
-            payload = build_payload(
-                run_spec=run_spec,
-                sampler_state={
+            atomic_pickle(path, {
+                "format": "jarvis-hep.sampler-pickle",
+                "version": 1,
+                "method": "dynesty",
+                "config_id": config_identity(core.config),
+                "integrity": {},
+                "sampler_state": {
                     "method": "Dynesty",
                     "finished": False,
                     "native_sampler_blob": None,
                     "nlive": 50,
                 },
-                persistence={},
-                reason="test",
-            )
-            save_checkpoint(path, payload)
+            })
 
             core.prepare_resume(resume=True, fresh=False)
             self.assertEqual(core._resume_policy, "resume")
@@ -375,10 +365,11 @@ class DistributedResumeTests(unittest.TestCase):
                     "checkpoints",
                     f"{scan_prefix}-resume",
                     "Random",
-                    "state.pkl",
+                    "runtime.pickle",
                 )
                 self.assertTrue(os.path.isfile(checkpoint))
-                cursor = int(load_checkpoint(checkpoint)["sampler_state"]["checkpoint_index"])
+                state = read_pickle(checkpoint)["sampler_state"]
+                cursor = min(state["unfinished"], default=state["next_sample_index"])
                 rows_before_resume = self._database_records(database_dir)
                 self.assertLess(len(rows_before_resume), point_count)
 
@@ -473,15 +464,16 @@ class DistributedResumeTests(unittest.TestCase):
                 first.join(timeout=10.0)
                 self.assertFalse(first.is_alive())
 
-                # A formal fresh scan writes a cursor-0 state.pkl before it
+                # A formal fresh scan writes a initial runtime.pickle before it
                 # submits any sample; no heartbeat has run yet.  Resume starts
                 # at that cursor, appends every row again and cleans the
                 # exact-name orphan fleet.
                 checkpoint = os.path.join(
-                    tmpdir, "checkpoints", scan_name, "Random", "state.pkl"
+                    tmpdir, "checkpoints", scan_name, "Random", "runtime.pickle"
                 )
                 self.assertTrue(os.path.exists(checkpoint))
-                cursor = int(load_checkpoint(checkpoint)["sampler_state"]["checkpoint_index"])
+                state = read_pickle(checkpoint)["sampler_state"]
+                cursor = min(state["unfinished"], default=state["next_sample_index"])
                 second = ctx.Process(
                     target=_run_crashable_control,
                     args=(redis_config, tmpdir, scan_name, True, outcome_queue),

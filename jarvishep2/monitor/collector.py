@@ -63,6 +63,7 @@ class CollectorFrame:
     op_counts: dict[str, int] = field(default_factory=dict)
     proc_core: dict[str, Any] = field(default_factory=dict)
     proc_archiver: dict[str, Any] = field(default_factory=dict)
+    proc_checkpoint: dict[str, Any] = field(default_factory=dict)
     proc_redis: dict[str, Any] = field(default_factory=dict)
     host: dict[str, Any] = field(default_factory=dict)
     selected_calc: str | None = None
@@ -212,6 +213,7 @@ class Collector:
             op_counts: dict[str, int] = {}
             proc_core: dict[str, Any] = {}
             proc_archiver: dict[str, Any] = {}
+            proc_checkpoint: dict[str, Any] = {}
             proc_redis: dict[str, Any] = {}
             queue_block = self.last_frame.queue_block
             worker_block = self.last_frame.worker_block
@@ -236,6 +238,7 @@ class Collector:
                 op_counts = view.op_counts
                 proc_core = view.proc_core
                 proc_archiver = view.proc_archiver
+                proc_checkpoint = view.proc_checkpoint
                 proc_redis = view.proc_redis
                 observed_at = self._monotonic()
                 sample_rate, sample_rate_per_sec = self._observe_sample_rate(
@@ -291,6 +294,7 @@ class Collector:
                 op_counts=op_counts,
                 proc_core=proc_core,
                 proc_archiver=proc_archiver,
+                proc_checkpoint=proc_checkpoint,
                 proc_redis=proc_redis,
                 selected_calc=self._selected_calc,
                 want_on=self._want_on,

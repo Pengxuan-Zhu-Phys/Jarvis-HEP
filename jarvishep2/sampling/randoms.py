@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from jarvishep2.sampling.fixed_set_sampler import FixedSetSampler
+from jarvishep2.sampling.completion_sampler import CompletionSampler
 from jarvishep2.sampling.sampling_utils import (
     BoolConversionError,
     evaluate_selection,
@@ -18,13 +18,9 @@ from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.sample import Sample
 
 
-class RandomS(FixedSetSampler):
+class RandomS(CompletionSampler):
     method = "Random"
     uuid_prefix = "random"
-    _checkpoint_saved_attributes = frozenset({"_maxp"})
-    _checkpoint_excluded_attributes = frozenset(
-        {"_logger", "_dimensions", "_generator_ready", "_submit_progress"}
-    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -32,6 +28,7 @@ class RandomS(FixedSetSampler):
         self._maxp = 0
         self._dimensions = 0
         self._generator_ready = False
+        self._rng = np.random.default_rng(0)
         self._submit_progress: PermilleProgress | None = None
 
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -46,17 +43,17 @@ class RandomS(FixedSetSampler):
         self._index = 0
         self._accepted_index = 0
         self._generator_ready = False
+        self._rng = np.random.default_rng(self._seed)
         self._submit_progress = None
 
     def log_settings_rows(self) -> list[tuple[str, Any]]:
         return [("point number", self._maxp), *super().log_settings_rows()]
 
     def initialize(self) -> None:
-        # Seed 0 is valid and must reseed for reproducible resume trajectories.
-        np.random.seed(int(self._seed))
+        self._rng = np.random.default_rng(self._seed)
         if self._selectionexp:
             probe = physical_from_u(
-                np.random.rand(self._dimensions),
+                self._rng.random(self._dimensions),
                 self.vars,
                 self._mapper_pipeline,
             )
@@ -84,7 +81,7 @@ class RandomS(FixedSetSampler):
     def propose_next(self) -> Sample | None:
         self._ensure_ready()
         while self._index < self._maxp:
-            u_coords = np.random.random(self._dimensions).astype(np.float64)
+            u_coords = self._rng.random(self._dimensions)
             self._index += 1
             self._emit_progress()
             physical = physical_from_u(u_coords, self.vars, self._mapper_pipeline)
@@ -99,14 +96,11 @@ class RandomS(FixedSetSampler):
             sample = self._build_sample(u_coords)
             sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            return sample
+            return self._remember(sample)
         return None
 
     def _emit_progress(self) -> None:
         """Log every new 1‰ of the configured draws; warn at whole percents."""
-        # DATABASE prefix replay is local bookkeeping, not fresh sampling work.
-        if bool(getattr(self, "_suppress_submit_progress", False)):
-            return
         if self._submit_progress is None:
             self._submit_progress = PermilleProgress(
                 self._logger,
@@ -118,28 +112,19 @@ class RandomS(FixedSetSampler):
     def _stream_exhausted(self) -> bool:
         return self._index >= self._maxp
 
-    def export_runtime_state(self) -> dict[str, Any]:
-        # The initial checkpoint must capture the seeded generator state, not
-        # whichever global NumPy state happened to precede the first proposal.
-        self._ensure_ready()
-        payload = self._common_export_fields()
-        payload.update(
-            {
-                "maxp": int(self._maxp),
-                "numpy_random_state": np.random.get_state(),
-            }
-        )
-        return payload
+    def _source_state(self) -> dict[str, Any]:
+        return {"index": self._index, "rng": self._rng.bit_generator.state,
+                "initialized": self._generator_ready}
 
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
-        self._import_common_fields(state)
-        self._maxp = int(state.get("maxp", self._maxp) or self._maxp)
-        np_state = state.get("numpy_random_state")
-        if np_state is not None:
-            np.random.set_state(np_state)
-            self._generator_ready = True
-        # Logging state is process-local. The first new proposal reports the
-        # restored cursor without adding mutable progress data to checkpoints.
+    def _restore_source_state(self, state: Mapping[str, Any]) -> None:
+        index = state["index"]
+        if type(index) is not int or not 0 <= index <= self._maxp:
+            raise ValueError("Random checkpoint cursor is outside point_number")
+        self._index = index
+        self._rng.bit_generator.state = state["rng"]
+        if type(state["initialized"]) is not bool or (index and not state["initialized"]):
+            raise ValueError("invalid Random generator initialization state")
+        self._generator_ready = state["initialized"]
         self._submit_progress = None
 
 

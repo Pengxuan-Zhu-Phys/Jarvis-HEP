@@ -32,6 +32,7 @@ import math
 import os
 import time
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any, Protocol
@@ -45,8 +46,9 @@ from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.variables import load_variables
 from jarvishep2.expression import CompiledExpression
 from jarvishep2.logging import get_jarvis_logger
-from jarvishep2.runtime_config import get_runtime_block
+from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
 from jarvishep2.sample import Sample
+from jarvishep2.sampling.sample_checkpoint import FORMAT, VERSION, config_identity
 
 _EPS = float(np.finfo(np.float64).eps)
 _CLIP_LO = _EPS
@@ -291,6 +293,9 @@ class AdaptiveBridsonSampler(FeedbackSampler):
     """
 
     method = "AdaptiveBridson"
+    # Resume reads runtime.pickle only. Physics feedback stays on the worker
+    # channel; the HDF5 writer is not part of this checkpoint.
+    uses_sample_checkpoint = True
 
     def __init__(self) -> None:
         super().__init__()
@@ -378,6 +383,9 @@ class AdaptiveBridsonSampler(FeedbackSampler):
         self._endpoint_stall_limit: int = 12
         self._endpoint_omni_probes: int = 16
         self._slice_pairs: list[tuple[str, str]] | None = None
+        self._pickle_writer: Any | None = None
+        self._owns_checkpoint = False
+        self._config_id = ""
 
     # ------------------------------------------------------------------ config
     def set_config(self, config_info: Mapping[str, Any]) -> None:
@@ -611,6 +619,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             self._slice_pairs = pairs or None
         else:
             self._slice_pairs = None
+        self._config_id = config_identity(self.config)
         var_names = ", ".join(str(v.name) for v in self.vars) or "(none)"
         graph_mode = self._neighbor_graph_mode
         if graph_mode == "auto":
@@ -2927,6 +2936,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             self._logger.warning("Level set saved to %s", path)
         except OSError as exc:
             self._logger.warning("failed to write levelset.json: %s", exc)
+        self.save_checkpoint(force=True)
         return payload
 
     # ------------------------------------------------------------------ logging
@@ -3008,7 +3018,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 n,
             )
             self._wait_generation(timeout=generation_timeout)
-            self.checkpoint_at_barrier(reason="als_generation_0")
+            self.save_checkpoint()
         elif self._pending_uuids:
             self._logger.debug(
                 "AdaptiveBridson resume: waiting %d pending feedback…",
@@ -3492,9 +3502,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                         n_active_virtual_now,
                         self._quiet_fill_passes,
                     )
-                    self.checkpoint_at_barrier(
-                        reason=f"als_gen{int(self._generation)}_endpoint_retry{int(self._fill_pass)}"
-                    )
+                    self.save_checkpoint()
                     continue
                 # Fill quiet or no proposals: recompute fill/band, then exit or next gen.
                 raw_full = self._straddle_brackets(pool=None)
@@ -3815,9 +3823,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     self._radius,
                     int(self._fill_pass),
                 )
-                self.checkpoint_at_barrier(
-                    reason=f"als_gen{int(self._generation)}_fill{int(self._fill_pass)}"
-                )
+                self.save_checkpoint()
                 continue
             # Fill done: if band thin → next loop will exit converged; else next gen.
             if decision.action is LoopAction.ADVANCE:
@@ -3830,9 +3836,7 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     self._radius,
                     band_ok_after,
                 )
-                self.checkpoint_at_barrier(
-                    reason=f"als_gen{int(self._generation)}_fill{int(self._fill_pass)}"
-                )
+                self.save_checkpoint()
 
     def _pre_fill_decision(
         self,
@@ -3951,15 +3955,92 @@ class AdaptiveBridsonSampler(FeedbackSampler):
             threshold,
             len(cores),
         )
-        self.checkpoint_at_barrier(reason=f"als_generation_{int(self._generation)}")
+        self.save_checkpoint()
+
+    def checkpoint_at_barrier(self, *, reason: str = "generation_barrier") -> bool:
+        """Generation barrier. A due heartbeat copies state; HDF5 is not consulted."""
+        del reason
+        return self.save_checkpoint()
+
+    def checkpoint_state(self) -> dict[str, Any]:
+        """Detached copy. Called only when a heartbeat is due, between generations."""
+        state = deepcopy(self.export_runtime_state())
+        state["next_sample_index"] = int(self._accepted_index)
+        return state
+
+    def restore_checkpoint(self, state: Mapping[str, Any]) -> None:
+        if not isinstance(state, Mapping):
+            raise ValueError("AdaptiveBridson checkpoint has no state")
+        self.import_runtime_state(state)
+
+    def configure_checkpoint(self, *, checkpoint_file: str, writer: Any | None = None) -> None:
+        """Attach the checkpoint process. The scan thread never writes the file."""
+        from jarvishep2.runtime.checkpoint_process import CheckpointProcess
+
+        policy = get_checkpoint_config(self.config)
+        if not policy["enabled"] or self.config.get("_check_modules_sample_layout"):
+            return
+        if not checkpoint_file:
+            raise ValueError("sampler checkpoint path is required")
+        if not self._config_id:
+            self._config_id = config_identity(self.config)
+        self._owns_checkpoint = writer is None
+        if writer is None:
+            try:
+                writer = CheckpointProcess(
+                    checkpoint_file,
+                    self._logger,
+                    interval=policy["heartbeat"],
+                    scan_name=str(self.config.get("scan_name") or ""),
+                )
+            except Exception as exc:
+                self._logger.warning("Checkpoint process unavailable -> %s", exc)
+                return
+            writer.start()
+        self._pickle_writer = writer
+        self.save_checkpoint(force=True)
+
+    def save_checkpoint(self, *, force: bool = False) -> bool:
+        """Copy state only when the heartbeat asks, or when the run is finished.
+
+        The unrequested path is a flag read. Pickle and fsync run in the child.
+        """
+        writer = self._pickle_writer
+        if writer is None or (not force and not writer.requested()):
+            return False
+        if force:
+            writer.wait()
+        if not writer.available():
+            return False
+        return writer.submit({
+            "format": FORMAT,
+            "version": VERSION,
+            "method": self.method.lower(),
+            "config_id": self._config_id,
+            "integrity": {
+                "unit_execution": (self.config.get("_unit_execution") or {}).get(
+                    "execution_identity"
+                ),
+            },
+            "sampler_state": self.checkpoint_state(),
+        })
+
+    def shutdown_checkpointing(self) -> None:
+        writer = self._pickle_writer
+        owns = self._owns_checkpoint
+        self._pickle_writer = None
+        self._owns_checkpoint = False
+        super().shutdown_checkpointing()
+        if writer is not None and owns:
+            writer.finish()
 
     def repropose_unfinished(self) -> list[str]:
         if not self._pending_uuids:
             return []
+        # Every pending point is evaluated again: the generation waits for its
+        # feedback, and DATABASE is append-only, so a repeat only adds a row.
         requeued: list[str] = []
         for uuid in sorted(self._pending_uuids):
-            if uuid in self._persisted_uuids:
-                continue
             index = self._uuid_to_index.get(uuid)
             if index is None:
                 continue
@@ -3999,6 +4080,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                 "n_radius_refines": self._n_radius_refines,
                 "fill_pass": self._fill_pass,
                 "max_fill_passes": self._max_fill_passes,
+                "last_densify_new": self._last_densify_new,
+                "last_densify_attempted": self._last_densify_attempted,
                 "submitted_u_keys": [
                     list(key) for key in sorted(self._submitted_u_keys)
                 ],
@@ -4100,6 +4183,8 @@ class AdaptiveBridsonSampler(FeedbackSampler):
                     )
         self._n_radius_refines = int(state.get("n_radius_refines", 0) or 0)
         self._fill_pass = int(state.get("fill_pass", 0) or 0)
+        self._last_densify_new = max(0, int(state.get("last_densify_new", 0) or 0))
+        self._last_densify_attempted = bool(state.get("last_densify_attempted", False))
         if state.get("max_fill_passes") is not None:
             self._max_fill_passes = max(1, int(state["max_fill_passes"]))
         raw_u_keys = state.get("submitted_u_keys") or []

@@ -11,9 +11,9 @@ channel + factory pool as Dynesty). V2 keeps that contract:
 * plot: Jarvis-PLOT ``dynesty_runplot`` with ``DataSet.name: dynesty`` and path
   pointing at the MultiNest CSV (V1 plot.py parity)
 * **checkpoint / resume**: same stack as :class:`DynestySampler` — the
-  committed engine snapshot in ``state.pkl`` under ``checkpoints/<scan>/MultiNest/``
-  (``nested_engine.pkl`` is a copy for dynesty tools), cadence from
-  ``EnvReqs.V2.checkpoint.heartbeat`` only (seconds; not Sampling YAML).
+  engine snapshot in ``runtime.pickle`` under ``checkpoints/<scan>/MultiNest/``
+  (``nested_engine.pkl`` is a tools copy written by the checkpoint process),
+  cadence from ``EnvReqs.V2.checkpoint.heartbeat`` only (seconds; not Sampling YAML).
 """
 
 from __future__ import annotations

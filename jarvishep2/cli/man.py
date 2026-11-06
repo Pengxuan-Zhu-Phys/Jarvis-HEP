@@ -266,7 +266,7 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
     "checkpoint": (
         "Resume checkpoint policy. File path and --resume stay outside YAML.",
         {
-            "enabled": "Write state.pkl when true. Default true.",
+            "enabled": "Write the resume checkpoint when true. Default true.",
             "heartbeat": "Write interval in seconds (sec). Minimum 30. Default 30.",
         },
         "checkpoint:\n  enabled: true\n  heartbeat: 30",

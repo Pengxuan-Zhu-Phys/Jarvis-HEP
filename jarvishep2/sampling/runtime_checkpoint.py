@@ -22,8 +22,14 @@ from jarvishep2.redis_queue import RedisQueue
 
 CHECKPOINT_FORMAT = "jarvis-hep.v2-distributed"
 CHECKPOINT_VERSION = 1
+# Methods whose progress comes from the checkpoint alone: a fresh run never
+# reads DATABASE and a resume never scans it.  Plug-ins are not listed yet.
 CHECKPOINT_RESUME_METHODS = frozenset(
-    {"grid", "random", "bridson", "csv", "dynesty", "multinest"}
+    {
+        "grid", "random", "bridson", "csv", "dynesty", "multinest",
+        "adaptivebridson", "mcmc", "toymcmc", "ammcmc", "dram", "demcmc",
+        "ensemblemcmc", "ptmcmc", "ptensemble",
+    }
 )
 
 V1_CHECKPOINT_FORMAT = "jarvis-hep.statesaver"

@@ -679,6 +679,15 @@ class Worker(Process):
         info = sample.to_info_dict()
         self._redis.submit_result(info)
         self._inflight_submitted = True
+        if self.worker_config.get("completion_feedback"):
+            # Terminal acknowledgement belongs to normal sampler execution,
+            # regardless of checkpoint policy or HDF5 writer progress.
+            self._redis.publish_feedback({
+                "uuid": sample.uuid,
+                "sample_index": sample.sample_index,
+                "terminal_status": sample.status,
+            })
+            return
         if bool(self.worker_config.get("publish_feedback", False)):
             from jarvishep2.feedback_return import build_feedback_record
 

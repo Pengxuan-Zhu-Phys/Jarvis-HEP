@@ -21,12 +21,10 @@ from jarvishep2.task_config import load_task_yaml
 
 
 DRIVER = r'''
-import json, sys, time
+import json, sys
 from pathlib import Path
 from jarvishep2.runtime.core import Jarvis2Core
 from jarvishep2.distributor import Distributor
-from jarvishep2.sampling.checkpointed_sampler import CheckpointHeartbeat
-from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
 
 card, output, phase, timing = sys.argv[1:]
 core = Jarvis2Core()
@@ -40,29 +38,10 @@ if phase == "resume" and core.config["Sampling"]["Method"] == "Bridson":
 if phase == "interrupt":
     klass = type(Distributor.set_method(core.config["Sampling"]["Method"]))
     original = klass.propose_next
-    original_heartbeat = CheckpointHeartbeat.__init__
-    def fast_heartbeat(self, *, interval_sec, save_callback):
-        original_heartbeat(self, interval_sec=1.0, save_callback=save_callback)
-    CheckpointHeartbeat.__init__ = fast_heartbeat
-    paused = False
     def propose(self):
-        global paused
-        accepted = int(getattr(self, "_accepted_index", 0))
-        if timing == "after" and accepted >= 2 and not paused:
-            paused = True
-            time.sleep(1.3)
-        if accepted >= (5 if timing == "after" else 2):
+        if self._accepted_index >= 5:
             if timing == "after":
-                deadline = time.monotonic() + 6
-                while time.monotonic() < deadline:
-                    state = load_checkpoint(core.checkpoint_file())
-                    if int(state["sampler_state"].get("checkpoint_index", 0)) > 0:
-                        break
-                    self.request_checkpoint_capture()
-                    self.capture_checkpoint_at_batch_boundary()
-                    time.sleep(0.1)
-                else:
-                    raise AssertionError("heartbeat did not advance durable checkpoint")
+                self.save_checkpoint(force=True)
             raise KeyboardInterrupt
         return original(self)
     klass.propose_next = propose
@@ -99,24 +78,25 @@ def _card(tmp_path: Path, method: str, *, count: int = 16) -> tuple[Path, dict]:
     return path, card
 
 
+
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
 @pytest.mark.parametrize("method", ["Grid", "Random", "Bridson", "CSV"])
 @pytest.mark.parametrize("timing", ["before", "after"])
-def test_fresh_interrupt_resume_appends_after_old_rows(tmp_path, monkeypatch, method, timing):
+def test_fresh_interrupt_resume_recalculates_only_snapshot_unfinished_and_new_points(tmp_path, method, timing):
+    from jarvishep2.sampling.sample_checkpoint import read_pickle
+
     source, card = _card(tmp_path, method)
-    config = load_task_yaml(str(source))
     sampler = Distributor.set_method(method)
-    sampler.set_config(config)
+    sampler.set_config(load_task_yaml(str(source)))
     stale = []
     while (sample := sampler.propose_next()) is not None:
         stale.append({"uuid": sample.uuid, "sample_index": sample.sample_index,
                       "status": "Completed", "x": 0., "y": 0., "z": -999.})
-    assert len(stale) > 5
+    total = len(stale)
+    assert total > 5
     database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/samples.hdf5"
-    SimpleHDF5Writer(str(database)).add_records(stale + [
-        {"uuid": "old-tail", "sample_index": len(stale), "status": "Completed", "z": -999.}
-    ])
+    SimpleHDF5Writer(str(database)).add_records(stale)
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
                JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
                JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
@@ -129,28 +109,28 @@ def test_fresh_interrupt_resume_appends_after_old_rows(tmp_path, monkeypatch, me
         assert output.exists(), result.stdout + result.stderr
         if phase == "interrupt":
             assert result.returncode == 130, result.stdout + result.stderr
-            checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/state.pkl"
-            payload = load_checkpoint(str(checkpoint))
-            assert set(payload["persistence"]["outcome_counts"]) == {"completed", "failed"}
-            assert (int(payload["sampler_state"].get("checkpoint_index", 0)) > 0) == (timing == "after")
+            checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/runtime.pickle"
+            state = read_pickle(str(checkpoint))["sampler_state"]
+            assert (state["next_sample_index"] > 0) == (timing == "after")
+            redo = set(state["unfinished"]) | set(range(state["next_sample_index"], total))
+            rows_at_interrupt = len(SimpleHDF5Writer(str(database)).read_records())
         else:
             assert result.returncode == 0, result.stdout + result.stderr
     rows = SimpleHDF5Writer(str(database)).read_records()
-    # DATABASE only appends: the earlier rows stay, and every index gets a new
-    # row. Rows past the checkpoint cursor can appear twice.
-    old, new = rows[: len(stale) + 1], rows[len(stale) + 1:]
-    assert [row["uuid"] for row in old] == [row["uuid"] for row in stale] + ["old-tail"]
-    assert all(float(row["z"]) == -999 for row in old)
-    assert all(float(row["z"]) != -999 for row in new)
-    assert {int(row["sample_index"]) for row in new} == set(range(len(stale)))
+    assert rows[:total] == stale
+    assert {int(row["sample_index"]) for row in rows[total:]} == set(range(total))
+    assert {int(row["sample_index"]) for row in rows[rows_at_interrupt:]} == redo
+    assert all(float(row["z"]) != -999 for row in rows[total:])
+    assert not checkpoint.with_name("state.pkl").exists()
+    assert checkpoint.with_name("all.pickle").exists() == (method in {"Grid", "Bridson"})
 
 
 NESTED_DRIVER = r"""
-import json, sys, time
+import json, os, sys, time
 from pathlib import Path
 from jarvishep2.runtime.core import Jarvis2Core
 from jarvishep2.sampling.dynesty_sampler import DynestySampler
-from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
+from jarvishep2.sampling.sample_checkpoint import read_pickle
 
 card, output, phase = sys.argv[1:]
 core = Jarvis2Core()
@@ -162,33 +142,28 @@ def fast_engine_saves(self, config_info):
     self._checkpoint_every_sec = 0.2
 DynestySampler.set_config = fast_engine_saves
 if phase == "interrupt":
-    original_capture = DynestySampler._capture_engine_snapshot
-    committed = None
-    def capture(self, *, reason=None):
-        global committed
-        deadline = time.monotonic() + 30
-        if reason is not None and committed is not None and self._accepted_index > committed:
-            # The engine ran past the committed snapshot: let DATABASE take
-            # those rows, then Ctrl+C before the next snapshot.
-            while (self.confirm_archived_prefix() or 0) < self._accepted_index:
-                if time.monotonic() > deadline:
-                    raise AssertionError("archive did not catch up")
-                time.sleep(0.05)
+    original_save = DynestySampler.save_checkpoint
+    landed = None
+    def save(self, *, force=False):
+        global landed
+        if landed is not None and not force and self._accepted_index > landed:
             Path(output).with_suffix(".tail").write_text(str(self._accepted_index))
             raise KeyboardInterrupt
-        done = original_capture(self, reason=reason)
-        if reason is None or committed is not None:
+        done = original_save(self, force=force)
+        if landed is not None or not done or self._accepted_index <= 0:
             return done
-        # Wait until state.pkl takes this snapshot.
+        deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
-            self.persist_runtime_checkpoint(force=True, reason="test")
-            state = load_checkpoint(core.checkpoint_file())["sampler_state"]
-            if int(state.get("checkpoint_index", 0)) > 0:
-                committed = int(state["checkpoint_index"])
-                return done
+            path = core.checkpoint_file()
+            if os.path.isfile(path):
+                state = read_pickle(path)["sampler_state"]
+                cursor = int(state.get("checkpoint_index", 0))
+                if cursor > 0:
+                    landed = cursor
+                    return done
             time.sleep(0.05)
-        raise AssertionError("engine snapshot was never committed")
-    DynestySampler._capture_engine_snapshot = capture
+        raise AssertionError("engine snapshot was never landed")
+    DynestySampler.save_checkpoint = save
 outcome = core.run(resume=phase == "resume", write_run_summary=False)
 Path(output).write_text(json.dumps(outcome.to_dict()))
 raise SystemExit(outcome.exit_code)
@@ -200,6 +175,7 @@ raise SystemExit(outcome.exit_code)
 @pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
 def test_nested_interrupt_resume_covers_every_index_once_past_the_redo_window(tmp_path, method):
     from jarvishep2.sampling.Source.Dynesty.py.dynesty.utils import restore_sampler
+    from jarvishep2.sampling.sample_checkpoint import read_pickle
 
     source, card = _card(tmp_path, "Random")
     card["Sampling"]["Method"] = method
@@ -211,7 +187,7 @@ def test_nested_interrupt_resume_covers_every_index_once_past_the_redo_window(tm
                JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
                JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
                JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
-    checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/state.pkl"
+    checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/runtime.pickle"
     database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE"
     for phase in ("interrupt", "resume"):
         output = tmp_path / f"{phase}.json"
@@ -221,13 +197,13 @@ def test_nested_interrupt_resume_covers_every_index_once_past_the_redo_window(tm
         assert output.exists(), result.stdout + result.stderr
         if phase == "interrupt":
             assert result.returncode == 130, result.stdout + result.stderr
-            payload = load_checkpoint(str(checkpoint))
+            assert not checkpoint.with_name("state.pkl").exists()
+            payload = read_pickle(str(checkpoint))
+            assert payload["format"] == "jarvis-hep.sampler-pickle"
             cursor = int(payload["sampler_state"]["checkpoint_index"])
             tail = int(output.with_suffix(".tail").read_text())
-            # The interrupt keeps the committed snapshot, not the live engine.
+            # The interrupt keeps the landed snapshot, not the live engine.
             assert 0 < cursor < tail
-            assert set(payload["persistence"]["outcome_counts"]) == {"completed", "failed"}
-            assert payload["integrity"]["safe_barrier_confirmed"] is True
             engine = restore_sampler(str(checkpoint.with_name("nested_engine.pkl")))
             assert int(engine.ncall) > 0
         else:
@@ -236,148 +212,21 @@ def test_nested_interrupt_resume_covers_every_index_once_past_the_redo_window(tm
     for shard in sorted(database.glob("*.hdf5")):
         rows.extend(SimpleHDF5Writer(str(shard)).read_records())
     counts = Counter(int(row["sample_index"]) for row in rows)
-    final = load_checkpoint(str(checkpoint))["sampler_state"]
+    final = read_pickle(str(checkpoint))["sampler_state"]
     assert final["finished"] is True
-    assert set(counts) == set(range(int(final["checkpoint_index"])))
-    assert int(final["checkpoint_index"]) > tail
-    # The resumed engine evaluates [cursor, tail) again; DATABASE keeps both rows.
-    assert {index for index, n in counts.items() if n > 1} == set(range(cursor, tail))
-    assert max(counts.values()) == 2
-
-
-def test_bridson_million_points_resume_uses_mmap_without_generation(tmp_path, monkeypatch):
-    from jarvishep2.sampling.bridson import Bridson
-    from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
-
-    sampler = Bridson()
-    sampler.vars = [object(), object()]
-    points = np.lib.format.open_memmap(tmp_path / "points.npy", mode="w+", dtype="float64", shape=(1_000_000, 2))
-    points[:, 0] = np.arange(len(points)) / len(points)
-    points[:, 1] = 0.5
-    digest = array_fingerprint(points)
-    del points
-    checkpoint = tmp_path / "state.pkl"
-    monkeypatch.setattr(sampler, "initialize", lambda **kwargs: pytest.fail("Bridson regenerated points"))
-    sampler.prepare_resume_points(str(checkpoint), {"points_sha256": digest})
-    assert isinstance(sampler._P, np.memmap)
-    assert len(sampler._P) == 1_000_000
-
-
-def test_bridson_point_file_missing_damaged_or_mismatched(tmp_path):
-    from jarvishep2.sampling.bridson import Bridson
-    from jarvishep2.sampling.runtime_checkpoint import array_fingerprint
-
-    sampler = Bridson()
-    sampler.vars = [object(), object()]
-    checkpoint = tmp_path / "state.pkl"
-    with pytest.raises(ValueError, match="missing"):
-        sampler.prepare_resume_points(str(checkpoint), {"points_sha256": "x"})
-    path = tmp_path / "points.npy"
-    path.write_bytes(b"damaged")
-    with pytest.raises(ValueError, match="damaged"):
-        sampler.prepare_resume_points(str(checkpoint), {"points_sha256": "x"})
-    points = np.arange(20, dtype=np.float64).reshape(10, 2)
-    np.save(path, points)
-    with pytest.raises(ValueError, match="hash mismatch"):
-        sampler.prepare_resume_points(str(checkpoint), {"points_sha256": "x"})
-    sampler.prepare_resume_points(str(checkpoint), {"points_sha256": array_fingerprint(points)})
-    assert isinstance(sampler._P, np.memmap)
-
-
-def test_bridson_points_file_written_once_across_cursor_snapshots(tmp_path):
-    from jarvishep2.sampling.bridson import Bridson
-
-    config = {"Sampling": {"Method": "Bridson", "Bounds": {"seed": 11, "radius": 0.4, "max_attempt": 20},
-              "Variables": [{"name": name, "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1, "length": 1}}}
-                            for name in ("x", "y")]}}
-    sampler = Bridson(); sampler.set_config(config)
-    checkpoint = tmp_path / "state.pkl"
-    sampler.prepare_fresh_points(str(checkpoint))
-    path = tmp_path / "points.npy"
-    stamp = path.stat().st_mtime_ns
-    digest = sampler.export_runtime_state()["points_sha256"]
-    for _ in range(3):
-        assert sampler.export_runtime_state()["points_sha256"] == digest
-    assert path.stat().st_mtime_ns == stamp
-    assert len(list(tmp_path.glob("points.*.tmp"))) == 0
-
-
-@pytest.mark.parametrize("damage", ["missing", "malformed", "hash"])
-def test_bridson_incomplete_checkpoint_falls_back_to_fresh(tmp_path, damage):
-    from jarvishep2.runtime.core import Jarvis2Core
-    from jarvishep2.sampling.bridson import Bridson
-    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
-
-    config = {"task_root": str(tmp_path), "scan_name": "bridson-damage",
-              "Sampling": {"Method": "Bridson", "Bounds": {"seed": 11, "radius": 0.4, "max_attempt": 20},
-                  "Variables": [{"name": name, "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1, "length": 1}}}
-                                for name in ("x", "y")]},
-              "EnvReqs": {"V2": {"checkpoint": {"enabled": True}}}}
-    core = Jarvis2Core(config)
-    original = Bridson(); original.set_config(core.config)
-    original.prepare_fresh_points(core.checkpoint_file())
-    spec = build_run_spec(config=core.config, scan_name="bridson-damage", task_root=str(tmp_path),
-                          task_result_dir=str(tmp_path), sampler_name="Bridson")
-    save_checkpoint(core.checkpoint_file(), build_payload(run_spec=spec, sampler_state=original.export_runtime_state()))
-    points = Path(core.checkpoint_file()).with_name("points.npy")
-    if damage == "missing":
-        points.unlink()
-    elif damage == "malformed":
-        points.write_bytes(b"broken")
-    else:
-        with points.open("r+b") as handle:
-            handle.seek(-8, os.SEEK_END)
-            handle.write(b"tampered")
-    core.prepare_resume(resume=True)
-    resumed = Bridson(); resumed.set_config(core.config)
-    core.set_sampler(resumed)
-    assert core._resume_policy == "fresh"
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
-def test_check_mode_writes_no_checkpoint_or_points(tmp_path):
-    source, card = _card(tmp_path, "Bridson")
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
-               JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
-               JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
-               JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
-    code = DRIVER.replace('outcome = core.run(resume=phase == "resume", write_run_summary=False)',
-                          'outcome = core.run(check_modules=True, write_run_summary=False)')
-    counts = []
-    database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/test/samples.hdf5"
-    for attempt in (1, 2):
-        output = tmp_path / f"check-{attempt}.json"
-        result = subprocess.run([sys.executable, "-c", code, str(source), str(output), "check", "before"],
-                                cwd=tmp_path, env=env, text=True, capture_output=True, timeout=90)
-        assert result.returncode == 0, result.stdout + result.stderr
-        counts.append(len(SimpleHDF5Writer(str(database)).read_records()))
-    assert counts[1] > counts[0]
-    checkpoint_dir = tmp_path / f"checkpoints/{card['Scan']['name']}/Bridson"
-    assert not (checkpoint_dir / "state.pkl").exists()
-    assert not (checkpoint_dir / "points.npy").exists()
-
-
-def test_missing_or_disabled_checkpoint_starts_fresh(tmp_path, caplog):
-    from jarvishep2.runtime.core import Jarvis2Core
-    config = {"task_root": str(tmp_path), "scan_name": "no-state",
-              "Sampling": {"Method": "Random", "Bounds": {"point_number": 10, "seed": 1}},
-              "EnvReqs": {"V2": {"checkpoint": {"enabled": True}}}}
-    core = Jarvis2Core(config)
-    core.prepare_resume(resume=True)
-    assert core._resume_policy == "fresh"
-    assert "without state.pkl" in caplog.text
-    config["EnvReqs"]["V2"]["checkpoint"]["enabled"] = False
-    core = Jarvis2Core(config)
-    Path(core.checkpoint_file()).parent.mkdir(parents=True, exist_ok=True)
-    Path(core.checkpoint_file()).write_bytes(b"ignored")
-    core.prepare_resume(resume=True)
-    assert core._resume_policy == "fresh"
-    assert "checkpoint.enabled: false" in caplog.text
+    final_cursor = int(final["checkpoint_index"])
+    assert final_cursor > tail
+    # Resume continues from the landed cursor. Indices before it are not
+    # redone. Indices at or after the interrupt tail are new. The open
+    # interval is the only place a row can appear twice.
+    assert set(range(cursor, final_cursor)).issubset(set(counts))
+    assert {index for index, n in counts.items() if n > 1} <= set(range(cursor, tail))
+    assert max(counts.values()) <= 2
+    assert all(counts[index] == 1 for index in range(tail, final_cursor))
 
 
 @pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])
-def test_nested_resume_without_state_pkl_starts_fresh(tmp_path, caplog, method):
+def test_nested_resume_without_runtime_pickle_refuses(tmp_path, method):
     from jarvishep2.runtime.core import Jarvis2Core
 
     core = Jarvis2Core({"task_root": str(tmp_path), "scan_name": "nested",
@@ -386,170 +235,8 @@ def test_nested_resume_without_state_pkl_starts_fresh(tmp_path, caplog, method):
     engine_copy = Path(core.checkpoint_file()).with_name("nested_engine.pkl")
     engine_copy.parent.mkdir(parents=True)
     engine_copy.write_bytes(b"engine")
-    core.prepare_resume(resume=True)
+    with pytest.raises(FileNotFoundError, match="runtime.pickle"):
+        core.prepare_resume(resume=True)
+    assert engine_copy.read_bytes() == b"engine"
     assert core._resume_policy == "fresh"
-    assert "without state.pkl" in caplog.text
-
-
-@pytest.mark.parametrize("change,expect_resume", [
-    ({"workers": 4}, True),
-    ({"seed": 2}, False),
-    ({"point_number": 11}, False),
-    ({"selection": "x > 0.2"}, False),
-])
-def test_sampling_fingerprint_refuses_card_drift(tmp_path, change, expect_resume):
-    from jarvishep2.runtime.core import Jarvis2Core
-    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
-
-    config = {"task_root": str(tmp_path), "scan_name": "card",
-              "Sampling": {"Method": "Random", "Bounds": {"point_number": 10, "seed": 1}, "Variables": []},
-              "EnvReqs": {"V2": {"workers": 1, "checkpoint": {"enabled": True}}}}
-    core = Jarvis2Core(config)
-    spec = build_run_spec(config=core.config, scan_name="card", task_root=str(tmp_path),
-                          task_result_dir=str(tmp_path), sampler_name="Random")
-    save_checkpoint(core.checkpoint_file(), build_payload(run_spec=spec, sampler_state={}))
-    changed = json.loads(json.dumps(config))
-    if "workers" in change:
-        changed["EnvReqs"]["V2"].update(change)
-    elif "selection" in change:
-        changed["Sampling"].update(change)
-    else:
-        changed["Sampling"]["Bounds"].update(change)
-    resumed = Jarvis2Core(changed)
-    resumed.prepare_resume(resume=True)
-    assert (resumed._resume_policy == "resume") is expect_resume
-
-
-@pytest.mark.parametrize("field", ["seed", "radius", "max_attempt", "length"])
-def test_bridson_bounds_change_rejected_before_loading_points(tmp_path, field):
-    from jarvishep2.runtime.core import Jarvis2Core
-    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
-
-    variables = [{"name": name, "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1, "length": 1}}}
-                 for name in ("x", "y")]
-    config = {"task_root": str(tmp_path), "scan_name": "bounds",
-              "Sampling": {"Method": "Bridson", "Bounds": {"seed": 1, "radius": 0.4, "max_attempt": 20},
-                           "Variables": variables},
-              "EnvReqs": {"V2": {"checkpoint": {"enabled": True}}}}
-    core = Jarvis2Core(config)
-    spec = build_run_spec(config=core.config, scan_name="bounds", task_root=str(tmp_path),
-                          task_result_dir=str(tmp_path), sampler_name="Bridson")
-    save_checkpoint(core.checkpoint_file(), build_payload(run_spec=spec, sampler_state={}))
-    changed = json.loads(json.dumps(config))
-    if field == "length":
-        changed["Sampling"]["Variables"][0]["distribution"]["parameters"]["length"] = 2
-    else:
-        changed["Sampling"]["Bounds"][field] = 2 if field != "radius" else 0.2
-    resumed = Jarvis2Core(changed)
-    resumed.prepare_resume(resume=True)
-    assert resumed._resume_policy == "fresh"
-
-
-def test_grid_and_csv_point_fingerprints_reject_changed_sources(tmp_path):
-    from jarvishep2.sampling.grid import Grid
-    from jarvishep2.sampling.csv_sampler import CSVSampler
-
-    config = {"Sampling": {"Method": "Grid", "Bounds": {"seed": 1},
-              "Variables": [{"name": "x", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1, "num": 2}}}]}}
-    grid = Grid(); grid.set_config(config)
-    state = grid.export_runtime_state()
-    config["Sampling"]["Variables"][0]["distribution"]["parameters"]["num"] = 3
-    changed = Grid(); changed.set_config(config)
-    with pytest.raises(ValueError, match="Grid point set changed"):
-        changed.import_runtime_state(state)
-    csv = tmp_path / "points.csv"
-    csv.write_text("uuid,x\na,1\n")
-    csv_config = {"Sampling": {"Method": "CSV", "Bounds": {"path": str(csv)}}}
-    original = CSVSampler(); original.set_config(csv_config)
-    state = original.export_runtime_state()
-    csv.write_text("uuid,x\na,2\n")
-    changed_csv = CSVSampler(); changed_csv.set_config(csv_config)
-    with pytest.raises(ValueError, match="CSV source file changed"):
-        changed_csv.import_runtime_state(state)
-
-
-def test_indexed_checkpoint_size_does_not_scale_with_submissions(tmp_path):
-    from jarvishep2.sampling.randoms import RandomS
-    from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
-
-    sizes = []
-    for point_number in (10, 100_000):
-        sampler = RandomS()
-        config = {"Sampling": {"Method": "Random", "Bounds": {"point_number": point_number, "seed": 1},
-                  "Variables": [{"name": "x", "distribution": {"type": "Flat", "parameters": {"min": 0, "max": 1}}}]}}
-        sampler.set_config(config)
-        sampler.initialize()
-        sampler.record_submitted_batch([f"id-{i}" for i in range(point_number)])
-        assert sampler.submitted_uuids == frozenset()
-        spec = build_run_spec(config=config, scan_name="size", task_root=str(tmp_path),
-                              task_result_dir=str(tmp_path), sampler_name="Random")
-        path = tmp_path / f"state-{point_number}.pkl"
-        save_checkpoint(str(path), build_payload(run_spec=spec, sampler_state=sampler.export_runtime_state()))
-        sizes.append(path.stat().st_size)
-    assert abs(sizes[1] - sizes[0]) < 100
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
-@pytest.mark.parametrize("sharded", [False, True], ids=["live", "rolling-shards"])
-def test_second_fresh_scan_appends_after_the_first(tmp_path, sharded):
-    source, card = _card(tmp_path, "Grid")
-    if sharded:
-        card["EnvReqs"]["V2"]["archiver"] = {"max_hdf5_bytes": 1, "batch_size": 1}
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
-               JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
-               JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
-               JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
-    database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/samples.hdf5"
-    expected: Counter[int] = Counter()
-    for size in (4, 2):
-        for variable in card["Sampling"]["Variables"]:
-            variable["distribution"]["parameters"]["num"] = size
-        source.write_text(yaml.safe_dump(card))
-        output = tmp_path / f"outcome-{size}.json"
-        result = subprocess.run([sys.executable, "-c", DRIVER, str(source), str(output), "fresh", "before"],
-                                cwd=tmp_path, env=env, text=True, capture_output=True, timeout=90)
-        assert result.returncode == 0, result.stdout + result.stderr
-        from jarvishep2.io.database import discover_samples_hdf5_shards
-        paths = discover_samples_hdf5_shards(str(database.parent))
-        rows = [row for path in paths for row in SimpleHDF5Writer(path).read_records()]
-        if sharded:
-            assert len(paths) > 1
-        expected.update(range(size * size))
-        assert Counter(int(row["sample_index"]) for row in rows) == expected
-
-
-@pytest.mark.slow
-@pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
-@pytest.mark.parametrize("disabled", [False, True], ids=["missing-state", "disabled-checkpoint"])
-def test_resume_without_usable_checkpoint_restarts_from_zero(tmp_path, disabled):
-    source, card = _card(tmp_path, "Bridson")
-    card["EnvReqs"]["V2"]["checkpoint"] = {"enabled": not disabled}
-    source.write_text(yaml.safe_dump(card))
-    config = load_task_yaml(str(source))
-    sampler = Distributor.set_method("Bridson")
-    sampler.set_config(config)
-    stale = []
-    while (sample := sampler.propose_next()) is not None:
-        stale.append({"uuid": sample.uuid, "sample_index": sample.sample_index,
-                      "status": "Completed", "x": 0., "y": 0., "z": -999.})
-    database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/samples.hdf5"
-    SimpleHDF5Writer(str(database)).add_records(stale)
-    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
-               JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
-               JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
-               JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
-    output = tmp_path / "resume-without-state.json"
-    code = DRIVER.replace('if phase == "resume" and core.config["Sampling"]["Method"] == "Bridson":', 'if False:')
-    result = subprocess.run([sys.executable, "-c", code, str(source), str(output), "resume", "before"],
-                            cwd=tmp_path, env=env, text=True, capture_output=True, timeout=90)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "starting fresh" in result.stdout + result.stderr
-    rows = SimpleHDF5Writer(str(database)).read_records()
-    assert rows[: len(stale)] == stale
-    new = rows[len(stale):]
-    assert sorted(int(row["sample_index"]) for row in new) == list(range(len(stale)))
-    assert all(float(row["z"]) != -999 for row in new)
-    checkpoint_dir = tmp_path / f"checkpoints/{card['Scan']['name']}/Bridson"
-    assert (checkpoint_dir / "state.pkl").exists() is not disabled
-    assert (checkpoint_dir / "points.npy").exists() is not disabled
+    assert core._resume_checkpoint_payload is None

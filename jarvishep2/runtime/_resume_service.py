@@ -28,6 +28,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
 )
 from jarvishep2.task_config import sampling_method
 from jarvishep2.runtime_config import get_checkpoint_config
+from jarvishep2.sampling.sample_checkpoint import load_runtime, uses_sample_checkpoint
 
 
 class _ResumeService:
@@ -121,12 +122,36 @@ class _ResumeService:
         )
         scan_name = str(core.info.get("scan_name") or core.config.get("scan_name") or "scan")
         sampler_name = core._resolve_checkpoint_sampler_name()
-        return checkpoint_path(
+        path = checkpoint_path(
             task_root=task_root,
             scan_name=scan_name,
             sampler_name=sampler_name,
             check=bool(core.config.get("_check_modules_sample_layout")),
         )
+        if uses_sample_checkpoint(core.config):
+            return os.path.join(os.path.dirname(path), "runtime.pickle")
+        return path
+
+    def _preload_sample_checkpoint(self, *, resume: bool, fresh: bool) -> None:
+        core = self._core
+        core._resume_policy = "fresh"
+        core._resume_checkpoint_payload = None
+        if fresh:
+            return
+        if not get_checkpoint_config(core.config)["enabled"]:
+            if resume:
+                raise ValueError("cannot resume with checkpoint.enabled=false")
+            return
+        path = core.checkpoint_file()
+        if not os.path.isfile(path):
+            if resume:
+                raise FileNotFoundError(f"sampler checkpoint missing: {path}")
+            return
+        if not resume and not core.prompt_resume_from_checkpoint(path):
+            os.remove(path)
+            return
+        core._resume_checkpoint_payload = load_runtime(path, core.config)
+        core._resume_policy = "resume"
 
     @staticmethod
     def prompt_resume_from_checkpoint(
@@ -164,6 +189,10 @@ class _ResumeService:
         from jarvishep2.unit_runtime import preflight_units
         preflight_units(core, resume=resume or (not fresh and os.path.isfile(core.checkpoint_file())),
                         check=getattr(core, "_unit_check_run", False) is True)
+
+        if uses_sample_checkpoint(core.config):
+            self._preload_sample_checkpoint(resume=resume, fresh=fresh)
+            return
 
         if fresh:
             core._resume_policy = "fresh"
@@ -254,6 +283,18 @@ class _ResumeService:
         core = self._core
 
         payload = core._resume_checkpoint_payload
+        if uses_sample_checkpoint(core.config):
+            # Seed run statistics from sampler-confirmed completions only.
+            # These are not claims about which output rows are on disk.
+            state = (payload or {}).get("sampler_state") or {}
+            completed = int(state.get("completed_count", 0))
+            failed = int(state.get("failed_count", 0))
+            core._persisted_index_prefix = 0
+            core._persisted_pending_indices = set()
+            core._persisted_uuids = set()
+            core._persisted_records_count = completed + failed
+            core._persisted_failed_count = failed
+            return
         if (
             payload is not None
             and uses_checkpoint_resume_protocol(core.config)
@@ -293,6 +334,14 @@ class _ResumeService:
 
     def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
         core = self._core
+
+        if uses_sample_checkpoint(core.config):
+            # Signals may interrupt a proposal halfway through an in-memory
+            # transition. Keep the last complete periodic snapshot on interrupt.
+            if core.sampler is None or reason == "interrupt":
+                return None
+            written = core.sampler.save_checkpoint(force=True)
+            return core.checkpoint_file() if written else None
 
         if core.sampler is None or not hasattr(core.sampler, "export_runtime_state"):
             return None
@@ -455,6 +504,17 @@ class _ResumeService:
             return False
         if core._resume_checkpoint_payload is None or target is None:
             return False
+        if getattr(target, "uses_sample_checkpoint", False) is True:
+            state = core._resume_checkpoint_payload["sampler_state"]
+            prepare_points = getattr(target, "prepare_resume_points", None)
+            try:
+                if callable(prepare_points):
+                    prepare_points(core.checkpoint_file(), state)
+                target.restore_checkpoint(state)
+            except (ValueError, OSError) as exc:
+                core._discard_resume_checkpoint(reason=str(exc), level="error")
+                return False
+            return True
         if not hasattr(target, "import_runtime_state"):
             return False
         sampler_state = core._resume_checkpoint_payload.get("sampler_state") or {}
@@ -480,6 +540,29 @@ class _ResumeService:
     def start_runtime_checkpoint(self) -> None:
         """Enable the configured checkpoint heartbeat once sampler and archiver exist."""
         core = self._core
+
+        if uses_sample_checkpoint(core.config):
+            policy = get_checkpoint_config(core.config)
+            if getattr(core, "checkpoint_process", None) is not None:
+                return
+            if core.sampler is not None and policy["enabled"] and not core.config.get("_check_modules_sample_layout"):
+                from jarvishep2.runtime.checkpoint_process import CheckpointProcess
+
+                try:
+                    writer = CheckpointProcess(
+                        core.checkpoint_file(), core._logger, interval=policy["heartbeat"],
+                        scan_name=str(core.info.get("scan_name") or core.config.get("scan_name") or ""),
+                        redis_config=core.redis.connection_config() if core.redis is not None else None,
+                        control_owner=str(core._control_lock_owner or ""),
+                        logs_dir=core.info.get("logs_dir"),
+                    )
+                except Exception as exc:
+                    core._logger.warning("Checkpoint process unavailable -> %s", exc)
+                    return
+                core.checkpoint_process = writer
+                writer.start()
+                core.sampler.configure_checkpoint(checkpoint_file=core.checkpoint_file(), writer=writer)
+            return
 
         if core.sampler is None or not hasattr(core.sampler, "configure_checkpoint"):
             return

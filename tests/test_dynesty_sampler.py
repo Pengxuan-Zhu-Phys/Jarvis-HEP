@@ -1283,75 +1283,75 @@ def _unit_prior(u: np.ndarray) -> np.ndarray:
     return np.asarray(u, dtype=float)
 
 
-class NestedSnapshotFenceTests(unittest.TestCase):
-    """An engine snapshot reaches state.pkl only after DATABASE holds its cursor."""
+class _IdleWriter:
+    def __init__(self) -> None:
+        self.idle = True
+        self.payloads: list[dict] = []
+        self.waits = 0
+
+    def available(self) -> bool:
+        return self.idle
+
+    def wait(self, timeout: float = 10.0) -> bool:
+        del timeout
+        self.waits += 1
+        return True
+
+    def submit(self, payload: dict) -> bool:
+        self.payloads.append(payload)
+        return True
+
+
+class NestedSnapshotTests(unittest.TestCase):
+    """An engine snapshot is submitted without an HDF5 prefix."""
 
     def _sampler(self, tmp: str, *, enabled: bool = True) -> DynestySampler:
         cfg = NestedCheckpointResumeTests._two_var_config(method="Dynesty", nlive=12)
         cfg["task_root"] = tmp
         cfg["task_result_dir"] = tmp
-        cfg["EnvReqs"] = {"V2": {"checkpoint": {"enabled": enabled}}}
+        cfg["scan_name"] = "nested"
+        cfg["EnvReqs"] = {"V2": {"checkpoint": {"enabled": enabled, "heartbeat": 30}}}
         sampler = DynestySampler()
         sampler.set_config(cfg)
         return sampler
 
-    @staticmethod
-    def _capture_at(sampler: DynestySampler, cursor: int) -> None:
-        sampler._pool_call_index = cursor
-        sampler._sampler = types.SimpleNamespace(it=cursor)
-        assert sampler._capture_engine_snapshot()
-
-    def _configure(self, sampler: DynestySampler, tmp: str) -> list[int]:
-        written: list[int] = []
-
-        def save(reason: str = "") -> bool:
-            # Core: archive prefix → set_persisted_prefix → committed state.
-            state = sampler.checkpoint_runtime_state(safe=False)
-            written.append(int(state["checkpoint_index"]))
-            return True
-
-        sampler.configure_checkpoint(
-            checkpoint_file=os.path.join(tmp, "ck", "state.pkl"), save_callback=save
-        )
-        self.addCleanup(sampler.shutdown_checkpointing)
-        return written
-
-    def test_snapshot_waits_for_archive_prefix(self) -> None:
+    def test_snapshot_submits_the_live_cursor_without_archive_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sampler = self._sampler(tmp)
-            written = self._configure(sampler, tmp)
+            writer = _IdleWriter()
+            sampler._pickle_writer = writer
             sampler._pool_call_index = 40
             sampler._sampler = types.SimpleNamespace(it=3)
-            sampler._capture_engine_snapshot(reason="dynesty_engine_checkpoint")
-            # The live engine is at cursor 40; DATABASE holds nothing yet.
-            self.assertEqual(written, [0])
-            self.assertIsNone(sampler.checkpoint_runtime_state(safe=True)["native_sampler_blob"])
-            sampler.set_persisted_prefix(39)
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["checkpoint_index"], 0)
-            sampler.set_persisted_prefix(40)
-            state = sampler.checkpoint_runtime_state(safe=False)
+            self.assertTrue(sampler.save_checkpoint())
+            self.assertEqual(writer.waits, 0)
+            self.assertEqual(sampler._persisted_index_prefix, 0)
+            state = writer.payloads[0]["sampler_state"]
             self.assertEqual(state["checkpoint_index"], 40)
+            self.assertEqual(state["next_sample_index"], 40)
             self.assertEqual(pickle.loads(state["native_sampler_blob"])["sampler"].it, 3)
-
-    def test_pending_window_keeps_oldest_snapshots(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            sampler = self._sampler(tmp)
-            self._configure(sampler, tmp)
-            for cursor in (10, 20, 30, 40, 50, 60):
-                self._capture_at(sampler, cursor)
-            self.assertEqual([i for i, _ in sampler._checkpoint_snapshots], [10, 20, 30, 60])
-            sampler.set_persisted_prefix(35)
-            self.assertEqual(sampler.checkpoint_runtime_state(safe=False)["checkpoint_index"], 30)
-            self.assertEqual([i for i, _ in sampler._checkpoint_snapshots], [60])
+            self.assertEqual(
+                writer.payloads[0]["sidecars"],
+                [{"name": "nested_engine.pkl", "field": "sampler_state.native_sampler_blob"}],
+            )
+            writer.idle = False
+            pickled = []
+            sampler._pickle_native_sampler = lambda *args, **kwargs: pickled.append(1) or b"x"
+            self.assertFalse(sampler.save_checkpoint())
+            self.assertEqual(pickled, [])
+            writer.idle = True
+            self.assertTrue(sampler.save_checkpoint(force=True))
+            self.assertEqual(writer.waits, 1)
 
     @pytest.mark.filterwarnings("ignore:^The sampling was stopped short due to maxiter/maxcall limit:UserWarning")
-    def test_committed_engine_is_mirrored_for_restore_sampler(self) -> None:
+    def test_checkpoint_process_writes_the_engine_copy(self) -> None:
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
         from jarvishep2.Sampling.Source.Dynesty.py.dynesty.utils import restore_sampler
 
         with tempfile.TemporaryDirectory() as tmp:
             sampler = self._sampler(tmp)
-            self._configure(sampler, tmp)
+            path = os.path.join(tmp, "ck", "runtime.pickle")
+            sampler.configure_checkpoint(checkpoint_file=path)
+            self.addCleanup(sampler.shutdown_checkpointing)
             engine = NestedSampler(
                 loglikelihood=_quadratic_logl,
                 prior_transform=_unit_prior,
@@ -1362,22 +1362,25 @@ class NestedSnapshotFenceTests(unittest.TestCase):
             engine.run_nested(maxiter=5, dlogz=1e-9, print_progress=False, add_live=False)
             sampler._sampler = engine
             sampler._pool_call_index = int(engine.ncall)
-            sampler._capture_engine_snapshot()
+            self.assertTrue(sampler.save_checkpoint(force=True))
             mirror = os.path.join(tmp, "ck", "nested_engine.pkl")
-            sampler.checkpoint_runtime_state(safe=False)
-            self.assertFalse(os.path.exists(mirror))
-            sampler.set_persisted_prefix(int(engine.ncall))
-            sampler.checkpoint_runtime_state(safe=False)
+            deadline = time.monotonic() + 20
+            while time.monotonic() < deadline and not os.path.isfile(mirror):
+                time.sleep(0.05)
+            self.assertTrue(os.path.isfile(path))
             self.assertEqual(int(restore_sampler(mirror).it), int(engine.it))
 
     def test_disabled_checkpoint_writes_no_engine_copy(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sampler = self._sampler(tmp, enabled=False)
-            self._configure(sampler, tmp)
-            self._capture_at(sampler, 5)
-            sampler.set_persisted_prefix(5)
-            sampler.checkpoint_runtime_state(safe=False)
+            sampler.configure_checkpoint(
+                checkpoint_file=os.path.join(tmp, "ck", "runtime.pickle")
+            )
+            sampler._pool_call_index = 5
+            sampler._sampler = types.SimpleNamespace(it=5)
+            self.assertFalse(sampler.save_checkpoint(force=True))
             self.assertFalse(os.path.exists(os.path.join(tmp, "ck", "nested_engine.pkl")))
+            self.assertFalse(os.path.exists(os.path.join(tmp, "ck", "runtime.pickle")))
 
     def test_earlier_release_snapshot_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1410,6 +1413,73 @@ class NestedSnapshotFenceTests(unittest.TestCase):
             self.assertIsNone(sampler._sampler)
             self.assertIsNone(sampler._last_safe_state)
             self.assertFalse(sampler._resume_engine_requested)
+
+
+@pytest.mark.filterwarnings("ignore:^The sampling was stopped short due to maxiter/maxcall limit:UserWarning")
+def test_nested_resume_reads_runtime_pickle_not_hdf5(tmp_path, monkeypatch):
+    import jarvishep2.runtime._resume_service as resume
+    from jarvishep2.Sampling.Source.Dynesty.py.dynesty import NestedSampler
+    from jarvishep2.Sampling.multinest_sampler import MultiNestSampler
+    from jarvishep2.runtime.core import Jarvis2Core
+    from jarvishep2.runtime.worker_config import build_worker_config
+    from jarvishep2.sampling.sample_checkpoint import (
+        atomic_pickle,
+        uses_completion_feedback,
+        uses_sample_checkpoint,
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("nested resume inspected the HDF5 database")
+
+    monkeypatch.setattr(resume, "read_persisted_sample_index_state", forbidden)
+    monkeypatch.setattr(resume, "read_persisted_outcome_counts", forbidden)
+    cfg = NestedCheckpointResumeTests._two_var_config(method="MultiNest", nlive=8)
+    cfg["task_root"] = str(tmp_path)
+    cfg["task_result_dir"] = str(tmp_path)
+    cfg["scan_name"] = "nested-hdf5"
+    assert uses_sample_checkpoint(cfg) is True
+    assert uses_completion_feedback(cfg) is False
+    blueprint = build_worker_config(
+        cfg,
+        task_result_dir=str(tmp_path),
+        extra={"publish_feedback": False, "completion_feedback": False},
+    )
+    assert blueprint["publish_feedback"] is True
+    assert blueprint["completion_feedback"] is False
+
+    core = Jarvis2Core(cfg)
+    assert core.checkpoint_file().endswith("MultiNest/runtime.pickle")
+    sampler = MultiNestSampler()
+    sampler.set_config(core.config)
+    engine = NestedSampler(
+        loglikelihood=_quadratic_logl,
+        prior_transform=_unit_prior,
+        ndim=2,
+        nlive=8,
+        rstate=np.random.default_rng(0),
+    )
+    engine.run_nested(maxiter=3, dlogz=1e-9, print_progress=False, add_live=False)
+    sampler._sampler = engine
+    sampler._finished = False
+    sampler._pool_call_index = 9
+    state = sampler.checkpoint_state()
+    assert state is not None
+    assert state["checkpoint_index"] == 9
+    database = tmp_path / "DATABASE" / "samples.hdf5"
+    database.parent.mkdir()
+    database.write_bytes(b"not an hdf5 file")
+    atomic_pickle(core.checkpoint_file(), sampler._checkpoint_envelope(state))
+    core.prepare_resume(resume=True)
+    core._load_persisted_database_state(str(database.parent))
+    assert database.read_bytes() == b"not an hdf5 file"
+    assert core._resume_policy == "resume"
+    assert core._persisted_index_prefix == 0
+    restored = MultiNestSampler()
+    restored.set_config(core.config)
+    assert core._import_sampler_checkpoint_state(restored) is True
+    assert restored._pool_call_index == 9
+    assert restored._sampler is not None
+    assert int(restored._sampler.it) == int(engine.it)
 
 
 if __name__ == "__main__":

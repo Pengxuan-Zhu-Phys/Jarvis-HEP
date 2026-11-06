@@ -13,6 +13,7 @@ from jarvishep2.queue.redis_queue import (
     INFLIGHT,
     INFLIGHT_UUIDS,
     PROC_ARCHIVER,
+    PROC_CHECKPOINT,
     PROC_BOARD_TTL_SEC,
     PROC_CHILDREN,
     PROC_CORE,
@@ -165,6 +166,8 @@ class _ProcBoard:
             return PROC_CORE
         if role_text == "archiver":
             return PROC_ARCHIVER
+        if role_text == "checkpoint":
+            return PROC_CHECKPOINT
         if role_text == "redis":
             return PROC_REDIS
         owner = "" if owner_id is None else str(owner_id).strip()

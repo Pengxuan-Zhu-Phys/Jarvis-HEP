@@ -178,7 +178,9 @@ class _ScanDriver:
         requeued = 0
         if core._resume_policy == "resume" and hasattr(core.sampler, "repropose_unfinished"):
             requeued = len(core.sampler.repropose_unfinished())
-        if hasattr(core.sampler, "run_distributed"):
+        if getattr(core.sampler, "uses_sample_checkpoint", False) is True:
+            pushed = int(core.sampler.run_distributed(timeout=timeout))
+        elif hasattr(core.sampler, "run_distributed"):
             pushed = int(core.sampler.run_distributed())
         elif hasattr(core.sampler, "submit_all_remaining"):
             pushed = len(core.sampler.submit_all_remaining())

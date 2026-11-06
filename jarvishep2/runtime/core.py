@@ -134,6 +134,7 @@ class Jarvis2Core:
         self.redis: RedisQueue | None = None
         self.factory: TaskFactory | None = None
         self.archiver: SimpleArchiver | ArchiverProcess | None = None
+        self.checkpoint_process = None
         self.sampler: Any = None
         self.command_parser: CommandParser | None = None
         self._environment_summary: dict[str, Any] = {}
@@ -626,6 +627,7 @@ class Jarvis2Core:
         # Method was known.  Re-resolve under the real sampler name and import.
         if (
             self._resume_policy == "resume"
+            and getattr(sampler, "uses_sample_checkpoint", False) is not True
             and self._resume_checkpoint_payload is None
             and getattr(self, "_resume_checkpoint_preloaded", False)
         ):
@@ -1161,6 +1163,8 @@ class Jarvis2Core:
         sampler = self.sampler
         if sampler is None:
             return
+        if getattr(sampler, "uses_sample_checkpoint", False) is True:
+            return
         if hasattr(sampler, "set_resume_mode"):
             sampler.set_resume_mode(self._resume_policy == "resume")
         if hasattr(sampler, "set_persisted_uuids"):
@@ -1367,6 +1371,10 @@ class Jarvis2Core:
         SAMPLE_STATS with the same base, so archived stays comparable to
         completed + failed.
         """
+        if getattr(self.sampler, "uses_sample_checkpoint", False) is True:
+            # Sampler feedback confirms calculations, never historical HDF5
+            # rows. Report this run's writer count without adding that snapshot.
+            return 0
         if self._resume_policy != "resume":
             return 0
         return max(0, int(getattr(self, "_persisted_records_count", 0) or 0))

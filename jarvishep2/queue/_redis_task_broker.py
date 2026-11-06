@@ -202,6 +202,8 @@ class _TaskBroker:
 
         Nested ``observables`` / sample ``status`` are not part of the contract;
         if a legacy caller still passes them they are dropped (not re-nested).
+        Finite samplers send ``{uuid, sample_index, terminal_status}`` instead
+        of a likelihood projection; those identity/terminal fields are retained.
 
         ``queue`` selects the Redis list (default ``hep:feedback``). Independent
         MCMC chains may use ``hep:feedback:chain:{id}`` while still sharing the
@@ -292,6 +294,20 @@ class _TaskBroker:
         from jarvishep2.feedback_return import normalize_feedback_record
 
         return normalize_feedback_record(decoded)
+
+    def poll_feedback_batch(self, limit: int) -> list[dict[str, Any]]:
+        """Receive a bounded feedback batch in one nonblocking round trip."""
+        self._require_client()
+        payloads = self.r.lpop(FEEDBACK_QUEUE, count=max(1, int(limit))) or []
+        from jarvishep2.feedback_return import normalize_feedback_record
+
+        records = []
+        for payload in payloads:
+            decoded = decode_payload(payload, codec=self._codec)
+            if not isinstance(decoded, dict):
+                raise CodecError("feedback payload must decode to a dict")
+            records.append(normalize_feedback_record(decoded))
+        return records
 
     def list_feedback_queue_keys(self) -> list[str]:
         """Default feedback list plus any live per-chain shards."""
