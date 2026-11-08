@@ -388,6 +388,7 @@ class SimpleArchiver:
         cfg = dict(ARCHIVER_DEFAULTS)
         if isinstance(archiver_config, Mapping):
             cfg.update(archiver_config)
+        self._publish_uuid_receipts = bool(cfg.get("publish_uuid_receipts", True))
         self.pack_buckets = bool(cfg.get("pack_buckets", True)) and bool(cfg.get("store_samples", True))
         self.buckets_packed = 0
         # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
@@ -506,10 +507,11 @@ class SimpleArchiver:
         # ArchiveProcessor returns only after HDF5 commit_batch completed its
         # flush + fsync.  Post receipts after durability, never before it.
         # The consumer that waits on a UUID removes its receipt.
-        self.redis.add_archived_uuids(
-            self.scan_name,
-            [str(item.get("uuid") or "").strip() for item in flushed],
-        )
+        if self._publish_uuid_receipts:
+            self.redis.add_archived_uuids(
+                self.scan_name,
+                [str(item.get("uuid") or "").strip() for item in flushed],
+            )
         for item in flushed:
             bucket_id = item.get("bucket_id")
             if bucket_id is None:

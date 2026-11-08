@@ -77,6 +77,12 @@ def draw(context, rng, plan):
     return rng.random(context.dimension) * plan["upper"]
 
 
+def checkpoint(plan):
+    return dict(plan)
+
+def resume(setup, saved):
+    return saved
+
 def settings_rows(setup, plan):
     return [("upper", plan["upper"])]
 
@@ -289,7 +295,26 @@ def test_submission_is_batch_invariant(tmp_path: Path, half_cube: Path) -> None:
         queue = make_fakeredis_queue()
         queue.connect()
         sampler.set_redis(queue)
-        assert sampler.run_distributed() == 50
+        submit_group = sampler._submit_group
+        submit_one = sampler._submit
+
+        def complete(batch):
+            for point in batch:
+                queue.publish_feedback({
+                    "uuid": point.uuid, "sample_index": point.sample_index,
+                    "terminal_status": "Completed",
+                })
+
+        def group(batch):
+            submit_group(batch)
+            complete(batch)
+
+        def single(point):
+            submit_one(point)
+            complete([point])
+
+        sampler._submit_group, sampler._submit = group, single
+        assert sampler.run_distributed(timeout=1) == 50
         tasks = {}
         while (task := queue.pull_task(timeout=1)) is not None:
             tasks[task["sample_index"]] = (task["uuid"], tuple(task["u_coords"]))
@@ -323,23 +348,24 @@ def test_non_finite_mapped_value_is_rejected(tmp_path: Path, half_cube: Path) ->
         _drain(_sampler(config))
 
 
-def test_checkpoint_round_trip_and_prefix_replay(tmp_path: Path, half_cube: Path) -> None:
+def test_checkpoint_round_trip_and_unfinished_replay(tmp_path: Path, half_cube: Path) -> None:
     config = _config(tmp_path, "HalfCube", {"seed": 2, "point_number": 30}, selection="y < 0.3")
     uninterrupted = _drain(_sampler(config))
 
     sampler = _sampler(config)
-    sampler.assert_checkpoint_attribute_contract()
     head = [sampler.propose_next() for _ in range(4)]
-    state = sampler.export_runtime_state()
+    state = sampler.checkpoint_state()
     assert "numpy_random_state" not in state and state["plugin"]["identity"]
     resumed = _sampler(config)
-    resumed.import_runtime_state(state)
+    resumed.restore_checkpoint(state)
     tail = _drain(resumed)
     assert [s.uuid for s in head + tail] == [s.uuid for s in uninterrupted]
 
-    replayed = _sampler(config)
-    replayed.advance_to_persisted_prefix(6)
-    assert [s.uuid for s in _drain(replayed)] == [s.uuid for s in uninterrupted[6:]]
+    assert resumed._resume_pending == list(range(4))
+    for index, original in enumerate(head):
+        replay = resumed._rebuild_unfinished(index)
+        assert replay.uuid == original.uuid
+        assert np.array_equal(replay.u_coords, original.u_coords)
 
 
 # ---------------------------------------------------------------- preflight
@@ -585,25 +611,23 @@ def test_metadata_uses_the_prepared_source_after_reload(tmp_path: Path, half_cub
     assert sampler_catalog.plugin_record("HalfCube").version == "2.0"
 
 
-def test_stop_is_observed_between_rejected_candidates_and_in_replay(tmp_path: Path, half_cube: Path) -> None:
-    for replay in (False, True):
-        sampler = _sampler(_config(tmp_path, "HalfCube", {"point_number": 100000}, selection="x < 0"))
-        sampler.set_interrupt_check(lambda: sampler._index >= 3)
-        with pytest.raises(KeyboardInterrupt):
-            sampler.advance_to_persisted_prefix(1) if replay else sampler.propose_next()
-        assert sampler._index == 3 and sampler._accepted_index == 0
+def test_stop_is_observed_between_rejected_candidates(tmp_path: Path, half_cube: Path) -> None:
+    sampler = _sampler(_config(tmp_path, "HalfCube", {"point_number": 100000}, selection="x < 0"))
+    sampler.set_interrupt_check(lambda: sampler._index >= 3)
+    with pytest.raises(KeyboardInterrupt):
+        sampler.propose_next()
+    assert sampler._index == 3 and sampler._accepted_index == 0
 
 
 def test_interrupt_and_scan_mode_stop_backpressure_wait(tmp_path: Path, half_cube: Path) -> None:
     sampler = _sampler(_config(tmp_path, "HalfCube", {"point_number": 10}))
     sampler.redis = mock.Mock()
-    sampler.redis.fetch_sample_stats.return_value = {"completed": 0, "failed": 0}
-    sampler.redis.read_proc_board.return_value = {"scan_mode": "paused", "pause_reason": "workers down"}
+    sampler.redis.read_proc_board.return_value = {"scan_mode": "paused"}
     with pytest.raises(RuntimeError, match="scan_mode=paused"):
-        sampler._wait_for_inflight_room(2, base_finished=0, max_inflight=2)
+        sampler.run_distributed()
     sampler.set_interrupt_check(lambda: True)
     with pytest.raises(KeyboardInterrupt):
-        sampler._wait_for_inflight_room(2, base_finished=0, max_inflight=2)
+        sampler.run_distributed()
 
 
 def test_indexed_block_adapter_against_a_known_sequence(tmp_path: Path, home: Path) -> None:
@@ -851,6 +875,9 @@ def test_core_run_with_a_user_plugin(tmp_path: Path, half_cube: Path, monkeypatc
     from jarvishep2.database import SimpleHDF5Writer
     from jarvishep2.runtime.core import Jarvis2Core
 
+    source = HALF_CUBE[:HALF_CUBE.index("def checkpoint(")] + HALF_CUBE[HALF_CUBE.index("def settings_rows("):]
+    half_cube.write_text(source)
+    SamplerRegistry().load(half_cube)
     marker = tmp_path / "imports.txt"
     monkeypatch.setenv("JHS_TEST_MARKER", str(marker))
     card = _card(tmp_path, "HalfCube", {"point_number": 8, "seed": 13, "upper": 0.9})
@@ -871,6 +898,11 @@ def test_core_run_with_a_user_plugin(tmp_path: Path, half_cube: Path, monkeypatc
         server.shutdown()
         server.server_close()
     assert (outcome.completed, outcome.failed) == (8, 0)
+    assert core.checkpoint_process is None
+    assert not list((tmp_path / "checkpoints").rglob("runtime.pickle"))
+    from jarvis_hep_sampler.errors import PluginResumeMismatch
+    with pytest.raises(PluginResumeMismatch, match="does not support resume"):
+        core.prepare_resume(resume=True)
     records = SimpleHDF5Writer(str(result_dir / "DATABASE" / "samples.hdf5")).read_records()
     expected = list(
         reference_stream(

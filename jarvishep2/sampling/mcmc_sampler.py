@@ -31,10 +31,12 @@ import pickle
 import time
 from collections import deque
 from collections.abc import Mapping, Sequence
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
 
+from jarvishep2.runtime.checkpoint_process import CheckpointProcess
 from jarvishep2.sampling.Source.MCMC.chain_runtime import ChainRegistry, ChainRuntime
 from jarvishep2.sampling.Source.MCMC.chain_history import ChainEvent, ChainHistory
 from jarvishep2.sampling.Source.MCMC.config_contract import (
@@ -44,12 +46,14 @@ from jarvishep2.sampling.Source.MCMC.config_contract import (
 )
 from jarvishep2.sampling.Source.MCMC.mcmc_chain import MCMCChain
 from jarvishep2.sampling.feedback_sampler import FeedbackSampler
+from jarvishep2.sampling.runtime_checkpoint import operas_constants_fingerprint, stable_json_hash
+from jarvishep2.sampling.sample_checkpoint import FORMAT, VERSION, config_identity
 from jarvishep2.sampling.sampling_utils import evaluate_selection, physical_from_u
 from jarvishep2.sampling.variables import load_variables
 from jarvishep2.log_kv import PermilleProgress
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import FEEDBACK_QUEUE, chain_feedback_queue
-from jarvishep2.runtime_config import get_checkpoint_config, get_runtime_block
+from jarvishep2.runtime_config import get_runtime_block
 from jarvishep2.sample import Sample
 
 _STEP_LOG_INTERVAL_SEC = 60.0
@@ -156,6 +160,7 @@ class MCMCBaseSampler(FeedbackSampler):
     """
 
     method = "MCMC"
+    uses_sample_checkpoint = True
     _checkpoint_saved_attributes = frozenset(
         {
             "method",
@@ -185,9 +190,9 @@ class MCMCBaseSampler(FeedbackSampler):
             "_registry",
             "_seed_seq",
             "_batch_size",
-            "_sampling_checkpoint_interval_sec",
-            "_last_sampling_checkpoint_at",
-            "_last_sampling_checkpoint_generation",
+            "_pickle_writer",
+            "_config_id",
+            "_checkpoint_integrity",
             "_submit_progress",
             "_history_csv_handle",
             "_history_csv_writer",
@@ -218,11 +223,9 @@ class MCMCBaseSampler(FeedbackSampler):
         # Counters for the step line and the summary table (sampler.log only).
         self._log_counters: dict[str, int] = dict(_LOG_COUNTER_DEFAULTS)
         self._last_step_log_at = 0.0
-        # MCMC checkpointing is time-cadenced at a feedback barrier. The
-        # durable archive barrier is reserved for explicit/final checkpoints.
-        self._sampling_checkpoint_interval_sec = 30.0
-        self._last_sampling_checkpoint_at = 0.0
-        self._last_sampling_checkpoint_generation = -1
+        self._pickle_writer: CheckpointProcess | None = None
+        self._config_id = ""
+        self._checkpoint_integrity: dict[str, Any] = {}
         self._submit_progress: PermilleProgress | None = None
         self._history_csv_handle: Any = None
         self._history_csv_writer: Any = None
@@ -250,11 +253,6 @@ class MCMCBaseSampler(FeedbackSampler):
         seed = int(bounds.get("seed", 0) or 0)
         workers = int(runtime.get("workers", 1) or 1)
         self._batch_size = max(1, int(runtime.get("batch_size", workers) or workers))
-        self._sampling_checkpoint_interval_sec = float(
-            get_checkpoint_config(self.config)["heartbeat"]
-        )
-        self._last_sampling_checkpoint_at = 0.0
-        self._last_sampling_checkpoint_generation = -1
         self._init_seed_sequence(seed)
         on_fail = bounds.get("on_failure", sampling.get("on_failure", "reject"))
         self._on_failure = str(on_fail or "reject").lower()
@@ -470,21 +468,6 @@ class MCMCBaseSampler(FeedbackSampler):
         """Restore checkpoint fields owned by the concrete sampler."""
         return None
 
-    def checkpoint_runtime_state(self, *, safe: bool) -> dict[str, Any]:
-        """Export current MCMC state at a feedback barrier.
-
-        ``safe=False`` means the Archiver has not acknowledged every submitted
-        UUID yet. Independent-chain async mode may checkpoint with in-flight
-        samples: ``pending_uuids`` + ``uuid_to_meta`` + engine state are all in
-        the snapshot and resume re-drains outstanding feedback. Coupled barrier
-        methods still require an empty pending set for a fresh export.
-        """
-        if safe:
-            return super().checkpoint_runtime_state(safe=True)
-        if self.at_safe_barrier() or self._uses_async_chain_pipeline():
-            return self.export_runtime_state()
-        return super().checkpoint_runtime_state(safe=False)
-
     def _export_native_mcmc_state(self) -> bytes | None:
         """Serialize chain engines/history without Redis or sampler callbacks."""
         registry = self._ensure_registry()
@@ -601,7 +584,9 @@ class MCMCBaseSampler(FeedbackSampler):
             if isinstance(method_state, Mapping):
                 self._import_method_state(method_state)
             exchange_rng_state = payload.get("exchange_rng_state")
-            if self._uses_pt() and exchange_rng_state is not None:
+            if self._uses_pt():
+                if exchange_rng_state is None:
+                    raise ValueError("native checkpoint has no PT exchange RNG")
                 self._exchange_rng = np.random.default_rng()
                 self._exchange_rng.bit_generator.state = exchange_rng_state
             return True
@@ -613,26 +598,34 @@ class MCMCBaseSampler(FeedbackSampler):
             )
             return False
 
-    def _checkpoint_at_sampling_barrier(self, *, reason: str) -> bool:
-        """Save MCMC state without waiting for Archiver acknowledgements."""
-        # Async independent chains almost always have in-flight work; still
-        # allow time-cadenced snapshots (pending uuids are part of the state).
-        if not self.at_safe_barrier() and not self._uses_async_chain_pipeline():
+    def configure_checkpoint(self, *, checkpoint_file: str, writer: CheckpointProcess) -> None:
+        self._checkpoint_file = checkpoint_file
+        self._pickle_writer = writer
+        self._config_id = config_identity(self.config)
+        constants = operas_constants_fingerprint()
+        self._checkpoint_integrity = {
+            "unit_execution": (self.config.get("_unit_execution") or {}).get("execution_identity"),
+            "operas_constants_hash": stable_json_hash(constants) if constants is not None else None,
+        }
+        self.save_checkpoint(force=True)
+
+    def save_checkpoint(self, *, force: bool = False) -> bool:
+        """Submit a detached snapshot from a completed sampler transition."""
+        writer = self._pickle_writer
+        if writer is None or (not force and not writer.requested()):
             return False
-        now = time.monotonic()
-        if (
-            self._last_sampling_checkpoint_generation >= 0
-            and now - self._last_sampling_checkpoint_at
-            < self._sampling_checkpoint_interval_sec
-        ):
+        if force and not writer.wait():
             return False
-        written = self.persist_runtime_checkpoint(force=True, reason=reason)
-        if written:
-            # A slow save must not consume the next sampling interval and
-            # trigger another full checkpoint on the very next iteration.
-            self._last_sampling_checkpoint_at = time.monotonic()
-            self._last_sampling_checkpoint_generation = int(self._generation)
-        return bool(written)
+        if not writer.available():
+            return False
+        return writer.submit({
+            "format": FORMAT,
+            "version": VERSION,
+            "method": self.method.lower(),
+            "config_id": self._config_id,
+            "integrity": self._checkpoint_integrity,
+            "sampler_state": self.checkpoint_state(),
+        })
 
     def _uses_half_ensemble(self) -> bool:
         return False
@@ -867,14 +860,18 @@ class MCMCBaseSampler(FeedbackSampler):
 
     # ----------------------------------------------------------------- absorb
     def _extract_logl(self, record: Mapping[str, Any]) -> float | None:
-        """Read flat ``logL`` from feedback; −∞ / non-finite / missing → failed."""
+        """Read the worker score. A typed terminal −∞ is a valid rejection."""
         from jarvishep2.feedback_return import (
+            LIKELIHOOD_FEEDBACK_VERSION,
             WIRE_LOGL_KEY,
             feedback_logl,
             is_unusable_logl,
             normalize_feedback_record,
+            terminal_log_density,
         )
 
+        if LIKELIHOOD_FEEDBACK_VERSION in record:
+            return terminal_log_density(record)
         flat = normalize_feedback_record(record)
         if WIRE_LOGL_KEY not in flat:
             return None
@@ -908,7 +905,7 @@ class MCMCBaseSampler(FeedbackSampler):
             if logl is None and not record.get("prior_rejected", False):
                 self._total_failed += 1
                 self._failed_uuids.append(uuid)
-                if self._failure_policy_halt(record):
+                if self._on_failure == "halt":
                     raise RuntimeError(
                         f"{self.method}: Failed sample {uuid} with on_failure=halt"
                     )
@@ -1268,9 +1265,7 @@ class MCMCBaseSampler(FeedbackSampler):
             self.absorb_generation([record])
             self._sync_generation_from_chains()
             self._on_generation_completed()
-            self._checkpoint_at_sampling_barrier(
-                reason=f"{self.method}_async_step_{self._generation}"
-            )
+            self.save_checkpoint()
 
         return total_submitted
 
@@ -1303,12 +1298,11 @@ class MCMCBaseSampler(FeedbackSampler):
 
             self._sync_generation_from_chains()
             self._on_generation_completed()
-            self._checkpoint_at_sampling_barrier(
-                reason=f"{self.method}_sampling_step_{self._generation}"
-            )
+            self.save_checkpoint()
         return total_submitted
 
     def _finalize_run(self) -> None:
+        self._sync_generation_from_chains()
         self._finished = True
         self._close_history_csv()
         self._summary = self._build_summary()
@@ -1331,10 +1325,7 @@ class MCMCBaseSampler(FeedbackSampler):
             self._logger.warning(
                 "%s diagnostics were not written -> %s", self.method, exc, exc_info=True
             )
-        # The normal loop uses a feedback-only checkpoint. The final snapshot
-        # is the one place where MCMC asks for the durable archive barrier.
-        if self._save_checkpoint_callback is not None:
-            self.checkpoint_at_barrier(reason=f"{self.method}_finished")
+        self.save_checkpoint(force=True)
         self._maybe_log_step(force=True)
 
     # ----------------------------------------------------------------- driver
@@ -1433,18 +1424,10 @@ class MCMCBaseSampler(FeedbackSampler):
         registry = self._ensure_registry()
         requeued: list[str] = []
         for uuid in sorted(self._pending_uuids):
-            meta = self._uuid_to_meta.get(uuid)
-            if meta is None:
-                continue
+            meta = self._uuid_to_meta[uuid]
             chain = registry.get(int(meta["chain_id"]))
             stage = int(meta["stage"])
-            engine = chain.engine
-            u = getattr(engine, "proposed_param", None)
-            if u is None and hasattr(engine, "_stage_proposals"):
-                u = engine._stage_proposals.get(stage)
-            if u is None:
-                continue
-            sample = self._build_sample(np.asarray(u, dtype=np.float64))
+            sample = self._build_sample(self._pending_coordinates(chain, stage))
             sample.uuid = uuid
             sample.chain_id = int(meta["chain_id"])
             sample.step = int(meta.get("step", 0))
@@ -1457,41 +1440,101 @@ class MCMCBaseSampler(FeedbackSampler):
             requeued.append(uuid)
         return requeued
 
-    def export_runtime_state(self) -> dict[str, Any]:
-        state = self._feedback_export_state()
+    @staticmethod
+    def _pending_coordinates(chain: ChainRuntime, stage: int) -> np.ndarray:
+        engine = chain.engine
+        stages = getattr(engine, "_stage_proposals", None)
+        coords = engine.proposed_param if stages is None else stages.get(stage)
+        if coords is None:
+            raise ValueError(f"checkpoint has no proposal for chain {chain.chain_id}, stage {stage}")
+        return np.asarray(coords, dtype=np.float64)
+
+    def checkpoint_state(self) -> dict[str, Any]:
+        """Copy only state owned by the sampler and its chain engines."""
         registry = self._ensure_registry()
-        state.update(
-            {
+        method_state = self._export_method_state()
+        if self._uses_pt():
+            method_state["exchange_rng_state"] = self._exchange_rng.bit_generator.state
+        return deepcopy({
+            "progress": {
                 "method": self.method,
                 "nchains": self._nchains,
                 "niters": self._niters,
                 "proposal_scales": self._normalize_scales(),
+                "seed": self._seed,
+                "generation": self._generation,
+                "on_failure": self._on_failure,
                 "finished": self._finished,
                 "total_accepted": self._total_accepted,
                 "total_proposed": self._total_proposed,
                 "failed_uuids": list(self._failed_uuids),
                 "total_failed": self._total_failed,
                 "log_counters": dict(self._log_counters),
-                "uuid_to_meta": dict(self._uuid_to_meta),
                 "summary": self._summary,
-                "chains": [
-                    {
-                        "chain_id": c.chain_id,
-                        "temperature": c.temperature,
-                        "is_cold": c.is_cold,
-                        "iter": c.iter,
-                        "accepted": c.accepted,
-                        "rejected": c.rejected,
-                        "window_iter": int(c.window_iter),
-                        "last_logl": c.last_logl,
-                        "open_stage": c.open_stage,
-                        "engine": c.engine.export_state(),
-                    }
-                    for c in registry.all()
-                ],
-            }
-        )
-        state.update(self._export_method_state())
+            },
+            "chains": [
+                {
+                    "chain_id": c.chain_id,
+                    "temperature": c.temperature,
+                    "is_cold": c.is_cold,
+                    "iter": c.iter,
+                    "accepted": c.accepted,
+                    "rejected": c.rejected,
+                    "window_iter": int(c.window_iter),
+                    "last_logl": c.last_logl,
+                    "open_stage": c.open_stage,
+                    "history": c.history.__getstate__(),
+                    "meta": c.meta,
+                    "engine": c.engine.export_state(),
+                }
+                for c in registry.all()
+            ],
+            "pending": {uuid: self._uuid_to_meta[uuid] for uuid in sorted(self._pending_uuids)},
+            "method_state": method_state,
+        })
+
+    def restore_checkpoint(self, state: Mapping[str, Any], *, legacy: bool = False) -> None:
+        if legacy:
+            if not state.get("chains") and not state.get("native_mcmc_state_blob"):
+                raise ValueError(f"{self.method}: legacy checkpoint has no chains")
+            self.import_runtime_state(state)
+            self._validate_checkpoint_boundary()
+            return
+        progress = state.get("progress")
+        chains = state.get("chains")
+        pending = state.get("pending")
+        method_state = state.get("method_state")
+        if (
+            not isinstance(progress, dict) or not isinstance(chains, list)
+            or not isinstance(pending, dict) or not isinstance(method_state, dict)
+            or not {"method", "nchains", "niters", "seed", "generation", "finished"} <= progress.keys()
+            or len(chains) != self._nchains
+        ):
+            raise ValueError(f"{self.method}: incomplete checkpoint state")
+        if self._uses_pt() and (
+            not isinstance(method_state.get("exchange_rng_state"), dict)
+            or "exchange_offset" not in method_state
+        ):
+            raise ValueError(f"{self.method}: checkpoint has no PT exchange state")
+        self.import_runtime_state({
+            **method_state,
+            **progress,
+            "chains": chains,
+            "pending_uuids": list(pending),
+            "uuid_to_meta": pending,
+        }, strict=True)
+        self._validate_checkpoint_boundary()
+
+    def export_runtime_state(self) -> dict[str, Any]:
+        """Export the legacy Python state representation for existing callers."""
+        snapshot = self.checkpoint_state()
+        state = {
+            **self._feedback_export_state(),
+            **snapshot["progress"],
+            **snapshot["method_state"],
+            "chains": snapshot["chains"],
+            "uuid_to_meta": dict(self._uuid_to_meta),
+        }
         native_blob = self._export_native_mcmc_state()
         if native_blob is not None:
             state.update(
@@ -1567,12 +1610,14 @@ class MCMCBaseSampler(FeedbackSampler):
         if self._registry is None:
             return
         chains = self._registry.all()
-        if len(chains) != int(self._nchains):
+        if self._registry.ids() != list(range(self._nchains)):
             raise ValueError(
                 f"{self.method}: restored {len(chains)} chain(s) but "
                 f"Bounds.num_chains={int(self._nchains)}"
             )
         for chain in chains:
+            if np.shape(chain.engine.param) != (self._dim,):
+                raise ValueError(f"{self.method}: checkpoint dimension differs for chain {chain.chain_id}")
             eng_niters = getattr(chain.engine, "n_iterations", None)
             if eng_niters is not None and int(eng_niters) != int(self._niters):
                 raise ValueError(
@@ -1581,7 +1626,7 @@ class MCMCBaseSampler(FeedbackSampler):
                     f"Bounds.num_iters={int(self._niters)}"
                 )
 
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
+    def import_runtime_state(self, state: Mapping[str, Any], *, strict: bool = False) -> None:
         self._validate_checkpoint_against_config(state)
         try:
             self._feedback_import_state(state)
@@ -1603,7 +1648,7 @@ class MCMCBaseSampler(FeedbackSampler):
             self._summary = state.get("summary")
             self._import_method_state(state)
             native_blob = state.get("native_mcmc_state_blob")
-            if isinstance(native_blob, (bytes, bytearray)) and self._import_native_mcmc_state(
+            if not strict and isinstance(native_blob, (bytes, bytearray)) and self._import_native_mcmc_state(
                 bytes(native_blob)
             ):
                 self._assert_registry_matches_config()
@@ -1618,14 +1663,23 @@ class MCMCBaseSampler(FeedbackSampler):
             chains: list[ChainRuntime] = []
             for item in raw_chains:
                 if not isinstance(item, Mapping):
-                    continue
+                    raise ValueError(f"{self.method}: invalid checkpoint chain record")
                 cid = int(item.get("chain_id", 0))
-                rng = np.random.default_rng(children[min(cid, len(children) - 1)])
-                scale = scales[cid] if cid < len(scales) else 0.1
-                engine = self._make_engine(cid, scale, rng)
+                if not 0 <= cid < self._nchains:
+                    raise ValueError(f"{self.method}: invalid checkpoint chain id {cid}")
+                rng = np.random.default_rng(children[cid])
+                engine = self._make_engine(cid, scales[cid], rng)
                 eng_state = dict(item.get("engine") or {})
+                if strict and (
+                    eng_state.get("type") != type(engine).__name__
+                    or engine.export_state().keys() - eng_state.keys()
+                ):
+                    raise ValueError(f"{self.method}: invalid checkpoint engine for chain {cid}")
                 if eng_state:
                     engine.import_state(eng_state)
+                history = ChainHistory()
+                if isinstance(item.get("history"), dict):
+                    history.__setstate__(item["history"])
                 chains.append(
                     ChainRuntime(
                         chain_id=cid,
@@ -1638,11 +1692,18 @@ class MCMCBaseSampler(FeedbackSampler):
                         window_iter=int(item.get("window_iter", 0) or 0),
                         last_logl=item.get("last_logl"),
                         open_stage=item.get("open_stage"),
+                        history=history,
+                        meta=dict(item.get("meta") or {}),
                     )
                 )
             self._registry = ChainRegistry(chains)
             if self._uses_pt() and len(children) > len(raw_chains):
                 self._exchange_rng = np.random.default_rng(children[len(raw_chains)])
+                exchange_rng_state = state.get("exchange_rng_state")
+                if exchange_rng_state is None and self._generation:
+                    raise ValueError(f"{self.method}: checkpoint has no PT exchange RNG")
+                if exchange_rng_state is not None:
+                    self._exchange_rng.bit_generator.state = exchange_rng_state
             self._assert_registry_matches_config()
         except Exception:
             # Leave a clean sampler rather than a half-restored registry that
@@ -1653,6 +1714,47 @@ class MCMCBaseSampler(FeedbackSampler):
             self._uuid_to_meta = {}
             self._summary = None
             raise
+
+    def _validate_checkpoint_boundary(self) -> None:
+        self._validate_pending_proposals()
+        chains = self._ensure_registry().all()
+        if self._finished and (self._pending_uuids or not self._all_finished()):
+            raise ValueError(f"{self.method}: finished checkpoint still has work")
+        if not self._uses_async_chain_pipeline() and (
+            self._pending_uuids or any(
+                c.open_stage is not None or c.engine.iterations != self._generation for c in chains
+            )
+        ):
+            raise ValueError(f"{self.method}: checkpoint is inside a coupled MCMC round")
+
+    def _validate_pending_proposals(self) -> None:
+        registry = self._ensure_registry()
+        chain_ids = set(registry.ids())
+        pending_chains: set[int] = set()
+        for uuid in self._pending_uuids:
+            meta = self._uuid_to_meta.get(uuid) or {}
+            chain_id = meta.get("chain_id")
+            if chain_id not in chain_ids or chain_id in pending_chains:
+                raise ValueError(f"{self.method}: invalid pending chain for {uuid}")
+            chain = registry.get(chain_id)
+            step = meta.get("step")
+            stage = meta.get("stage")
+            if step != chain.engine.iterations or stage is None or stage != chain.open_stage:
+                raise ValueError(f"{self.method}: invalid pending step or stage for {uuid}")
+            expected_uuid = mcmc_sample_uuid(
+                method=self.method, seed=self._seed, chain_id=chain_id, step=step, stage=stage,
+            )
+            coords = self._pending_coordinates(chain, stage)
+            if uuid != expected_uuid or coords.shape != (self._dim,) or not np.isfinite(coords).all():
+                raise ValueError(f"{self.method}: invalid pending proposal {uuid}")
+            pending_chains.add(chain_id)
+        for chain in registry.all():
+            stage = chain.open_stage
+            if chain.chain_id in pending_chains or stage is None:
+                continue
+            stages = getattr(chain.engine, "_stage_proposals", {})
+            if stage <= 0 or stage in stages or stage - 1 not in stages:
+                raise ValueError(f"{self.method}: missing pending proposal for chain {chain.chain_id}")
 
 
 def _gelman_rubin_rhat(series: list[list[float]]) -> float | None:

@@ -221,6 +221,19 @@ def test_database_rows_never_filter_protocol_submissions(tmp_path, monkeypatch, 
         assert not checkpoint.exists()
     queue = make_fakeredis_queue()
     sampler.set_redis(queue)
+    flush_batch = sampler.flush_batch
+
+    def flush_with_terminal_feedback(batch):
+        count = flush_batch(batch)
+        for sample in batch:
+            queue.publish_feedback({
+                "uuid": sample.uuid,
+                "sample_index": sample.sample_index,
+                "terminal_status": "Completed",
+            })
+        return count
+
+    monkeypatch.setattr(sampler, "flush_batch", flush_with_terminal_feedback)
     supervisor = _RuntimeSupervisor(core)
     supervisor._publish_core_proc_board = mock.Mock()
     try:
@@ -228,7 +241,7 @@ def test_database_rows_never_filter_protocol_submissions(tmp_path, monkeypatch, 
              mock.patch("jarvishep2.runtime._runtime_supervisor.build_command_parser"), \
              mock.patch("jarvishep2.runtime._runtime_supervisor.prepare_hdf5_database_for_writer"):
             supervisor.bootstrap_distributed_runtime()
-        pushed = sampler.run_distributed()
+        pushed = sampler.run_distributed(timeout=2)
         actual = [queue.pull_task(timeout=1)["sample_index"] for _ in range(pushed)]
         assert actual == indices
     finally:
@@ -316,5 +329,5 @@ def test_old_sdk_host_contract_has_one_json_dependency_error(monkeypatch, capsys
     payload = json.loads(captured.out)
     assert payload["ok"] is False
     assert payload["error"]["type"] == "SamplerSDKError"
-    assert "host contract 3" in payload["error"]["message"]
+    assert "host contract 4" in payload["error"]["message"]
     assert "Traceback" not in captured.err

@@ -23,8 +23,8 @@
       "type": "array",
       "x-jarvis-zone": "closed",
       "minItems": 1,
-      "description": "Ordered log-likelihood terms evaluated after Calculator and Operas observables are available.",
-      "x-jarvis-example": "LogLikelihood:\n  - name: LogL_signal\n    expression: \"LogGauss(signal, 1.0, 0.1)\"\n  - name: LogL_total\n    expression: \"LogL_signal + LogL_constraint\"",
+      "description": "Ordered log-likelihood terms evaluated after Calculator and Operas observables are available. The total is the sum of the terms unless one term is named LogL, which supplies the total.",
+      "x-jarvis-example": "LogLikelihood:\n  - name: LogL_signal\n    expression: \"LogGauss(signal, 1.0, 0.1)\"\n  - name: LogL_constraint\n    expression: \"LogGauss(constraint, 0.0, 1.0)\"\n  - name: LogL\n    expression: \"LogL_signal + LogL_constraint\"",
       "items": {
         "type": "object",
         "x-jarvis-zone": "closed",

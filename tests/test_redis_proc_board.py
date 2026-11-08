@@ -348,19 +348,34 @@ class InflightOwnershipTests(unittest.TestCase):
 
         from jarvishep2.runtime.factory import _Watchdog
 
-        redis = mock.Mock()
-        watchdog = _Watchdog(SimpleNamespace(redis=redis))
-        spent = {"_retry_count": watchdog.max_sample_retries}
-        redis.reclaim_inflight_task.return_value = [
-            {**_task("indexed"), "sample_index": 7, **spent},
-            {**_task("plain"), **spent},
-        ]
-        self.assertFalse(watchdog.requeue_in_flight_task({}, worker_id="0"))
-        failures = [call.args[0] for call in redis.submit_result.call_args_list]
-        # Indexed samplers need the Failed row inside their contiguous prefix.
-        self.assertEqual(failures[0]["sample_index"], 7)
-        self.assertNotIn("sample_index", failures[1])
-        self.assertEqual({row["status"] for row in failures}, {"Failed"})
+        for config in ({}, {"completion_feedback": True}, {"plugin_feedback_version": 1}):
+            with self.subTest(config=config):
+                redis = mock.Mock()
+                watchdog = _Watchdog(SimpleNamespace(redis=redis, _worker_spawn_template=config))
+                spent = {"_retry_count": watchdog.max_sample_retries}
+                redis.reclaim_inflight_task.return_value = [
+                    {**_task("indexed"), "sample_index": 7, "feedback_queue": "hep:feedback:chain:2", **spent},
+                    {**_task("plain"), **spent},
+                ]
+                self.assertFalse(watchdog.requeue_in_flight_task({}, worker_id="0"))
+                failures = [call.args[0] for call in redis.submit_result.call_args_list]
+                self.assertEqual(failures[0]["sample_index"], 7)
+                self.assertNotIn("sample_index", failures[1])
+                self.assertEqual({row["status"] for row in failures}, {"Failed"})
+                replies = [call.args[0] for call in redis.publish_feedback.call_args_list]
+                if "completion_feedback" in config:
+                    self.assertEqual(replies[0], {
+                        "uuid": "indexed", "sample_index": 7, "terminal_status": "Failed",
+                    })
+                elif "plugin_feedback_version" in config:
+                    self.assertEqual(replies[0]["evaluation_outcome"], "failed")
+                    self.assertFalse(replies[0]["score_present"])
+                    self.assertEqual(
+                        redis.publish_feedback.call_args_list[0].kwargs["queue"],
+                        "hep:feedback:chain:2",
+                    )
+                else:
+                    self.assertEqual(replies, [])
 
     def test_reclaim_drains_all_inflight_items(self) -> None:
         self._plant_inflight(_task("a"), _task("b"))

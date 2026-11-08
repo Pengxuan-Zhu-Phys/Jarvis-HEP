@@ -140,6 +140,7 @@ class Jarvis2Core:
         self._environment_summary: dict[str, Any] = {}
         self._skip_library_installation = False
         self._resume_checkpoint_payload: dict[str, Any] | None = None
+        self._resume_checkpoint_source: str | None = None
         self._resume_policy: str = "auto"
         self._control_lock_owner: str | None = None
         self._control_lease_stop: threading.Event | None = None
@@ -650,7 +651,7 @@ class Jarvis2Core:
                             "Loaded resume checkpoint after sampler init → %s", path
                         )
         if self._resume_policy == "resume" and self._resume_checkpoint_payload is not None:
-            self._sampler_log.checkpoint_loaded(self.checkpoint_file())
+            self._sampler_log.checkpoint_loaded(self._resume_checkpoint_source or self.checkpoint_file())
         return sampler
 
     def bootstrap_distributed_runtime(self) -> None:

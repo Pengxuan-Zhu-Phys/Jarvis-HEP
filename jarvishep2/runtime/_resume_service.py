@@ -28,7 +28,12 @@ from jarvishep2.Sampling.runtime_checkpoint import (
 )
 from jarvishep2.task_config import sampling_method
 from jarvishep2.runtime_config import get_checkpoint_config
-from jarvishep2.sampling.sample_checkpoint import load_runtime, uses_sample_checkpoint
+from jarvishep2.sampling.sample_checkpoint import (
+    FORMAT as SAMPLE_CHECKPOINT_FORMAT,
+    load_runtime,
+    uses_mcmc_checkpoint,
+    uses_sample_checkpoint,
+)
 
 
 class _ResumeService:
@@ -40,12 +45,10 @@ class _ResumeService:
     def prepare_resume(self, *, resume: bool = False, fresh: bool = False) -> None:
         """Preload checkpoint state before sampler bring-up (CLI ``--resume``)."""
         core = self._core
+        core._resume_checkpoint_source = None
 
         from jarvishep2.sampler_catalog import is_plugin
         if not fresh and is_plugin(sampling_method(core.config)):
-            from jarvishep2.unit_runtime import preflight_units
-            preflight_units(core, resume=resume or os.path.isfile(core.checkpoint_file()),
-                            check=getattr(core, "_unit_check_run", False) is True)
             self._prepare_plugin_resume(resume=resume)
         else:
             core._preload_resume_checkpoint(resume=resume, fresh=fresh)
@@ -54,6 +57,8 @@ class _ResumeService:
     def _prepare_plugin_resume(self, *, resume: bool) -> None:
         """Never downgrade a refused plug-in resume to fresh sampling."""
         from jarvis_hep_sampler.errors import PluginResumeMismatch
+        from jarvishep2.unit_runtime import preflight_units
+
         core = self._core
         path = core.checkpoint_file()
         exists = os.path.isfile(path)
@@ -61,18 +66,30 @@ class _ResumeService:
             raise PluginResumeMismatch("existing plug-in scan cannot be restarted in place; use a new scan name")
         core._resume_policy = "resume" if resume or exists else "fresh"
         core._resume_checkpoint_payload = None
-        if exists:
+        if core._resume_policy == "resume":
+            from jarvishep2.sampler_catalog import plugin_record
+
+            record = plugin_record(sampling_method(core.config))
+            if record is not None and not {"checkpoint", "resume"}.issubset(record.hooks):
+                raise PluginResumeMismatch("sampler does not support resume", method=record.method)
+            if not get_checkpoint_config(core.config)["enabled"]:
+                raise PluginResumeMismatch("cannot resume with checkpoint.enabled=false")
+            if not exists:
+                legacy = os.path.join(os.path.dirname(path), "state.pkl")
+                detail = f"legacy checkpoint {legacy} is unsupported" if os.path.isfile(legacy) else "checkpoint missing"
+                raise PluginResumeMismatch(f"{detail}: expected {path}; use a new scan name")
+        preflight_units(core, resume=core._resume_policy == "resume",
+                        check=getattr(core, "_unit_check_run", False) is True)
+        if core._resume_policy == "resume":
             try:
-                payload = load_checkpoint(path)
-                ok, reason = check_mapper_fingerprint(payload, core.config)
-                if not ok:
-                    raise ValueError(reason)
+                payload = load_runtime(path, core.config)
                 ok, reason = check_operas_constants_fingerprint(payload)
                 if not ok:
                     raise ValueError(reason)
                 core._resume_checkpoint_payload = payload
+                core._resume_checkpoint_source = path
             except (ValueError, OSError, EOFError, pickle.UnpicklingError) as exc:
-                raise PluginResumeMismatch(f"checkpoint rejected: {exc}; use a new scan name") from exc
+                raise PluginResumeMismatch(f"checkpoint rejected at {path}: {exc}; use a new scan name") from exc
         # This validates both source/configuration and the checkpoint before
         # DATABASE recovery, old cursors, or resource bootstrap can write.
         core.init_logger()
@@ -122,20 +139,19 @@ class _ResumeService:
         )
         scan_name = str(core.info.get("scan_name") or core.config.get("scan_name") or "scan")
         sampler_name = core._resolve_checkpoint_sampler_name()
-        path = checkpoint_path(
+        return checkpoint_path(
             task_root=task_root,
             scan_name=scan_name,
             sampler_name=sampler_name,
             check=bool(core.config.get("_check_modules_sample_layout")),
+            sampler_pickle=getattr(core.sampler, "uses_sample_checkpoint", False) is True,
         )
-        if uses_sample_checkpoint(core.config):
-            return os.path.join(os.path.dirname(path), "runtime.pickle")
-        return path
 
     def _preload_sample_checkpoint(self, *, resume: bool, fresh: bool) -> None:
         core = self._core
         core._resume_policy = "fresh"
         core._resume_checkpoint_payload = None
+        core._resume_checkpoint_source = None
         if fresh:
             return
         if not get_checkpoint_config(core.config)["enabled"]:
@@ -143,6 +159,13 @@ class _ResumeService:
                 raise ValueError("cannot resume with checkpoint.enabled=false")
             return
         path = core.checkpoint_file()
+        legacy = False
+        if (uses_mcmc_checkpoint(core.config) and not core.config.get("_unit_execution")
+                and not os.path.exists(path)):
+            legacy_path = os.path.join(os.path.dirname(path), "state.pkl")
+            if os.path.isfile(legacy_path):
+                path = legacy_path
+                legacy = True
         if not os.path.isfile(path):
             if resume:
                 raise FileNotFoundError(f"sampler checkpoint missing: {path}")
@@ -150,7 +173,24 @@ class _ResumeService:
         if not resume and not core.prompt_resume_from_checkpoint(path):
             os.remove(path)
             return
-        core._resume_checkpoint_payload = load_runtime(path, core.config)
+        if legacy:
+            payload = load_checkpoint(path)
+            if (payload.get("integrity") or {}).get("unit_execution"):
+                raise ValueError("unit-aware MCMC resume requires runtime.pickle")
+            for check in (check_mapper_fingerprint, check_sampling_fingerprint):
+                ok, reason = check(payload, core.config)
+                if not ok:
+                    raise ValueError(reason)
+        else:
+            payload = load_runtime(path, core.config)
+        if uses_mcmc_checkpoint(core.config):
+            ok, reason = check_operas_constants_fingerprint(payload)
+            if not ok:
+                raise ValueError(reason)
+            if reason.startswith("skip:"):
+                core._logger.warning("%s", reason)
+        core._resume_checkpoint_payload = payload
+        core._resume_checkpoint_source = path
         core._resume_policy = "resume"
 
     @staticmethod
@@ -274,11 +314,9 @@ class _ResumeService:
     def _load_persisted_database_state(self, database_dir: str) -> None:
         """Set the resume cursor, UUID set, and completed/failed counts.
 
-        Protocol samplers read them from the checkpoint alone: its cursor was
-        confirmed by archive receipts, and DATABASE is never scanned.  Other
-        samplers and check mode read DATABASE.  Outcome counts seed Redis
-        SAMPLE_STATS so a resume does not re-label Failed rows as successful
-        (D21.13).
+        Runtime-pickle samplers restore progress without scanning DATABASE.
+        Their completion counts describe sampler feedback. Legacy and check
+        paths can still read DATABASE to seed the Redis SAMPLE_STATS counters.
         """
         core = self._core
 
@@ -335,7 +373,8 @@ class _ResumeService:
     def save_runtime_checkpoint(self, *, reason: str = "") -> str | None:
         core = self._core
 
-        if uses_sample_checkpoint(core.config):
+        if (getattr(core.sampler, "uses_sample_checkpoint", False) is True
+                or uses_sample_checkpoint(core.config)):
             # Signals may interrupt a proposal halfway through an in-memory
             # transition. Keep the last complete periodic snapshot on interrupt.
             if core.sampler is None or reason == "interrupt":
@@ -422,15 +461,7 @@ class _ResumeService:
         save_checkpoint(path, payload)
         sampler_log = getattr(core, "_sampler_log", None)
         if sampler_log is not None:
-            if getattr(core.sampler, "is_generational_plugin", False):
-                session = sampler_state.get("session") or {}
-                detail = (f"generation={sampler_state.get('generation', 0)}, "
-                          f"proposals={sampler_state.get('index', 0)}, "
-                          f"retained={session.get('retained', 0)}, "
-                          f"chain_bytes={sampler_state.get('trajectory_offset', 0)}")
-                sampler_log.checkpoint_saved(path, reason, progress=detail)
-            else:
-                sampler_log.checkpoint_saved(path, reason)
+            sampler_log.checkpoint_saved(path, reason)
         return path
 
     def _save_interrupt_checkpoint(self) -> str | None:
@@ -506,6 +537,18 @@ class _ResumeService:
             return False
         if getattr(target, "uses_sample_checkpoint", False) is True:
             state = core._resume_checkpoint_payload["sampler_state"]
+            from jarvishep2.sampler_catalog import is_plugin
+
+            if is_plugin(sampling_method(core.config)):
+                target.restore_checkpoint(state)
+                return True
+            if uses_mcmc_checkpoint(core.config):
+                # A rejected MCMC snapshot must not start a new chain under
+                # an existing scan name or remove the file being diagnosed.
+                target.restore_checkpoint(
+                    state, legacy=core._resume_checkpoint_payload.get("format") != SAMPLE_CHECKPOINT_FORMAT,
+                )
+                return True
             prepare_points = getattr(target, "prepare_resume_points", None)
             try:
                 if callable(prepare_points):
@@ -545,16 +588,21 @@ class _ResumeService:
             policy = get_checkpoint_config(core.config)
             if getattr(core, "checkpoint_process", None) is not None:
                 return
-            if core.sampler is not None and policy["enabled"] and not core.config.get("_check_modules_sample_layout"):
+            if (core.sampler is not None and policy["enabled"]
+                    and not core.config.get("_check_modules_sample_layout")
+                    and getattr(core.sampler, "supports_checkpoint", True) is not False):
                 from jarvishep2.runtime.checkpoint_process import CheckpointProcess
 
                 try:
+                    sampler_log = getattr(core, "_sampler_log", None)
                     writer = CheckpointProcess(
                         core.checkpoint_file(), core._logger, interval=policy["heartbeat"],
                         scan_name=str(core.info.get("scan_name") or core.config.get("scan_name") or ""),
                         redis_config=core.redis.connection_config() if core.redis is not None else None,
                         control_owner=str(core._control_lock_owner or ""),
                         logs_dir=core.info.get("logs_dir"),
+                        on_saved=(sampler_log.checkpoint_saved if sampler_log is not None
+                                  and getattr(core.sampler, "is_generational_plugin", False) else None),
                     )
                 except Exception as exc:
                     core._logger.warning("Checkpoint process unavailable -> %s", exc)

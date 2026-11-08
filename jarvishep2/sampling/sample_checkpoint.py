@@ -10,25 +10,40 @@ import tempfile
 from collections.abc import Mapping
 from typing import Any
 
+from jarvishep2.sampler_catalog import builtin_specs, plugin_record
+
 # Terminal status only. AdaptiveBridson, Dynesty and MultiNest use the same
 # pickle files but still need observable feedback (f, or the nested logL).
 COMPLETION_METHODS = frozenset({"grid", "random", "bridson", "csv"})
-METHODS = COMPLETION_METHODS | frozenset({"adaptivebridson", "dynesty", "multinest"})
+MCMC_METHODS = frozenset(spec.name.lower() for spec in builtin_specs() if spec.mcmc)
+METHODS = COMPLETION_METHODS | MCMC_METHODS | frozenset({"adaptivebridson", "dynesty", "multinest"})
 FORMAT = "jarvis-hep.sampler-pickle"
 VERSION = 1
 
 
 def _method_name(config: Mapping[str, Any]) -> str:
-    return str((config.get("Sampling") or {}).get("Method", "")).lower()
+    return str((config.get("Sampling") or {}).get("Method", "")).strip().lower()
+
+
+def _plugin_record(config: Mapping[str, Any]):
+    return plugin_record(str((config.get("Sampling") or {}).get("Method", "")).strip())
 
 
 def uses_sample_checkpoint(config: Mapping[str, Any]) -> bool:
-    return _method_name(config) in METHODS
+    return _method_name(config) in METHODS or _plugin_record(config) is not None
 
 
 def uses_completion_feedback(config: Mapping[str, Any]) -> bool:
     """True when workers should publish a terminal ack and nothing else."""
-    return _method_name(config) in COMPLETION_METHODS
+    method = _method_name(config)
+    if method in METHODS:
+        return method in COMPLETION_METHODS
+    record = _plugin_record(config)
+    return record is not None and record.profile == "independent"
+
+
+def uses_mcmc_checkpoint(config: Mapping[str, Any]) -> bool:
+    return _method_name(config) in MCMC_METHODS
 
 
 def config_identity(config: Mapping[str, Any]) -> str:
@@ -98,7 +113,7 @@ def load_runtime(path: str, config: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("unsupported sampler checkpoint format; use a fresh scan")
     if payload.get("config_id") != config_identity(config):
         raise ValueError("sampler checkpoint configuration differs from the current scan")
-    if payload.get("method") != str((config.get("Sampling") or {}).get("Method", "")).lower():
+    if payload.get("method") != _method_name(config):
         raise ValueError("sampler checkpoint method differs")
     if not isinstance(payload.get("sampler_state"), dict):
         raise ValueError("sampler checkpoint has no state")

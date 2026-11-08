@@ -20,10 +20,11 @@ from jarvishep2.command_parser import CommandParser
 from jarvishep2.calculator_modes import shared_mode_groups
 from jarvishep2.env_setup import EnvCapture, resolve_env_setup_sources
 from jarvishep2.expression import ExpressionContext
+from jarvishep2.feedback_return import LIKELIHOOD_FEEDBACK_VERSION
 from jarvishep2.archive_handoff import list_product_names, resolve_staging_dir, stage_sample_dir
 from jarvishep2.file_ops import DEFAULT_DELETE_METHOD, normalize_delete_method
 from jarvishep2.file_operation_service import FileOperationService
-from jarvishep2.likelihood import LogLikelihoodEvaluator
+from jarvishep2.likelihood import LogLikelihoodEvaluator, require_log_density
 from jarvishep2.Module.calculator import CalculatorModule
 from jarvishep2.logging import get_jarvis_logger, setup_jarvis_logging
 from jarvishep2.mapper import build_mapper
@@ -297,7 +298,7 @@ class Worker(Process):
         self._likelihood = LogLikelihoodEvaluator(
             likelihood_exprs,
             expression_context=expression_context,
-            strict=bool(self.worker_config.get("plugin_feedback_version")),
+            strict=bool(self.worker_config.get(LIKELIHOOD_FEEDBACK_VERSION)),
         )
         self._expression_context = expression_context
         nuisance_cfg = self.worker_config.get("nuisance_config")
@@ -691,8 +692,9 @@ class Worker(Process):
         if bool(self.worker_config.get("publish_feedback", False)):
             from jarvishep2.feedback_return import build_feedback_record
 
+            terminal_version = self.worker_config.get(LIKELIHOOD_FEEDBACK_VERSION)
             # Ensure unusable samples still carry LogL=-inf for flat feedback.
-            if not self.worker_config.get("plugin_feedback_version") and "LogL" not in sample.observables:
+            if terminal_version is None and "LogL" not in sample.observables:
                 sample.observables["LogL"] = float("-inf")
                 sample._mirror_fields_to_info()
             spec = self.worker_config.get("feedback_return") or {
@@ -709,8 +711,7 @@ class Worker(Process):
             if not feedback_queue and getattr(sample, "feedback_queue", None):
                 feedback_queue = sample.feedback_queue
             self._redis.publish_feedback(
-                build_feedback_record(sample, spec=spec,
-                                      terminal_version=self.worker_config.get("plugin_feedback_version")),
+                build_feedback_record(sample, spec=spec, terminal_version=terminal_version),
                 queue=str(feedback_queue) if feedback_queue else None,
             )
 
@@ -766,6 +767,8 @@ class Worker(Process):
             sample.set_config(sample_config)
             sample.start()
             self._get_executor().process(sample)
+            if self.worker_config.get(LIKELIHOOD_FEEDBACK_VERSION) and sample.status != "Failed":
+                require_log_density(sample.observables.get("LogL"))
         except Exception as exc:
             sample.record_failure(exc)
             materialize_failure_artifacts(sample.info, error=exc)

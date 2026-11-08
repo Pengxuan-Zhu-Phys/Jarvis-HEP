@@ -142,6 +142,7 @@ def test_semantic_changes_refuse_without_writing(core, change, monkeypatch):
         "missing_manifest",
         "bad_manifest",
         "missing_checkpoint",
+        "missing_checkpoint_without_rows",
         "mixed_row",
         "bad_schema",
     ],
@@ -157,29 +158,39 @@ def test_missing_or_mixed_identity_refuses(core, damage):
         core.config.pop("Operas")
     if damage == "bad_manifest":
         manifest.write_text("{}")
-    if damage == "missing_checkpoint":
+    if damage in {"missing_checkpoint", "missing_checkpoint_without_rows"}:
         Path(core.checkpoint_file()).unlink()
     if damage == "mixed_row":
         row["_jarvis_units"]["execution_identity"] = "other"
     if damage == "bad_schema":
         row["_jarvis_units"]["schema_version"] = 2
-    path = _database(core, [row])
-    before = path.read_bytes()
+    has_rows = damage != "missing_checkpoint_without_rows"
+    path = _database(core, [row]) if has_rows else None
+    before = path.read_bytes() if path else None
     with pytest.raises(UnitBridgeError, match="JV2-UNIT-004"):
         preflight_units(core, resume=True)
-    assert path.read_bytes() == before
+    if path:
+        assert path.read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "method", ["MCMC", "Dynesty", "MultiNest", "SliceMCMC", "LatinHypercube"]
-)
-def test_unintegrated_unit_engines_refuse_resume(core, method):
+def test_unit_resume_identity_applies_to_every_builtin_sampler(core, subtests):
+    from jarvishep2.sampler_catalog import builtin_specs
+    from jarvishep2.sampling.sample_checkpoint import atomic_pickle, read_pickle
+
     preflight_units(core)
     publish_unit_manifest(core)
-    _checkpoint(core)
-    core.config["Sampling"]["Method"] = method
-    with pytest.raises(UnitBridgeError, match="not supported"):
-        preflight_units(core, resume=True)
+    _database(core, [_row(core)])
+    for spec in builtin_specs():
+        with subtests.test(method=spec.name):
+            core.config["Sampling"]["Method"] = spec.name
+            _checkpoint(core)
+            preflight_units(core, resume=True)
+
+            payload = read_pickle(core.checkpoint_file())
+            payload["integrity"]["unit_execution"] = "other"
+            atomic_pickle(core.checkpoint_file(), payload)
+            with pytest.raises(UnitBridgeError, match="checkpoint and unit manifest disagree"):
+                preflight_units(core, resume=True)
 
 
 def test_resume_verifies_rows_above_the_checkpoint_cursor(core):

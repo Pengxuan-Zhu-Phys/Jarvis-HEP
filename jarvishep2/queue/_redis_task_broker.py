@@ -211,6 +211,7 @@ class _TaskBroker:
         """
         self._require_client()
         from jarvishep2.feedback_return import (
+            LIKELIHOOD_FEEDBACK_VERSION,
             WIRE_LOGL_KEY,
             encode_feedback_float,
             extract_logl_total,
@@ -241,7 +242,7 @@ class _TaskBroker:
         if not payload.get("uuid"):
             raise TaskValidationError("feedback payload requires uuid")
         # Encode non-finite floats for JSON codecs.
-        if WIRE_LOGL_KEY in payload and not payload.get("plugin_feedback_version"):
+        if WIRE_LOGL_KEY in payload and not payload.get(LIKELIHOOD_FEEDBACK_VERSION):
             try:
                 payload[WIRE_LOGL_KEY] = encode_feedback_float(
                     float(payload[WIRE_LOGL_KEY])

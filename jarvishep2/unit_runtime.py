@@ -72,7 +72,11 @@ def _preflight_units(core, *, resume=False, check=False):
                 _refuse(f"unit manifest cannot be verified: {exc}")
             old = {"mode": "unverifiable"}  # Explicit fresh replaces the marker.
     if descriptor is None and old is None:
-        if resume and not check:
+        from jarvishep2.sampler_catalog import is_plugin
+
+        # Plug-in resume verifies unit identity from runtime.pickle, including
+        # when a manifest is absent. Its progress never requires a row scan.
+        if resume and not check and not is_plugin((config.get("Sampling") or {}).get("Method")):
             # Removing a unit declaration together with a lost manifest must
             # not turn unit rows into ordinary completed results.
             from jarvishep2.io.database import _open_hdf5_readonly
@@ -109,16 +113,12 @@ def _preflight_units(core, *, resume=False, check=False):
         previous = old.get("execution_identity") if old else None
         if current != previous:
             _refuse("unit policy, bindings, contract, JO version or activation changed")
-        method = str((config.get("Sampling") or {}).get("Method", "")).lower()
-        if current and method not in {"grid", "random", "bridson", "csv"}:
-            _refuse(
-                f"unit resume for {method!r} is not supported; fresh unit execution is supported"
-            )
         checkpoint = core.checkpoint_file()
         shards = sorted(directory.glob("samples*.hdf5"))
-        if current and shards and not os.path.isfile(checkpoint):
-            _refuse("unit DATABASE exists without a verifiable checkpoint")
-        if os.path.isfile(checkpoint):
+        checkpoint_exists = os.path.isfile(checkpoint)
+        if current and not checkpoint_exists:
+            _refuse("unit scan has no verifiable checkpoint")
+        if checkpoint_exists:
             try:
                 from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
 

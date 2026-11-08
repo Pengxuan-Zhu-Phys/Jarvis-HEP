@@ -5,7 +5,7 @@ Wire default::
 
     {"uuid": "...", "logL": -12.34}
 
-Unusable points carry ``logL = -inf`` (set by likelihood / projection).
+The versioned likelihood feedback distinguishes zero density from evaluation failure.
 Extra optimizer fields are top-level siblings, never a nested observables bag.
 Sample lifecycle ``status`` stays on the archive path. Finite samplers use
 a separate compact terminal projection on the feedback channel:
@@ -21,6 +21,16 @@ from typing import Any
 
 # Wire key for total log-likelihood (maps from sample observables["LogL"]).
 WIRE_LOGL_KEY = "logL"
+# Retain the wire identifier originally introduced for generational plugins.
+LIKELIHOOD_FEEDBACK_VERSION = "plugin_feedback_version"
+
+
+def uses_log_density(method: str) -> bool:
+    """True for samplers that consume a log density in their transitions."""
+    from jarvishep2.sampler_catalog import spec_for
+
+    spec = spec_for(method)
+    return bool(spec and (spec.mcmc or spec.nested or (spec.is_plugin and not spec.stateless)))
 
 _INF_STRINGS = {
     "-inf": float("-inf"),
@@ -143,15 +153,20 @@ def build_feedback_record(
     bag = {**params, **obs}
     if terminal_version is not None:
         if terminal_version != 1:
-            raise ValueError("unsupported plugin feedback version")
+            raise ValueError("unsupported likelihood feedback version")
         lifecycle = sample.get("status") if isinstance(sample, Mapping) else getattr(sample, "status", None)
-        raw_score = obs.get("LogL")
-        valid = (not isinstance(raw_score, bool) and isinstance(raw_score, (int, float))
-                 and not math.isnan(raw_score) and raw_score != math.inf)
-        completed = lifecycle == "Completed" and valid
-        out.update(plugin_feedback_version=1, evaluation_outcome="ok" if completed else "failed",
-                   score_present=bool(completed))
-        out[WIRE_LOGL_KEY] = encode_feedback_float(raw_score) if completed else None
+        from jarvishep2.likelihood import require_log_density
+
+        score = None
+        if lifecycle == "Completed":
+            try:
+                score = require_log_density(obs.get("LogL"))
+            except ValueError:
+                pass
+        out[LIKELIHOOD_FEEDBACK_VERSION] = terminal_version
+        out["evaluation_outcome"] = "ok" if score is not None else "failed"
+        out["score_present"] = score is not None
+        out[WIRE_LOGL_KEY] = encode_feedback_float(score) if score is not None else None
 
     if include_logl and terminal_version is None:
         logl = extract_logl_total(obs)
@@ -178,7 +193,7 @@ def build_feedback_record(
 
     for name in names:
         if name in {"uuid", WIRE_LOGL_KEY, "status", "observables",
-                    "plugin_feedback_version", "evaluation_outcome", "score_present"}:
+                    LIKELIHOOD_FEEDBACK_VERSION, "evaluation_outcome", "score_present"}:
             continue
         if name not in bag:
             continue
@@ -227,11 +242,26 @@ def normalize_feedback_record(record: Mapping[str, Any] | None) -> dict[str, Any
             continue
         out[key] = value
 
-    if WIRE_LOGL_KEY in out and not raw.get("plugin_feedback_version"):
+    if WIRE_LOGL_KEY in out and not raw.get(LIKELIHOOD_FEEDBACK_VERSION):
         out[WIRE_LOGL_KEY] = decode_feedback_float(out[WIRE_LOGL_KEY])
-    if raw.get("plugin_feedback_version") and out.get(WIRE_LOGL_KEY) == "-inf":
+    if raw.get(LIKELIHOOD_FEEDBACK_VERSION) and out.get(WIRE_LOGL_KEY) == "-inf":
         out[WIRE_LOGL_KEY] = float("-inf")
     return out
+
+
+def terminal_log_density(record: Mapping[str, Any]) -> float | None:
+    """Read a typed terminal score, including a valid negative infinity."""
+    from jarvishep2.likelihood import require_log_density
+
+    if (record.get(LIKELIHOOD_FEEDBACK_VERSION) != 1
+            or record.get("evaluation_outcome") != "ok"
+            or record.get("score_present") is not True):
+        return None
+    value = record.get(WIRE_LOGL_KEY)
+    try:
+        return require_log_density(-math.inf if value == "-inf" else value)
+    except ValueError:
+        return None
 
 
 def feedback_logl(record: Mapping[str, Any] | None) -> float:
@@ -270,7 +300,11 @@ def resolve_feedback_return(
         return {"mode": "all_flat" if "all_flat" in modes else "fields" if fields else "minimal",
                 "fields": fields, "include_logl": True}
     if isinstance(explicit, Mapping) and explicit:
-        return _normalize_spec(dict(explicit))
+        requested = _normalize_spec(explicit)
+        selected = str(method or getattr(sampler, "method", "") or sampling.get("Method") or "")
+        if not requested["include_logl"] and uses_log_density(selected):
+            raise ValueError(f"{selected} requires FeedbackReturn.include_logl: true")
+        return requested
 
     if sampler is not None and hasattr(sampler, "feedback_return_spec"):
         try:
@@ -390,6 +424,9 @@ def _target_expression_fields(
 
 __all__ = [
     "WIRE_LOGL_KEY",
+    "LIKELIHOOD_FEEDBACK_VERSION",
+    "terminal_log_density",
+    "uses_log_density",
     "build_feedback_record",
     "decode_feedback_float",
     "encode_feedback_float",

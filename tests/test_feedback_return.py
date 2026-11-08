@@ -15,6 +15,7 @@ from jarvishep2.feedback_return import (
     is_unusable_logl,
     normalize_feedback_record,
     resolve_feedback_return,
+    terminal_log_density,
 )
 from jarvishep2.likelihood import LogLikelihoodEvaluator
 from jarvishep2.redis_queue import make_fakeredis_queue
@@ -51,6 +52,26 @@ class BuildRecordTests(unittest.TestCase):
         )
         self.assertEqual(rec[WIRE_LOGL_KEY], "-inf")
         self.assertTrue(is_unusable_logl(feedback_logl(rec)))
+
+    def test_terminal_density_and_failure_have_distinct_feedback(self) -> None:
+        for status, value, expected in (
+            ("Completed", np.float64(-2.0), -2.0),
+            ("Completed", -math.inf, -math.inf),
+            ("Completed", math.inf, None),
+            ("Completed", math.nan, None),
+            ("Completed", True, None),
+            ("Completed", "1.0", None),
+            ("Completed", None, None),
+            ("Failed", -math.inf, None),
+        ):
+            with self.subTest(status=status, value=value):
+                record = build_feedback_record(
+                    {"uuid": "point", "status": status, "observables": {"LogL": value}},
+                    terminal_version=1,
+                )
+                self.assertEqual(record["score_present"], expected is not None)
+                self.assertEqual(terminal_log_density(record), expected)
+                self.assertEqual(terminal_log_density(normalize_feedback_record(record)), expected)
 
     def test_fields_are_flat_siblings(self) -> None:
         sample = Sample(uuid="f", u_coords=np.array([0.0]))
@@ -100,6 +121,18 @@ class ResolveSpecTests(unittest.TestCase):
         )
         self.assertEqual(spec["mode"], "all_flat")
 
+    def test_density_consumers_cannot_disable_logl(self) -> None:
+        from jarvishep2.cardload.contracts.methods import validate_method_sampling
+
+        for method in ("MCMC", "PTEnsemble", "Dynesty", "MultiNest"):
+            with self.subTest(method=method):
+                sampling = {"Method": method, "FeedbackReturn": {"include_logl": False}}
+                with self.assertRaisesRegex(ValueError, "FeedbackReturn.include_logl"):
+                    resolve_feedback_return({"Sampling": sampling})
+                issues = validate_method_sampling(sampling, method=method)
+                self.assertIn("Sampling.FeedbackReturn.include_logl", [item.path for item in issues])
+
+
 
 class RedisRoundTripTests(unittest.TestCase):
     def test_flat_publish_pull(self) -> None:
@@ -136,6 +169,22 @@ class RedisRoundTripTests(unittest.TestCase):
 
 
 class LikelihoodNegInfTests(unittest.TestCase):
+    def test_ordered_terms_and_explicit_total_match_worker_evaluation(self) -> None:
+        for expressions, expected in (
+            ([{"name": "a", "expression": "x"}, {"name": "b", "expression": "2*a"}], 6.0),
+            ([
+                {"name": "a", "expression": "x"}, {"name": "b", "expression": "2*a"},
+                {"name": "LogL", "expression": "a + b - 10"},
+            ], -4.0),
+        ):
+            with self.subTest(expressions=expressions):
+                evaluator = LogLikelihoodEvaluator(expressions, strict=True)
+                info = {"observables": {"x": 2.0}}
+                terms = evaluator.evaluate(info["observables"])
+                self.assertEqual(evaluator.calculate(info), expected)
+                self.assertEqual(terms["LogL"], expected)
+                self.assertEqual(info["observables"], {"x": 2.0, **terms})
+
     def test_empty_expressions_logl_neginf(self) -> None:
         ev = LogLikelihoodEvaluator([])
         out = ev.evaluate({"x": 1.0})

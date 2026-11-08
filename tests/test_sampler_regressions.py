@@ -297,25 +297,171 @@ def test_nested_pool_threads_are_independent_of_batch_size():
     assert pool.map(walk, [SamplerArgument(i) for i in range(4)]) == list(range(4))
 
 
-def test_slow_mcmc_checkpoint_does_not_trigger_save_storm(tmp_path, monkeypatch):
-    import jarvishep2.sampling.mcmc_sampler as module
+def test_mcmc_checkpoint_only_captures_when_requested_and_idle(tmp_path, monkeypatch):
     sampler = Distributor.set_method("EnsembleMCMC")
     sampler.set_config(config(tmp_path, sampler.method))
-    now = [100.]
-    monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
-    saves = []
-    def save(**kwargs):
-        saves.append(now[0])
-        now[0] += 60.  # Save takes longer than the configured 30s interval.
+    writer = Mock()
+    sampler.configure_checkpoint(checkpoint_file=str(tmp_path / "runtime.pickle"), writer=writer)
+    snapshot = Mock(wraps=sampler.checkpoint_state)
+    monkeypatch.setattr(sampler, "checkpoint_state", snapshot)
+    writer.reset_mock()
+    writer.requested.return_value = False
+    assert not sampler.save_checkpoint()
+    writer.requested.return_value = True
+    writer.available.return_value = False
+    assert not sampler.save_checkpoint()
+    snapshot.assert_not_called()
+    writer.wait.assert_not_called()
+    writer.available.return_value = True
+    assert sampler.save_checkpoint()
+    snapshot.assert_called_once()
+    writer.submit.assert_called_once()
+
+
+def mcmc_with_feedback(cfg, score=None):
+    """Run the real sampler loops with immediate deterministic Worker feedback."""
+    sampler = Distributor.set_method(cfg["Sampling"]["Method"])
+    sampler.set_config(cfg)
+    queue = make_fakeredis_queue()
+    sampler.set_redis(queue)
+    proposals = {}
+
+    def submit(task):
+        proposals[task["uuid"]] = task["u_coords"]
+        logl = score(task) if score else -float(np.sum((np.asarray(task["u_coords"]) - 0.3) ** 2))
+        queue.publish_feedback({"uuid": task["uuid"], "logL": logl},
+                               queue=task.get("feedback_queue"))
+
+    queue.push_task = submit
+    queue.push_many_tasks = lambda tasks: [submit(task) for task in tasks]
+    return sampler, proposals
+
+
+@pytest.mark.parametrize("method", [
+    "MCMC", "ToyMCMC", "AMMCMC", "DRAM", "DEMCMC", "EnsembleMCMC", "PTMCMC", "PTEnsemble",
+])
+def test_mcmc_checkpoint_preserves_chain_trajectories(tmp_path, method):
+    extra = {"adapt_start_iter": 2, "adapt_window": 3} if method in {"AMMCMC", "DRAM"} else {}
+    full, full_proposals = mcmc_with_feedback(config(tmp_path / "full", method, **extra))
+    full.run_adaptive(timeout=2)
+
+    cfg = config(tmp_path / "resumed", method, **extra)
+    interrupted, before = mcmc_with_feedback(cfg)
+    writer = Mock()
+    interrupted.configure_checkpoint(checkpoint_file=str(tmp_path / "runtime.pickle"), writer=writer)
+
+    def stop_at_checkpoint(payload):
+        if payload["sampler_state"]["progress"]["generation"] >= 5:
+            raise KeyboardInterrupt
         return True
-    monkeypatch.setattr(sampler, "persist_runtime_checkpoint", save)
-    sampler._sampling_checkpoint_interval_sec = 30.
-    assert sampler._checkpoint_at_sampling_barrier(reason="test")
-    now[0] += 1.
-    assert not sampler._checkpoint_at_sampling_barrier(reason="test")
-    now[0] += 30.
-    assert sampler._checkpoint_at_sampling_barrier(reason="test")
-    assert len(saves) == 2
+
+    writer.submit.side_effect = stop_at_checkpoint
+    with pytest.raises(KeyboardInterrupt):
+        interrupted.run_adaptive(timeout=2)
+    state = writer.submit.call_args.args[0]["sampler_state"]
+    assert 5 <= state["progress"]["generation"] < 12
+    assert bool(state["pending"]) == interrupted._uses_async_chain_pipeline()
+
+    resumed, after = mcmc_with_feedback(cfg)
+    resumed.restore_checkpoint(state)
+    assert set(resumed.repropose_unfinished()) == set(state["pending"])
+    assert after == {uuid: before[uuid] for uuid in state["pending"]}
+    resumed.run_adaptive(timeout=2)
+    assert before | after == full_proposals
+    actual = resumed.checkpoint_state()
+    expected = full.checkpoint_state()
+    for checkpoint in (actual, expected):
+        checkpoint["progress"]["summary"].pop("diagnostics", None)
+        for chain in checkpoint["chains"]:
+            for event in chain["history"]["_events"]:
+                event.timestamp_utc = ""
+    assert actual == expected
+
+
+@pytest.mark.parametrize("already_proposed", [False, True])
+def test_dram_checkpoint_between_delayed_rejection_stages(tmp_path, already_proposed):
+    cfg = config(tmp_path, "DRAM", proposal_scale=0.01)
+
+    def score(task):
+        return -1000.0 if task["step"] == 1 and task["stage"] == 0 else 0.0
+
+    sampler, before = mcmc_with_feedback(cfg, score)
+    for _ in range(2):
+        sampler._submit_sample_batch(sampler.propose_generation())
+        sampler.absorb_generation(sampler.wait_for_generation(timeout=2, queues=sampler._pending_feedback_queues()))
+    assert all(chain.open_stage == 1 for chain in sampler._ensure_registry().all())
+    if already_proposed:
+        sampler._submit_sample_batch(sampler._propose_for_stages(stages="followup"))
+    state = sampler.checkpoint_state()
+    resumed, after = mcmc_with_feedback(cfg, score)
+    resumed.restore_checkpoint(state)
+    replay = resumed.repropose_unfinished()
+    if already_proposed:
+        assert len(replay) == 4
+        assert after == {uuid: before[uuid] for uuid in replay}
+    else:
+        assert not replay
+        expected = {
+            s.uuid: s.u_coords.tolist() for s in sampler._propose_for_stages(stages="followup")
+        }
+        assert {
+            s.uuid: s.u_coords.tolist() for s in resumed._propose_for_stages(stages="followup")
+        } == expected
+
+
+def test_mcmc_legacy_checkpoint_import_and_runtime_precedence(tmp_path):
+    from pathlib import Path
+
+    from jarvishep2.runtime.core import Jarvis2Core
+    from jarvishep2.sampling.runtime_checkpoint import build_payload, save_checkpoint
+    from jarvishep2.sampling.sample_checkpoint import atomic_pickle
+
+    cfg = config(tmp_path, "ToyMCMC")
+    cfg["Runtime"]["checkpoint"]["enabled"] = True
+    core = Jarvis2Core(cfg)
+    sampler, proposals = mcmc_with_feedback(core.config)
+    sampler._top_up_ready_chains()
+    legacy_state = sampler.export_runtime_state()
+    path = Path(core.checkpoint_file())
+    legacy = path.with_name("state.pkl")
+    legacy_payload = build_payload(
+        run_spec={"normalized_config": core.config},
+        sampler_state=legacy_state,
+    )
+    save_checkpoint(str(legacy), legacy_payload)
+    original = legacy.read_bytes()
+    core.config["_unit_execution"] = {"execution_identity": "test-units"}
+    core._get_resume()._preload_sample_checkpoint(resume=False, fresh=False)
+    assert core._resume_policy == "fresh"
+    core.config.pop("_unit_execution")
+
+    unit_legacy = dict(legacy_payload, integrity={**legacy_payload["integrity"], "unit_execution": "test-units"})
+    save_checkpoint(str(legacy), unit_legacy)
+    with pytest.raises(ValueError, match="unit-aware MCMC resume requires runtime.pickle"):
+        core.prepare_resume(resume=True)
+    legacy.write_bytes(original)
+
+    core.prepare_resume(resume=True)
+    resumed, replay = mcmc_with_feedback(core.config)
+    core.set_sampler(resumed)
+    assert set(resumed.repropose_unfinished()) == set(proposals)
+    assert replay == proposals
+
+    writer = Mock()
+    resumed.configure_checkpoint(checkpoint_file=str(path), writer=writer)
+    payload = writer.submit.call_args.args[0]
+    atomic_pickle(str(path), payload)
+    assert legacy.read_bytes() == original
+
+    invalid = dict(payload)
+    invalid["sampler_state"] = {"pending": {}}
+    atomic_pickle(str(path), invalid)
+    core.prepare_resume(resume=True)
+    fresh, _ = mcmc_with_feedback(core.config)
+    with pytest.raises(ValueError, match="incomplete checkpoint"):
+        core.set_sampler(fresh)
+    assert path.exists()
+    assert legacy.read_bytes() == original
 
 
 def test_nested_timer_restarts_after_slow_save(monkeypatch):

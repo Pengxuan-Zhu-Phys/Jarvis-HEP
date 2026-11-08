@@ -90,6 +90,9 @@ class TaskSchemaCorpusTests(unittest.TestCase):
             self.skipTest("requires sibling Jarvis-Examples checkout")
         cards = sorted(EXAMPLES_ROOT.glob("*/bin/*.yaml"))
         expected = {"DNN", "DREAM", "ESS", "HMC", "MALA", "NUTS", "RLTPMCMC", "RobustAM", "SliceMCMC"}
+        # This ignored example is available in local research workspaces.
+        if (EXAMPLES_ROOT / "Eggbox/bin/Example_Diver_Operas.yaml").is_file():
+            expected.add("Diver")
         seen: set[str] = set()
         for card in cards:
             config = self._load_external_card(card)

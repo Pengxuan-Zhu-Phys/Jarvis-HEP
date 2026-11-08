@@ -19,18 +19,10 @@ import numpy as np
 
 from jarvishep2.calculator_pools import register_calculator_pools
 from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.sampling.sample_checkpoint import METHODS as CHECKPOINT_RESUME_METHODS
 
 CHECKPOINT_FORMAT = "jarvis-hep.v2-distributed"
 CHECKPOINT_VERSION = 1
-# Methods whose progress comes from the checkpoint alone: a fresh run never
-# reads DATABASE and a resume never scans it.  Plug-ins are not listed yet.
-CHECKPOINT_RESUME_METHODS = frozenset(
-    {
-        "grid", "random", "bridson", "csv", "dynesty", "multinest",
-        "adaptivebridson", "mcmc", "toymcmc", "ammcmc", "dram", "demcmc",
-        "ensemblemcmc", "ptmcmc", "ptensemble",
-    }
-)
 
 V1_CHECKPOINT_FORMAT = "jarvis-hep.statesaver"
 V1_MCMc_FORMAT = "jarvis-hep.mcmc-runtime"
@@ -135,7 +127,9 @@ def sampling_fingerprint(config: Mapping[str, Any] | None) -> str:
 def uses_checkpoint_resume_protocol(config: Mapping[str, Any] | None) -> bool:
     sampling = (config or {}).get("Sampling") or {}
     method = sampling.get("Method") if isinstance(sampling, Mapping) else None
-    return str(method or "").strip().lower() in CHECKPOINT_RESUME_METHODS
+    from jarvishep2.sampler_catalog import is_plugin
+
+    return str(method or "").strip().lower() in CHECKPOINT_RESUME_METHODS or is_plugin(method)
 
 
 def check_sampling_fingerprint(payload: Mapping[str, Any], config: Mapping[str, Any] | None) -> tuple[bool, str]:
@@ -199,8 +193,9 @@ def checkpoint_path(
     scan_name: str,
     sampler_name: str,
     check: bool = False,
+    sampler_pickle: bool = False,
 ) -> str:
-    """Keep calculator-smoke checkpoints separate from the formal scan."""
+    """Resolve the sampler's checkpoint format and keep smoke paths separate."""
     root = os.path.join(
         os.path.abspath(str(task_root)),
         "checkpoints",
@@ -209,7 +204,12 @@ def checkpoint_path(
     )
     if check:
         root = os.path.join(root, "check")
-    return os.path.join(root, "state.pkl")
+    method = str(sampler_name).strip().lower()
+    from jarvishep2.sampler_catalog import is_plugin
+
+    runtime = sampler_pickle or method in CHECKPOINT_RESUME_METHODS or is_plugin(sampler_name)
+    filename = "runtime.pickle" if runtime else "state.pkl"
+    return os.path.join(root, filename)
 
 
 def build_run_spec(

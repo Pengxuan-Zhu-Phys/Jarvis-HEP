@@ -1,4 +1,4 @@
-"""Real Redis/spawn interruption and DATABASE-only recovery for indexed plug-ins."""
+"""Real Redis/spawn interruption, bound source, and strict checkpoint recovery."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from jarvishep2.database import SimpleHDF5Writer
+from jarvishep2.sampling.sample_checkpoint import read_pickle
 from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 
 pytestmark = [
@@ -24,6 +25,15 @@ pytestmark = [
         shutil.which("redis-server") is None, reason="real Redis is required"
     ),
 ]
+
+FAST_CHECKPOINT = """
+from jarvishep2.runtime.checkpoint_process import CheckpointProcess
+_original_checkpoint_init = CheckpointProcess.__init__
+def _fast_checkpoint_init(self, *args, **kwargs):
+    kwargs["interval"] = 0.1
+    _original_checkpoint_init(self, *args, **kwargs)
+CheckpointProcess.__init__ = _fast_checkpoint_init
+"""
 
 SOURCE = """
 import os
@@ -35,12 +45,21 @@ if os.environ.get("JHS_TEST_MARKER"):
 PLUGIN = {"api_version": 1, "method": "RecoverIndexed", "version": "1.0",
           "profile": "independent", "block_size": 8}
 def prepare(setup):
-    return None
+    with open(os.environ["JHS_TEST_RESTORE"], "a") as handle:
+        handle.write("prepare\\n")
+    return {"n": setup.point_number}
+def checkpoint(state):
+    return dict(state)
+def resume(setup, saved):
+    with open(os.environ["JHS_TEST_RESTORE"], "a") as handle:
+        handle.write("resume\\n")
+    assert saved["n"] == setup.point_number
+    return saved
 def draw_block(context, rng, plan):
     time.sleep(.12)
     i = context.block_index * context.block_size + np.arange(context.block_size)
     # Unused rows in the last block still obey the output range contract.
-    u = np.minimum((i + .5) / context.point_number, 1)
+    u = np.minimum((i + .5) / plan["n"], 1)
     return np.repeat(u[:, None], context.dimension, axis=1)
 """
 
@@ -50,7 +69,7 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
     entry = [
         sys.executable,
         "-c",
-        "from jarvishep2.cli.client import main; raise SystemExit(main())",
+        FAST_CHECKPOINT + "from jarvishep2.cli.client import main; raise SystemExit(main())",
     ]
     env = dict(
         os.environ,
@@ -58,6 +77,7 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
         PYTHONDONTWRITEBYTECODE="1",
         HOME=str(tmp_path / "home"),
         JHS_TEST_MARKER=str(tmp_path / "imports.txt"),
+        JHS_TEST_RESTORE=str(tmp_path / "restore.txt"),
     )
     env.pop("PYTHONPATH", None)
     source = tmp_path / "RecoverIndexed.py"
@@ -118,6 +138,7 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
 
     cli("load", "sampler", "load", str(source))
     database = tmp_path / "outputs/recover/DATABASE/samples.hdf5"
+    checkpoint = tmp_path / "checkpoints/recover/RecoverIndexed/runtime.pickle"
     with (tmp_path / "interrupt.log").open("w") as log:
         process = subprocess.Popen(
             entry + ["run", str(task), "--skip-draw-flowchart"],
@@ -132,12 +153,8 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
                 assert process.poll() is None, (tmp_path / "interrupt.log").read_text()[
                     -5000:
                 ]
-                if database.exists():
-                    try:
-                        if len(SimpleHDF5Writer(str(database)).read_records()) >= 8:
-                            break
-                    except OSError:
-                        pass
+                if checkpoint.exists() and read_pickle(str(checkpoint))["sampler_state"]["completed_count"] >= 8:
+                    break
                 time.sleep(0.1)
             else:
                 pytest.fail("no durable prefix before interrupt")
@@ -147,10 +164,7 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
             if process.poll() is None:
                 process.send_signal(signal.SIGTERM)
                 process.wait(timeout=40)
-    checkpoint = tmp_path / "checkpoints/recover/RecoverIndexed/state.pkl"
     assert checkpoint.exists()
-    if database_only:
-        checkpoint.unlink()
     source.write_text(SOURCE.replace('"version": "1.0"', '"version": "2.0"'))
     cli("reload", "sampler", "load", str(source))
     cli("remove", "sampler", "remove", "RecoverIndexed", "--yes")
@@ -180,10 +194,19 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
         with socket.socket() as sock:
             assert sock.connect_ex(("127.0.0.1", port)) != 0
 
+    if database_only:
+        legacy = checkpoint.with_name("state.pkl")
+        checkpoint.rename(legacy)
+        refuse("legacy-checkpoint", "legacy checkpoint")
+        assert legacy.exists() and not checkpoint.exists()
+        legacy.unlink()
+        refuse("missing-checkpoint", "checkpoint missing")
+        return
+
     original_card = task.read_bytes()
     card["Sampling"]["Bounds"]["seed"] = 8
     task.write_text(yaml.safe_dump(card))
-    refuse("changed-seed", "science settings differ")
+    refuse("changed-seed", "configuration differs")
     task.write_bytes(original_card)
     binding = json.loads((database.parent / "sampler_identity.json").read_text())
     bound_source = tmp_path / binding["source_file"]
@@ -191,16 +214,26 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
     bound_source.write_text("raise AssertionError('must not execute damaged source')")
     refuse("damaged-source", "SHA-256 mismatch")
     bound_source.write_bytes(original_source)
-    if not database_only:
-        original_checkpoint = checkpoint.read_bytes()
-        checkpoint.write_bytes(b"this is not a pickle")
-        refuse("damaged-checkpoint", "checkpoint rejected")
-        checkpoint.write_bytes(original_checkpoint)
+    original_checkpoint = checkpoint.read_bytes()
+    checkpoint.write_bytes(b"this is not a pickle")
+    refuse("damaged-checkpoint", "checkpoint rejected")
+    checkpoint.write_bytes(original_checkpoint)
+    card = yaml.safe_load(original_card)
+    card["EnvReqs"]["V2"]["workers"] = 3
+    task.write_text(yaml.safe_dump(card))
     cli("resume", "run", str(task), "--resume", "--skip-draw-flowchart")
     assert len((tmp_path / "imports.txt").read_text().splitlines()) == 4
+    assert (tmp_path / "restore.txt").read_text().splitlines() == ["prepare", "resume"]
     records = SimpleHDF5Writer(str(database)).read_records()
     candidates = [i for i in range(211) if (i + 0.5) / 211 > 0.2]
-    ordered = sorted(records, key=lambda r: int(r["sample_index"]))
+    by_index = {}
+    for record in records:
+        index = int(record["sample_index"])
+        previous = by_index.setdefault(index, record)
+        assert (previous["uuid"], previous["x"], previous["y"]) == (
+            record["uuid"], record["x"], record["y"]
+        )
+    ordered = [by_index[index] for index in sorted(by_index)]
     assert len(ordered) == len(candidates) == 169
     binding = json.loads((database.parent / "sampler_identity.json").read_text())
     prefix = f"plugin:RecoverIndexed:{binding['hard_identity'][:16]}"
@@ -210,5 +243,5 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
         assert record["uuid"] == deterministic_sampler_uuid(
             prefix=prefix, seed=7, sample_index=accepted
         )
-    assert len({record["uuid"] for record in records}) == len(records)
+    assert len({record["uuid"] for record in records}) == len(ordered)
     assert binding["metadata"]["version"] == "1.0"

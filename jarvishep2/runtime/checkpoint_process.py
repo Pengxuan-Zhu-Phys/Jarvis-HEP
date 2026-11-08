@@ -10,7 +10,7 @@ import os
 import signal
 import socket
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from queue import Empty, Full
 from typing import Any
 
@@ -146,7 +146,7 @@ def _run_checkpoint(
                 last_index = int((payload.get("sampler_state") or {}).get("next_sample_index", 0))
                 last_error = ""
                 written.value += 1
-                logger.info("Checkpoint saved to %s", path)
+                logger.info("Checkpoint saved to %s (next sample index=%d)", path, last_index)
             except Exception as exc:
                 last_error = str(exc)[:512]
                 failures.value += 1
@@ -173,9 +173,13 @@ class CheckpointProcess:
         self, path: str, logger: Any, *, interval: float = 30.0,
         scan_name: str = "", redis_config: Mapping[str, Any] | None = None,
         control_owner: str = "", logs_dir: str | None = None,
+        on_saved: Callable[..., None] | None = None,
     ) -> None:
         self.path = str(path)
         self._logger = logger
+        self._on_saved = on_saved
+        self._pending_log: tuple[int, int, str] | None = None
+        self._last_saved_index: int | None = None
         ctx = get_spawn_context()
         self._inbox = ctx.Queue(maxsize=1)
         # The parent must not join an IPC feeder blocked by a dead child.
@@ -219,7 +223,23 @@ class CheckpointProcess:
     def request_snapshot(self) -> None:
         self._requested.value = 1
 
+    @property
+    def last_saved_index(self) -> int | None:
+        self._report_save()
+        return self._last_saved_index
+
+    def _report_save(self) -> None:
+        if self._pending_log is None or self._on_saved is None:
+            return
+        previous, index, progress = self._pending_log
+        if self._written.value == previous:
+            return
+        self._pending_log = None
+        self._last_saved_index = index
+        self._on_saved(self.path, "generation barrier", progress=progress)
+
     def available(self) -> bool:
+        self._report_save()
         if not self.is_alive():
             if self._started and not self._closed and not self._reported_dead:
                 self._logger.warning("Checkpoint process exited; sampling continues (pid=%s)", self.pid)
@@ -230,6 +250,14 @@ class CheckpointProcess:
     def submit(self, payload: dict[str, Any]) -> bool:
         if not self.available():
             return False
+        pending_log = None
+        if self._on_saved is not None:
+            state = payload["sampler_state"]
+            progress = f"generation={state['generation']} proposals={state['index']}"
+            retained = state["session"]["retained"]
+            if retained:
+                progress += f" retained={retained} chain_bytes={state['trajectory_offset']}"
+            pending_log = (self._written.value, state["next_sample_index"], progress)
         self._idle.value = 0
         try:
             self._inbox.put_nowait(payload)
@@ -237,6 +265,7 @@ class CheckpointProcess:
             self._idle.value = 1
             self._logger.warning("Checkpoint snapshot was not submitted -> %s", exc)
             return False
+        self._pending_log = pending_log
         self._requested.value = 0
         return True
 
@@ -247,6 +276,7 @@ class CheckpointProcess:
             if remaining <= 0:
                 return False
             time.sleep(min(0.01, remaining))
+        self._report_save()
         return bool(self._idle.value)
 
     def finish(self, timeout: float = 5.0) -> bool:

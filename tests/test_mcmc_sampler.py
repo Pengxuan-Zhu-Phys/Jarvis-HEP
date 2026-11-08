@@ -12,6 +12,7 @@ import tempfile
 import threading
 import unittest
 from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
 from fakeredis import TcpFakeServer
@@ -420,19 +421,16 @@ class DistributorMCMCTests(unittest.TestCase):
             cfg = _mcmc_config(method="ToyMCMC", tmpdir=tmp, nchains=2, niters=3)
             sampler.set_config(cfg)
             sampler._ensure_registry()
-            sampler._register_pending("unrelated-archive-uuid")
-            sampler._pending_uuids.clear()
             sampler._submitted_uuids.append("unrelated-archive-uuid")
-            calls: list[str] = []
-            sampler._save_checkpoint_callback = lambda **kwargs: calls.append(
-                str(kwargs.get("reason"))
-            ) or True
-            self.assertTrue(
-                sampler._checkpoint_at_sampling_barrier(
-                    reason="ToyMCMC_sampling_step_1"
-                )
-            )
-            self.assertEqual(calls, ["ToyMCMC_sampling_step_1"])
+            queue = make_fakeredis_queue()
+            sampler.set_redis(queue)
+            queue.missing_archived_uuids = Mock(side_effect=AssertionError("archive queried"))
+            writer = Mock()
+            sampler.configure_checkpoint(checkpoint_file=f"{tmp}/runtime.pickle", writer=writer)
+            writer.reset_mock()
+            self.assertTrue(sampler.save_checkpoint())
+            writer.submit.assert_called_once()
+            queue.missing_archived_uuids.assert_not_called()
 
     def test_toymcmc_submitted_window_and_history_stay_bounded(self) -> None:
         from jarvishep2.Sampling.Source.MCMC.chain_history import (

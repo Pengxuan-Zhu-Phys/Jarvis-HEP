@@ -173,12 +173,16 @@ def validate_checkpoint(
         raise PluginResumeMismatch(
             "checkpoint sampler state must be a mapping", method=method
         )
+    if state.get("plugin_checkpoint_version") != 1:
+        raise PluginResumeMismatch("unsupported plug-in checkpoint format", method=method)
     saved = state.get("plugin") or {}
     if not isinstance(saved, Mapping):
         raise PluginResumeMismatch(
             "checkpoint plug-in identity must be a mapping", method=method
         )
-    if saved.get("identity") != identity or saved.get("source_sha256") != source:
+    if (saved.get("identity") != identity or saved.get("source_sha256") != source
+            or saved.get("profile") != fields["profile"] or saved.get("method") != method
+            or saved.get("version") != fields["plugin_version"]):
         raise PluginResumeMismatch(
             "checkpoint identity/source differs from the scan binding", method=method
         )
@@ -201,8 +205,23 @@ def validate_checkpoint(
             or not isinstance(index, int)
             or not isinstance(accepted, int)
             or not 0 <= accepted <= index <= fields["point_number"]
+            or state["next_sample_index"] != accepted
         ):
             raise ValueError("invalid candidate/accepted cursor")
+        if fields["profile"] == "generational":
+            rejects, failures, completed = (
+                state["selection_rejected"], state["failed_count"], state["completed_count"]
+            )
+            session = state["session"]
+            if (
+                any(type(value) is not int or value < 0 for value in (rejects, failures, completed))
+                or accepted + rejects != index
+                or completed + failures != accepted
+                or not isinstance(session, dict)
+                or session.get("candidates") != index
+                or session.get("generation") != state["generation"]
+            ):
+                raise ValueError("inconsistent generational checkpoint progress")
     except (ValueError, KeyError, TypeError) as exc:
         raise PluginResumeMismatch(
             f"invalid checkpoint cursor: {exc}", method=method

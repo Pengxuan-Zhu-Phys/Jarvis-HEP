@@ -36,14 +36,17 @@ from jarvishep2.sampler_catalog import (
     plugin_record,
     spec_for,
 )
-from jarvishep2.sampling.fixed_set_sampler import FixedSetSampler
+from jarvishep2.sampling.completion_sampler import CompletionSampler
+from jarvishep2.sampling.runtime_checkpoint import operas_constants_fingerprint, stable_json_hash
+from jarvishep2.sampling.sample_checkpoint import FORMAT, VERSION
+from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.sampling_utils import (
     BoolConversionError,
     evaluate_selection,
     physical_from_u,
 )
 
-IDENTITY_VERSION = 2
+IDENTITY_VERSION = 3
 
 
 def plugin_logger(method: str) -> Any:
@@ -94,7 +97,7 @@ def plugin_identity(
         "plugin_version": metadata.version,
         "profile": metadata.profile,
         "api_version": metadata.api_version,
-        "state_version": metadata.state_version,
+        "state_version": metadata.state_version or 1,
         "stream_protocol": STREAM_PROTOCOL,
         "generation_mode": generation_mode,
         "block_size": metadata.block_size if generation_mode == "draw_block" else None,
@@ -105,10 +108,15 @@ def plugin_identity(
         "point_number": int(point_number),
         "options": thaw_options(options),
     }
+    fields.update(
+        loglikelihood=sampling.get("LogLikelihood"),
+        operas=config.get("Operas"),
+        calculators=config.get("Calculators"),
+        nuisance=sampling.get("Nuisance"),
+        feedback_return=sampling.get("FeedbackReturn"),
+    )
     if metadata.profile == "generational":
-        fields.update(feedback_protocol=1, loglikelihood=sampling.get("LogLikelihood"),
-                      operas=config.get("Operas"), calculators=config.get("Calculators"),
-                      nuisance=sampling.get("Nuisance"), feedback_return=sampling.get("FeedbackReturn"))
+        fields["feedback_protocol"] = 1
     from jarvishep2.sampling.plugin_identity import canonical_hash
 
     return canonical_hash(fields), fields
@@ -156,10 +164,31 @@ class PluginPreflight:
     identity_fields: dict[str, Any] = field(repr=False)
     source_copy: Path | None = None
     resumed_from_copy: bool = False
+    restored_state: Mapping[str, Any] | None = field(default=None, repr=False)
+    trajectory_digest: Any = field(default=None, repr=False)
+    checkpoint_integrity: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def method(self) -> str:
         return self.spec.name
+
+    def checkpoint_fields(self, index: int, accepted: int) -> dict[str, Any]:
+        return {
+            "plugin_checkpoint_version": 1,
+            "plugin": {
+                "method": self.method,
+                "profile": self.plugin.metadata.profile,
+                "version": self.plugin.metadata.version,
+                "source_sha256": self.plugin.source_sha256,
+                "identity": self.identity,
+            },
+            "maxp": self.session.point_number,
+            "seed": self.session.seed,
+            "selectionexp": self.identity_fields["selection"],
+            "index": index,
+            "accepted_index": accepted,
+            "next_sample_index": accepted,
+        }
 
     def runtime_metadata(self) -> dict[str, Any]:
         """Allowlisted provenance for the source and settings actually prepared."""
@@ -169,6 +198,7 @@ class PluginPreflight:
             "source_sha256": self.plugin.source_sha256,
             "seed": self.session.seed,
             "point_number": self.session.point_number,
+            "supports_checkpoint": self.session.supports_checkpoint,
         }
         if self.plugin.metadata.profile == "generational":
             result.update(profile="generational", max_evaluations=self.session.max_evaluations,
@@ -224,10 +254,15 @@ def preflight_plugin(
     if source_dir is not None and not check:
         has_data = any(p.is_file() and p.stat().st_size for pattern in ("*.hdf5", "*.h5", "*.csv")
                        for p in database.glob(pattern))
-        checkpoint = source_dir.parent / "state.pkl"
-        if binding is None and (has_data or checkpoint.exists() or path.exists()):
-            raise PluginResumeMismatch("existing scan has no usable source binding; use --resume "
-                                       "for a bound scan, or choose a new scan name", method=method)
+        checkpoint = source_dir.parent / "runtime.pickle"
+        legacy = source_dir.parent / "state.pkl"
+        if binding is None and (has_data or path.exists() or checkpoint.exists() or legacy.exists()):
+            guidance = (
+                "use --resume with the bound source or choose a new scan name"
+                if checkpoint.exists() and path.exists()
+                else "a valid runtime.pickle and source binding are required for resume. Choose a new scan name"
+            )
+            raise PluginResumeMismatch(f"existing scan cannot restart in place. {guidance}", method=method)
     if binding:
         from jarvis_hep_sampler.metadata import parse_metadata
         from jarvis_hep_sampler.options import freeze_options, parse_reserved, split_bounds
@@ -287,21 +322,41 @@ def preflight_plugin(
     if checkpoint_state is not None:
         validate_checkpoint(checkpoint_state, identity=identity, source=plugin.source_sha256,
                             fields=fields, method=method)
-    session.prepare()
-    if checkpoint_state is not None and plugin.metadata.profile == "generational":
-        from jarvishep2.sampling.generational_plugin_sampler import validate_trajectory
-        session.restore(checkpoint_state.get("session", {}))
-        if (session.candidates != checkpoint_state["index"] or
-                session.generation != checkpoint_state.get("generation")):
-            raise PluginResumeMismatch("checkpoint session/cursor differs", method=method)
-        rejects = checkpoint_state.get("selection_rejected")
-        failures = checkpoint_state.get("evaluation_failures")
-        if (isinstance(rejects, bool) or not isinstance(rejects, int) or rejects < 0 or
-                isinstance(failures, bool) or not isinstance(failures, int) or failures < 0 or
-                checkpoint_state["accepted_index"] + rejects != session.candidates or
-                failures > checkpoint_state["accepted_index"]):
-            raise PluginResumeMismatch("checkpoint evaluation counters differ", method=method)
-        validate_trajectory(path.parent / "chain.csv", checkpoint_state, method=method)
+    trajectory_digest = None
+    if checkpoint_state is None:
+        session.prepare()
+    else:
+        saved_session = checkpoint_state.get("session")
+        if not isinstance(saved_session, dict):
+            raise PluginResumeMismatch("checkpoint has no SDK session", method=method)
+        if plugin.metadata.profile == "generational":
+            from jarvishep2.sampling.generational_plugin_sampler import validate_trajectory
+
+            trajectory_digest = validate_trajectory(path.parent / "chain.csv", checkpoint_state, method=method)
+        else:
+            try:
+                CompletionSampler.validate_completion_state(checkpoint_state)
+                if checkpoint_state.get("dataset_id") is not None or checkpoint_state.get("source_state") != {}:
+                    raise ValueError("invalid plug-in point source")
+                for index, entry in checkpoint_state["unfinished"].items():
+                    coords = entry.get("u_coords")
+                    expected = deterministic_sampler_uuid(
+                        prefix=f"plugin:{method}:{identity[:16]}",
+                        seed=session.seed, sample_index=index,
+                    )
+                    if (not isinstance(coords, np.ndarray) or coords.shape != (session.dimension,)
+                            or not np.all(np.isfinite(coords) & (coords >= 0) & (coords <= 1))
+                            or not isinstance(entry.get("opera_params"), dict)
+                            or entry["uuid"] != expected):
+                        raise ValueError("invalid unfinished plug-in proposal")
+            except (KeyError, TypeError, ValueError) as exc:
+                raise PluginResumeMismatch(f"invalid checkpoint completion state: {exc}", method=method) from exc
+        session.restore(saved_session)
+    constants = operas_constants_fingerprint() if session.supports_checkpoint else None
+    integrity = {
+        "unit_execution": (cfg.get("_unit_execution") or {}).get("execution_identity"),
+        "operas_constants_hash": stable_json_hash(constants) if constants is not None else None,
+    }
     logger = plugin_logger(method)
     environment = environment_versions()
     if binding and environment != binding["environment"]:
@@ -326,28 +381,53 @@ def preflight_plugin(
             })
     return PluginPreflight(spec=spec, record=record, plugin=plugin, session=session,
                            identity=identity, identity_fields=fields, source_copy=copy,
-                           resumed_from_copy=bool(binding))
+                           resumed_from_copy=bool(binding), restored_state=checkpoint_state,
+                           trajectory_digest=trajectory_digest, checkpoint_integrity=integrity)
 
 
-class PluginSampler(FixedSetSampler):
-    """Independent-profile plug-in driven like ``Random`` (indexed resume, no RNG state)."""
+class PluginCheckpoint:
+    """Publish a snapshot from either external sampler adapter."""
 
-    uses_indexed_resume = True
-    _checkpoint_saved_attributes = frozenset({"_maxp"})
-    _checkpoint_excluded_attributes = frozenset(
-        {
-            "method",
-            "uuid_prefix",
-            "_spec",
-            "_preflight",
-            "_session",
-            "_identity",
-            "_dimensions",
-            "_submit_progress",
-            "_logger",
-            "_plugin_status_snapshot", "_plugin_status_next_at",
-        }
-    )
+    @property
+    def supports_checkpoint(self) -> bool:
+        return self._session is not None and self._session.supports_checkpoint
+
+    def save_checkpoint(self, *, force: bool = False) -> bool:
+        from jarvis_hep_sampler.errors import PluginOutputError
+
+        writer = self._pickle_writer
+        if writer is None or not self._session.can_checkpoint:
+            return False
+        if not force and not writer.requested():
+            return False
+        if force and not writer.wait():
+            return False
+        if not writer.available():
+            return False
+        try:
+            state = self.checkpoint_state()
+        except (PluginOutputError, OSError) as exc:
+            self._logger.warning("Checkpoint capture failed -> %s", exc)
+            return False
+        return writer.submit({
+            "format": FORMAT,
+            "version": VERSION,
+            "method": self.method.lower(),
+            "config_id": self._config_id,
+            "integrity": self._preflight.checkpoint_integrity,
+            "sampler_state": state,
+        })
+
+    def checkpoint_setting(self) -> str:
+        from jarvishep2.runtime_config import get_checkpoint_config
+
+        if not self.supports_checkpoint:
+            return "unsupported"
+        return "enabled" if get_checkpoint_config(self.config)["enabled"] else "disabled"
+
+
+class PluginSampler(PluginCheckpoint, CompletionSampler):
+    """Independent plug-in points with terminal feedback and optional resume."""
 
     def __init__(self, spec: SamplerSpec) -> None:
         super().__init__()
@@ -432,7 +512,7 @@ class PluginSampler(FixedSetSampler):
             sample = self._build_sample(u_coords)
             sample.sample_index = accepted_index
             sample.uuid = self._uuid_for_accepted_index(accepted_index)
-            return sample
+            return self._remember(sample)
         return None
 
     def _emit_progress(self) -> None:
@@ -451,39 +531,29 @@ class PluginSampler(FixedSetSampler):
         return self._index >= self._maxp
 
     # --------------------------------------------------------- checkpoints
-    def export_runtime_state(self) -> dict[str, Any]:
-        payload = self._common_export_fields()
-        payload.update(
-            {
-                "maxp": int(self._maxp),
-                "plugin": {
-                    "method": self.method,
-                    "version": self.plugin_version,
-                    "source_sha256": self.plugin_source_sha256,
-                    "identity": self._identity,
-                },
-            }
-        )
-        return payload
+    def _source_state(self) -> dict[str, Any]:
+        return {}
 
-    def import_runtime_state(self, state: Mapping[str, Any]) -> None:
+    def _restore_source_state(self, state: Mapping[str, Any]) -> None:
+        if state != {}:
+            raise ValueError("invalid plug-in point source")
+
+    def checkpoint_state(self) -> dict[str, Any]:
+        return {
+            **super().checkpoint_state(),
+            **self._preflight.checkpoint_fields(self._index, self._accepted_index),
+            "session": self._session.checkpoint(),
+        }
+
+    def restore_checkpoint(self, state: Mapping[str, Any]) -> None:
         from jarvishep2.sampling.plugin_identity import validate_checkpoint
+
         validate_checkpoint(state, identity=self._identity, source=self.plugin_source_sha256,
                             fields=self._preflight.identity_fields, method=self.method)
-        # Configuration belongs to the newly prepared session, never the checkpoint.
         self._index = state["index"]
-        self._accepted_index = state["accepted_index"]
-        self._import_checkpoint_control_state(state)
-        self._submit_progress = None
-
-    def advance_to_persisted_prefix(self, prefix: int) -> int:
-        from jarvis_hep_sampler.errors import PluginResumeMismatch
-        if self._accepted_index > prefix:
-            raise PluginResumeMismatch("checkpoint cursor is ahead of the durable prefix", method=self.method)
-        reached = super().advance_to_persisted_prefix(prefix)
-        if reached != prefix:
-            raise PluginResumeMismatch("candidate stream cannot reach the durable prefix", method=self.method)
-        return reached
+        super().restore_checkpoint(state)
+        if self._preflight.restored_state is not state:
+            self._session.restore(state["session"])
 
     # ------------------------------------------------------------- logging
     def _stats(self) -> Any:
@@ -492,6 +562,7 @@ class PluginSampler(FixedSetSampler):
     def log_settings_rows(self) -> list[tuple[str, Any]]:
         rows: list[tuple[str, Any]] = [
             ("point number", self._maxp),
+            ("checkpoint", self.checkpoint_setting()),
             ("plugin", f"{self.method} {self.plugin_version} ({self.plugin_source_sha256[:12]})"),
             *super().log_settings_rows(),
         ]
@@ -525,7 +596,6 @@ class PluginSampler(FixedSetSampler):
     def _sampling_tick(self) -> None:
         super()._sampling_tick()
         self._refresh_plugin_status()
-        self.check_runtime_control()
 
     def _refresh_plugin_status(self, *, force: bool = False) -> None:
         """Run only on the sampling thread, never on a lease/monitor thread."""

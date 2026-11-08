@@ -72,7 +72,7 @@ class AgentInspectTests(unittest.TestCase):
         self.assertIsNone(payload["paths"]["environment_defaults_yaml"])
         self.assertEqual(payload["paths"]["scan_output_root"], str(self.root / "outputs" / "inspection"))
         self.assertEqual(payload["paths"]["logs_dir"], str(self.root / "logs" / "inspection"))
-        self.assertEqual(payload["paths"]["declared_checkpoint_file"], str(self.root / "checkpoints" / "inspection" / "Random" / "state.pkl"))
+        self.assertEqual(payload["paths"]["declared_checkpoint_file"], str(self.root / "checkpoints" / "inspection" / "Random" / "runtime.pickle"))
         self.assertEqual(payload["policies"]["checkpoint"], {"enabled": True, "heartbeat": 30.0})
         self.assertEqual(payload["policies"]["redis"]["port"], 6379)
         self.assertEqual(payload["runtime_decisions"]["configured_workers"], 0)

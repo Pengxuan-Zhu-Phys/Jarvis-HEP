@@ -16,7 +16,7 @@ def test_installed_sdk_meets_minimum() -> None:
 
     installed = require_sampler_sdk()
     assert installed == version("Jarvis-HEP-Sampler") == jarvis_hep_sampler.__version__
-    assert SDK_SPECIFIER == ">=1.2.0"
+    assert SDK_SPECIFIER == ">=1.2.1"
 
 
 def test_sdk_requirement_rejects_older_releases(subtests, monkeypatch):
@@ -28,7 +28,7 @@ def test_sdk_requirement_rejects_older_releases(subtests, monkeypatch):
 
 
 def test_sdk_requirement_accepts_minimum_and_newer(subtests, monkeypatch):
-    for installed in ["1.2.0", "1.2.1", "1.3.0", "2.0.0"]:
+    for installed in ["1.2.1", "1.3.0", "2.0.0"]:
         with subtests.test(installed=installed):
             monkeypatch.setattr("jarvishep2.sampler_sdk.version", lambda name: installed)
             assert require_sampler_sdk() == installed
@@ -63,5 +63,5 @@ def test_default_environments_require_sampler_minimum() -> None:
 def test_published_sdk_without_new_host_contract_gets_actionable_error(monkeypatch):
     import jarvis_hep_sampler
     monkeypatch.setattr(jarvis_hep_sampler, "HOST_CONTRACT_VERSION", 0)
-    with pytest.raises(SamplerSDKError, match="host contract 3"):
+    with pytest.raises(SamplerSDKError, match="host contract 4"):
         require_sampler_sdk()

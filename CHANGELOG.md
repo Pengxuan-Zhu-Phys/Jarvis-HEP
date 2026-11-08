@@ -5,8 +5,20 @@ User guides and reference documentation are available in
 
 ## Unreleased
 
+### Added
+
+- Support optional checkpoint and resume hooks for both external sampler
+  profiles with Jarvis-HEP-Sampler 1.2.1 and host contract 4. Checkpoint-capable
+  plugins write `runtime.pickle` through the dedicated checkpoint process.
+  Plugins without the hooks can run normally. External `--resume` requires
+  the new format and preserves the scan's bound source.
+
 ### Fixed
 
+- Allow unit-aware scans to resume through the shared checkpoint protocol.
+  Resume verifies the unit identity in the checkpoint, manifest and archived rows.
+- Use shared log-likelihood scoring for built-in MCMC, nested samplers and
+  generational plugins. Keep zero density distinct from evaluation failure.
 - Align generated parameter-plot limits with finite sampling bounds, and use
   logarithmic axes for Log and Log-Normal variables, including direct Mapper aliases.
 - Preserve canonical module metadata when using legacy import paths, avoiding
@@ -19,10 +31,8 @@ User guides and reference documentation are available in
   keeps the old rows, so it cannot resume either.
 - Resume Dynesty and MultiNest from the engine snapshot in `runtime.pickle`.
   The snapshot is taken between dynesty iterations and does not wait for DATABASE.
-- Confirm checkpoint progress with per-sample archive receipts that the
-  Archiver posts after each HDF5 fsync. MCMC checkpoints still advance only
-  after those receipts. Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty
-  and MultiNest resume from the landed checkpoint file alone.
+- Publish per-sample archive receipts after each HDF5 fsync. Built-in
+  checkpoint progress comes from sampler feedback and saved state.
 - Report a stalled or stopped Archiver at the end of a scan with the number of
   rows still missing, instead of waiting for the full timeout.
 - Keep the sample index on the failure row that the watchdog writes after the
@@ -44,6 +54,11 @@ User guides and reference documentation are available in
   and the end-of-scan cleanup of old rows is removed.
 - Resume of Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty and MultiNest
   reads the landed `runtime.pickle` only and never scans DATABASE.
+- Save all built-in MCMC checkpoints through the checkpoint process. Resume
+  restores chain state and replays pending evaluations with their original
+  UUIDs and coordinates. Compatible MCMC `state.pkl` files can be imported
+  when `runtime.pickle` is absent.
+- Report the configured runtime checkpoint filename in `Jarvis agent inspect`.
 
 ## 2.1.2
 

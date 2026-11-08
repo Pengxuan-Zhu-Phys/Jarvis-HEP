@@ -1,13 +1,12 @@
 """Host adapter for SDK ask/tell plugins, using real Worker terminal feedback.
 
 Evaluation DATABASE and posterior chain.csv are separate. Checkpoints advance
-only after archive acknowledgements and chain fsync. A partial generation is
+only after complete tell and chain fsync. A partial generation is
 replayed deterministically; any trajectory suffix after the checkpoint is cut.
 """
 
 from __future__ import annotations
 
-import copy
 import csv
 import hashlib
 import io
@@ -19,63 +18,38 @@ from pathlib import Path
 import numpy as np
 
 from jarvis_hep_sampler.errors import PluginOutputError, PluginResumeMismatch
+from jarvishep2.feedback_return import (
+    LIKELIHOOD_FEEDBACK_VERSION,
+    WIRE_LOGL_KEY,
+    terminal_log_density,
+)
 from jarvishep2.log_kv import PermilleProgress, format_two_column_log
 from jarvishep2.mapper import MapperPipeline
 from jarvishep2.sampling.feedback_sampler import FeedbackSampler
-from jarvishep2.sampling.plugin_sampler import preflight_plugin, plugin_logger
+from jarvishep2.sampling.plugin_sampler import PluginCheckpoint, preflight_plugin, plugin_logger
+from jarvishep2.sampling.sample_checkpoint import config_identity
 from jarvishep2.sampling.sampling_utils import physical_from_u, evaluate_selection
 from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.variables import load_variables
 
 
-class GenerationalPluginSampler(FeedbackSampler):
+class GenerationalPluginSampler(PluginCheckpoint, FeedbackSampler):
     """No plugin code executes in Workers or monitor threads."""
 
     is_generational_plugin = True
-    _checkpoint_saved_attributes = frozenset(
-        {
-            "_seed",
-            "_generation",
-            "_accepted_index",
-            "_index",
-            "_trajectory_offset",
-            "_selection_rejected",
-            "_evaluation_failures",
-            "_on_failure",
-        }
-    )
-    _checkpoint_excluded_attributes = frozenset(
-        {
-            "method",
-            "_spec",
-            "_preflight",
-            "_session",
-            "_identity",
-            "_logger",
-            "vars",
-            "_selectionexp",
-            "_pending_uuids",
-            "_seed_seq",
-            "_batch_size",
-            "_proposals",
-            "_synthetic",
-            "_uuid_to_id",
-            "_trajectory_path",
-            "_trajectory_hash",
-            "_trajectory_initialized",
-            "_last_feedback",
-            "_current_feedback",
-            "_finished",
-            "_committing",
-            "_plugin_status_snapshot",
-            "_plugin_status_next_at",
-            "_submit_progress",
-            "_last_step_log_at",
-            "_last_checkpoint_at",
-            "_checkpoint_interval_sec",
-            "_durable_index",
-        }
-    )
+    uses_sample_checkpoint = True
+    _checkpoint_saved_attributes = frozenset({
+        "_accepted_index", "_evaluation_failures", "_generation", "_index",
+        "_seed", "_selection_rejected", "_trajectory_offset",
+    })
+    _checkpoint_excluded_attributes = frozenset({
+        "_batch_size", "_committing", "_config_id", "_current_feedback", "_finished",
+        "_identity", "_last_feedback", "_last_step_log_at", "_logger", "_on_failure",
+        "_pending_uuids", "_pickle_writer", "_plugin_status_next_at", "_plugin_status_snapshot",
+        "_preflight", "_proposals", "_seed_seq", "_selectionexp", "_session", "_spec",
+        "_submit_progress", "_synthetic", "_trajectory_hash", "_trajectory_initialized",
+        "_trajectory_path", "_uuid_to_id", "method", "vars",
+    })
 
     def __init__(self, spec):
         super().__init__()
@@ -99,9 +73,8 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._plugin_status_next_at = 0.0
         self._submit_progress = None
         self._last_step_log_at = None
-        self._last_checkpoint_at = 0.0
-        self._checkpoint_interval_sec = 30.0
-        self._durable_index = 0
+        self._pickle_writer = None
+        self._config_id = ""
 
     def attach_preflight(self, preflight):
         if preflight.method != self.method:
@@ -117,9 +90,7 @@ class GenerationalPluginSampler(FeedbackSampler):
         self.vars = load_variables(self.config)
         self._mapper_pipeline = MapperPipeline.from_config(self.config)
         self._selectionexp = (self.config.get("Sampling") or {}).get("selection")
-        from jarvishep2.runtime_config import get_checkpoint_config
-
-        self._checkpoint_interval_sec = get_checkpoint_config(self.config)["heartbeat"]
+        self._config_id = config_identity(self.config)
         result_dir = self.config.get("task_result_dir")
         if not result_dir:
             root = Path(self.config.get("task_root") or os.getcwd())
@@ -133,7 +104,6 @@ class GenerationalPluginSampler(FeedbackSampler):
         if self.config.get("_check_modules_sample_layout"):
             database /= "test"
         self._trajectory_path = database / "chain.csv"
-        self._last_safe_state = copy.deepcopy(self.export_runtime_state())
         self._refresh_status()
 
     @property
@@ -154,19 +124,8 @@ class GenerationalPluginSampler(FeedbackSampler):
             or {"mode": "minimal", "include_logl": True}
         )
 
-    def set_persisted_prefix(self, prefix):
-        # The shared saver refreshes this watermark before every write,
-        # including interrupts. Indexed snapshot deque entries belong to fixed
-        # samplers; applying that deque here would reset our latest durable
-        # feedback barrier to the initial state while a generation is pending.
-        self._persisted_index_prefix = max(
-            self._persisted_index_prefix, int(prefix or 0)
-        )
-
-    def set_persisted_uuids(self, uuids):
-        # Replay the last uncommitted generation to reconstruct feedback.
-        # DATABASE keeps the replayed rows as duplicates; no lifetime set.
-        self._persisted_uuids = set()
+    def _has_chain(self):
+        return self._preflight.plugin.function("transitions") is not None
 
     def _ensure_trajectory(self):
         if self._trajectory_initialized:
@@ -186,6 +145,12 @@ class GenerationalPluginSampler(FeedbackSampler):
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
+            if os.name == "posix":
+                directory_fd = os.open(self._trajectory_path.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
             self._trajectory_hash.update(payload)
             self._trajectory_offset = len(payload)
         self._trajectory_initialized = True
@@ -224,16 +189,6 @@ class GenerationalPluginSampler(FeedbackSampler):
             samples.append(sample)
         return samples
 
-    def _submit_sample_batch(self, samples):
-        # Keep a bounded window across generations until the durable checkpoint.
-        for start in range(0, len(samples), self._batch_size):
-            batch = list(samples[start : start + self._batch_size])
-            for sample in batch:
-                self._register_pending(sample.uuid)
-                self._submitted_uuids.append(str(sample.uuid))
-            self._submit_group(batch)
-        return len(samples)
-
     def _await_feedback_round(self, *args, **kwargs):
         record, mode, missing = super()._await_feedback_round(*args, **kwargs)
         if record is not None:
@@ -253,7 +208,7 @@ class GenerationalPluginSampler(FeedbackSampler):
         failures = 0
         for record in results:
             if (
-                record.get("plugin_feedback_version") != 1
+                record.get(LIKELIHOOD_FEEDBACK_VERSION) != 1
                 or record.get("evaluation_outcome") not in {"ok", "failed"}
                 or not isinstance(record.get("score_present"), bool)
             ):
@@ -261,9 +216,10 @@ class GenerationalPluginSampler(FeedbackSampler):
                     "Worker lacks valid plugin terminal feedback v1", method=self.method
                 )
             status = record["evaluation_outcome"]
-            score = record.get("logL")
-            if record["score_present"] != (status == "ok") or (
-                status == "failed" and score is not None
+            score = terminal_log_density(record)
+            if (status == "ok" and score is None) or (
+                status == "failed"
+                and (record["score_present"] or record.get(WIRE_LOGL_KEY) is not None)
             ):
                 raise PluginOutputError(
                     "inconsistent Worker terminal feedback", method=self.method
@@ -280,8 +236,8 @@ class GenerationalPluginSampler(FeedbackSampler):
                 if key
                 not in {
                     "uuid",
-                    "logL",
-                    "plugin_feedback_version",
+                    WIRE_LOGL_KEY,
+                    LIKELIHOOD_FEEDBACK_VERSION,
                     "evaluation_outcome",
                     "score_present",
                 }
@@ -320,109 +276,41 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._index = self._session.candidates
         self._committing = False
         self._refresh_status()
-        self._last_feedback.update(self._current_feedback)
+        self._last_feedback = self._current_feedback
+        self._submitted_uuids.clear()
         self._proposals, self._synthetic, self._uuid_to_id = [], [], {}
         self._emit_progress()
         self._maybe_log_step()
 
     def at_safe_barrier(self):
-        return (
-            self._session is not None
-            and self._session._pending is None
-            and not self._submitted_uuids
-            and not self._committing
-        )
+        return self._session.can_checkpoint and not self._committing and not self._pending_uuids
 
-    def checkpoint_runtime_state(self, *, safe):
-        # Interrupt callbacks request a live snapshot in older feedback engines.
-        # This adapter explicitly refuses partial or archive-unconfirmed state.
-        if safe and self.at_safe_barrier():
-            self._sync_trajectory()
-            self._last_safe_state = copy.deepcopy(self.export_runtime_state())
-        return copy.deepcopy(self._last_safe_state)
+    def configure_checkpoint(self, *, checkpoint_file, writer):
+        self._pickle_writer = writer
 
-    def _sync_trajectory(self):
-        if self._trajectory_initialized:
-            with self._trajectory_path.open("rb") as handle:
-                os.fsync(handle.fileno())
+    def shutdown_checkpointing(self):
+        self._pickle_writer = None
 
     def checkpoint_at_barrier(self, *, reason="generation_barrier", final=False):
-        # Archive confirmation bounds replay/memory. Disk snapshots follow the
-        # configured heartbeat instead of writing every 256 cheap evaluations.
-        from jarvishep2.runtime_config import get_checkpoint_config
-
-        enabled = get_checkpoint_config(self.config)["enabled"]
-        due = (
-            enabled
-            and self._save_checkpoint_callback is not None
-            and (
-                final
-                or self._checkpoint_requested
-                or time.monotonic() - self._last_checkpoint_at
-                >= self._checkpoint_interval_sec
-            )
-        )
-        if not final and len(self._submitted_uuids) < 256 and not due:
-            return False
-        if self._session._pending is not None or self._committing:
-            raise RuntimeError(
-                "plugin checkpoint requires a complete tell/chain barrier"
-            )
-        scan = (
-            self.config.get("scan_name")
-            or (self.config.get("Scan") or {}).get("name")
-            or "scan"
-        )
-        if self.redis is not None and self._submitted_uuids:
-            deadline = time.monotonic() + 30
-            # The Archiver posts a receipt for each UUID after its HDF5 batch
-            # is fsynced; consume the receipts of this window.
-            window = list(self._submitted_uuids)
-            pending = window
-            while True:
-                pending = self.redis.missing_archived_uuids(scan, pending)
-                if not pending:
-                    break
-                self._fail_if_generation_blocked(what="plugin archive barrier")
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        "archive did not confirm plugin generation window; previous checkpoint preserved"
-                    )
-                time.sleep(0.05)
-            self.redis.remove_archived_uuids(scan, window)
-        self._sync_trajectory()
-        self._submitted_uuids.clear()
-        self._persisted_uuids.clear()
-        self._last_feedback.clear()
-        self._durable_index = self._index
-        self._last_safe_state = copy.deepcopy(self.export_runtime_state())
-        if not due:
-            return False
-        save_reason = reason
-        if reason == "generation_barrier":
-            save_reason = "checkpoint_heartbeat"
-        written = self.persist_runtime_checkpoint(force=True, reason=save_reason)
-        if written:
-            self._checkpoint_requested = False
-            self._last_checkpoint_at = time.monotonic()
-        return written
+        return self.save_checkpoint(force=final)
 
     def run_adaptive(self, *, generation_timeout=3600.0, timeout=None):
         self._ensure_trajectory()
-        self.checkpoint_at_barrier(reason="plugin_initial", final=True)
+        self.save_checkpoint(force=True)
         self._emit_progress(force=True)
         self._maybe_log_step(force=True)
         try:
             count = super().run_adaptive(
                 generation_timeout=generation_timeout, timeout=timeout
             )
-            self.checkpoint_at_barrier(reason="plugin_finished", final=True)
+            self.save_checkpoint(force=True)
         finally:
             # Read committed counters only: an unfinished ask/tell never looks
             # like completed progress on failure or interruption.
-            self._emit_progress(force=True)
+            self._emit_progress()
             self._maybe_log_step(force=True)
-        self._logger.warning("Posterior chain saved to %s", self._trajectory_path)
+        if self._has_chain():
+            self._logger.warning("Chain saved to %s", self._trajectory_path)
         return count
 
     def _emit_progress(self, *, force=False):
@@ -432,12 +320,10 @@ class GenerationalPluginSampler(FeedbackSampler):
                 total=self._session.max_evaluations,
                 label=f"{self.method} proposals completed",
             )
-        self._submit_progress.update(
-            self._index,
-            force=force,
-            extra=f"worker evaluations={self._accepted_index}, retained={self._session.retained}, "
-            f"generation={self._session.generation}, durable proposals={self._durable_index}",
-        )
+        extra = f"worker evaluations={self._accepted_index}, generation={self._session.generation}"
+        if self._has_chain():
+            extra += f", retained={self._session.retained}"
+        self._submit_progress.update(self._index, force=force, extra=extra)
 
     def _maybe_log_step(self, *, force=False):
         now = time.monotonic()
@@ -448,45 +334,51 @@ class GenerationalPluginSampler(FeedbackSampler):
         if not force and now - self._last_step_log_at < 60.0:
             return
         self._last_step_log_at = now
+        rows = self._log_counter_rows()
+        saved_index = getattr(self._pickle_writer, "last_saved_index", None)
+        if saved_index is not None:
+            rows.append(("checkpoint sample index", saved_index))
+        rows.extend(self._algorithm_log_rows())
+        self._logger.info(format_two_column_log(f"{self.method} Progress ->", rows))
+
+    def _log_counter_rows(self):
         rows = [
             ("generation", self._session.generation),
             ("proposals / limit", f"{self._index} / {self._session.max_evaluations}"),
             ("worker evaluations", self._accepted_index),
             ("selection rejects", self._selection_rejected),
             ("evaluation failures", self._evaluation_failures),
-            ("retained draws", self._session.retained),
-            ("durable proposals", self._durable_index),
         ]
+        if self._has_chain():
+            rows.append(("retained draws", self._session.retained))
+        return rows
+
+    def _algorithm_log_rows(self):
         from jarvishep2.sampling.plugin_sampler import _setting_text
 
-        rows.extend(
+        return [
             (key, _setting_text(value))
             for key, value in self._session.summary_rows(self._stats())[:32]
-        )
-        self._logger.info(format_two_column_log(f"{self.method} Progress ->", rows))
+        ]
 
-    def export_runtime_state(self):
+    def checkpoint_state(self):
+        if not self.at_safe_barrier():
+            raise PluginOutputError("checkpoint requires a complete tell/chain barrier", method=self.method)
+        if self._trajectory_initialized:
+            with self._trajectory_path.open("rb") as handle:
+                os.fsync(handle.fileno())
         return {
-            "plugin": {
-                "method": self.method,
-                "version": self.plugin_version,
-                "source_sha256": self.plugin_source_sha256,
-                "identity": self._identity,
-            },
-            "maxp": self._session.max_evaluations,
-            "seed": self._seed,
-            "selectionexp": self._selectionexp,
-            "index": self._index,
-            "accepted_index": self._accepted_index,
+            **self._preflight.checkpoint_fields(self._index, self._accepted_index),
             "generation": self._session.generation,
             "session": self._session.checkpoint(),
             "trajectory_offset": self._trajectory_offset,
             "trajectory_sha256": self._trajectory_hash.hexdigest(),
             "selection_rejected": self._selection_rejected,
-            "evaluation_failures": self._evaluation_failures,
+            "completed_count": self._accepted_index - self._evaluation_failures,
+            "failed_count": self._evaluation_failures,
         }
 
-    def import_runtime_state(self, state):
+    def restore_checkpoint(self, state):
         from jarvishep2.sampling.plugin_identity import validate_checkpoint
 
         validate_checkpoint(
@@ -496,10 +388,13 @@ class GenerationalPluginSampler(FeedbackSampler):
             fields=self._preflight.identity_fields,
             method=self.method,
         )
-        self._session.restore(state["session"])
-        self._trajectory_hash = validate_trajectory(
-            self._trajectory_path, state, method=self.method
-        )
+        if self._preflight.restored_state is state:
+            self._trajectory_hash = self._preflight.trajectory_digest
+        else:
+            self._trajectory_hash = validate_trajectory(
+                self._trajectory_path, state, method=self.method
+            )
+            self._session.restore(state["session"])
         self._trajectory_offset = state["trajectory_offset"]
         if self._trajectory_path.exists():
             with self._trajectory_path.open("r+b") as handle:
@@ -510,45 +405,32 @@ class GenerationalPluginSampler(FeedbackSampler):
         self._index, self._accepted_index = state["index"], state["accepted_index"]
         self._generation = self._session.generation
         self._selection_rejected = state["selection_rejected"]
-        self._evaluation_failures = state["evaluation_failures"]
+        self._evaluation_failures = state["failed_count"]
         self._pending_uuids.clear()
         self._submitted_uuids.clear()
-        self._last_safe_state = copy.deepcopy(dict(state))
-        self._durable_index = self._index
         self._submit_progress = None
         self._last_step_log_at = None
-        self._last_checkpoint_at = time.monotonic()
         self._refresh_status()
-        self._logger.info(
-            "%s resume barrier -> generation=%d proposals=%d retained=%d chain_bytes=%d",
-            self.method,
-            self._session.generation,
-            self._index,
-            self._session.retained,
-            self._trajectory_offset,
-        )
+        rows = self._log_counter_rows()
+        if self._has_chain():
+            rows.append(("chain bytes", self._trajectory_offset))
+        self._logger.info(format_two_column_log(f"{self.method} Resume Barrier ->", rows))
 
     def _stats(self):
         return self._session.stats(self._index, self._session.retained)
 
     def log_settings_rows(self):
-        from jarvishep2.runtime_config import get_checkpoint_config
         from jarvishep2.sampling.plugin_sampler import _setting_text
 
         extra = dict(self._session.settings_rows())
         options = dict(self._session.options)
         rows = [
-            ("plugin", f"{self.method} {self.plugin_version}"),
+            ("plugin", f"{self.method} {self.plugin_version} ({self.plugin_source_sha256[:12]})"),
             ("evaluation limit", self._session.max_evaluations),
-            (
-                "checkpoint",
-                "enabled"
-                if get_checkpoint_config(self.config)["enabled"]
-                else "disabled",
-            ),
-            ("checkpoint heartbeat (s)", self._checkpoint_interval_sec),
-            ("archive barrier window", 256),
+            ("checkpoint", self.checkpoint_setting()),
         ]
+        if self._selectionexp:
+            rows.append(("selection", _setting_text(self._selectionexp)))
         merged = {key: extra.pop(key, value) for key, value in options.items()}
         merged.update(extra)
         rows.extend(
@@ -557,7 +439,7 @@ class GenerationalPluginSampler(FeedbackSampler):
         return rows
 
     def log_summary_rows(self):
-        return [*self.summary().items(), *self._session.summary_rows(self._stats())]
+        return [*self._log_counter_rows(), *self._algorithm_log_rows()]
 
     def log_stop_reason(self):
         return self._session.stop_reason(self._stats())
@@ -572,7 +454,6 @@ class GenerationalPluginSampler(FeedbackSampler):
             "evaluations": self._index,
             "retained": self._session.retained,
             "generation": self._session.generation,
-            "durable": self._durable_index,
             **self._plugin_status_snapshot,
         }
 

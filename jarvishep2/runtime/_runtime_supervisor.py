@@ -39,6 +39,7 @@ from jarvishep2.Sampling.runtime_checkpoint import (
     prepare_resume,
     uses_checkpoint_resume_protocol,
 )
+from jarvishep2.sampling.sample_checkpoint import uses_mcmc_checkpoint
 
 # 1s supervise tick; lock refresh stays TTL/3. Ping failures get this grace
 # before interrupt; a dead managed redis-server interrupts immediately.
@@ -172,6 +173,11 @@ class _RuntimeSupervisor:
                 core._logger.info(
                     "Restored sampler checkpoint: cursor=%d",
                     int(getattr(core.sampler, "_pool_call_index", 0) or 0),
+                )
+            elif uses_mcmc_checkpoint(core.config):
+                core._logger.info(
+                    "Restored MCMC checkpoint: generation=%d pending=%d",
+                    core.sampler._generation, len(core.sampler._pending_uuids),
                 )
             else:
                 core._logger.info(
@@ -1038,6 +1044,13 @@ class _RuntimeSupervisor:
 
         if uses_completion_feedback(core.config):
             merged_config.update(publish_feedback=True, completion_feedback=True)
+        else:
+            from jarvishep2.feedback_return import LIKELIHOOD_FEEDBACK_VERSION, uses_log_density
+            from jarvishep2.cardload.task_config import sampling_method
+
+            if uses_log_density(sampling_method(core.config)):
+                merged_config[LIKELIHOOD_FEEDBACK_VERSION] = 1
+                merged_config["publish_feedback"] = True
         if core._control_lock_owner:
             merged_config.setdefault("control_lock_owner", str(core._control_lock_owner))
         # Direct Python callers may supply the public parent/mode shape as a
@@ -1082,6 +1095,8 @@ class _RuntimeSupervisor:
         if bool(core.config.get("_check_modules_sample_layout")):
             # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
             archiver_config["pack_buckets"] = False
+        if getattr(core, "_plugin_preflight", None) is not None:
+            archiver_config["publish_uuid_receipts"] = False
         # Same CLI console policy as Workers.
         archiver_config.setdefault("log_silence", bool(getattr(core, "_log_silence", False)))
         archiver_config.setdefault("console_level", str(getattr(core, "_console_level", "WARNING")))

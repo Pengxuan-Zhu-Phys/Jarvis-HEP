@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import pickle
 from pathlib import Path
 
 import pytest
@@ -173,22 +174,25 @@ def test_checkpoint_cannot_overwrite_prepared_configuration(setup, key, value):
     sampler.attach_preflight(preflight)
     sampler.set_config(cfg)
     sampler.propose_next()
-    before = sampler.export_runtime_state()
+    before = sampler.checkpoint_state()
     state = copy.deepcopy(before)
     state[key] = value
     with pytest.raises(PluginResumeMismatch):
-        sampler.import_runtime_state(state)
-    assert sampler.export_runtime_state() == before
+        sampler.restore_checkpoint(state)
+    assert pickle.dumps(sampler.checkpoint_state()) == pickle.dumps(before)
 
 
-def test_unreachable_durable_prefix_is_a_failure(setup):
+def test_corrupt_unfinished_proposal_refuses_resume(setup):
     cfg, _ = setup
     preflight = prepare(cfg)
     sampler = PluginSampler(preflight.spec)
     sampler.attach_preflight(preflight)
     sampler.set_config(cfg)
-    with pytest.raises(PluginResumeMismatch, match="cannot reach"):
-        sampler.advance_to_persisted_prefix(17)
+    sampler.propose_next()
+    checkpoint = sampler.checkpoint_state()
+    checkpoint["unfinished"][0]["uuid"] = "unrelated"
+    with pytest.raises(PluginResumeMismatch, match="invalid unfinished"):
+        prepare(cfg, resume=True, checkpoint_state=checkpoint)
 
 
 def test_environment_warning_is_soft_but_identity_record_is_unchanged(setup, caplog):

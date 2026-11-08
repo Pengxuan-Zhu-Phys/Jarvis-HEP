@@ -222,7 +222,8 @@ class CompletionSampler(SamplingVirtual, ABC):
             "failed_count": self._failed_count,
         })
 
-    def restore_checkpoint(self, state: Mapping[str, Any]) -> None:
+    @staticmethod
+    def validate_completion_state(state: Mapping[str, Any]) -> dict[str, int]:
         next_index = state["next_sample_index"]
         completed = state["completed_count"]
         failed = state["failed_count"]
@@ -241,6 +242,12 @@ class CompletionSampler(SamplingVirtual, ABC):
             if not isinstance(uuid, str) or not uuid or uuid in uuids:
                 raise ValueError("invalid/duplicate unfinished UUID")
             uuids[uuid] = index
+        return uuids
+
+    def restore_checkpoint(self, state: Mapping[str, Any]) -> None:
+        uuids = self.validate_completion_state(state)
+        next_index = state["next_sample_index"]
+        unfinished = state["unfinished"]
         if state["dataset_id"] != self._dataset_id:
             raise ValueError("all.pickle and runtime.pickle refer to different point sets")
         self._restore_source_state(state["source_state"])
@@ -258,8 +265,8 @@ class CompletionSampler(SamplingVirtual, ABC):
                     or not isinstance(entry.get("opera_params"), dict)):
                 raise ValueError("invalid unfinished sample data")
         self._accepted_index = next_index
-        self._completed_count = completed
-        self._failed_count = failed
+        self._completed_count = state["completed_count"]
+        self._failed_count = state["failed_count"]
         self._unfinished = deepcopy(unfinished)
         self._uuid_to_unfinished = uuids
         self._resume_pending = sorted(unfinished)

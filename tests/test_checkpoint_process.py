@@ -147,16 +147,23 @@ def test_write_failure_preserves_previous_file_and_process_stays_available(tmp_p
     path = tmp_path / "runtime.pickle"
     atomic_pickle(str(path), {"previous": 1})
     original = path.read_bytes()
-    writer = component(tmp_path)
+    on_saved = mock.Mock()
+    writer = component(tmp_path, on_saved=on_saved)
+    barrier = {"generation": 2, "index": 8, "next_sample_index": 7,
+               "session": {"retained": 0}}
     try:
-        assert writer.submit({"probe": ChildWriteFailure()})
+        assert writer.submit({"probe": ChildWriteFailure(), "sampler_state": barrier})
         assert writer.wait()
         assert writer._failures.value == 1
         assert path.read_bytes() == original
+        assert writer.last_saved_index is None
+        on_saved.assert_not_called()
         assert writer.available()
-        assert writer.submit({"next": 2})
+        assert writer.submit({"sampler_state": barrier})
         assert writer.wait()
-        assert read_pickle(str(path)) == {"next": 2}
+        assert read_pickle(str(path)) == {"sampler_state": barrier}
+        assert writer.last_saved_index == 7
+        on_saved.assert_called_once_with(str(path), "generation barrier", progress="generation=2 proposals=8")
     finally:
         assert writer.finish()
 

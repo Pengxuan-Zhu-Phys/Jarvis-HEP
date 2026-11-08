@@ -19,6 +19,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from jarvishep2.calculator_pools import register_calculator_pools
+from jarvishep2.feedback_return import LIKELIHOOD_FEEDBACK_VERSION
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
 from jarvishep2.runtime_config import WATCHDOG_DEFAULTS
@@ -531,6 +532,23 @@ class _Watchdog:
                     if task.get("sample_index") is not None:
                         failure["sample_index"] = task["sample_index"]
                     redis.submit_result(failure)
+                    config = getattr(self._factory, "_worker_spawn_template", {})
+                    if config.get("completion_feedback"):
+                        redis.publish_feedback({
+                            "uuid": sample_uuid,
+                            "sample_index": failure.get("sample_index"),
+                            "terminal_status": "Failed",
+                        })
+                    elif config.get(LIKELIHOOD_FEEDBACK_VERSION):
+                        from jarvishep2.feedback_return import build_feedback_record
+
+                        redis.publish_feedback(
+                            build_feedback_record(
+                                failure, spec=config.get("feedback_return"),
+                                terminal_version=config[LIKELIHOOD_FEEDBACK_VERSION],
+                            ),
+                            queue=task.get("feedback_queue"),
+                        )
                 continue
             task["_retry_count"] = retry_count + 1
             to_requeue.append(task)

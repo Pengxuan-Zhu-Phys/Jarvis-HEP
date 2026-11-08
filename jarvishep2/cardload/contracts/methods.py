@@ -68,12 +68,21 @@ def validate_method_sampling(
     *,
     method: str,
 ) -> list[ValidationIssue]:
+    from jarvishep2.feedback_return import uses_log_density
     from jarvishep2.task_validation import issue
 
     issues: list[ValidationIssue] = []
     method = str(method).strip()
 
     issues.extend(_reject_retired_sampling_top_level(sampling))
+    feedback = sampling.get("FeedbackReturn")
+    if (isinstance(feedback, Mapping) and feedback.get("include_logl") is False
+            and uses_log_density(method)):
+        issues.append(issue(
+            "error", "JV2-MTH-004", "Sampling.FeedbackReturn.include_logl",
+            f"{method} needs the total LogL in Worker feedback.",
+            suggestion="Set Sampling.FeedbackReturn.include_logl to true or omit it.",
+        ))
 
     require_length = method == "Bridson"
     require_num = method == "Grid"

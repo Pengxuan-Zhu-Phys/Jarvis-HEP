@@ -87,7 +87,7 @@ EnvReqs:
         version: ">=1.5.1"
       - name: Jarvis-HEP-Sampler
         required: true
-        version: ">=1.2.0"
+        version: ">=1.2.1"
       - name: Jarvis-Operas
         required: true
         version: ">=1.5.2"

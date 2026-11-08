@@ -188,6 +188,8 @@ class SamplerLoggingContractTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         summary = next(r.getMessage() for r in capture.records if "Summary ->" in r.getMessage())
         self.assertIn("interrupted (continue with --resume)", summary)
+        sampler.supports_checkpoint = False
+        self.assertEqual(log._stop_reason(outcome), "interrupted")
 
     def test_failure_carries_traceback_to_files_only(self) -> None:
         sampler = Distributor.set_method("Random")

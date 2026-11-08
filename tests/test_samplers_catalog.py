@@ -604,6 +604,13 @@ class StatelessDistributedRunTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmpdir:
                 core = Jarvis2Core()
                 core.load_task_yaml(yaml_path)
+                if core.config["Sampling"]["Method"] == "CSV":
+                    bounds = core.config["Sampling"]["Bounds"]
+                    from jarvishep2.task_config import resolve_sampling_path
+
+                    bounds["path"] = resolve_sampling_path(core.config, bounds["path"])
+                core.config["task_root"] = tmpdir
+                core.config["project_root"] = tmpdir
                 core.config["task_result_dir"] = tmpdir
                 core.config["Runtime"]["redis"] = redis_config
                 core.config["Runtime"]["Watchdog"] = {"enabled": False}

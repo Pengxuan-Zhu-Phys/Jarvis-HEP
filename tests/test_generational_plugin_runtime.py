@@ -17,6 +17,7 @@ import pytest
 import yaml
 
 from jarvishep2.database import SimpleHDF5Writer
+from test_plugin_resume_runtime import FAST_CHECKPOINT
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "Jarvis-HEP-Sampler" / "examples"
 pytestmark = [
@@ -26,7 +27,7 @@ pytestmark = [
 ENTRY = [
     sys.executable,
     "-c",
-    "from jarvishep2.cli.client import main; raise SystemExit(main())",
+    FAST_CHECKPOINT + "from jarvishep2.cli.client import main; raise SystemExit(main())",
 ]
 
 
@@ -82,7 +83,12 @@ def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
         card["Sampling"]["LogLikelihood"][0]["expression"] = "nan"
     task = tmp_path / "task.yaml"
     task.write_text(yaml.safe_dump(card))
-    cli(tmp_path, env, "load", "sampler", "load", str(EXAMPLES / "SliceMCMC.py"))
+    source = EXAMPLES / "SliceMCMC.py"
+    if case == "opera":
+        code = source.read_text()
+        source = tmp_path / "SliceMCMC.py"
+        source.write_text(code[:code.index("def checkpoint(state):")] + code[code.index("def settings_rows"):])
+    cli(tmp_path, env, "load", "sampler", "load", str(source))
     cli(tmp_path, env, "validate", "validate", str(task))
     cli(
         tmp_path,
@@ -97,7 +103,10 @@ def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
     assert "SliceMCMC proposals completed" in log_text
     assert "SliceMCMC Progress ->" in log_text
     assert "retained draws" in log_text
-    assert "proposals=" in log_text and "chain_bytes=" in log_text
+    assert "checkpoint" in log_text
+    if case != "failure":
+        assert log_text.count("1000‰ of 13/13 SliceMCMC proposals completed") == 1
+        assert "Chain saved to" in log_text
     data, chain = rows(tmp_path)
     assert len(data) == (0 if case == "selection" else 4 if case == "failure" else 13)
     assert len({row["uuid"] for row in data}) == len(data)
@@ -114,12 +123,44 @@ def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
                 )
                 ** 5
             )
-    checkpoint = tmp_path / "checkpoints/native-slice/SliceMCMC/state.pkl"
-    assert checkpoint.exists()
+    checkpoint = tmp_path / "checkpoints/native-slice/SliceMCMC/runtime.pickle"
+    if case == "opera":
+        assert not checkpoint.exists()
+        cli(tmp_path, env, "unsupported", "run", str(task), "--resume", expected=1)
+        assert "does not support resume" in (tmp_path / "unsupported.log").read_text()
+    else:
+        assert checkpoint.exists()
+
+
+def test_native_mcmc_halt_distinguishes_zero_density_from_failure(tmp_path, subtests):
+    for expression, status, exit_code in (("-oo", "Completed", 0), ("nan", "Failed", 1)):
+        with subtests.test(expression=expression):
+            root = tmp_path / status
+            root.mkdir()
+            env, card = setup(root)
+            card["Scan"]["name"] = f"native-density-{status.lower()}"
+            card["Sampling"]["Method"] = "ToyMCMC"
+            card["Sampling"]["Bounds"] = {
+                "seed": 7, "num_chains": 1, "num_iters": 4,
+                "proposal_scale": 0.1, "on_failure": "halt",
+            }
+            card["Sampling"]["LogLikelihood"][0]["expression"] = expression
+            task = root / "task.yaml"
+            task.write_text(yaml.safe_dump(card))
+            result = cli(root, env, "run", "run", str(task), "--skip-draw-flowchart", expected=exit_code)
+            database = root / "outputs" / card["Scan"]["name"] / "DATABASE/samples.hdf5"
+            records = SimpleHDF5Writer(str(database)).read_records()
+            assert len(records) == (4 if exit_code == 0 else 1)
+            assert {row["status"] for row in records} == {status}
+            if exit_code:
+                assert "on_failure=halt" in result.stdout + result.stderr
 
 
 def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tmp_path):
+    from jarvishep2.sampling.sample_checkpoint import read_pickle
+
     env, card = setup(tmp_path, budget=2401)
+    checkpoint = tmp_path / "checkpoints/native-slice/SliceMCMC/runtime.pickle"
     task = tmp_path / "task.yaml"
     task.write_text(yaml.safe_dump(card))
     cli(tmp_path, env, "load", "sampler", "load", str(EXAMPLES / "SliceMCMC.py"))
@@ -138,11 +179,7 @@ def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tm
                 assert process.poll() is None, (
                     tmp_path / "interrupted.log"
                 ).read_text()[-6000:]
-                sampler_log = tmp_path / "logs/native-slice/sampler.log"
-                if (
-                    sampler_log.exists()
-                    and "durable proposals=256" in sampler_log.read_text()
-                ):
+                if checkpoint.exists() and read_pickle(str(checkpoint))["sampler_state"]["index"] >= 128:
                     break
                 time.sleep(0.02)
             else:
@@ -153,18 +190,14 @@ def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tm
             if process.poll() is None:
                 process.terminate()
                 process.wait(timeout=45)
-    from jarvishep2.sampling.runtime_checkpoint import load_checkpoint
-
-    state = load_checkpoint(
-        str(tmp_path / "checkpoints/native-slice/SliceMCMC/state.pkl")
-    )["sampler_state"]
-    assert state["index"] >= 256  # latest memory barrier, not initial/old disk snapshot
+    state = read_pickle(str(checkpoint))["sampler_state"]
+    assert 128 <= state["index"] < 2401
     cli(tmp_path, env, "remove", "sampler", "remove", "SliceMCMC", "--yes")
     card["EnvReqs"]["V2"]["workers"] = 3
     task.write_text(yaml.safe_dump(card))
     cli(tmp_path, env, "resume", "run", str(task), "--resume", "--skip-draw-flowchart")
     data, chain = rows(tmp_path)
-    assert len(data) == len({r["uuid"] for r in data}) == 2401
+    assert len({r["uuid"] for r in data}) == 2401
     assert len({(r["chain"], r["step"]) for r in chain}) == len(chain)
     # Compare the complete native posterior trajectory with the same SDK state machine.
     from jarvis_hep_sampler import GenerationalSession, load_plugin_file

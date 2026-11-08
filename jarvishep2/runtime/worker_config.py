@@ -167,10 +167,10 @@ def build_worker_config(
         "completion_feedback": completion_feedback,
         "feedback_return": feedback_return,
     }
-    from jarvishep2.sampler_catalog import plugin_record
-    record = plugin_record(sampling_method)
-    if record is not None and record.profile == "generational":
-        worker_config["plugin_feedback_version"] = 1
+    from jarvishep2.feedback_return import LIKELIHOOD_FEEDBACK_VERSION, uses_log_density
+
+    if uses_log_density(sampling_method):
+        worker_config[LIKELIHOOD_FEEDBACK_VERSION] = 1
         worker_config["publish_feedback"] = True
     # V2 writes calculator products directly under SAMPLE/<bucket>/<uuid>.
     # The former Cleanup.strategy / Archiver.handoff staging hop is no longer

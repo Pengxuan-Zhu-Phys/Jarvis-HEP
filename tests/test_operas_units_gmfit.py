@@ -160,7 +160,7 @@ def test_gmfit_three_units_through_real_worker_and_database(tmp_path):
     (tmp_path / "host.log").write_text(completed.stdout + completed.stderr)
     assert completed.returncode == 0, (completed.stdout + completed.stderr)[-6000:]
     assert json.loads(output.read_text())["failed"] == 0
-    database = tmp_path / "outputs/unit_scan/DATABASE/samples.hdf5"
+    database = tmp_path / "outputs" / cfg["Scan"]["name"] / "DATABASE/samples.hdf5"
     rows = SimpleHDF5Writer(str(database)).read_records()
     assert len(rows) == 1
     row = rows[0]

@@ -76,6 +76,16 @@ def absorb(value, *, score=0.0):
     return samples
 
 
+def recording_writer(sampler):
+    saved = []
+    writer = SimpleNamespace(
+        wait=lambda: True, available=lambda: True, requested=lambda: True,
+        submit=lambda payload: saved.append(payload["sampler_state"]) or True,
+    )
+    sampler.configure_checkpoint(checkpoint_file="runtime.pickle", writer=writer)
+    return writer, saved
+
+
 def test_global_budget_chain_export_and_restore(config):
     s = adapter(config)
     assert (
@@ -85,7 +95,7 @@ def test_global_budget_chain_export_and_restore(config):
         == 1
     )
     absorb(s)
-    checkpoint = s.export_runtime_state()
+    checkpoint = s.checkpoint_state()
     expected_batch = s.propose_generation()
     # Replay from the saved barrier and remove chain suffix left by newer generations.
     s.absorb_generation(
@@ -97,7 +107,7 @@ def test_global_budget_chain_export_and_restore(config):
         preflight_plugin(config, resume=True, checkpoint_state=checkpoint)
     )
     restored.set_config(config)
-    restored.import_runtime_state(checkpoint)
+    restored.restore_checkpoint(checkpoint)
     assert len(restored._trajectory_path.read_bytes()) < len(suffix)
     replay = restored.propose_generation()
     assert [sample.uuid for sample in replay] == [
@@ -160,11 +170,12 @@ def test_failed_or_invalid_score_gets_explicit_terminal_failure(status, score):
 
 def test_failed_worker_halts_and_keeps_previous_barrier(config):
     s = adapter(config)
-    original = s.export_runtime_state()
+    _, saved = recording_writer(s)
+    assert s.save_checkpoint(force=True)
     samples = s.propose_generation()
     with pytest.raises(PluginError, match="evaluation failed"):
         s.absorb_generation(feedback(samples, failed=True))
-    assert s.checkpoint_runtime_state(safe=True) == original
+    assert not s.save_checkpoint(force=True) and len(saved) == 1
     assert s._session.candidates == 0
 
 
@@ -189,20 +200,20 @@ def test_strict_likelihood_accepts_explicit_minus_infinity():
     assert evaluator.calculate({"observables": {"z": -math.inf}}) == -math.inf
 
 
-def test_unsafe_checkpoint_cannot_advance_past_archive(config):
+def test_checkpoint_skips_an_incomplete_generation(config):
     s = adapter(config)
-    original = s.checkpoint_runtime_state(safe=True)
-    samples = s.propose_generation()
-    s._submitted_uuids = [p.uuid for p in samples]
-    s.absorb_generation([normalize_feedback_record(r) for r in feedback(samples)])
-    assert s.checkpoint_runtime_state(safe=True) == original
+    _, saved = recording_writer(s)
+    assert s.save_checkpoint(force=True)
+    s.propose_generation()
+    assert not s.save_checkpoint(force=True)
+    assert len(saved) == 1 and saved[0]["index"] == 0
 
 
 def test_corrupt_chain_is_refused_in_preflight(config):
     s = adapter(config)
     absorb(s)
     absorb(s)
-    checkpoint = s.export_runtime_state()
+    checkpoint = s.checkpoint_state()
     s._trajectory_path.write_text("broken")
     with pytest.raises(PluginResumeMismatch, match="chain.csv"):
         preflight_plugin(config, resume=True, checkpoint_state=checkpoint)
@@ -211,7 +222,7 @@ def test_corrupt_chain_is_refused_in_preflight(config):
 @pytest.mark.parametrize("drift", ["budget", "likelihood", "opera", "selection"])
 def test_scientific_drift_rejected_before_runtime(config, drift):
     s = adapter(config)
-    checkpoint = s.export_runtime_state()
+    checkpoint = s.checkpoint_state()
     changed = copy.deepcopy(config)
     if drift == "budget":
         changed["Sampling"]["Bounds"]["max_evaluations"] += 1
@@ -262,26 +273,24 @@ def test_missing_worker_capability_is_rejected(config):
     assert s._session.candidates == 0
 
 
-def test_archive_lag_cannot_publish_new_checkpoint(config, monkeypatch):
-    from jarvishep2.sampling import generational_plugin_sampler as implementation
-
+def test_archive_lag_does_not_block_checkpoint(config):
     s = adapter(config)
-    original = s.export_runtime_state()
-    samples = s.propose_generation()
-    s._submitted_uuids = [sample.uuid for sample in samples]
-    s.absorb_generation([normalize_feedback_record(row) for row in feedback(samples)])
-    s.redis = SimpleNamespace(missing_archived_uuids=lambda scan, uuids: list(uuids))
-    times = iter([0.0, 31.0])
-    monkeypatch.setattr(implementation.time, "monotonic", lambda: next(times))
-    with pytest.raises(TimeoutError, match="archive did not confirm"):
-        s.checkpoint_at_barrier(final=True)
-    assert s.checkpoint_runtime_state(safe=True) == original
+    _, saved = recording_writer(s)
+
+    def unexpected_archive_wait(*args):
+        pytest.fail("checkpoint consulted Archiver receipts")
+
+    s.redis = SimpleNamespace(missing_archived_uuids=unexpected_archive_wait)
+    absorb(s)
+    assert s.checkpoint_at_barrier(final=True)
+    assert saved[-1]["index"] == 4
 
 
 def test_chain_write_failure_preserves_previous_durable_state(config, monkeypatch):
     s = adapter(config)
     absorb(s)
-    original = s.checkpoint_runtime_state(safe=True)
+    _, saved = recording_writer(s)
+    assert s.save_checkpoint(force=True)
     samples = s.propose_generation()
     real_open = Path.open
 
@@ -295,7 +304,7 @@ def test_chain_write_failure_preserves_previous_durable_state(config, monkeypatc
         s.absorb_generation(
             [normalize_feedback_record(row) for row in feedback(samples)]
         )
-    assert s.checkpoint_runtime_state(safe=True) == original
+    assert not s.save_checkpoint(force=True) and len(saved) == 1
 
 
 def test_progress_distinguishes_trials_warmup_and_retained(config, caplog):
@@ -318,65 +327,37 @@ def test_progress_distinguishes_trials_warmup_and_retained(config, caplog):
     assert s._index == 13 and s._session.retained == 1
 
 
-def test_archive_windows_do_not_write_disk_checkpoints_at_every_batch(
-    config, monkeypatch
-):
-    from jarvishep2.sampling import generational_plugin_sampler as implementation
-
-    config["Sampling"]["Bounds"]["max_evaluations"] = 1000
-    ticks = [100.0]
-    monkeypatch.setattr(implementation.time, "monotonic", lambda: ticks[0])
+def test_checkpoint_captures_only_when_writer_requests_and_is_idle(config, monkeypatch):
     s = adapter(config)
-    saved = []
-    s._save_checkpoint_callback = lambda **kw: (
-        saved.append((kw["reason"], s.checkpoint_runtime_state(safe=True))) or True
-    )
-    s.redis = SimpleNamespace(
-        missing_archived_uuids=lambda scan, uuids: [],
-        remove_archived_uuids=lambda scan, uuids: len(uuids),
-    )
-    s._ensure_trajectory()
-    assert s.checkpoint_at_barrier(reason="plugin_initial", final=True)
-    for _ in range(64):
-        samples = absorb(s)
-        s._submitted_uuids.extend(sample.uuid for sample in samples)
-        assert not s.checkpoint_at_barrier()
-    assert len(saved) == 1
-    assert s._durable_index == s.checkpoint_runtime_state(safe=True)["index"] == 256
-    assert s._submitted_uuids == []
-    # The runtime StateSaver refreshes the archive watermark before capturing
-    # interrupt state. This must not replace a feedback barrier with the
-    # indexed sampler's stale initial snapshot.
-    s._checkpoint_snapshots.append((0, saved[0][1]))
-    pending = s.propose_generation()
-    s.set_persisted_prefix(256)
-    assert s.checkpoint_runtime_state(safe=True)["index"] == 256
-    s.absorb_generation([normalize_feedback_record(row) for row in feedback(pending)])
-    s._submitted_uuids.extend(sample.uuid for sample in pending)
-    ticks[0] = 129.0
+    writer, saved = recording_writer(s)
+    absorb(s)
+    writer.requested = lambda: False
     assert not s.checkpoint_at_barrier()
-    ticks[0] = 130.0
+    writer.requested = lambda: True
+    writer.available = lambda: False
+    capture = s.checkpoint_state
+    monkeypatch.setattr(s, "checkpoint_state", lambda: pytest.fail("captured while busy"))
+    assert not s.checkpoint_at_barrier()
+    monkeypatch.setattr(s, "checkpoint_state", capture)
+    writer.available = lambda: True
     assert s.checkpoint_at_barrier()
-    assert saved[-1][0] == "checkpoint_heartbeat" and saved[-1][1]["index"] == 260
-    assert len(saved) == 2
-    # Explicit heartbeat requests use the same durable boundary, even before
-    # another 256-point archive window fills.
-    samples = absorb(s)
-    s._submitted_uuids.extend(sample.uuid for sample in samples)
-    s.request_checkpoint_capture()
-    assert s.checkpoint_at_barrier()
-    assert saved[-1][1]["index"] == 264 and not s._checkpoint_requested
-    s.assert_checkpoint_attribute_contract()
+    assert len(saved) == 1 and saved[0]["index"] == 4
+    absorb(s)
+    assert saved[0]["index"] == saved[0]["session"]["candidates"] == 4
 
 
-def test_disabled_checkpoints_still_keep_a_bounded_durable_replay_window(config):
+def test_disabled_checkpoints_still_run_feedback(config):
+    from jarvishep2.runtime.core import Jarvis2Core
+
     config["EnvReqs"]["V2"]["checkpoint"] = {"enabled": False, "heartbeat": 30}
     s = adapter(config)
-    calls = []
-    s._save_checkpoint_callback = lambda **kw: calls.append(kw) or True
+    core = Jarvis2Core(config)
+    core.sampler = s
+    core.start_runtime_checkpoint()
+    assert core.checkpoint_process is None
     absorb(s)
     assert not s.checkpoint_at_barrier(final=True)
-    assert calls == [] and s._durable_index == 4
+    assert s._index == 4
 
 
 def test_checkpoint_log_uses_saved_cursor_instead_of_newer_live_progress(

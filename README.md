@@ -59,7 +59,7 @@ From a source checkout:
 python3 -m pip install -e .
 ```
 
-Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.2.0` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
+Jarvis-HEP requires `Jarvis-HEP-Sampler>=1.2.1` (no upper bound); pip installs it with Jarvis-HEP. For development, install the sibling SDK checkout if you are changing it, then this checkout and the test tools:
 
 ```bash
 python3 -m pip install -e ../Jarvis-HEP-Sampler
@@ -129,15 +129,16 @@ Jarvis does not publish optional dependency groups.
 For the complete installation guide, Redis options, and project-packaging
 workflow, see the [installation guide](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/INSTALL.md).
 
-External feedback samplers are supported with SDK host contract 3. Load the SDK's
+External feedback samplers are supported with SDK host contract 4. Load the SDK's
 `examples/SliceMCMC.py`, then run its `examples/SliceMCMC.eggbox.task.yaml` with
 `Jarvis run`. Workers evaluate the real Opera and send LogLikelihood to the
 plugin. The card caps global trials at 20,000; `DATABASE/chain.csv` contains
 retained posterior transitions, while `samples.csv` contains all evaluations.
-Use `--resume` with the same card after interruption. External feedback
-samplers log proposal progress and separate warmup/retained summaries.
-`EnvReqs.V2.checkpoint.heartbeat` controls disk snapshots (default 30 seconds);
-archive and chain durability barriers remain separate from that disk cadence. See the
+External samplers that define both `checkpoint(state)` and `resume(setup, saved)`
+can resume from `runtime.pickle` with the same card. Plugins with neither hook
+can run normally. `EnvReqs.V2.checkpoint.heartbeat` controls snapshot requests
+(default 30 seconds). The checkpoint process writes snapshots independently
+of evaluation archiving. The feedback adapter records the saved chain prefix. See the
 [feedback sampler contract](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP-Sampler/FEEDBACK_MCMC_DESIGN.md).
 
 ## First run
@@ -424,7 +425,13 @@ and the previous `state.pkl` / `points.npy` formats are not imported for these
 samplers. Random and CSV keep only unfinished point data in the runtime
 snapshot; they do not store their full scan history.
 
-MCMC samplers currently save `checkpoints/<scan>/<sampler>/state.pkl`.
+All eight built-in MCMC methods also save `runtime.pickle` through this
+process. The snapshot holds per-chain engine and random state, pending
+proposals, and any cross-chain state such as temperature exchanges. Independent
+chains can save with evaluations in flight. Coupled methods save after a full
+round. Resume requeues pending proposals with their original UUIDs and
+coordinates. If `runtime.pickle` is absent, a compatible MCMC `state.pkl`
+can be imported and subsequent saves use the new format.
 Press `Ctrl+C` to stop a scan cleanly;
 Jarvis stops all of its worker processes and any Redis server it started
 itself. Continue later with `Jarvis run TASK.yaml --resume`.

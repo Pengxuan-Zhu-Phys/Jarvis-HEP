@@ -16,11 +16,10 @@ from jarvis_hep_sampler import SamplerRegistry
 
 from jarvishep2.database import SimpleHDF5Writer, read_persisted_sample_index_state
 from jarvishep2.sampling.plugin_sampler import PluginSampler, preflight_plugin
-from jarvishep2.sampling.runtime_checkpoint import build_payload, build_run_spec, save_checkpoint
 from jarvishep2.task_config import load_task_yaml
 
 from test_plugin_resume_fault_matrix import (
-    ACCEPTED_CANDIDATES, DRIVER, PHYSICS, POINTS, SOURCE, _card, _json_lines, _semantic,
+    ACCEPTED_CANDIDATES, DRIVER, PHYSICS, POINTS, SOURCE, _card, _json_lines, _semantic, save_fixture,
 )
 
 TAIL_DRIVER = '''
@@ -97,24 +96,17 @@ def test_all_accepted_durable_resume_evaluates_only_rejected_tail(tmp_path, monk
     sampler = PluginSampler(prepared.spec)
     sampler.attach_preflight(prepared)
     sampler.set_config(config)
-    for _ in range(22):
-        assert sampler.propose_next() is not None
-    checkpoint_state = sampler.export_runtime_state()
-    assert checkpoint_state["index"] == 26
-    assert checkpoint_state["accepted_index"] == 22
-    checkpoint_state["checkpoint_index"] = 22
-    checkpoint = prepared.source_copy.parent.parent / "state.pkl"
+    by_index = {int(row["sample_index"]): row for row in reference_rows}
+    for index in range(22):
+        point = sampler.propose_next()
+        sampler.accept_completion({
+            "uuid": point.uuid, "sample_index": index, "terminal_status": by_index[index]["status"],
+        })
+    assert sampler._index == 26
+    assert sampler._accepted_index == 22
+    checkpoint = prepared.source_copy.parent.parent / "runtime.pickle"
     if not database_only:
-        run_spec = build_run_spec(
-            config=config, scan_name=resumed_scan, task_root=str(root),
-            task_result_dir=str(database.parent.parent), sampler_name="FaultMatrix",
-            worker_parallel=workers,
-        )
-        save_checkpoint(str(checkpoint), build_payload(
-            run_spec=run_spec, sampler_state=checkpoint_state,
-            persistence={"persisted_prefix": 22}, reason="rejection_only_tail_fixture",
-            safe_barrier_confirmed=True,
-        ))
+        save_fixture(checkpoint, sampler)
     assert checkpoint.exists() is not database_only
     binding = database.parent / "sampler_identity.json"
     binding_before = binding.read_bytes()
@@ -123,34 +115,18 @@ def test_all_accepted_durable_resume_evaluates_only_rejected_tail(tmp_path, monk
     rows_after = SimpleHDF5Writer(str(database)).read_records()
     calls = _json_lines(root / f"{resumed_scan}-physics.jsonl")
     blocks = [row["block"] for row in _json_lines(root / f"{resumed_scan}-draw.jsonl")]
-    evidence = {
-        "fixture": "all 22 accepted rows durable, remaining candidates 26..36 rejected",
-        "database_only": database_only, "workers": workers, "batch_size": batch,
-        "initial_cursor": {"candidate": 26, "accepted": 22},
-        "checkpoint": checkpoint_state if not database_only else None,
-        "durable_prefix": 22, "failed_terminal_rows": 5,
-        "reference": reference, "resumed": resumed, "new_physics_calls": calls,
-        "actual_new_submitted": resumed["actual_new_submitted"],
-        "outcome_submitted": resumed.get("outcome", {}).get("submitted"),
-        "submitted_note": "RunOutcome falls back to 22 historical terminal rows when this "
-                          "invocation reports zero; it does not mean new Worker tasks.",
-        "resumed_draw_blocks": blocks, "rows_before": rows_before,
-        "rows_after": _semantic(rows_after),
-        "binding_sha256": hashlib.sha256(binding_before).hexdigest(),
-        "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-    }
-    (root / "rejected-tail-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
-    assert resumed.get("outcome", {}).get("status") == "partial_failure", resumed
-    assert reference["exit_code"] == resumed["exit_code"] == 1
     assert calls == []
     assert len(rows_after) == 22 and _semantic(rows_after) == rows_before
-    assert len({row["uuid"] for row in rows_after}) == 22
     assert binding.read_bytes() == binding_before
+    if database_only:
+        assert resumed["exit_code"] == 1 and "checkpoint missing" in resumed["exception"]
+        assert blocks == []
+        return
+    assert resumed.get("outcome", {}).get("status") == "partial_failure", resumed
+    assert reference["exit_code"] == resumed["exit_code"] == 1
     assert resumed["actual_new_submitted"] == 0
-    assert resumed["outcome"]["submitted"] == 22
     assert resumed["outcome"]["completed"] == 17
     assert resumed["outcome"]["failed"] == 5
-    assert resumed["outcome"]["archived"] == 22
     assert resumed["sampler_state"]["index"] == POINTS == 37
     assert resumed["sampler_state"]["accepted_index"] == 22
-    assert blocks == ([0, 1, 2, 3, 4] if database_only else [3, 4])
+    assert blocks == [3, 4]

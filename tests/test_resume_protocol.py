@@ -170,6 +170,75 @@ raise SystemExit(outcome.exit_code)
 """
 
 
+MCMC_DRIVER = r"""
+import json, sys
+from pathlib import Path
+from jarvishep2.runtime import _resume_service
+from jarvishep2.runtime.core import Jarvis2Core
+from jarvishep2.sampling.mcmc_sampler import MCMCBaseSampler
+
+card, output, phase = sys.argv[1:]
+core = Jarvis2Core()
+core.load_task_yaml(card)
+core.config.update(skip_draw_flowchart=True, skip_render_plots=True)
+def forbidden(*args, **kwargs):
+    raise AssertionError("MCMC checkpoint attempted to read HDF5 progress")
+_resume_service.read_persisted_sample_index_state = forbidden
+_resume_service.read_persisted_outcome_counts = forbidden
+if phase == "interrupt":
+    original = MCMCBaseSampler.save_checkpoint
+    def save(self, *, force=False):
+        if not force and self._generation >= 2:
+            assert original(self, force=True)
+            assert self._pickle_writer.wait()
+            raise KeyboardInterrupt
+        return original(self, force=force)
+    MCMCBaseSampler.save_checkpoint = save
+outcome = core.run(resume=phase == "resume", write_run_summary=False)
+Path(output).write_text(json.dumps(outcome.to_dict()))
+raise SystemExit(outcome.exit_code)
+"""
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
+@pytest.mark.parametrize("method", ["ToyMCMC", "PTEnsemble"])
+def test_mcmc_runtime_interrupt_and_resume(tmp_path, method):
+    from jarvishep2.sampling.sample_checkpoint import read_pickle
+
+    source, card = _card(tmp_path, "Random")
+    card["Sampling"]["Method"] = method
+    card["Sampling"]["Bounds"] = {"seed": 11, "num_chains": 4, "num_iters": 7, "proposal_scale": 0.1}
+    if method == "PTEnsemble":
+        card["Sampling"]["Bounds"]["temperature_ladder"] = [1.0, 2.0, 4.0, 8.0]
+    source.write_text(yaml.safe_dump(card))
+    env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
+               JARVIS_SCAN_REF_REGISTRY=str(tmp_path / "scan-refs.json"),
+               JARVIS_OPERAS_CURVE_CACHE_ROOT=str(tmp_path / "curve-cache"),
+               JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"))
+    checkpoint = tmp_path / f"checkpoints/{card['Scan']['name']}/{method}/runtime.pickle"
+    database = tmp_path / f"outputs/{card['Scan']['name']}/DATABASE/samples.hdf5"
+    for phase, exit_code in (("interrupt", 130), ("resume", 0)):
+        output = tmp_path / f"{phase}.json"
+        result = subprocess.run([sys.executable, "-c", MCMC_DRIVER, str(source), str(output), phase],
+                                cwd=tmp_path, env=env, text=True, capture_output=True, timeout=90)
+        assert result.returncode == exit_code, result.stdout + result.stderr
+        state = read_pickle(str(checkpoint))["sampler_state"]
+        assert not checkpoint.with_name("state.pkl").exists()
+        if phase == "interrupt":
+            assert 2 <= state["progress"]["generation"] < 7
+            assert bool(state["pending"]) == (method == "ToyMCMC")
+            pending = set(state["pending"])
+            rows_at_interrupt = SimpleHDF5Writer(str(database)).read_records()
+        else:
+            assert state["progress"]["finished"]
+            assert [c["iter"] for c in state["chains"]] == [7] * 4
+            assert not state["pending"]
+    rows = SimpleHDF5Writer(str(database)).read_records()
+    assert rows[:len(rows_at_interrupt)] == rows_at_interrupt
+    assert pending <= {row["uuid"] for row in rows[len(rows_at_interrupt):]}
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis required")
 @pytest.mark.parametrize("method", ["Dynesty", "MultiNest"])

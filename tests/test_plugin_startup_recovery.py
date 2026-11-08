@@ -1,4 +1,4 @@
-"""A published plug-in binding survives startup failure and supports native resume."""
+"""A published plug-in binding survives startup failure and requires a checkpoint to resume."""
 
 from __future__ import annotations
 
@@ -19,10 +19,9 @@ import yaml
 from jarvis_hep_sampler import SamplerRegistry
 from jarvis_hep_sampler.errors import PluginConfigError, PluginResumeMismatch
 
-from jarvishep2.database import SimpleHDF5Writer
 from jarvishep2.runtime.core import Jarvis2Core
 from jarvishep2.sampling.plugin_identity import identity_path
-from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
+from test_plugin_resume_fault_matrix import save_fixture
 
 SOURCE = '''
 import os
@@ -38,6 +37,10 @@ def prepare(setup):
         raise RuntimeError("injected prepare failure before source binding")
 def draw(context, rng, plan):
     return [.25] * context.dimension
+def checkpoint(plan):
+    return {}
+def resume(setup, saved):
+    return None
 '''
 
 CLI_BOOTSTRAP = '''
@@ -141,7 +144,7 @@ def published_failure(config):
     bound_source = Path(config["task_root"]) / binding["source_file"]
     assert binding["source_sha256"] == digest(bound_source)
     assert_no_science(config)
-    return binding, bound_source
+    return core, bound_source
 
 
 def test_prepare_failure_publishes_no_binding_or_runtime_resources(registered, monkeypatch):
@@ -159,13 +162,13 @@ def test_prepare_failure_publishes_no_binding_or_runtime_resources(registered, m
     core.init_archiver.assert_not_called()
 
 
-def test_startup_failure_binding_requires_explicit_resume_and_keeps_its_source(registered):
+def test_startup_failure_binding_without_checkpoint_keeps_its_source(registered):
     config, source = registered
-    binding, bound_source = published_failure(config)
+    _, bound_source = published_failure(config)
     before = {path: path.read_bytes() for path in (identity_path(config), bound_source)}
     retry = Jarvis2Core(copy.deepcopy(config))
     forbid_resources(retry)
-    with pytest.raises(PluginResumeMismatch, match="use --resume"):
+    with pytest.raises(PluginResumeMismatch, match="Choose a new scan name"):
         retry.run()
     retry.init_redis.assert_not_called()
     source.write_text(SOURCE.replace('"1.0"', '"2.0"').replace("[.25]", "[.75]"))
@@ -174,42 +177,45 @@ def test_startup_failure_binding_requires_explicit_resume_and_keeps_its_source(r
     registry.remove("StartupBound")
     resumed = Jarvis2Core(copy.deepcopy(config))
     forbid_resources(resumed)
-    resumed.bootstrap_distributed_runtime = mock.Mock(
-        side_effect=RuntimeError("verified binding reached resource bootstrap")
-    )
-    with pytest.raises(RuntimeError, match="verified binding reached resource bootstrap"):
+    with pytest.raises(PluginResumeMismatch, match="checkpoint missing"):
         resumed.run(resume=True)
-    assert resumed._plugin_preflight.plugin.metadata.version == "1.0"
-    assert resumed._plugin_preflight.plugin.source_sha256 == binding["source_sha256"]
-    assert resumed._plugin_preflight.resumed_from_copy
     assert {path: path.read_bytes() for path in before} == before
     resumed.init_redis.assert_not_called()
     assert_no_science(config)
 
 
-@pytest.mark.parametrize("corruption", ["science", "source"])
-def test_startup_retry_rejects_drift_before_resource_initialization(registered, corruption):
+def test_startup_retry_rejects_drift_before_resource_initialization(registered, subtests):
     config, _ = registered
-    _, bound_source = published_failure(config)
-    changed = copy.deepcopy(config)
-    if corruption == "science":
-        changed["Sampling"]["Bounds"]["seed"] = 8
-        message = "science settings differ"
-    else:
-        bound_source.write_text("raise AssertionError('damaged source must not execute')\n")
-        message = "SHA-256 mismatch"
-    before = {path: path.read_bytes() for path in (identity_path(config), bound_source)}
+    core, bound_source = published_failure(config)
+    sampler = core.init_sampler_from_config()
+    checkpoint = Path(core.checkpoint_file())
+    save_fixture(checkpoint, sampler)
+    original_source = bound_source.read_bytes()
     imports = (Path(config["task_root"]) / "imports.txt").read_bytes()
-    core = Jarvis2Core(changed)
-    forbid_resources(core)
-    with pytest.raises(PluginResumeMismatch, match=message):
-        core.run(resume=True)
-    core.init_redis.assert_not_called()
-    core.init_factory.assert_not_called()
-    core.init_archiver.assert_not_called()
-    assert {path: path.read_bytes() for path in before} == before
-    assert (Path(config["task_root"]) / "imports.txt").read_bytes() == imports
-    assert_no_science(config)
+    for corruption in ("science", "opera", "source"):
+        with subtests.test(corruption=corruption):
+            changed = copy.deepcopy(config)
+            if corruption == "science":
+                changed["Sampling"]["Bounds"]["seed"] = 8
+                message = "configuration differs"
+            elif corruption == "opera":
+                changed["Operas"]["Modules"][0]["input"][0]["expression"] = "2*x"
+                message = "science settings differ"
+            else:
+                bound_source.write_text("raise AssertionError('damaged source must not execute')\n")
+                message = "SHA-256 mismatch"
+            before = {path: path.read_bytes() for path in (identity_path(config), bound_source, checkpoint)}
+            attempt = Jarvis2Core(changed)
+            forbid_resources(attempt)
+            with pytest.raises(PluginResumeMismatch, match=message):
+                attempt.run(resume=True)
+            attempt.init_redis.assert_not_called()
+            attempt.init_factory.assert_not_called()
+            attempt.init_archiver.assert_not_called()
+            assert {path: path.read_bytes() for path in before} == before
+            assert (Path(config["task_root"]) / "imports.txt").read_bytes() == imports
+            assert_no_science(config)
+    bound_source.write_bytes(original_source)
 
 
 def same_process_is_alive(record):
@@ -222,7 +228,7 @@ def same_process_is_alive(record):
 
 @pytest.mark.slow
 @pytest.mark.skipif(shutil.which("redis-server") is None, reason="real Redis is required")
-def test_cli_worker_startup_failure_cleans_resources_then_bound_resume_succeeds(tmp_path):
+def test_cli_worker_startup_failure_cleans_resources_and_refuses_resume(tmp_path):
     root = tmp_path.resolve()
     (root / ".jarvis-project.json").write_text("{}", encoding="utf-8")
     (root / "bin").mkdir()
@@ -293,7 +299,7 @@ def test_cli_worker_startup_failure_cleans_resources_then_bound_resume_succeeds(
     before = {path: path.read_bytes() for path in (binding_path, bound_source)}
     assert digest(bound_source) == binding["source_sha256"] == digest(source)
     fresh = cli("fresh-retry-refused", "run", task, "--skip-draw-flowchart", expected=1)
-    assert "use --resume" in fresh and "existing scan" in fresh
+    assert "Choose a new scan name" in fresh and "existing scan" in fresh
     assert port_is_closed()
     source.write_text(SOURCE.replace('"1.0"', '"2.0"').replace("[.25]", "[.75]"))
     cli("reload-v2", "sampler", "load", source)
@@ -308,34 +314,6 @@ def test_cli_worker_startup_failure_cleans_resources_then_bound_resume_succeeds(
         assert port_is_closed()
         assert_no_science(config)
 
-    yaml_card["Sampling"]["Bounds"]["seed"] = 8
-    task.write_text(yaml.safe_dump(yaml_card), encoding="utf-8")
-    refuse("science-drift-refused", "science settings differ")
-    yaml_card["Sampling"]["Bounds"]["seed"] = 7
-    task.write_text(yaml.safe_dump(yaml_card), encoding="utf-8")
-    bound_source.write_text("raise AssertionError('damaged source must not execute')\n")
-    refuse("source-corruption-refused", "SHA-256 mismatch")
-    bound_source.write_bytes(before[bound_source])
-    cli("resume-v1", "run", task, "--resume", "--skip-draw-flowchart")
-    assert port_is_closed()
+    refuse("missing-checkpoint-refused", "checkpoint missing")
     assert {path: path.read_bytes() for path in before} == before
-    rows = sorted(SimpleHDF5Writer(str(binding_path.parent / "samples.hdf5")).read_records(),
-                  key=lambda row: int(row["sample_index"]))
-    assert len(rows) == 8 and len({row["uuid"] for row in rows}) == 8
-    prefix = f"plugin:StartupBound:{binding['hard_identity'][:16]}"
-    for index, row in enumerate(rows):
-        assert float(row["x"]) == float(row["y"]) == .25
-        assert int(row["sample_index"]) == index
-        assert row["uuid"] == deterministic_sampler_uuid(prefix=prefix, seed=7, sample_index=index)
     assert source.exists()
-    evidence = {
-        "scenario": "published binding, actual Redis/Worker startup failure, native resume",
-        "exit_codes": exits, "resources_at_failure": resources,
-        "workers_cleaned": True, "redis_cleaned": True,
-        "scientific_rows_after_failure": 0, "scientific_rows_after_resume": len(rows),
-        "bound_version": binding["metadata"]["version"],
-        "binding_sha256": digest(binding_path), "source_sha256": digest(bound_source),
-        "uuid_and_coordinate_reference": "constant .25, indexed UUID seed 7, 8 candidates",
-        "logs_sha256": {path.name: digest(path) for path in root.glob("*.log")},
-    }
-    (root / "verification.json").write_text(json.dumps(evidence, indent=2) + "\n")

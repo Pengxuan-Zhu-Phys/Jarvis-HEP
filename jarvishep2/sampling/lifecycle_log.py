@@ -166,6 +166,11 @@ class SamplerLifecycleLog:
     def _stop_reason(self, outcome: Any) -> str:
         status = str(getattr(outcome, "status", "") or "")
         if status == "interrupted":
+            from jarvishep2.runtime_config import get_checkpoint_config
+
+            if (getattr(self.sampler, "supports_checkpoint", True) is False
+                    or not get_checkpoint_config(self.config)["enabled"]):
+                return "interrupted"
             return "interrupted (continue with --resume)"
         hook = getattr(self.sampler, "log_stop_reason", None)
         if callable(hook):
