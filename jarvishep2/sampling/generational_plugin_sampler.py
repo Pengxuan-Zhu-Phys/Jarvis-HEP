@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import math
 import os
 import time
@@ -27,7 +28,7 @@ from jarvishep2.log_kv import PermilleProgress, format_two_column_log
 from jarvishep2.mapper import MapperPipeline
 from jarvishep2.sampling.feedback_sampler import FeedbackSampler
 from jarvishep2.sampling.plugin_sampler import PluginCheckpoint, preflight_plugin, plugin_logger
-from jarvishep2.sampling.sample_checkpoint import config_identity
+from jarvishep2.sampling.sample_checkpoint import atomic_write_bytes, config_identity
 from jarvishep2.sampling.sampling_utils import physical_from_u, evaluate_selection
 from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.variables import load_variables
@@ -443,6 +444,15 @@ class GenerationalPluginSampler(PluginCheckpoint, FeedbackSampler):
 
     def log_stop_reason(self):
         return self._session.stop_reason(self._stats())
+
+    def export_best_fit(self) -> None:
+        if self._preflight.plugin.function("best_fit") is None:
+            return
+        path = self._trajectory_path.with_name("best_fit.json")
+        result = {"method": self.method, "best_fit": self._session.best_fit()}
+        payload = json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        atomic_write_bytes(str(path), payload.encode("utf-8"))
+        self._logger.warning("Best fit saved to %s", path)
 
     def _refresh_status(self):
         if time.monotonic() >= self._plugin_status_next_at:

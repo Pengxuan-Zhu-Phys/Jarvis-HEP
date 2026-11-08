@@ -1013,6 +1013,9 @@ class Jarvis2Core:
                 self._logger.info("final archive verification before normal exit")
                 self._wait_for_archive_caught_up(timeout=120.0)
                 outcome = self._capture_run_outcome(submitted=submitted)
+                export_best_fit = getattr(self.sampler, "export_best_fit", None)
+                if callable(export_best_fit):
+                    export_best_fit()
                 self._scan_completed = True
                 if self._sampler_log is not None:
                     self._sampler_log.result(outcome)

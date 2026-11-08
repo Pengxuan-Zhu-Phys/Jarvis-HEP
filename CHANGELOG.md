@@ -11,6 +11,8 @@ User guides and reference documentation are available in
   external sampler profiles. Plugins can run without the hooks. Resumable
   plugins use `runtime.pickle` and the source bound to the scan. Use a new scan
   for plugins with older `state.pkl` checkpoints.
+- Export `DATABASE/best_fit.json` at the end of a generational scan when the
+  installed sampler SDK supports the plug-in's optional `best_fit` hook.
 - Support `Jarvis --refs --json` for structured framework and sampler citations.
 - Accept `Jarvis -V` as an alias for `-v` and `--version`, including JSON output.
 
