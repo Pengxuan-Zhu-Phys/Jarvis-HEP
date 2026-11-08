@@ -3,15 +3,16 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
-## Unreleased
+## 2.1.2
 
 ### Added
 
-- Support optional checkpoint and resume hooks for both external sampler
-  profiles with Jarvis-HEP-Sampler 1.2.1 and host contract 4. Checkpoint-capable
-  plugins write `runtime.pickle` through the dedicated checkpoint process.
-  Plugins without the hooks can run normally. External `--resume` requires
-  the new format and preserves the scan's bound source.
+- Support optional `checkpoint(state)` and `resume(setup, saved)` hooks for both
+  external sampler profiles. Plugins can run without the hooks. Resumable
+  plugins use `runtime.pickle` and the source bound to the scan. Use a new scan
+  for plugins with older `state.pkl` checkpoints.
+- Support `Jarvis --refs --json` for structured framework and sampler citations.
+- Accept `Jarvis -V` as an alias for `-v` and `--version`, including JSON output.
 
 ### Fixed
 
@@ -19,6 +20,9 @@ User guides and reference documentation are available in
   Resume verifies the unit identity in the checkpoint, manifest and archived rows.
 - Use shared log-likelihood scoring for built-in MCMC, nested samplers and
   generational plugins. Keep zero density distinct from evaluation failure.
+- Keep HDF5 writing and scan finalization moving while SAMPLE buckets are
+  compressed. If compression exceeds its shutdown window, remaining sample
+  directories stay available unpacked.
 - Align generated parameter-plot limits with finite sampling bounds, and use
   logarithmic axes for Log and Log-Normal variables, including direct Mapper aliases.
 - Preserve canonical module metadata when using legacy import paths, avoiding
@@ -26,43 +30,12 @@ User guides and reference documentation are available in
 - Prevent watchdog recovery from combining different tasks' brief idle transitions
   into one timeout. Recheck task ownership before stopping a Worker and publish
   heartbeats in order so an older idle update cannot overwrite busy.
-- Report a refused unit resume (`JV2-UNIT-004`) as CRITICAL, and say that the
-  scan needs a new name or a moved-away DATABASE: a fresh run under the same name
-  keeps the old rows, so it cannot resume either.
-- Resume Dynesty and MultiNest from the engine snapshot in `runtime.pickle`.
-  The snapshot is taken between dynesty iterations and does not wait for DATABASE.
-- Publish per-sample archive receipts after each HDF5 fsync. Built-in
-  checkpoint progress comes from sampler feedback and saved state.
+- Report a refused unit resume (`JV2-UNIT-004`) as critical and explain how to
+  start a new scan without mixing incompatible rows.
 - Report a stalled or stopped Archiver at the end of a scan with the number of
   rows still missing, instead of waiting for the full timeout.
 - Keep the sample index on the failure row that the watchdog writes after the
   last retry.
-
-### Changed
-
-- Allow 30 seconds for the same idle in-flight task, expire Worker heartbeats
-  after 60 seconds, and check Workers every 2 seconds by default. Existing
-  watchdog settings remain configurable.
-- Dynesty and MultiNest `--resume` reads only `runtime.pickle`. A missing file
-  is an error. `nested_engine.pkl` is a tools copy written by the checkpoint
-  process; a fresh scan removes the old copy, and resume never reads it.
-- Reject Dynesty and MultiNest checkpoints from earlier releases; the scan
-  starts fresh and the log gives the reason.
-- DATABASE is append-only. A fresh scan appends to an existing DATABASE, and
-  `--resume` evaluates the samples after the last checkpoint again, so their
-  rows can appear twice. The Archiver no longer reads or rewrites existing rows,
-  and the end-of-scan cleanup of old rows is removed.
-- Resume of Grid, Random, Bridson, CSV, AdaptiveBridson, Dynesty and MultiNest
-  reads the landed `runtime.pickle` only and never scans DATABASE.
-- Save all built-in MCMC checkpoints through the checkpoint process. Resume
-  restores chain state and replays pending evaluations with their original
-  UUIDs and coordinates. Compatible MCMC `state.pkl` files can be imported
-  when `runtime.pickle` is absent.
-- Report the configured runtime checkpoint filename in `Jarvis agent inspect`.
-
-## 2.1.2
-
-### Fixed
 
 - Preserve nuisance pass-condition failures as failed samples; reject unknown
   nuisance methods, target modes and failure policies before execution.
@@ -92,17 +65,25 @@ User guides and reference documentation are available in
 
 ### Changed
 
-- Require `Jarvis-Operas>=1.5.2` and `JarvisPLOT>=2.1.14` so upgrades include
-  the matching operator and plotting fixes. Sampler remains `>=1.2.0` with no upper bound.
+- Require `Jarvis-HEP-Sampler>=1.2.1` for host contract 4. The SDK requirement
+  has no upper bound. Also require `Jarvis-Operas>=1.5.2` and `JarvisPLOT>=2.1.14`.
+- All built-in samplers resume from `runtime.pickle`. Grid and Bridson reuse the
+  coordinates and UUIDs stored in `all.pickle` on the first run. Dynesty and
+  MultiNest restore the engine from `runtime.pickle`. Use a new scan if you only
+  have an older nested checkpoint. `nested_engine.pkl` remains available for
+  offline tools.
+- MCMC resume restores chain state and replays pending evaluations with their
+  original UUIDs and coordinates. Scans without Operas units can import a
+  compatible MCMC `state.pkl` if `runtime.pickle` is absent.
+- DATABASE is append-only. A fresh scan appends to an existing DATABASE.
+  `--resume` can evaluate samples after the last checkpoint again, so some
+  rows can appear twice.
+- Report the configured checkpoint filename in `Jarvis agent inspect`.
+- Allow 30 seconds for the same idle in-flight task, expire Worker heartbeats
+  after 60 seconds, and check Workers every 2 seconds by default.
 - Write one `images/<scan>/plot.yaml` per scan with the sample plot and any
   available level-set overlay or Dynesty/MultiNest diagnostics. The manual
   `gen-plot-yaml` command produces the same card as scan finalization.
-
-### Added
-
-- Support `Jarvis --refs --json` for structured framework and sampler citations.
-- Accept `Jarvis -V` as an alias for `-v` and `--version`, including JSON output.
-  Help continues to advertise only the lowercase `-v` short option.
 
 ## 2.1.1 — 2026-10-27
 ### Changed

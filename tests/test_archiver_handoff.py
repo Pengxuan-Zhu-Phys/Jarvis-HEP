@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from unittest import mock
 
@@ -341,6 +343,55 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             finally:
                 archiver.stop(wait=False, drain=False)
                 redis.close()
+
+    def test_slow_bucket_pack_does_not_block_hdf5_or_the_final_marker(self) -> None:
+        from jarvishep2.io.sample_bucket import pack_bucket_dir
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def slow_pack(*args, **kwargs):
+            started.set()
+            if not release.wait(timeout=10):
+                raise TimeoutError("test did not release SAMPLE packing")
+            return pack_bucket_dir(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
+            sample_root = os.path.join(tmpdir, "SAMPLE")
+            redis = make_fakeredis_queue()
+            redis.connect()
+            redis.init_sample_buckets(sample_root=sample_root, limit=1, pack=True, enabled=True)
+            bucket = redis.allocate_sample_bucket()
+            assert bucket is not None
+            os.makedirs(os.path.join(bucket["bucket_dir"], "first"))
+            redis.finish_sample_bucket(bucket["bucket_id"])
+            redis.seal_current_sample_bucket()
+            archiver = SimpleArchiver(
+                redis, db_path, sample_root=sample_root,
+                archiver_config={"batch_size": 1}, scan_name="slow-pack",
+            )
+            with mock.patch("jarvishep2.io.archiver.pack_bucket_dir", side_effect=slow_pack):
+                archiver.start()
+                try:
+                    redis.submit_result({"uuid": "first", "sample_index": 0, **bucket})
+                    self.assertTrue(started.wait(timeout=5))
+                    redis.submit_result({"uuid": "second", "sample_index": 1})
+                    redis.push_archive_marker("last")
+                    deadline = time.monotonic() + 3
+                    while redis.missing_archived_uuids("slow-pack", ["last"]):
+                        self.assertLess(time.monotonic(), deadline)
+                        time.sleep(0.02)
+                    self.assertEqual(archiver.records_written, 2)
+                    self.assertTrue(os.path.isdir(bucket["bucket_dir"]))
+                finally:
+                    release.set()
+                    try:
+                        self.assertTrue(archiver.stop())
+                    finally:
+                        redis.close()
+            self.assertTrue(os.path.isfile(bucket["bucket_dir"] + ".tar.gz"))
+            self.assertFalse(os.path.exists(bucket["bucket_dir"]))
 
     def test_archive_receipts_cursor_stops_at_the_first_missing_index(self) -> None:
         from jarvishep2.sample import Sample

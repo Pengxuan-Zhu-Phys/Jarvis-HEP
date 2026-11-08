@@ -430,14 +430,16 @@ process. The snapshot holds per-chain engine and random state, pending
 proposals, and any cross-chain state such as temperature exchanges. Independent
 chains can save with evaluations in flight. Coupled methods save after a full
 round. Resume requeues pending proposals with their original UUIDs and
-coordinates. If `runtime.pickle` is absent, a compatible MCMC `state.pkl`
-can be imported and subsequent saves use the new format.
+coordinates. For scans without Operas units, a compatible MCMC `state.pkl`
+can be imported if `runtime.pickle` is absent. Subsequent saves use the new format.
 Press `Ctrl+C` to stop a scan cleanly;
 Jarvis stops all of its worker processes and any Redis server it started
 itself. Continue later with `Jarvis run TASK.yaml --resume`.
 
 **Saving disk space.** By default Jarvis keeps a folder of files for every
-point under `SAMPLE/`. For large scans where you only need the numbers in
+point under `SAMPLE/`. Bucket compression runs alongside HDF5 writes. On
+shutdown, any bucket whose compression cannot finish in time remains available
+as a directory. For large scans where you only need the numbers in
 `DATABASE/`, set:
 
 ```yaml

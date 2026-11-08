@@ -731,7 +731,7 @@ class _ScanDriver:
         )
 
     def _finalize_sample_buckets(self) -> None:
-        """Seal the open bucket after all samples finish; Archiver packs when idle."""
+        """Seal the open bucket for the background packer."""
         core = self._core
 
         if core.redis is None:
@@ -740,8 +740,3 @@ class _ScanDriver:
             core.redis.seal_current_sample_bucket()
         except Exception as exc:
             core._logger.warning("seal current SAMPLE bucket failed -> %s", exc)
-        if core.archiver is not None:
-            try:
-                core.archiver.drain(idle_timeout=2.0)
-            except Exception as exc:
-                core._logger.warning("archiver bucket drain failed -> %s", exc)

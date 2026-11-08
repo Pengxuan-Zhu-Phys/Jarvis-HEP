@@ -41,6 +41,7 @@ Process = get_spawn_context().Process
 # milestones.  The forced final update is still emitted regardless of this
 # interval.
 DATARECORDER_PROGRESS_INTERVAL = 500
+_PACK_SHUTDOWN_TIMEOUT_SEC = 10.0
 
 
 def _fmt_int(n: Any) -> str:
@@ -363,7 +364,7 @@ class ArchiveProcessor:
 
 
 class SimpleArchiver:
-    """Background thread that drains ``hep:archive_queue`` + ready SAMPLE buckets."""
+    """Persist result rows and pack sealed SAMPLE buckets on separate threads."""
 
     def __init__(
         self,
@@ -377,6 +378,7 @@ class SimpleArchiver:
         scan_name: str | None = None,
         logger: Any | None = None,
         pending_batch: Any | None = None,
+        cancel_packing: Any | None = None,
     ) -> None:
         self.redis = redis_queue
         # Process mode publishes the in-memory batch length so the parent stall
@@ -425,6 +427,9 @@ class SimpleArchiver:
         self.processor._on_pending = self._on_pending_count
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._pack_finish = threading.Event()
+        self._pack_cancel = cancel_packing if cancel_packing is not None else threading.Event()
+        self._pack_thread: threading.Thread | None = None
         parent = os.path.dirname(self.sample_root)
         self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
         # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
@@ -491,6 +496,12 @@ class SimpleArchiver:
             daemon=True,
         )
         self._thread.start()
+        if self.pack_buckets:
+            self._pack_finish.clear()
+            self._pack_thread = threading.Thread(
+                target=self._run_bucket_packer, name="Jarvis-SampleBucketPacker", daemon=True,
+            )
+            self._pack_thread.start()
         _log_archiver_kv(
             self._logger,
             "loop started",
@@ -576,15 +587,19 @@ class SimpleArchiver:
         finally:
             self._publish_pending()
 
-    def _pack_ready_buckets(self) -> int:
-        """Tar sealed buckets that Redis marked ready (archived == assigned)."""
-        if not self.pack_buckets:
-            return 0
-        packed = 0
-        while True:
-            ready = self.redis.pull_ready_bucket(timeout=0)
+    def _run_bucket_packer(self) -> None:
+        """Pack buckets after their result rows are durable and Workers are done."""
+        while not self._pack_cancel.is_set():
+            finishing = self._pack_finish.is_set()
+            try:
+                ready = self.redis.pull_ready_bucket(timeout=0 if finishing else 1)
+            except Exception as exc:
+                self._logger.warning("SAMPLE bucket queue unavailable -> %s", exc)
+                return
             if ready is None:
-                break
+                if finishing:
+                    return
+                continue
             if not ready.get("pack", True):
                 continue
             bucket_dir = str(ready.get("bucket_dir") or "")
@@ -593,15 +608,18 @@ class SimpleArchiver:
             if not bucket_dir:
                 continue
             try:
-                pack_bucket_dir(
+                self._logger.info("Packing SAMPLE bucket %s", _short_path(bucket_dir))
+                archive = pack_bucket_dir(
                     bucket_dir,
                     sample_root=sample_root,
                     manifest_jsonl_path=self._manifest_jsonl,
                     prune=True,
+                    cancelled=self._pack_cancel.is_set,
                 )
+                if archive is None:
+                    continue
                 if bucket_id is not None:
                     self.redis.mark_bucket_packed(bucket_id)
-                packed += 1
                 self.buckets_packed += 1
                 _log_archiver_kv(
                     self._logger,
@@ -617,6 +635,9 @@ class SimpleArchiver:
                     level="debug",
                 )
             except Exception as exc:
+                if isinstance(exc, InterruptedError) and self._pack_cancel.is_set():
+                    self._logger.info("SAMPLE bucket left unpacked -> %s", _short_path(bucket_dir))
+                    return
                 # Leave packing flag set; operator can inspect / re-seal later.
                 _log_archiver_kv(
                     self._logger,
@@ -631,8 +652,21 @@ class SimpleArchiver:
                     ],
                     level="warning",
                 )
-                continue
-        return packed
+
+    def _finish_bucket_packing(self, *, drain: bool) -> None:
+        packer = self._pack_thread
+        if packer is None:
+            return
+        self._pack_finish.set()
+        if not drain:
+            self._pack_cancel.set()
+        packer.join(timeout=1.0 if self._pack_cancel.is_set() else _PACK_SHUTDOWN_TIMEOUT_SEC)
+        if packer.is_alive() and not self._pack_cancel.is_set():
+            self._logger.warning("SAMPLE bucket packing timed out; leaving remaining directories unpacked")
+            self._pack_cancel.set()
+            packer.join(timeout=1.0)
+        if not packer.is_alive():
+            self._pack_thread = None
 
     def _run_loop(self) -> None:
         # Thread shares the control process title; only Process-mode Archiver
@@ -657,11 +691,8 @@ class SimpleArchiver:
                     # archive stall merely because their final batch is below
                     # ``batch_size`` and has a long flush interval configured.
                     self._flush_and_note(force=True)
-                self._pack_ready_buckets()
                 continue
             self._ingest_result(result)
-            # Pack only after any flush from this ingest has noted archived counts.
-            self._pack_ready_buckets()
 
     def drain(self, *, idle_timeout: float = 2.0) -> int:
         """Drain remaining archive-queue items synchronously."""
@@ -671,15 +702,11 @@ class SimpleArchiver:
         while time.monotonic() < idle_deadline:
             result = self.redis.pull_result(timeout=timeout)
             if result is None:
-                flushed = self._flush_and_note(force=True)
-                drained += flushed
-                drained += self._pack_ready_buckets()
+                drained += self._flush_and_note(force=True)
                 continue
             idle_deadline = time.monotonic() + max(0.1, float(idle_timeout))
             drained += self._ingest_result(result)
-            drained += self._pack_ready_buckets()
         drained += self._flush_and_note(force=True)
-        drained += self._pack_ready_buckets()
         self._maybe_log_progress(force=True)
         _log_archiver_kv(
             self._logger,
@@ -703,6 +730,8 @@ class SimpleArchiver:
     def stop(self, *, wait: bool = True, drain: bool = True) -> bool:
         """Return true only after the loop and writer have both closed."""
         self._stop_event.set()
+        if not drain:
+            self._pack_cancel.set()
         thread = self._thread
         if thread is not None and wait:
             thread.join(timeout=5.0)
@@ -710,10 +739,16 @@ class SimpleArchiver:
             return False
         self._thread = None
         try:
-            if drain:
-                self.drain()
+            try:
+                if drain:
+                    self.drain()
+            finally:
+                self.processor.writer.close()
+        except BaseException:
+            self._pack_cancel.set()
+            raise
         finally:
-            self.processor.writer.close()
+            self._finish_bucket_packing(drain=drain)
         _log_archiver_kv(
             self._logger,
             "stopped",
@@ -753,6 +788,7 @@ class ArchiverProcess(Process):
         self.log_dir = str(log_dir or "").strip() or None
         self.log_path = str(log_path or "").strip() or None
         self._stop_event = get_spawn_context().Event()
+        self._cancel_packing = get_spawn_context().Event()
         self.records_written = get_spawn_context().Value("i", 0)
         self.pending_batch = get_spawn_context().Value("i", 0)
         # 1 while the child archive loop is the one publishing pending_batch.
@@ -797,7 +833,6 @@ class ArchiverProcess(Process):
 
         redis = RedisQueue(self.redis_config)
         redis.connect()
-        # Reuse SimpleArchiver loop so process mode also packs sealed buckets.
         archiver = SimpleArchiver(
             redis,
             self.db_path,
@@ -808,6 +843,7 @@ class ArchiverProcess(Process):
             scan_name=self.scan_name,
             logger=logger,
             pending_batch=self.pending_batch,
+            cancel_packing=self._cancel_packing,
         )
         archiver.start()
         self._set_loop_alive(True)
@@ -885,21 +921,12 @@ class ArchiverProcess(Process):
             elif now >= next_lease_check:
                 _publish_archiver_board()
                 next_lease_check = now + 1.0
-        # Publish rows before writer.close() exports CSV. That export can take
-        # longer than the idle-stall window, and the batch counter is already 0.
         finalization_error: Exception | None = None
         try:
-            archiver.drain()
-        except Exception as exc:
-            logger.warning("Archiver drain before stop failed -> %s", exc)
-            finalization_error = exc
-        with self.records_written.get_lock():
-            self.records_written.value = int(archiver.records_written)
-        try:
-            if archiver.stop(wait=True, drain=False) is False:
+            if archiver.stop(wait=True) is False:
                 raise TimeoutError("Archiver thread did not stop; writer remains open")
         except Exception as exc:
-            finalization_error = finalization_error or exc
+            finalization_error = exc
         finally:
             self._set_loop_alive(False)
             with self.records_written.get_lock():
@@ -941,12 +968,11 @@ class ArchiverProcess(Process):
     def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> bool:
         """Stop the child Archiver.
 
-        ``drain`` is accepted for API parity with :class:`SimpleArchiver`. The
-        child drains before closing its writer. A timed join alone does not
-        confirm exit: callers must check the returned value before touching
-        the database. ``drain`` does not change parent behavior.
+        The child always drains result rows before closing its writer.
+        ``drain=False`` stops SAMPLE packing promptly on interruption.
         """
-        _ = drain
+        if not drain:
+            self._cancel_packing.set()
         self._stop_event.set()
         if wait:
             self.join(timeout=max(0.1, float(timeout)))

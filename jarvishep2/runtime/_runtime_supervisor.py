@@ -1348,7 +1348,7 @@ class _RuntimeSupervisor:
                 try:
                     if isinstance(archiver, ArchiverProcess):
                         timeout = 5.0 if core._interrupt_requested else 30.0
-                        stopped = archiver.stop(wait=wait, timeout=timeout)
+                        stopped = archiver.stop(wait=wait, timeout=timeout, drain=not core._interrupt_requested)
                         archiver_stopped = not archiver.is_alive()
                         if stopped is False or not archiver_stopped:
                             raise TimeoutError(f"Archiver did not stop within {timeout}s")

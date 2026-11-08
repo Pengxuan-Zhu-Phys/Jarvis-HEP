@@ -12,12 +12,13 @@ Layout::
 
 from __future__ import annotations
 
+import gzip
 import json
 import os
 import shutil
 import tarfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from jarvishep2.yaml_types import require_bool
@@ -90,12 +91,26 @@ def resolve_archive_tar_path(sample_root: str, bucket_name: str) -> str:
     raise RuntimeError(f"Cannot allocate archive tar path for bucket={bucket_name}")
 
 
+class _BucketOutput:
+    """Check for shutdown as tar writes each chunk, including large files."""
+
+    def __init__(self, handle: Any, cancelled: Callable[[], bool] | None) -> None:
+        self.handle = handle
+        self.cancelled = cancelled
+
+    def write(self, data: bytes) -> int:
+        if self.cancelled is not None and self.cancelled():
+            raise InterruptedError("SAMPLE bucket packing cancelled")
+        return self.handle.write(data)
+
+
 def pack_bucket_dir(
     bucket_dir: str,
     *,
     sample_root: str | None = None,
     manifest_jsonl_path: str | None = None,
     prune: bool = True,
+    cancelled: Callable[[], bool] | None = None,
 ) -> str | None:
     """Tar a sealed SAMPLE bucket directory. Returns archive path or None if skipped."""
     source = os.path.abspath(str(bucket_dir))
@@ -112,8 +127,11 @@ def pack_bucket_dir(
     out_path = resolve_archive_tar_path(root, bucket_name)
     tmp_path = out_path + ".tmp"
     try:
-        with tarfile.open(tmp_path, "w:gz") as tar:
-            tar.add(source, arcname=bucket_name)
+        with gzip.open(tmp_path, "wb") as compressed:
+            with tarfile.open(fileobj=_BucketOutput(compressed, cancelled), mode="w|") as tar:
+                tar.add(source, arcname=bucket_name)
+        if cancelled is not None and cancelled():
+            raise InterruptedError("SAMPLE bucket packing cancelled")
         os.replace(tmp_path, out_path)
     except Exception:
         try:

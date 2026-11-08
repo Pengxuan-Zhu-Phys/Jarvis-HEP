@@ -127,21 +127,13 @@ def test_completed_scan_emits_plots_before_shutdown():
 
 @pytest.mark.parametrize("failure", ["thread-alive", "drain", "close", None])
 def test_archiver_child_reports_unclean_finalization_and_closes_redis(failure):
-    from contextlib import nullcontext
     from jarvishep2.io import archiver as module
-    counter = SimpleNamespace(value=0, get_lock=lambda: nullcontext())
-    process = SimpleNamespace(
-        scan_name="test", archiver_config={}, log_dir=None, log_path=None, redis_config={},
-        db_path="unused", sample_root="unused", poll_timeout=1, delete_method="unlink",
-        pending_batch=None, records_written=counter, _set_loop_alive=mock.Mock(),
-        _stop_event=mock.Mock(is_set=mock.Mock(return_value=True)),
-    )
+    process = ArchiverProcess({}, db_path="unused", sample_root="unused", scan_name="test")
+    process._stop_event.set()
     child = mock.Mock(records_written=3, buckets_packed=0)
     child.stop.return_value = failure != "thread-alive"
-    if failure == "drain":
-        child.drain.side_effect = OSError("drain failed")
-    if failure == "close":
-        child.stop.side_effect = OSError("close failed")
+    if failure in {"drain", "close"}:
+        child.stop.side_effect = OSError(f"{failure} failed")
     queue = mock.Mock()
     with mock.patch.object(module, "SimpleArchiver", return_value=child), \
          mock.patch.object(module, "RedisQueue", return_value=queue), \
@@ -153,9 +145,9 @@ def test_archiver_child_reports_unclean_finalization_and_closes_redis(failure):
                 ArchiverProcess.run(process)
         else:
             ArchiverProcess.run(process)
-    child.stop.assert_called_once_with(wait=True, drain=False)
+    child.stop.assert_called_once_with(wait=True)
     queue.close.assert_called_once()
-    assert counter.value == 3
+    assert process.records_written.value == 3
 
 
 def _archiver_config_for(sampler, method, tmp_path, policy="fresh"):

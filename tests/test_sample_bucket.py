@@ -138,6 +138,11 @@ class SampleBucketRedisTests(unittest.TestCase):
                 with open(os.path.join(sample_dir, "marker.txt"), "w", encoding="utf-8") as handle:
                     handle.write("ok")
 
+            with self.assertRaises(InterruptedError):
+                pack_bucket_dir(ready["bucket_dir"], cancelled=lambda: True)
+            self.assertTrue(os.path.isdir(ready["bucket_dir"]))
+            self.assertFalse(os.path.exists(ready["bucket_dir"] + ".tar.gz.tmp"))
+
             tar_path = pack_bucket_dir(
                 ready["bucket_dir"],
                 sample_root=sample_root,
