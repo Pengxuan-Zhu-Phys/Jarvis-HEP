@@ -30,11 +30,11 @@ CHECK_MODULES_YAML = os.path.join(TESTS_ROOT, "parity_project", "check_modules.y
 class CliNormalizeArgvTests(unittest.TestCase):
     def test_normalize_argv_rewrites_only_legacy_shortcuts(self) -> None:
         cases = (
-            ([CHECK_MODULES_YAML, "--resume"], ["run", CHECK_MODULES_YAML, "--resume"]),
-            # The removed --check-modules flag passes through so `run` rejects it.
+            # A bare path is not rewritten into ``run``.
+            ([CHECK_MODULES_YAML, "--resume"], [CHECK_MODULES_YAML, "--resume"]),
             (
                 [CHECK_MODULES_YAML, "--check-modules"],
-                ["run", CHECK_MODULES_YAML, "--check-modules"],
+                [CHECK_MODULES_YAML, "--check-modules"],
             ),
             (["scene.yaml", "--plot"], ["plot", "scene.yaml"]),
             (["task.yaml", "--convert"], ["convert", "task.yaml"]),
@@ -46,6 +46,55 @@ class CliNormalizeArgvTests(unittest.TestCase):
         for argv, expected in cases:
             with self.subTest(argv=argv):
                 self.assertEqual(normalize_argv(argv), expected)
+
+
+class CliHelpFallbackTests(unittest.TestCase):
+    def _root_help(self) -> str:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            build_parser().print_help(stdout)
+        return stdout.getvalue()
+
+    def test_unknown_help_prints_root_help(self) -> None:
+        expected = self._root_help()
+        cases = (
+            ["opera", "-h"],
+            ["opera", "--help"],
+            ["opera", "--validate", "-h"],
+            ["task.yaml", "--plot", "--help"],
+            ["--validate", "-h"],
+        )
+        for argv in cases:
+            with self.subTest(argv=argv):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = main(argv)
+                self.assertEqual(code, EXIT_OK)
+                self.assertEqual(stdout.getvalue(), expected)
+                self.assertNotIn("Usage: Jarvis run [OPTIONS]", stdout.getvalue())
+                self.assertNotIn("Usage: Jarvis validate [OPTIONS]", stdout.getvalue())
+
+    def test_legal_command_help_stays_on_that_command(self) -> None:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                main(["run", "-h"])
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("Usage: Jarvis run [OPTIONS] <task_yaml>", stdout.getvalue())
+
+    def test_bare_task_path_is_not_run(self) -> None:
+        for argv in (["task.yaml"], ["task.yaml", "--resume"], ["opera"]):
+            with self.subTest(argv=argv):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr), mock.patch(
+                    "jarvishep2.core.Jarvis2Core"
+                ) as core:
+                    code = main(argv)
+                self.assertEqual(code, EXIT_USAGE)
+                self.assertIn("Unknown command", stderr.getvalue())
+                self.assertIn("Jarvis -h", stderr.getvalue())
+                core.assert_not_called()
 
 
 class CliParseTests(unittest.TestCase):
@@ -276,7 +325,7 @@ class CliDispatchTests(unittest.TestCase):
 
     def test_dispatch_routes_resume_run_to_core(self) -> None:
         args = build_parser().parse_args(
-            normalize_argv([CHECK_MODULES_YAML, "--resume"])
+            ["run", CHECK_MODULES_YAML, "--resume"]
         )
         core = mock.Mock()
         core.run.return_value = RunOutcome(

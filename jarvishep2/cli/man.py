@@ -157,7 +157,7 @@ _ENVREQS_V2_HELP: dict[str, str] = {
         "Per-project Redis host/port/db. Jarvis may select a free port and write it "
         "back to the project default YAML."
     ),
-    "factory": "Factory watchdog policy.",
+    "factory": "Factory watchdog and archive admission policies.",
     "worker": "Worker policy: force_serial_layers and sample_artifacts.",
     "check_modules": (
         "Jarvis check settings: data, n_samples, timeout_sec. This is the only "
@@ -240,11 +240,22 @@ _ENVREQS_NESTED_PAGES: dict[str, tuple[str, dict[str, str], str]] = {
         "monitor:\n  hz: 120",
     ),
     "factory": (
-        "Factory watchdog policy.",
+        "Factory watchdog and archive admission policies.",
         {
             "watchdog": "Watchdog policy mapping.",
+            "archive_backpressure": "Optional high and low watermarks for SAMPLE packing.",
         },
-        "factory:\n  watchdog:\n    enabled: true",
+        "factory:\n  watchdog:\n    enabled: true\n  archive_backpressure:\n    enabled: true",
+    ),
+    "archive_backpressure": (
+        "Pause new Worker claims while sealed SAMPLE buckets accumulate. "
+        "Applies to scans with SAMPLE storage and packing enabled.",
+        {
+            "enabled": "Enable archive admission control.",
+            "high_water_sec": "Estimated seconds of packing work before pausing new claims.",
+            "low_water_sec": "Estimated seconds of packing work below which claims resume.",
+        },
+        "factory:\n  archive_backpressure:\n    enabled: true\n    high_water_sec: 10\n    low_water_sec: 3",
     ),
     "worker": (
         "Per-worker execution policy.",
@@ -314,6 +325,9 @@ _ENVREQS_FIELD_TYPES: dict[str, str] = {
     "db": "integer",
     "hz": "number",
     "watchdog": "mapping",
+    "archive_backpressure": "mapping",
+    "high_water_sec": "number",
+    "low_water_sec": "number",
     "force_serial_layers": "boolean",
     "sample_artifacts": "enum",
     "store_samples": "boolean",
@@ -1751,6 +1765,15 @@ def _envreqs_nested_page(
             key["default"] = CHECKPOINT_DEFAULTS[key["name"]]
             if key["name"] == "heartbeat":
                 key.update(minimum=CHECKPOINT_HEARTBEAT_MIN_SEC, unit="seconds")
+    if path == "$.EnvReqs.V2.factory.archive_backpressure":
+        from jarvishep2.runtime_config import ARCHIVE_BACKPRESSURE_DEFAULTS
+        for key in keys:
+            key["default"] = ARCHIVE_BACKPRESSURE_DEFAULTS[key["name"]]
+            if key["name"].endswith("_sec"):
+                key["unit"] = "seconds"
+    if path == "$.EnvReqs.V2.factory":
+        for key in keys:
+            key["man"] = f"Jarvis man yaml.EnvReqs.V2.factory.{key['name']}"
     diagnostics = [diagnostic] if isinstance(diagnostic, str) else list(diagnostic)
     return {
         "path": path,
@@ -1969,6 +1992,8 @@ def _envreqs_page(parts: list[str]) -> dict[str, Any]:
                     "JV2-ENV-013",
                     "JV2-ENV-014",
                 ]
+            if nested_key == "archive_backpressure":
+                extra["diagnostic"] = "JV2-ENV-038"
             return _envreqs_nested_page(
                 "$.EnvReqs.V2." + ".".join(parts[1:]),
                 title,

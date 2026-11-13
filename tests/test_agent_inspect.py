@@ -105,6 +105,7 @@ class AgentInspectTests(unittest.TestCase):
         self.assertFalse(payload["policies"]["sample_directory"]["enabled"])
         self.assertFalse(payload["path_notes"]["sample_storage_enabled"])
         self.assertFalse(payload["policies"]["archiver"]["pack_buckets"])
+        self.assertFalse(payload["policies"]["archive_backpressure"]["enabled"])
         fields = payload["sources"]["runtime_fields"]
         self.assertEqual(fields["$.Runtime.workers"]["layer"], "task")
         self.assertEqual(fields["$.Runtime.checkpoint.enabled"]["layer"], "default_environment")

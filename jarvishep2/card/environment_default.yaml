@@ -90,7 +90,7 @@ EnvReqs:
         version: ">=1.2.1"
       - name: Jarvis-Operas
         required: true
-        version: ">=1.5.2"
+        version: ">=1.6.0"
       - name: JarvisPLOT
         required: true
         version: ">=2.1.14"
@@ -146,14 +146,20 @@ EnvReqs:
       enabled: true
       heartbeat: 30   # seconds; minimum 30
 
-    # Optional factory / worker policy (defaults match code).
-    # factory:
+    # Pause new Worker claims while sealed SAMPLE buckets accumulate.
+    factory:
+      archive_backpressure:
+        enabled: true
+        high_water_sec: 10.0  # estimated seconds of packing work
+        low_water_sec: 3.0
     #   watchdog:
     #     enabled: true
     #     stale_sec: 60
     #     poll_interval_sec: 2.0
     #     inflight_idle_grace_sec: 30
     #     max_sample_retries: 3
+
+    # Optional Worker policy (defaults match code).
     # worker:
     #   force_serial_layers: false
     #   sample_artifacts: auto

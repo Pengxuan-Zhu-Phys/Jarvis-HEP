@@ -14,6 +14,7 @@ from jarvishep2.runtime_config import (
     SUPPORTED_ENVREQS_V2_KEYS,
     VALID_ARCHIVER_MODES,
     VALID_SAMPLE_ARTIFACTS,
+    normalize_archive_backpressure,
 )
 from jarvishep2.sample_bucket import SAMPLE_DIRECTORY_DEFAULTS
 
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from jarvishep2.task_validation import ValidationIssue
 
 _WORKER_POLICY_KEYS = frozenset({"force_serial_layers", "sample_artifacts"})
-_FACTORY_KEYS = frozenset({"watchdog"})
+_FACTORY_KEYS = frozenset({"watchdog", "archive_backpressure"})
 _MONITOR_KEYS = frozenset({"hz"})
 _REDIS_KEYS = frozenset({"host", "port", "db"})
 _CHECK_MODULES_KEYS = frozenset({"data", "n_samples", "timeout_sec"})
@@ -282,6 +283,12 @@ def validate_operational_blocks(config: Mapping[str, Any]) -> list[ValidationIss
                                 f"unknown key(s): {', '.join(f_extra)}",
                             )
                         )
+                    if "archive_backpressure" in factory:
+                        try:
+                            normalize_archive_backpressure(factory["archive_backpressure"])
+                        except ValueError as exc:
+                            path, _, message = str(exc).partition(": ")
+                            issues.append(issue("error", "JV2-ENV-038", path, message))
                     for wd_key in ("watchdog",):
                         wd = factory.get(wd_key)
                         if wd is None:

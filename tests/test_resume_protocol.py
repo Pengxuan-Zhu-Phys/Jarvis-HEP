@@ -72,6 +72,7 @@ def _card(tmp_path: Path, method: str, *, count: int = 16) -> tuple[Path, dict]:
         port = sock.getsockname()[1]
     card["EnvReqs"]["V2"]["redis"] = {"host": "127.0.0.1", "port": port, "db": 0}
     card["EnvReqs"]["V2"]["batch_size"] = 1
+    card["EnvReqs"]["V2"]["factory"] = {"archive_backpressure": {"enabled": True}}
     path = tmp_path / "task.yaml"
     path.write_text(yaml.safe_dump(card))
     (tmp_path / ".jarvis-project.json").write_text("{}")

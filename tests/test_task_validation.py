@@ -279,6 +279,21 @@ class TaskValidationKernelTests(unittest.TestCase):
                 {"archiver": {"pack_buckets": "false"}},
                 "JV2-ARC-015",
             ),
+            (
+                "EnvReqs.V2.factory.archive_backpressure.enabled",
+                {"factory": {"archive_backpressure": {"enabled": "false"}}},
+                "JV2-ENV-038",
+            ),
+            (
+                "EnvReqs.V2.factory.archive_backpressure.high_water_sec",
+                {"factory": {"archive_backpressure": {"high_water_sec": float("inf")}}},
+                "JV2-ENV-038",
+            ),
+            (
+                "EnvReqs.V2.factory.archive_backpressure.low_water_sec",
+                {"factory": {"archive_backpressure": {"low_water_sec": 11}}},
+                "JV2-ENV-038",
+            ),
         )
         for path, value, code in cases:
             with self.subTest(path=path):

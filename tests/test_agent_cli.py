@@ -63,7 +63,7 @@ def test_catalog_covers_actual_cli_and_describes_execution_boundaries():
 def test_human_contract_includes_workflow_boundaries_and_request_protocol():
     status, text = invoke("man", "agent-readme")
     assert status == 0
-    for evidence in ("Jarvis validate", "manual_argv", "Bare Jarvis TASK.yaml", "Schema zones",
+    for evidence in ("Jarvis validate", "manual_argv", "top-level Jarvis -h", "Schema zones",
                      "Sampling fragments", "Command effects", "Resquest@Jarvis-HEP",
                      "Jarvis.HEP.AI@mail.grokbot.com", "No automatic sending"):
         assert evidence in text

@@ -9,7 +9,9 @@ import pytest
 
 from jarvishep2.io import database
 from jarvishep2.io.archiver import ArchiverProcess, SimpleArchiver
+from jarvishep2.redis_queue import make_fakeredis_queue
 from jarvishep2.runtime._runtime_supervisor import _RuntimeSupervisor
+from jarvishep2.runtime.factory import TaskFactory
 
 
 def _rows(path: Path, indices, *, tag="new"):
@@ -69,11 +71,14 @@ def test_archiver_timeout_forces_cleanup_and_reports_unclean_exit_on_retry():
 
 def test_stop_exception_still_finishes_other_cleanup():
     core = _core()
-    factory = core.factory
+    core.factory = factory = mock.Mock(spec=TaskFactory)
+    factory.quiesce_workers.return_value = True
     core.archiver = mock.Mock()
     core.archiver.stop.side_effect = OSError("writer close error")
     with pytest.raises(RuntimeError, match="writer close error"):
         _RuntimeSupervisor(core).shutdown(write_run_summary=True)
+    factory.quiesce_workers.assert_called_once_with()
+    core.archiver.stop.assert_called_once_with(wait=True, drain=True, producers_stopped=True)
     factory.shutdown.assert_called_once()
     core._release_redis_control_lock.assert_called_once()
     core.write_run_summary.assert_called_once()
@@ -91,6 +96,23 @@ def test_thread_stop_retains_live_thread_and_does_not_close_its_writer():
     drain.assert_not_called()
     archiver.processor.writer.close.assert_not_called()
     assert archiver._thread is thread and archiver.is_alive()
+
+
+def test_archiver_stop_drains_queued_tail_without_blocking_after_workers_stop(tmp_path):
+    redis = make_fakeredis_queue()
+    db_path = tmp_path / "DATABASE" / "samples.hdf5"
+    archiver = SimpleArchiver(
+        redis, str(db_path), sample_root=str(tmp_path / "SAMPLE"),
+        archiver_config={"batch_size": 200, "pack_buckets": False},
+    )
+    redis.submit_result({"uuid": "tail", "observables": {"x": 1}})
+    try:
+        with mock.patch.object(redis, "_blpop", side_effect=AssertionError("blocking drain")):
+            assert archiver.stop(producers_stopped=True)
+        assert [row["uuid"] for row in _records(db_path.parent)] == ["tail"]
+        assert db_path.with_suffix(".csv").is_file()
+    finally:
+        redis.close()
 
 
 def test_original_run_failure_is_not_masked_by_shutdown_error():
@@ -145,7 +167,7 @@ def test_archiver_child_reports_unclean_finalization_and_closes_redis(failure):
                 ArchiverProcess.run(process)
         else:
             ArchiverProcess.run(process)
-    child.stop.assert_called_once_with(wait=True)
+    child.stop.assert_called_once_with(wait=True, producers_stopped=False)
     queue.close.assert_called_once()
     assert process.records_written.value == 3
 

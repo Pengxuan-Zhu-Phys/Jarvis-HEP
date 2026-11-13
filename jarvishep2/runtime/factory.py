@@ -333,13 +333,15 @@ class _Watchdog:
         )
         self._thread.start()
 
-    def stop(self, *, join_timeout: float = 2.0) -> None:
+    def stop(self, *, join_timeout: float = 2.0) -> bool:
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=join_timeout)
             if self._thread.is_alive():
                 self._logger.warning("watchdog thread did not stop within timeout")
+                return False
             self._thread = None
+        return True
 
     @staticmethod
     def heartbeat_timestamp(heartbeat: dict[str, Any]) -> float:
@@ -694,6 +696,7 @@ class TaskFactory:
         self._logger = get_jarvis_logger("factory")
         self._monitor = _MonitorLoop(self)
         self._watchdog = _Watchdog(self)
+        self._archive_admission = None
         self._startup_failure: str | None = None
         self._startup_lock = threading.RLock()
 
@@ -792,6 +795,20 @@ class TaskFactory:
 
     def _alive_workers(self) -> list[Worker]:
         return [worker for worker in self.workers if worker.is_alive()]
+
+    def prepare_archive_admission(self, workers: int, policy: Mapping[str, Any]) -> str:
+        from uuid import uuid4
+
+        from jarvishep2.runtime.archive_backpressure import ArchiveAdmissionLoop
+
+        assert self.redis is not None
+        epoch = uuid4().hex
+        self.redis.init_archive_admission(epoch, workers)
+        self._archive_admission = ArchiveAdmissionLoop(
+            self.redis, self._logger,
+            high_water_sec=policy["high_water_sec"], low_water_sec=policy["low_water_sec"],
+        )
+        return epoch
 
     def start_workers(self, n: int, **worker_kwargs: Any) -> list[Worker]:
         """Spawn ``n`` Worker processes via the spawn context.
@@ -903,6 +920,8 @@ class TaskFactory:
 
     def request_worker_shutdown(self) -> None:
         """Signal live Workers to stop after the current Sample."""
+        if getattr(self, "_archive_admission", None) is not None:
+            self._archive_admission.stop()
         for worker in self.workers:
             if worker.is_alive() and worker.pid is not None:
                 try:
@@ -1426,17 +1445,30 @@ class TaskFactory:
                     mode,
                 )
 
+    def quiesce_workers(self, *, wait: bool = True) -> bool:
+        """Stop result producers while keeping their Redis queues available."""
+        self._scan_mode = "stopping"
+        self.request_worker_shutdown()
+        if getattr(self, "_archive_admission", None) is not None:
+            self._archive_admission.join()
+        watchdog_stopped = self._watchdog.stop()
+        self.stop_all_workers(graceful=wait)
+        return watchdog_stopped and not self.workers
+
     def shutdown(self, *, wait: bool = True) -> None:
         """Stop monitor, signal Workers, join, and close the Redis connection."""
-        self._watchdog.stop()
         self._monitor.stop()
-        self.request_worker_shutdown()
-        self.stop_all_workers(graceful=wait)
+        self.quiesce_workers(wait=wait)
         for worker in self.workers:
             close = getattr(worker, "close_startup_report", None)
             if callable(close):
                 close()
         if self.redis is not None:
+            if getattr(self, "_archive_admission", None) is not None and not self.workers:
+                try:
+                    self.redis.clear_archive_admission()
+                except Exception as exc:
+                    self._logger.warning("archive admission cleanup failed -> %s", exc)
             self.redis.close()
             self.redis = None
         self._monitor.clear()
@@ -1455,6 +1487,7 @@ class TaskFactory:
         self._fuse_zero_alive_since = None
         self._last_respawn_ts = None
         self._startup_failure = None
+        self._archive_admission = None
         self._logger.info("TaskFactory shutdown complete")
 
 

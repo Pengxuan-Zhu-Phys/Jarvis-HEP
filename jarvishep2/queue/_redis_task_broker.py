@@ -35,6 +35,9 @@ class _TaskBroker:
         self._require_client()
         _validate_task_payload(task)
         encoded = encode_payload(dict(task), codec=self._codec)
+        if self._dispatch_epoch is not None:
+            self._enqueue_with_admission("RPUSH", [task], [encoded])
+            return
         pipe = self.r.pipeline(transaction=True)
         pipe.rpush(TASK_QUEUE, encoded)
         pipe.incr(OP_COUNT.format(kind="task"))
@@ -57,6 +60,8 @@ class _TaskBroker:
             encoded.append(encode_payload(dict(task), codec=self._codec))
         if not encoded:
             return 0
+        if self._dispatch_epoch is not None:
+            return self._enqueue_with_admission("LPUSH", tasks, encoded)
         pipe = self.r.pipeline(transaction=True)
         for payload in encoded:
             pipe.lpush(TASK_QUEUE, payload)
@@ -163,6 +168,9 @@ class _TaskBroker:
         for task in tasks:
             _validate_task_payload(task)
         encoded = [encode_payload(dict(task), codec=self._codec) for task in tasks]
+        if self._dispatch_epoch is not None:
+            self._enqueue_with_admission("RPUSH", tasks, encoded)
+            return
         pipe = self.r.pipeline(transaction=True)
         for item in encoded:
             pipe.rpush(TASK_QUEUE, item)
@@ -294,7 +302,10 @@ class _TaskBroker:
             raise CodecError("feedback payload must decode to a dict")
         from jarvishep2.feedback_return import normalize_feedback_record
 
-        return normalize_feedback_record(decoded)
+        record = normalize_feedback_record(decoded)
+        if self._dispatch_epoch is not None:
+            self._drop_dispatch_wait([str(record["uuid"])])
+        return record
 
     def poll_feedback_batch(self, limit: int) -> list[dict[str, Any]]:
         """Receive a bounded feedback batch in one nonblocking round trip."""
@@ -308,6 +319,8 @@ class _TaskBroker:
             if not isinstance(decoded, dict):
                 raise CodecError("feedback payload must decode to a dict")
             records.append(normalize_feedback_record(decoded))
+        if self._dispatch_epoch is not None:
+            self._drop_dispatch_wait([str(record["uuid"]) for record in records])
         return records
 
     def list_feedback_queue_keys(self) -> list[str]:
@@ -339,12 +352,15 @@ class _TaskBroker:
                 drained += 1
         return drained
 
-    def pull_result(self, timeout: int = 1) -> dict[str, Any] | None:
+    def pull_result(self, timeout: int = 1, *, block: bool = True) -> dict[str, Any] | None:
         self._require_client()
-        raw = self._blpop(ARCHIVE_QUEUE, timeout=timeout)
-        if raw is None:
+        if block:
+            raw = self._blpop(ARCHIVE_QUEUE, timeout=timeout)
+            payload = None if raw is None else raw[1]
+        else:
+            payload = self.r.lpop(ARCHIVE_QUEUE)
+        if payload is None:
             return None
-        _, payload = raw
         decoded = decode_payload(payload, codec=self._codec)
         if not isinstance(decoded, dict):
             raise CodecError("result payload must decode to a dict")

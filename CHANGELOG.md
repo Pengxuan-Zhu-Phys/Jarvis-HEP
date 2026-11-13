@@ -3,6 +3,31 @@
 User guides and reference documentation are available in
 [Jarvis-Books/Docs/Jarvis-HEP](https://github.com/Pengxuan-Zhu-Phys/Jarvis-Books/blob/main/Docs/Jarvis-HEP/README.md).
 
+## 2.1.3 — 2026-11-14
+
+### Changed
+
+- Require `Jarvis run TASK.yaml` to start a scan. A bare task path is no longer
+  a run alias. `-h` or `--help` for an unknown command, including
+  `Jarvis opera --validate -h`, prints top-level `Jarvis -h`.
+- Require `Jarvis-Operas>=1.6.0`. The default environment cards use the same
+  minimum.
+- Pause new Worker claims while sealed SAMPLE buckets fall behind packing.
+  `EnvReqs.V2.factory.archive_backpressure` is enabled in the default
+  environment (`high_water_sec: 10`, `low_water_sec: 3`). It applies only when
+  SAMPLE storage and packing are on, and not during `Jarvis check`. Feedback
+  and completion waits do not count measured admission delay against their
+  timeout. Invalid settings report `JV2-ENV-038`.
+
+### Fixed
+
+- Resume allocates SAMPLE bucket numbers above archives and
+  `DATABASE/archive_manifest.jsonl` already written for the scan, including
+  collision-suffixed tar names.
+- Keep packing-progress updates from interrupting a tar write that is already
+  in progress. Stop Worker producers before draining the Archiver, and leave
+  their Redis queues available until that drain finishes.
+
 ## 2.1.2
 
 ### Added

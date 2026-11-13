@@ -7,10 +7,14 @@ import os
 import tarfile
 import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import fakeredis
 
 from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.runtime._runtime_supervisor import _RuntimeSupervisor
 from jarvishep2.runtime_config import (
     get_archiver_config,
     get_sample_directory_config,
@@ -99,6 +103,43 @@ class SampleBucketDefaultsTests(unittest.TestCase):
 
 
 class SampleBucketRedisTests(unittest.TestCase):
+    def test_resume_initializes_above_existing_bucket_numbers(self) -> None:
+        cases = (
+            ("empty", None, None, 1, 1),
+            ("directory", "000004/", None, 1, 5),
+            ("archive", "000007.tar.gz", None, 1, 8),
+            ("suffixed archive", "000009__0001.tar.gz", None, 1, 10),
+            ("temporary archive", "000012__0001.tar.gz.tmp", None, 1, 13),
+            ("manifest ahead", "000007.tar.gz", '{"bucket":"000016"}\n{"bucket":', 1, 17),
+            ("configured floor", "000007.tar.gz", '{"bucket":"000016"}\n', 20, 20),
+            ("unrelated file", "999999.txt", None, 1, 1),
+        )
+        for case, entry, manifest, start, expected in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                sample_root = Path(tmp) / "SAMPLE"
+                sample_root.mkdir()
+                if entry is not None:
+                    path = sample_root / entry
+                    if entry.endswith("/"):
+                        path.mkdir()
+                    else:
+                        path.touch()
+                if manifest is not None:
+                    path = Path(tmp) / "DATABASE" / "archive_manifest.jsonl"
+                    path.parent.mkdir()
+                    path.write_text(manifest, encoding="utf-8")
+                redis = RedisQueue({"host": "x", "port": 1, "db": 0})
+                redis.r = fakeredis.FakeRedis(decode_responses=True)
+                core = SimpleNamespace(
+                    config={"EnvReqs": {"V2": {"store_samples": True, "sample_directory": {"start_bucket": start}}}},
+                    info={}, redis=redis, _resume_policy="resume",
+                    _resolve_sample_root=lambda: str(sample_root), _logger=Mock(),
+                )
+                _RuntimeSupervisor(core)._init_sample_buckets()
+                allocation = redis.allocate_sample_bucket()
+                assert allocation is not None
+                self.assertEqual(allocation["bucket_id"], expected)
+
     def test_allocate_finish_seal_and_pack(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             sample_root = os.path.join(tmp, "SAMPLE")
@@ -154,6 +195,18 @@ class SampleBucketRedisTests(unittest.TestCase):
             with tarfile.open(str(tar_path), "r:gz") as tar:
                 names = tar.getnames()
             self.assertTrue(any(name.endswith("marker.txt") for name in names))
+
+            # A pre-existing tar is not evidence that these files were packed.
+            old_archive = Path(str(tar_path)).read_bytes()
+            new_sample = Path(ready["bucket_dir"]) / "new-uuid"
+            new_sample.mkdir(parents=True)
+            (new_sample / "result.txt").write_text("new output", encoding="utf-8")
+            new_tar = pack_bucket_dir(ready["bucket_dir"])
+            self.assertEqual(new_tar, ready["bucket_dir"] + "__0001.tar.gz")
+            self.assertEqual(Path(str(tar_path)).read_bytes(), old_archive)
+            with tarfile.open(str(new_tar), "r:gz") as tar:
+                self.assertIn("000001/new-uuid/result.txt", tar.getnames())
+            self.assertFalse(new_sample.exists())
 
 
 if __name__ == "__main__":

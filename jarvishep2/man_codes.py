@@ -187,6 +187,7 @@ _CODE_INDEX: dict[str, dict[str, Any]] = {
     "JV2-ENV-035": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-036": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-037": {"kind": "yaml", "path": "EnvReqs"},
+    "JV2-ENV-038": {"kind": "yaml", "path": "EnvReqs.V2.factory.archive_backpressure"},
     "JV2-ENV-040": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-041": {"kind": "yaml", "path": "EnvReqs"},
     "JV2-ENV-042": {"kind": "yaml", "path": "EnvReqs"},

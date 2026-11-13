@@ -31,7 +31,7 @@ ENTRY = [
 ]
 
 
-def setup(tmp_path, *, budget=61):
+def setup(tmp_path, *, budget=61, archive_backpressure=False):
     env = dict(
         os.environ,
         JARVIS_SAMPLERS_HOME=str(tmp_path / "registry"),
@@ -44,6 +44,9 @@ def setup(tmp_path, *, budget=61):
     card["Scan"]["name"] = "native-slice"
     card["Sampling"]["Bounds"].update(max_evaluations=budget, burn_in=0, steps=1000)
     card["EnvReqs"]["V2"]["workers"] = 2
+    if archive_backpressure:
+        card["EnvReqs"]["V2"]["store_samples"] = True
+        card["EnvReqs"]["V2"]["factory"] = {"archive_backpressure": {"enabled": True}}
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
@@ -74,7 +77,7 @@ def rows(tmp_path):
 
 @pytest.mark.parametrize("case", ["opera", "zero_density", "selection", "failure"])
 def test_native_terminal_protocol_and_exact_budget(tmp_path, case):
-    env, card = setup(tmp_path, budget=13)
+    env, card = setup(tmp_path, budget=13, archive_backpressure=case == "opera")
     if case == "zero_density":
         card["Sampling"]["LogLikelihood"][0]["expression"] = "-oo"
     elif case == "selection":
@@ -159,7 +162,7 @@ def test_native_mcmc_halt_distinguishes_zero_density_from_failure(tmp_path, subt
 def test_interrupted_generation_replays_after_remove_and_changes_worker_count(tmp_path):
     from jarvishep2.sampling.sample_checkpoint import read_pickle
 
-    env, card = setup(tmp_path, budget=2401)
+    env, card = setup(tmp_path, budget=2401, archive_backpressure=True)
     checkpoint = tmp_path / "checkpoints/native-slice/SliceMCMC/runtime.pickle"
     task = tmp_path / "task.yaml"
     task.write_text(yaml.safe_dump(card))

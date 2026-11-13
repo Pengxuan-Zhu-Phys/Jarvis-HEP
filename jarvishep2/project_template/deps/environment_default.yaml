@@ -91,7 +91,7 @@ EnvReqs:
         version: ">=1.2.1"
       - name: Jarvis-Operas
         required: true
-        version: ">=1.5.2"
+        version: ">=1.6.0"
       - name: JarvisPLOT
         required: true
         version: ">=2.1.14"
@@ -129,6 +129,13 @@ EnvReqs:
       # Seal and convert each HDF5 shard after 1 GiB (bytes).
       max_hdf5_bytes: 1073741824
       delete_after_archive: true
+
+    # Pause new Worker claims while sealed SAMPLE buckets accumulate.
+    factory:
+      archive_backpressure:
+        enabled: true
+        high_water_sec: 10.0  # estimated seconds of packing work
+        low_water_sec: 3.0
 
     # Per-project Redis broker. If this port is occupied, Jarvis selects a
     # free replacement and writes it back here before the scan begins.

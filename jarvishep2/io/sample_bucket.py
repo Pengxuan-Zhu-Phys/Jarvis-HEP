@@ -15,13 +15,18 @@ from __future__ import annotations
 import gzip
 import json
 import os
+import re
 import shutil
 import tarfile
+import threading
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
 from jarvishep2.yaml_types import require_bool
+
+
+_MANIFEST_LOCK = threading.Lock()
 
 
 SAMPLE_DIRECTORY_DEFAULTS: dict[str, Any] = {
@@ -79,6 +84,38 @@ def parse_bucket_id(bucket_dir: str | int | None) -> int | None:
         return None
 
 
+def archive_manifest_path(sample_root: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(sample_root)), "DATABASE", "archive_manifest.jsonl")
+
+
+def resume_bucket_start(sample_root: str, *, start_bucket: int) -> int:
+    """Reserve bucket numbers already used in this scan's output."""
+    highest = 0
+    try:
+        with os.scandir(sample_root) as entries:
+            for entry in entries:
+                archive = re.fullmatch(r"([0-9]+)(?:__[0-9]+)?\.tar\.gz(?:\.tmp)?", entry.name)
+                bucket = archive.group(1) if archive else entry.name
+                highest = max(highest, parse_bucket_id(bucket) or 0)
+    except FileNotFoundError:
+        pass
+
+    try:
+        with open(archive_manifest_path(sample_root), "rb") as manifest:
+            for line in manifest:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    # An interrupted append may leave an incomplete record.
+                    continue
+                if isinstance(record, dict):
+                    highest = max(highest, parse_bucket_id(record.get("bucket")) or 0)
+    except FileNotFoundError:
+        pass
+
+    return max(start_bucket, highest + 1)
+
+
 def resolve_archive_tar_path(sample_root: str, bucket_name: str) -> str:
     """Return ``SAMPLE/<bucket>.tar.gz`` or a collision-safe ``__NNNN`` suffix."""
     target = os.path.join(sample_root, f"{bucket_name}.tar.gz")
@@ -118,12 +155,6 @@ def pack_bucket_dir(
         return None
     root = os.path.abspath(sample_root or os.path.dirname(source))
     bucket_name = os.path.basename(source.rstrip(os.sep))
-    primary = os.path.join(root, f"{bucket_name}.tar.gz")
-    if os.path.exists(primary):
-        if prune:
-            shutil.rmtree(source, ignore_errors=True)
-        return primary
-
     out_path = resolve_archive_tar_path(root, bucket_name)
     tmp_path = out_path + ".tmp"
     try:
@@ -155,17 +186,19 @@ def pack_bucket_dir(
             "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "mode": "tar_gz_prune" if prune else "tar_gz",
         }
-        with open(manifest_jsonl_path, "a", encoding="utf-8") as handle:
+        with _MANIFEST_LOCK, open(manifest_jsonl_path, "a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
     return out_path
 
 
 __all__ = [
     "SAMPLE_DIRECTORY_DEFAULTS",
+    "archive_manifest_path",
     "bucket_dir_path",
     "format_bucket_name",
     "normalize_sample_directory",
     "pack_bucket_dir",
     "parse_bucket_id",
     "resolve_archive_tar_path",
+    "resume_bucket_start",
 ]

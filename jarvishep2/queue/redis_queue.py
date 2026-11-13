@@ -347,14 +347,16 @@ from jarvishep2.queue._redis_control import (
     control_lock_missing_grace_sec,
     next_control_lock_watch,
 )
+from jarvishep2.queue._redis_dispatch import DISPATCH_KEYS, _Dispatch
 from jarvishep2.queue._redis_monitor import _MonitorTelemetry
 from jarvishep2.queue._redis_proc_board import _ProcBoard
-from jarvishep2.queue._redis_sample_buckets import _SampleBuckets
+from jarvishep2.queue._redis_sample_buckets import BUCKET_PACK_ACTIVE, _SampleBuckets
 from jarvishep2.queue._redis_task_broker import _TaskBroker
 
 
 class RedisQueue(
     _TaskBroker,
+    _Dispatch,
     _CalcPool,
     _SampleBuckets,
     _ControlAndHeartbeat,
@@ -484,6 +486,8 @@ class RedisQueue(
             BUCKET_META,
             BUCKET_READY_QUEUE,
             BUCKET_LOCK,
+            BUCKET_PACK_ACTIVE,
+            *DISPATCH_KEYS,
         ]
         keys.extend(ctrl.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
         keys.extend(ctrl.scan_iter(match=MONITOR_KEY_PATTERN))
@@ -543,7 +547,7 @@ class RedisQueue(
         """Discard crash-era transport state and seed counters from DATABASE."""
         self._require_client()
         ctrl = self._ctrl()
-        keys: list[str] = [TASK_QUEUE, ARCHIVE_QUEUE, FEEDBACK_QUEUE]
+        keys: list[str] = [TASK_QUEUE, ARCHIVE_QUEUE, FEEDBACK_QUEUE, *DISPATCH_KEYS]
         keys.extend(ctrl.scan_iter(match=CHAIN_FEEDBACK_QUEUE_PATTERN))
         keys.extend(ctrl.scan_iter(match="hep:worker:status:*"))
         # Fresh reset only deletes hep:proc:* / hep:inflight:{0..N}; SCAN
@@ -620,7 +624,7 @@ class RedisQueue(
         """Read the sample stats hash (monitor subsystem fetch)."""
         self._require_client()
         sample_stats = self._ctrl().hgetall(SAMPLE_STATS) or {}
-        result = {key: _coerce_numeric(value) for key, value in sample_stats.items()}
+        result = {_redis_text(key): _coerce_numeric(value) for key, value in sample_stats.items()}
         # Clamp: submit_result may outpace pull_task in unit tests / crash paths.
         if "running" in result:
             try:
@@ -767,7 +771,7 @@ class RedisQueue(
 def _coerce_numeric(value: Any) -> int | float | str:
     if isinstance(value, (int, float)):
         return value
-    text = str(value)
+    text = _redis_text(value)
     try:
         if "." in text:
             return float(text)

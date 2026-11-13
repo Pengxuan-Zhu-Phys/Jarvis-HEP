@@ -176,7 +176,7 @@ def agent_contract() -> dict[str, Any]:
     ]
     rules = [
         "Use this installed package's contract, man, schema and --help as evidence. Do not invent YAML keys, operators, sampler options or support claims.",
-        "Use explicit subcommands. Bare Jarvis TASK.yaml executes run; check also executes code and creates runtime resources.",
+        "Use explicit subcommands. Jarvis run TASK.yaml executes a scan; check also executes code and creates runtime resources. Help for an unknown command prints top-level Jarvis -h.",
         "Query/authoring authorization does not automatically cover scans, code execution, library installation, plugin loading, downloads, process termination or sending email. Continue actions already authorized; do not ask again merely because an action has effects.",
         "Template and request commands emit stdout only. Creating/editing project files must stay within the user's authorized scope and preserve existing work; inspect before replacing.",
         "Schema zones: closed accepts documented keys only; delegated belongs to the named subsystem/schema; open is extensible only for its stated purpose. Open does not promise arbitrary runtime support.",

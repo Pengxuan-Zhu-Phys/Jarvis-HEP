@@ -466,12 +466,12 @@ def build_parser() -> argparse.ArgumentParser:
             "  Jarvis -v / --version      # logo + authors + ecosystem versions\n"
             "  Jarvis --refs              # framework and sampler references\n"
             "\n"
-            "Legacy aliases (still accepted):\n"
-            "  Jarvis TASK.yaml [--resume]\n"
+            "Legacy aliases (still accepted, except with -h):\n"
             "  Jarvis TASK.yaml --validate\n"
             "  Jarvis TASK.yaml --convert\n"
             "  Jarvis --monitor\n"
             "  Jarvis PLOT.yaml --plot   (deprecated)\n"
+            "Help for an unknown command prints this page.\n"
         ),
     )
     parser.add_argument(
@@ -770,7 +770,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="(legacy with bare TASK.yaml via normalize) Resume from checkpoint",
+        help="Retired. Resume with `Jarvis run TASK.yaml --resume`",
     )
     parser.add_argument(
         "--skip-draw-flowchart",

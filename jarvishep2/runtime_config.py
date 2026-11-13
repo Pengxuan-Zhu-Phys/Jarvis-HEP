@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
 from jarvishep2.archive_handoff import normalize_move_strategy
@@ -66,6 +67,11 @@ WATCHDOG_DEFAULTS: dict[str, Any] = {
     "inflight_idle_grace_sec": 30.0,
 }
 FACTORY_DEFAULTS: dict[str, Any] = {}
+ARCHIVE_BACKPRESSURE_DEFAULTS = {
+    "enabled": False,
+    "high_water_sec": 10.0,
+    "low_water_sec": 3.0,
+}
 # EnvReqs.V2 top-level keys accepted by the task loader (D12.4).
 SUPPORTED_ENVREQS_V2_KEYS = frozenset(
     {
@@ -136,7 +142,7 @@ def normalize_redis_config(raw: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def normalize_factory_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Normalize ``EnvReqs.V2.factory`` watchdog policy."""
+    """Normalize Worker supervision and archive admission policies."""
     factory = dict(FACTORY_DEFAULTS)
     if not isinstance(raw, Mapping):
         return factory
@@ -144,7 +150,52 @@ def normalize_factory_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
     watchdog = raw.get("watchdog")
     if isinstance(watchdog, Mapping):
         factory["watchdog"] = normalize_watchdog_block(watchdog)
+    if "archive_backpressure" in raw:
+        factory["archive_backpressure"] = normalize_archive_backpressure(
+            raw["archive_backpressure"]
+        )
     return factory
+
+
+def normalize_archive_backpressure(raw: Mapping[str, Any]) -> dict[str, Any]:
+    path = "EnvReqs.V2.factory.archive_backpressure"
+    if not isinstance(raw, Mapping):
+        raise ValueError(f"{path}: expected a mapping")
+    extra = raw.keys() - ARCHIVE_BACKPRESSURE_DEFAULTS.keys()
+    if extra:
+        raise ValueError(f"{path}: unknown key(s): {', '.join(sorted(map(str, extra)))}")
+    policy = dict(ARCHIVE_BACKPRESSURE_DEFAULTS)
+    if "enabled" in raw:
+        if not isinstance(raw["enabled"], bool):
+            raise ValueError(f"{path}.enabled: expected boolean true/false")
+        policy["enabled"] = raw["enabled"]
+    for name in ("high_water_sec", "low_water_sec"):
+        if name not in raw:
+            continue
+        value = raw[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{path}.{name}: expected a positive finite number")
+        try:
+            seconds = float(value)
+        except OverflowError:
+            seconds = math.inf
+        if not 0 < seconds < math.inf:
+            raise ValueError(f"{path}.{name}: expected a positive finite number")
+        policy[name] = seconds
+    if policy["low_water_sec"] >= policy["high_water_sec"]:
+        raise ValueError(f"{path}.low_water_sec: must be less than high_water_sec")
+    return policy
+
+
+def get_archive_backpressure_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    policy = get_factory_config(config).get(
+        "archive_backpressure", ARCHIVE_BACKPRESSURE_DEFAULTS
+    )
+    return {
+        **policy,
+        "enabled": policy["enabled"] and pack_buckets_enabled(config)
+        and not config.get("_check_modules_sample_layout", False),
+    }
 
 
 def normalize_worker_block(raw: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -441,7 +492,7 @@ def get_watchdog_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def get_factory_config(config: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Return watchdog policy from ``EnvReqs.V2.factory``."""
+    """Return Worker supervision and archive policies."""
     runtime = get_runtime_block(config)
     factory = runtime.get("Factory")
     if isinstance(factory, Mapping):

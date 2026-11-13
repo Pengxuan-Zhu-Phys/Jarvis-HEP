@@ -349,12 +349,17 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
 
         started = threading.Event()
         release = threading.Event()
+        other_packed = threading.Event()
 
-        def slow_pack(*args, **kwargs):
-            started.set()
-            if not release.wait(timeout=10):
-                raise TimeoutError("test did not release SAMPLE packing")
-            return pack_bucket_dir(*args, **kwargs)
+        def slow_pack(path, **kwargs):
+            if path == bucket["bucket_dir"]:
+                started.set()
+                if not release.wait(timeout=10):
+                    raise TimeoutError("test did not release SAMPLE packing")
+                return pack_bucket_dir(path, **kwargs)
+            result = pack_bucket_dir(path, **kwargs)
+            other_packed.set()
+            return result
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = os.path.join(tmpdir, "DATABASE", "samples.hdf5")
@@ -363,34 +368,40 @@ class ArchiveHandoffUnitTests(unittest.TestCase):
             redis.connect()
             redis.init_sample_buckets(sample_root=sample_root, limit=1, pack=True, enabled=True)
             bucket = redis.allocate_sample_bucket()
-            assert bucket is not None
+            other_bucket = redis.allocate_sample_bucket()
+            assert bucket is not None and other_bucket is not None
             os.makedirs(os.path.join(bucket["bucket_dir"], "first"))
+            os.makedirs(os.path.join(other_bucket["bucket_dir"], "second"))
             redis.finish_sample_bucket(bucket["bucket_id"])
+            redis.finish_sample_bucket(other_bucket["bucket_id"])
             redis.seal_current_sample_bucket()
             archiver = SimpleArchiver(
                 redis, db_path, sample_root=sample_root,
                 archiver_config={"batch_size": 1}, scan_name="slow-pack",
             )
-            with mock.patch("jarvishep2.io.archiver.pack_bucket_dir", side_effect=slow_pack):
+            with (mock.patch("jarvishep2.io.archiver.pack_bucket_dir", side_effect=slow_pack),
+                  mock.patch("jarvishep2.io.archiver.os.cpu_count", return_value=2)):
                 archiver.start()
                 try:
                     redis.submit_result({"uuid": "first", "sample_index": 0, **bucket})
                     self.assertTrue(started.wait(timeout=5))
-                    redis.submit_result({"uuid": "second", "sample_index": 1})
+                    redis.submit_result({"uuid": "second", "sample_index": 1, **other_bucket})
                     redis.push_archive_marker("last")
                     deadline = time.monotonic() + 3
                     while redis.missing_archived_uuids("slow-pack", ["last"]):
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(0.02)
                     self.assertEqual(archiver.records_written, 2)
+                    self.assertTrue(other_packed.wait(timeout=3))
                     self.assertTrue(os.path.isdir(bucket["bucket_dir"]))
                 finally:
                     release.set()
                     try:
-                        self.assertTrue(archiver.stop())
+                        self.assertTrue(archiver.stop(producers_stopped=True))
                     finally:
                         redis.close()
             self.assertTrue(os.path.isfile(bucket["bucket_dir"] + ".tar.gz"))
+            self.assertTrue(os.path.isfile(other_bucket["bucket_dir"] + ".tar.gz"))
             self.assertFalse(os.path.exists(bucket["bucket_dir"]))
 
     def test_archive_receipts_cursor_stops_at_the_first_missing_index(self) -> None:

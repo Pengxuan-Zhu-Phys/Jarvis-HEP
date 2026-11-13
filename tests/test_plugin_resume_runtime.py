@@ -91,6 +91,7 @@ def test_real_interruption_reload_remove_and_resume(tmp_path, database_only):
             "V2": {
                 "workers": 2,
                 "batch_size": 4,
+                "factory": {"archive_backpressure": {"enabled": True}},
                 "redis": {"host": "127.0.0.1", "port": port, "db": 0},
             }
         },

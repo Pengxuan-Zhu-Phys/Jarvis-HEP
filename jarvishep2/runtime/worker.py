@@ -191,6 +191,7 @@ class Worker(Process):
         self._hb_lock()
         self._redis = RedisQueue(self.redis_config)
         self._redis.connect()
+        self._redis._dispatch_epoch = self.worker_config.get("_archive_admission_epoch")
 
     def _init_runtime(self) -> None:
         self._observables_lock = threading.Lock()
@@ -436,6 +437,12 @@ class Worker(Process):
             ),
             "board_ttl_sec": self._board_ttl_sec(),
         }
+        if self.worker_config.get("_archive_admission_epoch"):
+            hb_fields["wait_reason"] = (
+                "archive_backpressure"
+                if publish_status == "idle" and self._redis._dispatch_wait_reason == "paused"
+                else ""
+            )
         if self._children_board_open:
             hb_fields["file_operation_pgid"] = self._file_operation_pgid()
             hb_fields["calc_pgids"] = self._calc_session_leader_pgids()
@@ -820,6 +827,13 @@ class Worker(Process):
                 self._last_status = "busy"
             task = self._redis.pull_task_to_inflight(wid, timeout=pull_timeout)
             if task is None:
+                if self.worker_config.get("_archive_admission_epoch"):
+                    if self._redis._dispatch_wait_reason == "stopped":
+                        break
+                    self._heartbeat("idle")
+                    if self._is_running:
+                        self._redis._wait_for_admission()
+                    continue
                 leftover = None
                 occupy = getattr(self._redis, "occupy_inflight_task", None)
                 if callable(occupy):

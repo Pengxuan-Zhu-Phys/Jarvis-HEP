@@ -22,6 +22,7 @@ import numpy as np
 from jarvishep2.sampling.checkpointed_sampler import CheckpointedSampler
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import PROC_BOARD_TTL_SEC, RedisQueue
+from jarvishep2.runtime.dispatch_wait import DispatchWait
 from jarvishep2.sample import Sample
 
 _FEEDBACK_BLPOP_CAP_SEC = 1
@@ -168,13 +169,13 @@ class FeedbackSampler(CheckpointedSampler, ABC):
                 f"{type(self).__name__}.wait_for_any_feedback called with no pending uuids"
             )
         redis = self._require_redis(f"{type(self).__name__}.wait_for_any_feedback")
-        deadline = time.monotonic() + max(1.0, float(timeout))
+        wait = DispatchWait(redis, max(1.0, float(timeout)), self._pending_uuids)
         last_scan_mode: str | None = None
         missing_since: float | None = None
         board_ttl = self._core_board_ttl_sec()
         what = f"feedback wait (generation={self._generation})"
         while self._pending_uuids:
-            remaining = deadline - time.monotonic()
+            remaining = wait.remaining(self._pending_uuids)
             if remaining <= 0:
                 raise TimeoutError(
                     f"{type(self).__name__} feedback wait timed out "
@@ -228,14 +229,14 @@ class FeedbackSampler(CheckpointedSampler, ABC):
         round. A core board that was never published is treated as running.
         """
         redis = self._require_redis(f"{type(self).__name__}.wait_for_generation")
-        deadline = time.monotonic() + max(1.0, float(timeout))
+        wait = DispatchWait(redis, max(1.0, float(timeout)), self._pending_uuids)
         matched: list[dict[str, Any]] = []
         last_scan_mode: str | None = None
         missing_since: float | None = None
         board_ttl = self._core_board_ttl_sec()
         what = f"generation {self._generation}"
         while self._pending_uuids:
-            remaining = deadline - time.monotonic()
+            remaining = wait.remaining(self._pending_uuids)
             if remaining <= 0:
                 raise TimeoutError(
                     f"{type(self).__name__} generation {self._generation} timed out "

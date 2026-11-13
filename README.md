@@ -5,7 +5,7 @@ You describe a scan as a validated YAML task card; Jarvis generates parameter
 points, evaluates external calculators and/or Python operators in parallel, and
 archives observables, sample artifacts, logs, and run summaries.
 
-The distribution is named `Jarvis-HEP` (current source version `2.1.2`). Its
+The distribution is named `Jarvis-HEP` (current source version `2.1.3`). Its
 Python import package remains `jarvishep2`, and it exposes a single user-facing
 command: `Jarvis`.
 
@@ -349,8 +349,8 @@ navigation instead of returning a misleading successful parent lookup.
 
 `validate` does not execute calculators or start Redis/Workers. A successful
 report does not prove runtime or physics correctness. `check` and `run` execute
-configured code and create runtime resources; bare `Jarvis TASK.yaml` also runs
-the task. Existing user authorization remains valid, but YAML assistance alone
+configured code and create runtime resources. A scan starts only with
+`Jarvis run TASK.yaml`. Existing user authorization remains valid, but YAML assistance alone
 does not authorize execution, dependency installation or process termination.
 CLI onboarding and dependency imports may initialize user caches even during
 queries. JSON command output uses stdout; advisory diagnostics use stderr.
@@ -576,8 +576,8 @@ Record changes in `CHANGELOG.md`, then run from this checkout (replace the
 example version with the intended release):
 
 ```bash
-./jhrel 2.1.2 --dry
-./jhrel 2.1.2
+./jhrel 2.1.3 --dry
+./jhrel 2.1.3
 ```
 
 `--dry` performs read-only source and release-note checks. The normal command

@@ -20,6 +20,7 @@ from jarvishep2.sampling.sample_checkpoint import (
     FORMAT, VERSION, atomic_pickle, config_identity, read_pickle,
 )
 from jarvishep2.runtime.checkpoint_process import CheckpointProcess
+from jarvishep2.runtime.dispatch_wait import DispatchWait
 from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.sampling.variables import load_variables
 
@@ -52,8 +53,8 @@ class CompletionSampler(SamplingVirtual, ABC):
         self._resume_pending: list[int] = []
         self._interrupt_check: Callable[[], bool] | None = None
         self._control_next_check = 0.0
-        self._feedback_timeout = 3600.0
-        self._last_completion_at = 0.0
+        self._feedback_wait: DispatchWait | None = None
+        self._replay_active: set[int] | None = None
         self._pickle_writer: CheckpointProcess | None = None
         self._owns_checkpoint = False
         self._config_id = ""
@@ -154,9 +155,16 @@ class CompletionSampler(SamplingVirtual, ABC):
     def _sampling_tick(self) -> None:
         self.check_runtime_control()
         if self.redis is not None:
-            if self._drain_completions():
-                self._last_completion_at = time.monotonic()
-            elif self._unfinished and time.monotonic() - self._last_completion_at > self._feedback_timeout:
+            completed = self._drain_completions()
+            pending = (
+                self._uuid_to_unfinished.keys() if self._replay_active is None else
+                {self._unfinished[index]["uuid"] for index in self._replay_active if index in self._unfinished}
+            )
+            if self._feedback_wait is None:
+                self._feedback_wait = DispatchWait(self.redis, 3600.0, pending)
+            if completed:
+                self._feedback_wait.restart(pending)
+            elif pending and self._feedback_wait.remaining(pending) < 0:
                 raise TimeoutError("sampler timed out waiting for terminal feedback")
         self.save_checkpoint()
 
@@ -173,25 +181,30 @@ class CompletionSampler(SamplingVirtual, ABC):
     def run_distributed(self, *, timeout: float = 3600.0) -> int:
         if self.redis is None:
             raise RuntimeError("sampler requires a Redis queue")
-        self._feedback_timeout = max(1.0, float(timeout))
-        self._last_completion_at = time.monotonic()
+        self._feedback_wait = DispatchWait(
+            self.redis, max(1.0, float(timeout)), self._uuid_to_unfinished.keys()
+        )
         pushed = 0
         # Resume can reduce worker/window counts. Requeue in bounded batches
         # without generating any new work until the saved window is drained.
         pending = iter(self._resume_pending)
         replay = next(pending, None)
         active: set[int] = set()
-        while replay is not None or active:
-            self._sampling_tick()
-            active.intersection_update(self._unfinished)
-            batch = []
-            while replay is not None and len(active) < self._max_inflight and len(batch) < self._batch_size:
-                batch.append(self._rebuild_unfinished(replay))
-                active.add(replay)
-                replay = next(pending, None)
-            pushed += self.flush_batch(batch)
-            if not batch and active:
-                time.sleep(0.01)
+        self._replay_active = active
+        try:
+            while replay is not None or active:
+                self._sampling_tick()
+                active.intersection_update(self._unfinished)
+                batch = []
+                while replay is not None and len(active) < self._max_inflight and len(batch) < self._batch_size:
+                    batch.append(self._rebuild_unfinished(replay))
+                    active.add(replay)
+                    replay = next(pending, None)
+                pushed += self.flush_batch(batch)
+                if not batch and active:
+                    time.sleep(0.01)
+        finally:
+            self._replay_active = None
         self._resume_pending = []
 
         exhausted = False

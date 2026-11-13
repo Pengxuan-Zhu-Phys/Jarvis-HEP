@@ -8,7 +8,6 @@ but transports work over Redis tasks + ``hep:feedback`` barriers.
 from __future__ import annotations
 
 import threading
-import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 # Before Python 3.11 this is not the builtin TimeoutError.
@@ -20,6 +19,7 @@ import numpy as np
 from jarvishep2.sampling.stateless_batch import deterministic_sampler_uuid
 from jarvishep2.logging import get_jarvis_logger
 from jarvishep2.redis_queue import RedisQueue
+from jarvishep2.runtime.dispatch_wait import DispatchWait
 from jarvishep2.sample import Sample
 
 
@@ -320,7 +320,7 @@ class RedisEvaluationPool:
         idle consumer stealing another pool's feedback on a shared Redis
         (tests / sequential samplers on one queue).
         """
-        deadline = time.monotonic() + max(1.0, self.timeout)
+        wait = DispatchWait(self.redis, max(1.0, self.timeout), uuids)
         pending = set(uuids)
         try:
             while pending:
@@ -330,7 +330,7 @@ class RedisEvaluationPool:
                 )
                 if not pending:
                     break
-                remaining = deadline - time.monotonic()
+                remaining = wait.remaining(pending)
                 if remaining <= 0:
                     raise TimeoutError(
                         f"RedisEvaluationPool timed out with {len(pending)} pending"
@@ -346,7 +346,7 @@ class RedisEvaluationPool:
                             )
                             if not pending:
                                 break
-                            remaining = deadline - time.monotonic()
+                            remaining = wait.remaining(pending)
                             if remaining <= 0:
                                 raise TimeoutError(
                                     f"RedisEvaluationPool timed out with "

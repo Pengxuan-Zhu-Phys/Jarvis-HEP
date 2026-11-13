@@ -81,6 +81,12 @@ redis.call('LPOP', KEYS[1])
 return 1
 """
 
+_ACK_INFLIGHT_RAW_LUA = """
+if redis.call('LINDEX', KEYS[1], 0) ~= ARGV[1] then return 0 end
+redis.call('LPOP', KEYS[1])
+return 1
+"""
+
 _ATOMIC_RECLAIM_INFLIGHT_LUA = """
 local items = redis.call('LRANGE', KEYS[1], 0, -1)
 redis.call('DEL', KEYS[1])
@@ -532,6 +538,8 @@ class _ProcBoard:
         """
         self._require_client()
         inflight_key = self._inflight_key(worker_id)
+        if self._dispatch_epoch is not None:
+            return self._claim_with_admission(inflight_key)
         moved = self._blmove_to_inflight(inflight_key, timeout)
         if moved is _BLMOVE_UNSUPPORTED:
             if not self._steal_allowed():
@@ -595,7 +603,14 @@ class _ProcBoard:
         inflight_key = self._inflight_key(worker_id)
         wanted = str(uuid)
         try:
-            result = self._eval_ctrl(_ATOMIC_ACK_INFLIGHT_LUA, 1, inflight_key, wanted)
+            if self._codec == "msgpack":
+                raw = self._ctrl().lindex(inflight_key, 0)
+                task = self._decode_task_payload(raw)
+                if task is None or str(task.get("uuid")) != wanted:
+                    return False
+                result = self._eval_ctrl(_ACK_INFLIGHT_RAW_LUA, 1, inflight_key, raw)
+            else:
+                result = self._eval_ctrl(_ATOMIC_ACK_INFLIGHT_LUA, 1, inflight_key, wanted)
         except Exception as exc:
             if not _lua_unavailable(exc):
                 raise

@@ -68,6 +68,17 @@
               "type": "object",
               "x-jarvis-zone": "delegated",
               "properties": {
+                "archive_backpressure": {
+                  "type": "object",
+                  "x-jarvis-zone": "closed",
+                  "description": "Throttle new Worker claims while ready SAMPLE archives accumulate.",
+                  "properties": {
+                    "enabled": {"type": "boolean", "default": false},
+                    "high_water_sec": {"type": "number", "exclusiveMinimum": 0, "default": 10},
+                    "low_water_sec": {"type": "number", "exclusiveMinimum": 0, "default": 3}
+                  },
+                  "additionalProperties": false
+                },
                 "watchdog": {
                   "type": "object",
                   "x-jarvis-zone": "delegated",

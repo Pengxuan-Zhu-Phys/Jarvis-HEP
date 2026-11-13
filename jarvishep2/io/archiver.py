@@ -6,8 +6,10 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections import Counter
 from collections.abc import Mapping
 from typing import Any
+from uuid import uuid4
 
 from jarvishep2.archive_handoff import (
     archive_staging_to_sample,
@@ -31,7 +33,7 @@ from jarvishep2.redis_queue import (
     next_control_lock_watch,
 )
 from jarvishep2.runtime_config import ARCHIVER_DEFAULTS
-from jarvishep2.io.sample_bucket import pack_bucket_dir
+from jarvishep2.io.sample_bucket import archive_manifest_path, pack_bucket_dir
 
 Process = get_spawn_context().Process
 
@@ -42,6 +44,8 @@ Process = get_spawn_context().Process
 # interval.
 DATARECORDER_PROGRESS_INTERVAL = 500
 _PACK_SHUTDOWN_TIMEOUT_SEC = 10.0
+_PACK_WORKERS = 2
+_PACK_POLL_SEC = 0.2
 
 
 def _fmt_int(n: Any) -> str:
@@ -392,6 +396,7 @@ class SimpleArchiver:
             cfg.update(archiver_config)
         self._publish_uuid_receipts = bool(cfg.get("publish_uuid_receipts", True))
         self.pack_buckets = bool(cfg.get("pack_buckets", True)) and bool(cfg.get("store_samples", True))
+        self._pack_owner = uuid4().hex if cfg.get("archive_backpressure") and self.pack_buckets else None
         self.buckets_packed = 0
         # Own logger identity: ``·•· Jarvis-HEP.Archiver`` (pack / drain / lifecycle).
         self._logger = logger or get_jarvis_logger("archiver")
@@ -429,9 +434,9 @@ class SimpleArchiver:
         self._thread: threading.Thread | None = None
         self._pack_finish = threading.Event()
         self._pack_cancel = cancel_packing if cancel_packing is not None else threading.Event()
-        self._pack_thread: threading.Thread | None = None
-        parent = os.path.dirname(self.sample_root)
-        self._manifest_jsonl = os.path.join(parent, "DATABASE", "archive_manifest.jsonl")
+        self._pack_threads: list[threading.Thread] = []
+        self._pack_stats_lock = threading.Lock()
+        self._manifest_jsonl = archive_manifest_path(self.sample_root)
         # DATABASE / samples.hdf5 row counter → separate DataRecorder sink.
         self._datarecorder_logger = get_jarvis_logger("datarecorder")
         self._last_progress_written = -1
@@ -498,10 +503,17 @@ class SimpleArchiver:
         self._thread.start()
         if self.pack_buckets:
             self._pack_finish.clear()
-            self._pack_thread = threading.Thread(
-                target=self._run_bucket_packer, name="Jarvis-SampleBucketPacker", daemon=True,
-            )
-            self._pack_thread.start()
+            count = min(_PACK_WORKERS, os.cpu_count() or 1)
+            if self._pack_owner is not None:
+                self.redis._pack_transition("start", self._pack_owner, arg=count)
+            for index in range(count):
+                packer = threading.Thread(
+                    target=self._run_bucket_packer,
+                    name=f"Jarvis-SampleBucketPacker-{index + 1}",
+                    daemon=True,
+                )
+                self._pack_threads.append(packer)
+                packer.start()
         _log_archiver_kv(
             self._logger,
             "loop started",
@@ -523,12 +535,12 @@ class SimpleArchiver:
                 self.scan_name,
                 [str(item.get("uuid") or "").strip() for item in flushed],
             )
-        for item in flushed:
-            bucket_id = item.get("bucket_id")
-            if bucket_id is None:
-                continue
+        counts = Counter(
+            str(item["bucket_id"]) for item in flushed if item.get("bucket_id") is not None
+        )
+        for bucket_id, count in counts.items():
             try:
-                self.redis.note_sample_archived(bucket_id)
+                self.redis.note_sample_archived(bucket_id, count=count)
             except Exception as exc:
                 try:
                     self._logger.warning(
@@ -592,13 +604,18 @@ class SimpleArchiver:
         while not self._pack_cancel.is_set():
             finishing = self._pack_finish.is_set()
             try:
-                ready = self.redis.pull_ready_bucket(timeout=0 if finishing else 1)
+                if self._pack_owner is None:
+                    ready = self.redis.pull_ready_bucket(timeout=0 if finishing else _PACK_POLL_SEC)
+                else:
+                    ready = self.redis.pull_ready_bucket(owner=self._pack_owner)
             except Exception as exc:
                 self._logger.warning("SAMPLE bucket queue unavailable -> %s", exc)
                 return
             if ready is None:
                 if finishing:
                     return
+                if self._pack_owner is not None:
+                    self._pack_finish.wait(_PACK_POLL_SEC)
                 continue
             if not ready.get("pack", True):
                 continue
@@ -607,6 +624,21 @@ class SimpleArchiver:
             sample_root = str(ready.get("sample_root") or self.sample_root)
             if not bucket_dir:
                 continue
+            observed_success = False
+            next_progress = time.monotonic() + 1
+
+            def cancelled() -> bool:
+                nonlocal next_progress
+                now = time.monotonic()
+                if self._pack_owner is not None and now >= next_progress:
+                    next_progress = now + 1
+                    try:
+                        self.redis._pack_transition("progress", self._pack_owner, str(bucket_id))
+                    except Exception:
+                        # Pressure telemetry must not interrupt writing a tar.
+                        pass
+                return self._pack_cancel.is_set()
+
             try:
                 self._logger.info("Packing SAMPLE bucket %s", _short_path(bucket_dir))
                 archive = pack_bucket_dir(
@@ -614,13 +646,16 @@ class SimpleArchiver:
                     sample_root=sample_root,
                     manifest_jsonl_path=self._manifest_jsonl,
                     prune=True,
-                    cancelled=self._pack_cancel.is_set,
+                    cancelled=cancelled if self._pack_owner else self._pack_cancel.is_set,
                 )
                 if archive is None:
                     continue
-                if bucket_id is not None:
+                observed_success = self._pack_owner is not None and not os.path.exists(bucket_dir)
+                if bucket_id is not None and self._pack_owner is None:
                     self.redis.mark_bucket_packed(bucket_id)
-                self.buckets_packed += 1
+                with self._pack_stats_lock:
+                    self.buckets_packed += 1
+                    total_packed = self.buckets_packed
                 _log_archiver_kv(
                     self._logger,
                     "SAMPLE bucket packed",
@@ -630,7 +665,7 @@ class SimpleArchiver:
                             "path",
                             _short_path(bucket_dir, sample_root=sample_root),
                         ),
-                        ("total packed", _fmt_int(self.buckets_packed)),
+                        ("total packed", _fmt_int(total_packed)),
                     ],
                     level="debug",
                 )
@@ -652,21 +687,33 @@ class SimpleArchiver:
                     ],
                     level="warning",
                 )
+            finally:
+                if self._pack_owner is not None:
+                    try:
+                        self.redis._pack_transition(
+                            "finish", self._pack_owner, str(bucket_id), int(observed_success)
+                        )
+                    except Exception as exc:
+                        self._logger.warning("SAMPLE bucket pressure update failed -> %s", exc)
 
     def _finish_bucket_packing(self, *, drain: bool) -> None:
-        packer = self._pack_thread
-        if packer is None:
+        if not self._pack_threads:
             return
+
+        def join_packers(timeout: float) -> list[threading.Thread]:
+            deadline = time.monotonic() + timeout
+            for packer in self._pack_threads:
+                packer.join(timeout=max(0.0, deadline - time.monotonic()))
+            return [packer for packer in self._pack_threads if packer.is_alive()]
+
         self._pack_finish.set()
         if not drain:
             self._pack_cancel.set()
-        packer.join(timeout=1.0 if self._pack_cancel.is_set() else _PACK_SHUTDOWN_TIMEOUT_SEC)
-        if packer.is_alive() and not self._pack_cancel.is_set():
+        self._pack_threads = join_packers(1.0 if self._pack_cancel.is_set() else _PACK_SHUTDOWN_TIMEOUT_SEC)
+        if self._pack_threads and not self._pack_cancel.is_set():
             self._logger.warning("SAMPLE bucket packing timed out; leaving remaining directories unpacked")
             self._pack_cancel.set()
-            packer.join(timeout=1.0)
-        if not packer.is_alive():
-            self._pack_thread = None
+            self._pack_threads = join_packers(1.0)
 
     def _run_loop(self) -> None:
         # Thread shares the control process title; only Process-mode Archiver
@@ -695,13 +742,16 @@ class SimpleArchiver:
             self._ingest_result(result)
 
     def drain(self, *, idle_timeout: float = 2.0) -> int:
-        """Drain remaining archive-queue items synchronously."""
+        """Drain synchronously. Zero idle timeout requires quiescent producers."""
         timeout = max(1, int(round(self.poll_timeout)))
+        wait_for_late_results = idle_timeout > 0
         idle_deadline = time.monotonic() + max(0.1, float(idle_timeout))
         drained = 0
-        while time.monotonic() < idle_deadline:
-            result = self.redis.pull_result(timeout=timeout)
+        while not wait_for_late_results or time.monotonic() < idle_deadline:
+            result = self.redis.pull_result(timeout=timeout, block=wait_for_late_results)
             if result is None:
+                if not wait_for_late_results:
+                    break
                 drained += self._flush_and_note(force=True)
                 continue
             idle_deadline = time.monotonic() + max(0.1, float(idle_timeout))
@@ -727,7 +777,7 @@ class SimpleArchiver:
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def stop(self, *, wait: bool = True, drain: bool = True) -> bool:
+    def stop(self, *, wait: bool = True, drain: bool = True, producers_stopped: bool = False) -> bool:
         """Return true only after the loop and writer have both closed."""
         self._stop_event.set()
         if not drain:
@@ -741,7 +791,7 @@ class SimpleArchiver:
         try:
             try:
                 if drain:
-                    self.drain()
+                    self.drain(idle_timeout=0 if producers_stopped else 2.0)
             finally:
                 self.processor.writer.close()
         except BaseException:
@@ -788,6 +838,7 @@ class ArchiverProcess(Process):
         self.log_dir = str(log_dir or "").strip() or None
         self.log_path = str(log_path or "").strip() or None
         self._stop_event = get_spawn_context().Event()
+        self._producers_stopped = get_spawn_context().Event()
         self._cancel_packing = get_spawn_context().Event()
         self.records_written = get_spawn_context().Value("i", 0)
         self.pending_batch = get_spawn_context().Value("i", 0)
@@ -923,7 +974,7 @@ class ArchiverProcess(Process):
                 next_lease_check = now + 1.0
         finalization_error: Exception | None = None
         try:
-            if archiver.stop(wait=True) is False:
+            if archiver.stop(wait=True, producers_stopped=self._producers_stopped.is_set()) is False:
                 raise TimeoutError("Archiver thread did not stop; writer remains open")
         except Exception as exc:
             finalization_error = exc
@@ -965,7 +1016,10 @@ class ArchiverProcess(Process):
     def persistence_state(self) -> dict[str, Any]:
         return {"records_written": int(self.drain())}
 
-    def stop(self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True) -> bool:
+    def stop(
+        self, *, wait: bool = True, timeout: float = 5.0, drain: bool = True,
+        producers_stopped: bool = False,
+    ) -> bool:
         """Stop the child Archiver.
 
         The child always drains result rows before closing its writer.
@@ -973,6 +1027,8 @@ class ArchiverProcess(Process):
         """
         if not drain:
             self._cancel_packing.set()
+        if producers_stopped:
+            self._producers_stopped.set()
         self._stop_event.set()
         if wait:
             self.join(timeout=max(0.1, float(timeout)))

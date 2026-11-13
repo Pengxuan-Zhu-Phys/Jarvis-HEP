@@ -43,6 +43,7 @@ from jarvishep2.project_packager import (
     create_project_package_from_manifest,
     create_project_pack_manifest,
 )
+from jarvishep2.runtime_config import get_archive_backpressure_config
 from jarvishep2.project_scaffold import (
     PROJECT_DESCRIPTOR_NAME,
     PROJECT_MARKER_NAME,
@@ -79,6 +80,10 @@ class ProjectScaffoldTests(unittest.TestCase):
             config = load_task_yaml(quick)
             self.assertEqual(config["Runtime"]["mode"], "redis")
             self.assertIn("workers", config["Runtime"])
+            self.assertEqual(
+                get_archive_backpressure_config(config),
+                {"enabled": True, "high_water_sec": 10.0, "low_water_sec": 3.0},
+            )
             with open(quick, encoding="utf-8") as handle:
                 text = handle.read()
             self.assertNotIn("\nRuntime:", text)

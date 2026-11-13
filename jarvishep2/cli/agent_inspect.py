@@ -200,7 +200,7 @@ def _explain(config: Mapping[str, Any]) -> dict[str, Any]:
     from jarvishep2.base import project_images_dir
     from jarvishep2.logging.toplevel import scan_logs_dir
     from jarvishep2.runtime_config import (
-        get_archiver_config, get_checkpoint_config, get_factory_config,
+        get_archive_backpressure_config, get_archiver_config, get_checkpoint_config, get_factory_config,
         get_redis_config, get_runtime_block, get_sample_directory_config,
     )
     from jarvishep2.sampling.runtime_checkpoint import checkpoint_path
@@ -244,6 +244,7 @@ def _explain(config: Mapping[str, Any]) -> dict[str, Any]:
             "checkpoint": "get_checkpoint_config", "redis": "get_redis_config",
             "archiver": "get_archiver_config", "sample_directory": "get_sample_directory_config",
             "factory": "get_factory_config", "check_modules": "get_check_modules_settings",
+            "archive_backpressure": "get_archive_backpressure_config",
         },
     }
     return {
@@ -269,6 +270,7 @@ def _explain(config: Mapping[str, Any]) -> dict[str, Any]:
             "checkpoint": get_checkpoint_config(config), "redis": get_redis_config(config),
             "archiver": get_archiver_config(config), "sample_directory": get_sample_directory_config(config),
             "factory": get_factory_config(config), "check_modules": check_settings,
+            "archive_backpressure": get_archive_backpressure_config(config),
         },
         "policy_notes": {
             "scope": "Normalized run configuration only; policies are not preflight results or evidence that execution succeeded.",

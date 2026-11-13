@@ -52,11 +52,33 @@ _SUBCOMMANDS = frozenset(
     }
 )
 
-def normalize_argv(argv: list[str] | None) -> list[str]:
-    """Rewrite legacy bare-YAML invocations into explicit subcommands.
+def _command_token(argv: list[str]) -> str | None:
+    """Return the first bare word, before ``--`` and skipping options."""
+    for token in argv:
+        if token == "--":
+            return None
+        if token.startswith("-"):
+            continue
+        return token
+    return None
 
-    Argparse subparsers treat the first positional as the command name, so
-    ``Jarvis task.yaml`` would otherwise fail as an invalid choice.
+
+def _help_requested(argv: list[str]) -> bool:
+    """True when ``-h`` or ``--help`` appears before ``--``."""
+    for token in argv:
+        if token == "--":
+            return False
+        if token in {"-h", "--help"}:
+            return True
+    return False
+
+
+def normalize_argv(argv: list[str] | None) -> list[str]:
+    """Rewrite explicit legacy flags into subcommands.
+
+    ``Jarvis task.yaml`` is not a run alias. Only ``--plot``, ``--validate``
+    and ``--convert`` still select a subcommand from a leading path. Help
+    requests are decided in ``main`` before this rewrite.
     """
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
@@ -65,7 +87,6 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     if head in _SUBCOMMANDS or head.startswith("-"):
         return args
 
-    # First token is a path (legacy).
     if "--plot" in args:
         rest = [a for a in args[1:] if a != "--plot"]
         return ["plot", head, *rest]
@@ -75,8 +96,7 @@ def normalize_argv(argv: list[str] | None) -> list[str]:
     if "--convert" in args:
         rest = [a for a in args[1:] if a != "--convert"]
         return ["convert", head, *rest]
-    # Bare path (+ optional --resume) → run
-    return ["run", *args]
+    return args
 
 
 def _mode_conflict_message(modes: list[str]) -> str:
@@ -122,7 +142,7 @@ def resolve_intent(args: argparse.Namespace) -> tuple[str, argparse.Namespace]:
     if len(legacy_modes) == 1:
         return legacy_modes[0], args
     raise ValueError(
-        "Provide a task YAML or a subcommand "
+        "Provide a subcommand "
         "(run|check|validate|convert|monitor|plot|portal|operas|project). "
         "See Jarvis -h."
     )
@@ -609,10 +629,19 @@ def main(argv: list[str] | None = None) -> int:
             return dispatch_version(as_json=True)
         if "--refs" in raw and "--json" in raw and set(raw) <= {"--refs", "--json"}:
             return dispatch_refs(as_json=True)
+        # Help is resolved on the original argv. An unknown word must not be
+        # rewritten into ``run``/``validate``/``plot`` and then answer ``-h``.
+        if _help_requested(raw) and _command_token(raw) not in _SUBCOMMANDS:
+            build_parser().print_help(sys.stdout)
+            return EXIT_OK
         if raw[:1] == ["refs"]:
             print("`Jarvis refs` has moved to `Jarvis --refs`.", file=sys.stderr)
             return EXIT_USAGE
         normalized = normalize_argv(raw)
+        command = _command_token(normalized)
+        if command is not None and command not in _SUBCOMMANDS:
+            print(f"Unknown command {command!r}. See Jarvis -h.", file=sys.stderr)
+            return EXIT_USAGE
         # Dependency CLI tails are opaque. For HEP commands detect legacy intent
         # conflicts before argparse rejects flags placed after the subcommand.
         passthrough = {"plot", "portal", "operas", "project", "sampler", "man", "agent"}

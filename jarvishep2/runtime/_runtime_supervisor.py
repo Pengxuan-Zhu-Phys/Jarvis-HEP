@@ -13,6 +13,7 @@ from typing import Any
 from jarvishep2.archiver import ArchiverProcess, SimpleArchiver
 from jarvishep2.command_parser import CommandParser, prepare_calculator_modules
 from jarvishep2.calculator_modes import expand_calculator_modes, mode_info
+from jarvishep2.io.sample_bucket import resume_bucket_start
 from jarvishep2.library import LibraryInstaller
 from jarvishep2.runtime.factory import TaskFactory
 from jarvishep2.logging import get_jarvis_logger
@@ -21,6 +22,7 @@ from jarvishep2.runtime_metadata import write_scan_metadata
 from jarvishep2.sampling.telemetry import sampler_status_json
 from jarvishep2.runtime_config import (
     WATCHDOG_DEFAULTS,
+    get_archive_backpressure_config,
     get_archiver_config,
     get_delete_method,
     get_redis_config,
@@ -156,6 +158,9 @@ class _RuntimeSupervisor:
                     exc,
                 )
         core.init_archiver(db_path)
+        admission = getattr(core.factory, "_archive_admission", None)
+        if admission is not None and isinstance(core.factory, TaskFactory):
+            admission.start()
         core.factory.wait_for_worker_startup()
         if (core._resume_policy == "resume" or core.config.get("_check_modules_sample_layout")
                 or not uses_checkpoint_resume_protocol(core.config)):
@@ -485,7 +490,8 @@ class _RuntimeSupervisor:
         with no DATABASE writes and no bucket packing.
         """
         core = self._core
-        if core._shutdown_done or core._interrupt_requested:
+        if (core._shutdown_done or core._interrupt_requested
+                or getattr(core, "_shutdown_in_progress", False) is True):
             return
         archiver = core.archiver
         if not isinstance(archiver, ArchiverProcess):
@@ -1073,6 +1079,11 @@ class _RuntimeSupervisor:
                 persisted_count=core._persisted_records_count,
                 persisted_failed=core._persisted_failed_count,
             )
+        policy = get_archive_backpressure_config(core.config)
+        if policy["enabled"]:
+            merged_config["_archive_admission_epoch"] = core.factory.prepare_archive_admission(
+                workers, policy
+            )
         core.factory.start_workers(workers, **merged_config)
         core.factory.start_monitor()
         watchdog = get_watchdog_config(core.config)
@@ -1092,6 +1103,8 @@ class _RuntimeSupervisor:
             os.makedirs(sample_root, exist_ok=True)
         resolved_db_path = db_path or os.path.join(database_dir, "samples.hdf5")
         archiver_config = dict(get_archiver_config(core.config))
+        archiver_config["pack_buckets"] = pack_buckets_enabled(core.config)
+        archiver_config["archive_backpressure"] = get_archive_backpressure_config(core.config)["enabled"]
         if bool(core.config.get("_check_modules_sample_layout")):
             # Belt-and-suspenders: never tar SAMPLE/test during check smoke.
             archiver_config["pack_buckets"] = False
@@ -1177,24 +1190,29 @@ class _RuntimeSupervisor:
         sample_root = core._resolve_sample_root()
         if get_runtime_block(core.config)["store_samples"]:
             os.makedirs(sample_root, exist_ok=True)
+        enabled = bool(sample_dir.get("enabled", True))
+        start_bucket = int(sample_dir.get("start_bucket", 1))
+        if enabled and core._resume_policy == "resume":
+            start_bucket = resume_bucket_start(sample_root, start_bucket=start_bucket)
         meta = core.redis.init_sample_buckets(
             sample_root=sample_root,
             limit=int(sample_dir.get("limit", 200)),
             width=int(sample_dir.get("width", 6)),
-            start_bucket=int(sample_dir.get("start_bucket", 1)),
+            start_bucket=start_bucket,
             pack=pack_buckets_enabled(core.config),
-            enabled=bool(sample_dir.get("enabled", True)),
+            enabled=enabled,
+            observe=get_archive_backpressure_config(core.config)["enabled"],
         )
         core.info["sample_root"] = sample_root
         core.info["sample_directory"] = dict(sample_dir)
-        enabled = bool(sample_dir.get("enabled", True))
         core._logger.info(
-            "SAMPLE ready -> root=%s enabled=%s limit=%s width=%s pack=%s",
+            "SAMPLE ready -> root=%s enabled=%s limit=%s width=%s pack=%s start_bucket=%s",
             sample_root,
             enabled,
             meta.get("limit"),
             meta.get("width"),
             bool(int(meta.get("pack", 0))),
+            start_bucket,
         )
 
     def _install_control_signal_handlers(self) -> None:
@@ -1320,6 +1338,10 @@ class _RuntimeSupervisor:
             core._logger.warning("%s failed -> %s", stage, exc)
 
         try:
+            admission = getattr(core.factory, "_archive_admission", None)
+            if admission is not None and isinstance(core.factory, TaskFactory):
+                core.factory._scan_mode = "stopping"
+                admission.stop()
             writer = getattr(core, "checkpoint_process", None)
             if writer is not None:
                 # Checkpoint failures must never turn factory shutdown into a
@@ -1334,6 +1356,14 @@ class _RuntimeSupervisor:
                     core.sampler.shutdown_checkpointing()
                 except Exception as exc:
                     failed("sampler checkpoint shutdown", exc)
+            producers_stopped = False
+            if (wait and getattr(core, "_scan_completed", False) is True
+                    and not core._interrupt_requested and core.archiver is not None
+                    and isinstance(core.factory, TaskFactory)):
+                try:
+                    producers_stopped = core.factory.quiesce_workers() is True
+                except Exception as exc:
+                    failed("worker quiesce", exc)
             if not core._interrupt_requested:
                 try:
                     core._finalize_sample_buckets()
@@ -1348,14 +1378,20 @@ class _RuntimeSupervisor:
                 try:
                     if isinstance(archiver, ArchiverProcess):
                         timeout = 5.0 if core._interrupt_requested else 30.0
-                        stopped = archiver.stop(wait=wait, timeout=timeout, drain=not core._interrupt_requested)
+                        stopped = archiver.stop(
+                            wait=wait, timeout=timeout, drain=not core._interrupt_requested,
+                            producers_stopped=producers_stopped,
+                        )
                         archiver_stopped = not archiver.is_alive()
                         if stopped is False or not archiver_stopped:
                             raise TimeoutError(f"Archiver did not stop within {timeout}s")
                         if archiver.exitcode not in (None, 0):
                             raise RuntimeError(f"Archiver exited with code {archiver.exitcode}")
                     else:
-                        stopped = archiver.stop(wait=wait, drain=not core._interrupt_requested)
+                        stopped = archiver.stop(
+                            wait=wait, drain=not core._interrupt_requested,
+                            **({"producers_stopped": True} if producers_stopped else {}),
+                        )
                         archiver_stopped = (
                             not archiver.is_alive() if isinstance(archiver, SimpleArchiver)
                             else stopped is not False
