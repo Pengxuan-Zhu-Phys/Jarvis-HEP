@@ -5,8 +5,6 @@ import json
 import sys
 from importlib import metadata
 
-import pytest
-
 from jarvishep2.cli.client import dispatch_version, main
 from jarvishep2.versioning import ecosystem_versions, get_runtime_version
 
@@ -61,9 +59,9 @@ def test_root_version_flags_print_text_or_json(subtests, capsys):
 def test_root_help_only_advertises_lowercase_version_alias(subtests, capsys):
     for flag in ["-h", "--help"]:
         with subtests.test(flag=flag):
-            with pytest.raises(SystemExit) as exc:
-                main([flag])
-            assert exc.value.code == 0
+            # Root -h/--help is handled before argparse and returns 0.
+            # The console script turns that return value into the process status.
+            assert main([flag]) == 0
             output = capsys.readouterr().out
             assert "--version" in output and "-v" in output
             assert "-V" not in output

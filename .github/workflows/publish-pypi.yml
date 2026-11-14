@@ -60,10 +60,71 @@ jobs:
           python -m build
           python -m twine check dist/*
 
-      - name: Install complete wheel and run fast gate
+      - name: Install complete wheel
+        run: python -m pip install dist/*.whl
+
+      # Plugin tests load SliceMCMC from the sibling checkout
+      # ../Jarvis-HEP-Sampler/examples. This job only checks out Jarvis-HEP
+      # and installs wheels. Wheels omit examples; the matching sdist has them.
+      - name: Place published sampler examples beside the checkout
         run: |
-          python -m pip install dist/*.whl
-          python -m pytest -q
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from importlib.metadata import PackageNotFoundError, version
+          from pathlib import Path
+
+          try:
+              installed = version("Jarvis-HEP-Sampler")
+          except PackageNotFoundError as exc:
+              raise SystemExit(
+                  "Jarvis-HEP-Sampler is not installed; install the release wheel first"
+              ) from exc
+
+          repo = Path(os.environ.get("GITHUB_WORKSPACE") or Path.cwd()).resolve()
+          target = repo.parent / "Jarvis-HEP-Sampler"
+          examples = target / "examples"
+          needed = ("SliceMCMC.py", "SliceMCMC.eggbox.task.yaml")
+          if all((examples / name).is_file() for name in needed):
+              print(f"sampler examples already present: {examples}")
+              raise SystemExit(0)
+
+          download = Path("/tmp/jarvis-sampler-sdist")
+          download.mkdir(parents=True, exist_ok=True)
+          subprocess.check_call(
+              [
+                  sys.executable, "-m", "pip", "download",
+                  f"Jarvis-HEP-Sampler=={installed}",
+                  "--no-binary", ":all:",
+                  "--no-deps",
+                  "-d", str(download),
+              ]
+          )
+          archives = sorted(download.glob("*.tar.gz"))
+          if len(archives) != 1:
+              raise SystemExit(f"expected one Jarvis-HEP-Sampler sdist, found {archives}")
+
+          extract = Path("/tmp/jarvis-sampler-src")
+          extract.mkdir(parents=True, exist_ok=True)
+          subprocess.check_call(["tar", "-xzf", str(archives[0]), "-C", str(extract)])
+          roots = [
+              path for path in extract.iterdir()
+              if all((path / "examples" / name).is_file() for name in needed)
+          ]
+          if len(roots) != 1:
+              raise SystemExit(
+                  "sdist is missing examples/SliceMCMC.py or "
+                  f"examples/SliceMCMC.eggbox.task.yaml: {list(extract.iterdir())}"
+              )
+          if target.exists() or target.is_symlink():
+              raise SystemExit(f"refusing to replace {target}")
+          target.symlink_to(roots[0].resolve(), target_is_directory=True)
+          print(f"linked {target} -> {roots[0].resolve()} (Jarvis-HEP-Sampler {installed})")
+          PY
+
+      - name: Run fast gate
+        run: python -m pytest -q
 
       - name: Store built distributions
         uses: actions/upload-artifact@v7
